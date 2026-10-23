@@ -83,11 +83,6 @@ def is_enabled() -> bool:
         return False
 
 
-def get_status() -> Optional[UpdateStatus]:
-    """The cached result, or None if no check has succeeded this session."""
-    return _status
-
-
 def get_available_update() -> Optional[str]:
     """The newer version available, or None.
 
@@ -165,8 +160,9 @@ def refresh(package: str = _PACKAGE, force: bool = False) -> Optional[UpdateStat
         current = version.parse(current_raw)
         latest = version.parse(versions[0])
     except Exception as exc:
-        logger.debug("Could not compare versions (%r vs %r): %s",
-                     current_raw, versions[0], exc)
+        logger.debug(
+            "Could not compare versions (%r vs %r): %s", current_raw, versions[0], exc
+        )
         return None
 
     _status = UpdateStatus(

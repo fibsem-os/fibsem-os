@@ -61,7 +61,9 @@ def aquilos():
     """
     scope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "tfs-aquilos2-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "tfs-aquilos2-configuration.yaml"
+        ),
     )
     return scope
 
@@ -70,7 +72,7 @@ def _pose(microscope, *, compustage, pretilt_deg, rotation_deg, tilt_deg):
     """Pin the microscope into a known geometry without moving the stage."""
     microscope.stage_device.compustage = compustage
     microscope.system.stage.shuttle_pre_tilt = pretilt_deg
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     position = FibsemStagePosition(
         x=0.0,
         y=0.0,

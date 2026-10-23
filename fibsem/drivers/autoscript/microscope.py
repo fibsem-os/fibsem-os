@@ -214,8 +214,8 @@ def _format_candidate_list(paths: List[str], limit: int = 5) -> str:
 def autoscript_unavailable_message() -> str:
     """Why AutoScript could not be used, with the most likely fix.
 
-    Three different situations used to share one "not installed" message: never
-    installed, too old, or a partial copy. The import error is quoted when there
+    Tells apart three situations: never installed, too old, or a partial copy.
+    The import error is quoted when there
     is one, and any copies found on disk are sorted by whether they sit in the
     environment that is running.
     """
@@ -512,10 +512,6 @@ class ThermoMicroscope(FibsemMicroscope):
     # connected; None on a compustage, which does not rotate, or before connect.
     _compucentric_offset: Optional[Tuple[float, float]] = None
 
-    # The port connect_to_microscope used: info.port, or the driver's default.
-    # reconnect uses it again.
-    _port: Optional[int] = None
-
     def __init__(self, system_settings: SystemSettings):
         if not THERMO_API_AVAILABLE:
             raise Exception(autoscript_unavailable_message())
@@ -527,7 +523,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self.system: SystemSettings = system_settings
 
         # user, experiment metadata
-        # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
@@ -542,17 +537,6 @@ class ThermoMicroscope(FibsemMicroscope):
     def _new_connection(self) -> AutoScriptConnection:
         """A client, sharing the imaging channel lock with the devices."""
         return AutoScriptConnection(SdbMicroscopeClient(), self._threading_lock)
-
-    def reconnect(self):
-        """Attempt to reconnect to the microscope client."""
-        if self._connection is None:
-            raise ConnectionError("Please connect to the microscope first")
-
-        self.disconnect()
-        if self._port is None:
-            self.connect_to_microscope(self.system.info.ip_address)
-        else:
-            self.connect_to_microscope(self.system.info.ip_address, port=self._port)
 
     def _disconnect(self) -> None:
         """Disconnect from the microscope client."""
@@ -592,7 +576,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self._connection.connect(host=ip_address, port=port)
-        self._port = port
         logging.info(f"Microscope client connected to [{ip_address}:{port}]")
 
         # system information
@@ -622,7 +605,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self._compucentric_offset = self._connection.read_compucentric_offset()
         self._build_stage()
         self._build_stage_movement()
-        # TODO: set default move settings, is this dependent on the stage type?
         if self.milling is not None:
             # AutoScript needs a valid application file before a pattern is made
             self.milling._set_application_file("Si", default=True)
@@ -751,7 +733,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
     @property
     def rotation_centre(self) -> Optional[Tuple[float, float]]:
-        """Where a half turn is centred, raw (x, y) in metres (FIB-655).
+        """Where a half turn is centred, raw (x, y) in metres.
 
         xT's compucentric centre, read at connect, plus the instrument's calibrated
         `rotation_centre_correction`. Stage moves and image reprojection both use it,

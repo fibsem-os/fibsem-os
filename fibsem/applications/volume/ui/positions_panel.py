@@ -34,7 +34,8 @@ from fibsem.applications.volume.poses import (
 )
 from fibsem.applications.volume.position import SEM_POSE, VolumePosition
 from fibsem.constants import RADIANS_TO_DEGREES
-from fibsem.ui import notification_service, stylesheets
+from fibsem.ui import stylesheets
+from fibsem.ui.run.run_refusal import refused, refused_during_run
 from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.status import TaskStatus
 
@@ -233,14 +234,8 @@ class PositionsPanel(QWidget):
 
     # --- edits ----------------------------------------------------------------
 
-    def _said(self, why: str) -> bool:
-        """Say a refusal; True when there was none."""
-        if why:
-            notification_service.show_toast(why, "warning")
-        return not why
-
     def _not_busy(self, name: str, what: str) -> bool:
-        return self._said(self.session.runner.busy_refusal([name], what))
+        return not refused(self.session.runner.busy_refusal([name], what))
 
     def _position(self, name: Optional[str]) -> Optional[VolumePosition]:
         if name is None:
@@ -252,17 +247,16 @@ class PositionsPanel(QWidget):
         if experiment is None:
             return
         if microscope is None:
-            self._said("Connect to the microscope to add a position where it is.")
+            refused("Connect to the microscope to add a position where it is.")
             return
-        if self.session.runner.is_running:
-            self._said("A workflow is running; add a position when it has stopped.")
+        if refused_during_run(self.session.runner, "add a position where the stage is"):
             return
         try:
             experiment.add_position(
                 experiment.next_position_name(), microscope.get_microscope_state()
             )
         except ValueError as exc:
-            self._said(str(exc))
+            refused(str(exc))
             return
         self.update_items(latest=True)
 
@@ -271,22 +265,20 @@ class PositionsPanel(QWidget):
         if position is None:
             return
         if microscope is None:
-            self._said("Connect to the microscope to set a pose.")
+            refused("Connect to the microscope to set a pose.")
             return
         if self._not_busy(position.name, "set its pose"):
-            self._said(
-                set_pose_now(self.experiment, microscope, position.name, pose_name)
-            )
+            refused(set_pose_now(self.experiment, microscope, position.name, pose_name))
         self.update_selected()
 
     def _on_move_to(self, pose_name: str, name: Optional[str] = None) -> None:
         position = self._position(name)
         movement = self._panel.movement_widget
         if position is None or movement is None:
-            self._said("Connect to the microscope to move to a pose.")
+            refused("Connect to the microscope to move to a pose.")
             return
         stage_position, why = pose_stage_position(position, pose_name)
-        if not self._said(why):
+        if refused(why):
             return
         reply = QMessageBox.question(
             self,
@@ -312,5 +304,5 @@ class PositionsPanel(QWidget):
         if reply != QMessageBox.Yes:
             return
         if self._not_busy(position.name, "remove it"):
-            self._said(self.experiment.remove_position(position.name))
+            refused(self.experiment.remove_position(position.name))
         self.update_items()

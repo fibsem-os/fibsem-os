@@ -27,7 +27,6 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.dialogs.create_experiment import (
     create_experiment_dialog,
 )
@@ -57,6 +56,7 @@ from fibsem.ui.app_window import AppWindow
 from fibsem.ui.fm.widgets import FMImageViewerWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.run.attention import AttentionRouter
+from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
 from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
@@ -1446,7 +1446,7 @@ class AutoLamellaWindow(AppWindow):
 
         protocol_path = fui.open_save_file_dialog(
             msg="Select a protocol file",
-            path=str(cfg.TASK_PROTOCOL_PATH),
+            path=str(cfg.USER_PROTOCOL_PATH),
             _filter="*.yaml",
             parent=self,
         )

@@ -21,7 +21,6 @@ from fibsem.applications.autolamella.config_edits import (
     set_reference_imaging,
 )
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.grids.protocol import GridProtocolWidget
 from fibsem.applications.autolamella.ui.protocol.dialogs import (
     AutoLamellaGlobalTaskEditDialog,
@@ -41,6 +40,7 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.ui import stylesheets
 from fibsem.ui.edit_recording import PendingEdits
+from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.tokens import (
     BORDER_COLOR,
     NEUTRAL_200,

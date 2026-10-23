@@ -27,7 +27,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
 from fibsem.applications.autolamella.ui.lamella.selected import (
     SelectedLamellaController,
@@ -36,6 +35,7 @@ from fibsem.applications.autolamella.ui.lamella.selected import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import notification_service
+from fibsem.ui.run.run_refusal import refused_during_run
 
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession

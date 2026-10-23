@@ -349,7 +349,6 @@ class MainMenuBar(QObject):
             )
             shortcut_menu.addAction(action)
             self.shortcut_actions[key] = action
-        self.action_create_desktop_shortcut = self.shortcut_actions["autolamella"]
 
         # add help menu
         help_menu = menu_bar.addMenu("Help")
@@ -379,7 +378,7 @@ class MainMenuBar(QObject):
         )
         dev_menu.addAction(self.action_open_coincidence_viewer)
 
-        self.coincidence_menu = CoincidenceMenu(
+        CoincidenceMenu(
             dev_menu,
             microscope=lambda: self._session.microscope,
             experiment_path=lambda: getattr(self._session.experiment, "path", None),

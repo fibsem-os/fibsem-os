@@ -1,4 +1,4 @@
-"""What a driver tells the first-run guided setup about itself (FIB-1350).
+"""What a driver tells the first-run guided setup about itself.
 
 Each driver that can be set up from the wizard names a :class:`DriverSetup` on its
 ``DRIVER`` record (``DriverEntry.setup``, as ``"module:attribute"``). The wizard
@@ -32,7 +32,7 @@ class SetupModel:
 
     summary: str
     filename: str
-    """The configuration to start from, in ``fibsem.config.CONFIG_PATH``."""
+    """The configuration to start from, in ``fibsem.config.SHIPPED_CONFIG_PATH``."""
 
     knows_stage: bool = True
     """Whether the configuration's stage values are right for every such instrument,

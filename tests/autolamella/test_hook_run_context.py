@@ -11,12 +11,12 @@ import pytest
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    DefectType,
     Experiment,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus
 
 
@@ -69,7 +69,7 @@ def test_progress_counts_down_as_the_queue_drains(experiment, recorder):
     hook_manager, fired = recorder
     for i in (1, 2, 3):
         lamella = Lamella(path=experiment.path, number=i, petname=f"lam-{i}")
-        lamella.defect.state = DefectType.FAILURE  # skipped by _should_skip
+        lamella.defect.verdict = Verdict.FAILED  # skipped by _should_skip
         experiment.positions.append(lamella)
     manager = _manager(experiment, hook_manager)
 
@@ -86,7 +86,7 @@ def test_progress_counts_down_as_the_queue_drains(experiment, recorder):
 def test_a_skipped_event_carries_the_lamella_id(experiment, recorder):
     hook_manager, fired = recorder
     lamella = Lamella(path=experiment.path, number=1, petname="lam-1")
-    lamella.defect.state = DefectType.FAILURE
+    lamella.defect.verdict = Verdict.FAILED
     experiment.positions.append(lamella)
     manager = _manager(experiment, hook_manager)
 

@@ -35,7 +35,7 @@ class HookEvent(str, Enum):
     # (work remains) nor cancelled (nobody pressed Stop).
     WORKFLOW_STALLED = "workflow_stalled"
     # The run died: an exception escaped the run itself, outside any one task's
-    # own handling (FIB-1037). Carries ``error``.
+    # own handling. Carries ``error``.
     WORKFLOW_FAILED = "workflow_failed"
     EXPERIMENT_COMPLETED = "experiment_completed"
 
@@ -128,23 +128,6 @@ def covers_event(subscriptions: List[str], event: str) -> bool:
     return False
 
 
-def resolve_events(subscriptions: List[str]) -> List[str]:
-    """Expand groups to the events they currently cover, for display only.
-
-    Never persist this. A configuration that stores the expansion stops covering
-    events added later, which is precisely the drift groups exist to avoid -- the
-    saved form must stay the group name.
-    """
-    resolved: List[str] = []
-    for subscription in subscriptions:
-        name = _event_name(subscription)
-        for event in EVENT_GROUPS.get(name, [name]):
-            event = _event_name(event)
-            if event not in resolved:
-                resolved.append(event)
-    return resolved
-
-
 def unknown_subscriptions(subscriptions: List[str]) -> List[str]:
     """Names that are neither an event nor a group, and so will never match."""
     return [
@@ -188,11 +171,11 @@ class HookContext:
     skip_reason: Optional[str] = None
     # The requirements that stopped it, on a TASK_SKIPPED for missing_prereqs: the
     # tasks whose latest run did not complete. A reason alone left an agent guessing
-    # which requirement it was (FIB-1357).
+    # which requirement it was.
     missing_prereqs: Optional[List[str]] = None
     # How the run's tasks ended, by status ("completed", "failed", "skipped"), on
     # WORKFLOW_COMPLETED. A run in which everything was skipped still completes, and
-    # this is what says nothing ran (FIB-1357).
+    # this is what says nothing ran.
     task_counts: Optional[Dict[str, int]] = None
     # Which iteration of its item's tasks the work in flight is, for an application
     # whose items repeat their tasks (a volume position, once per slice). None

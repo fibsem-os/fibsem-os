@@ -287,66 +287,6 @@ def test_the_default_holder_is_built_in_code_and_states_its_own_pre_tilt():
 # ---------------------------------------------------------------------------
 
 
-def test_applying_a_configuration_keeps_the_holder_selection():
-    """`apply_configuration` replaces `system.stage` wholesale.
-
-    The same trap `rotation` fell into, one field over: a configuration written before
-    the holder moved into it has no `holders:`, so Apply would empty the map and clear
-    the selection while the running `Stage` carried on using a holder the configuration
-    no longer knew about. Which holder is in the shuttle is a physical fact and
-    pressing Apply did not change it.
-    """
-    path = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
-    microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
-
-    holder = _calibrated_holder()
-    microscope.system.stage.holders = {holder.name: holder}
-    microscope.system.stage.active_holder = holder.name
-
-    # a real load of the same file, which is what the Apply button does
-    from_file = SystemSettings.from_dict(utils.load_yaml(path))
-    assert not from_file.stage.holders, "fixture no longer exercises the trap"
-    microscope.apply_configuration(from_file)
-
-    assert microscope.system.stage.active_holder == holder.name
-    assert microscope.system.stage.holders[holder.name] is holder
-
-
-def test_a_configuration_that_names_holders_wins_over_the_live_one():
-    """The other half: a file that does name holders is a user choosing one."""
-    path = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
-    microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
-
-    microscope.system.stage.holders = {"old": _calibrated_holder("old")}
-    microscope.system.stage.active_holder = "old"
-
-    chosen = _calibrated_holder("Flat Shuttle")
-    incoming = SystemSettings.from_dict(utils.load_yaml(path))
-    incoming.stage.holders = {chosen.name: chosen}
-    incoming.stage.active_holder = chosen.name
-    handling = microscope.sample_handling
-    announced = []
-    handling.holder_changed.connect(announced.append)
-    microscope.apply_configuration(incoming)
-
-    # Said on the same service, which loads the new holder rather than being
-    # rebuilt: what draws the slots has to hear that they are now another holder's.
-    assert microscope.sample_handling is handling
-    assert announced == [handling.holder]
-    assert not hasattr(microscope, "holder_changed")
-
-    assert microscope.system.stage.active_holder == "Flat Shuttle"
-    assert set(microscope.system.stage.holders) == {"Flat Shuttle"}
-    # And the running Stage moves with it: a configuration record naming one holder
-    # while the Stage still drives to another's slots is the disagreement this exists
-    # to rule out.
-    assert (
-        microscope.sample_handling.holder
-        is microscope.system.stage.holders["Flat Shuttle"]
-    )
-    assert microscope.sample_handling.holder._parent is microscope
-
-
 # ---------------------------------------------------------------------------
 # Pre-tilt belongs to the holder
 # ---------------------------------------------------------------------------
@@ -504,7 +444,7 @@ def test_a_settings_record_does_not_keep_the_microscope_alive():
     import gc
     import weakref
 
-    path = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
     microscope, settings = utils.setup_session(config_path=path, manufacturer="Demo")
     assert settings.system.stage.holders, (
         "fixture no longer puts a holder on the record"
@@ -558,7 +498,7 @@ def test_the_compustage_holder_states_its_pre_tilt():
     """
     from fibsem.services.sample_handling import bind_sample_handling
 
-    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
     assert microscope._fm_is_a_pose(), "fixture no longer exercises the compustage"
 

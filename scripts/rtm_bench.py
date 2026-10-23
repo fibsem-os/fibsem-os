@@ -110,7 +110,7 @@ def run_case(microscope, case, args):
         rtm.stop()
     after_stop = rtm.get_data(GetRtmDataSettings(None, False))
     result["readable_after_stop"] = len(after_stop or [])
-    microscope.clear_patterns()
+    microscope.milling.clear()
 
     times = [t for t, _ in frames]
     gaps = np.diff(times)

@@ -252,7 +252,6 @@ def test_failed_check_looks_like_no_check(monkeypatch, update_check_active):
     monkeypatch.setattr(update_check.urllib.request, "urlopen", _boom)
 
     assert update_check.refresh() is None
-    assert update_check.get_status() is None
     assert update_check.get_available_update() is None
 
 

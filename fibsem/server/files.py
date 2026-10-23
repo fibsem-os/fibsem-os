@@ -4,7 +4,7 @@ One folder listed at a time; a text file (yaml, json, log, md, csv) as text; an
 image as a preview with its metadata, the shape every image answer has
 (:func:`fibsem.server.images.image_answer`), or one region of it at native
 resolution. A file's raw bytes too (:func:`raw_file`), for an agent whose code
-runs on another machine (Patrick, 2026-10-21; previews only before).
+runs on another machine.
 
 Every path resolves inside the experiment folder, symlinks followed, so ``..``,
 an absolute path elsewhere and a link out of the folder are refused alike
@@ -132,7 +132,7 @@ def load_image(
 ) -> Tuple[np.ndarray, Any, Optional[float], Optional[Dict[str, Any]], Tuple[int, ...]]:
     """A saved image as something viewable: its data (2-D, or RGB), the
     FibsemImage it is when it is a beam image (else None), its pixel size in
-    metres when known, a fluorescence stack's ``stack_facts`` (else None), and
+    metres when known, a fluorescence stack's legend facts (else None), and
     the full image's shape. With *max_px*, the data may be a smaller copy the
     file holds, still that size on its long side; the pixel size and the shape
     stay the full image's.

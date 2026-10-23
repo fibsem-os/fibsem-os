@@ -60,7 +60,7 @@ def image_payload(image) -> Optional[Dict[str, Any]]:
             payload = preview_payload(image)
         except Exception:
             return None
-        # When it was taken, so an agent can tell a stale frame (FIB-1399).
+        # When it was taken, so an agent can tell a stale frame.
         payload["acquired_at"] = _acquired_at(image)
         return payload
     entry = _preview_b64(image)

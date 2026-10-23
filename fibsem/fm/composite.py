@@ -1,15 +1,11 @@
 """Multi-channel fluorescence compositing.
 
-Blends per-channel grayscale frames into one RGB image the way napari does — each
-channel tinted by its colour and **additively** summed — so any surface can show
-the colocalised multi-channel result.
+Blends per-channel grayscale frames into one RGB image — each channel tinted by its
+colour and **additively** summed — so any surface can show the colocalised multi-channel
+result.
 
-Qt-free by design, so it can be imported and tested without the UI extras (CI has
-no napari or PyQt5, and anything reaching through `fibsem.ui` is skipped there).
-
-Originally written for the quad-view FM canvas on PR #111 and lifted here so the
-History panel could use it too; `fibsem/ui/widgets/canvas/fm_composite.py` is now a
-re-export of this module rather than the second copy it used to be.
+Qt-free by design, so it can be imported and tested without the UI extras.
+`fibsem/ui/widgets/canvas/fm_composite.py` re-exports it.
 """
 
 from __future__ import annotations
@@ -51,10 +47,10 @@ class FMLayer:
     _clim_cache: Optional[Tuple] = field(default=None, repr=False, compare=False)
 
 
-# Canonical channel-colour tints = napari's colormap endpoints (the colour each
-# colormap ramps to at full intensity), so the composite matches the napari main
-# tab. These mostly agree with matplotlib's named colours; the notable difference
-# is "green" (mpl (0, 0.5, 0) vs napari (0, 1, 0)). "gray" ramps to white.
+# Canonical channel-colour tints = napari's colormap endpoints (the colour each colormap
+# ramps to at full intensity). These mostly agree with matplotlib's named colours; the
+# notable difference is "green" (mpl (0, 0.5, 0) vs napari (0, 1, 0)). "gray" ramps to
+# white.
 _CANONICAL_TINTS = {
     "violet": (0.933, 0.510, 0.933),
     "blue": (0.0, 0.0, 1.0),
@@ -69,7 +65,7 @@ _CANONICAL_TINTS = {
 
 def tint_rgb(color: str) -> Tuple[float, float, float]:
     """RGB tint for a channel colour. Canonical channel colours use napari's
-    colormap endpoint (so the composite matches the napari main tab); unknown
+    colormap endpoint; unknown
     names fall back to matplotlib, and anything unrecognised to white."""
     if color in _CANONICAL_TINTS:
         return _CANONICAL_TINTS[color]
@@ -142,7 +138,7 @@ def to_rgba(rgb: np.ndarray) -> np.ndarray:
     :func:`composite_fm_layers` returns RGB. But a canvas holding several images at
     once draws them over *each other*, and there an opaque frame hides whatever it
     covers -- including with pixels that hold nothing. A sparse overview acquired over
-    a full one painted its unacquired tiles as black over real data (FIB-519).
+    a full one painted its unacquired tiles as black over real data.
 
     Splitting the same picture into a colour and how much of it there is fixes that
     without anyone having to say which pixels were acquired. Signal strength becomes

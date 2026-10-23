@@ -158,38 +158,7 @@ def make_lamella_manager(
 
 def lamella_run_hooks() -> HookManager:
     """The hooks for one run, built per run so no two runs share a notifier."""
-    manager = build_hook_manager()
-
-    # Deliberately not registered yet. The trigger is proven end to end and the
-    # writer is tested, but completion-summary.json is a placeholder for the real
-    # artifacts (the PDF and the overview PNG), and turning it on here would start
-    # writing a throwaway file into every user's lamella directories. Re-enable when
-    # the artifact is the one people actually want --. It comes back
-    # with write_completion_summary from fibsem.applications.autolamella.tools.
-    # artifacts, FunctionHook + HookEvent from fibsem.hooks, and the experiment
-    # passed in.
-    #
-    # Per lamella, not per experiment: a lamella is what gets delivered, and an
-    # experiment with one abandoned lamella never reaches completion at all, so
-    # hanging the artifact off the experiment would mean it was almost never
-    # written.
-    #
-    # A FunctionHook rather than a template-driven one because this needs the
-    # experiment itself, which the context deliberately does not carry -- the path
-    # is derivable from the record, and in-process hooks can reach the record. A
-    # webhook could not, which is the distinction.
-    #
-    # HookManager.fire contains what this raises, so a summary that cannot be
-    # written is logged and the run carries on, with no second guard here.
-    #
-    # manager.register(
-    #     FunctionHook(
-    #         name="completion_summary",
-    #         events=[HookEvent.ITEM_COMPLETED],
-    #         callback=lambda ctx: write_completion_summary(experiment, ctx),
-    #     )
-    # )
-    return manager
+    return build_hook_manager()
 
 
 RUNS = AppRuns(

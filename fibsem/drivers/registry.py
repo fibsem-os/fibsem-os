@@ -1,4 +1,4 @@
-"""Which driver connects to which manufacturer's microscope (FIB-1123).
+"""Which driver connects to which manufacturer's microscope.
 
 Each driver package describes itself with a ``DRIVER`` record in its ``__init__``: the
 canonical manufacturer name it answers to and the other spellings it accepts, its
@@ -25,7 +25,7 @@ no ``microscope_class``; it is never offered as a manufacturer.
 
 Built-ins in code, plugins in packages, as in fibsem's other plugin groups. A record
 rather than the class, so the format survives the microscope classes becoming device
-builders (FIB-1160): the entry is what changes, not the contract. The entry points
+builders: the entry is what changes, not the contract. The entry points
 are read once, by ``fibsem.plugins.loader``, the first time a driver is looked up or
 listed. When two drivers claim one manufacturer, the same order decides as for
 patterns, strategies and tasks: built-in, then registered at runtime, then plugin.
@@ -55,7 +55,6 @@ if TYPE_CHECKING:
     from fibsem.devices.core import Device
     from fibsem.drivers.setup import DriverSetup, SetupDevice
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.plugins.loader import PluginRecord
     from fibsem.structures import DeviceEntry, SystemSettings
 
 
@@ -438,12 +437,3 @@ def _all_drivers() -> List[Tuple[str, DriverEntry]]:
         for name, entry in drivers.items():
             seen.setdefault(name, entry)
     return list(seen.items())
-
-
-def get_driver_plugin_records() -> Tuple["PluginRecord", ...]:
-    """Every ``fibsem.drivers`` entry point and what became of it, read once.
-
-    Includes the plugins that failed. One whose manufacturer a built-in or a
-    runtime registration also claims loads, and is not the driver used.
-    """
-    return DRIVER_PLUGINS.plugin_records()

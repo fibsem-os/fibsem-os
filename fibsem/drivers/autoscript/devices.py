@@ -1,54 +1,29 @@
-"""The AutoScript (Thermo Fisher) stage, beams, chamber and manipulator as devices.
+"""The AutoScript (Thermo Fisher) stage, beams, chamber, manipulator and FM as devices.
 
-``AutoscriptStage`` implements the ``Stage`` device with what ``ThermoMicroscope``
-does today, moved as-is, so the old call and the device make the same SDK calls in
-the same order. ``AutoscriptCompustage`` is the same for a compustage (Arctis,
-Hydra), ``AutoscriptBeam`` for the beam keys, and ``AutoscriptChamber`` and
-``AutoscriptManipulator`` for the vacuum and the needle. ``ThermoMicroscope`` builds
-them at connect and routes its keys and moves to them; the old code they replaced is
-deleted.
+``AutoscriptStage`` (``AutoscriptCompustage`` on Arctis and Hydra), ``AutoscriptBeam``,
+``AutoscriptChamber`` and ``AutoscriptManipulator`` make their SDK calls through the
+microscope's ``AutoScriptConnection``: the vendor stage is ``connection.vendor_stage``
+and the vendor beams are under ``connection.sdk.beams``.
+``tests/fixtures/autoscript_fm_old_pins.json`` pins the FM's SDK calls and their order.
 
-Each device is handed the microscope's `AutoScriptConnection` and makes its SDK calls
-through it. The vendor stage is ``connection.vendor_stage``, which connect sets to
-``specimen.stage`` or ``specimen.compustage`` (``microscope.stage`` is the stage
-device); the vendor beams are under ``connection.sdk.beams``. This module imports the SDK only through
-``fibsem.drivers.autoscript.microscope``, which is where the guarded import lives, apart from
-the SDK's ``Point`` inside a write, which the old branch imports there too.
+The FM and the beams share one connection with one active view, so whoever sets the
+view last owns it. ``AutoscriptFMChannel`` points the connection at the FM for a block,
+puts the view back after the outermost block, and counts the depth so a run isn't
+undone by each step inside it. It takes the ``imaging_channel`` lock only for that
+bookkeeping, and skips it when the FM already has the view: that keeps the objective
+movable while live view re-takes the lock every frame. A beam can take the view between
+the FM being selected and the call, so a failed read is tried once more holding the
+lock (``AutoscriptFMChannel.read``), and a write, or a command that acts on the
+detector, holds it throughout (``AutoscriptFMChannel.held``): a gain written on a
+beam's view sets that beam's detector, with no error.
 
-The FM.
+Live view pulls frames: ``AutoscriptFM.start_live`` switches the light on and starts
+the acquisition, each ``acquire_frame`` while live is the next ``imaging.get_image()``,
+and stopping switches the light off and stops the acquisition.
 
-The Thermo Fisher FM (Arctis, Hydra) as devices.
-
-``AutoscriptFMCamera``, ``AutoscriptFMLightSource``, ``AutoscriptFMFilterSet``,
-``AutoscriptFMObjective`` and the ``AutoscriptFM`` group are the old
-``ThermoFisherFluorescenceMicroscope``'s parts moved onto the FM devices: each read,
-write and command makes the SDK calls the old property or method made, in the same
-order (``tests/fixtures/autoscript_fm_old_pins.json`` holds those calls).
-``ThermoMicroscope.fm`` is the FM API over them
-(``ThermoFisherFluorescenceMicroscope``, below).
-
-The channel. The FM and the beams are one AutoScript connection with one active view,
-so whoever sets the view last owns it (FIB-517). ``AutoscriptFMChannel`` is the old
-class's ``active_channel()`` as it was: point the connection at the FM for a block, put
-the view back after the outermost block, count the depth so a run isn't undone by each
-step inside it, and take the microscope's ``imaging_channel`` lock (its
-``_threading_lock``, which is the connection's ``lock``) for that bookkeeping only. A parameter in ``needs_channel`` runs in
-that scope. The generic claim isn't used because it holds the lock through the read and
-always takes it; the old scope skips the lock when the FM already has the view, which is
-what keeps the objective movable while live view re-takes the lock every frame.
-A beam can take the view between the FM being selected and the call, so a read that
-fails is tried once more holding the lock (``AutoscriptFMChannel.read``), and a write,
-or a command that acts on the detector, holds the lock throughout
-(``AutoscriptFMChannel.held``): a gain written on a beam's view sets that beam's
-detector, with no error.
-
-Live view keeps what the old fast acquisition does, with each frame pulled rather than
-pushed: `AutoscriptFM.start_live` switches the light on and starts the acquisition, each
-``acquire_frame`` while live is the next ``imaging.get_image()``, and stopping switches
-the light off and stops the acquisition.
-
-The FM parts import the SDK names they need in the method that uses them, so the module
-still loads where AutoScript is not installed.
+The SDK is imported through ``fibsem.drivers.autoscript.microscope``, where the guarded
+import lives, or in the method that uses a name, so the module loads where AutoScript
+is not installed.
 """
 
 from __future__ import annotations
@@ -142,20 +117,11 @@ if TYPE_CHECKING:
 class AutoscriptStage(Stage):
     """The AutoScript stage on an offset (non-compustage) mount.
 
-    Each method is what the matching part of ``ThermoMicroscope`` does today:
-
-    - ``read_position``: the ``stage_position`` branch of ``_get``, including setting the
-      default coordinate system before every read;
-    - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked`` branches;
-    - ``metadata_position``: the SDK's axis limits, which also say which axes exist;
-    - ``_move_absolute``: ``move_stage_absolute``, with its working-distance restore
-      and its axis restrictions;
-    - ``_move_relative``: ``move_stage_relative``;
-    - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
-
-    The old moves end by reading the position back; ``Stage.move_absolute`` and
-    ``move_relative`` do the same read, so a move here is the same calls end to end.
-    Limits and positions share one unit: radians for r and t.
+    ``read_position`` sets the default coordinate system before every read.
+    ``metadata_position`` is the SDK's axis limits, which also say which axes exist.
+    ``_move_absolute`` restores the working distance and keeps to the axis
+    restrictions. ``Stage.move_absolute`` and ``move_relative`` read the position
+    back after the move. Limits and positions share one unit: radians for r and t.
     """
 
     compustage = False
@@ -171,7 +137,7 @@ class AutoscriptStage(Stage):
 
     @property
     def _stage(self):
-        """The vendor stage, looked up on each call as the old methods do."""
+        """The vendor stage, looked up on each call."""
         return self.connection.vendor_stage
 
     def _to_autoscript(self, position: FibsemStagePosition):
@@ -257,12 +223,11 @@ class AutoscriptStage(Stage):
 class AutoscriptCompustage(AutoscriptStage):
     """The AutoScript compustage: x, y, z and a tilt ``a`` in specimen coordinates.
 
-    It differs from the offset stage in three places, each as the old code has it:
-    positions convert to and from ``CompustagePosition`` (no r), an absolute move does
-    not restore the working distance (it still reads it first, as today), and there
-    is no linking: the old ``set("stage_link")`` logs and does nothing, so ``linked``
-    is absent here and ``link()`` is unavailable. Its limits are the fixed compustage
-    table, which has no r.
+    It differs from the offset stage in three places: positions convert to and from
+    ``CompustagePosition`` (no r), an absolute move does not restore the working
+    distance (it still reads it first), and there is no linking, so ``linked`` is absent
+    here and ``link()`` is unavailable. Its limits are the fixed compustage table, which
+    has no r.
     """
 
     compustage = True
@@ -299,14 +264,6 @@ def autoscript_stage_class(microscope: ThermoMicroscope) -> Type[AutoscriptStage
     return AutoscriptCompustage if compustage else AutoscriptStage
 
 
-def bind_autoscript_stage(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> AutoscriptStage:
-    """Build ``stage`` for a connected Thermo microscope."""
-    stage = autoscript_stage_class(microscope)
-    return stage(microscope, microscope._connection, resources).connect()
-
-
 def _point(value: Any) -> Point:
     """An AutoScript Point as a fibsem Point."""
     return Point(float(value.x), float(value.y))
@@ -323,21 +280,14 @@ def _point_limits(limits: Any) -> Dict[str, RangeLimit]:
 class AutoscriptBeam(Beam):
     """An AutoScript beam: ``connection.beams.electron_beam`` or ``.ion_beam``.
 
-    Each parameter is the matching branch of the old ``ThermoMicroscope._get``/``_set``
-    (now removed) moved as it is, so the device makes the same SDK calls and logs the
-    same messages. The choices are what the old ``get_available_values`` answered for
-    a beam key.
-
     The detector is the active device's, so the detector parameters claim the imaging
-    channel and select this beam's (``needs_channel``), as the old branches do under
-    the lock. The scan commands are the old ``spot_mode``/``reduced_area``/
-    ``full_frame`` keys; ``scanning_mode`` reads the vendor's scan mode, which nothing
-    read before. The electron beam's ``angular_correction`` and ``tilt_correction``
-    are the old ``angular_correction_angle`` and ``angular_correction_tilt_correction``
-    keys; the tilt correction could only be set before, and now reads too.
+    channel and select this beam's (``needs_channel``) under the lock. The scan
+    commands are ``spot_mode``, ``reduced_area`` and ``full_frame``; ``scanning_mode``
+    reads the vendor's scan mode. The electron beam has ``angular_correction`` and
+    ``tilt_correction``.
 
-    ``acquire``, ``autocontrast`` and ``auto_focus`` are the old
-    methods, claiming the imaging channel for the vendor call.
+    ``acquire``, ``autocontrast`` and ``auto_focus`` claim the imaging channel for the
+    vendor call.
 
     Not here: ``preset`` (Thermo has none), whose key reads None.
     """
@@ -359,7 +309,7 @@ class AutoscriptBeam(Beam):
 
     @property
     def _beam(self) -> Any:
-        """The vendor beam, looked up on every call, as the old branches do."""
+        """The vendor beam, looked up on every call."""
         return self.connection.beam(self.beam_type)
 
     def _set_log(self, what: str, value: Any, unit: str) -> None:
@@ -435,7 +385,7 @@ class AutoscriptBeam(Beam):
         return self._beam.horizontal_field_width.value
 
     def write_hfw(self, value: float) -> None:
-        # clipped just inside the vendor's maximum, as the old branch does
+        # clipped just inside the vendor's maximum
         beam = self._beam
         limits = beam.horizontal_field_width.limits
         value = np.clip(value, limits.min, limits.max - 10e-6)
@@ -535,7 +485,7 @@ class AutoscriptBeam(Beam):
             return False
 
     def read_resolution(self) -> List[int]:
-        # a list, as the old get returns it
+        # a list
         return list(Resolution.parse(self._beam.scanning.resolution.value))
 
     def write_resolution(self, value: Tuple[int, int]) -> None:
@@ -550,7 +500,7 @@ class AutoscriptBeam(Beam):
         )
 
     # The detector: the active device's, so these run with this beam's channel
-    # selected (needs_channel). The writes check as the old branches do.
+    # selected (needs_channel). The writes check.
 
     @property
     def _detector(self) -> Any:
@@ -615,10 +565,10 @@ class AutoscriptBeam(Beam):
                 f"Detector contrast {value} not available, mut be between 0 and 1."
             )
 
-    # The scan area: the old spot_mode, reduced_area and full_frame keys.
+    # The scan area: spot_mode, reduced_area and full_frame.
 
     def read_scanning_mode(self) -> Optional[ScanMode]:
-        # New: nothing read the vendor's scan mode before. A mode with no ScanMode
+        # A mode with no ScanMode
         # (line, external) or a failed read warns and reads None, so a scan command
         # that has already been made does not fail on its read-back.
         try:
@@ -665,7 +615,7 @@ class AutoscriptBeam(Beam):
         return self.beam_type is BeamType.ELECTRON
 
     def read_tilt_correction(self) -> Optional[bool]:
-        # New: the old key could only be set. A failed read warns and reads None, so
+        # A failed read warns and reads None, so
         # a write that has already been made does not fail on its read-back.
         try:
             return bool(self._beam.angular_correction.tilt_correction.is_on)
@@ -696,7 +646,7 @@ class AutoscriptBeam(Beam):
         return self._beam.source.plasma_gas.value
 
     def write_plasma_gas(self, value: str) -> None:
-        # An unlisted gas warns and is still set, as the old branch does.
+        # An unlisted gas warns and is still set.
         gases = self._beam.source.plasma_gas.available_values
         if value not in gases:
             logging.warning(
@@ -711,11 +661,8 @@ class AutoscriptBeam(Beam):
             choices=list(self._beam.source.plasma_gas.available_values)
         )
 
-    # Imaging and the autofunctions: ThermoMicroscope's acquire_image (and
-    # acquire_image3's current-settings path), autocontrast and auto_focus,
-    # moved as they are. The vendor call runs with this beam's channel claimed
-    # (claim_channel), which is the old `_threading_lock` + `set_channel` pair, and the
-    # FibsemImage is built from get_microscope_state as before.
+    # Imaging and the autofunctions. The vendor call runs with this beam's channel
+    # claimed (claim_channel), and the FibsemImage is built from get_microscope_state.
 
     def scan_resolution(self, resolution: Tuple[int, int]) -> Tuple[int, int]:
         """GrabFrameSettings takes only a listed resolution: the nearest one."""
@@ -778,7 +725,7 @@ class AutoscriptBeam(Beam):
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         # The routine optimises the active detector in the active view, so the channel
-        # is held for all of it, with the reduced area set inside (FIB-569).
+        # is held for all of it, with the reduced area set inside.
         logging.debug(f"Running autocontrast on {self.beam_type.name}.")
         with self.claim_channel():
             if reduced_area is not None:
@@ -874,24 +821,6 @@ _SCAN_MODE_VALUES: Dict[int, ScanMode] = {
 }
 
 
-def bind_autoscript_beams(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> Dict[BeamType, AutoscriptBeam]:
-    """Build ``beams[BeamType]`` for a connected Thermo microscope: one per enabled
-    column, so a disabled one is never touched."""
-    enabled = {
-        BeamType.ELECTRON: microscope.system.electron.enabled,
-        BeamType.ION: microscope.system.ion.enabled,
-    }
-    return {
-        beam_type: AutoscriptBeam(
-            beam_type, microscope, microscope._connection, resources
-        ).connect()
-        for beam_type, on in enabled.items()
-        if on
-    }
-
-
 # -- the chamber and the manipulator --------------------------------------------------
 
 
@@ -905,10 +834,9 @@ class AutoscriptChamberCamera(ChamberCamera):
 
     A glance at it takes the channel away from whatever had it, so the frame is grabbed
     under the channel lock and the view put back in a ``finally``: leaving the
-    connection on the chamber camera strands whoever was mid-operation, which is
-    FIB-517 with a different thief (FIB-545). It restores the view alone, because
-    ``set_active_device`` changes the device *in the active view*, so the device comes
-    back with it.
+    connection on the chamber camera strands whoever was mid-operation. It restores the
+    view alone, because ``set_active_device`` changes the device *in the active view*,
+    so the device comes back with it.
     """
 
     def __init__(
@@ -937,10 +865,7 @@ class AutoscriptChamberCamera(ChamberCamera):
 class AutoscriptChamber(Chamber):
     """The AutoScript vacuum, ``connection.vacuum``.
 
-    ``read_state``/``read_pressure`` are the ``chamber_state``/``chamber_pressure``
-    branches of ``ThermoMicroscope._get``, and ``_pump``/``_vent`` the
-    ``pump_chamber``/``vent_chamber`` branches of ``_set``. The old key returns the
-    vendor's name for the state ("Pumped"); the device reads it as a ``ChamberState``.
+    The vendor names the state ("Pumped"); the device reads it as a ``ChamberState``.
 
     The cryo reads are ``state.touch_alarm`` (AutoScript 4.13), ``state.cryo``
     (4.14) and the autoloader's ``Chamber`` compartment (4.10). Each is bound only when a read answers at connect, so an older client or
@@ -1079,13 +1004,6 @@ def _read_compartment(connection: AutoScriptConnection, kind: str) -> CryoCompar
     return CryoCompartment(state, dewar_level, temperatures)
 
 
-def bind_autoscript_chamber(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> AutoscriptChamber:
-    """Build ``chamber`` for a connected Thermo microscope."""
-    return AutoscriptChamber(microscope, microscope._connection, resources).connect()
-
-
 class AutoscriptSampleLoader(SampleLoader):
     """The AutoScript autoloader (Arctis, xT 28.x, AutoScript >= 4.10),
     ``connection.specimen.autoloader``.
@@ -1100,9 +1018,9 @@ class AutoscriptSampleLoader(SampleLoader):
     grid model absorbs.
 
     Confirmed from operator code: the ``get_slots(bool)`` shape, the state strings,
-    ``load(id)``/``unload()`` and ``autoloader.stage``. Measured on an Arctis
-    (FIB-893, 2026-10-02): an unload and a load take about 3 minutes. Description
-    writes seen to stick on an Arctis (2026-10-02); read back anyway.
+    ``load(id)``/``unload()`` and ``autoloader.stage``. Measured on an Arctis: an
+    unload and a load take about 3 minutes. Description writes stick on an Arctis;
+    read back anyway.
     """
 
     # How many slots until the magazine is first read; the Arctis magazine has 12.
@@ -1240,11 +1158,7 @@ def _in_raw_unlessnamed(
 class AutoscriptManipulator(Manipulator):
     """The AutoScript needle, ``connection.specimen.manipulator``.
 
-    Each method is what the matching ``ThermoMicroscope`` method does today, without
-    the read-back, which the device's commands make: ``_insert``
-    (``insert_manipulator``), ``_retract`` (``retract_manipulator``),
-    ``_move_relative``/``_move_absolute`` (``move_manipulator_relative``/
-    ``_absolute``) and ``saved_position`` (``_get_saved_manipulator_position``).
+    The methods leave the read-back to the device's commands.
     The needle's axes tilt with the stage, so the corrected and offset moves
     (``_move_corrected``, ``_offset_target``) correct for the tilt of the stage in its
     ``stage`` role.
@@ -1277,7 +1191,7 @@ class AutoscriptManipulator(Manipulator):
     def read_state(self) -> InsertableDeviceState:
         from fibsem.drivers.autoscript.microscope import ManipulatorState
 
-        # the old key is True only when inserted; anything else is not inserted
+        # inserted only when the vendor says INSERTED; anything else is not inserted
         state = self._needle.state
         if state == ManipulatorState.INSERTED:
             return InsertableDeviceState.INSERTED
@@ -1308,7 +1222,7 @@ class AutoscriptManipulator(Manipulator):
             raise ValueError(f"saved position {name} not supported.")
         autoscript_position = self._needle.get_saved_position(
             self._saved(name),
-            ManipulatorCoordinateSystem.STAGE,  # as the old method reads it
+            ManipulatorCoordinateSystem.STAGE,
         )
         position = manipulator_position_from_autoscript(autoscript_position)
         logging.debug(
@@ -1329,7 +1243,6 @@ class AutoscriptManipulator(Manipulator):
         insert_position = self._needle.get_saved_position(
             saved_position, ManipulatorCoordinateSystem.RAW
         )
-        # not an f-string in the old method either; kept so the messages match
         logging.info("inserting manipulator to {saved_position}: {insert_position}.")
         self._needle.insert(insert_position)
         logging.info("insert manipulator complete.")
@@ -1442,15 +1355,6 @@ class AutoscriptManipulator(Manipulator):
         return saved_position
 
 
-def bind_autoscript_manipulator(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> AutoscriptManipulator:
-    """Build ``manipulator`` for a connected Thermo microscope that has one."""
-    return AutoscriptManipulator(
-        microscope, microscope._connection, resources
-    ).connect()
-
-
 # -- The gas injector and the sputter coater ----------------------------------------
 #
 # Built on an Arctis and a Hydra Bio only (``thermo_variant``), the Thermo instruments
@@ -1469,7 +1373,7 @@ GIS_READ_BACK_VERSION = "4.13.1"
 ``is_open``. Before it, the device reports what its own commands last did."""
 
 GIS_HEATED_TEMPERATURE = 300.0
-"""Kelvin. ``heater_on`` waits for the gas to reach it, as the old driver did."""
+"""Kelvin. ``heater_on`` waits for the gas to reach it."""
 
 GIS_HEATER_TIMEOUT = 15.0
 """Seconds ``heater_on`` waits for ``GIS_HEATED_TEMPERATURE`` before it fails."""
@@ -1544,9 +1448,6 @@ class _AutoscriptGasInjector(GasInjector):
     """What a GIS port and the multichem share: the vendor object, looked up on every
     call, the heater's wait for temperature, and the state the device tracks where
     AutoScript can't read it back.
-
-    The old driver's insertion guard (raw stage z at most 4 mm) isn't kept: it was set
-    for a bulk stage, and an Arctis compustage's raw z is another frame.
 
     The heater is left on between grids: turning it off and on again leaves the valve
     reading "GIS port valve is not controllable" until the gas is back at temperature.
@@ -2035,7 +1936,7 @@ def build_autoscript_gis(
 # The FM.
 
 FM_ACTIVE_VIEW = 3
-"""The FM's view on Arctis, as the old class sets it."""
+"""The FM's view on Arctis."""
 
 MULTI_BAND = EmissionFilter(
     "Quad-band", bands=((414, 450), (499.5, 530), (580, 611), (661, 800))
@@ -2053,7 +1954,6 @@ def _color_to_wavelength() -> Dict[Any, float]:
     """Each AutoScript emission colour's excitation wavelength, in nm."""
     from autoscript_sdb_microscope_client.enumerations import CameraEmissionType
 
-    # TODO: migrate to using the enumeration from autoscript_sdb_microscope_client
     return dict(
         zip(
             (
@@ -2120,8 +2020,7 @@ IFLM_HFW = 500e-6  # Horizontal field width for iFlm
 
 class AutoscriptFMChannel:
     """The FM's share of the microscope's one AutoScript connection, shared by the FM
-    devices: the old ``ThermoFisherFluorescenceMicroscope.active_channel()``, moved.
-    ``scope()`` says why it works as it does."""
+    devices. ``scope()`` says why it works as it does."""
 
     def __init__(self, connection: AutoScriptConnection, lock: Any):
         self._autoscript = connection
@@ -2135,7 +2034,7 @@ class AutoscriptFMChannel:
         return self._autoscript.sdk
 
     def set_active_channel(self) -> None:
-        """Point the connection at the FM and leave it there (the old method)."""
+        """Point the connection at the FM and leave it there."""
         from autoscript_sdb_microscope_client.enumerations import ImagingDevice
 
         self.connection.imaging.set_active_view(FM_ACTIVE_VIEW)
@@ -2167,7 +2066,7 @@ class AutoscriptFMChannel:
         device, so whoever sets it last owns it. A read that sets it and walks away
         steals the microscope from whatever else is using it: the objective's state,
         read on every stage poll for the overview's info bar, once left the connection
-        on the FM under a running beam acquisition (FIB-517). The view is what is
+        on the FM under a running beam acquisition. The view is what is
         captured and put back, and that is enough: the device belongs to the view and
         comes back with it.
 
@@ -2265,7 +2164,7 @@ class _OnTheFMChannel(Device):
 
 
 class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
-    """The excitation is held here, as the old filter set holds it: AutoScript's
+    """The excitation is held here: AutoScript's
     emission type is read-only, so the colour is applied when the light starts. The
     emission filter is the camera's filter type, reflection or fluorescence. It is held
     too: AutoScript applies the filter type only during an acquisition and doesn't
@@ -2322,7 +2221,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
 
 class AutoscriptFMCamera(_OnTheFMChannel, Camera):
     """The FM camera's settings. Gain is the detector's contrast; offset is a setting
-    kept here, as the old camera keeps it; pixel size and resolution are the objective's
+    kept here; pixel size and resolution are the objective's
     configuration over the binning."""
 
     needs_channel = frozenset({"exposure_time", "binning", "gain"})
@@ -2372,7 +2271,7 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
         return self._channel.read(lambda: self._channel.settings().binning.value)
 
     def write_binning(self, value: int) -> None:
-        # The choices are read again for the message, as the old setter reads them.
+        # The choices are read again for the message.
         if value not in self._available_binnings():
             raise ValueError(
                 f"Binning must be one of {self._available_binnings()}, got {value}"
@@ -2404,7 +2303,7 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
             raise ValueError("Offset must be non-negative.")
         self._offset = value
 
-    # Binning read once per axis, as the old properties read it.
+    # Binning read once per axis.
 
     def read_pixel_size(self) -> tuple:
         return (
@@ -2419,10 +2318,8 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
         )
 
     def _acquire(self) -> np.ndarray:
-        # The old camera grabs unscoped and leaves the FM selected, relying on the
-        # acquisition around it to hold the channel. Here the grab holds it itself;
-        # inside an acquisition that is the same calls, and a bare grab can't leave
-        # the connection on the FM (FIB-517).
+        # The grab holds the channel itself: inside an acquisition that is the same
+        # calls, and a bare grab can't leave the connection on the FM.
         from autoscript_sdb_microscope_client.structures import GrabFrameSettings
 
         with self._channel.scope():
@@ -2433,7 +2330,7 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
             image = self._channel.connection.imaging.grab_frame(frame_settings)
             return image.data
 
-    # The acquisition live view runs, as the old camera starts and stops it.
+    # The acquisition live view runs.
 
     def _start_acquisition(self) -> None:
         self._channel.set_active_channel()
@@ -2447,7 +2344,7 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
 class AutoscriptFMLightSource(_OnTheFMChannel, LightSource):
     """The light's brightness. AutoScript sets it for the colour that is emitting, so
     a write switches the light on in the filter set's colour, sets it, and switches it
-    off again, as the old light source does."""
+    off again."""
 
     needs_channel = frozenset({"power"})
 
@@ -2545,7 +2442,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
         )
 
     def _move_absolute(self, position: float) -> None:
-        # The hardware limits are read for each bound, as the old move reads them.
+        # The hardware limits are read for each bound.
         if not self._focus_limits()[0] <= position <= self._focus_limits()[1]:
             raise ValueError(
                 f"Position {position} out of limits {self._focus_limits()}"
@@ -2581,7 +2478,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
 
 class AutoscriptFM(FM):
     """The Thermo FM group: a channel set up on its parts, then a frame, holding the
-    FM channel throughout; and live view, as the old fast acquisition runs it."""
+    FM channel throughout; and live view."""
 
     def __init__(
         self,
@@ -2598,7 +2495,7 @@ class AutoscriptFM(FM):
         return None
 
     def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
-        """The old ``set_channel``: excitation, emission filter, power, exposure, gain."""
+        """Set a channel: excitation, emission filter, power, exposure, gain."""
         if channel is None:
             return
         settings = ChannelSettings.from_dict(channel)
@@ -2626,21 +2523,21 @@ class AutoscriptFM(FM):
             return self._frame(channel)
 
     def _acquire_frame(self, channel: Optional[Dict[str, Any]]) -> Frame:
-        # The metadata is read inside the scope too, as the old acquisition reads it,
+        # The metadata is read inside the scope too,
         # so it describes the state the frame was taken in. The time is
-        # `FM.acquire_frame`'s, taken before this runs (FIB-1190).
+        # `FM.acquire_frame`'s, taken before this runs.
         with self._channel.scope():
             data = self._frame(channel)
             return Frame(data, self._frame_metadata())
 
-    # -- live view: the old fast acquisition, pulled ------------------------------------
+    # -- live view, pulled ------------------------------------------------------------
 
     def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
         self._apply_channel(channel)
         connection = self._channel.connection
         with self._channel.lock:
             self._channel.set_active_channel()
-            # The colour the hardware has, as the old fast acquisition starts it.
+            # The colour the hardware has.
             emission_color = connection.detector.camera_settings.emission.type.value
             self.light_source.start_emission(emission_type=emission_color)
             self.camera._start_acquisition()
@@ -2650,13 +2547,13 @@ class AutoscriptFM(FM):
 
         imaging = self._channel.connection.imaging
         with self._channel.lock:
-            # Re-forced each frame, as the old loop does: something may have taken it.
+            # Re-forced each frame: something may have taken it.
             # The state is read on the FM view, not whichever view a beam read left.
             self._channel.set_active_channel()
             if imaging.state == ImagingState.ACQUIRING:
                 return imaging.get_image().data
-        # Stopped from outside (the microscope's own UI): end live view as the old
-        # loop did, light off and acquisition stopped.
+        # Stopped from outside (the microscope's own UI): end live view, light off
+        # and acquisition stopped.
         self.stop_live()
         raise RuntimeError("The FM acquisition stopped; live view has ended.")
 
@@ -2666,8 +2563,7 @@ class AutoscriptFM(FM):
 
 
 class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
-    """The FM API's objective over the Thermo objective device, with what the old
-    Thermo objective added: homing."""
+    """The FM API's objective over the Thermo objective device, with homing."""
 
     def __init__(self, device, channel, parent=None):
         super().__init__(device, parent=parent)
@@ -2686,10 +2582,8 @@ class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
 class ThermoFisherFluorescenceMicroscope(fm_api.FluorescenceMicroscope):
     """The FM API over the Thermo FM devices (Arctis, Hydra, iFLM).
 
-    What the old ``ThermoFisherFluorescenceMicroscope`` did, through its devices: the channel
-    scope is the devices' own (``AutoscriptFMChannel``), so a tileset that holds the
-    FM's view holds it for every device inside it, and live view is the old fast
-    acquisition, pulled.
+    The channel scope is the devices' own (``AutoscriptFMChannel``), so a tileset that
+    holds the FM's view holds it for every device inside it.
     """
 
     objective: ThermoFisherObjectiveLens

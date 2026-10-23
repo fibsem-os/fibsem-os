@@ -13,10 +13,7 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
     from fibsem.alignment import AlignmentDifferential, AlignmentIteration
-    from fibsem.alignment.coincidence import (
-        CoincidenceAlignment,
-        CoincidenceMeasurement,
-    )
+    from fibsem.alignment.coincidence import CoincidenceAlignment
     from fibsem.structures import FibsemImage
 
 
@@ -228,105 +225,6 @@ def _plot_multi_step_alignment(
     return fig
 
 
-def plot_coincidence_measurement(
-    sem_image: "FibsemImage",
-    fib_image: "FibsemImage",
-    measurement: "CoincidenceMeasurement",
-    title: Optional[str] = None,
-    save: bool = True,
-    path: Optional[str] = None,
-):
-    """Diagnostic figure for one coincidence measurement (FIB-868).
-
-    Three panels: the SEM view, the raw FIB view, and an overlay of the SEM
-    (green) against the perspective-corrected FIB shifted by the measured
-    residual (red) - on a correct measurement the shared structure coincides.
-    The annotation carries the residuals and the reliability verdict.
-
-    Returns:
-        matplotlib.figure.Figure
-    """
-    from fibsem.theme.plots import DARK, plot_theme
-
-    with plot_theme(DARK) as theme:
-        return _plot_coincidence_measurement(
-            sem_image, fib_image, measurement, title, save, path, theme
-        )
-
-
-def _plot_coincidence_measurement(
-    sem_image, fib_image, measurement, title, save, path, theme
-):
-    from datetime import datetime
-
-    from matplotlib.figure import Figure
-    from scipy import ndimage as ndi
-
-    from fibsem.alignment.coincidence import _stretch_y, geometry_from_images
-
-    geometry = geometry_from_images(sem_image, fib_image)
-    pixel_size = geometry.pixel_size
-    stretch = geometry.y_stretch
-    fib_stretched = _stretch_y(fib_image.data.astype(np.float32), stretch)
-    dy_px = measurement.dy / pixel_size * stretch
-    dx_px = measurement.dx / pixel_size
-    fib_aligned = ndi.shift(fib_stretched, (dy_px, dx_px), order=1, mode="constant")
-
-    def _normalise(data: np.ndarray) -> np.ndarray:
-        valid = data[data > 0] if (data > 0).any() else data
-        lo, hi = np.percentile(valid, [1, 99])
-        return np.clip((data - lo) / (hi - lo + 1e-6), 0, 1)
-
-    overlay = np.zeros((*sem_image.data.shape, 3))
-    overlay[..., 1] = _normalise(sem_image.data.astype(np.float32))
-    overlay[..., 0] = _normalise(fib_aligned)
-
-    timestamp_str = datetime.now().strftime(DATETIME_DISPLAY)
-    if title is None:
-        title = f"Coincidence Measurement — {timestamp_str}"
-    else:
-        title = f"{title} — {timestamp_str}"
-
-    fig = Figure(figsize=(12, 4.2))
-    axes = fig.subplots(1, 3)
-    fig.suptitle(title)
-    _plot_image_with_crosshair(axes[0], sem_image.data, "SEM", theme.crosshair)
-    _plot_image_with_crosshair(axes[1], fib_image.data, "FIB", theme.crosshair)
-    axes[2].imshow(overlay)
-    axes[2].set_title("Overlay (SEM green, aligned FIB red)")
-    axes[2].axis("off")
-
-    verdict = (
-        "RELIABLE"
-        if measurement.is_reliable
-        else (f"REFUSED ({measurement.refusal_reason})")
-    )
-    colour = theme.good if measurement.is_reliable else theme.bad
-    axes[2].text(
-        0.04,
-        0.04,
-        f"{verdict}\n"
-        f"dx={measurement.dx * 1e6:+.2f}um  dy={measurement.dy * 1e6:+.2f}um\n"
-        f"dz={measurement.dz * 1e6:+.2f}um  "
-        f"band-disagreement={measurement.band_disagreement * 1e6:.2f}um",
-        transform=axes[2].transAxes,
-        color=colour,
-        fontsize=7,
-        va="bottom",
-        fontfamily="monospace",
-        bbox=theme.label_box(),
-    )
-
-    fig.tight_layout()
-    if save:
-        ref_path, prefix, ts = _alignment_save_path(sem_image)
-        if path is not None:
-            ref_path = path
-        save_path = os.path.join(ref_path, f"{prefix}coincidence_{ts}.png")
-        fig.savefig(save_path, dpi=80)
-    return fig
-
-
 def plot_coincidence_alignment(
     result: "CoincidenceAlignment", title: Optional[str] = None
 ):
@@ -478,7 +376,7 @@ def save_coincidence_diagnostics(
 
     Writes a run directory `<path>/<prefix>coincidence_<ts>/` holding every
     measured pair as `NN_<pass>_sem.tif` / `NN_<pass>_fib.tif` with full
-    metadata (so `load_coincidence_run` can re-measure them offline with
+    metadata (so they can be re-measured offline with
     the same inputs), `run.json` with the verdict and every measurement's
     numbers, and `summary.png`, the figure from plot_coincidence_alignment.
     Measurements without their image pair (the pure array path) are skipped.
@@ -538,52 +436,3 @@ def save_coincidence_diagnostics(
     fig = plot_coincidence_alignment(result, title=f"{prefix}coincidence")
     fig.savefig(os.path.join(run_dir, "summary.png"), dpi=80)
     return run_dir
-
-
-def load_coincidence_run(run_dir: str) -> list:
-    """Replay a saved run: re-measure every saved pair with the same inputs.
-
-    Returns [(record, sem_image, fib_image, measurement)] in run order, where
-    `record` is the saved measurement and `measurement` a fresh one from the
-    current code, run with the saved parameters (window, tolerances, prior)
-    - the two disagreeing is the point of keeping the raw data.
-    """
-    import json
-
-    from fibsem.alignment.coincidence import (
-        DEFAULT_AGREEMENT_TOLERANCE,
-        DEFAULT_CAPTURE_RANGE,
-        DEFAULT_MAX_LATERAL_OFFSET,
-        DEFAULT_MAX_RIVAL_RATIO,
-        measure_coincidence_from_images,
-    )
-    from fibsem.structures import FibsemImage
-
-    with open(os.path.join(run_dir, "run.json")) as f:
-        run = json.load(f)
-    replayed = []
-    for record in run["measurements"]:
-        if "sem" not in record:
-            continue
-        sem_image = FibsemImage.load(os.path.join(run_dir, record["sem"]))
-        fib_image = FibsemImage.load(os.path.join(run_dir, record["fib"]))
-        prior = record.get("prior")
-        # runs saved before the parameters were recorded replay with defaults
-        measurement = measure_coincidence_from_images(
-            sem_image,
-            fib_image,
-            prior=None if prior is None else tuple(prior),
-            capture_range=record.get("capture_range", DEFAULT_CAPTURE_RANGE),
-            agreement_tolerance=record.get(
-                "agreement_tolerance", DEFAULT_AGREEMENT_TOLERANCE
-            ),
-            max_lateral_offset=record.get(
-                "max_lateral_offset", DEFAULT_MAX_LATERAL_OFFSET
-            ),
-            max_rival_ratio=record.get("max_rival_ratio", DEFAULT_MAX_RIVAL_RATIO),
-        )
-        measurement.coarse = record["pass"] == "coarse"
-        measurement.sem_image = sem_image
-        measurement.fib_image = fib_image
-        replayed.append((record, sem_image, fib_image, measurement))
-    return replayed

@@ -105,7 +105,8 @@ def test_a_second_attachment_without_dispose_stacks_overlays():
     PointPicking(canvas, menu_parent=QWidget())
 
     assert len(canvas._overlays) == 4  # the trap
-    canvas.clear_overlays()
+    for overlay in list(canvas._overlays):
+        canvas.remove_overlay(overlay)
 
 
 # ── the host's side of the contract ───────────────────────────────────────

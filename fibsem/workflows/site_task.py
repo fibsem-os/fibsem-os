@@ -170,18 +170,18 @@ class SiteTask(BaseTask):
         super().__init__(
             microscope, config, item, experiment=experiment, task_manager=task_manager
         )
-        # This task object is one run: its folder is fixed as it starts (FIB-1275).
+        # This task object is one run: its folder is fixed as it starts.
         self._output_dir = run_folder(
             self.path, config.task_name, now(), iteration=self.iteration
         )
         # Every task's reference images are acquired with its config's imaging
         # settings; they are saved under its output folder. Set here, once, for
         # the run this task object is, rather than by hand at the top of each
-        # task's _run (FIB-1253). In __init__ rather than pre_task, so a task
+        # task's _run. In __init__ rather than pre_task, so a task
         # whose _run is called directly still writes there.
         self.config.imaging.path = self.output_dir
         # Set once only the closing reference images are left: the work is done,
-        # so a Stop lets the task finish rather than record it Cancelled (FIB-1523).
+        # so a Stop lets the task finish rather than record it Cancelled.
         self._closing = False
 
     @property
@@ -193,8 +193,8 @@ class SiteTask(BaseTask):
         """Where this task's run writes what it makes: its reference images, its
         alignment and autofocus runs, its milling. Every save path a run hands on
         starts here, so where a task writes is decided once rather than at each
-        call (FIB-1253): the run's own folder, ``<item>/<task name>/
-        <YYYYMMDD-HHMMSS>/`` (FIB-1275), so a re-run overwrites nothing. The
+        call: the run's own folder, ``<item>/<task name>/
+        <YYYYMMDD-HHMMSS>/``, so a re-run overwrites nothing. The
         item's shared state is written to the item's folder instead."""
         return self._output_dir
 
@@ -334,7 +334,7 @@ class SiteTask(BaseTask):
         )
         if result is None:
             # run_auto_focus declined the sweep (the working distance is not settable
-            # for this beam on this backend -- TESCAN ION, see FIB-508), and recorded
+            # for this beam on this backend -- TESCAN ION, and recorded
             # it skipped. Nothing is saved: a placeholder result would write a
             # completed-looking artifact directory and log a working distance that
             # was never applied.
@@ -429,7 +429,7 @@ class SiteTask(BaseTask):
     ) -> str:
         """The mill's own finished frame, else one FIB frame at the milling
         field of view when the proposal will be asked: the decision on a pass
-        is made on what it milled (FIB-1494)."""
+        is made on what it milled."""
         image = super()._image_after_pass(config, passes, take)
         if image or not take:
             return image
@@ -490,7 +490,7 @@ class SiteTask(BaseTask):
         off the filename. Pass it when a task names its own files but the set *is* the
         task's reference set rather than an extra one -- AcquireReferenceImageTask
         timestamps its filenames, so the default rule filed its only product under
-        "other" and the History panel, which asks for "final", never saw it (FIB-579).
+        "other" and the History panel, which asks for "final", never saw it.
         """
 
         if field_of_views is None:

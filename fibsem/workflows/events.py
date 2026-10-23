@@ -29,7 +29,7 @@ Wiring that deliberately does NOT live here: constructing the buffer when a
 microscope connects, attaching the taps, and re-registering the lifecycle hook
 inside ``WorkflowRunner.run_hooks()`` — the app rebuilds its hook set every run, so a
 once-at-startup registration silently goes deaf after the first run. That is
-``event_recording.EventRecorder`` (FIB-1031), which also records the stream to
+``event_recording.EventRecorder``, which also records the stream to
 disk; the App Server reads the same buffer when it runs.
 """
 
@@ -108,7 +108,7 @@ class EventBuffer:
         self._events: "deque[Dict[str, Any]]" = deque(maxlen=maxlen)
         self._seq = 0
         # Names this buffer, so a reader can tell a restarted app's stream,
-        # whose seqs start again, from this one (FIB-1421).
+        # whose seqs start again, from this one.
         self.stream = secrets.token_hex(4)
         self._cond = threading.Condition()
         self._stamp = stamp
@@ -417,7 +417,7 @@ def buffer_or_unavailable(
 
     With no buffer the answer is ``available: false``, still after ``timeout``:
     a long-poll that answers at once turns a client that misses the flag into
-    a busy loop (FIB-870).
+    a busy loop.
     """
     if buffer is None:
         time.sleep(max(0.0, timeout))

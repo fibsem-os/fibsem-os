@@ -30,10 +30,6 @@ from psygnal import Signal
 from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.geometry.movement import beam_view_tilt
-from fibsem.geometry.orientations import (
-    compucentric_rotation,
-)
 from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
@@ -45,25 +41,18 @@ from fibsem.structures import (
     ChamberState,
     DeviceEntry,
     DeviceImagingState,
-    FibsemBitmapSettings,
-    FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
     FibsemHardwareGeometry,
     FibsemImage,
-    FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
     FibsemPatternSettings,
-    FibsemPolygonSettings,
     FibsemRectangle,
-    FibsemRectangleSettings,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
-    InsertableDeviceState,
     MicroscopeState,
-    MillingState,
     Point,
     StageDeviceSettings,
     SystemSettings,
@@ -212,7 +201,7 @@ class FibsemMicroscope(ABC):
     # position p on one side of the stage is at 2c - p on the other. A property of the
     # hardware, so the driver sets it (adding the configured
     # `rotation_centre_correction` to the centre its instrument reports). None means no rotating stage is
-    # known: stage moves and image reprojection assume the stage origin (FIB-1081).
+    # known: stage moves and image reprojection assume the stage origin.
     rotation_centre: Optional[Tuple[float, float]] = None
 
     # An image for the app's SEM and FIB views is sent with ``imaging.show(image)``.
@@ -220,7 +209,7 @@ class FibsemMicroscope(ABC):
     # same lock as the `imaging_channel` resource (`resources` below).
     _threading_lock = _PerInstance(lambda _: threading.RLock())
     # The shared resources this microscope's devices claim. `imaging_channel` is
-    # `_threading_lock`, so the old path and the devices exclude each other; every other
+    # `_threading_lock`, so the microscope and its devices exclude each other; every other
     # name shares one lock of its own, the default in `Resources`.
     resources = _PerInstance(
         lambda m: Resources(
@@ -236,7 +225,7 @@ class FibsemMicroscope(ABC):
         lambda m: Session(instrument=lambda image: m._stamp_instrument(image))
     )
 
-    # Who is in control of this microscope (FIB-1270): one action at a time,
+    # Who is in control of this microscope: one action at a time,
     # taken at entry points (a run, a script, a server route); see fibsem.control.
     control = _PerInstance(lambda _: Control())
 
@@ -345,13 +334,6 @@ class FibsemMicroscope(ABC):
         for beam in self._live_beams():
             beam.stop_live()
 
-    def acquire_chamber_image(self) -> FibsemImage:
-        """A frame from the ``chamber_camera`` device, as an image without metadata."""
-        camera = self.devices.get("chamber_camera")
-        if camera is None:
-            raise self._unsupported("acquire_chamber_image")
-        return FibsemImage(data=camera.acquire(), metadata=None)
-
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle] = None
     ) -> None:
@@ -434,10 +416,8 @@ class FibsemMicroscope(ABC):
         """Ask the instrument what its stage can do, and record it.
 
         Only `rotation` today, and it is not a preference: it decides where the FIB
-        orientation is, because `rotation_180` is derived from it (FIB-834). A
-        configuration file used to state it, which meant a compustage could be
-        described as a rotating stage by a typo and nothing would disagree --
-        `sim-arctis-configuration.yaml` was, for as long as nothing read the flag.
+        orientation is, because `rotation_180` is derived from it, so it is read from
+        the hardware rather than a configuration file.
 
         The axes are the honest form of the question: a compustage has no `r` limit
         because it has no rotation axis. It agrees with the stage type on every
@@ -469,9 +449,7 @@ class FibsemMicroscope(ABC):
 
     # ---- fitted subsystems ---------------------------------------------------
     #
-    # Whether a manipulator is fitted used to be a configuration key, which meant a
-    # site could describe hardware it does not have, or omit hardware it does, and
-    # nothing would disagree. It is not in the file any more. The device answers:
+    # Whether a manipulator is fitted is not configured. The device answers:
     # a backend builds its own manipulator, asks it (`Manipulator.is_installed`), and
     # takes it out of the map when the instrument says it is not fitted
     # (`_keep_if_fitted`). A device that cannot ask answers None, and the backend's
@@ -775,7 +753,6 @@ class FibsemMicroscope(ABC):
     # route to it. A driver's differences are its service subclass (Tescan's is
     # `TescanStageMovement`). The geometry is in `fibsem.geometry.movement`.
 
-    # TODO: migrate from stable_move vocab to sample_stage
     def stable_move(
         self, dx: float, dy: float, beam_type: BeamType, static_wd: bool = False
     ) -> FibsemStagePosition:
@@ -811,9 +788,7 @@ class FibsemMicroscope(ABC):
             relaxation: under-relaxation of the correction. 1.0 applies the
                 geometrically exact move; below 1.0 deliberately undershoots it,
                 which keeps a manual look-correct-look loop convergent where a
-                slight model error would otherwise make it oscillate. This replaces
-                the old hard-coded 0.9, which was found to be absorbing a
-                decomposition error rather than correcting perspective (FIB-773).
+                slight model error would otherwise make it oscillate.
                 Every backend must accept it, because ensure_coincident passes it;
                 a backend may ignore it (Tescan's SEM-view move does).
 
@@ -861,11 +836,9 @@ class FibsemMicroscope(ABC):
 
         **A stage that reaches the FM by re-posing keeps its answer.** The stage type
         is read from the hardware, not from configuration, and the shipped
-        configurations for such stages carry no `fm:` block at all. Replacing the old
-        check rather than widening it would take the FM away from every such site on
-        upgrade. So a configuration that does not state the flag keeps a re-posing
-        stage exactly as it was, and an offset mount must opt in. An explicit `false`
-        turns the FM off on either.
+        configurations for such stages carry no `fm:` block at all. So a configuration
+        that does not state the flag keeps a re-posing stage exactly as it was, and an
+        offset mount must opt in. An explicit `false` turns the FM off on either.
         """
         if self.system.fm.enabled is None:
             return self._fluorescence_default()
@@ -960,15 +933,6 @@ class FibsemMicroscope(ABC):
         stage position.
         """
         return self._movement_service().safe_absolute_stage_movement(stage_position)
-
-    def get_manipulator_state(self) -> Optional[bool]:
-        """Get the manipulator state (Inserted = True, Retracted = False), or None
-        when there is no manipulator."""
-        # TODO: convert to enum
-        if self.manipulator_device is None:
-            return None
-        state = self.manipulator_device.state.get_value()
-        return state is InsertableDeviceState.INSERTED
 
     def get_manipulator_position(self) -> Optional[FibsemManipulatorPosition]:
         """Get the manipulator position, or None when there is no manipulator."""
@@ -1103,13 +1067,10 @@ class FibsemMicroscope(ABC):
         it."""
         self._milling_service().finish()
 
-    def clear_patterns(self) -> None:
-        self._milling_service().clear()
-
     def stop_milling(self) -> None:
         """Stop the pattern milling now. A milling task goes on to its next stage:
-        its own stop event ends it, and the milling service's ``stop`` sets that
-        (FIB-1398). Safe when nothing is milling."""
+        its own stop event ends it, and the milling service's ``stop`` sets that.
+        Safe when nothing is milling."""
         if self.milling is None:
             return  # nothing is milling
         self.milling.stop_pattern()
@@ -1122,11 +1083,6 @@ class FibsemMicroscope(ABC):
 
     def resume_milling(self) -> None:
         self._milling_service().resume()
-
-    def get_milling_state(self) -> MillingState:
-        if self.milling is None:
-            return MillingState.IDLE
-        return self.milling.state.get_value()
 
     def estimate_milling_time(self) -> float:
         return self._milling_service().estimate_time()["seconds"]
@@ -1149,21 +1105,6 @@ class FibsemMicroscope(ABC):
             pattern_settings (FibsemPatternSettings): pattern settings
         """
         self._milling_service().draw([pattern])
-
-    def draw_rectangle(self, pattern_settings: FibsemRectangleSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def draw_line(self, pattern_settings: FibsemLineSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def draw_circle(self, pattern_settings: FibsemCircleSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def draw_bitmap_pattern(self, pattern_settings: FibsemBitmapSettings) -> None:
-        self._milling_service().draw([pattern_settings])
-
-    def draw_polygon(self, pattern_settings: FibsemPolygonSettings) -> None:
-        self._milling_service().draw([pattern_settings])
 
     # ---- devices -----------------------------------------------------------------
     #
@@ -1287,7 +1228,7 @@ class FibsemMicroscope(ABC):
 
     # The chamber and the manipulator as devices (fibsem.devices.Chamber and
     # .Manipulator), named `*_device` because `chamber` is taken on Demo. The methods
-    # that read them (pump/vent, get_manipulator_state/position) use the device.
+    # that read them (pump/vent, get_manipulator_position) use the device.
     @property
     def chamber_device(self) -> Optional[Any]:
         return self._devices.get("chamber")
@@ -1363,7 +1304,6 @@ class FibsemMicroscope(ABC):
         self.set_dwell_time(image_settings.dwell_time, image_settings.beam_type)
         self.set_field_of_view(image_settings.hfw, image_settings.beam_type)
 
-        # TODO: implement the rest of these settings... @patrick
         logging.debug(
             {
                 "msg": "set_imaging_settings",
@@ -1437,54 +1377,6 @@ class FibsemMicroscope(ABC):
         )
         return
 
-    def get_beam_system_settings(self, beam_type: BeamType) -> BeamSystemSettings:
-        """Get the current beam system settings for the specified beam type."""
-        logging.debug(f"Getting {beam_type.name} beam system settings...")
-        config = self._beam_config("beam_enabled", beam_type)
-        beam_system_settings = BeamSystemSettings(
-            beam_type=beam_type,
-            enabled=config.enabled,
-            beam=self.get_beam_settings(beam_type),
-            detector=self.get_detector_settings(beam_type),
-            eucentric_height=config.eucentric_height,
-            column_tilt=config.column_tilt,
-            plasma_gas=self._read_beam("plasma_gas", beam_type),
-        )
-
-        logging.debug(
-            {
-                "msg": "get_beam_system_settings",
-                "settings": beam_system_settings.to_dict(),
-                "beam_type": beam_type.name,
-            }
-        )
-        return beam_system_settings
-
-    def set_beam_system_settings(self, settings: BeamSystemSettings) -> None:
-        """Set the beam system settings for the specified beam type."""
-        beam_type = settings.beam_type
-        logging.debug(f"Setting {settings.beam_type.name} beam system settings...")
-        config = self._beam_config("beam_enabled", beam_type)
-        config.enabled = settings.enabled
-        self._apply_beam_defaults(settings)
-        config.eucentric_height = settings.eucentric_height
-        config.column_tilt = settings.column_tilt
-
-        # Only a plasma column has a gas to set; a None here means "no plasma source",
-        # not "clear the gas".
-        if beam_type is BeamType.ION and settings.plasma_gas is not None:
-            self._write_beam("plasma_gas", settings.plasma_gas, beam_type)
-
-        logging.debug(
-            {
-                "msg": "set_beam_system_settings",
-                "settings": settings.to_dict(),
-                "beam_type": beam_type.name,
-            }
-        )
-
-        return
-
     def _apply_beam_defaults(self, settings: BeamSystemSettings) -> None:
         """Set one column to its defaults: the beam settings, and the detector type
         and mode.
@@ -1492,9 +1384,7 @@ class FibsemMicroscope(ABC):
         What the configuration decides, not what the column is aligned to. The
         working distance, stigmation and beam shift are the column's current
         alignment, and the detector's brightness and contrast are what the last
-        autocontrast left; a configuration that does not state them used to load
-        them as 0 (and the working distance as the eucentric height), and Apply
-        pushed those -- refocusing both columns and blacking out the detectors.
+        autocontrast left.
         """
         beam_type = settings.beam_type
         self.set_beam_settings(
@@ -1520,10 +1410,9 @@ class FibsemMicroscope(ABC):
     def apply_defaults(self) -> None:
         """Set each available column to the configured defaults, and nothing else.
 
-        What `defaults.apply_on_connect` does at connect. Narrower than
-        `apply_configuration`: the beams are not switched on or off, the column
-        geometry and the plasma gas are not set, and the stage is left alone --
-        connecting must not change any of those.
+        What `defaults.apply_on_connect` does at connect. The beams are not switched
+        on or off, the column geometry and the plasma gas are not set, and the stage
+        is left alone -- connecting must not change any of those.
         """
         for record, key in (
             (self.system.electron, "electron_beam"),
@@ -1537,8 +1426,8 @@ class FibsemMicroscope(ABC):
         self, beam_type: BeamType = BeamType.ELECTRON
     ) -> FibsemDetectorSettings:
         """Get the current detector settings for the specified beam type: the four
-        reads under one hold of the imaging channel, so they describe one detector
-        (FIB-544). The lock is re-entrant, so the reads inside take it freely."""
+        reads under one hold of the imaging channel, so they describe one detector.
+        The lock is re-entrant, so the reads inside take it freely."""
         logging.debug(f"Getting {beam_type.name} detector settings...")
         with self._threading_lock:
             detector_settings = FibsemDetectorSettings(
@@ -1677,78 +1566,6 @@ class FibsemMicroscope(ABC):
         axes = getattr(self._devices.get("manipulator"), "axes", None)
         return tuple(axes) if axes is not None else ()
 
-    def apply_configuration(
-        self, system_settings: Optional[SystemSettings] = None
-    ) -> None:
-        """Apply the system settings to the microscope."""
-
-        logging.info("Applying Microscope Configuration...")
-
-        if system_settings is None:
-            system_settings = self.system
-            logging.info("Using current system settings.")
-
-        # apply the system settings
-        if self.is_available("electron_beam"):
-            self.set_beam_system_settings(system_settings.electron)
-        if self.is_available("ion_beam"):
-            self.set_beam_system_settings(system_settings.ion)
-
-        if self.is_available("stage"):
-            previous_stage = self.system.stage
-            self.system.stage = system_settings.stage
-            # The line above replaces the whole record, including the capability the
-            # instrument told us about at connect. `system_settings` came from a file,
-            # and files no longer state `rotation` -- so on a compustage this would
-            # silently restore the field default of `True`, move the FIB orientation
-            # half a turn away, and hand the compucentric correction a rotation the
-            # stage cannot make. Re-read rather than preserve: the instrument is the
-            # authority, and it has not changed because someone pressed Apply.
-            self._read_stage_capabilities()
-            # The same replacement empties the holder map, for the same reason: a
-            # configuration written before the holder moved into it has no `holders:`.
-            # But which holder is in the shuttle is a physical fact, and pressing Apply
-            # did not change it -- so it is carried across, and the running service
-            # keeps agreeing with the configuration it came from. A file that *does*
-            # name holders wins, because then the user is choosing one.
-            if not self.system.stage.holders:
-                self.system.stage.holders = previous_stage.holders
-                self.system.stage.active_holder = previous_stage.active_holder
-            else:
-                # The file chose a holder, so the sample handling service -- built
-                # once at connect -- has to load it, or `system.stage` says one
-                # holder while `sample_handling.holder` still moves to the slots of
-                # another. Loaded into the same service rather than a new one, so
-                # what listens on its `holder_changed` stays connected.
-                if self.sample_handling is not None:
-                    self.sample_handling.load_holder()
-                else:
-                    self._build_sample_handling()
-
-        # `system_settings.manipulator` is not taken from the incoming settings:
-        # what is fitted is not in the file, so the incoming record only carries
-        # defaults, and the one already here carries what the instrument (or the
-        # backend) said at connect.
-
-        # dont update info -> read only
-        logging.info("Microscope configuration applied.")
-        logging.debug(
-            {"msg": "apply_configuration", "system_settings": system_settings.to_dict()}
-        )
-
-    def _stage_value(self, name: str) -> Any:
-        """The stage device's parameter `name`, or None where there is no stage or
-        the stage has no such parameter (a compustage is never linked)."""
-        param = None if self.stage is None else self.stage.parameters.get(name)
-        return None if param is None else param.get_value()
-
-    def link_stage(self) -> Optional[bool]:
-        """Link the stage to the working distance. A stage that cannot link is left
-        alone; returns whether it is linked (None when it cannot say)."""
-        if self.stage is not None and self.stage.commands["link"].available:
-            return self.stage.link()
-        return self._stage_value("linked")
-
     def pump(self) -> Optional[str]:
         """Pump the chamber and return its state. Raises where there is no chamber
         device, rather than doing nothing."""
@@ -1833,15 +1650,6 @@ class FibsemMicroscope(ABC):
         """Check if the specified beam type is blanked."""
         return self._read_beam("blanked", beam_type)
 
-    def get_available_beams(self) -> List[BeamType]:
-        """Get the available beams for the microscope."""
-        available_beams = []
-        if self.is_available("electron_beam"):
-            available_beams.append(BeamType.ELECTRON)
-        if self.is_available("ion_beam"):
-            available_beams.append(BeamType.ION)
-        return available_beams
-
     def _scan_beam(self, beam_type: BeamType) -> Optional[Any]:
         """The beam device whose scan commands the scan-mode methods use, if any.
 
@@ -1852,14 +1660,6 @@ class FibsemMicroscope(ABC):
         if beam is None or not beam.commands["spot"].available:
             return None
         return beam
-
-    def set_spot_scanning_mode(self, point: Point, beam_type: BeamType) -> None:
-        """Set the spot scanning mode for the specified beam type."""
-        beam = self._scan_beam(beam_type)
-        if beam is None:
-            logging.debug(f"No spot scan mode here ({beam_type}).")
-            return
-        beam.spot(point)
 
     def set_reduced_area_scanning_mode(
         self, reduced_area: FibsemRectangle, beam_type: BeamType
@@ -1966,7 +1766,7 @@ class FibsemMicroscope(ABC):
         The image-based autofocus sweep gates on this: on backends where the write is
         a best-effort no-op (TESCAN ION -- focus there is preset-driven, the SDK has
         no FIB working-distance control), the sweep would score images against a focus
-        that never moved and report a working distance that was never applied (FIB-508).
+        that never moved and report a working distance that was never applied.
         Read from the beam's ``working_distance`` parameter: present and settable.
         """
         param = self._beam_parameter("working_distance", beam_type)
@@ -2056,9 +1856,9 @@ class FibsemMicroscope(ABC):
     def _get_compucentric_rotation_offset(self) -> FibsemStagePosition:
         """Specimen minus raw coordinates: the offset a half turn is taken about.
 
-        `_get_compucentric_rotation_position` reflects a position through minus this,
+        A half turn reflects a position through minus this,
         so a driver's `rotation_centre` c is an offset of -c -- the same centre its
-        images are reprojected with (FIB-1081). Without one, the rotation centre is
+        images are reprojected with. Without one, the rotation centre is
         assumed to be the stage origin, as it always was here.
         """
         centre = self.rotation_centre
@@ -2070,18 +1870,6 @@ class FibsemMicroscope(ABC):
         """The centre a half turn is taken about: minus the compucentric offset."""
         offset = self._get_compucentric_rotation_offset()
         return (-offset.x, -offset.y)
-
-    def _get_compucentric_rotation_position(
-        self, position: FibsemStagePosition
-    ) -> FibsemStagePosition:
-        """`position` turned half way round about the compucentric centre.
-
-        :func:`fibsem.geometry.orientations.compucentric_rotation`; a stage with no
-        rotation axis (a compustage) has no compucentric rotation, so it is returned as is.
-        """
-        if not self.system.stage.rotation:
-            return position
-        return compucentric_rotation(position, self._compucentric_centre())
 
     # The orientation reads are the stage movement service's
     # (`StageMovement.orientation`, `stage_orientation`, `current_milling_angle`, ...);
@@ -2112,12 +1900,6 @@ class FibsemMicroscope(ABC):
             raise ValueError(f"Orientation {orientation} not supported.")
         return self.stage_movement.orientation(orientation)
 
-    def _stage_turned_over(self, tilt: float) -> bool:
-        """Whether the stage has the sample turned over at this tilt, in radians."""
-        if self.stage_movement is None:
-            return False
-        return self.stage_movement.turned_over(tilt)
-
     def _stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name (`StageMovement.stage_poses`)."""
         if self.stage_movement is None:
@@ -2128,11 +1910,6 @@ class FibsemMicroscope(ABC):
         """Does the stage reach the FM by re-posing rather than by travelling?
         See `StageMovement.fm_is_a_pose`."""
         return self.stage_movement is not None and self.stage_movement.fm_is_a_pose()
-
-    def _update_orientations(self) -> None:
-        """Rebuild the orientation table (`StageMovement.update_orientations`)."""
-        if self.stage_movement is not None:
-            self.stage_movement.update_orientations()
 
     def set_milling_angle(self, milling_angle: float) -> None:
         """Set the stored milling angle, in degrees: the stage movement service's
@@ -2171,64 +1948,6 @@ class FibsemMicroscope(ABC):
         """
         return self._movement_service().move_to_milling_angle(
             milling_angle, rotation=rotation
-        )
-
-    def _beam_view_tilt(self, beam_type: BeamType) -> float:
-        """Tilt of a beam column's viewing axis from the electron column, in radians.
-        See `fibsem.geometry.movement.beam_view_tilt`."""
-        return beam_view_tilt(beam_type, self.hardware_geometry())
-
-    def _view_corrected_stage_movement(
-        self,
-        expected_y: float,
-        view_tilt: float = 0.0,
-    ) -> FibsemStagePosition:
-        """The relative y/z stage movement for a y-displacement in a view. See
-        `StageMovement.view_corrected_movement`."""
-        return self._movement_service().view_corrected_movement(
-            expected_y, view_tilt=view_tilt
-        )
-
-    def _view_stage_delta(
-        self, dx: float, dy: float, view_tilt: float
-    ) -> FibsemStagePosition:
-        """:func:`fibsem.geometry.movement.image_to_stage_delta` at the current pose.
-        See `StageMovement._view_stage_delta`."""
-        return self._movement_service()._view_stage_delta(dx, dy, view_tilt=view_tilt)
-
-    def _y_corrected_stage_movement(
-        self,
-        expected_y: float,
-        beam_type: BeamType = BeamType.ELECTRON,
-    ) -> FibsemStagePosition:
-        """The relative y/z stage movement for a y-displacement in a beam's view,
-        corrected for the shuttle pre-tilt. See `StageMovement.y_corrected_movement`."""
-        return self._movement_service().y_corrected_movement(
-            expected_y, beam_type=beam_type
-        )
-
-    def _inverse_y_corrected_stage_movement(
-        self,
-        dy: float,
-        dz: float,
-        beam_type: BeamType = BeamType.ELECTRON,
-    ) -> float:
-        """The y-displacement in a beam's view that a y/z stage movement corresponds
-        to. See `StageMovement.inverse_y_corrected_movement`."""
-        return self._movement_service().inverse_y_corrected_movement(
-            dy, dz, beam_type=beam_type
-        )
-
-    def _inverse_view_corrected_stage_movement(
-        self,
-        dy: float,
-        dz: float,
-        view_tilt: float = 0.0,
-    ) -> float:
-        """The y-displacement in a view that a y/z stage movement corresponds to. See
-        `StageMovement.inverse_view_corrected_movement`."""
-        return self._movement_service().inverse_view_corrected_movement(
-            dy, dz, view_tilt=view_tilt
         )
 
     def project_fm_stable_move(
@@ -2273,7 +1992,7 @@ class FibsemMicroscope(ABC):
 
         ``fm_is_pose`` is stamped from the stage device's poses, and
         ``mirrors_back_view`` from the stage device. Recording them is what lets the
-        reprojection stop inferring them from the model name (FIB-481).
+        reprojection stop inferring them from the model name.
         """
         stage = self.stage_device
         return FibsemHardwareGeometry.from_system_settings(
@@ -2414,12 +2133,6 @@ class FibsemMicroscope(ABC):
         """Is the stage at `device`? See `StageMovement.is_at_device`."""
         return self._movement_service().is_at_device(device, stage_position)
 
-    def get_current_device(
-        self, stage_position: Optional[FibsemStagePosition] = None
-    ) -> Optional[str]:
-        """Which device the stage is at, or None. See `StageMovement.current_device`."""
-        return self._movement_service().current_device(stage_position)
-
     def get_device_imaging_state(
         self, device: str, stage_position: Optional[FibsemStagePosition] = None
     ) -> DeviceImagingState:
@@ -2499,7 +2212,7 @@ class FibsemMicroscope(ABC):
 
         One call that owns the safe order -- retract the objective, re-pose at the
         beams, travel out -- so a rotation never happens with the stage parked under
-        an objective. The rotation guard (FIB-841) stays underneath as the last-line
+        an objective. The rotation guard stays underneath as the last-line
         assert; the route this composes never trips it.
 
         `orientation` names the pose to arrive in. Omitted, the pose is carried
@@ -2508,7 +2221,7 @@ class FibsemMicroscope(ABC):
         orientation's *name* through `move_to_orientation`: doing so would snap r and
         t to nominal and quietly discard a milling angle somebody dialled in. When
         the pose does have to change (an offset FM images in the FIB pose; asking
-        for it from SEM used to be a refusal), the device's first declared
+        for it from SEM), the device's first declared
         acquisition orientation is used.
         """
         self._movement_service().move_to_device(device, orientation=orientation)

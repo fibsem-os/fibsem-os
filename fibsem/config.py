@@ -9,54 +9,28 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-import fibsem
 import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
+from fibsem import paths, state_move
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.saved_format import saved_app
 
-# Documentation for a human reading a file, not a parsing switch -- from_dict does not
-# branch on it, and additive changes are detected from field presence instead (FIB-445
-# D3). Bumped to v4 when FibsemExperimentRef gained `name` and `id` became the UUID;
-# to v5 when it dropped its duplicates of the application/version fields, which
-# SystemInfo owns, and when `application_version` went entirely -- it was null in every
-# file ever written (FIB-448). Those keys are still present in v4-and-earlier files.
-# v6 replaced the embedded `system` (a whole SystemSettings, 1683 bytes) with
-# `system_info` and `hardware_geometry` (FIB-481). from_dict recovers both from a v5-
-# and-earlier `system` blob, so older files still load -- including their compustage
-# flag, which up to v5 had to be inferred from the model name.
-# v7 dropped `autogamma` from the recorded image settings along with the feature
-# itself (FIB-505). Older files still carry the key; it is ignored.
-# v8 added `workflow` -- which item and which task an image was acquired for
-# (FIB-466). Absent in earlier files, and absent in any image acquired outside a
-# workflow, which is a real answer rather than a missing one.
-# v9 added `hardware_geometry.poses` -- the pose the stage declared for each
-# orientation name (FIB-1101). Absent in earlier files, where
-# `FibsemHardwareGeometry.declared_poses` rebuilds them from `rotation_180` and
-# `is_compustage`.
-# v10 added `hardware_geometry.stage_frame` -- the frame the stage position is in,
-# "fibsem" or a driver's name for its instrument's own frame (FIB-1114). Absent in
-# earlier files, whose positions are in the frame their driver reported then.
-# v11 added `acquisition_datetime` -- when the image was acquired, as ISO 8601 with
-# the acquiring machine's UTC offset (FIB-1190). Absent in earlier files, whose time
-# is `microscope_state.timestamp`: a POSIX float, or AutoScript's naive
-# `%m/%d/%Y %H:%M:%S` string on a ThermoFisher image. Read either through
-# `fibsem.util.timestamps.acquisition_datetime_of`.
-# v12 added `roles` -- for each role the acquiring beam had filled (its `scanner`),
-# the device in it: name, class, driver, its parameters' last known values and its
-# facts. Absent in earlier files, and empty for a beam with no role filled: the
-# image came from the vendor's own scan.
+# Documentation for a human reading a file, not a parsing switch: from_dict detects
+# additive changes from field presence, and recovers `system_info` and
+# `hardware_geometry` from a v5-and-earlier `system` blob. The fields added since v8,
+# each absent in earlier files: `workflow` (the item and task an image was acquired
+# for), `hardware_geometry.poses` (rebuilt by `FibsemHardwareGeometry.declared_poses`
+# when absent), `hardware_geometry.stage_frame`, `acquisition_datetime` (read older
+# times through `fibsem.util.timestamps.acquisition_datetime_of`) and `roles` (the
+# device in each role the acquiring beam filled).
 METADATA_VERSION = "v12"
 # What an unversioned file is. Absent means written before versioning existed, i.e.
-# older than v1 -- not "current", which is what defaulting to METADATA_VERSION claimed.
+# older than v1, not "current".
 UNVERSIONED_METADATA = "v0"
 
 
-REFERENCE_HFW_WIDE = 2750e-6
-REFERENCE_HFW_LOW = 900e-6
 REFERENCE_HFW_MEDIUM = 400e-6
 REFERENCE_HFW_HIGH = 150e-6
 REFERENCE_HFW_SUPER = 80e-6
-REFERENCE_HFW_ULTRA = 50e-6
 
 # The resolution the overview widgets default to; the driver snaps it to one its beam
 # lists. A beam's own resolutions are its `resolution` choices
@@ -76,20 +50,31 @@ POSITION_FOV_HEIGHT = POSITION_FOV_WIDTH * (
 )
 
 
-BASE_PATH = os.path.dirname(fibsem.__path__[0])
-CONFIG_PATH = os.path.join(BASE_PATH, "fibsem", "config")
-LOG_PATH = os.path.join(BASE_PATH, "fibsem", "log")
+# Shipped files are read from the package; everything written goes under the state
+# root (`fibsem.paths`). An older release's files are brought over on the first start.
+PACKAGE_PATH = str(paths.PACKAGE_DIR)
+SHIPPED_CONFIG_PATH = os.path.join(PACKAGE_PATH, "config")
+STATE_PATH = str(paths.state_root())
+CONFIG_PATH = os.path.join(STATE_PATH, "config")
+LOG_PATH = os.path.join(STATE_PATH, "log")
+EXPERIMENTS_PATH = os.path.join(STATE_PATH, "experiments")
 DATA_PATH = os.path.join(LOG_PATH, "data")
 DATA_ML_PATH: str = os.path.join(DATA_PATH, "ml")
 DATA_CC_PATH: str = os.path.join(DATA_PATH, "crosscorrelation")
+
+state_move.move_package_state(
+    paths.PACKAGE_DIR,
+    paths.state_root(),
+    scripts_from=Path.home() / ".autolamella" / "scripts",
+)
+
 # Saved positions are session state (`fibsem.saved_positions`); these two files are
 # where they lived before, read once to import them and never written.
 POSITION_PATH = os.path.join(CONFIG_PATH, "saved-positions.yaml")
 LEGACY_POSITIONS_PATH = os.path.join(CONFIG_PATH, "positions.yaml")
 USER_PREFERENCES_PATH = os.path.join(CONFIG_PATH, "user-preferences.yaml")
-MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
-    CONFIG_PATH, "microscope-configuration.yaml"
+    SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
 )
 # fluorescence settings persistence
 FM_RECENT_CHANNELS_PATH = os.path.join(
@@ -105,10 +90,14 @@ SAMPLE_HOLDER_OCCUPANCY_PATH = os.path.join(CONFIG_PATH, "sample-holder-occupanc
 REFERENCE_FILENAME = "alignment_reference"
 
 
-os.makedirs(LOG_PATH, exist_ok=True)
-os.makedirs(DATA_PATH, exist_ok=True)
-os.makedirs(DATA_ML_PATH, exist_ok=True)
-os.makedirs(DATA_CC_PATH, exist_ok=True)
+try:
+    for _directory in (CONFIG_PATH, DATA_ML_PATH, DATA_CC_PATH, EXPERIMENTS_PATH):
+        os.makedirs(_directory, exist_ok=True)
+except OSError as e:
+    raise RuntimeError(
+        f"fibsemOS cannot write to its settings folder {STATE_PATH} ({e}). "
+        f"Set {paths.STATE_ROOT_ENV} to a folder this account can write."
+    ) from e
 
 
 def load_yaml(fname):
@@ -134,7 +123,6 @@ def load_yaml(fname):
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 
 
-# user configurations -> move to fibsem.db eventually
 DEFAULT_USER_CONFIGURATION_YAML: dict = {
     "configurations": {"default-configuration": {"path": None}},
     "default": "default-configuration",
@@ -202,17 +190,6 @@ def register_configuration(path: str, configuration_name: Optional[str] = None) 
     return name
 
 
-def remove_configuration(configuration_name: str):
-    """Remove a configuration from the user configurations file."""
-    if configuration_name not in USER_CONFIGURATIONS:
-        raise ValueError(f"Configuration name '{configuration_name}' does not exist.")
-
-    del USER_CONFIGURATIONS[configuration_name]
-    USER_CONFIGURATIONS_YAML["configurations"] = USER_CONFIGURATIONS
-    with open(USER_CONFIGURATIONS_PATH, "w") as f:
-        yaml.dump(USER_CONFIGURATIONS_YAML, f)
-
-
 def set_default_configuration(configuration_name: str):
     """Set the default configuration in the user configurations file."""
     if configuration_name not in USER_CONFIGURATIONS:
@@ -239,8 +216,7 @@ DEFAULT_CHECKPOINT = "autolamella-mega-20240107.pt"
 # preferences do not save", with nothing pointing at the cause.
 #
 # Here rather than beside the widget that draws them so the preferences dialog can offer
-# the choice without fibsem.ui importing AutoLamella, which is the dependency direction
-# FIB-553/554/555 removed.
+# the choice without fibsem.ui importing AutoLamella.
 # Named for density rather than for what they draw, and ordered roomiest first, the
 # way Discord and Gmail order theirs. "Cozy" is the roomy one everywhere it appears in
 # a UI, so it cannot be the name of the tightest layout here -- someone reaching for it
@@ -322,7 +298,7 @@ RECENT_EXPERIMENTS = "recent_experiments"
 @dataclass
 class AppServerPreferences:
     """The App Server: the HTTP API inside AutoLamella that the agent, the
-    dashboard and ``FibsemClient`` reach (FIB-1035).
+    dashboard and ``FibsemClient`` reach.
 
     Off by default and fail-closed (CONTRIBUTING's network rule): a missing or
     unreadable section reads as these defaults, so the server stays off. When on,
@@ -556,13 +532,10 @@ def update_user_preferences(
 
 @dataclass
 class ExperimentSummary:
-    """What an experiment says about itself, read without loading it.
+    """What an experiment says about itself, read without loading it: for the
+    recents list, and for a directory listing of files nobody has opened.
 
-    Was ``RecentExperimentInfo``, when the recents list was the only caller.
-    Enumerating a directory asks the same question of a file nobody has opened
-    (FIB-457), so the name no longer claims the file is recent.
-
-    The instrument and operator come from the ``session`` record (FIB-451) and
+    The instrument and operator come from the ``session`` record and
     are absent from anything written before it, or from an experiment no session
     has adopted. That is a real answer -- nothing is known -- so they stay None
     rather than defaulting to a string that would group with other unknowns.
@@ -694,7 +667,12 @@ def get_last_experiment_file() -> Optional[str]:
 AUTOLAMELLA_BASE_PATH: Path = os.path.join(
     os.path.dirname(__file__), "applications", "autolamella"
 )
-AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "log")
+# Where a new experiment goes when the preferences name no folder.
+AUTOLAMELLA_LOG_PATH: Path = EXPERIMENTS_PATH
+# The operator's own protocols; the shipped ones stay beside the package code.
+AUTOLAMELLA_USER_PROTOCOL_PATH: Path = os.path.join(
+    STATE_PATH, "autolamella", "protocols"
+)
 AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
 AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(
     AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml"
@@ -704,4 +682,4 @@ AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
 )
 AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 
-os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
+os.makedirs(AUTOLAMELLA_USER_PROTOCOL_PATH, exist_ok=True)

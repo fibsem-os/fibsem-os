@@ -94,7 +94,7 @@ def _connect(case: str):
     else:
         name, sim = "sim-arctis-configuration.yaml", {}
         loader = case == "arctis"
-    data = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, name))
+    data = utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, name))
     data["sim"] = {**(data.get("sim") or {}), **sim}
     if loader is False:
         for entry in data["hardware"]["devices"]:

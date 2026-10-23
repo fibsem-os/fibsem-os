@@ -170,7 +170,9 @@ def test_each_loader_declares_what_an_exchange_costs():
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 

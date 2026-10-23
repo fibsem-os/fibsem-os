@@ -5,9 +5,7 @@ a dark trench milled on each side. Its width at half its peak brightness (FWHM),
 measured column by column, is a top-down estimate of the lamella's thickness: it
 cannot see a lamella that is thicker at the bottom than at the top.
 
-Agents measured this by hand with their own scripts during polishing (2026-10-15
-Arctis session, FIB-1434); this is the one measurement, on the full-resolution
-image and its own pixel size.
+This is the one measurement, on the full-resolution image and its own pixel size.
 """
 
 from __future__ import annotations
@@ -22,7 +20,7 @@ from scipy.ndimage import uniform_filter1d
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.structures import FibsemImage, FibsemRectangle, Point
 
-# Under this many pixels across, the FWHM is too coarse to trust (2026-10-15:
+# Under this many pixels across, the FWHM is too coarse to trust (on an Arctis run,
 # at 39 nm per pixel a 200 nm band was 5 px). The suggested field of view puts
 # the band at SUGGESTED_BAND_PX, twice that, so it stays measurable while it thins.
 MIN_BAND_PX = 8
@@ -35,11 +33,11 @@ DEFAULT_WINDOW = (10e-6, 4e-6)
 MIN_CONTRAST_FRACTION = 0.5
 # Each column is averaged with its neighbours over this length along the band
 # before it is measured: a single column of a real FIB image is too noisy for
-# its own half-maximum (on the 2026-10-15 final image, single columns ranged
+# its own half-maximum (on one final image, single columns ranged
 # 43-368 nm around a 233 nm mean). A hole narrower than this is smeared.
 DEFAULT_AVERAGE_ALONG = 100e-9
 # A band this close in brightness to its trenches gave misleading numbers on a
-# real run (2026-10-19: ratios of 1.5 on two lamellae).
+# real run (ratios of 1.5 on two lamellae).
 LOW_CONTRAST_RATIO = 2.0
 # Another bright line in the window (trench residue, a stepped wall) at this
 # fraction of the band's contrast or more may be the lamella instead.

@@ -1,21 +1,4 @@
-"""Fixture pattern.
-
-This module's imports are load-bearing, and narrower than they look like they
-need to be.
-
-``fibsem/milling/base.py:11`` does ``from fibsem.milling.patterning import
-get_pattern, DEFAULT_MILLING_PATTERN``, and ``patterning/__init__.py`` ends with
-a module-level ``MILLING_PATTERNS = get_patterns()``. So every pattern plugin is
-imported *while ``fibsem.milling.base`` is only partially initialised*.
-
-Anything this module imports that reaches ``fibsem.milling.base`` -- including
-``fibsem.milling.tasks`` and everything under ``fibsem.applications`` -- raises
-ImportError, the plugin loader catches it, and the pattern never registers.
-
-So: patterns import from ``fibsem.milling.patterning.base`` and ``fibsem.structures``,
-and nothing else. That is also why a plugin's pattern, strategy and task have to live
-in separate modules rather than one.
-"""
+"""Fixture pattern."""
 
 from dataclasses import dataclass
 from typing import ClassVar, List

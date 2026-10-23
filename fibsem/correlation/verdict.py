@@ -1,4 +1,4 @@
-"""The verdict on a correlation: leave-one-out, jackknife, rejection (FIB-956).
+"""The verdict on a correlation: leave-one-out, jackknife, rejection.
 
 Not to be confused with :func:`fibsem.correlation.point_fit.plot_fit_diagnostic`, which
 draws the per-point local fitter's diagnostic (the panel behind the confirm dialog).
@@ -17,7 +17,7 @@ seeded solver, with no model of the errors:
   units the user cares about.
 * **Mirror ratio**: the RMS of the fit seeded from the mirrored prior over the
   chosen fit's. Near 1 means the pairs' depths cannot say which way is deeper
-  into the sample, and the depth correction could go the wrong way (FIB-880).
+  into the sample, and the depth correction could go the wrong way.
 * **Depth span**, **scale against the pixel-size ratio**, and the POI's
   distance outside the fiducials' hull.
 
@@ -56,7 +56,7 @@ __all__ = [
     "verdict_tier",
 ]
 
-# ── thresholds (calibrated 2026-09-14, see module docstring) ──────────────
+# ── thresholds (calibration in the module docstring) ──────────────────────
 MIRROR_RATIO_AMBIGUOUS = 1.3  # below: the depth direction is not determined
 LOO_BAD_UM = 2.0  # a pair this far from the others is wrong
 LOO_CHECK_UM = 1.0  # worth a look
@@ -90,18 +90,6 @@ class FitEvidence:
     worst: Optional[int] = None  # position in ``pairs`` of the largest LOO error
     suggested_z: Optional[float] = None  # slice at which the worst pair fits best
     rotation: Optional[np.ndarray] = field(default=None, compare=False)
-
-    @property
-    def loo_median_um(self) -> float:
-        return (
-            float(np.median([p.loo_error_um for p in self.pairs]))
-            if self.pairs
-            else 0.0
-        )
-
-    @property
-    def loo_max_um(self) -> float:
-        return max((p.loo_error_um for p in self.pairs), default=0.0)
 
     @property
     def agreement_um(self) -> float:

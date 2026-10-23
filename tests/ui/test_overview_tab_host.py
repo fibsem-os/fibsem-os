@@ -30,15 +30,13 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem import utils  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
-    DefectType,
-    Experiment,
-)
+from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.overview.beam import (
     BeamOverviewTab,  # noqa: E402
 )
 from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
 from fibsem.workflows.grids import OverlayRecord  # noqa: E402
+from fibsem.workflows.quality import Verdict
 from tests.fixtures.overview_host import OverviewHost, tab_args  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -190,7 +188,7 @@ class TestDefects:
         re-target."""
         ok = _lamella(tab, microscope, dx=50e-6)
         bad = _lamella(tab, microscope, dx=-50e-6)
-        bad.defect.state = DefectType.FAILURE
+        bad.defect.verdict = Verdict.FAILED
         tab.refresh_positions()
 
         assert tab.overview.session.flagged == {bad.name}
@@ -198,7 +196,7 @@ class TestDefects:
 
     def test_rework_is_flagged_as_well_as_failure(self, tab, microscope):
         lamella = _lamella(tab, microscope)
-        lamella.defect.state = DefectType.REWORK
+        lamella.defect.verdict = Verdict.REWORK
         tab.refresh_positions()
         assert tab.overview.session.flagged == {lamella.name}
 
@@ -210,7 +208,7 @@ class TestDefects:
         tab.refresh_positions()
         assert tab.overview.session.flagged == set()
 
-        lamella.defect.state = DefectType.FAILURE
+        lamella.defect.verdict = Verdict.FAILED
         tab._on_defect_changed(lamella)
 
         assert tab.overview.session.flagged == {lamella.name}

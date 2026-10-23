@@ -49,7 +49,7 @@ def _set_parameter(
 ) -> Dict[str, Any]:
     owner, parameter = a.get(owner_key), str(a.get("parameter"))
     if parameter == "on" and isinstance(a.get("value"), bool):
-        # "Electron · Set on to off" said nothing (sim session 2026-10-16).
+        # Said as "Electron beam on", not "Electron · Set on to on".
         name = wording.words(owner) + (" beam" if owner in ("electron", "ion") else "")
         state = "on" if a["value"] else "off"
         return {

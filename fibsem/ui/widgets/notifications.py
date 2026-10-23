@@ -643,8 +643,6 @@ class ToastManager:
         self.toasts.append(toast)
 
         # Connect to hidden signal for cleanup (not fade_animation.finished which fires on fade-in too)
-        toast.hidden_signal_connected = False
-
         def on_hidden():
             if toast in self.toasts:
                 self.toasts.remove(toast)
@@ -661,13 +659,6 @@ class ToastManager:
         # Add to notification bell history — skip if temporary
         if self.notification_bell and not temporary:
             self.notification_bell.add_notification(message, notification_type, action)
-
-    def _remove_toast(self, toast: ToastNotification):
-        """Remove a toast from the list."""
-        if toast in self.toasts:
-            self.toasts.remove(toast)
-            toast.deleteLater()
-            self._reposition_toasts()
 
     def _reposition_toasts(self):
         """Stack each visible toast up the bottom-right corner of the window it

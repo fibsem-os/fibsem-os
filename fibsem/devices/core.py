@@ -212,7 +212,7 @@ class BoundParameter:
     """One parameter on one device, bound to a backend's read and write."""
 
     changed = Signal(object)
-    """The new value, after every change: a set, a write through the old API, a live
+    """The new value, after every change: a set, a ``write_through``, a live
     read that found a different value, or a change the backend reports."""
 
     metadata_changed = Signal(object)
@@ -274,7 +274,7 @@ class BoundParameter:
 
     @property
     def writable(self) -> bool:
-        """Whether the backend has a write at all: what the old API's path needs."""
+        """Whether the backend has a write at all: what ``write_through`` needs."""
         return self._write is not None
 
     def refresh_metadata(self, emit: bool = True) -> ParameterMetadata:
@@ -315,7 +315,7 @@ class BoundParameter:
     def get_value(self) -> Any:
         """A live read from the instrument, for guards and anything that needs it now.
 
-        It makes the same call the old branch made, and updates the cache.
+        It updates the cache.
         """
         with self.device._claim(self):
             value = self._read()
@@ -350,7 +350,7 @@ class BoundParameter:
         self.set_value(value)
 
     def write_through(self, value: Any) -> None:
-        """The old API: the same write path with no new checks, so no behaviour changes.
+        """The write path with no checks.
 
         A ``nearest`` parameter is still snapped to its nearest choice first. That is
         what the value means rather than a check, and it never refuses: a driver that
@@ -650,7 +650,7 @@ class Session:
             image.metadata.user = self.user
         if self.experiment is not None:
             # Copied, not referenced. It carries the item and task as well as the
-            # experiment (FIB-466), and those change as the run progresses -- sharing
+            # experiment, and those change as the run progresses -- sharing
             # one object would rewrite the item on every image already acquired.
             image.metadata.experiment = deepcopy(self.experiment)
         if self._instrument is not None:

@@ -1,19 +1,13 @@
 import logging
 import os
 from copy import deepcopy
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
-import numpy as np
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
-from fibsem.detection import utils as det_utils
-from fibsem.detection.decided import (
-    apply_feature_px,
-)
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import load_model
 from fibsem.structures import (
@@ -24,8 +18,6 @@ from fibsem.versioning import get_version_string
 
 
 class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
-    continue_signal = pyqtSignal(DetectedFeatures)
-
     def __init__(
         self,
         parent: Optional[QtWidgets.QWidget] = None,
@@ -132,27 +124,6 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
         self.has_user_corrected = True
         self.update_info()
 
-    def move_features(self, px_by_name: Dict[str, Point]) -> None:
-        """Move the named features to new image pixels, as dragging them would.
-
-        Unlike :meth:`set_detected_features` the baseline stays: Confirm saves the
-        model's points beside the corrected ones, so a correction made here is
-        recorded as a correction. Features not named stay where they are.
-        """
-        apply_feature_px(
-            self.det,
-            {n: Point(x=float(px.x), y=float(px.y)) for n, px in px_by_name.items()},
-        )
-        self.has_user_corrected = True
-        controller = self._view_controller()
-        if controller is not None and self._host_beam is not None:
-            controller.set_points(
-                self._host_beam,
-                "detection",
-                [(f.px.x, f.px.y) for f in self.det.features],
-            )
-        self.update_info()
-
     def closeEvent(self, event) -> None:
         self._teardown_connections()
         super().closeEvent(event)
@@ -219,17 +190,6 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
                 self._detach_detection(self._host_beam)
             self._host_beam = None
         self.det = None
-
-    def confirm_button_clicked(self):
-        """Confirm the detected features, save the data and clear the overlays."""
-        # mask is display-only (no painting), so det.mask stays the model output — but
-        # normalise its dtype to uint8 (save_feature_data_to_csv -> PIL.Image.fromarray needs it).
-        if self.det.mask is not None:
-            self.det.mask = np.asarray(self.det.mask).astype(np.uint8)
-        det_utils.save_ml_feature_data(
-            det=self.det, initial_features=self._intial_det.features
-        )
-        self.clear_layers()
 
     def set_detected_features(self, det_features: DetectedFeatures):
         """Set the detected features and update the UI"""

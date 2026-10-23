@@ -6,7 +6,7 @@ import yaml
 import fibsem.config as fconfig
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
-    fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
+    fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
 )
 
 

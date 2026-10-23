@@ -1,4 +1,4 @@
-"""The operator's side of the agent, without Qt (FIB-1461).
+"""The operator's side of the agent, without Qt.
 
 What the agent chip, its card and its menu do, as calls: set the level, the
 brake, allow or deny an agent asking to connect, approve or reject a request,
@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 
 # A request the operator still has to decide, or one being applied.
 OPEN = ("pending", "applying")
-# The longest message to the agent, in characters (FIB-1423).
+# The longest message to the agent, in characters.
 MESSAGE_LIMIT = 2000
-# How often a waiting request's values are read again (FIB-1412).
+# How often a waiting request's values are read again.
 REQUEST_REFRESH_S = 15.0
 # The share of its budget at which the card and the record warn.
 BUDGET_WARNING = 0.8
@@ -125,7 +125,7 @@ class AgentSession:
         self._store: Optional[Any] = None
         self._unsubscribe: Optional[Callable[[], None]] = None
         # The pictures of the waiting request and the suggestion, for the
-        # card and the chat page: kind ("request", "suggestion") to its PNG,
+        # card and the web app: kind ("request", "suggestion") to its PNG,
         # caption and version. Drawn on a thread of their own (`keep_pictures`).
         self._pictures: Dict[str, Dict[str, Any]] = {}
         self._picture_version = 0
@@ -188,7 +188,7 @@ class AgentSession:
 
     def stop(self) -> Optional[str]:
         """The brake: down to Watch at once, without asking, and stop what the
-        agent is doing on the microscope (FIB-1267). A running workflow is left
+        agent is doing on the microscope. A running workflow is left
         running: runs are the app's, with their own Stop. Returns the stopped
         action, or None when the agent was doing nothing or is not served."""
         host = self.host
@@ -421,7 +421,7 @@ class AgentSession:
     ) -> Optional[str]:
         """Put the operator's message to the agent on the session's record,
         where the agent's watch hears it as a ``MESSAGE`` line and answers with
-        a message naming its id (FIB-1423). *evidence*, the record of the
+        a message naming its id. *evidence*, the record of the
         image the operator marked for it (`fibsem.workflows.evidence.save`),
         goes on the record first and the message cites it. Returns the id, or
         None when nothing is recording, so the agent can't hear it."""

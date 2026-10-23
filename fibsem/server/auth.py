@@ -1,11 +1,11 @@
-"""Authentication and the agent level gate for the App Server (FIB-852, FIB-1035).
+"""Authentication and the agent level gate for the App Server.
 
 One bearer token per server instance, and one gate: the agent level the
 operator sets from the Agent chip. Each route needs a level:
 
 - ``watch``: reads, and adding notes. Every valid token at Watch or above.
 - ``assist``: stopping what is running, and suggesting an answer: at Assist
-  and Drive, with no request (FIB-1283).
+  and Drive, with no request.
 - ``drive``: acting on the session and the microscope. At Assist the agent
   asks first, and an approved request lends Drive to its calls
   (:func:`lending_drive`).
@@ -14,7 +14,7 @@ Fail closed: a server always has a token (generated when the hosting does not
 supply one), and starts at Watch unless the hosting says otherwise. Off
 refuses everything, reads included.
 
-A second, read-only **dashboard token** (FIB-1035) reaches the monitoring
+A second, read-only **dashboard token** reaches the monitoring
 routes -- /capabilities and GETs of the app's read routes -- and nothing else:
 not the microscope, not a POST, whatever the level. It is carried in the
 dashboard link and never written to the discovery file, so the dashboard and
@@ -96,7 +96,7 @@ class AuthConfig:
     # (fibsem.server.connections) and reaches nothing else.
     connect_token: Optional[str] = None
     connections: Optional["Connections"] = None
-    # The agent level (FIB-1035): the only gate.
+    # The agent level: the only gate.
     level: AgentLevel = AgentLevel.WATCH
     # Set by stop_agent, cleared by the next set_level: the operator braked, so a
     # refusal says so rather than only naming the level.
@@ -104,8 +104,7 @@ class AuthConfig:
     # Monotonic time of the last request that presented the valid token; None
     # until one arrives. The connected agent's proof of life: its event
     # long-poll alone touches the server every half-minute, so staleness here
-    # means nobody is on the other end (used to hand a parked question to the
-    # operator without waiting out the full hand-over time).
+    # means nobody is on the other end.
     last_seen_monotonic: Optional[float] = None
     # The MCP client behind the sidecar, as the sidecar names it in its
     # User-Agent ("claude-code/2.1.3"); None until a sidecar request names one.
@@ -240,7 +239,7 @@ def client_from_user_agent(user_agent: Optional[str]) -> Optional[str]:
     return products[1]
 
 
-# Drive, lent to the calls an approved request makes (FIB-1283), for those calls
+# Drive, lent to the calls an approved request makes, for those calls
 # only. A context variable: set by the request's worker around each call it
 # makes into the app, so nothing arriving over the network can carry it.
 _lent: "ContextVar[bool]" = ContextVar("fibsem_drive_lent", default=False)
@@ -497,15 +496,15 @@ def refuse_dashboard(request: Request) -> None:
 
 
 def action_name(request: Request) -> str:
-    """What a request does, in words, for the record, the log and the toast
-    (FIB-1359): "focus sweep", "move stage relative", "set electron imaging
+    """What a request does, in words, for the record, the log and the toast:
+    "focus sweep", "move stage relative", "set electron imaging
     settings". Not the route: an operator reads it."""
     params = request.path_params
     for key in ("command", "query"):
         if key in params:
             name = params[key].replace("_", " ")
             # A one-word command says too little on its own: "milling run", not
-            # "run" (FIB-1377).
+            # "run".
             if " " not in name and "device" in params:
                 return f"{params['device'].replace('_', ' ')} {name}"
             return name
@@ -520,7 +519,7 @@ def action_name(request: Request) -> str:
 
 
 def described_action(request: Request) -> str:
-    """The agent's call as the line an operator reads (FIB-1426): its tool and
+    """The agent's call as the line an operator reads: its tool and
     arguments described as a request's card says them, else :func:`action_name`."""
     call = current_call()
     if call is not None and call.action:
@@ -529,17 +528,16 @@ def described_action(request: Request) -> str:
 
 
 def take_control(request: Request):
-    """Take control of the microscope for this request (FIB-1270), or 409.
+    """Take control of the microscope for this request, or 409.
     Declared with ``scope="function"``, so control is given up before the answer
     is sent: a caller's next request never finds its own last one in control.
 
-    The control a run, a script and the operator take too, so a server command
-    never interleaves with them or with another request: concurrent requests on
-    the threadpool would interleave multi-call vendor operations (the
-    FIB-517/542/569 incident class). A structured refusal naming who is in
-    control beats queueing: a caller blocked behind an hour-long mill should be
-    told, not held. During a run's question, the run has lent control, so the
-    request borrows it.
+    The control a run, a script and the operator take too, so a server command never
+    interleaves with them or with another request: concurrent requests on the threadpool
+    would interleave multi-call vendor operations. A structured refusal naming who is in
+    control beats queueing: a caller blocked behind an hour-long mill should be told,
+    not held. During a run's question, the run has lent control, so the request borrows
+    it.
     """
     lease_id = request.headers.get(LEASE_HEADER)
     if lease_id is not None:

@@ -100,7 +100,9 @@ def test_loading_a_configuration_loads_its_fm_working_state(tmp_path, monkeypatc
     monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(session))
     config = tmp_path / "bench.yaml"
     config.write_text(
-        (Path(fibsem_cfg.CONFIG_PATH) / "microscope-configuration.yaml").read_text()
+        (
+            Path(fibsem_cfg.SHIPPED_CONFIG_PATH) / "microscope-configuration.yaml"
+        ).read_text()
     )
     save_fm_configuration(
         _make_config(),

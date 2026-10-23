@@ -22,9 +22,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QPushButton  # noqa: E402
 
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    DefectType,
     Experiment,
     Lamella,
 )
@@ -34,6 +33,7 @@ from fibsem.applications.autolamella.ui.header import (  # noqa: E402
     experiment_tooltip,
     set_button_icon,
 )
+from fibsem.workflows.quality import Verdict
 from tests.fixtures.experiment_header import HeaderHost  # noqa: E402
 
 
@@ -163,7 +163,7 @@ class TestExperimentTooltip:
         # test, and the path is one of the rows.
         assert "defective</span>" not in experiment_tooltip(experiment)
 
-        experiment.positions[0].defect.state = DefectType.FAILURE
+        experiment.positions[0].defect.verdict = Verdict.FAILED
 
         tip = experiment_tooltip(experiment)
         # "defective", not "failed": is_failure is a human's judgement about the

@@ -180,7 +180,7 @@ class Harness:
         # into the configuration it was connected with.
         for name, filename in SIM_CONFIGURATIONS.items():
             copy = tmp / filename
-            shutil.copyfile(os.path.join(cfg.CONFIG_PATH, filename), copy)
+            shutil.copyfile(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename), copy)
             cfg.USER_CONFIGURATIONS[name] = {"path": str(copy)}
 
     # -- driving ------------------------------------------------------------
@@ -845,7 +845,7 @@ def render_movement(h: Harness) -> None:
         ("compustage", "sim-arctis-configuration.yaml"),
     ):
         demo, _ = utils.setup_session(
-            config_path=os.path.join(cfg.CONFIG_PATH, filename),
+            config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, filename),
             manufacturer="Demo",
             setup_logging=False,
         )
@@ -1331,7 +1331,6 @@ def render_fluorescence(h: Harness) -> None:
     for panel in (
         fmc.cameraPanel,
         fmc.acquisitionSettingsWidget.autofocus_panel,
-        fmc.histogramPanel,
     ):
         panel._btn_collapse.setChecked(False)
     fmc.acquisitionSettingsWidget.z_parameters_panel._btn_collapse.setChecked(True)

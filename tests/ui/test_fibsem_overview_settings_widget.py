@@ -24,7 +24,7 @@ def widget(qapp):
 
 
 def test_the_advanced_rows_hide_behind_the_toggle(widget):
-    rows = widget._advanced_fields + widget._advanced_labels
+    rows = [w for row in widget._advanced_rows for w in row]
     assert all(not w.isVisible() for w in rows)
     widget.btn_advanced.setChecked(True)
     assert all(w.isVisible() for w in rows)

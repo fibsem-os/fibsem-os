@@ -4,7 +4,7 @@ name, the recents, and making a protocol the open experiment's."""
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 from fibsem.config import record_recent_experiment
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME
@@ -19,14 +19,19 @@ __all__ = [
 ]
 
 
-def list_protocols(folder: str, default: Optional[str] = None) -> List[Dict[str, Any]]:
-    """The protocol files an agent may choose: those in *folder*, plus
-    *default* when it lives elsewhere. By file name, sorted."""
+def list_protocols(
+    folder: Union[str, Sequence[str]], default: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """The protocol files an agent may choose: those in *folder* (or each of
+    several, the first holding a name winning it), plus *default* when it lives
+    elsewhere. By file name, sorted."""
     paths = {}
-    if os.path.isdir(folder):
-        for name in os.listdir(folder):
+    for each in [folder] if isinstance(folder, str) else folder:
+        if not os.path.isdir(each):
+            continue
+        for name in os.listdir(each):
             if name.endswith((".yaml", ".yml")):
-                paths[name] = os.path.join(folder, name)
+                paths.setdefault(name, os.path.join(each, name))
     if default:
         paths.setdefault(os.path.basename(default), default)
     return [
@@ -35,7 +40,9 @@ def list_protocols(folder: str, default: Optional[str] = None) -> List[Dict[str,
     ]
 
 
-def protocol_by_name(folder: str, default: Optional[str], name: str) -> Optional[str]:
+def protocol_by_name(
+    folder: Union[str, Sequence[str]], default: Optional[str], name: str
+) -> Optional[str]:
     """The path of the listed protocol file called *name*, or None."""
     listed = list_protocols(folder, default)
     return next((p["path"] for p in listed if p["name"] == name), None)

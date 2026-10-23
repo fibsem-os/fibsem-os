@@ -260,7 +260,9 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
     coords = [Point(0.5, 0.5), Point(0.6, 0.6)]
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+        ),
     )
     try:
         exp = Experiment(path=tmp_path, name="spot-exp")

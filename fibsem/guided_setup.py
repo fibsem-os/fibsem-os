@@ -186,7 +186,7 @@ class MicroscopeModel:
 
     @property
     def path(self) -> str:
-        return os.path.join(cfg.CONFIG_PATH, self.filename)
+        return os.path.join(cfg.SHIPPED_CONFIG_PATH, self.filename)
 
     @property
     def manufacturer(self) -> Manufacturer:
@@ -376,8 +376,8 @@ class SetupChoices:
     ``rotation_reference`` and ``shuttle_pre_tilt`` are Optional because None is a
     real answer here: it means *the wizard did not ask*, so the shipped file's own
     values stand -- which for a stage that tilts to the other side includes
-    ``rotation: false``, the flag that says there is no 180-degree rotation to reach
-    (FIB-834). Overwriting
+    ``rotation: false``, the flag that says there is no 180-degree rotation to reach.
+    Overwriting
     the reference on a model the wizard never asked about would leave that flag
     describing a stage the file no longer describes.
     """
@@ -580,7 +580,7 @@ def build_configuration(choices: SetupChoices) -> dict:
     if choices.rotation_reference is not None:
         stage["rotation_reference"] = float(choices.rotation_reference)
     # Written by no one now: `rotation_180` is derived from the reference and the
-    # `rotation` capability (FIB-834). Popped rather than left alone because the
+    # `rotation` capability. Popped rather than left alone because the
     # template this dict was copied from is a shipped file that still carries the key,
     # and a stale number sitting beside the reference it no longer agrees with is
     # exactly what someone would go on to edit.
@@ -719,11 +719,8 @@ def is_first_run() -> bool:
     configuration, setting a default, or finishing this wizard. So its absence means
     this machine has never had a microscope set up, which is the question being asked.
 
-    **Not** the absence of ``user-preferences.yaml``, which is what this used to be and
-    was wrong in a way no test caught: the feature flag that gates the offer lives in
-    that file, so turning the flag on created it, and the offer could never appear. Any
-    signal a preference write can extinguish is the wrong signal for "nothing has been
-    configured yet".
+    **Not** the absence of ``user-preferences.yaml``: any preference write creates it,
+    so it cannot say "nothing has been configured yet".
     """
     return not os.path.exists(cfg.USER_CONFIGURATIONS_PATH)
 

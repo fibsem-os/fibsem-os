@@ -1,11 +1,5 @@
-"""Apply sets what the configuration decides, not the column's alignment.
-
-The working distance, stigmation and beam shift are the column's current alignment,
-and the detector's brightness and contrast are what the last autocontrast left. A
-configuration that did not state them loaded them as 0 -- the working distance as the
-eucentric height -- and Apply pushed those: refocusing both columns, discarding the
-beam shift and blacking out the detectors. A saved configuration stated them too.
-"""
+"""A saved configuration records what the configuration decides, not the column's
+alignment or the detector levels the last autocontrast left."""
 
 import os
 
@@ -17,48 +11,14 @@ from fibsem import utils
 from fibsem.structures import (
     NOT_BEAM_DEFAULTS,
     NOT_IMAGING_DEFAULTS,
-    BeamType,
     MicroscopeSettings,
-    Point,
 )
 from tests.fixtures.microscopes import demo_microscope
 
-SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 microscope = demo_microscope("microscope-configuration.yaml", scope="function")
-
-
-@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
-def test_apply_leaves_the_alignment_and_the_detector_levels(microscope, beam_type):
-    microscope.set_working_distance(0.0123, beam_type)
-    microscope.set_stigmation(Point(1e-3, 2e-3), beam_type)
-    microscope.set_beam_shift(Point(1e-6, -2e-6), beam_type)
-    microscope.set_detector_brightness(0.4, beam_type)
-    microscope.set_detector_contrast(0.6, beam_type)
-
-    microscope.apply_configuration()
-
-    assert microscope.get_working_distance(beam_type) == pytest.approx(0.0123)
-    assert microscope.get_stigmation(beam_type) == Point(1e-3, 2e-3)
-    assert microscope.get_beam_shift(beam_type) == Point(1e-6, -2e-6)
-    detector = microscope.get_detector_settings(beam_type)
-    assert detector.brightness == pytest.approx(0.4)
-    assert detector.contrast == pytest.approx(0.6)
-
-
-def test_apply_still_sets_the_defaults(microscope):
-    microscope.set_beam_voltage(5000, BeamType.ELECTRON)
-    microscope.set_detector_mode("BackscatterElectrons", BeamType.ELECTRON)
-
-    microscope.apply_configuration()
-
-    configured = microscope.system.electron
-    assert microscope.get_beam_voltage(BeamType.ELECTRON) == configured.beam.voltage
-    assert (
-        microscope.get_detector_settings(BeamType.ELECTRON).mode
-        == configured.detector.mode
-    )
 
 
 def test_a_saved_configuration_does_not_record_alignment_or_session_state():
