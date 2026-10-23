@@ -8,14 +8,11 @@ export const Dialog = DialogPrimitive.Root;
 export function DialogContent({
   title,
   className,
-  actions,
   onEscapeKeyDown,
   children,
 }: {
   title: string;
   className?: string;
-  /** Buttons in the header, before Close. */
-  actions?: ReactNode;
   onEscapeKeyDown?: (e: KeyboardEvent) => void;
   children: ReactNode;
 }) {
@@ -32,12 +29,8 @@ export function DialogContent({
       >
         <div className="flex items-center border-b border-border px-4 py-3">
           <DialogPrimitive.Title className="m-0 text-sm font-semibold">{title}</DialogPrimitive.Title>
-          {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
           <DialogPrimitive.Close
-            className={cn(
-              "cursor-pointer rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground",
-              actions ? "ml-2" : "ml-auto",
-            )}
+            className="ml-auto cursor-pointer rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             aria-label="Close"
           >
             <X size={16} />

@@ -17,6 +17,54 @@ export const TOOLS: { tool: Tool; name: string; key: string; hint: string }[] = 
   { tool: "arrow", name: "Arrow", key: "a", hint: "Arrow: drag from the tail to the head" },
 ];
 
+/** The tool a key picks, or undefined. */
+export function toolForKey(key: string): Tool | undefined {
+  return TOOLS.find((t) => t.key === key)?.tool;
+}
+
+/** The strip over the image: "Mark for the agent" turns the mode on and off; while
+ * it is on, the tools with their keys, and what the picked one does. */
+export function MarkToolbar({
+  editor,
+  marking,
+  mark,
+}: {
+  editor: MarkEditor;
+  marking: boolean;
+  mark: (on: boolean) => void;
+}) {
+  const tool = TOOLS.find((t) => t.tool === editor.tool);
+  return (
+    <div className="flex min-h-[36px] flex-wrap items-center gap-1.5 border-b border-border bg-background px-2 py-1">
+      <Button
+        aria-pressed={marking}
+        className={cn("px-2.5", marking && "border-primary")}
+        onClick={() => mark(!marking)}
+      >
+        Mark for the agent
+      </Button>
+      {marking && (
+        <>
+          <span className="mx-1 h-5 w-px bg-border" />
+          {TOOLS.map((t) => (
+            <Button
+              key={t.tool}
+              title={t.hint}
+              aria-pressed={editor.tool === t.tool}
+              className={cn("px-2.5", editor.tool === t.tool && "border-primary")}
+              onClick={() => editor.setTool(t.tool)}
+            >
+              {t.name}
+              <span className="text-[11px] text-muted-foreground uppercase">{t.key}</span>
+            </Button>
+          ))}
+          <span className="ml-auto text-[12px] text-muted-foreground">{tool?.hint} · Esc to stop</span>
+        </>
+      )}
+    </div>
+  );
+}
+
 type Spot = { x: number; y: number };
 
 /** Keep the keys with the viewer: no mousedown to move focus off it, and focus on it,
@@ -211,8 +259,7 @@ function where(m: Mark, pixelSize?: number | null): string {
 
 const GLYPH: Record<string, string> = { point: "+", area: "▭", circle: "○", arrow: "↗", line: "—" };
 
-/** The side panel's "Mark for the agent": tools, the marks with their labels, the
- * message, and Send. *image* is the file's path; *channels* the FM channels shown. */
+/** The side panel while marking: the marks with their labels, the message, and Send. *image* is the file's path; *channels* the FM channels shown. */
 export function MarkPanel({
   editor,
   image,
@@ -249,26 +296,10 @@ export function MarkPanel({
     }
   };
   return (
-    <section className="flex flex-col gap-2.5 border-t border-border pt-3">
-      <h3 className="m-0 text-[13px] font-semibold">Mark for the agent</h3>
-      <div className="flex flex-wrap gap-1.5">
-        {TOOLS.map((t) => (
-          <Button
-            key={t.tool}
-            title={t.hint}
-            aria-pressed={editor.tool === t.tool}
-            className={cn("px-2.5", editor.tool === t.tool && "border-primary")}
-            onClick={() => editor.setTool(t.tool)}
-          >
-            {t.name}
-            <span className="text-[11px] text-muted-foreground uppercase">{t.key}</span>
-          </Button>
-        ))}
-      </div>
-      {marks.length === 0 && (
-        <p className="m-0 text-[12px] text-muted-foreground">{TOOLS.find((t) => t.tool === editor.tool)?.hint}.</p>
-      )}
-      <ul className="m-0 flex list-none flex-col gap-2 p-0">
+    <section className="flex min-h-0 flex-col gap-2.5">
+      <h3 className="m-0 text-[13px] font-semibold">Marks</h3>
+      {marks.length === 0 && <p className="m-0 text-[12px] text-muted-foreground">No marks yet.</p>}
+      <ul className="m-0 flex max-h-[34vh] list-none flex-col gap-2 overflow-y-auto p-0">
         {marks.map((m, i) => {
           const glyph = GLYPH[m.kind === "line" && m.arrow ? "arrow" : m.kind];
           const measured = m.kind === "line" && m.measure;
