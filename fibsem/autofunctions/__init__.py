@@ -35,7 +35,6 @@ from fibsem.autofunctions.stacking import (
     pixel_based_focus_selection,
 )
 
-
 __all__ = [
     "AutoContrastBrightnessSettings",
     "AutoContrastBrightnessIteration",

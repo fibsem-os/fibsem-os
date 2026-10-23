@@ -29,10 +29,6 @@ from psygnal import Signal
 from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.geometry.movement import beam_view_tilt
-from fibsem.geometry.orientations import (
-    compucentric_rotation,
-)
 from fibsem.structures import (
     DEFAULT_STAGE_DEVICES,
     DEVICE_AXES,
@@ -43,25 +39,18 @@ from fibsem.structures import (
     CameraImageTransform,
     ChamberState,
     DeviceImagingState,
-    FibsemBitmapSettings,
-    FibsemCircleSettings,
     FibsemDetectorSettings,
     FibsemExperimentRef,
     FibsemHardwareGeometry,
     FibsemImage,
-    FibsemLineSettings,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
     FibsemPatternSettings,
-    FibsemPolygonSettings,
     FibsemRectangle,
-    FibsemRectangleSettings,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
-    InsertableDeviceState,
     MicroscopeState,
-    MillingState,
     Point,
     StageDeviceSettings,
     SystemSettings,

@@ -13,10 +13,7 @@ if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
     from fibsem.alignment import AlignmentDifferential, AlignmentIteration
-    from fibsem.alignment.coincidence import (
-        CoincidenceAlignment,
-        CoincidenceMeasurement,
-    )
+    from fibsem.alignment.coincidence import CoincidenceAlignment
     from fibsem.structures import FibsemImage
 
 

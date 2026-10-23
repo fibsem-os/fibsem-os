@@ -29,11 +29,7 @@ from fibsem.structures import (
 )
 from fibsem.utils import format_value
 
-from .utils import (
-    create_pattern_mask,
-    get_pattern_bounding_box,
-    get_patterns_bounding_box,
-)
+from .utils import create_pattern_mask
 
 COLOURS = [
     "yellow",

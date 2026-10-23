@@ -7,7 +7,7 @@ similar to the MillingStrategy plugin system.
 
 import logging
 import typing
-from typing import Any, Dict, Optional, Tuple, Type
+from typing import Any, Dict, Optional, Type
 
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.patterning.patterns import (
@@ -31,7 +31,7 @@ from fibsem.milling.patterning.patterns import (
     UndercutPattern,
     WaffleNotchPattern,
 )
-from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
+from fibsem.plugins.loader import PluginRegistry, subclass_of
 
 # Built-in patterns registry
 BUILTIN_PATTERNS: Dict[str, Type[BasePattern]] = {

@@ -31,7 +31,7 @@ from typing import Dict, Iterator, List, Optional
 
 from psygnal import Signal
 
-from fibsem.acting import OPERATOR, ActorKind
+from fibsem.acting import ActorKind
 
 __all__ = [
     "HOLD_COMMANDS",

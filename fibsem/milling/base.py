@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import threading
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from functools import cached_property
@@ -17,7 +16,6 @@ from typing import (
     ClassVar,
     Dict,
     Generic,
-    Iterator,
     List,
     Optional,
     Tuple,

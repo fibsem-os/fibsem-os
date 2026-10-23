@@ -11,9 +11,7 @@ from fibsem import utils
 from fibsem.structures import (
     NOT_BEAM_DEFAULTS,
     NOT_IMAGING_DEFAULTS,
-    BeamType,
     MicroscopeSettings,
-    Point,
 )
 
 SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")

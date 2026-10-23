@@ -31,7 +31,11 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter, Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage, recording_move
-from fibsem.geometry.angles import wrap_angle
+from fibsem.geometry.angles import (
+    rotation_angle_is_larger,
+    rotation_angle_is_smaller,
+    wrap_angle,
+)
 from fibsem.geometry.frames import StageModel
 from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.movement import (
@@ -49,7 +53,6 @@ from fibsem.geometry.orientations import (
     milling_angle_from_tilt,
     repose,
 )
-from fibsem.geometry.angles import rotation_angle_is_larger, rotation_angle_is_smaller
 from fibsem.services.core import Service
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,

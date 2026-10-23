@@ -22,7 +22,7 @@ from fibsem.milling.monitors.base import (
 from fibsem.milling.monitors.fm_intensity import FmIntensityMonitor
 from fibsem.milling.monitors.rtm import RtmMonitor
 from fibsem.milling.monitors.sem_peek import SemPeekMonitor
-from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
+from fibsem.plugins.loader import PluginRegistry, subclass_of
 
 __all__ = [
     "FmIntensityMonitor",

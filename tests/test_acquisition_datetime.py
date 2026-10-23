@@ -7,7 +7,6 @@ values come from the real metadata fixtures in tests/fixtures/metadata.
 
 import json
 import os
-import time
 from datetime import datetime, timedelta, timezone
 
 import pytest

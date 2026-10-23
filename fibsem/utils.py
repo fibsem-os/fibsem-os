@@ -1,6 +1,5 @@
 import datetime
 import functools
-import glob
 import json
 import logging
 import math
@@ -11,7 +10,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import yaml
-from PIL import Image
 
 from fibsem import config as cfg
 from fibsem.codec.upgrades.configuration import upgrade
@@ -23,7 +21,6 @@ from fibsem.structures import (
     STAGE_POSITION_KEYS,
     BeamType,
     DeviceEntry,
-    FibsemImage,
     FibsemStagePosition,
     MicroscopeSettings,
 )

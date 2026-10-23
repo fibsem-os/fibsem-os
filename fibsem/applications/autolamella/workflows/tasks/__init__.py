@@ -6,9 +6,9 @@ similar to the BasePattern plugin system in fibsem.milling.patterning.
 """
 
 import typing
-from typing import TYPE_CHECKING, Any, Dict, Tuple, Type
+from typing import TYPE_CHECKING, Any, Dict, Type
 
-from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
+from fibsem.plugins.loader import PluginRegistry, subclass_of
 from fibsem.workflows.site_task import SiteTask
 from fibsem.workflows.site_tasks import BUILTIN_SITE_TASKS
 

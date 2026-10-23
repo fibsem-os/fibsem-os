@@ -37,7 +37,6 @@ import numpy as np
 import pytest
 
 from fibsem import utils
-from fibsem.geometry import angles
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -46,6 +45,7 @@ from fibsem.fm.structures import (
     EmissionFilter,
     OverviewParameters,
 )
+from fibsem.geometry import angles
 from fibsem.geometry.movement import beam_view_tilt
 from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
 

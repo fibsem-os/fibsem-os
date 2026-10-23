@@ -1,9 +1,8 @@
 import numpy as np
 import scipy.ndimage as ndi
 
-from fibsem import conversions
 from fibsem.imaging import utils as image_utils
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures import Point
 
 
 ### MASKING

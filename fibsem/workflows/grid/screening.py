@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Mapping
 
 from fibsem.structures import GridInventoryEntry
-from fibsem.workflows.grid.manager import plan_grid_run
 from fibsem.workflows.grid.naming import grid_rename_refusal, name_slot_grid
 
 if TYPE_CHECKING:

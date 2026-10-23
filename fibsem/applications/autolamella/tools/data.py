@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime
-import json
 import logging
 import os
 import re
@@ -13,7 +12,6 @@ import pandas as pd
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.util.durations import format_duration_as_clock
-
 
 # `{'msg': 'status', ...}`: the key every reported record starts with.
 _MSG_KEY = re.compile(r"^\{'msg': '([^']+)'")

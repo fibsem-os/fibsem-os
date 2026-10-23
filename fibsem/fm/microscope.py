@@ -62,7 +62,7 @@ from fibsem.fm.structures import (
     matching_emission_filter,
 )
 from fibsem.structures import InsertableDeviceState
-from fibsem.util.timestamps import now, now_iso
+from fibsem.util.timestamps import now_iso
 
 if TYPE_CHECKING:
     from fibsem.devices.core import BoundParameter, Device

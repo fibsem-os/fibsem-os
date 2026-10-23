@@ -25,7 +25,6 @@ from psygnal import evented
 
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.structures import BeamType, FibsemImage
-from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now, to_datetime
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,

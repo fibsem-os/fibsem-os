@@ -20,7 +20,6 @@ its own sample count and spread below.
 See FIB-666.
 """
 
-import logging
 from typing import TYPE_CHECKING, Iterable, Optional
 
 from fibsem.structures import (

@@ -47,7 +47,6 @@ from fibsem.imaging.tiling.progress import (
 from fibsem.imaging.tiling.registration import compose_mosaic, measure_registration
 from fibsem.imaging.tiling.result import OverviewResult
 from fibsem.structures import (
-    BeamType,
     DeviceImagingState,
     FibsemStagePosition,
     InsertableDeviceState,

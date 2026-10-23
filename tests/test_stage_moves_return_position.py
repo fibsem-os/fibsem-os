@@ -21,8 +21,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.registry import BuildContext
+from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.devices import build_tescan_stage
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.structures import DeviceEntry, FibsemStagePosition

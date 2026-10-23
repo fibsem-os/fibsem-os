@@ -18,7 +18,6 @@ gains one it never had.
 
 import os
 
-import numpy as np
 import pytest
 
 import fibsem.config as cfg
@@ -27,11 +26,7 @@ from fibsem.drivers.demo.simulator import (
     STAGE_LIMITS_COMPUSTAGE,
     STAGE_LIMITS_DEFAULT,
 )
-from fibsem.structures import (
-    ManipulatorSystemSettings,
-    StageSystemSettings,
-    SystemSettings,
-)
+from fibsem.structures import ManipulatorSystemSettings, StageSystemSettings
 
 # Named rather than globbed. `fibsem/config/*.yaml` is gitignored with an allowlist
 # for the shipped files, so a configuration the developer saved from the wizard sits

@@ -21,7 +21,6 @@ from fibsem.structures import (
     FibsemLineSettings,
     FibsemPatternSettings,
     FibsemPolygonSettings,
-    FibsemRectangle,
     FibsemRectangleSettings,
     Point,
     calculate_fiducial_area_v2,

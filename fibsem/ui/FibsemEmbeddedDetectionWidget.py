@@ -1,19 +1,13 @@
 import logging
 import os
 from copy import deepcopy
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
-import numpy as np
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 import fibsem
-from fibsem.detection import utils as det_utils
-from fibsem.detection.decided import (
-    apply_feature_px,
-)
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import load_model
 from fibsem.structures import (

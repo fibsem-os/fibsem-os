@@ -4,7 +4,7 @@ from fibsem.milling.base import MillingStrategy
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy  # noqa: F401
 from fibsem.milling.strategy.overtilt import OvertiltTrenchMillingStrategy
 from fibsem.milling.strategy.standard import StandardMillingStrategy
-from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
+from fibsem.plugins.loader import PluginRegistry, subclass_of
 
 DEFAULT_STRATEGY = StandardMillingStrategy
 BUILTIN_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] = {
