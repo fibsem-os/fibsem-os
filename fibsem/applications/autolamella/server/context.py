@@ -34,17 +34,49 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fibsem.acting import Actor
+from fibsem.acting import signer
+from fibsem.applications.autolamella import experiment_setup
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.config_edits import (
     ITEM_PATCH_FIELDS,
+    apply_agent_edit,
     apply_correlation,
     item_fields_version,
     item_patch_refusal,
     poi_patch,
 )
+from fibsem.applications.autolamella.overview_figure import save_markers_picture
+from fibsem.applications.autolamella.poses import (
+    FLUORESCENCE_ORIENTATION,
+    add_lamella,
+    current_objective_position,
+    fluorescence_move,
+    move_lamella,
+    remove_lamella,
+    set_lamella_pose,
+    set_objective_position,
+    set_objective_position_on_all,
+    stored_objective_position,
+)
+from fibsem.applications.autolamella.run_edits import (
+    busy_lamellae,
+    grid_edit_refusal,
+    lamella_edit_refusal,
+)
+from fibsem.applications.autolamella.structures import (
+    AutoLamellaTaskProtocol,
+    LamellaDefaultConfig,
+)
+from fibsem.applications.autolamella.workflows.estimate import grid_run_estimate
+from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
 from fibsem.codec import encode
+from fibsem.correlation.history import correlation_dir, load_run
+from fibsem.fm.preview import is_fluorescence_image
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
+from fibsem.imaging.animation import AnimationStep
+from fibsem.imaging.marks import drawn_path, image_stem, save_drawn
+from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
+from fibsem.milling.patterning.picture import milling_picture
 from fibsem.server.app_context import AppContext, find_item
 from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
@@ -59,10 +91,21 @@ from fibsem.server.responses import (
     no_experiment,
     refused,
 )
+from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, Point
 from fibsem.util.records import content_hash
+from fibsem.util.wording import describe_patch
 from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.config_patch import PatchError, apply_patch, check_patch
+from fibsem.workflows.events import to_plain
 from fibsem.workflows.grid.edits import keep_grid_note, remove_grid_record
+from fibsem.workflows.grid.imaging import BeamOverviewGridTaskConfig
+from fibsem.workflows.grid.manager import plan_grid_run
+from fibsem.workflows.grid.naming import (
+    grid_rename_refusal,
+    record_inventoried_grids,
+    rename_and_save_grid,
+)
 from fibsem.workflows.outputs import (
     all_item_outputs,
     files_by_run,
@@ -70,6 +113,7 @@ from fibsem.workflows.outputs import (
     latest_item_output,
     saved_file,
 )
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import CONFIG, GRID_RECORDS
 from fibsem.workflows.status import TaskStatus
@@ -260,8 +304,6 @@ class AutoLamellaAppContext(AppContext):
     def animation_steps(self, item_name: str) -> Dict[str, Any]:
         """A lamella's workflow animation, as the History tab's button makes it:
         a step per task, with its final images and fluorescence stacks."""
-        from fibsem.imaging.animation import AnimationStep
-
         experiment = self._experiment
         item, refusal = find_item(experiment, item_name)
         if refusal:
@@ -320,10 +362,6 @@ class AutoLamellaAppContext(AppContext):
         diagnostic plot.
         """
         import base64
-
-        from fibsem.fm.preview import is_fluorescence_image
-        from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
-        from fibsem.structures import BeamType, FibsemImage, Point
 
         experiment = self._experiment
         if experiment is None:
@@ -566,12 +604,6 @@ class AutoLamellaAppContext(AppContext):
         field of view, *current* where the stage is now."""
         import base64
 
-        from fibsem.applications.autolamella.overview_figure import (
-            save_markers_picture,
-        )
-        from fibsem.fm.preview import is_fluorescence_image
-        from fibsem.structures import FibsemImage
-
         experiment = self._experiment
         if experiment is None:
             return no_experiment()
@@ -628,10 +660,6 @@ class AutoLamellaAppContext(AppContext):
         the first (*background* "related") as the editor shows them, and the
         item's point of interest. Saved as ``drawn/<image>-<task>.png`` beside
         the image, a path the agent can cite as evidence."""
-        from fibsem.imaging.marks import drawn_path, image_stem, save_drawn
-        from fibsem.milling.patterning.picture import milling_picture
-        from fibsem.structures import FibsemImage
-
         experiment = self._experiment
         if experiment is None:
             return {"error_type": "not_found", "error": "No experiment is open."}
@@ -740,33 +768,21 @@ class AutoLamellaAppContext(AppContext):
 
     @property
     def protocol_type(self):
-        from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-
         return AutoLamellaTaskProtocol
 
     def _protocol_folder(self) -> Optional[str]:
-        from fibsem.applications.autolamella import experiment_setup
-
         return experiment_setup.protocol_directory()
 
     def _protocol_folders(self) -> List[str]:
-        from fibsem.applications.autolamella import experiment_setup
-
         return experiment_setup.protocol_folders()
 
     def _default_protocol_path(self) -> Optional[str]:
-        from fibsem.applications.autolamella import experiment_setup
-
         return experiment_setup.default_protocol_path()
 
     def _new_experiment(self, directory, name, protocol, metadata):
-        from fibsem.applications.autolamella import experiment_setup
-
         return experiment_setup.create_experiment(directory, name, protocol, metadata)
 
     def _load_for_adoption(self, path):
-        from fibsem.applications.autolamella import experiment_setup
-
         return experiment_setup.load_for_adoption(path)
 
     # --- lamella positions: the Lamella tab's buttons, for an agent at Drive ------
@@ -777,9 +793,9 @@ class AutoLamellaAppContext(AppContext):
         """An agent's config edit (``config_edits``) where the session edits
         the experiment, said on ``session.changed`` when applied; *shown* is the
         level said, when not *level*."""
-        from fibsem.applications.autolamella.config_edits import apply_agent_edit
-
         session = self._session
+        experiment = session.experiment
+        who = signer(experiment.actor()) if experiment is not None else None
 
         def edit():
             result = apply_agent_edit(
@@ -790,6 +806,7 @@ class AutoLamellaAppContext(AppContext):
                 task_name,
                 patch,
                 version,
+                who,
             )
             if result.get("applied"):
                 session.changed.emit(
@@ -859,8 +876,6 @@ class AutoLamellaAppContext(AppContext):
         also puts it on that grid). Its poses, milling angle and grid are worked
         out as for a click; it is saved. At the stage position now is refused
         while a workflow runs: the stage is wherever the run has moved it."""
-        from fibsem.applications.autolamella.poses import add_lamella
-
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
@@ -900,8 +915,6 @@ class AutoLamellaAppContext(AppContext):
         """``(position, grid_id, refusal)`` for a point given as a stage position
         or under a point of a grid overview (which also names its grid); all
         None for neither."""
-        from fibsem.structures import FibsemStagePosition
-
         if overview is not None:
             converted = self.overview_stage_position(
                 overview.get("grid_name", ""),
@@ -925,8 +938,6 @@ class AutoLamellaAppContext(AppContext):
     def remove_item(self, item_name: str) -> Dict[str, Any]:
         """Remove a lamella from the experiment, as its row's Remove does. Its
         files stay on disk. Refused for the lamella a run is working on."""
-        from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
-
         experiment, _, refusal = self._editable()
         if refusal:
             return refusal
@@ -938,8 +949,6 @@ class AutoLamellaAppContext(AppContext):
         )
         if refusal:
             return refusal
-
-        from fibsem.applications.autolamella.poses import remove_lamella
 
         self._agent_call(lambda: remove_lamella(experiment, lamella))
         return {"applied": True, "item_name": item_name}
@@ -960,7 +969,6 @@ class AutoLamellaAppContext(AppContext):
         stage = getattr(microscope, "sample_handling", None)
         if stage is None:
             return refused("not_found", "No sample handling here.")
-        from fibsem.workflows.grid.naming import record_inventoried_grids
 
         stage.get_inventory()
 
@@ -982,12 +990,6 @@ class AutoLamellaAppContext(AppContext):
         first, then its record. Refused for a grid that has run, a name another
         grid has, and while a run is on it or has it queued (its queue holds
         grids by name)."""
-        from fibsem.applications.autolamella.run_edits import grid_edit_refusal
-        from fibsem.workflows.grid.naming import (
-            grid_rename_refusal,
-            rename_and_save_grid,
-        )
-
         name = name.strip()
         if not name:
             return refused("invalid", "A grid needs a name.")
@@ -1045,10 +1047,8 @@ class AutoLamellaAppContext(AppContext):
         self, grid_name: str, verdict: str, reason: str = ""
     ) -> Dict[str, Any]:
         """Judge a grid, as its card's quality menu does: GOOD, REWORK, FAILED,
-        or UNASSESSED to clear it, with an optional reason. Signed as the
-        agent's; saved."""
-        from fibsem.workflows.quality import Verdict
-
+        or UNASSESSED to clear it, with an optional reason. Signed by the
+        caller, the operator or the agent; saved."""
         experiment, grid, refusal = self._grid_record(grid_name)
         if refusal:
             return refusal
@@ -1058,11 +1058,10 @@ class AutoLamellaAppContext(AppContext):
                 "invalid", f"verdict is one of {', '.join(names)}, not {verdict!r}."
             )
         state = Verdict[str(verdict).upper()]
+        who = signer(experiment.actor())
 
         def judge():
-            grid.quality.set_defect(
-                description=reason or "", state=state, actor=Actor.agent("remote")
-            )
+            grid.quality.set_defect(description=reason or "", state=state, actor=who)
             experiment.save_verdict(grid)
             self._grids_changed()
 
@@ -1098,8 +1097,6 @@ class AutoLamellaAppContext(AppContext):
         """Stop tracking a grid, as the Grids tab's Remove does: its files stay,
         its lamellae stay with no grid. Refused while a run is on it or one of
         its lamellae. Saved."""
-        from fibsem.applications.autolamella.run_edits import grid_edit_refusal
-
         experiment, grid, refusal = self._grid_record(grid_name)
         if refusal:
             return refusal
@@ -1151,8 +1148,6 @@ class AutoLamellaAppContext(AppContext):
         Set pose does. Setting MILLING moves the lamella: its milling angle and
         fluorescence pose follow. Saved. Not while a run is on: the run moves
         the stage, so "now" is wherever it happens to be."""
-        from fibsem.applications.autolamella.poses import set_lamella_pose
-
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
@@ -1200,13 +1195,10 @@ class AutoLamellaAppContext(AppContext):
             return refused("not_found", "This microscope has no FM.")
         if lamella.fluorescence_pose is None:
             return refused("not_found", f"{item_name} has no fluorescence pose.")
-        from fibsem.applications.autolamella.poses import current_objective_position
 
         value = current_objective_position(fm)
         if value is None:
             return refused("not_found", "The objective position is unavailable.")
-
-        from fibsem.applications.autolamella.poses import set_objective_position
 
         def store():
             set_objective_position(experiment, lamella, value)
@@ -1227,13 +1219,6 @@ class AutoLamellaAppContext(AppContext):
         fluorescence side moves its fluorescence pose and the milling pose
         follows; otherwise the other way round. The stage doesn't move. Saved.
         Refused for the lamella a run is working on."""
-        from fibsem.applications.autolamella.poses import (
-            FLUORESCENCE_ORIENTATION,
-            fluorescence_move,
-            move_lamella,
-        )
-        from fibsem.applications.autolamella.run_edits import lamella_edit_refusal
-
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
@@ -1269,9 +1254,6 @@ class AutoLamellaAppContext(AppContext):
         """Store a lamella's objective position on every lamella with a
         fluorescence pose, as its Apply to All Lamella does, except the one a
         run is working on. Saved."""
-        from fibsem.applications.autolamella.poses import set_objective_position_on_all
-        from fibsem.applications.autolamella.run_edits import busy_lamellae
-
         experiment, _, refusal = self._editable()
         if refusal:
             return refusal
@@ -1304,8 +1286,6 @@ class AutoLamellaAppContext(AppContext):
         """Move the FM objective to the position stored on a lamella's
         fluorescence pose, as the tab's Move to does: the objective only, not
         the stage. Runs on the caller's thread, which holds control."""
-        from fibsem.applications.autolamella.poses import stored_objective_position
-
         experiment, microscope, refusal = self._editable()
         if refusal:
             return refusal
@@ -1327,8 +1307,6 @@ class AutoLamellaAppContext(AppContext):
         }
 
     def detail_of(self, experiment, item) -> LamellaDetail:
-        from fibsem.workflows.events import to_plain
-
         detail = super().detail_of(experiment, item)
         detail.is_failure = bool(item.is_failure)
         detail.milling_angle = item.milling_angle
@@ -1364,8 +1342,6 @@ class AutoLamellaAppContext(AppContext):
         """A config edit in an agent's request, as the config's form names it:
         each setting in display units, old -> new. None for any
         other action, or a config this experiment doesn't have."""
-        from fibsem.util.wording import describe_patch
-
         config = self._edited_task_config(tool, arguments)
         if config is None:
             return None
@@ -1395,8 +1371,6 @@ class AutoLamellaAppContext(AppContext):
         runs, checked at filing so the operator never approves one that can only
         fail. None for any other action, or one whose target the route itself
         refuses (no such item or task)."""
-        from fibsem.workflows.config_patch import PatchError, check_patch
-
         experiment = self._experiment
         patch = arguments.get("patch")
         if experiment is None or not isinstance(patch, dict):
@@ -1478,8 +1452,6 @@ class AutoLamellaAppContext(AppContext):
         it is version-checked, the patterns that follow the point move with it,
         and it is saved and shown as the agent's edit.
         """
-        from fibsem.correlation.history import correlation_dir, load_run
-
         experiment = self._experiment
         if experiment is None:
             return no_experiment()
@@ -1640,8 +1612,6 @@ class AutoLamellaAppContext(AppContext):
         """What a lamella run would queue and cost, as the Workflow tab's
         confirmation shows it, or with *add* what adding it to the running
         queue would: no hardware, nothing queued (`plan_lamella_run`)."""
-        from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
-
         experiment = self._experiment
         if experiment is None or experiment.task_protocol is None:
             return no_experiment()
@@ -1680,10 +1650,6 @@ class AutoLamellaAppContext(AppContext):
         preflight dialog's (`grid_run_estimate`) without them, with each beam
         overview's tiles and size.
         """
-        from fibsem.workflows.grid.manager import (
-            plan_grid_run,
-        )
-
         experiment = self._experiment
         if experiment is None or experiment.task_protocol is None:
             return no_experiment()
@@ -1774,8 +1740,6 @@ class AutoLamellaAppContext(AppContext):
         image fraction) and ``alignment_area`` ({left, top, width, height}
         fractions). Only the keys given change; null or {} clears ``poi``
         or ``alignment_area``. Existing lamellae keep theirs."""
-        from fibsem.applications.autolamella.structures import LamellaDefaultConfig
-
         experiment, _, refusal = self._workflow_edit("edit the lamella defaults")
         if refusal:
             return refusal
@@ -1856,9 +1820,6 @@ class AutoLamellaAppContext(AppContext):
         tab's grid task form does; ``attention`` (automated, supervised) is the
         Grids view's Automated/Supervised chip. Version-guarded like the lamella
         task configs."""
-        from fibsem.workflows.config_patch import PatchError, apply_patch
-        from fibsem.workflows.events import to_plain
-
         experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")
         if refusal:
             return refusal
@@ -2036,9 +1997,6 @@ def _addition_estimate(addition) -> Optional[Dict[str, Any]]:
 def _grid_plan_estimate(experiment, task_names, grid_names) -> Optional[Dict[str, Any]]:
     """A grid run's time, exchanges not counted, and each beam overview's
     tiles and size: what its confirmation says. None when it can't say."""
-    from fibsem.applications.autolamella.workflows.estimate import grid_run_estimate
-    from fibsem.workflows.grid.imaging import BeamOverviewGridTaskConfig
-
     estimate = grid_run_estimate(
         experiment, None, list(task_names), list(grid_names), exchanges=0
     )

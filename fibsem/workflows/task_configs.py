@@ -7,7 +7,7 @@ import copy
 import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.acting import AGENT, acting
+from fibsem.acting import AGENT, Actor, acting
 from fibsem.util.records import content_hash
 from fibsem.workflows.config_patch import PatchError, apply_patch
 from fibsem.workflows.edit_recording import PendingEdits, serialise
@@ -183,11 +183,13 @@ def agent_patch_task_config(
     task_name: str,
     patch: dict,
     version: str,
+    actor: Optional[Actor] = None,
 ) -> dict:
-    """The agent's :func:`patch_task_config`, recorded as the agent's: what it
-    changed, before and after, on *microscope*'s record."""
+    """An App Server :func:`patch_task_config`, recorded as *actor*'s (the
+    agent when not given): what it changed, before and after, on
+    *microscope*'s record."""
     edits = PendingEdits(microscope, via="agent patch")
-    with acting(AGENT):
+    with acting(actor.kind if actor is not None else AGENT):
         try:
             lamella, _, refusal = task_config_at(
                 experiment, level, item_name, task_name
