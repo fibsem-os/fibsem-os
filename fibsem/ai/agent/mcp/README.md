@@ -162,7 +162,7 @@ fibsem-agent
 - **What it says.** The agent's replies and tool calls go to the console and
   to `~/.fibsem/agent/fibsem-agent-<time>.log` (`--log` to choose). What the
   operator must read in the app, it sends as a message
-  (`experiment_message_operator`, a toast in the window), answering a message
+  (`experiment_message_operator`), answering a message
   from the Agent card with its `reply_to`; a judgment worth keeping is a note
   (`experiment_add_note`).
 - **Waking.** Lines are held while the level is Off, and come as one turn
