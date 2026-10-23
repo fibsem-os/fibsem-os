@@ -361,7 +361,7 @@ class AutoLamellaAppContext(AppContext):
             "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
         }
 
-    # --- grids: the screening read model (FIB-876) ----------------------------
+    # --- grids: the screening read model ----------------------------
 
     def grids(self) -> Dict[str, Any]:
         """Every grid the experiment knows, with its latest recorded overviews.
@@ -1227,7 +1227,7 @@ class AutoLamellaAppContext(AppContext):
     def item_version(self, item) -> str:
         return item_fields_version(item)
 
-    # --- task configs (FIB-864, read side) --------------------------------------
+    # --- task configs (read side) --------------------------------------
 
     def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]:
         """One item's own copy of a task config — what its run executes."""
@@ -1262,8 +1262,8 @@ class AutoLamellaAppContext(AppContext):
     def describe_action(
         self, tool: str, arguments: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """A config edit in an agent's request, as the config's form names it
-        (FIB-1403): each setting in display units, old -> new. None for any
+        """A config edit in an agent's request, as the config's form names it:
+        each setting in display units, old -> new. None for any
         other action, or a config this experiment doesn't have."""
         from fibsem.util.wording import describe_patch
 
@@ -1419,7 +1419,7 @@ class AutoLamellaAppContext(AppContext):
             applied["run_path"] = run_path
         return applied
 
-    # --- proposals and decisions (FIB-950) ------------------------------------
+    # --- proposals and decisions ------------------------------------
 
     def reorder_milling_stages(
         self,

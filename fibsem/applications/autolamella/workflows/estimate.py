@@ -3,7 +3,7 @@ estimate walk (:mod:`fibsem.workflows.estimate`) is handed for this app's runs.
 
 A lamella step costs its own task config's estimate, a grid step what
 :func:`fibsem.workflows.grid.estimate.grid_item_seconds` says, and only lamella
-tasks have a schedule. See FIB-666.
+tasks have a schedule.
 """
 
 import logging
@@ -50,7 +50,7 @@ def step_seconds(
     A step that cannot be priced is None rather than an error: ``estimated_time``
     divides by the sputter rate (milling/base.py), so a hand-edited protocol can
     raise, and losing a figure is a great deal better than losing the dialog or
-    the slot (FIB-329: PyQt aborts on an exception in a slot) that shows it.
+    the slot (PyQt aborts on an exception in a slot) that shows it.
     """
     lamella_by_name = {lam.name: lam for lam in experiment.positions}
     grid_seconds = None

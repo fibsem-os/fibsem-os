@@ -57,7 +57,7 @@ class ProtocolTab(QWidget):
         self.tasks = WorkflowTaskList()
         self.tasks.setFixedWidth(TASK_LIST_WIDTH)
         self._editor = TaskEditorDialog(self)
-        # Each settings edit, for the experiment's record (FIB-1034).
+        # Each settings edit, for the experiment's record.
         self._edits = PendingEdits(
             lambda: self.session.microscope, via="protocol editor", parent=self
         )

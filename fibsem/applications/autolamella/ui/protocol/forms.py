@@ -69,7 +69,7 @@ class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
         disconnect/reconnect, so without this the widget keeps the microscope it
         was constructed with -- and its channel editor keeps offering that
         microscope's excitation/emission filters. Connect to a non-FM system
-        first and it offers none at all, for the life of the process (FIB-525).
+        first and it offers none at all, for the life of the process.
 
         The captured ``fm`` matters as much as the microscope: it is a live
         handle to hardware, not a value.

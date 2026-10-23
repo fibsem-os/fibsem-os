@@ -58,8 +58,7 @@ _EXAMPLE_PETNAME = "brave-tiger"
 
 _AA_SPIN_W = 120  # holds a bare "0.20"
 # Sized for the widest legal POI value, "-50.00 µm" — sign, digits and the suffix.
-# Sizing for a typical "-3.00 µm" instead clips silently at the extremes, which is
-# how the suffix used to render as "µn".
+# Sizing for a typical "-3.00 µm" instead clips silently at the extremes.
 _POI_SPIN_W = 150
 
 # ── Preview image settings ─────────────────────────────────────────────────────
@@ -69,9 +68,8 @@ _PIXEL_SIZE = _PREVIEW_HFW / _PREVIEW_W
 _PREVIEW_VFW = _PREVIEW_HFW * _PREVIEW_H / _PREVIEW_W  # vertical field width (metres)
 
 # POI spinbox limits = half the preview frame, so every value the spinboxes accept
-# lands inside the image. Previously ±5000 µm, 100x what a 100 µm frame can show:
-# _poi_to_pixel clamps anything past the edge, so the marker parked on the border
-# and displayed a position it did not have (500 µm and 5000 µm looked identical).
+# lands inside the image: _poi_to_pixel clamps anything past the edge, so the
+# marker would park on the border at a position it did not have.
 _POI_LIMIT_X_UM = _PREVIEW_HFW / 2 * 1e6  # 50.00
 _POI_LIMIT_Y_UM = _PREVIEW_VFW / 2 * 1e6  # 37.50
 
