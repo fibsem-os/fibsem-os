@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.acting import OPERATOR, Actor, current_actor
+from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor
 from fibsem.codec import decode, encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.responses import (
@@ -29,6 +29,7 @@ from fibsem.server.responses import (
     PixelPoint,
     Queue,
     QueueEntry,
+    RunFailed,
     SavedImageMetadata,
     SavedImagePixels,
     SavedImagePosition,
@@ -42,6 +43,7 @@ from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record
+from fibsem.workflows.events import iso_time
 from fibsem.workflows.evidence import EVIDENCE, frame_path
 from fibsem.workflows.experiments import (
     default_experiment_directory,
@@ -49,6 +51,7 @@ from fibsem.workflows.experiments import (
     filter_experiments,
 )
 from fibsem.workflows.outputs import files_by_run, recorded_outputs, stack_slices
+from fibsem.workflows.progress_line import ProgressLine, ProgressLines
 from fibsem.workflows.runner import ITEMS, RunRequest, stop_message
 from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
@@ -136,6 +139,10 @@ class AppContext:
     def __init__(self, session, event_buffer=None):
         self._session = session
         self._event_buffer = event_buffer
+        # The microscope's progress, followed from the first status read.
+        self._progress = ProgressLines()
+        self._progress_microscope = None
+        self._stop_progress: Optional[Callable[[], None]] = None
 
     # --- call-time resolution: never cache what the app rebinds ---------------
 
@@ -308,7 +315,47 @@ class AppContext:
             if active is not None:
                 status.workflow.current_task = active.task_name
                 status.workflow.current_item = active.item_name
+        self._run_line(status.workflow)
+        status.progress = self._progress_now()
+        control = getattr(self._microscope, "control", None)
+        held = getattr(control, "current", None)
+        if held is not None and held.by != WORKFLOW:
+            status.in_control = held
         return status
+
+    def _run_line(self, workflow: WorkflowState) -> None:
+        """What the run last said (`RunLine`): its place, step, hold and failures."""
+        runner = self._runner
+        line = runner.line
+        report = line.report
+        if self._running:
+            if report is not None:
+                workflow.queue_position = report.queue_position
+                workflow.iteration = report.iteration
+            workflow.step = line.step or None
+            if line.hold is not None:
+                workflow.waiting_on = line.hold.releases
+                workflow.waiting_since = iso_time(line.held_since)
+        if line.failures:
+            last = line.failures[-1]
+            workflow.failed = RunFailed(
+                last.what, last.message, iso_time(last.at), len(line.failures)
+            )
+        elif not self._running and runner.last_note:
+            workflow.failed = RunFailed("Run stalled", runner.last_note)
+
+    def _progress_now(self) -> Optional[ProgressLine]:
+        """The microscope's progress line now, following the microscope there is."""
+        microscope = self._microscope
+        if microscope is not self._progress_microscope:
+            if self._stop_progress is not None:
+                self._stop_progress()
+            self._progress = ProgressLines()
+            self._stop_progress = (
+                self._progress.follow(microscope) if microscope is not None else None
+            )
+            self._progress_microscope = microscope
+        return self._progress.current
 
     def queue(self) -> Queue:
         """The live work queue: id-anchored items plus the mutation version."""
