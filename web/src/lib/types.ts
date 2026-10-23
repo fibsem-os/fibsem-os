@@ -1,6 +1,8 @@
 // The answers the pages read, typed by hand until the routes declare response
 // models and the types are generated from openapi.json.
 
+import type { Marks } from "./marks";
+
 export interface Capabilities {
   api_version: string;
   routers: { microscope: boolean; services: boolean; app: boolean };
@@ -66,6 +68,9 @@ export interface ImagePayload {
   image_b64_jpeg: string;
   width: number;
   height: number;
+  /** The source image's size in pixels, which the preview is a copy of. */
+  full_width?: number;
+  full_height?: number;
   hfw?: number;
   beam_type?: string;
   acquired_at?: string | null;
@@ -199,11 +204,8 @@ export interface TranscriptLine {
 }
 
 export interface EvidenceAnswer {
-  preview: (ImagePayload & { full_width?: number; full_height?: number }) | null;
-  marks: {
-    points?: { x: number; y: number; label?: string }[];
-    areas?: { x: number; y: number; width: number; height: number; label?: string }[];
-  } | null;
+  preview: ImagePayload | null;
+  marks: Marks | null;
   path: string;
 }
 

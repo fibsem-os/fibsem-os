@@ -1,11 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import { MarkLayer } from "@/components/marks";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
+import { AGENT_MARK, listMarks } from "@/lib/marks";
 import type { EvidenceAnswer } from "@/lib/types";
-
-// The agent's purple, light enough to read on a grey overview.
-const MARK = "#a78bfa";
 
 /** Click to see it large. */
 function Enlargeable({ title, children }: { title: string; children: (big: boolean) => ReactNode }) {
@@ -39,35 +38,6 @@ export function EvidenceImage({ id }: { id: string }) {
   if (!p) return null;
   const w = p.full_width ?? p.width;
   const h = p.full_height ?? p.height;
-  const marks = answer.data?.marks ?? {};
-  // Thin marks sized for the picture a few hundred pixels wide; a faint halo keeps them clear of the image.
-  const r = Math.max(w / 60, 4);
-  const sw = Math.max(w / 320, 1.5);
-  const size = Math.max(w / 30, 10);
-  const halo = {
-    stroke: "#000",
-    strokeOpacity: 0.5,
-    strokeWidth: sw * 2,
-    fill: "none",
-  };
-  const line = { stroke: MARK, strokeWidth: sw, fill: "none" };
-  const label = (x: number, y: number, text?: string) =>
-    text && (
-      <text
-        x={x}
-        y={y}
-        fill={MARK}
-        fontWeight={600}
-        fontSize={size}
-        stroke="#000"
-        strokeOpacity={0.5}
-        strokeWidth={sw * 1.5}
-        strokeLinejoin="round"
-        paintOrder="stroke"
-      >
-        {text}
-      </text>
-    );
   return (
     <Enlargeable title="Evidence">
       {() => (
@@ -77,22 +47,7 @@ export function EvidenceImage({ id }: { id: string }) {
             alt="The image the agent judged from"
             src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
           />
-          <svg className="absolute inset-0 h-full w-full" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
-            {(marks.points ?? []).map((m, i) => (
-              <g key={`p${i}`}>
-                <circle cx={m.x} cy={m.y} r={r} {...halo} />
-                <circle cx={m.x} cy={m.y} r={r} {...line} />
-                {label(m.x + r * 1.4, m.y, m.label)}
-              </g>
-            ))}
-            {(marks.areas ?? []).map((m, i) => (
-              <g key={`a${i}`}>
-                <rect x={m.x} y={m.y} width={m.width} height={m.height} {...halo} />
-                <rect x={m.x} y={m.y} width={m.width} height={m.height} {...line} />
-                {label(m.x, m.y - sw * 2, m.label)}
-              </g>
-            ))}
-          </svg>
+          <MarkLayer marks={listMarks(answer.data?.marks)} width={w} height={h} color={AGENT_MARK} />
         </div>
       )}
     </Enlargeable>
