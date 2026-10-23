@@ -107,6 +107,12 @@ def _post(qapp, client, path, body):
     return posted["response"]
 
 
+def _refused(resp, status):
+    """*resp* is a refusal with *status*; its detail."""
+    assert resp.status_code == status, resp.text
+    return resp.json()["detail"]
+
+
 def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp, monkeypatch):
     held = hold_runs(monkeypatch, GRIDS)
     runner = ui.session.runner
@@ -134,33 +140,39 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp, monkeypatch
             {"name": "overview_sem", "type": "BEAM_OVERVIEW_GRID"}
         ]
 
-        refused = _post(
-            qapp, client, "/app/workflow/grids/start", {"task_names": ["No Such"]}
-        ).json()
-        assert refused["started"] is False
+        refused = _refused(
+            _post(
+                qapp, client, "/app/workflow/grids/start", {"task_names": ["No Such"]}
+            ),
+            404,
+        )
         assert refused["task_names"] == ["overview_sem"]
 
-        refused = _post(
-            qapp,
-            client,
-            "/app/workflow/grids/start",
-            {"task_names": ["overview_sem"], "grid_names": ["grid-oak"]},
-        ).json()
-        assert refused["started"] is False
+        refused = _refused(
+            _post(
+                qapp,
+                client,
+                "/app/workflow/grids/start",
+                {"task_names": ["overview_sem"], "grid_names": ["grid-oak"]},
+            ),
+            404,
+        )
         assert refused["grid_names"] == ["grid-aspen", "grid-birch"]
 
-        refused = _post(
-            qapp,
-            client,
-            "/app/workflow/grids/start",
-            {
-                "task_names": ["overview_sem"],
-                "grid_names": ["grid-aspen"],
-                "screen_all": True,
-            },
-        ).json()
-        assert refused["started"] is False
-        assert "screen_all" in refused["reason"]
+        refused = _refused(
+            _post(
+                qapp,
+                client,
+                "/app/workflow/grids/start",
+                {
+                    "task_names": ["overview_sem"],
+                    "grid_names": ["grid-aspen"],
+                    "screen_all": True,
+                },
+            ),
+            422,
+        )
+        assert "screen_all" in refused["message"]
         assert calls() == []
 
         # Omitted grids means every recorded grid; the plan comes back with it.
@@ -178,16 +190,23 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp, monkeypatch
         assert calls() == [(["overview_sem"], ["grid-aspen", "grid-birch"], False)]
 
         # One worker slot: while it is "running", neither kind of run may start.
-        again = _post(
-            qapp, client, "/app/workflow/grids/start", {"task_names": ["overview_sem"]}
-        ).json()
-        assert again["started"] is False
-        assert "already running" in again["reason"]
-        lamella = _post(
-            qapp, client, "/app/workflow/start", {"task_names": ["overview_sem"]}
-        ).json()
-        assert lamella["started"] is False
-        assert "already running" in lamella["reason"]
+        again = _refused(
+            _post(
+                qapp,
+                client,
+                "/app/workflow/grids/start",
+                {"task_names": ["overview_sem"]},
+            ),
+            409,
+        )
+        assert "already running" in again["message"]
+        lamella = _refused(
+            _post(
+                qapp, client, "/app/workflow/start", {"task_names": ["overview_sem"]}
+            ),
+            409,
+        )
+        assert "already running" in lamella["message"]
         held.end(runner)
 
         # Screen all grids: inventory first, no grid list, no plan to promise.
@@ -197,7 +216,7 @@ def test_grid_start_validates_and_starts_on_the_gui_thread(ui, qapp, monkeypatch
             "/app/workflow/grids/start",
             {"task_names": ["overview_sem"], "screen_all": True},
         ).json()
-        assert screened == {"available": True, "started": True, "screen_all": True}
+        assert screened == {"started": True, "screen_all": True}
         assert calls()[-1] == (["overview_sem"], None, True)
         held.end(runner)
 
@@ -232,7 +251,6 @@ def test_grid_start_requires_control_and_a_valid_body(ui, qapp):
             json={"task_names": ["overview_sem"]},
         )
         assert plan.status_code == 200
-        assert plan.json()["valid"] is True
         # The confirmation's time, and the overview's tiles and size.
         estimate = plan.json()["estimate"]
         assert estimate["seconds"] > 0

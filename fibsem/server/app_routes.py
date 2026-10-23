@@ -13,6 +13,7 @@ tagged with it and served only when the context implements that part.
 """
 
 import functools
+import gzip
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,17 +25,19 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
-from fibsem.server import exports, files
-from fibsem.server.auth import refuse_dashboard, take_control
+from fibsem.server import exports, files, planes
+from fibsem.server.auth import refusal_error, refuse_dashboard, take_control
 from fibsem.server.parts import (
     GRIDS,
     ITEMS,
     LAMELLAE,
     MILLING_STAGES,
     POSES,
+    REPLAY,
     served_parts,
 )
 from fibsem.server.responses import (
+    REFUSAL_STATUS,
     AnimationFrames,
     AppStatus,
     ConfigEdit,
@@ -74,6 +77,9 @@ from fibsem.server.responses import (
     QueueEdited,
     RecentExperiments,
     Recorded,
+    Refusal,
+    ReplayTimeline,
+    ReplayView,
     Requeued,
     RunPlan,
     RunStarted,
@@ -146,19 +152,10 @@ def _grid_run_body(body: Dict[str, Any]):
 IMAGE_METADATA_HEADER = "X-Image-Metadata"
 
 
-def _jpeg_or_404(result: Dict[str, Any]) -> Response:
+def _jpeg(result: Any) -> Response:
     """An image context answer as a real image/jpeg response (so a browser
-    ``<img>`` can consume it), or a structured 404 carrying the valid names."""
-    jpeg = result.get("jpeg")
-    if jpeg is None:
-        detail: Dict[str, Any] = {
-            "error_type": "not_found",
-            "message": result.get("error", "No such output image."),
-        }
-        for key in ("filenames", "grid_names"):
-            if key in result:
-                detail[key] = result[key]
-        raise HTTPException(status_code=404, detail=detail)
+    ``<img>`` can consume it), or its refusal carrying the valid names."""
+    jpeg = _answer_or_refusal(result)["jpeg"]
     headers = {}
     if result.get("metadata") is not None:
         # The image's scale and state (images.image_metadata), for the agent's
@@ -167,22 +164,17 @@ def _jpeg_or_404(result: Dict[str, Any]) -> Response:
     return Response(content=jpeg, media_type="image/jpeg", headers=headers)
 
 
-_REFUSAL_STATUS = {
-    "not_found": 404,
-    "invalid": 422,
-    "task_running": 409,
-    "not_pending": 409,
-    "not_allowed": 403,
-    "no_experiment": 409,
-}
+def _refusal_error(refusal: Refusal) -> HTTPException:
+    """*refusal* as the HTTP error a route answers it with."""
+    return refusal_error(
+        refusal.status, refusal.error_type, refusal.message, **refusal.names
+    )
 
 
 def _missing_field(message: str) -> HTTPException:
     """The 422 for a request missing what a route needs, *message* saying what
     to pass."""
-    return HTTPException(
-        status_code=422, detail={"error_type": "missing_field", "message": message}
-    )
+    return refusal_error(422, "missing_field", message)
 
 
 def _note_body(body: Dict[str, Any], *optional: str) -> Tuple[str, Optional[str]]:
@@ -204,21 +196,6 @@ def _note_body(body: Dict[str, Any], *optional: str) -> Tuple[str, Optional[str]
             f"{' and '.join(strings)} (strings) are optional."
         )
     return text, body.get("item_name")
-
-
-def _recorded_or_not_found(result: Dict[str, Any]) -> Dict[str, Any]:
-    """*result* of putting something on the record, or the 404 for the item it
-    named that is not there."""
-    if not result.get("recorded") and result.get("error"):
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error_type": "not_found",
-                "message": result["error"],
-                "item_names": result.get("item_names", []),
-            },
-        )
-    return result
 
 
 def _required_text(body: Dict[str, Any], key: str, what: str) -> str:
@@ -244,12 +221,8 @@ def _numbers(text: Optional[str]) -> Optional[List[float]]:
     try:
         return [float(part) for part in text.split(",")]
     except ValueError:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_type": "invalid",
-                "message": f"A region is four numbers, x,y,width,height; not {text!r}.",
-            },
+        raise refusal_error(
+            422, "invalid", f"A region is four numbers, x,y,width,height; not {text!r}."
         )
 
 
@@ -277,27 +250,36 @@ def _run_body(body: Dict[str, Any]) -> Tuple[List[str], Optional[List[str]]]:
     return task_names, item_names
 
 
-def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
-    """A context answer, or its refusal as an HTTP error: ``error_type`` picks the
-    status, ``error`` is the message, and any lists of valid names ride along."""
+def _answer_or_refusal(result: Any) -> Any:
+    """A context answer, or its refusal as an HTTP error: a `Refusal`, or a dict
+    whose ``error_type`` picks the status, ``error`` is the message, and any
+    lists of valid names ride along."""
+    if isinstance(result, Refusal):
+        raise _refusal_error(result)
+    if not isinstance(result, dict):
+        return result
     error_type = result.get("error_type")
     if error_type is None:
         return result
-    detail = {
-        "error_type": error_type,
-        "message": result.get("error", result.get("message", "")),
+    names = {
+        key: value
+        for key, value in result.items()
+        if key.endswith(("_names", "_paths")) or key == "filenames"
     }
-    for key, value in result.items():
-        if key.endswith(("_names", "_paths")) or key == "filenames":
-            detail[key] = value
-    raise HTTPException(status_code=_REFUSAL_STATUS.get(error_type, 422), detail=detail)
+    raise refusal_error(
+        REFUSAL_STATUS.get(error_type, 422),
+        error_type,
+        result.get("error", result.get("message", "")),
+        **names,
+    )
 
 
 def _typed(result: Any) -> Response:
     """A context answer: a refusal raises (`_answer_or_refusal`), a structure
     answers as the codec writes it, and a dict as it is."""
+    result = _answer_or_refusal(result)
     if isinstance(result, dict):
-        return JSONResponse(jsonable_encoder(_answer_or_refusal(result)))
+        return JSONResponse(jsonable_encoder(result))
     return answer(result)
 
 
@@ -308,6 +290,8 @@ def _as_sent(endpoint):
     @functools.wraps(endpoint)
     def route(*args, **kwargs):
         result = endpoint(*args, **kwargs)
+        if isinstance(result, Refusal):
+            raise _refusal_error(result)
         if isinstance(result, Response):
             return result
         return JSONResponse(jsonable_encoder(result))
@@ -334,6 +318,13 @@ def _app_type(context: Any, base: type) -> type:
 _JPEG = {200: {"content": {"image/jpeg": {}}, "description": "A JPEG image."}}
 # A file read raw (``raw=true``) answers the file as it is.
 _RAW_FILE = {200: {"content": {"application/octet-stream": {}}}}
+_PLANES = {
+    200: {
+        "content": {"application/octet-stream": {}},
+        "description": "The planes' values; the X-Planes header says their shape.",
+    }
+}
+
 # An export answers the file it makes, to download.
 _EXPORT = {
     200: {
@@ -410,16 +401,7 @@ def build_app_router(context: Any) -> APIRouter:
             level=level,
             lines=min(max(lines, 1), 2000),
         )
-        if "error" in result:
-            status = 404 if result.get("error_type") == "not_found" else 422
-            detail = {
-                "error_type": result["error_type"],
-                "message": result["error"],
-            }
-            if "levels" in result:
-                detail["levels"] = result["levels"]
-            raise HTTPException(status_code=status, detail=detail)
-        return result
+        return _answer_or_refusal(result)
 
     @router.get(
         "/experiment/items/{item_name}/outputs",
@@ -434,6 +416,14 @@ def build_app_router(context: Any) -> APIRouter:
     )
     def item_stack(item_name: str, role: str):
         return _typed(context.item_stack(item_name, role))
+
+    @router.get("/experiment/replay", tags=[REPLAY], response_model=ReplayTimeline)
+    def replay():
+        return _typed(context.replay())
+
+    @router.get("/experiment/replay/{index}", tags=[REPLAY], response_model=ReplayView)
+    def replay_scene(index: int, item: Optional[str] = None):
+        return _typed(context.replay_scene(index, item))
 
     @router.get(
         "/experiment/items/{item_name}",
@@ -467,7 +457,7 @@ def build_app_router(context: Any) -> APIRouter:
         # Serves actual image/jpeg (not a JSON payload) so a browser <img>
         # can consume it; filename must be a basename the item's own
         # outputs listing names — the context refuses anything else.
-        return _jpeg_or_404(
+        return _jpeg(
             context.output_image(item_name, filename, files.preview_width(width))
         )
 
@@ -536,7 +526,7 @@ def build_app_router(context: Any) -> APIRouter:
     def grid_output_image(grid_name: str, filename: str, cells: bool = False):
         # cells: the overview's named cells drawn on it, listed in the
         # metadata header.
-        return _jpeg_or_404(context.grid_output_image(grid_name, filename, cells=cells))
+        return _jpeg(context.grid_output_image(grid_name, filename, cells=cells))
 
     # {filename:path}: any saved image's path in the experiment, slashes and all.
     @router.get(
@@ -596,12 +586,8 @@ def build_app_router(context: Any) -> APIRouter:
             if value is not None:
                 bounds[name] = to_datetime(value)
                 if bounds[name] is None:
-                    raise HTTPException(
-                        status_code=422,
-                        detail={
-                            "error_type": "invalid",
-                            "error": f"{name} is an ISO date or time, not {value!r}.",
-                        },
+                    raise refusal_error(
+                        422, "invalid", f"{name} is an ISO date or time, not {value!r}."
                     )
         return context.saved_experiments(
             instrument=instrument, operator=operator, **bounds
@@ -613,12 +599,7 @@ def build_app_router(context: Any) -> APIRouter:
 
     @router.get("/experiment/images/metadata", response_model=SavedImageMetadata)
     def image_metadata(path: str):
-        found = context.image_metadata(path)
-        error = found.get("error_type") if isinstance(found, dict) else None
-        if error is not None:
-            status = 403 if error == "not_allowed" else 404
-            raise HTTPException(status_code=status, detail=found)
-        return _typed(found)
+        return _typed(context.image_metadata(path))
 
     @router.get("/experiment/images/stage_position", response_model=SavedImagePosition)
     def image_stage_position(
@@ -644,13 +625,7 @@ def build_app_router(context: Any) -> APIRouter:
         for key in keys:
             if key in body:
                 if not isinstance(body[key], bool):
-                    raise HTTPException(
-                        status_code=422,
-                        detail={
-                            "error_type": "invalid",
-                            "message": f"{key} is true or false",
-                        },
-                    )
+                    raise refusal_error(422, "invalid", f"{key} is true or false")
                 flags[key] = body[key]
         return flags
 
@@ -662,15 +637,9 @@ def build_app_router(context: Any) -> APIRouter:
         # result is.
         path, grid_name = body.get("path"), body.get("grid_name")
         if not isinstance(path, str) or not path:
-            raise HTTPException(
-                status_code=422,
-                detail={"error_type": "missing_field", "message": "path is required"},
-            )
+            raise refusal_error(422, "missing_field", "path is required")
         if grid_name is not None and not isinstance(grid_name, str):
-            raise HTTPException(
-                status_code=422,
-                detail={"error_type": "invalid", "message": "grid_name is a string"},
-            )
+            raise refusal_error(422, "invalid", "grid_name is a string")
         return _answer_or_refusal(
             context.render_markers(path, grid_name, **_flags(body, "fov", "current"))
         )
@@ -717,13 +686,7 @@ def build_app_router(context: Any) -> APIRouter:
         task_names = _names({"task_names": tasks}, "task_names", "task names")
         background = body.get("background", "related")
         if background not in ("related", "none"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid",
-                    "message": "background is related or none",
-                },
-            )
+            raise refusal_error(422, "invalid", "background is related or none")
         options = _flags(body, "scan_direction", "alignment_area", "metadata_bar")
         image_path = body.get("image_path")
         if image_path is not None and not isinstance(image_path, str):
@@ -834,6 +797,42 @@ def build_app_router(context: Any) -> APIRouter:
         _record_read(experiment, path, False)
         return JSONResponse(jsonable_encoder(answer), headers=cache)
 
+    @router.get("/experiment/planes/{path:path}", responses=_PLANES)
+    def read_planes(
+        request: Request,
+        path: str,
+        factor: int = 1,
+        z: Optional[str] = None,
+        first: Optional[int] = None,
+        last: Optional[int] = None,
+        channels: Optional[str] = None,
+        experiment: Optional[str] = None,
+    ):
+        # An image's raw planes for the web viewer, which draws them itself: the
+        # values as stored, gzipped, C-order, little-endian; X-Planes says their
+        # (C, Z, Y, X) shape, dtype and channels. factor 1, 4 or 8; z a plane
+        # (0 the first), "all", or max/mean/min over first..last.
+        picked = [c for c in (channels or "").split(",") if c] or None
+        plane = int(z) if z is not None and z.lstrip("-").isdigit() else z
+        query = ("planes", factor, z, first, last, channels)
+        tag = _files_answer(experiment, files.read_etag, path, *query)
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            return Response(status_code=304, headers=cache)
+        header, data = _files_answer(
+            experiment, planes.read, path, factor, plane, first, last, picked
+        )
+        _record_read(experiment, path, False)
+        return Response(
+            gzip.compress(data.tobytes(), compresslevel=1),
+            media_type="application/octet-stream",
+            headers={
+                **cache,
+                "Content-Encoding": "gzip",
+                "X-Planes": json.dumps(header),
+            },
+        )
+
     # -- exports: the Qt export dialogs' files, for a person to download ---------
     # Each renders, so a POST computes and changes nothing; FastAPI runs these
     # plain functions in its threadpool, off the event loop.
@@ -912,7 +911,7 @@ def build_app_router(context: Any) -> APIRouter:
             item_name,
             **({"evidence": cited["evidence_id"]} if cited else {}),
         )
-        return _recorded_or_not_found(result)
+        return _answer_or_refusal(result)
 
     @router.post("/experiment/messages", response_model=Recorded)
     def add_message(body: Dict[str, Any]):
@@ -927,7 +926,7 @@ def build_app_router(context: Any) -> APIRouter:
             reply_to,
             **({"evidence": cited["evidence_id"]} if cited else {}),
         )
-        return _recorded_or_not_found(result)
+        return _answer_or_refusal(result)
 
     @router.post("/experiment/evidence", response_model=Recorded)
     def add_evidence(body: Dict[str, Any]):
@@ -952,7 +951,7 @@ def build_app_router(context: Any) -> APIRouter:
             result = context.add_evidence(item_name, save)
         except evidence.EvidenceRefused as refusal:
             raise _evidence_refused(refusal)
-        return _recorded_or_not_found(result)
+        return _answer_or_refusal(result)
 
     @router.get("/events", response_model=Events)
     def events(since: int = 0, timeout: float = 0.0):
@@ -1018,31 +1017,23 @@ def build_app_control_router(context: Any) -> APIRouter:
             )
         values = body.get("values")
         if values is not None and not isinstance(values, dict):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": "values, when given, must be a JSON object keyed by "
-                    "value name, e.g. {'poi': {'x': ..., 'y': ...}} in metres.",
-                },
+            raise refusal_error(
+                422,
+                "invalid_value",
+                "values, when given, must be a JSON object keyed by "
+                "value name, e.g. {'poi': {'x': ..., 'y': ...}} in metres.",
             )
         patch = body.get("patch")
         if patch is not None and not isinstance(patch, dict):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": 'patch, when given, is {"<dotted path>": value}.',
-                },
+            raise refusal_error(
+                422, "invalid_value", 'patch, when given, is {"<dotted path>": value}.'
             )
         action = body.get("action") or ""
         if not isinstance(action, str):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": "action, when given, is one of the proposal's actions.",
-                },
+            raise refusal_error(
+                422,
+                "invalid_value",
+                "action, when given, is one of the proposal's actions.",
             )
         if outcome == "Rejected" and not str(body.get("reason", "")).strip():
             raise _missing_field("A reject needs a reason; it is recorded on the item.")
@@ -1060,30 +1051,7 @@ def build_app_control_router(context: Any) -> APIRouter:
             patch=patch,
             **({"evidence": cited["evidence_id"]} if cited else {}),
         )
-        if result.get("invalid_value"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": result["invalid_value"],
-                },
-            )
-        if not result.get("applied", False) and result.get("available", True):
-            error_type = result.get("error_type") or (
-                "running" if result.get("running") else "not_pending"
-            )
-            raise HTTPException(
-                # a request that cannot be decided as given is 422; one that
-                # the state refuses (running, re-run since, nothing pending) 409
-                status_code=422
-                if error_type in ("missing_field", "invalid_value")
-                else 409,
-                detail={
-                    "error_type": error_type,
-                    "message": result.get("reason", "Not applied."),
-                },
-            )
-        return result
+        return _answer_or_refusal(result)
 
     @router.post("/workflow/start", response_model=RunStarted)
     def start_workflow(body: Dict[str, Any]):
@@ -1124,12 +1092,7 @@ def build_app_control_router(context: Any) -> APIRouter:
         result = context.requeue_task(
             item_name, task_name, front=bool(body.get("front", False))
         )
-        if result.get("error_type") == "already_queued":
-            raise HTTPException(
-                status_code=409,
-                detail={"error_type": "already_queued", "message": result["reason"]},
-            )
-        return result
+        return _answer_or_refusal(result)
 
     @router.post("/workflow/queue/edit", response_model=QueueEdited)
     def edit_queue(body: Dict[str, Any]):
@@ -1177,12 +1140,10 @@ def build_app_suggest_router(context: Any) -> APIRouter:
         ):
             given = body.get(name)
             if given is not None and not isinstance(given, dict):
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "error_type": "invalid_value",
-                        "message": f"{name}, when given, is a JSON object {shape}.",
-                    },
+                raise refusal_error(
+                    422,
+                    "invalid_value",
+                    f"{name}, when given, is a JSON object {shape}.",
                 )
         cited = cited_evidence(context)
         result = context.suggest(
@@ -1197,18 +1158,7 @@ def build_app_suggest_router(context: Any) -> APIRouter:
             evidence=cited,
             actor=str(body.get("actor", "")),
         )
-        if not result.get("applied", False) and result.get("available", True):
-            error_type = result.get("error_type") or "invalid_value"
-            raise HTTPException(
-                status_code=422
-                if error_type in ("missing_field", "invalid_value")
-                else 409,
-                detail={
-                    "error_type": error_type,
-                    "message": result.get("reason", "Not suggested."),
-                },
-            )
-        return result
+        return _answer_or_refusal(result)
 
     return _served(router, context)
 
@@ -1298,25 +1248,7 @@ def build_app_config_router(context: Any) -> APIRouter:
                 "Pass task_name (string) and scheduled_at "
                 "(ISO-8601 string, or null to clear)."
             )
-        result = context.set_task_schedule(task_name, scheduled_at)
-        if result.get("invalid_value"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": result["invalid_value"],
-                },
-            )
-        if not result.get("applied") and result.get("error"):
-            raise HTTPException(
-                status_code=404,
-                detail={
-                    "error_type": "not_found",
-                    "message": result["error"],
-                    "task_names": result.get("task_names", []),
-                },
-            )
-        return result
+        return _answer_or_refusal(context.set_task_schedule(task_name, scheduled_at))
 
     @router.post("/workflow/options", response_model=OptionsSet)
     def set_workflow_options(body: Dict[str, Any]):
@@ -1553,8 +1485,10 @@ def build_app_config_router(context: Any) -> APIRouter:
                 "Pass note: text, at most 4000 characters ('' clears)."
             )
         cited = cited_evidence(context)
-        result = context.set_grid_note(
-            grid_name, note, **({"evidence": cited["evidence_id"]} if cited else {})
+        result = _answer_or_refusal(
+            context.set_grid_note(
+                grid_name, note, **({"evidence": cited["evidence_id"]} if cited else {})
+            )
         )
         call = current_call()
         if call is not None and note and result.get("applied"):
@@ -1577,12 +1511,8 @@ def build_app_config_router(context: Any) -> APIRouter:
         stage_position = body.get("stage_position")
         overview = body.get("overview")
         if stage_position is not None and overview is not None:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid",
-                    "message": "Give stage_position or overview, not both.",
-                },
+            raise refusal_error(
+                422, "invalid", "Give stage_position or overview, not both."
             )
         return _answer_or_refusal(
             context.add_item(
@@ -1681,51 +1611,37 @@ def build_app_config_router(context: Any) -> APIRouter:
             raise _missing_field(
                 "Pass run_path, a run folder from correlation_correlate."
             )
-        result = context.apply_item_correlation(item_name, run_path)
-        if "error_type" in result:
-            return _answer_or_refusal(result)
-        return _refused_or(result)
+        return _refused_or(
+            _answer_or_refusal(context.apply_item_correlation(item_name, run_path))
+        )
 
-    def _refused_or(result: Dict[str, Any]):
+    def _refused_or(result: Any):
+        result = _answer_or_refusal(result)
         if result.get("stale"):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "stale_config",
-                    "message": "The config changed since your read; re-read "
-                    "it and write the patch against the current version.",
-                },
+            raise refusal_error(
+                409,
+                "stale_config",
+                "The config changed since your read; re-read "
+                "it and write the patch against the current version.",
             )
         if result.get("error_type") == "task_running":
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "task_running",
-                    "message": result.get("error", "That task is running."),
-                },
+            raise refusal_error(
+                409, "task_running", result.get("error", "That task is running.")
             )
         if result.get("invalid_patch"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_patch",
-                    "message": result["invalid_patch"],
-                    "path": result.get("path"),
-                },
+            raise refusal_error(
+                422, "invalid_patch", result["invalid_patch"], path=result.get("path")
             )
         if not result.get("applied") and result.get("error"):
             # a refusal says what it is (volume's "not served" is invalid); a
             # bare error is a name that is not there
             error_type = result.get("error_type") or "not_found"
-            detail: Dict[str, Any] = {
-                "error_type": error_type,
-                "message": result["error"],
-            }
-            for key in ("item_names", "task_names"):
-                if key in result:
-                    detail[key] = result[key]
-            raise HTTPException(
-                status_code=_REFUSAL_STATUS.get(error_type, 404), detail=detail
+            names = {k: result[k] for k in ("item_names", "task_names") if k in result}
+            raise refusal_error(
+                REFUSAL_STATUS.get(error_type, 404),
+                error_type,
+                result["error"],
+                **names,
             )
         return result
 

@@ -28,13 +28,16 @@ def check_volume_run(experiment: Any, microscope: Any, request: RunRequest) -> R
     if not task_names or unknown:
         return refused(
             f"unknown volume tasks: {unknown!r}" if unknown else "no tasks",
+            "not_found" if unknown else "invalid",
             task_names=known_tasks,
         )
     known = [p.name for p in experiment.positions]
     if request.names is not None:
         missing = [n for n in request.names if n not in known]
         if missing:
-            return refused(f"unknown positions: {missing!r}", item_names=known)
+            return refused(
+                f"unknown positions: {missing!r}", "not_found", item_names=known
+            )
     names = tuple(request.names) if request.names is not None else tuple(known)
     if not names:
         return refused("no positions", item_names=known)

@@ -68,6 +68,12 @@ class StackFile:
         writes (`fibsem.image_format`), 1 + their number, level 0 the full size."""
         return 1 if self._whole is not None else len(self._levels)
 
+    def level_shape(self, level: int) -> Tuple[int, int]:
+        """The (Y, X) size of a plane at *level*."""
+        if self._whole is not None:
+            return tuple(self.shape[-2:])
+        return tuple(int(n) for n in self._levels[level].shape[-2:])
+
     def level_for(self, max_px: Optional[int]) -> int:
         """The smallest level whose long side is still at least *max_px* (0, the
         full size, when None)."""

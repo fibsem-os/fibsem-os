@@ -27,7 +27,7 @@ def test_a_run_s_plan_is_the_confirmation_s_estimate(agent):  # noqa: F811
 
     plan = _ok(agent.post("/app/workflow/plan", json={"task_names": [SETUP]}))
 
-    assert plan["valid"] and not plan["add"]
+    assert not plan["add"]
     assert [(s["item"], s["task"]) for s in plan["steps"]] == [
         (name, SETUP) for name in names
     ]
@@ -38,19 +38,21 @@ def test_a_run_s_plan_is_the_confirmation_s_estimate(agent):  # noqa: F811
 
 
 def test_a_refused_run_s_plan_says_why(agent):  # noqa: F811
-    plan = _ok(agent.post("/app/workflow/plan", json={"task_names": ["Nope"]}))
+    answer = agent.post("/app/workflow/plan", json={"task_names": ["Nope"]})
 
-    assert not plan["valid"]
-    assert "unknown tasks" in plan["reason"]
-    assert SETUP in plan["task_names"]
+    assert answer.status_code == 404
+    detail = answer.json()["detail"]
+    assert "unknown tasks" in detail["message"]
+    assert SETUP in detail["task_names"]
     assert agent.post("/app/workflow/plan", json={}).status_code == 422
 
 
 def test_adding_needs_a_running_queue(agent):  # noqa: F811
-    plan = _ok(
-        agent.post("/app/workflow/plan", json={"task_names": [SETUP], "add": True})
-    )
-    assert not plan["valid"] and "no workflow is running" in plan["reason"]
+    answer = agent.post("/app/workflow/plan", json={"task_names": [SETUP], "add": True})
+    assert answer.status_code == 409
+    detail = answer.json()["detail"]
+    assert detail["error_type"] == "not_running"
+    assert "no workflow is running" in detail["message"]
 
 
 def test_an_addition_s_plan_is_its_confirmation_s(agent):  # noqa: F811
@@ -66,7 +68,7 @@ def test_an_addition_s_plan_is_its_confirmation_s(agent):  # noqa: F811
         )
     )
 
-    assert plan["valid"] and plan["add"]
+    assert plan["add"]
     assert plan["steps"] == [{"item": name, "task": SETUP}]
     direct = plan_lamella_run(
         session.runner,

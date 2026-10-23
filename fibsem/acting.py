@@ -139,6 +139,12 @@ def current_actor() -> Optional[ActorKind]:
     return _actor.get()
 
 
+def signer(operator: Actor, agent: str = "remote") -> Actor:
+    """Who signs what this call changes: *operator* for a call marked as the
+    operator's, otherwise the agent *agent*. Read it on the calling thread."""
+    return operator if current_actor() is OPERATOR else Actor.agent(agent)
+
+
 def carried(fn: Callable[..., T]) -> Callable[..., T]:
     """*fn*, marked as whoever called this, on whatever thread it later runs.
 
