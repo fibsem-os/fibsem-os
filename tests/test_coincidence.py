@@ -223,15 +223,11 @@ def test_geometry_from_images_matches_the_projections():
     assert abs(geometry.dz_per_dy) == pytest.approx(1.43, rel=0.02)
 
 
-def test_measure_from_images_and_diagnostic_plot(tmp_path):
-    import matplotlib
-
-    matplotlib.use("Agg")
+def test_measure_from_images():
     from fibsem.alignment.coincidence import (
         geometry_from_images,
         measure_coincidence_from_images,
     )
-    from fibsem.alignment.plotting import plot_coincidence_measurement
 
     sem = np.clip(make_sem_scene(), 0, 255)
     blank_pair = _image_pair(sem, sem)
@@ -242,13 +238,6 @@ def test_measure_from_images_and_diagnostic_plot(tmp_path):
     m = measure_coincidence_from_images(sem_image, fib_image)
     assert m.is_reliable
     assert m.dx == pytest.approx(5.0 * PIXEL_SIZE, abs=2 * PIXEL_SIZE)
-
-    fig = plot_coincidence_measurement(
-        sem_image, fib_image, m, save=True, path=str(tmp_path)
-    )
-    assert fig is not None
-    pngs = list(tmp_path.glob("*coincidence*.png"))
-    assert len(pngs) == 1
 
 
 def test_large_lateral_offset_is_refused_as_a_rival_peak():

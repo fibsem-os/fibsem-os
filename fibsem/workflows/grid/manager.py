@@ -300,7 +300,7 @@ class GridTaskManager(BaseTaskManager):
 
     def _load_defer_reason(self, grid: GridRecord) -> Optional[str]:
         """An exchange is the expensive step, so a grid is loaded for work that
-        can run now, not for work still waiting (FIB-1005). The load waits while
+        can run now, not for work still waiting. The load waits while
         every task queued for the grid waits on a decision or a queued
         requirement, and goes ahead once one can run. A load with no tasks
         queued behind it is a load someone asked for, and runs."""
@@ -505,7 +505,7 @@ class GridTaskManager(BaseTaskManager):
         """The planned exchange. Its outcome is the queue item's status, so the
         timeline shows a grid that would not load where it failed. Skipped,
         with no exchange, when every task queued for the grid is going to be
-        skipped: a requirement did not complete (FIB-1005), or the task has been
+        skipped: a requirement did not complete, or the task has been
         taken out of the protocol."""
         pending = self._pending_tasks(grid)
         if pending and not any(self._runnable_now(grid, i.task_name) for i in pending):

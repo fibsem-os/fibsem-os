@@ -95,8 +95,7 @@ class SpotBurnProgress:
     rendered "Done".
 
     Every field but `status` is absent on some report, so every field but `status`
-    has a default -- which also keeps this constructible on Python 3.8, where
-    `kw_only` does not exist: exactly one required field, and it comes first.
+    has a default.
 
     Equality is left generated. Nothing here carries a numpy array, so unlike
     `TiledProgress` there is no reason to turn it off.

@@ -78,7 +78,9 @@ def screened(tmp_path_factory):
     """A screened three-grid experiment. Module-scoped: the runs are the cost."""
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     tmp_path = tmp_path_factory.mktemp("report")
     exp = Experiment(path=tmp_path, name="exp")

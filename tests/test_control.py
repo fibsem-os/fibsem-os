@@ -43,17 +43,6 @@ def test_changed_emits_on_take_and_release():
     assert [s.by if s else None for s in seen] == [SCRIPT, None]
 
 
-def test_operator_actions_are_timed_and_nobody_elses_are():
-    control = Control()
-    with control.take(AGENT, "move"):
-        pass
-    assert control.last_operator_action is None
-    before = time.time()
-    with control.take(OPERATOR, "acquire"):
-        pass
-    assert control.last_operator_action >= before
-
-
 def test_lent_control_lets_one_other_action_in_at_a_time():
     control = Control()
     with control.take(WORKFLOW, "run"), control.lend():

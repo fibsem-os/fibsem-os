@@ -35,7 +35,6 @@ from fibsem.workflows.grid.manager import (
 from fibsem.workflows.grid.screening import (
     GridNamingError,
     name_and_record_grids,
-    screening_plan,
 )
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState
@@ -55,7 +54,9 @@ def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 
@@ -130,20 +131,6 @@ class TestOnTheAutoloader:
         run_grids(arctis, experiment, inventory_first=True)
         run_grids(arctis, experiment, inventory_first=True)
         assert len(experiment.grids) == 3
-
-    def test_the_plan_is_what_a_confirmation_shows(self, arctis, experiment):
-        plan = screening_plan(arctis, experiment)
-        assert plan[:3] == [
-            ("Grid-01", LOAD_ENTRY_NAME),
-            ("Grid-01", "overview_sem"),
-            ("Grid-01", "overview_fib"),
-        ]
-        assert len(plan) == 9
-        assert screening_plan(arctis, experiment, ["overview_fib"]) == [
-            (g, s)
-            for g in ("Grid-01", "Grid-02", "Grid-03")
-            for s in (LOAD_ENTRY_NAME, "overview_fib")
-        ]
 
     def test_a_grid_that_will_not_load_does_not_stop_the_others(
         self, arctis, experiment, stub_tasks

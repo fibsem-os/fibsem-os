@@ -175,8 +175,8 @@ def removal_for(
 ) -> Optional[List[Coordinate]]:
     """What deleting a paired fiducial removes, for a Delete fiducial choice.
 
-    Removing FIB 3 alone re-pairs FM 4 with FIB 3 and so on down the lists
-    (FIB-1243), so the choice is the pair, that point only, or nothing (None,
+    Removing FIB 3 alone re-pairs FM 4 with FIB 3 and so on down the lists,
+    so the choice is the pair, that point only, or nothing (None,
     for a cancelled question or any other value). Asking is the caller's.
     """
     if choice == DELETE_FIDUCIAL_PAIR:
@@ -317,14 +317,13 @@ def _unique(coords: Iterable[Coordinate]) -> List[Coordinate]:
 
 
 class CorrelationPoints:
-    """The correlation points, their order, and the selection (FIB-973).
+    """The correlation points, their order, and the selection.
 
-    The correlation widget held the same points in three places: the list
-    widget, the canvas overlay, and the tab widget relaying between them.
-    Three bugs in a week were the copies disagreeing (FIB-958, FIB-965,
-    FIB-972). This is the single owner; the Qt point store
-    (:mod:`fibsem.ui.widgets.point_store`) announces its changes as signals
-    to the lists and canvases.
+    The correlation widget held the same points in three places: the list widget, the
+    canvas overlay, and the tab widget relaying between them. Three bugs in a week were
+    the copies disagreeing. This is the single owner; the Qt point store
+    (:mod:`fibsem.ui.widgets.point_store`) announces its changes as signals to the lists
+    and canvases.
 
     Selection is one value across every list and both canvases, so it lives
     here and not per point type. A canvas shows several point types, so this
@@ -369,7 +368,7 @@ class CorrelationPoints:
         """Decide, before a removal, what it removes: given the points asked
         for, return the points to remove (more, for a fiducial's partner), or
         None to remove nothing. Every view removes through :meth:`remove`, so a
-        canvas, a list row and the Delete key all go through it (FIB-1243).
+        canvas, a list row and the Delete key all go through it.
 
         Returns an uninstaller that restores the default (remove what is asked
         for) while ``policy`` is still the one installed: a view that asks the
@@ -481,8 +480,7 @@ class CorrelationPoints:
         The neighbour is the point now at the lowest removed row, clamped to the
         end of that type's list; for one point that is the row that followed
         it, or the new last row. The type is the current selection's if it was
-        removed, otherwise the first removed point's. Selecting row 1 instead
-        was FIB-965.
+        removed, otherwise the first removed point's.
 
         The removal is told before the new selection: a view answers the
         removal by rebuilding, which would wipe a selection told first.

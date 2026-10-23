@@ -95,7 +95,7 @@ def test_coincidence_task_config_roundtrip_preserves_strategy():
 # ---------------------------------------------------------------------------
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
-    fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
+    fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
 )
 
 

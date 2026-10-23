@@ -22,7 +22,7 @@ from fibsem import utils
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.structures import MicroscopeSettings, SystemSettings
 
-IFLM = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+IFLM = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 
 
 def _iflm_with_objective(tmp_path, focus, limit) -> str:

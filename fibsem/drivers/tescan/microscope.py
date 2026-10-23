@@ -254,7 +254,7 @@ class TescanMicroscope(FibsemMicroscope):
     driver_name = "Tescan"
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
 
-    #: fibsem does not drive the Tescan Nanomanipulator (its support was removed), so
+    #: fibsem does not drive the Tescan Nanomanipulator, so
     #: the backend reports none and the manipulator methods are the base class's,
     #: which raise.
     DEFAULT_FITTED = {**FibsemMicroscope.DEFAULT_FITTED, "manipulator": False}
@@ -274,7 +274,6 @@ class TescanMicroscope(FibsemMicroscope):
         self.milling_channel: BeamType = BeamType.ION
 
         # user, experiment metadata
-        # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 

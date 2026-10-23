@@ -1,4 +1,4 @@
-"""The agent level (FIB-1035), importable without the [server] extra.
+"""The agent level, importable without the [server] extra.
 
 The App Server's auth (``fibsem.server.auth``) gates each route on a level and
 needs FastAPI; the GUI only needs the names, and must run where FastAPI is not
@@ -10,15 +10,15 @@ from typing import Optional
 
 
 class AgentLevel(str, Enum):
-    """How far the agent may act in the App Server (FIB-1035): the one knob the
+    """How far the agent may act in the App Server: the one knob the
     operator sees, and the server's only gate: each route needs a level.
 
     - ``off``: every agent-token request is refused, reads included.
     - ``watch``: reads everything and adds notes; acts on nothing, stops nothing.
-    - ``assist``: as Drive, but each action is a request the operator approves
-      (FIB-1283); stopping needs no approval.
+    - ``assist``: as Drive, but each action is a request the operator approves;
+      stopping needs no approval.
     - ``drive``: acts on the session: starts, stops, schedules, answers, edits;
-      and on the microscope, when the devices setting is on (FIB-1267).
+      and on the microscope, when the devices setting is on.
     """
 
     OFF = "off"
@@ -35,7 +35,7 @@ AGENT_LISTENING_S = 120.0
 
 
 # Each level as the operator reads it: its name, the chip's word, and what it
-# allows. The window's chip and menu and the chat page's say the same.
+# allows. The window's chip and menu and the web app's say the same.
 LEVEL_NAMES = {
     AgentLevel.OFF: "Off",
     AgentLevel.WATCH: "Watch",

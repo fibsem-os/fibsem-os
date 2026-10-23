@@ -48,7 +48,7 @@ def _microscope():
 
     microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     if microscope.fm is None:
         microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
     return microscope

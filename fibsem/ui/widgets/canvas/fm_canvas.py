@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 from PyQt5.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPixmap
+from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QComboBox,
@@ -148,20 +148,6 @@ class _ContrastSlider(QRangeSlider):
         self._style.brush_active = _ACCENT
         self._style.brush_inactive = BORDER_COLOR
 
-    def _draw_handle(self, painter, opt) -> None:
-        on = self.isEnabled()
-        self._style.brush_active = _ACCENT if on else GRAY_FOREGROUND_COLOR
-        if self._should_draw_bar:
-            self._drawBar(painter, opt)
-        painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(TEXT_STRONG_COLOR if on else TEXT_MUTED_COLOR))
-        for i in range(len(self.value())):
-            rect = self._handleRect(i).adjusted(1, 1, -1, -1)
-            painter.drawEllipse(rect)
-        painter.restore()
-
 
 class _ChannelRow(QFrame):
     """One channel: eye visibility toggle + colour chip + name, click to select."""
@@ -254,12 +240,6 @@ class FMCanvasWidget(QWidget):
         self._layers: List[FMLayer] = []
         self._pixel_size: Optional[float] = None
         self._canvas_shape: Optional[Tuple[int, int]] = None  # drawn-axes shape
-        # Planes as the last blend used them: reduced to display resolution. Set by
-        # `_recomposite` for `_show_composite` to keep, so a subclass holding an image
-        # does not reduce the originals a second time. Empty until the first composite,
-        # rather than absent -- an AttributeError inside a paint aborts the process
-        # under PyQt5 rather than raising.
-        self._blended_planes: Dict[str, np.ndarray] = {}
         self._shape: Optional[Tuple[int, int]] = (
             None  # composite target shape (last upserted layer)
         )
@@ -506,12 +486,6 @@ class FMCanvasWidget(QWidget):
         h, w = rgb.shape[:2]
         reshaped = self._canvas_shape != (h, w)
         self._canvas_shape = (h, w)
-        # The reduced planes the blend just used, for a subclass that wants to keep
-        # them. Handing them over rather than letting it reduce the originals again --
-        # the same arrays, the same answer, at full acquisition size.
-        self._blended_planes = {
-            layer.name: layer.data for layer in layers if layer.data is not None
-        }
         self._show_composite(rgb, reshaped)
 
     def _restyle(self) -> None:

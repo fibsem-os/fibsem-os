@@ -16,12 +16,9 @@ from typing import Dict, List, Optional
 
 import pytest
 
-from fibsem.applications.autolamella.structures import (
-    DefectType,
-    Experiment,
-    Lamella,
-)
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState
 from fibsem.workflows.status import TaskStatus as Status
 from tests.proposal_records import set_proposals
@@ -84,7 +81,7 @@ def make_lamella(
         petname=name,
     )
     if is_failure:
-        lamella.defect.state = DefectType.FAILURE
+        lamella.defect.verdict = Verdict.FAILED
     for task_name in completed:
         lamella.task_history.append(TaskState(name=task_name, status=Status.Completed))
     experiment.positions.append(lamella)
@@ -254,7 +251,7 @@ def test_lamella_outside_the_launch_selection_is_not_skipped(manager):
 
 def test_failed_lamella_is_skipped(manager):
     lamella = manager.experiment.get_lamella_by_name("L1")
-    lamella.defect.state = DefectType.FAILURE
+    lamella.defect.verdict = Verdict.FAILED
     assert manager._should_skip(lamella, "Trench") == "failure"
 
 

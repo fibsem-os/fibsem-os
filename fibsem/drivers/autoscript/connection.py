@@ -5,7 +5,7 @@
 their SDK calls through it rather than through the microscope.
 
 The beams, the FM and the chamber camera share one active view and one active device,
-so whoever sets it last owns it (FIB-517). ``lock`` is the microscope's
+so whoever sets it last owns it. ``lock`` is the microscope's
 ``imaging_channel`` lock (its ``_threading_lock``), the same one the devices claim the
 channel with; the connection does not make one of its own.
 
@@ -54,7 +54,6 @@ class AutoScriptConnection:
 
     def set_channel(self, channel: BeamType) -> None:
         """Point the active view and device at ``channel``'s beam."""
-        # TODO: create mapping for the other channels/devices
         self.sdk.imaging.set_active_view(channel.value)
         self.sdk.imaging.set_active_device(channel.value)
         logging.debug(f"Set active channel to {channel.name}")

@@ -136,8 +136,8 @@ def _describe() -> Optional[str]:
     # Not --dirty: it checks every file in the checkout for changes, which on a
     # Windows machine behind on-access antivirus can outlast the timeout, and
     # then the revision is lost entirely -- no fibsem_revision in anything the
-    # session records, and the update check taking the checkout for a release
-    # (FIB-1029). The commit is what identifies the running code.
+    # session records, and the update check taking the checkout for a release.
+    # The commit is what identifies the running code.
     #
     # Cached because FibsemImageMetadata builds a FibsemExperimentRef for every
     # acquired image — without this that would be one git fork per image.

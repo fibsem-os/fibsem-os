@@ -116,7 +116,7 @@ SIMULATOR_BEAM_CURRENTS = {
 # not a smaller error than it sounds. Anything the UI says while the stage is moving was
 # unreachable here: the message went up and came down inside one event loop iteration,
 # so click-to-move feedback, the moving/arrived transition and any control disabled for
-# the duration could not be seen at all, let alone judged (FIB-765).
+# the duration could not be seen at all, let alone judged.
 #
 # One second is at the short end of a real move and deliberately so. It goes through
 # `sim_sleep`, so it is a no-op under `FIBSEM_SIM_NO_DELAY=1`, which the test suite sets.
@@ -130,7 +130,7 @@ STAGE_MOVEMENT_SLEEP_TIME = 1.0
 
 # An asynchronous mill (`start_milling`) has no end on the simulator: it runs until
 # stopped. Its estimate says so, long enough to watch a run that is timed by the
-# estimate -- coincidence milling stops when its estimate runs out (FIB-1119).
+# estimate -- coincidence milling stops when its estimate runs out.
 SIM_ASYNC_MILLING_EXTRA_TIME = 300  # seconds
 
 # z reaches below 0: the Demo stage starts at z = 0, and a floor of 0 refused every
@@ -235,7 +235,7 @@ SIM_OBJECTIVE_FOCUS_POSITION = 8.0e-3
 # Insertion and retraction traverse the objective's whole range -- 16 mm here -- where a
 # focus nudge moves it by microns, so they are seconds of travel on a real system rather
 # than the fraction of one `move_absolute` simulates. Modelled because the difference is
-# what makes a second command *during* one reachable by hand (FIB-628); a delegating
+# what makes a second command *during* one reachable by hand; a delegating
 # `insert` that returned as fast as a nudge made that window too small to click into.
 # `sim_sleep`, so `FIBSEM_SIM_NO_DELAY=1` keeps it out of the test suite.
 SIM_OBJECTIVE_TRAVEL_SECONDS = 2.0
@@ -440,7 +440,7 @@ class DemoSimulator:
         # set the imaging hfw, as the hardware drivers do: an acquisition leaves
         # the beam at the field it imaged, so anything that follows in image
         # coordinates - a spot burn parked at a normalised point - lands where
-        # the reference image says (FIB-954)
+        # the reference image says
         self.microscope._write_beam(
             "hfw", effective_image_settings.hfw, effective_beam_type
         )
@@ -451,7 +451,7 @@ class DemoSimulator:
         )
 
         # One lock over the channel and the frame, as `ThermoMicroscope.acquire_image`
-        # holds it over `set_channel` + `grab_frame` (FIB-542): the grab reads the
+        # holds it over `set_channel` + `grab_frame`: the grab reads the
         # active view's buffer, so a channel that is not still ours when the frame lands
         # returns whoever took it in between. Deliberately just that pair --
         # `_threading_lock` is shared by every caller on this microscope.
@@ -474,7 +474,7 @@ class DemoSimulator:
             random=True,
         )
 
-        # shared-scene projection takes precedence when enabled (FIB-874)
+        # shared-scene projection takes precedence when enabled
         if self.sample_scene is not None:
             from fibsem.geometry.projection import BeamStageProjection
 
@@ -671,8 +671,8 @@ class DemoSimulator:
         """A frame of the chamber, for the ``chamber_camera`` device."""
         # The chamber camera is a third device on the shared channel, so looking at it
         # takes the microscope away from whichever beam had it. Captured and put back in
-        # a `finally`, because a glance at the chamber that strands a running beam
-        # operation is FIB-517 with a different thief (FIB-545).
+        # a `finally`, so a glance at the chamber never strands a running beam
+        # operation.
         with self.lock:
             restore_view = self.imaging_system.active_view
             restore_device = self.imaging_system.active_device
@@ -696,7 +696,6 @@ class DemoSimulator:
     ) -> None:
         """Live view: acquire with the current settings and emit each image until
         *stop* is set. The Demo beam's live view."""
-        # TODO: add lock
 
         self.set_channel(beam_type)
 
@@ -726,7 +725,7 @@ class DemoSimulator:
         # Claims the channel and holds it for the routine, as `ThermoMicroscope`'s does:
         # `run_auto_cb` optimises "the active detector in the active view", so a channel
         # that is not still ours when it runs tunes the other column -- and unlike a
-        # stolen grab, that damage persists (FIB-569).
+        # stolen grab, that damage persists.
         with self.lock:
             self.set_channel(beam_type)
             if reduced_area is not None:
@@ -754,7 +753,6 @@ class DemoSimulator:
             self.set_channel(beam_type)
             if reduced_area is not None:
                 self.microscope.set_reduced_area_scanning_mode(reduced_area, beam_type)
-            # TODO: implement auto-focus
             logging.debug(f"Auto-focusing {beam_type.name} beam.")
             wd: float = self.microscope._beam_config(
                 "eucentric_height", beam_type
@@ -772,7 +770,7 @@ class DemoSimulator:
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
     def setup_sample_scene(self) -> None:
-        """Opt-in synthetic-sample imaging (FIB-874), default off.
+        """Opt-in synthetic-sample imaging, default off.
 
         `sim: sample: {enabled: true, ...}` makes both beams (and the FM,
         where present) image one synthetic cryo-grid through their
@@ -838,7 +836,7 @@ class DemoSimulator:
             return []
         # Where the simulated autoloader really puts a grid, if it is told: the
         # scene draws the grid there whatever the working slot is calibrated to,
-        # as on a real Arctis, where a loaded grid sits off the origin (FIB-1144).
+        # as on a real Arctis, where a loaded grid sits off the origin.
         device = self.microscope.devices.get("sample_loader")
         grid_position = getattr(device, "sim_grid_position", None)
         # A slot's position was saved on this stage, so with a stage error on the
@@ -863,7 +861,7 @@ class DemoSimulator:
 
     def mill_into_sample_scene(self, milling_current: float) -> None:
         """Commit the drawn patterns to the sample scene, when there is one:
-        from now on every view shows them as trenches (FIB-877). Done when
+        from now on every view shows them as trenches. Done when
         milling starts, so an asynchronous run stamps too."""
         scene = self.sample_scene
         if scene is None or not self.milling_system.patterns:
@@ -888,7 +886,7 @@ class DemoSimulator:
 
     def burn_into_sample_scene(self, beam_type: BeamType) -> None:
         """Commit the parked beam's spot to the sample scene, when there is
-        one: from now on every view shows a small mark there (FIB-954). The
+        one: from now on every view shows a small mark there. The
         spot is the 0-1 image coordinate run_spot_burn parked the beam on;
         it becomes metres from the view centre (y up) at the beam's current
         field of view, the same convention the milling patterns use."""

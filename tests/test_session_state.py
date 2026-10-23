@@ -270,24 +270,6 @@ def test_a_present_section_is_never_re_imported(store):
     assert store.load_section("fm", migrate=migrate) == {"current": True}
 
 
-def test_the_session_directory_is_not_tracked_by_git():
-    """The files are written inside the checkout as the operator works; without the
-    ignore rule every site's checkout would show them as changes."""
-    import subprocess
-
-    import fibsem.config as cfg
-
-    probe = Path(cfg.CONFIG_PATH) / "session" / "any-configuration.yaml"
-    result = subprocess.run(
-        ["git", "check-ignore", "-q", str(probe)],
-        cwd=cfg.BASE_PATH,
-        capture_output=True,
-    )
-    if result.returncode == 128:
-        pytest.skip("not a git checkout")
-    assert result.returncode == 0
-
-
 def test_sections_reads_everything_and_writes_nothing(store):
     store.save_section("fm", {"a": 1})
     store.save_section("saved_positions", [{"name": "p"}])

@@ -119,7 +119,10 @@ def test_with_nobody_to_ask_the_proposed_value_is_used_and_recorded_unreviewed(
     assert decision.actor.kind is ActorKind.task
     # On the record, and decided already.
     (question,) = lamella.proposals_from(ROUGH)
-    assert question.kind == POINT_OF_INTEREST and question.unreviewed
+    assert (
+        question.kind == POINT_OF_INTEREST
+        and question.current.outcome is DecisionOutcome.Unreviewed
+    )
     assert question.provenance["reference_image"] == "ref.tif"
     assert question.provenance["task_id"] == lamella.task_history[-1].task_id
     assert not question.pending
@@ -292,7 +295,10 @@ def test_unreviewed_survives_the_file(microscope, tmp_path):
     exp.save()
     again = Experiment.load(str(Path(exp.path, "experiment.yaml")))
     proposal = again.positions[0].proposal(ROUGH)
-    assert proposal.unreviewed and proposal.current.values["poi"] == Point(3e-6, 0)
+    assert (
+        proposal.current.outcome is DecisionOutcome.Unreviewed
+        and proposal.current.values["poi"] == Point(3e-6, 0)
+    )
     raw = yaml.safe_load(Path(exp.path, "experiment.yaml").read_text())
     (saved,) = raw["positions"][0]["proposals"]
     assert saved["asked_by"] == f"task:{ROUGH}"
@@ -318,7 +324,7 @@ def test_an_unasked_proposal_is_already_decided(microscope, tmp_path):
     ).run()
     (question,) = lamella.proposals_from(ROUGH)
     assert lamella.current_proposals(ROUGH) == [question]
-    assert question.unreviewed
+    assert question.current.outcome is DecisionOutcome.Unreviewed
     assert exp.pending_proposals() == []
 
     looked = exp.decide(

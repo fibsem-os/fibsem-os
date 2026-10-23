@@ -99,12 +99,10 @@ def test_a_pass_is_decided_as_one_of_the_actions_it_allows():
     assert PROPOSAL_KINDS[STATE].silent_action(state) == ""
 
 
-def test_a_decision_s_action_is_saved_only_when_it_has_one():
+def test_a_decision_s_action_is_saved():
     decided = _decision(action=ACTION_RUN)
     assert Decision.from_dict(decided.to_dict()).action == ACTION_RUN
-    plain = _decision().to_dict()
-    assert "action" not in plain
-    assert Decision.from_dict(plain).action == ""
+    assert Decision.from_dict(_decision().to_dict()).action == ""
 
 
 def test_decide_refuses_a_pass_without_an_allowed_action(tmp_path):

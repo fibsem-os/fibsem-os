@@ -88,7 +88,7 @@ def test_the_good_population_is_where_the_thresholds_were_set():
             continue
         d = _diagnose(r)
         assert d.rms_um < 0.5
-        assert d.loo_median_um < 0.5
+        assert np.median([p.loo_error_um for p in d.pairs]) < 0.5
         assert d.mirror_ratio > MIRROR_RATIO_AMBIGUOUS
         assert abs(d.scale_ratio - 1.0) < 0.02
 
@@ -127,7 +127,7 @@ def test_the_bad_runs_are_ambiguous_in_depth_and_lose_their_worst_pairs():
     r = RUNS["arctis-01-1"]
     d, v = _verdict(r)
     assert d.mirror_ratio < MIRROR_RATIO_AMBIGUOUS
-    assert d.loo_max_um > LOO_BAD_UM
+    assert max(p.loo_error_um for p in d.pairs) > LOO_BAD_UM
     rejected = reject_outliers(r["fib"], r["fm"], _prior(r), **_sizes(r))
     assert 5 in rejected  # FM 6, 15 µm off
     assert len(r["fib"]) - len(rejected) >= 4

@@ -2,7 +2,7 @@
 
 A numpy scalar that reaches ``yaml.safe_dump`` raises "cannot represent an
 object", and one stray value anywhere in an experiment made the whole file
-unsaveable (FIB-1326). Registered on import of ``fibsem.config``, which every
+unsaveable. Registered on import of ``fibsem.config``, which every
 writer imports; both the safe and the default dumpers get it.
 """
 

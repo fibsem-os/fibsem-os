@@ -18,7 +18,6 @@ microscope PC: what a service saves is saved there.
 from __future__ import annotations
 
 import logging
-import os
 from types import MappingProxyType
 from typing import Any, Dict, Optional
 from urllib.parse import urlsplit
@@ -26,7 +25,7 @@ from urllib.parse import urlsplit
 from fibsem.client import FibsemClient
 from fibsem.client.control import RemoteControl
 from fibsem.client.pairing import DEFAULT_URL, pair, paired_token
-from fibsem.client.transport import NO_SERVER, ServerUnreachable, resolve
+from fibsem.client.transport import NO_SERVER, ServerUnreachable, resolve, server_env
 from fibsem.drivers.remote.devices import REMOTE_FM_PARTS, DeviceClient
 from fibsem.drivers.remote.services import connect_remote_services
 from fibsem.microscope import FibsemMicroscope
@@ -49,8 +48,9 @@ class RemoteMicroscope(FibsemMicroscope):
 
         Only the operator's app reads a paired token: it is the operator's, so
         an agent's client never finds it (`transport.resolve` doesn't look)."""
-        if token is None and not os.environ.get("FIBSEM_SERVER_TOKEN"):
-            where = url or os.environ.get("FIBSEM_SERVER_URL") or DEFAULT_URL
+        env_url, env_token = server_env()
+        if token is None and not env_token:
+            where = url or env_url or DEFAULT_URL
             if (paired := paired_token(where)) is not None:
                 url, token = where, paired
         resolved = resolve(url, token)
