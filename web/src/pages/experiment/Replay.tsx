@@ -165,31 +165,57 @@ function Tile({
   );
 }
 
-/** The stage where it was, as the Microscope tab's Stage card reads it. */
-function Stage({ pos }: { pos: ReplayView["stage_position"] }) {
-  const n = (k: string) => (typeof pos?.[k] === "number" ? (pos[k] as number) : null);
-  const rows: [string, string][] = [
-    ["X", fmt.length(n("x"))],
-    ["Y", fmt.length(n("y"))],
-    ["Z", fmt.length(n("z"))],
-    ["Rotation", fmt.angle(n("r"))],
-    ["Tilt", fmt.angle(n("t"))],
-  ];
+function Facts({ title, sub, rows }: { title: string; sub?: string | null; rows: [string, string][] }) {
   return (
-    <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1.5 border-t border-border pt-2.5">
-      <span className="text-[12px] font-semibold">Stage</span>
-      {pos ? (
-        <dl className="m-0 flex flex-wrap gap-x-6 gap-y-1">
+    <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[12px] font-semibold">{title}</span>
+        {sub && <span className="text-[11px] text-muted-foreground tabular-nums">{sub}</span>}
+      </div>
+      {rows.length ? (
+        <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12px]">
           {rows.map(([label, value]) => (
-            <div key={label} className="flex items-baseline gap-1.5">
-              <dt className="text-[12px] text-muted-foreground">{label}</dt>
-              <dd className="m-0 text-[13px] tabular-nums">{value}</dd>
+            <div key={label} className="contents">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="m-0 text-right tabular-nums break-words">{value}</dd>
             </div>
           ))}
         </dl>
       ) : (
-        <span className="text-[13px] text-muted-foreground">Not recorded yet</span>
+        <span className="text-[12px] text-muted-foreground">Not recorded yet</span>
       )}
+    </div>
+  );
+}
+
+/** A beam's settings, as its image at this moment recorded them. */
+function Beam({ title, path }: { title: string; path: string | null }) {
+  const info = useFileRead(path, 1024).data?.info;
+  const rows = (info?.fields ?? []).map((f): [string, string] => [f.title, f.value]);
+  if (info?.header.length) rows.unshift(["Detector", info.header.map((f) => f.value).join(" · ")]);
+  const time = info?.time?.split(" ").pop();
+  return <Facts title={title} sub={time ? `at ${time}` : null} rows={rows} />;
+}
+
+/** The fourth tile: the stage where it was, as the Microscope tab's Stage card reads
+ * it, and each beam's settings from its image. */
+function Conditions({ view }: { view: ReplayView | null }) {
+  const pos = view?.stage_position;
+  const n = (k: string) => (typeof pos?.[k] === "number" ? (pos[k] as number) : null);
+  const stage: [string, string][] = pos
+    ? [
+        ["X", fmt.length(n("x"))],
+        ["Y", fmt.length(n("y"))],
+        ["Z", fmt.length(n("z"))],
+        ["Rotation", fmt.angle(n("r"))],
+        ["Tilt", fmt.angle(n("t"))],
+      ]
+    : [];
+  return (
+    <div className="grid min-w-0 content-start gap-x-5 gap-y-3 rounded-sm bg-panel p-3 sm:grid-cols-3">
+      <Facts title="Stage" rows={stage} />
+      <Beam title="Electron beam" path={view?.sem?.path ?? null} />
+      <Beam title="Ion beam" path={view?.fib?.path ?? null} />
     </div>
   );
 }
@@ -404,10 +430,11 @@ export function Replay() {
           </div>
         )}
         {scene.error && <div className="text-[13px] text-destructive">{scene.error.message}</div>}
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Tile label="SEM" path={view?.sem?.path ?? null} image={view?.sem} open={open} />
           <Tile label="FIB" path={view?.fib?.path ?? null} image={view?.fib} open={open} />
           <Tile label="FM" path={view?.fm ?? null} open={open} />
+          <Conditions view={view} />
         </div>
         <Stepper
           at={at}
@@ -443,7 +470,6 @@ export function Replay() {
             </select>
           }
         />
-        <Stage pos={view?.stage_position ?? null} />
       </Card>
       <Card className="flex min-w-0 flex-col gap-1.5 p-3">
         <div className="flex items-center gap-2">
