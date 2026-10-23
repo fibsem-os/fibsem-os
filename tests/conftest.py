@@ -289,3 +289,24 @@ def _isolate_device_server_token(tmp_path_factory):
         mp.setattr(client_pairing, "REMOTE_DIR", directory / "remote")
         mp.setattr(client_pairing, "AGENT_DIR", directory / "agent")
         yield
+
+
+@pytest.fixture(scope="module")
+def odemis_microscope_cls():
+    """Import OdemisThermoMicroscope against stub odemis modules."""
+    import sys
+
+    from tests.fm import _odemis_stubs as stubs
+
+    saved = {}
+    for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
+        if name in sys.modules:
+            saved[name] = sys.modules.pop(name)
+
+    stubs.install_odemis_stubs()
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
+
+    yield OdemisThermoMicroscope
+
+    stubs.remove_odemis_stubs()
+    sys.modules.update(saved)

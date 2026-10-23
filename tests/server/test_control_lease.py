@@ -6,10 +6,11 @@ Skipped when the [server] extra is not installed.
 """
 
 import os
-import threading
 import time
 
 import pytest
+
+from tests.fixtures.app_server import serving
 
 pytest.importorskip("fastapi")
 uvicorn = pytest.importorskip("uvicorn")
@@ -20,7 +21,6 @@ from fibsem.acting import AGENT, OPERATOR, WORKFLOW  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.control import MicroscopeBusy, lending  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.devices import WS_PROTOCOL  # noqa: E402
 from fibsem.server.leases import LEASE_HEADER, Leases  # noqa: E402
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 
@@ -181,19 +181,8 @@ def test_a_lent_lease_lets_one_other_action_in(http, microscope):
 
 @pytest.fixture(scope="module")
 def url(app):
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app, host="127.0.0.1", port=0, log_level="warning", ws=WS_PROTOCOL
-        )
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    while not server.started:
-        assert thread.is_alive(), "App Server failed to start"
-        threading.Event().wait(0.01)
-    yield f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
-    server.should_exit = True
-    thread.join(timeout=5)
+    with serving(app) as url:
+        yield url
 
 
 @pytest.fixture(scope="module")

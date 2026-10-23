@@ -349,22 +349,6 @@ def test_on_a_fixed_holder_there_is_nothing_to_load(qapp, experiment):
     assert not card._action_load.isVisible() and not card._action_unload.isVisible()
 
 
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
-
-
 class _NoMinimap:
     def set_experiment(self) -> None:
         pass

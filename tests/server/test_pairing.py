@@ -6,9 +6,10 @@ Skipped when the [server] extra is not installed.
 
 import json
 import os
-import threading
 
 import pytest
+
+from tests.fixtures.app_server import serving
 
 pytest.importorskip("fastapi")
 uvicorn = pytest.importorskip("uvicorn")
@@ -19,7 +20,6 @@ from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.client import pairing as client_pairing  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.devices import WS_PROTOCOL  # noqa: E402
 from fibsem.server.pairing import (  # noqa: E402
     AGENT,
     MAX_TRIES,
@@ -228,20 +228,8 @@ def test_a_browser_asks_the_headless_server_for_a_code(http, auth):
 
 @pytest.fixture
 def url(microscope, auth):
-    app = build_server(microscope, auth=auth)
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app, host="127.0.0.1", port=0, log_level="warning", ws=WS_PROTOCOL
-        )
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    while not server.started:
-        assert thread.is_alive(), "App Server failed to start"
-        threading.Event().wait(0.01)
-    yield f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
-    server.should_exit = True
-    thread.join(timeout=5)
+    with serving(build_server(microscope, auth=auth)) as url:
+        yield url
 
 
 def test_a_remote_microscope_pairs_and_later_connects_with_no_code(

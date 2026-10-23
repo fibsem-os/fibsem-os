@@ -9,8 +9,9 @@ bar. A test that decides a pass on the prompt bar needs that window.
 import os
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Dict, Iterator, Sequence
+from typing import Dict, Iterator, Optional, Sequence
 
+import pytest
 from psygnal.containers import EventedDict
 from PyQt5.QtCore import QCoreApplication, QEvent
 
@@ -89,3 +90,37 @@ def close_window(win) -> None:
         win.close()
     finally:
         app.quit = original_quit
+
+
+def main_window_fixture(
+    connect: bool = False,
+    config: Optional[str] = None,
+    scope: str = "function",
+    name: str = "main_ui",
+):
+    """A ``main_ui`` (or ``name``) fixture: the AutoLamella window, connected to the Demo
+    microscope when ``connect`` (on ``config``, a file name in ``fibsem/config``,
+    if given), disconnected and closed after."""
+
+    @pytest.fixture(scope=scope, name=name)
+    def _main_ui(qapp):
+        import fibsem.config as cfg
+        from fibsem.applications.autolamella.ui import window as module
+
+        window = module.AutoLamellaWindow()
+        with pytest.MonkeyPatch.context() as mp:
+            if config is not None:
+                path = os.path.join(cfg.CONFIG_PATH, config)
+                mp.setattr(
+                    window.system_widget,
+                    "load_configuration",
+                    lambda configuration_name=None: path,
+                )
+            if connect:
+                window.system_widget.connect_to_microscope()
+            yield window
+            if window.microscope is not None:
+                window.microscope.disconnect()
+            close_window(window)
+
+    return _main_ui

@@ -11,7 +11,6 @@ in tests/fm/_odemis_stubs.py, and the microscope is created without __init__.
 """
 
 import os
-import sys
 
 import numpy as np
 import pytest
@@ -237,23 +236,6 @@ class FakeStage:
         self.moves.append({k: self.position.value[k] + v for k, v in shift.items()})
         self.position._value = {**self.position.value, **self.moves[-1]}
         return stubs.FakeFuture()
-
-
-@pytest.fixture(scope="module")
-def odemis_microscope_cls():
-    """Import OdemisThermoMicroscope against stub odemis modules."""
-    saved = {}
-    for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
-        if name in sys.modules:
-            saved[name] = sys.modules.pop(name)
-
-    stubs.install_odemis_stubs()
-    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
-
-    yield OdemisThermoMicroscope
-
-    stubs.remove_odemis_stubs()
-    sys.modules.update(saved)
 
 
 @pytest.fixture
