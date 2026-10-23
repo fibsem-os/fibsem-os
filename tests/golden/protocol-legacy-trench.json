@@ -1,0 +1,196 @@
+{
+  "correlation": {
+    "auto_interpolate": false,
+    "auto_rerun": false,
+    "delete_fiducial": "ask",
+    "fit": {
+      "fib_method": "Hole",
+      "fluorescence_cutout": 5,
+      "fm_fiducial_channel": null,
+      "fm_fiducial_method": "None",
+      "fm_poi_channel": null,
+      "fm_poi_method": "Gaussian",
+      "reflection_cutout": 2
+    },
+    "load_spot_burns": true,
+    "ri": {
+      "depth_um": 4.0,
+      "mode": "pre",
+      "n2": 1.35,
+      "na": 0.75,
+      "tilt_deg": 15.0,
+      "wavelength_um": 0.515
+    }
+  },
+  "description": "auto-converted protocol from autolamella-trench-milling - AutoLamella-Trench",
+  "grid_tasks": {
+    "id": "pinned-grid-protocol-id",
+    "name": "Grid Task Protocol",
+    "task_config": {},
+    "workflow_config": {
+      "tasks": []
+    }
+  },
+  "id": "pinned-protocol-id",
+  "lamella_defaults": {
+    "name_prefix": "",
+    "use_petname": true
+  },
+  "name": "autolamella-trench-milling",
+  "options": {
+    "show_run_summary": true,
+    "turn_beams_off": false
+  },
+  "task_config": {
+    "Trench Milling": {
+      "charge_neutralisation": true,
+      "milling": {
+        "trench": {
+          "acquisition": {
+            "acquire_fib": false,
+            "acquire_final_image": true,
+            "acquire_sem": false,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            }
+          },
+          "alignment": {
+            "enabled": false,
+            "full_frame_below": 0.0,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            },
+            "interval": 30,
+            "interval_enabled": false,
+            "rect": {
+              "height": 0.4,
+              "left": 0.7,
+              "top": 0.3,
+              "width": 0.25
+            },
+            "steps": 3,
+            "use_autocontrast": true,
+            "use_autofocus": false
+          },
+          "channel": "ION",
+          "field_of_view": 0.00018,
+          "name": "Trench",
+          "stages": [
+            {
+              "enabled": true,
+              "milling": {
+                "application_file": "Si",
+                "dwell_time": 1e-06,
+                "hfw": 0.00018,
+                "milling_channel": "ION",
+                "milling_current": 7.6e-09,
+                "milling_voltage": 30000.0,
+                "patterning_mode": "Serial",
+                "preset": "30 keV; 2.5 nA",
+                "rate": 1.3e-08,
+                "spacing": 0.005,
+                "spot_size": 1e-06
+              },
+              "monitors": [],
+              "name": "Trench",
+              "pattern": {
+                "cross_section": "Rectangle",
+                "depth": 1.25e-06,
+                "fillet": 0.0,
+                "lower_trench_height": 3.2e-05,
+                "name": "Trench",
+                "passes": 0,
+                "point": {
+                  "name": null,
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "spacing": 2.5e-05,
+                "time": 0.0,
+                "upper_trench_height": 1.6e-05,
+                "width": 2.2e-05
+              },
+              "strategy": {
+                "config": {},
+                "name": "Standard"
+              }
+            }
+          ]
+        }
+      },
+      "orientation": "FIB",
+      "reference_imaging": {
+        "acquire_fib": true,
+        "acquire_image1": true,
+        "acquire_image2": true,
+        "acquire_sem": true,
+        "field_of_view1": 0.0001,
+        "field_of_view2": 0.00015,
+        "imaging": {
+          "autocontrast": false,
+          "beam_type": "ELECTRON",
+          "drift_correction": false,
+          "dwell_time": 1e-06,
+          "filename": "default_image",
+          "frame_integration": null,
+          "hfw": 0.00015,
+          "line_integration": null,
+          "path": null,
+          "reduced_area": null,
+          "resolution": [
+            1536,
+            1024
+          ],
+          "save": false,
+          "scan_interlacing": null
+        }
+      },
+      "task_name": "Trench Milling",
+      "task_type": "MILL_TRENCH"
+    }
+  },
+  "version": "1.0",
+  "workflow_config": {
+    "description": "auto-converted protocol from autolamella-trench-milling - AutoLamella-Trench",
+    "name": "autolamella-trench-milling",
+    "tasks": [
+      {
+        "attention": "supervised",
+        "name": "Trench Milling",
+        "required": true,
+        "requires": [],
+        "scheduled_at": null
+      }
+    ]
+  }
+}

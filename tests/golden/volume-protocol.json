@@ -72,16 +72,12 @@
             "enabled": true,
             "milling": {
               "application_file": "Si",
-              "dwell_time": 1e-06,
+              "driver": {},
               "hfw": 0.00015,
               "milling_channel": "ION",
               "milling_current": 6e-11,
               "milling_voltage": 30000.0,
-              "patterning_mode": "Serial",
-              "preset": "30 keV; 2nA",
-              "rate": 1.3e-08,
-              "spacing": 0.005,
-              "spot_size": 1e-06
+              "patterning_mode": "Serial"
             },
             "monitors": [],
             "name": "Face",
@@ -173,16 +169,12 @@
             "enabled": true,
             "milling": {
               "application_file": "Si",
-              "dwell_time": 1e-06,
+              "driver": {},
               "hfw": 0.00015,
               "milling_channel": "ION",
               "milling_current": 1e-09,
               "milling_voltage": 30000.0,
-              "patterning_mode": "Serial",
-              "preset": "30 keV; 2nA",
-              "rate": 1.3e-08,
-              "spacing": 0.005,
-              "spot_size": 1e-06
+              "patterning_mode": "Serial"
             },
             "monitors": [],
             "name": "Fiducial",
@@ -277,16 +269,12 @@
             "enabled": true,
             "milling": {
               "application_file": "Si",
-              "dwell_time": 1e-06,
+              "driver": {},
               "hfw": 0.00015,
               "milling_channel": "ION",
               "milling_current": 1e-09,
               "milling_voltage": 30000.0,
-              "patterning_mode": "Serial",
-              "preset": "30 keV; 2nA",
-              "rate": 1.3e-08,
-              "spacing": 0.005,
-              "spot_size": 1e-06
+              "patterning_mode": "Serial"
             },
             "monitors": [],
             "name": "Front Trench",
@@ -315,16 +303,12 @@
             "enabled": true,
             "milling": {
               "application_file": "Si",
-              "dwell_time": 1e-06,
+              "driver": {},
               "hfw": 0.00015,
               "milling_channel": "ION",
               "milling_current": 1e-09,
               "milling_voltage": 30000.0,
-              "patterning_mode": "Serial",
-              "preset": "30 keV; 2nA",
-              "rate": 1.3e-08,
-              "spacing": 0.005,
-              "spot_size": 1e-06
+              "patterning_mode": "Serial"
             },
             "monitors": [],
             "name": "Side Trench",
@@ -423,16 +407,12 @@
             "enabled": true,
             "milling": {
               "application_file": "Si",
-              "dwell_time": 1e-06,
+              "driver": {},
               "hfw": 0.00015,
               "milling_channel": "ION",
               "milling_current": 2e-11,
               "milling_voltage": 30000.0,
-              "patterning_mode": "Serial",
-              "preset": "30 keV; 2nA",
-              "rate": 1.3e-08,
-              "spacing": 0.005,
-              "spot_size": 1e-06
+              "patterning_mode": "Serial"
             },
             "monitors": [],
             "name": "Slice",

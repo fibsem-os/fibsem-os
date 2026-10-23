@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 from copy import deepcopy
-from typing import Any, Dict, Optional, Tuple, Type, TypeVar
+from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar
 
 import numpy as np
 
@@ -84,6 +84,10 @@ def _moves(translation: FibsemStagePosition) -> bool:
 # any instrument -- so `target_position` carries a position into this device's frame
 # before re-posing it, and back out afterwards.
 ROTATION_FRAME_DEVICE = "FIBSEM"
+
+
+# How near the stage's tilt must be to the tilt an insert asks for to stay put.
+SAFE_INSERT_TILT_TOLERANCE_DEG = 0.5
 
 
 class StageMovement(Service):
@@ -1389,6 +1393,85 @@ class StageMovement(Service):
             "or ask move_to_device for the pose and let it order the legs."
         )
 
+    # -- saved positions -------------------------------------------------------------------
+    # Named stage positions, kept with the microscope configuration's session state
+    # (`fibsem.saved_positions`): what the Saved Positions panel lists.
+
+    def _saved_state(self, writable: bool = False):
+        from fibsem.session_state import session_state_for
+
+        return session_state_for(self.parent, writable=writable)
+
+    @staticmethod
+    def _named(positions: List[FibsemStagePosition], name: str) -> FibsemStagePosition:
+        for position in positions:
+            if position.name == name:
+                return position
+        raise ValueError(
+            f"No saved position named {name!r}; saved: {[p.name for p in positions]}."
+        )
+
+    def _write_saved(self, positions: List[FibsemStagePosition]) -> None:
+        from fibsem.saved_positions import save_saved_positions
+
+        save_saved_positions(positions, self._saved_state(writable=True))
+
+    @query
+    def saved_positions(self) -> List[FibsemStagePosition]:
+        """The saved stage positions, in the order they were saved."""
+        from fibsem.saved_positions import load_saved_positions
+
+        return load_saved_positions(self._saved_state())
+
+    @command
+    def save_position(
+        self, name: str, stage_position: Optional[FibsemStagePosition] = None
+    ) -> FibsemStagePosition:
+        """Save the stage position now, or *stage_position*, as *name*: one
+        already saved under that name is replaced where it stands, otherwise
+        it is added at the end."""
+        name = str(name or "").strip()
+        if not name:
+            raise ValueError("A saved position needs a name.")
+        position = deepcopy(stage_position or self._position())
+        position.name = name
+        positions = self.saved_positions()
+        index = next((i for i, p in enumerate(positions) if p.name == name), None)
+        if index is None:
+            positions.append(position)
+        else:
+            positions[index] = position
+        self._write_saved(positions)
+        return position
+
+    @command
+    def rename_saved_position(self, name: str, new_name: str) -> FibsemStagePosition:
+        """Rename a saved position; refused onto a name already saved."""
+        new_name = str(new_name or "").strip()
+        if not new_name:
+            raise ValueError("A saved position needs a name.")
+        positions = self.saved_positions()
+        position = self._named(positions, name)
+        if new_name != name and any(p.name == new_name for p in positions):
+            raise ValueError(f"A position named {new_name!r} is already saved.")
+        position.name = new_name
+        self._write_saved(positions)
+        return position
+
+    @command
+    def remove_saved_position(self, name: str) -> None:
+        """Forget a saved position."""
+        positions = self.saved_positions()
+        self._named(positions, name)
+        self._write_saved([p for p in positions if p.name != name])
+
+    @command
+    def move_to_saved_position(self, name: str) -> FibsemStagePosition:
+        """Move the stage to a saved position, through the safe absolute move."""
+        return self.safe_absolute_stage_movement(
+            self._named(self.saved_positions(), name)
+        )
+
     # -- moves to a place ------------------------------------------------------------------
 
     @command
@@ -1588,6 +1671,48 @@ class StageMovement(Service):
         displays the objective moved (`ObjectiveLens.position_changed`)."""
         self._require_fm("No fluorescence microscope.")
         return self.parent.fm.objective
+
+    @command
+    def insert_objective(self, tilt: Optional[float] = None) -> None:
+        """Insert the FM objective where the stage stands, or tilted to *tilt*
+        (radians) first, as the FM tab's Insert does: the objective is retracted
+        for the tilt, and a stage already within half a degree of it stays put.
+        A tilt is refused away from the FM device."""
+        with recording_move(self.session, self.stage, "insert_objective", tilt=tilt):
+            objective = self._objective()
+            if tilt is not None:
+                stage_position = self._position()
+                if not self._at_the_fm(stage_position):
+                    raise ValueError(
+                        "The stage is not at the FM, so it is not tilted there: "
+                        "travel with move_to_device('FM'), which inserts the "
+                        "objective."
+                    )
+                if not np.isclose(
+                    np.degrees(stage_position.t or 0.0),
+                    np.degrees(tilt),
+                    atol=SAFE_INSERT_TILT_TOLERANCE_DEG,
+                ):
+                    self._retract_objective_to_move("FM")
+                    stage_position.t = float(tilt)
+                    self._move_stage(stage_position)
+            objective.insert()
+
+    @command
+    def retract_objective(self) -> None:
+        """Retract the FM objective, as the FM tab's Retract does."""
+        with recording_move(self.session, self.stage, "retract_objective"):
+            self._objective().retract()
+
+    def _at_the_fm(self, stage_position: FibsemStagePosition) -> bool:
+        """Whether the stage is at the FM; True where the FM is no device the
+        stage travels to."""
+        if "FM" not in self.parent.system.stage.devices:
+            return True
+        try:
+            return self.is_at_device("FM", stage_position)
+        except ValueError:
+            return True
 
     @command
     def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:

@@ -21,7 +21,8 @@ tasks:
                         hfw: 0.00018
                         milling_current: 7.6e-09
                         milling_voltage: 30000
-                        preset: 30 keV; 2.5 nA
+                        driver:
+                            Tescan: {preset: 30 keV; 2.5 nA}
                     pattern:
                         depth: 1.25e-06
                         lower_trench_height: 3.2e-05
