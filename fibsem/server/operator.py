@@ -15,7 +15,14 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from fibsem.ai.agent.levels import LEVEL_NAMES, LEVEL_TIPS, LEVEL_WORDS, AgentLevel
+from fibsem.ai.agent.levels import (
+    LEVEL_NAMES,
+    LEVEL_TIPS,
+    LEVEL_WORDS,
+    AgentLevel,
+    chip_text,
+)
+from fibsem.codec import encode
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
 from fibsem.server import files
 from fibsem.server.agent_setup import setup_text
@@ -70,6 +77,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         suggestion = agent.suggestion()
         waiting = agent.waiting()
         asking = agent.asking()
+        request_view = request.view() if request is not None else None
         return answer(
             AgentView(
                 experiment=agent.experiment_name(),
@@ -79,7 +87,12 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 client=agent.client(),
                 session=agent.session_text(),
                 budget_low=agent.budget_low(),
-                request=request.view() if request is not None else None,
+                request=request_view,
+                chip=chip_text(
+                    agent.level,
+                    encode(request_view) if request_view is not None else None,
+                    bool(suggestion),
+                ),
                 suggestion=SuggestionCard(**suggestion) if suggestion else None,
                 now=agent.now(),
                 waiting=Waiting(**waiting) if waiting else None,
