@@ -563,6 +563,10 @@ def test_milling_stages_are_checked_before_drawing(driving):
 
     options = _ok(_call(driving, "milling_list_options"))["result"]
     assert "Rectangle" in options["patterns"] and options["strategies"]
+    # the recipe fields the instrument mills with, as the milling form shows them
+    ion = options["settings"]["ION"]["properties"]
+    milling = driving.host.microscope.milling
+    assert set(ion) == set(milling.supported_settings())
 
 
 def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noqa: F811

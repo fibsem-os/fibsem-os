@@ -116,6 +116,7 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
+    Parameter,
     field_specs,
 )
 from fibsem.util import wording
@@ -658,22 +659,52 @@ class Milling(Service):
         if channel not in (self._metadata_of("milling_channel").choices or ()):
             return {}
         beam = self.beam(channel)
-        specs = FibsemMillingSettings.params
-        fields = [(name, specs[name]) for name in self.setting_names]
-        if self.settings_class is not None:
-            prefix = f"driver.{self.own_name()}."
-            fields += [
-                (prefix + name, spec)
-                for name, spec in self.settings_class.params.items()
-            ]
         available: Dict[str, ParameterMetadata] = {}
-        for name, spec in fields:
+        for name, spec in self._setting_specs().items():
             beam_parameter = spec.bound_name
             if beam_parameter not in beam.parameters:
                 available[name] = self._metadata_of(name)
             elif _settable(beam, beam_parameter):
                 available[name] = beam.parameters[beam_parameter].metadata
         return available
+
+    def _setting_specs(self) -> Dict[str, Parameter]:
+        """The declared field of each recipe setting this driver lists, by its path:
+        its ``setting_names``, then its own (``driver.Tescan.preset``)."""
+        specs = FibsemMillingSettings.params
+        fields = {name: specs[name] for name in self.setting_names}
+        if self.settings_class is not None:
+            prefix = f"driver.{self.own_name()}."
+            fields.update(
+                (prefix + name, spec)
+                for name, spec in self.settings_class.params.items()
+            )
+        return fields
+
+    def settings_schema(self, channel: BeamType = BeamType.ION) -> Dict[str, Any]:
+        """``supported_settings`` as one JSON Schema object, a property per setting
+        by its path, in the shape a monitor config's ``describe()`` has. A number the
+        beam lists values for (the milling current) keeps any value, so its listed
+        ones are its ``examples``."""
+        from fibsem.schema import _plain, parameter_schema
+
+        specs = self._setting_specs()
+        properties: Dict[str, Any] = {}
+        for name, reported in self.supported_settings(channel).items():
+            spec = specs[name]
+            numeric = spec.choices is None and spec.type in (int, float)
+            listed = reported.choices if numeric else None
+            if listed is not None:
+                reported = dataclasses.replace(reported, choices=None)
+            schema = parameter_schema(spec.with_reported(reported), {})
+            if listed:
+                schema["examples"] = [_plain(choice) for choice in listed]
+            properties[name] = schema
+        return {
+            "type": "object",
+            "title": f"{type(self).__name__} settings",
+            "properties": properties,
+        }
 
     def supported_pattern_settings(self) -> Dict[str, ParameterMetadata]:
         """The pattern fields whose choices this instrument decides: the scan
@@ -1119,8 +1150,10 @@ class Milling(Service):
 
     @query
     def list_options(self) -> Dict[str, Any]:
-        """The names a stage's ``pattern.name`` and ``strategy.name`` take, and
-        the monitors this instrument can run: each name with its config's fields."""
+        """The names a stage's ``pattern.name`` and ``strategy.name`` take, the
+        monitors this instrument can run (each name with its config's fields), and
+        the recipe settings it mills with on each channel it mills on
+        (`settings_schema`)."""
         from fibsem.milling.monitors import get_monitors
         from fibsem.milling.patterning import get_pattern_names
         from fibsem.milling.strategy import get_strategy_names
@@ -1132,6 +1165,11 @@ class Milling(Service):
                 name: monitor.config_class.describe()
                 for name, monitor in get_monitors().items()
                 if monitor.available(self)
+            },
+            "settings": {
+                channel.name: schema
+                for channel in (BeamType.ION, BeamType.ELECTRON)
+                if (schema := self.settings_schema(channel))["properties"]
             },
         }
 
