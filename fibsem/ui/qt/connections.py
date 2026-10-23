@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import inspect
+import weakref
 from typing import Any, Callable, Optional
 
+from PyQt5 import sip
 from PyQt5.QtCore import QObject, pyqtSignal
 
 __all__ = ["connect_for_lifetime", "connect_on_gui_thread"]
@@ -22,9 +24,31 @@ def connect_for_lifetime(owner: QObject, signal: Any, slot: Callable) -> None:
 
 
 class _Relay(QObject):
-    """Carries a psygnal emission's arguments to its parent's thread."""
+    """Carries a psygnal emission's arguments to its parent's thread.
+
+    psygnal holds `forward` weakly, as it holds any bound method, and the parent
+    keeps the relay: dropping the parent drops the connection with it, whether
+    or not it was ever closed.
+    """
 
     fired = pyqtSignal(object)
+
+    def __init__(self, owner: QObject, slot: Callable) -> None:
+        super().__init__(owner)
+        # Weakly for a bound method, as psygnal would have held it.
+        self._slot = (
+            weakref.WeakMethod(slot) if inspect.ismethod(slot) else lambda: slot
+        )
+        self.fired.connect(self._deliver)
+
+    def forward(self, *args: Any) -> None:
+        if not sip.isdeleted(self):
+            self.fired.emit(args)
+
+    def _deliver(self, args: tuple) -> None:
+        slot = self._slot()
+        if slot is not None:
+            slot(*args)
 
 
 def _max_args(slot: Callable) -> Optional[int]:
@@ -56,17 +80,15 @@ def connect_on_gui_thread(
     thread and goes with it: an emission from another thread is queued there,
     one from the GUI thread is delivered at once. *slot* gets as many of the
     emission's arguments as it takes, as psygnal would give it.
+
+    Nothing here keeps *owner* alive: a widget dropped without being closed
+    goes, and takes the connection with it.
     """
-    relay = _Relay(owner)
-    relay.fired.connect(lambda args: slot(*args))
-
-    def forward(*args: Any) -> None:
-        relay.fired.emit(args)
-
-    signal.connect(forward, max_args=_max_args(slot))
+    relay = _Relay(owner, slot)
+    signal.connect(relay.forward, max_args=_max_args(slot))
 
     def disconnect() -> None:
-        signal.disconnect(forward, missing_ok=True)
+        signal.disconnect(relay.forward, missing_ok=True)
 
     owner.destroyed.connect(lambda *_: disconnect())
     return disconnect
