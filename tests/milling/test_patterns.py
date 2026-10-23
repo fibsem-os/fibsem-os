@@ -6,10 +6,7 @@ from typing import Type
 import numpy as np
 import pytest
 
-from fibsem.milling.patterning import (
-    MILLING_PATTERNS,
-    get_pattern,
-)
+from fibsem.milling.patterning import get_pattern, get_patterns
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.patterning.patterns import (
     ArrayPattern,
@@ -31,7 +28,7 @@ from fibsem.structures import (
 )
 
 
-@pytest.mark.parametrize("pattern", list(MILLING_PATTERNS.values()))
+@pytest.mark.parametrize("pattern", list(get_patterns().values()))
 def test_required_attributes(pattern: Type[BasePattern]) -> None:
     # test that core attributes are not inherited by required attributes for specific patterns
     p = pattern()
@@ -978,9 +975,9 @@ class TestGetPattern:
         assert isinstance(pattern, CirclePattern)
 
         # Verify all registered patterns can be retrieved
-        for pattern_name in MILLING_PATTERNS.keys():
+        for pattern_name in get_patterns().keys():
             # Create a minimal config with required attributes
-            cls = MILLING_PATTERNS[pattern_name]
+            cls = get_patterns()[pattern_name]
             required_attrs = cls.__init__.__annotations__
 
             # Create a basic config with sample values for required attributes
@@ -997,7 +994,7 @@ class TestGetPattern:
                         minimal_config[attr] = "TopToBottom"
 
             pattern = get_pattern(pattern_name, minimal_config)
-            assert isinstance(pattern, MILLING_PATTERNS[pattern_name])
+            assert isinstance(pattern, get_patterns()[pattern_name])
 
 
 class TestCircularSuspensionPattern:

@@ -1,18 +1,14 @@
-"""Correlation point-picking on the shared FM canvas (FIB-535).
+"""Correlation point-picking on the shared FM canvas.
 
-`FMCanvasWidget` + :class:`PointPicking` — the FM half of the migration,
+`FMCanvasWidget` + :class:`PointPicking` on the FM side,
 and the counterpart to :class:`PointCanvasWidget` on the FIB side. Both
 present the same picking surface; they differ only in how an image reaches the
 canvas, which is the one thing that genuinely differs between them.
 
-Replaced `FMImageDisplayWidget`, a 574-line parallel implementation of the FM
-canvas. Replacing rather than porting it is what puts the
-correlation FM display on the *standard* FM control set — the z-slider, the
+The correlation FM display uses the *standard* FM control set — the z-slider, the
 per-channel layers popover and the max-projection toolbar button that the quad
-view and the FM overview already use — instead of a private second
-implementation of all three. The visible trades, agreed 2026-08-10: per-channel
-intensity moves from a clip percentage to the layers panel's contrast/gamma, and
-the channel rows move from an always-visible pane into the popover.
+view and the FM overview use: per-channel intensity is the layers panel's
+contrast/gamma, and the channel rows are in the popover.
 """
 
 from __future__ import annotations
@@ -104,7 +100,7 @@ class CorrelationFMCanvasWidget(PickingCanvasMixin, FMCanvasWidget):
         Note for macOS: matplotlib's Qt backend reads only the vertical wheel
         delta, and AppKit turns Shift+wheel horizontal on a discrete mouse, so
         this never fires there. Windows and Linux are unaffected; the ‹ › buttons
-        and the slider work everywhere. FIB-552, deliberately parked.
+        and the slider work everywhere.
         """
         if "Shift" not in modifiers:
             return

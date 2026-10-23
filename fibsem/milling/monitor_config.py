@@ -1,4 +1,4 @@
-"""What a milling monitor is configured by, held on the stage (FIB-1481).
+"""What a milling monitor is configured by, held on the stage.
 
 Outside the monitors package so ``fibsem.milling.base`` can name it on the
 stage without importing them.

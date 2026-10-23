@@ -95,10 +95,6 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
         # operator drives the FM controls themselves while confirming below -- which is
         # what the `stop_acquisition` is for: whatever live view they started, the task
         # takes down on the way out.
-        #
-        # There used to be a bare `acquire_image()` here whose result was discarded. It
-        # emits no signal, so nothing reached the canvas; it exposed the camera once and
-        # threw the frame away.
         msg = (
             f"Move to fluorescence position (stage and objective) for "
             f"{self.lamella.name}. Press Continue to proceed."

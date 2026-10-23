@@ -106,19 +106,21 @@ class FibsemImageCanvas(FibsemCanvasBase):
         self._refresh_scalebar()
         self._refresh_crosshair()
         # No hint or flash here either: both are the status chip, a child widget, so
-        # `cla()` never took them down and there is nothing to restore (FIB-639).
+        # `cla()` never took them down and there is nothing to restore.
         self._refresh_title()  # ditto: restore the remembered title
         # No info bar here either: it became a child widget with the status chip, so
-        # `cla()` leaves it alone and there is nothing to restore (FIB-650).
+        # `cla()` leaves it alone and there is nothing to restore.
         # No LIVE chip here: it is a child widget, not an artist, so `cla()` never took
-        # it down and there is nothing to restore (FIB-596).
+        # it down and there is nothing to restore.
         self._refresh_legend()  # ditto: restore the patch legend
 
         self._notify_overlays(self._content_rect())
 
         self.draw_idle()
 
-    def update_display(self, arr: np.ndarray, pixel_size: Optional[float] = None) -> None:
+    def update_display(
+        self, arr: np.ndarray, pixel_size: Optional[float] = None
+    ) -> None:
         """Fast pixel-data swap without resetting overlays.
 
         Use for z-slice navigation / recomposites where image dimensions don't change.
@@ -147,4 +149,3 @@ class FibsemImageCanvas(FibsemCanvasBase):
             self._pixel_size = pixel_size
             self._refresh_scalebar()
         self.draw_idle()
-

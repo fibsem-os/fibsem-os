@@ -10,16 +10,11 @@ to record (the stitched image, its tiles and a thumbnail, by role).
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     ClassVar,
-    Iterable,
-    List,
-    Optional,
-    Tuple,
     Type,
 )
 
@@ -34,7 +29,6 @@ from fibsem.structures import (
     Display,
     FibsemStagePosition,
     OverviewAcquisitionSettings,
-    Parameter,
     param,
 )
 from fibsem.workflows.grid.base import (
@@ -43,10 +37,10 @@ from fibsem.workflows.grid.base import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscope import FibsemMicroscope
+    pass
 
-# The output roles a results card, the Overview tab and the App Server read
-# (FIB-876). One per beam, plus the thumbnail and the tiles beside it.
+# The output roles a results card, the Overview tab and the App Server read.
+# One per beam, plus the thumbnail and the tiles beside it.
 ROLE_BY_BEAM = {BeamType.ELECTRON: "overview_sem", BeamType.ION: "overview_fib"}
 
 
@@ -157,7 +151,7 @@ class BeamOverviewGridTask(GridTask):
         image = overview.image
         self.record_output(self.config.role, image)
         # The tiles too, for what reads single frames rather than the stitch: the
-        # targeting model was trained on tiles (FIB-939).
+        # targeting model was trained on tiles.
         for tile in overview.tile_paths:
             self.record_output(f"{self.config.role}_tiles", tile)
 

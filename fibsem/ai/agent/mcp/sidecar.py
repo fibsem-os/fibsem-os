@@ -5,7 +5,7 @@ proxies MCP tool calls to a fibsem server over HTTP with a bearer token. It
 owns no microscope connection and enforces nothing itself — the server is the
 security boundary. It registers every tool the server's mounted routers serve,
 whatever the agent's level: the level changes mid-session, and the server's
-403 says what is needed (FIB-1035).
+403 says what is needed.
 
 Connection resolution, in order: ``--url``/``--token`` arguments, the
 ``FIBSEM_SERVER_URL``/``FIBSEM_SERVER_TOKEN`` environment variables, the token
@@ -30,7 +30,6 @@ and needs nothing beyond fibsem itself (see :mod:`fibsem.ai.agent.mcp.watch`).
 import argparse
 import base64
 import json
-import math
 import os
 import re
 import sys
@@ -48,7 +47,7 @@ from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
 
 # How long start-up looks for the server before answering the MCP client anyway:
-# a client gives a server only so long to start (FIB-1416).
+# a client gives a server only so long to start.
 _PROBE_S = 2.0
 
 
@@ -145,7 +144,7 @@ def _connect_with_retry(
 
 class _LazyClient:
     """The server's connection, made on the first tool call rather than at
-    start-up (FIB-1416).
+    start-up.
 
     An MCP client gives a server only so long to answer its handshake, and the
     App Server may be slow to answer, or not started yet, while the client
@@ -199,7 +198,7 @@ class _LazyClient:
 def _connected_lines(base_url, capabilities):
     """What ``--check`` and the first call print: where the sidecar connected,
     the agent level when the server says one, and a warning when the app runs
-    other ``fibsem`` code than this sidecar (FIB-1429)."""
+    other ``fibsem`` code than this sidecar."""
     from fibsem.server.discovery import code_mismatch
 
     level = capabilities.get("level")
@@ -315,7 +314,7 @@ def _call(client, method, path, payload=None):
     kwargs = {"params": payload} if method == "GET" and payload else {"json": payload}
     tool = _calling.get()
     if tool is not None and method != "GET":
-        # The server describes the call for the operator from these (FIB-1426).
+        # The server describes the call for the operator from these.
         kwargs["headers"] = headers_for(*tool, evidence=_citing.get())
     try:
         resp = client.request(method, path, **kwargs)
@@ -421,7 +420,7 @@ def build_sidecar(client, capabilities):
 
     def _send(tool_name, arguments):
         """A tool's call (`tools.send`): its response, the headers naming the
-        agent's own call (FIB-1426)."""
+        agent's own call."""
         tool = _calling.get()
         headers = headers_for(*tool, evidence=_citing.get()) if tool else {}
         return tools.send(client, tool_name, arguments, headers=headers)
@@ -2264,7 +2263,7 @@ def main(argv=None):
         sys.exit(_pair(argv[1:]))
     watch_argv = _watch_argv(argv)
     if watch_argv is not None:
-        # Before the mcp import: watching needs only HTTP (FIB-1269).
+        # Before the mcp import: watching needs only HTTP.
         from fibsem.ai.agent.mcp.watch import main as watch_main
 
         sys.exit(watch_main(watch_argv))
@@ -2308,7 +2307,7 @@ def main(argv=None):
         _say_connected(client.url, capabilities)
         return
     # Answer the MCP client's handshake first, and wait for a server in the
-    # first call (FIB-1416).
+    # first call.
     capabilities = _probe(args.url, args.token)
     if capabilities is None:
         print(

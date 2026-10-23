@@ -1,4 +1,4 @@
-"""Mill steps and how they end (FIB-1480).
+"""Mill steps and how they end.
 
 A strategy carries out a stage (a ``MillingStageRun``) as one or more mill steps:
 Standard mills once, Overtilt once per pattern. A ``MillingStep`` is one mill on

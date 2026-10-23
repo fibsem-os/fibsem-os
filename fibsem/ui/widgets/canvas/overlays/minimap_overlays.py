@@ -3,18 +3,17 @@
 One :class:`MinimapShapesOverlay` renders a flat list of :class:`ShapeSpec` (rectangle
 / circle / crosshair + optional label) on a :class:`FibsemImageCanvas`. The host widget
 groups specs **by entity** (LamellaMarkers / CurrentPosition / ReferenceFrame) into
-separate overlay instances so each redraws on its own trigger — unlike the napari
-minimap, which grouped by shape *type* (one Shapes layer per geometry kind) and had to
-rebuild everything on any change.
+separate overlay instances so each redraws on its own trigger, rather than rebuilding
+everything on any change.
 
 Geometry is plain image-pixel coordinates: a spec's ``(cx, cy)`` is the shape centre in
 image pixels (col, row), matching the axes' ``extent``. Callers compute those from
-``tiled.reproject_stage_positions_onto_image2`` exactly as before — no napari vertex
-arrays.
+``tiled.reproject_stage_positions_onto_image2``.
 
 Display-only: captures no mouse events, so it coexists with the canvas pan/zoom +
 click-to-move + right-click menu.
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,8 +38,8 @@ _LABEL_FONTSIZE = 7
 # fluorescence tab's `GRID_RADIUS_M` and the beam tab's `GRID_BOUNDARY_RADIUS`, the same
 # 1000 um written twice in two files.
 #
-# A constant only because nothing currently reports it. FIB-572 wants the radius from
-# `SampleGrid.radius`, which would retire this: a holder knows how big its grids are,
+# A constant only because nothing currently reports it; `SampleGrid.radius` would
+# replace it: a holder knows how big its grids are,
 # and a fixed 1 mm is right for the common case and wrong for anything else.
 GRID_BOUNDARY_RADIUS_M = 1000e-6
 
@@ -160,21 +159,32 @@ class MinimapShapesOverlay(CanvasOverlay):
         if spec.kind == "rect":
             patch = mpatches.Rectangle(
                 (spec.cx - spec.width / 2.0, spec.cy - spec.height / 2.0),
-                spec.width, spec.height,
-                fill=False, edgecolor=spec.color, linewidth=self._linewidth,
+                spec.width,
+                spec.height,
+                fill=False,
+                edgecolor=spec.color,
+                linewidth=self._linewidth,
                 zorder=self._zorder,
             )
             self._ax.add_patch(patch)
             self._artists.append(patch)
-            self._draw_label(spec, spec.cx - spec.width / 2.0,
-                              spec.cy - spec.height / 2.0, va="bottom")
+            self._draw_label(
+                spec,
+                spec.cx - spec.width / 2.0,
+                spec.cy - spec.height / 2.0,
+                va="bottom",
+            )
         elif spec.kind == "ellipse":
             # matplotlib's Ellipse takes full width and height, matching `rect` -- so a
             # caller that has projected a diameter per axis passes the same two numbers
             # to either kind, and cannot halve one and not the other.
             patch = mpatches.Ellipse(
-                (spec.cx, spec.cy), spec.width, spec.height,
-                fill=False, edgecolor=spec.color, linewidth=self._linewidth,
+                (spec.cx, spec.cy),
+                spec.width,
+                spec.height,
+                fill=False,
+                edgecolor=spec.color,
+                linewidth=self._linewidth,
                 zorder=self._zorder,
             )
             self._ax.add_patch(patch)
@@ -182,8 +192,11 @@ class MinimapShapesOverlay(CanvasOverlay):
             self._draw_label(spec, spec.cx, spec.cy - spec.height / 2.0, va="bottom")
         elif spec.kind == "circle":
             patch = mpatches.Circle(
-                (spec.cx, spec.cy), spec.radius,
-                fill=False, edgecolor=spec.color, linewidth=self._linewidth,
+                (spec.cx, spec.cy),
+                spec.radius,
+                fill=False,
+                edgecolor=spec.color,
+                linewidth=self._linewidth,
                 zorder=self._zorder,
             )
             self._ax.add_patch(patch)
@@ -195,15 +208,30 @@ class MinimapShapesOverlay(CanvasOverlay):
             (l1,) = self._ax.plot([spec.cx - h, spec.cx + h], [spec.cy, spec.cy], **kw)
             (l2,) = self._ax.plot([spec.cx, spec.cx], [spec.cy - h, spec.cy + h], **kw)
             self._artists.extend([l1, l2])
-            self._draw_label(spec, spec.cx + h * 0.15, spec.cy + h * 0.15,
-                             va="top", ha="left")
+            self._draw_label(
+                spec, spec.cx + h * 0.15, spec.cy + h * 0.15, va="top", ha="left"
+            )
 
-    def _draw_label(self, spec: ShapeSpec, x: float, y: float,
-                    *, va: str = "bottom", ha: str = "left") -> None:
+    def _draw_label(
+        self,
+        spec: ShapeSpec,
+        x: float,
+        y: float,
+        *,
+        va: str = "bottom",
+        ha: str = "left",
+    ) -> None:
         if not spec.label:
             return
         t = self._ax.text(
-            x, y, spec.label, color=spec.color, fontsize=_LABEL_FONTSIZE,
-            ha=ha, va=va, zorder=self._zorder + 0.5, clip_on=True,
+            x,
+            y,
+            spec.label,
+            color=spec.color,
+            fontsize=_LABEL_FONTSIZE,
+            ha=ha,
+            va=va,
+            zorder=self._zorder + 0.5,
+            clip_on=True,
         )
         self._artists.append(t)

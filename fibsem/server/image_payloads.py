@@ -60,7 +60,7 @@ def image_payload(image) -> Optional[Dict[str, Any]]:
             payload = preview_payload(image)
         except Exception:
             return None
-        # When it was taken, so an agent can tell a stale frame (FIB-1399).
+        # When it was taken, so an agent can tell a stale frame.
         payload["acquired_at"] = _acquired_at(image)
         return payload
     entry = _preview_b64(image)
@@ -106,7 +106,7 @@ def fields_info(
 ) -> Dict[str, Any]:
     """What the bar under an image says, as the Qt view bar says it: *info*'s
     (an `ImageFields`) kind, its unlabelled header fields (detector, objective),
-    its labelled fields and the time, as ``display.info_bar_fields`` picks them
+    its labelled fields and the time, as ``shared.info_bar_fields`` picks them
     for its kind; *z* replaces the Z field's value. ``scalebar`` is ``{length,
     label, fraction}``: a round length in metres, about a fifth of an image *width*
     pixels of *pixel_size* metres, and the part of the width it spans; None when

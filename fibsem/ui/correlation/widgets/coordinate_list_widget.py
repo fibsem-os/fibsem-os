@@ -37,7 +37,6 @@ from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
     drag_handle_pixmap,
-    fibsem_icon,
 )
 from fibsem.ui.tokens import (
     CAPTION_STYLE,
@@ -57,8 +56,8 @@ _BTN_SIZE = QSize(24, 24)
 _ROW_HEIGHT = 28
 # A list shows every row up to this many, then scrolls. Sized to content rather
 # than left at Qt's default height, which showed seven rows and hid the eighth
-# fiducial under the next panel's header with only the count to say so
-# (FIB-978).
+# fiducial under the next panel's header with only the count to say so.
+#
 _MAX_VISIBLE_ROWS = 12
 
 
@@ -93,7 +92,7 @@ def _name_col_width(point_type: Optional[PointType]) -> int:
 
 
 def state_text(coord: Coordinate) -> str:
-    """The one word a row shows for a point that is not simply placed (FIB-978).
+    """The one word a row shows for a point that is not simply placed.
 
     Empty for a placed point: the default state carries no chrome. The
     vocabulary is :class:`PointStatus`; ``suggested`` is the highlight on the
@@ -133,8 +132,7 @@ class CoordinateRowWidget(QWidget):
 
     Nothing else at rest. The actions (fit, remove) appear only while the row
     is selected; the drag handle only under the pointer; the full set (fit,
-    reset to prediction, reject from fit, remove) is on the right-click menu
-    (FIB-978 \u00a77).
+    reset to prediction, reject from fit, remove) is on the right-click menu.
     """
 
     row_clicked = pyqtSignal(object)  # Coordinate
@@ -370,7 +368,7 @@ class CoordinateRowWidget(QWidget):
     def _z_tooltip(self, z: float) -> str:
         """z is a slice of the acquired stack; with an interpolated view shown,
         also the view plane it sits on, numbered as the z slider numbers it
-        (from 1), so the point can be found on the slider (FIB-1248)."""
+        (from 1), so the point can be found on the slider."""
         view = getattr(self, "_z_view", None)
         if view is None:
             return "Z (slice)"
@@ -450,7 +448,7 @@ class CoordinateListWidget(QWidget):
     """Reorderable list of Coordinate objects.
 
     No header row: the rows read without column labels, and the actions live
-    on the selected row and its context menu (FIB-978 \u00a77).
+    on the selected row and its context menu.
 
     Signals
     -------
@@ -482,7 +480,7 @@ class CoordinateListWidget(QWidget):
         if point_type is None:
             raise ValueError("a coordinate list shows one point type")
         self._point_type = point_type
-        # The points and the selection live in the store (FIB-973); this widget
+        # The points and the selection live in the store; this widget
         # renders them. Until the tab widget shares one store between the lists
         # and the canvases, each list has its own.
         self._store = store if store is not None else PointStore(self)
@@ -589,7 +587,7 @@ class CoordinateListWidget(QWidget):
             self._assigning = False
         self._rebuild_rows()
         # Selecting row 1 is this setter's, not the store's: it is what made a
-        # canvas delete jump the selection (FIB-965), and it goes with the last
+        # canvas delete jump the selection, and it goes with the last
         # caller that assigns a whole list.
         coords = self.coordinates
         if coords:
@@ -736,7 +734,7 @@ class CoordinateListWidget(QWidget):
         ``coordinate_removed`` and then the neighbour's selection; the canvas path is
         echoing a removal that already happened and only needs the list to follow.
         Selecting the first row instead, as assigning ``coordinates`` does, was what
-        made a canvas delete jump the selection to row 1 (FIB-965).
+        made a canvas delete jump the selection to row 1.
         Returns False if *coord* is not here.
         """
         # The store removes by identity and selects the neighbour; the rows and
@@ -748,7 +746,7 @@ class CoordinateListWidget(QWidget):
     def _on_remove(self, coord: Coordinate) -> None:
         # Removal first, then the neighbour's selection: the tab widget answers
         # coordinate_removed by rebuilding the overlay, which drops its selection,
-        # so a selection announced before the removal was wiped by it (FIB-965).
+        # so a selection announced before the removal was wiped by it.
         if self.remove_coordinate(coord):
             self.coordinate_removed.emit(coord)
             selected = self.selected_coordinate

@@ -44,7 +44,7 @@ def test_record_persists_and_dedups_most_recent_first(prefs_env):
     cfg.record_recent_experiment(b)
     cfg.record_recent_experiment(a)  # re-record moves a back to front
 
-    recent = cfg.load_user_preferences().experiment.recent_experiments
+    recent = cfg.recent_experiment_paths()
     assert recent == [os.path.normpath(a), os.path.normpath(b)]
 
 
@@ -52,7 +52,7 @@ def test_record_truncates_to_max(prefs_env):
     for i in range(cfg.MAX_RECENT_EXPERIMENTS + 5):
         cfg.record_recent_experiment(_write_experiment(prefs_env / f"e{i}"))
 
-    recent = cfg.load_user_preferences().experiment.recent_experiments
+    recent = cfg.recent_experiment_paths()
     assert len(recent) == cfg.MAX_RECENT_EXPERIMENTS
     # Most recently recorded is first
     assert recent[0] == os.path.normpath(
@@ -62,7 +62,7 @@ def test_record_truncates_to_max(prefs_env):
 
 def test_record_ignores_empty_path(prefs_env):
     cfg.record_recent_experiment("")
-    assert cfg.load_user_preferences().experiment.recent_experiments == []
+    assert cfg.recent_experiment_paths() == []
 
 
 def test_peek_reads_display_metadata(prefs_env):
@@ -107,9 +107,7 @@ def test_get_recent_prunes_missing_and_persists(prefs_env):
 
     assert [i.path for i in infos] == [os.path.normpath(good)]
     # Pruned list was persisted back to disk
-    assert cfg.load_user_preferences().experiment.recent_experiments == [
-        os.path.normpath(good)
-    ]
+    assert cfg.recent_experiment_paths() == [os.path.normpath(good)]
 
 
 def test_get_recent_keeps_corrupt_entries(prefs_env):
@@ -124,21 +122,34 @@ def test_get_recent_keeps_corrupt_entries(prefs_env):
 
     assert len(infos) == 1
     assert infos[0].available is False
-    # corrupt-but-present entry is not pruned from preferences
-    assert cfg.load_user_preferences().experiment.recent_experiments == [
-        os.path.normpath(yaml_path)
-    ]
+    # corrupt-but-present entry is not pruned
+    assert cfg.recent_experiment_paths() == [os.path.normpath(yaml_path)]
 
 
-def test_add_recent_experiment_mutates_without_saving(prefs_env):
-    prefs = cfg.load_user_preferences()
-    a = _write_experiment(prefs_env / "a")
+def test_recents_are_not_in_the_preferences_file(prefs_env):
+    """They are remembered, not chosen: the per-account session state holds them."""
+    cfg.record_recent_experiment(_write_experiment(prefs_env / "a"))
 
-    cfg.add_recent_experiment(prefs, a)
-
-    assert prefs.experiment.recent_experiments == [os.path.normpath(a)]
-    # Nothing was written to disk (no save called)
     assert not os.path.exists(cfg.USER_PREFERENCES_PATH)
+
+
+def test_an_older_file_hands_its_recents_over(prefs_env):
+    """Recents an older preferences file holds move to the session state on first
+    load, and the next preferences save no longer writes them."""
+    a = _write_experiment(prefs_env / "a")
+    with open(cfg.USER_PREFERENCES_PATH, "w") as f:
+        yaml.safe_dump(
+            {"experiment": {"user": "someone", "recent_experiments": [a]}}, f
+        )
+
+    prefs = cfg.load_user_preferences()
+
+    assert prefs.shared.user == "someone"
+    assert cfg.recent_experiment_paths() == [a]
+    cfg.save_user_preferences(prefs)
+    with open(cfg.USER_PREFERENCES_PATH) as f:
+        assert "recent_experiments" not in f.read()
+    assert cfg.recent_experiment_paths() == [a]
 
 
 def test_backward_compat_missing_key(prefs_env):
@@ -147,5 +158,5 @@ def test_backward_compat_missing_key(prefs_env):
         yaml.safe_dump({"experiment": {"user": "someone"}}, f)
 
     prefs = cfg.load_user_preferences()
-    assert prefs.experiment.user == "someone"
-    assert prefs.experiment.recent_experiments == []
+    assert prefs.shared.user == "someone"
+    assert cfg.recent_experiment_paths() == []

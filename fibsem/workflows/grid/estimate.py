@@ -1,5 +1,5 @@
 """What a grid run's steps cost: a task by its config, a load by the loader's
-exchange (FIB-1134). Walked by :mod:`fibsem.workflows.estimate` like any queue."""
+exchange. Walked by :mod:`fibsem.workflows.estimate` like any queue."""
 
 from __future__ import annotations
 

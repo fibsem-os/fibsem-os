@@ -88,7 +88,7 @@ class LamellaTab(QWidget):
         protocol_splitter.setSizes([700, 550])
 
         # With no card selected the editor has no lamella, so the page says so
-        # rather than leaving the last one up to be edited (FIB-1370).
+        # rather than leaving the last one up to be edited.
         protocol_empty = QLabel("Select a lamella card to edit its protocol.")
         protocol_empty.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 12px;")
         protocol_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -126,7 +126,7 @@ class LamellaTab(QWidget):
 
     def set_lamellae(self, lamellae) -> Optional[Lamella]:
         """One card per lamella. The selected card stays selected if its lamella
-        is still there (FIB-966); returns it, or None."""
+        is still there; returns it, or None."""
         selected = self.selected
         self.cards.clear()
         for lamella in lamellae:
@@ -156,7 +156,7 @@ class LamellaTab(QWidget):
         # Re-selecting does not redraw the History panel: it skips the lamella it
         # already shows. A task that has finished on that lamella has added to its
         # history, and this report comes after the task has returned -- its images
-        # written and its history entry appended -- so rebuild it here (FIB-1111).
+        # written and its history entry appended -- so rebuild it here.
         if (
             selected is not None
             and lamella is not None

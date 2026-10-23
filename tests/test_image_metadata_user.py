@@ -7,9 +7,6 @@ worse than producing nothing: a reader cannot tell a real user from a placeholde
 import getpass
 import sys
 
-import numpy as np
-import pytest
-
 from fibsem.structures import (
     FibsemImageMetadata,
     FibsemUser,

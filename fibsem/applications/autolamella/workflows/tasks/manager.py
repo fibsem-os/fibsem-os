@@ -219,8 +219,8 @@ class TaskManager(BaseTaskManager):
         workflow_config = self.experiment.task_protocol.workflow_config
         # A workflow that requires nothing completes nothing. is_completed() is
         # vacuously True against an empty required-task list, which would announce
-        # every lamella as finished the moment a protocol failed to load — and with
-        # FIB-461 that means generating artifacts for work that never happened.
+        # every lamella as finished the moment a protocol failed to load, and write
+        # artifacts for work that never happened.
         if not workflow_config.required_tasks:
             return False
         return workflow_config.is_completed(lamella)
@@ -358,12 +358,10 @@ class TaskManager(BaseTaskManager):
         """Why this task cannot run *yet* -- as opposed to _should_skip, which
         says why it never will this run.
 
-        The prerequisite check used to be terminal: unmet meant Skipped, done for
-        the run. That was right only because ordering guaranteed the prerequisite
-        had already had its turn. A re-run or a mid-run insertion breaks the
-        guarantee, and is answered by looking at the queue rather than at
-        history: ``prereq_pending``, a required task is still in the queue
-        ahead or behind. It will get its turn.
+        Ordering alone does not guarantee a prerequisite has had its turn: a re-run or a
+        mid-run insertion breaks that, and is answered by looking at the queue rather
+        than at history: ``prereq_pending``, a required task is still in the queue ahead
+        or behind. It will get its turn.
 
         Deferred items stay pending and are offered again on the next scan.
         Nothing is logged per scan: a long stall would flood the log with one
@@ -371,7 +369,7 @@ class TaskManager(BaseTaskManager):
         """
         for req in self.experiment.task_protocol.requirements(task_name):
             # a rerun still queued is the attempt that counts, whatever an
-            # earlier run of it did (FIB-1006)
+            # earlier run of it did
             if self.queue.has_pending_pair(lamella.name, req):
                 return "prereq_pending"
         return None
@@ -384,7 +382,7 @@ class TaskManager(BaseTaskManager):
         Deliberately does not re-check the run's lamella selection: that filter
         is applied when the queue is built, so anything that reaches here is
         wanted — including items the user added mid-run, which are not in the
-        original selection and were previously skipped as "not_required".
+        original selection.
         """
         if lamella.is_failure:
             logging.info(
@@ -404,7 +402,7 @@ class TaskManager(BaseTaskManager):
     def _missing_prereqs(self, lamella: "Lamella", task_name: str) -> List[str]:
         """The tasks *task_name* requires whose latest run on *lamella* did not
         complete: the latest run, not any past success, as a rerun that failed or
-        was rejected is the answer (FIB-1006)."""
+        was rejected is the answer."""
         requirements = self.experiment.task_protocol.requirements(task_name)
         return [
             req for req in requirements or [] if not lamella.latest_run_completed(req)

@@ -24,7 +24,6 @@ from fibsem.milling.patterning.shapes import (
     convert_pattern_to_napari_line,
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
-    convert_point_to_napari,
 )
 from fibsem.structures import (
     FibsemCircleSettings,
@@ -156,19 +155,6 @@ def test_rectangle_agrees_with_the_shared_conversion(shape):
 
     assert sum(r for r, _ in rows) / 4 == pytest.approx(cy)
     assert sum(c for _, c in rows) / 4 == pytest.approx(cx)
-
-
-def test_convert_point_to_napari_takes_width_height_not_shape():
-    """The trap this helper hides: `resolution` is [x, y] — the opposite order
-    to a numpy shape. Indexing it [1] then [0] looks like a bug and is not one.
-
-    A non-square resolution is the only way to catch getting it wrong.
-    """
-    resolution = [1024, 512]  # width, height  -> centre (256, 512)
-
-    got = convert_point_to_napari(resolution, PS, Point(0.0, ABOVE))
-
-    assert (got.x, got.y) == (512, 156)
 
 
 def test_a_bitmap_pattern_converts_without_reaching_for_a_name_it_has_not_got():

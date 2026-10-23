@@ -526,7 +526,7 @@ def test_button_wiring_on_the_real_editor():
     import pathlib
     import tempfile
 
-    from PyQt5.QtWidgets import QDialog, QWidget
+    from PyQt5.QtWidgets import QDialog
 
     from fibsem import utils
     from fibsem.applications.autolamella.structures import (

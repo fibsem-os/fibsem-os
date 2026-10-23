@@ -464,7 +464,7 @@ def test_a_view_without_a_stage_bar_keeps_the_stage_in_the_canvas_text():
 
 
 def _chosen():
-    return cfg.load_user_preferences().display.info_bar_fields
+    return cfg.load_user_preferences().shared.info_bar_fields
 
 
 def test_only_the_selected_view_shows_its_field_button(controller):
@@ -575,20 +575,20 @@ def test_saving_one_setting_keeps_what_another_window_saved():
     """The main window held its preferences from start-up and saved them whole,
     which would put back a bar's fields chosen in between."""
     cfg.update_user_preferences(
-        lambda p: p.display.info_bar_fields.__setitem__("FIB", ["hfw"])
+        lambda p: p.shared.info_bar_fields.__setitem__("FIB", ["hfw"])
     )
-    cfg.update_user_preferences(lambda p: setattr(p.display, "sound_enabled", True))
+    cfg.update_user_preferences(lambda p: setattr(p.qt, "sound_enabled", True))
     preferences = cfg.load_user_preferences()
-    assert preferences.display.info_bar_fields == {"FIB": ["hfw"]}
-    assert preferences.display.sound_enabled
+    assert preferences.shared.info_bar_fields == {"FIB": ["hfw"]}
+    assert preferences.qt.sound_enabled
 
 
 def test_the_choice_round_trips_and_an_old_file_has_none():
     preferences = cfg.UserPreferences()
-    preferences.display.info_bar_fields = {"FM": ["objective", "z"]}
+    preferences.shared.info_bar_fields = {"FM": ["objective", "z"]}
     again = cfg.UserPreferences.from_dict(preferences.to_dict())
-    assert again.display.info_bar_fields == {"FM": ["objective", "z"]}
-    assert cfg.UserPreferences.from_dict({"display": {}}).display.info_bar_fields == {}
+    assert again.shared.info_bar_fields == {"FM": ["objective", "z"]}
+    assert cfg.UserPreferences.from_dict({"display": {}}).shared.info_bar_fields == {}
 
 
 @pytest.mark.parametrize(

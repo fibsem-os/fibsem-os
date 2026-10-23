@@ -1,4 +1,4 @@
-"""What an overview tab shows and does, without Qt (FIB-1449).
+"""What an overview tab shows and does, without Qt.
 
 One per overview of the connected microscope, the beam one and the fluorescence
 one, held on the app's session (`AppSession.overview`). The widget draws it and

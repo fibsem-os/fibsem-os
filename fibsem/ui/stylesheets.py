@@ -60,9 +60,7 @@ _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/
 
 LABEL_INSTRUCTIONS_STYLE = """font-style: italic; color: gray; font-size: 12px;"""
 
-# Filename header sitting above an image canvas. Lived in
-# fm_image_display_widget until that module was retired (FIB-535); it describes a
-# label, not an FM display, so this is where it belongs.
+# Filename header sitting above an image canvas.
 #
 # The border keeps its literal rather than becoming BORDER_COLOR (#3d4251) --
 # they are different colours, #3a3d42 is used raw in 39 other places, and a move
@@ -100,8 +98,7 @@ FAILED_PROGRESS_BAR_STYLESHEET = f"""
             }}
         """
 
-# TODO: no token -- #e65100, #f57c00
-# (the hover and pressed shades of ORANGE_COLOR)
+# The hover and pressed shades of ORANGE_COLOR (#e65100, #f57c00) have no token.
 USER_ATTENTION_BUTTON_STYLESHEET = f"""
             QPushButton {{
                 background-color: {ORANGE_COLOR};
@@ -131,7 +128,6 @@ AGENT_ATTENTION_BUTTON_STYLESHEET = f"""
             }}
         """
 
-# TODO: no token -- #2e7d32, #388e3c
 CONFIRM_BUTTON_STYLESHEET = f"""
             QPushButton {{
                 background-color: {OK_COLOR};
@@ -177,7 +173,6 @@ DANGER_BUTTON_STYLESHEET = f"""
             }}
         """
 
-# TODO: no token -- #1565c0, #1976d2
 SUPERVISION_STATUS_SUPERVISED_STYLESHEET = f"""
                 QPushButton {{
                     background-color: {PRIMARY_COLOR};
@@ -195,7 +190,6 @@ SUPERVISION_STATUS_SUPERVISED_STYLESHEET = f"""
                 }}
             """
 
-# TODO: no token -- #2e7d32, #388e3c
 SUPERVISION_STATUS_AUTOMATED_STYLESHEET = f"""
                 QPushButton {{
                     background-color: {OK_COLOR};
@@ -233,7 +227,6 @@ PRIMARY_BUTTON_STYLESHEET = f"""
     }}
 """
 
-# TODO: no token -- #4a5168
 SECONDARY_BUTTON_STYLESHEET = f"""
     QPushButton {{
         background-color: {BORDER_COLOR};
@@ -259,7 +252,6 @@ SECONDARY_BUTTON_STYLESHEET = f"""
 # the experiment -- rather than ask you to do something: a filled pill gave them
 # more weight than anything else in the tab row. `:open` is a menu button with its
 # menu showing, which should read as held down.
-# TODO: no token -- #4a5168
 GHOST_BUTTON_STYLESHEET = f"""
     QPushButton {{
         background-color: transparent;
@@ -279,20 +271,6 @@ GHOST_BUTTON_STYLESHEET = f"""
         color: {DISABLED_TEXT_COLOR};
     }}
 """
-
-# The same, with the label muted until hovered: for a line that is context rather
-# than the thing you came to read.
-MUTED_GHOST_BUTTON_STYLESHEET = (
-    GHOST_BUTTON_STYLESHEET
-    + f"""
-    QPushButton {{
-        color: {TEXT_MUTED_COLOR};
-    }}
-    QPushButton:hover, QPushButton:pressed {{
-        color: {TEXT_COLOR};
-    }}
-"""
-)
 
 # A pill on an accent tint, for news that is worth seeing but asks for nothing now
 # -- the newer-release chip in the main window's header.
@@ -403,10 +381,9 @@ QToolTip {{
 
 # The workflow border is drawn by two widgets -- the AutoLamella main window
 # (``workflow_border_frame``) and the coincidence viewer (``coincidence_border_frame``)
-# -- and the rules used to be spelled out once per widget. That is how ``agent``
-# came to exist in one copy and not the other. One mapping and one builder, so
-# adding a state or changing a colour is a single edit rather than two.
-# The agent's is the agent chip's purple, everywhere the agent is shown (FIB-1404).
+# -- from one mapping and one builder, so adding a state or changing a colour is a
+# single edit rather than two. The agent's is the agent chip's purple, everywhere the
+# agent is shown.
 BORDER_STATE_COLOURS = {
     "idle": SURFACE_COLOR,
     "pending": PENDING_COLOR,
@@ -445,7 +422,6 @@ def border_stylesheet(object_name: str) -> str:
     return f"\n{rules}\n"
 
 
-# TODO: no token -- #6a6a6a, #8a8a8a
 # For `IconToolButton`, whose checked state already swaps the icon: no border in any
 # state, a faint fill on hover, and an accent tint when checked. The bordered, filled
 # checked box of TOOLBUTTON_ICON_STYLESHEET below made every toggled-on button in a
@@ -485,7 +461,6 @@ TOOLBUTTON_ICON_STYLESHEET = f"""
     }}
 """
 
-# TODO: no token -- #2d3f5c, #3a3d42
 LIST_WIDGET_STYLESHEET = f"""
             QListWidget {{
                 background: {SURFACE_COLOR};
@@ -504,7 +479,6 @@ LIST_WIDGET_STYLESHEET = f"""
 # QDateTimeEdit with visible up/down step arrows (calendar popup must be OFF for
 # the buttons to appear). Stepping applies to whichever field has focus
 # (year / month / day / hour / minute), also via mouse-wheel and arrow keys.
-# TODO: no token -- #4a5168
 DATETIME_EDIT_STYLESHEET = f"""
 QDateTimeEdit {{
     background-color: {PANEL_COLOR};

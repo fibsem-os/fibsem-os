@@ -15,12 +15,12 @@ import pytest
 
 def demo_session(config: Optional[str] = None):
     """A connected Demo microscope. ``config`` is a file name in
-    ``fibsem/config`` or a path; None is the default configuration."""
+    ``fibsem/config`` (shipped) or a path; None is the default configuration."""
     from fibsem import config as cfg
     from fibsem import utils
 
     if config is not None and not os.path.isabs(config):
-        config = os.path.join(cfg.CONFIG_PATH, config)
+        config = os.path.join(cfg.SHIPPED_CONFIG_PATH, config)
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
         ip_address="localhost",

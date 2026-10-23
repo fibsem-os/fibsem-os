@@ -3,8 +3,7 @@ import logging
 import math
 import os
 import re
-from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import (
     Any,
@@ -72,7 +71,7 @@ from fibsem.codec import NamedEnum, Timestamp, decode, encode
 # the same reason: the geometry record is one structure for both modalities, it needs
 # the enum, and core cannot import from this package -- this module imports from it, so
 # the reverse is a cycle. Imported (and so re-exported) here, which is where every
-# consumer of them still is. FMImageGeometry was the FM-only half until FIB-481.
+# consumer of them still is.
 from fibsem.structures import (  # noqa: F401
     AutoFocusMode,
     CameraImageTransform,
@@ -256,7 +255,7 @@ def emission_filter_for(
     value: Any, edges: Dict[float, Sequence[Sequence[float]]]
 ) -> EmissionFilter:
     """The filter an emission *value* names: the way channels and images saved
-    before FIB-1439 named it (None for reflection, a label for a multi-band filter,
+    by older builds named it (None for reflection, a label for a multi-band filter,
     or the band's bottom edge in nm), and the way some FM classes still report their
     filters. ``edges`` maps a filter's bottom edge to its bands, for FM classes that
     know them; a bare ``(low, high)`` pair is read as one band."""
@@ -289,7 +288,7 @@ def matching_emission_filter(
     wanted: EmissionFilter, choices: Sequence[EmissionFilter]
 ) -> EmissionFilter:
     """The filter among ``choices`` that ``wanted`` is, so a channel saved on one
-    scope (or before FIB-1439, as a value) finds its filter on another.
+    scope (or by an older build, as a value) finds its filter on another.
 
     The same filter, or one of the same name. Reflection is reflection. A banded
     filter is the band whose bottom edge is closest; a filter set with no bands has
@@ -352,7 +351,7 @@ def emission_filter_from_ome(
 ) -> EmissionFilter:
     """A channel's filter from an OME file: the ``Filter`` its light path names, as
     ``ome_emission_filter`` writes it, or else its ``EmissionWavelength`` alone
-    (another program's file, or one written before FIB-1439)."""
+    (another program's file, or an older one)."""
     refs = channel.light_path.emission_filters if channel.light_path else []
     found = filters.get(refs[0].id) if refs else None
     if found is None:
@@ -611,8 +610,8 @@ class FluorescenceImage:
     # the file this image is associated with on disk, set by save() and load(), and
     # inherited by the derived forms -- projection, focus stack, interpolation. A
     # resampled volume is still that file's volume, and it is the only file that
-    # describes it; the UI and the correlation record name an image from this
-    # (FIB-509), so dropping it on a derived image loses the provenance entirely.
+    # describes it; the UI and the correlation record name an image from this,
+    # so dropping it on a derived image loses the provenance entirely.
     # Nothing writes back to it: save() takes the filename it is given.
     # excluded from compare/repr: it describes where the image lives, not what it contains,
     # so two images of the same data read from different paths are still equal.
@@ -658,7 +657,6 @@ class FluorescenceImage:
         if directory:
             os.makedirs(directory, exist_ok=True)
 
-        # TODO: add overwrite protection to prevent overwriting existing files
         image_format.write(
             filename,
             tifffile_image,
@@ -817,7 +815,6 @@ class FluorescenceImage:
 
                 ifd += 1
 
-        # TODO: use metadata.system_info for manufacturer, model, serial number, etc.
         inst = Instrument(
             id="Instrument:01",
             detectors=detectors,
@@ -843,7 +840,7 @@ class FluorescenceImage:
                 id="Pixels:01",
                 channels=channels_md,
                 # The planes are written channel by channel, every z of one
-                # channel before the next: z varies fastest (FIB-279).
+                # channel before the next: z varies fastest.
                 dimension_order=Pixels_DimensionOrder.XYZCT,
                 size_x=nx,
                 size_y=ny,
@@ -893,7 +890,7 @@ class FluorescenceImage:
         The array is arranged to (C, Z, Y, X) from the axes tifffile reads out of the
         file -- for an OME-TIFF, from its per-plane mapping -- never from comparing
         sizes against the metadata: that comparison cannot tell channels from z-slices
-        when there are as many of one as the other, and swapped them (FIB-279).
+        when there are as many of one as the other, and swapped them.
         """
         with open_tiff(filename) as tif:
             series = tif.series[0]
@@ -1136,7 +1133,7 @@ class FluorescenceImage:
             description=self.metadata.description,
             system_info=self.metadata.system_info,
             # A projection of a lamella's image is still that lamella's. Carried
-            # forward so a derived image does not lose what produced it (FIB-466).
+            # forward so a derived image does not lose what produced it.
             experiment=self.metadata.experiment,
             geometry=self.metadata.geometry,
             dimension_order=self.metadata.dimension_order,
@@ -1145,7 +1142,7 @@ class FluorescenceImage:
         return FluorescenceImage(
             data=projected_data,
             metadata=projected_metadata,
-            # Still this file's image; see the note on the field (FIB-509).
+            # Still this file's image; see the note on the field.
             filepath=self.filepath,
         )
 
@@ -1277,7 +1274,7 @@ class FluorescenceImage:
             description=self.metadata.description,
             system_info=self.metadata.system_info,
             # A projection of a lamella's image is still that lamella's. Carried
-            # forward so a derived image does not lose what produced it (FIB-466).
+            # forward so a derived image does not lose what produced it.
             experiment=self.metadata.experiment,
             geometry=self.metadata.geometry,
             dimension_order=self.metadata.dimension_order,
@@ -1286,7 +1283,7 @@ class FluorescenceImage:
         return FluorescenceImage(
             data=stacked_data,
             metadata=stacked_metadata,
-            # Still this file's image; see the note on the field (FIB-509).
+            # Still this file's image; see the note on the field.
             filepath=self.filepath,
         )
 
@@ -1388,7 +1385,7 @@ class FluorescenceImageMetadata:
 
     # Which experiment, item and task produced this. The same record the beam path
     # carries, for the same reason: a forwarded file should say what produced it
-    # without the surrounding directory (FIB-466). None on images written before this
+    # without the surrounding directory. None on images written before this
     # was recorded, on ones acquired outside a workflow, and on ones written by other
     # software -- `from_ome` reconstructs from OME's own fields and cannot recover it.
     experiment: Optional[FibsemExperimentRef] = None
@@ -1401,7 +1398,7 @@ class FluorescenceImageMetadata:
     system_info: Optional[dict] = None
     dimension_order: str = "CZYX"  # default dimension order for OME-TIFF
 
-    # When the image was acquired, written as ISO 8601 (FIB-1190). `FM.acquire_frame`
+    # When the image was acquired, written as ISO 8601. `FM.acquire_frame`
     # stamps it with its UTC offset as the acquisition starts. An older image has the
     # acquiring machine's clock time alone, so this is naive there. None on images
     # built rather than acquired.
@@ -1453,9 +1450,6 @@ class FluorescenceImageMetadata:
         `experiment` -- comes back None. That is the honest answer for a file another
         program produced, not a gap to fill in with defaults.
         """
-
-        # TODO: add test cases for this function
-        # TODO: support loading power, gain, offset from OME if available
 
         if not ome.images:
             raise ValueError("OME metadata contains no images")

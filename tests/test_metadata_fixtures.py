@@ -9,7 +9,6 @@ This is the guard for FIB-481, which replaces the embedded `SystemSettings` with
 compact geometry record. Every value asserted here is one the reprojection path reads.
 """
 
-import copy
 import json
 import os
 from typing import Any, Dict

@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.ui.protocol import (  # noqa: E402
 from fibsem.applications.autolamella.ui.workflow import (
     tab as workflow_module,  # noqa: E402
 )
-from fibsem.ui import run_refusal  # noqa: E402
+from fibsem.ui.run import run_refusal  # noqa: E402
 from fibsem.workflows.runner import WorkflowRunner  # noqa: E402
 from fibsem.workflows.task_config import TaskPlan  # noqa: E402
 from tests.protocols import planned, task_protocol  # noqa: E402

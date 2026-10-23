@@ -7,7 +7,6 @@ failed script would simply be absent from it — the silent omission this exists
 avoid.
 
 Application-agnostic: it drives a :class:`ScriptRunner`, which the host wires up.
-See FIB-338.
 """
 
 from datetime import datetime
@@ -233,7 +232,7 @@ class ScriptManagerDialog(QDialog):
 
         # Said once, where it can be read, and never dismissed: a script has the
         # application's own access to the microscope and none of its checks. This used
-        # to be a modal on the preference that unlocked the menu (FIB-338); the menu is
+        # to be a modal on the preference that unlocked the menu; the menu is
         # on for everyone now, so the dialog carries the warning instead. The per-run
         # confirmation still gates the moment of action.
         self.warning_label = QLabel(
@@ -329,7 +328,7 @@ class ScriptManagerDialog(QDialog):
         )
         # Says "repository" on purpose: examples/ is not shipped in the wheel, so a
         # pip-installed user will not find it on disk and would otherwise be told
-        # only to write one from scratch. FIB-341 owns seeding them properly.
+        # only to write one from scratch.
         examples = QLabel(EXAMPLES_HINT)
         examples.setTextFormat(Qt.RichText)
         examples.setAlignment(Qt.AlignCenter)

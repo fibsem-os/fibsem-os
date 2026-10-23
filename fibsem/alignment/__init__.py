@@ -11,6 +11,7 @@ import numpy as np
 
 from fibsem import acquire, utils
 from fibsem.cancellation import CANCELLED, COMPLETED, ended_by
+from fibsem.constants import TIME_FILE
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -26,8 +27,12 @@ if TYPE_CHECKING:
 
 
 from fibsem.alignment.methods import (
-    crosscorrelation_cv2,
-    crosscorrelation_v2,
+    crosscorrelation_cv2 as crosscorrelation_cv2,
+)
+from fibsem.alignment.methods import (
+    crosscorrelation_v2 as crosscorrelation_v2,
+)
+from fibsem.alignment.methods import (
     shift_from_crosscorrelation,
     shift_from_crosscorrelation_v2,
     shift_from_skimage_phase_correlation,
@@ -377,7 +382,7 @@ def _apply_shift(
     elif subsystem is AlignmentSubsystem.STAGE_VERTICAL:
         # the shift was measured in beam_type's view, so the correction is too.
         # A backend that cannot correct from that view raises rather than falling
-        # back to the other view's geometry, which used to apply the FIB's
+        # back to the other view's geometry, which would apply the FIB's
         # 1/sin(column_tilt) to an SEM-measured shift.
         microscope.vertical_move(dy=-dy, dx=dx, beam_type=beam_type)
 
@@ -534,7 +539,7 @@ def _multi_step_alignment(
         )
         alignment_results.append(result)
     # a stop during the last step: no final image either, so a stop means no
-    # more beam (FIB-1430)
+    # more beam
     if stop_event is not None and stop_event.is_set():
         aborted = True
 
@@ -557,7 +562,7 @@ def _multi_step_alignment(
     if validate:
         acquire_final_image = True
     # Stopped: what the steps measured is kept, but no final image is taken to
-    # check them -- that would be more beam after the stop (FIB-1430).
+    # check them -- that would be more beam after the stop.
     if aborted:
         acquire_final_image = validate = False
 
@@ -578,7 +583,7 @@ def _multi_step_alignment(
                     f"{validation.max_disagreement_px:.2f}px across methods."
                 )
 
-    ts = utils.current_timestamp_v3(timeonly=True)
+    ts = utils.current_timestamp(TIME_FILE)
     run = AlignmentResult(
         name=f"{run_name}-{ts}",
         reference_image=ref_image,

@@ -39,8 +39,8 @@ identical collision between `TILES_ACQUIRED` and `FINISHED`.
 
 The tiled signal dropped its message because its producers are a closed set of two, both
 internal, so each consumer could own its wording. That argument does not hold here: the
-producer set is **open**. Milling strategies are plugin-loadable (`register_strategy`
-plus entry points in `fibsem/milling/strategy/__init__.py`), a strategy implements its
+producer set is **open**. Milling strategies are plugin-loadable (entry points in
+`fibsem/milling/strategy/__init__.py`), a strategy implements its
 own execution loop, and users have specifically asked to customise the text a strategy
 shows while it runs.
 
@@ -64,9 +64,9 @@ wording still writes `report.message or my_label(report.status)`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Dict, Optional
 
+from fibsem.progress import ProgressStatus, ends
 from fibsem.structures import MillingState
 
 __all__ = [
@@ -76,7 +76,7 @@ __all__ = [
 ]
 
 
-class MillingProgressStatus(str, Enum):
+class MillingProgressStatus(ProgressStatus):
     """Where a milling task has got to.
 
     Seven members across **two scales**, and the prefixes are the whole point: `TASK_*`
@@ -113,38 +113,14 @@ class MillingProgressStatus(str, Enum):
     # The task raised. Terminal, and the only status that carries `error`.
     TASK_FAILED = "task-failed"
 
-    @property
-    def is_terminal(self) -> bool:
-        """Whether this ends the *task*.
 
-        Answered here rather than restated at each consumer: three of them need it, and
-        a membership tuple copied into three files is a tuple that drifts -- the next
-        status added is one somebody forgets, and the symptom is a progress bar that
-        never clears.
-
-        `STAGE_FINISHED` is **not** terminal. Getting that backwards hides the bar
-        after the first stage of an N-stage task.
-        """
-        return self in _TERMINAL_STATUSES
-
-
-_TERMINAL_STATUSES = frozenset(
-    {
-        MillingProgressStatus.TASK_FINISHED,
-        MillingProgressStatus.TASK_CANCELLED,
-        MillingProgressStatus.TASK_FAILED,
-    }
+ends(
+    MillingProgressStatus.TASK_FINISHED,
+    cancelled=MillingProgressStatus.TASK_CANCELLED,
+    failed=MillingProgressStatus.TASK_FAILED,
 )
 
 
-# The label shown when no producer supplied a `message`. One table rather than a default
-# argument at each consumer's `.get`: today the three of them default three different
-# ways -- "Preparing Milling Conditions...", "Preparing...", "Milling..." -- for the
-# same report, which is the drift a single home removes.
-#
-# `{stage}` and `{task}` are filled by `display_message` when the report carries a name,
-# and the whole clause is dropped when it does not. A label reading "Preparing: None" is
-# worse than one reading "Preparing...".
 _DEFAULT_MESSAGES: Dict[MillingProgressStatus, str] = {
     MillingProgressStatus.TASK_STARTED: "Preparing milling task...",
     MillingProgressStatus.STAGE_STARTED: "Preparing...",
@@ -177,8 +153,7 @@ class MillingProgress:
 
     Most fields are absent on most reports, and that is the point: an outcome carries no
     countdown, a stage tick carries no error. `status` is the only thing every report
-    has and the only required field -- which is also what keeps this constructible on
-    Python 3.8, where `kw_only` does not exist and required fields must come first.
+    has and the only required field.
 
     `current_stage` is 0-based on the wire, matching every other index in the codebase.
     `display_stage` is the only thing that adds one; that offset was applied seven times
@@ -256,8 +231,8 @@ class MillingProgress:
 
         Every in-tree producer emits a `MillingProgress`, so this is a no-op for all of
         them, and on that basis it could be deleted. It is kept because the producer set
-        is **open**. Milling strategies are plugin-loadable (`register_strategy` plus
-        entry points in `fibsem/milling/strategy/__init__.py`) and a strategy drives its
+        is **open**. Milling strategies are plugin-loadable (entry points in
+        `fibsem/milling/strategy/__init__.py`) and a strategy drives its
         own execution loop, so one built against the older contract still emits the
         nested `{"msg", "progress": {...}}` dict. `psygnal` does not validate emissions:
         a `Signal(MillingProgress)` hands a dict to the slot unchanged, and the first

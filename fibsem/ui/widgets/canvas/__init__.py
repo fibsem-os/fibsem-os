@@ -1,6 +1,6 @@
 """Canvas subsystem: matplotlib-based image/FM canvases, overlays, and view controllers.
 
-This package groups the (napari-free) canvas widgets and their supporting state:
+This package groups the canvas widgets and their supporting state:
 
 - :mod:`~fibsem.ui.widgets.canvas.canvas_base` — :class:`FibsemCanvasBase`, the
   content-agnostic navigation / overlay / toolbar / chrome half of the canvas.

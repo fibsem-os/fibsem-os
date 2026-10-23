@@ -146,7 +146,7 @@ class TestTheChamberCameraGivesTheChannelBack:
         monkeypatch.setattr("numpy.random.randint", watching_randint)
         microscope._connection.set_channel(BeamType.ELECTRON)
 
-        microscope.acquire_chamber_image()
+        microscope.devices["chamber_camera"].acquire()
 
         assert seen["view"] == CHAMBER_ACTIVE_VIEW
 
@@ -155,7 +155,7 @@ class TestTheChamberCameraGivesTheChannelBack:
         """A glance at the chamber must not strand the beam that had the microscope."""
         microscope._connection.set_channel(beam_type)
 
-        microscope.acquire_chamber_image()
+        microscope.devices["chamber_camera"].acquire()
 
         assert microscope._connection.imaging_system.active_view == beam_type.value
         assert microscope._connection.imaging_system.active_device == beam_type.value
@@ -169,6 +169,6 @@ class TestTheChamberCameraGivesTheChannelBack:
         monkeypatch.setattr("numpy.random.randint", boom)
 
         with pytest.raises(RuntimeError):
-            microscope.acquire_chamber_image()
+            microscope.devices["chamber_camera"].acquire()
 
         assert microscope._connection.imaging_system.active_view == BeamType.ION.value

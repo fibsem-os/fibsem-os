@@ -309,7 +309,6 @@ def test_validate_positions_empty():
 # Every path emits one now, and `TiledStatus.is_terminal` is what a consumer branches on.
 # ---------------------------------------------------------------------------
 
-import threading
 from unittest.mock import MagicMock
 
 from fibsem.cancellation import OperationCancelledError
@@ -870,7 +869,7 @@ def _autofocus_runner(mode, settings=None, af_result=MagicMock(to_dict=dict)):
     from unittest.mock import MagicMock
 
     from fibsem.imaging.tiled import TiledAcquisitionRunner
-    from fibsem.structures import AutoFocusMode, BeamType
+    from fibsem.structures import BeamType
 
     s = settings if settings is not None else _make_settings(2, 2, hfw=500e-6)
     s.autofocus_mode = mode
