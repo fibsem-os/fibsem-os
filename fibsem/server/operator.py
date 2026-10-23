@@ -22,8 +22,8 @@ from fibsem.ai.agent.levels import (
     AgentLevel,
     chip_text,
 )
-from fibsem.codec import encode
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
+from fibsem.codec import encode
 from fibsem.server import files
 from fibsem.server.agent_setup import setup_text
 from fibsem.server.auth import require_operator
