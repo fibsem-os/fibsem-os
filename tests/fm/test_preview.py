@@ -45,22 +45,44 @@ def _stack(data: np.ndarray, colors, pixel_size: float = 1e-7) -> FluorescenceIm
     return FluorescenceImage(data=data, metadata=metadata)
 
 
-@pytest.fixture
-def stack_on_disk(monkeypatch):
-    """Hand a prepared FluorescenceImage to load_projection as if read from disk.
+class _StackInMemory:
+    """A StackFile over a FluorescenceImage already in hand."""
 
-    Deliberately does not go through save()/load(). Those transpose C and Z for
-    most real shapes (FIB-279), so a fixture built that way would test the
-    serialiser's bug rather than this module's contract, which is: given what load
-    returns, project over z and composite.
+    def __init__(self, path, image: FluorescenceImage):
+        self.path, self.metadata = path, image.metadata
+        self._data = image.data
+        self.shape = image.data.shape
+        self.channels, self.planes = self.shape[:2]
+
+    def plane(self, channel: int, z: int) -> np.ndarray:
+        return self._data[channel, z]
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        pass
+
+
+@pytest.fixture
+def stack_on_disk(monkeypatch, tmp_path):
+    """Hand a prepared FluorescenceImage to the preview as if read from disk.
+
+    Deliberately does not go through save(): metadata that doesn't describe
+    every channel, or a stack with no channels, can't be written, and the
+    preview still has to cope with them.
     """
+    images = {}
+    monkeypatch.setattr(
+        "fibsem.fm.stack_file.StackFile",
+        lambda path: _StackInMemory(path, images[path]),
+    )
 
     def _install(image: FluorescenceImage) -> str:
-        monkeypatch.setattr(
-            "fibsem.fm.preview.FluorescenceImage.load",
-            staticmethod(lambda _path: image),
-        )
-        return "stack.ome.tiff"
+        path = str(tmp_path / f"stack-{len(images)}.ome.tiff")
+        open(path, "wb").close()
+        images[path] = image
+        return path
 
     return _install
 

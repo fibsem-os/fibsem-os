@@ -7,12 +7,17 @@ anything reaching through `fibsem.ui` is skipped there for lack of napari/PyQt5.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+import threading
+from collections import OrderedDict
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from fibsem.fm.composite import AVAILABLE_COLORS, FMLayer, composite_fm_layers
 from fibsem.fm.structures import FluorescenceImage, mean_z_step
+
+if TYPE_CHECKING:
+    from fibsem.fm.stack_file import StackFile
 
 # How plane_sharpness scores a plane (`fibsem.autofunctions.metrics`).
 SHARPNESS_METHOD = "variance"
@@ -42,32 +47,43 @@ def stack_layers(
     the channels shown; the rest are hidden. ValueError names what is wrong:
     a plane outside the stack, or a channel it doesn't have."""
     data = _czyx(image)
-    planes = data.shape[1]
-    if z is None:
-        shown = data.max(axis=1)  # (C, Z, Y, X) -> (C, Y, X)
-    elif 0 <= z < planes:
-        shown = data[:, z]
-    else:
+    _check_plane(z, data.shape[1])
+    shown = data.max(axis=1) if z is None else data[:, z]  # (C, Y, X)
+    return _layers(
+        list(image.metadata.channels), len(shown), shown.__getitem__, channels
+    )
+
+
+def _check_plane(z: Optional[int], planes: int) -> None:
+    if z is not None and not 0 <= z < planes:
         raise ValueError(f"plane {z} is outside the stack's 0 to {planes - 1}")
-    looks = [
-        _channel_look(list(image.metadata.channels), i, len(shown))
-        for i in range(len(shown))
-    ]
+
+
+def _layers(
+    metadata_channels: list,
+    count: int,
+    plane_of: Callable[[int], np.ndarray],
+    channels: Optional[Sequence[str]],
+    shape_of: Optional[Callable[[int], np.ndarray]] = None,
+) -> List[FMLayer]:
+    """The layers of *count* channels, each named and coloured, the ones
+    *channels* names shown (all when None). *plane_of* gives a channel's
+    plane, and is asked only for the channels shown; a hidden first layer,
+    there for the shape, takes its plane from *shape_of* when given."""
+    looks = [_channel_look(metadata_channels, i, count) for i in range(count)]
     names = [name for name, _ in looks]
     unknown = [c for c in channels or [] if c not in names]
     if unknown:
         raise ValueError(
             f"no channel {', '.join(unknown)} in the stack: it has {', '.join(names)}"
         )
-    return [
-        FMLayer(
-            name=name,
-            data=plane,
-            color=color,
-            visible=channels is None or name in channels,
-        )
-        for plane, (name, color) in zip(shown, looks)
-    ]
+    layers = []
+    for i, (name, color) in enumerate(looks):
+        visible = channels is None or name in channels
+        if visible or i == 0:  # a hidden first layer still gives the shape
+            plane = plane_of(i) if visible or shape_of is None else shape_of(i)
+            layers.append(FMLayer(name=name, data=plane, color=color, visible=visible))
+    return layers
 
 
 def _czyx(image: FluorescenceImage) -> np.ndarray:
@@ -95,13 +111,24 @@ def _channel_look(channels: list, index: int, count: int = 1) -> Tuple[str, str]
 
 def stack_facts(image: FluorescenceImage) -> Dict[str, Any]:
     """What a legend says about a stack: each channel as the projection draws
-    it (name, colour, excitation in nm, emission filter, exposure in s), the
-    number of z planes, their step in metres (None when not recorded), and when
-    it was acquired."""
+    it (name, colour, excitation in nm, emission filter, exposure in s, and
+    each plane's sharpness), the number of z planes, their step in metres (None
+    when not recorded), and when it was acquired."""
     shape = np.shape(image.data)
     planes = int(shape[-3]) if len(shape) >= 3 else 1
     count = int(shape[-4]) if len(shape) >= 4 else 1
-    metadata = image.metadata
+    sharpness = (
+        [plane_sharpness(channel) for channel in _czyx(image)] if planes > 1 else None
+    )
+    return _facts(image.metadata, count, planes, sharpness)
+
+
+def _facts(
+    metadata: Any,
+    count: int,
+    planes: int,
+    sharpness: Optional[List[List[float]]],
+) -> Dict[str, Any]:
     channels = list(metadata.channels)
     facts = []
     for index in range(count):
@@ -117,11 +144,9 @@ def stack_facts(image: FluorescenceImage) -> Dict[str, Any]:
                 "exposure_time": getattr(known, "exposure_time", None),
             }
         )
-    if planes > 1:
-        data = _czyx(image)
-        for fact, channel in zip(facts, data):
-            fact["sharpness"] = plane_sharpness(channel)
-            fact["sharpest_plane"] = int(np.argmax(fact["sharpness"]))
+    for fact, scores in zip(facts, sharpness or []):
+        fact["sharpness"] = scores
+        fact["sharpest_plane"] = int(np.argmax(scores))
     step = metadata.pixel_size_z
     z = metadata.z_positions or []
     if step is None and len(z) >= 2:
@@ -140,13 +165,17 @@ def plane_sharpness(planes: np.ndarray) -> List[float]:
     """How sharp each plane of one channel's (Z, Y, X) stack is, 1 the
     sharpest: the mean local variance of each plane reduced to at most 256 px
     a side, which camera noise barely moves."""
+    return _relative([_plane_score(plane) for plane in planes])
+
+
+def _plane_score(plane: np.ndarray) -> float:
     from fibsem.autofunctions.metrics import calculate_focus_quality
     from fibsem.imaging.reduce import downsample
 
-    scores = [
-        calculate_focus_quality(downsample(np.asarray(plane), 256), SHARPNESS_METHOD)
-        for plane in planes
-    ]
+    return calculate_focus_quality(downsample(np.asarray(plane), 256), SHARPNESS_METHOD)
+
+
+def _relative(scores: List[float]) -> List[float]:
     best = max(scores, default=0.0)
     return [round(s / best, 3) if best > 0 else 0.0 for s in scores]
 
@@ -194,14 +223,72 @@ def load_stack_preview(
     channels: Optional[Sequence[str]] = None,
 ) -> Tuple[np.ndarray, float, Dict[str, Any]]:
     """As :func:`load_projection`, with the stack's :func:`stack_facts`: plane
-    *z* and *channels* as :func:`render_stack` takes them."""
-    image = FluorescenceImage.load(filepath)
-    pixel_size_x = image.metadata.pixel_size_x
-    try:
-        facts = stack_facts(image)
-        rgb = render_stack(image, z, channels)
-    except ValueError as e:
-        raise ValueError(f"{e}: {filepath}") from e
-    finally:
-        del image  # drop the volume, keep the projection
+    *z* and *channels* as :func:`render_stack` takes them.
+
+    Reads the file a plane at a time (`StackFile`): a plane reads one page per
+    channel shown, and the projection and the sharpness come from one pass
+    over the stack, kept for the next read of the same file."""
+    from fibsem.fm.stack_file import StackFile
+
+    with StackFile(filepath) as stack:
+        projection, sharpness = stack_summary(stack)
+        try:
+            _check_plane(z, stack.planes)
+            layers = _layers(
+                list(stack.metadata.channels),
+                stack.channels,
+                (lambda c: projection[c])
+                if z is None
+                else (lambda c: stack.plane(c, z)),
+                channels,
+                shape_of=lambda c: projection[c],
+            )
+        except ValueError as e:
+            raise ValueError(f"{e}: {filepath}") from e
+        facts = _facts(stack.metadata, stack.channels, stack.planes, sharpness)
+        pixel_size_x = stack.metadata.pixel_size_x
+    rgb = composite_fm_layers(layers, shape=layers[0].data.shape) if layers else None
+    if rgb is None:
+        raise ValueError(f"fluorescence image has no displayable channels: {filepath}")
     return rgb, pixel_size_x, facts
+
+
+# Projections and sharpness of the stacks read lately, by path, size and
+# modification time: a viewer steps planes and channels of one stack, and each
+# projection is one pass over gigabytes.
+_SUMMARIES: "OrderedDict[Tuple[str, int, int], Tuple[np.ndarray, Optional[List[List[float]]]]]" = OrderedDict()
+_SUMMARIES_KEPT = 8
+_SUMMARIES_LOCK = threading.Lock()
+
+
+def stack_summary(stack: "StackFile") -> Tuple[np.ndarray, Optional[List[List[float]]]]:
+    """Each channel's max projection over z, (C, Y, X), and each plane's
+    sharpness per channel (None for a single plane), from one pass over the
+    stack a plane at a time; the last few stacks' are kept."""
+    stat = os.stat(stack.path)
+    key = (os.path.realpath(stack.path), stat.st_size, stat.st_mtime_ns)
+    with _SUMMARIES_LOCK:
+        if key in _SUMMARIES:
+            _SUMMARIES.move_to_end(key)
+            return _SUMMARIES[key]
+    projection = None
+    scores: List[List[float]] = []
+    for c in range(stack.channels):
+        channel_scores = []
+        for z in range(stack.planes):
+            plane = stack.plane(c, z)
+            if projection is None:
+                projection = np.empty((stack.channels, *plane.shape), plane.dtype)
+            if z == 0:
+                projection[c] = plane
+            else:
+                np.maximum(projection[c], plane, out=projection[c])
+            if stack.planes > 1:
+                channel_scores.append(_plane_score(plane))
+        scores.append(_relative(channel_scores))
+    summary = (projection, scores if stack.planes > 1 else None)
+    with _SUMMARIES_LOCK:
+        _SUMMARIES[key] = summary
+        while len(_SUMMARIES) > _SUMMARIES_KEPT:
+            _SUMMARIES.popitem(last=False)
+    return summary
