@@ -217,7 +217,7 @@ docstring, and whether it is available on this instrument right now. Check
 `available` before calling a command that not every instrument has.
 
 The beam's commands are `acquire`, `autocontrast`, `auto_focus`,
-`start_live`/`stop_live` (each frame on `beam.live_frame`), `blank`/`unblank`,
+`start_live`/`stop_live` (each frame on `beam.live_frame`), `turn_on`/`turn_off`, `blank`/`unblank`,
 `shift_by(dx, dy)` (a relative beam shift, clamped to the shift limits and recorded as
 `beam_shifted`), and the scan modes `spot(point)`, `reduced_area(rectangle)` and
 `full_frame()`. `beam.acquire(image_settings=None)` returns a `FibsemImage` with its

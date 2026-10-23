@@ -347,6 +347,18 @@ class Beam(Device):
         """
         return None
 
+    @command(available=lambda beam: "on" in beam.parameters)
+    def turn_on(self) -> bool:
+        """Switch the beam on. Answers whether it is on."""
+        self.on.write_through(True)
+        return bool(self.on.get_value())
+
+    @command(available=lambda beam: "on" in beam.parameters)
+    def turn_off(self) -> bool:
+        """Switch the beam off. Answers whether it is on."""
+        self.on.write_through(False)
+        return bool(self.on.get_value())
+
     @command(available=lambda beam: "blanked" in beam.parameters)
     def blank(self) -> None:
         """Blank the beam."""

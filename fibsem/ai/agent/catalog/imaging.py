@@ -100,6 +100,10 @@ def _image_rows(settings: Dict[str, Any], skip: Sequence[str] = ()) -> List[tupl
     ]
 
 
+def _beam_device(a: Dict[str, Any]) -> str:
+    return "ion" if str(a.get("beam_type", "")).upper() == "ION" else "electron"
+
+
 def _beam_acquire_image(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -111,7 +115,7 @@ def _beam_acquire_image(
             "change": "Take an image, as the beam is set now" + saved,
         }
     settings = {**_IMAGE_DEFAULTS, **settings}
-    beam = "ion" if str(a.get("beam_type", "")).upper() == "ION" else "electron"
+    beam = _beam_device(a)
     rows = []
     for key, value in settings.items():
         if key == "beam_type" or value is None:
@@ -390,6 +394,10 @@ def _fm_auto_focus_call(a: Dict[str, Any]) -> Tuple[Dict[str, Any], dict]:
     )
 
 
+def _beam_turn_on(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    return {"what": wording.beam_name(a), "change": "Turn it on"}
+
+
 def _fm_insert_objective(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -631,6 +639,22 @@ TOOLS: Tuple[ToolSpec, ...] = (
         optional=("channel_name", "settings", "channel", "path", "name"),
         line=_fm_auto_focus,
         call=_fm_auto_focus_call,
+    ),
+    ToolSpec(
+        name="beam_turn_on",
+        description=(
+            "Switch a beam on (its on parameter reads false). The ion beam "
+            "switches itself off after a while idle (30 minutes on some "
+            "instruments), so check on before imaging or milling. Turning a beam "
+            "off is the operator's."
+        ),
+        method="POST",
+        path="/microscope/devices/{device}/commands/turn_on",
+        level="drive",
+        hardware=True,
+        params={"beam_type": "ELECTRON or ION"},
+        line=_beam_turn_on,
+        call=lambda a: ({"device": _beam_device(a)}, kwargs_body()),
     ),
     ToolSpec(
         name="fm_insert_objective",

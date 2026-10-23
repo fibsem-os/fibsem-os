@@ -900,6 +900,9 @@ def build_sidecar(client, capabilities):
             auto_focus=auto_focus,
         )
 
+    def beam_turn_on(beam_type: str):
+        return _routed("beam_turn_on", beam_type=beam_type)
+
     def fm_insert_objective():
         return _routed("fm_insert_objective")
 
@@ -1765,6 +1768,7 @@ def build_sidecar(client, capabilities):
             beam_acquire_overview,
             beam_estimate_overview,
             beam_acquire_focus_stack,
+            beam_turn_on,
             fm_insert_objective,
             fm_retract_objective,
             fm_acquire_image,
