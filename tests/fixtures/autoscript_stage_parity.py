@@ -227,7 +227,7 @@ OFFSET_LIMITS = {
     "t": (np.radians(-15), np.radians(70)),
 }
 SYSTEM = utils.load_microscope_configuration(
-    os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+    os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 ).system
 
 

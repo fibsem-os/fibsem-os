@@ -68,7 +68,7 @@ def _microscope(stage_type: str):
         microscope, _ = demo_session(compustage=True, config=filename)
     else:
         microscope, _ = utils.setup_session(
-            config_path=os.path.join(cfg.CONFIG_PATH, filename),
+            config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, filename),
             manufacturer="Demo",
         )
     microscope.stage_movement.update_orientations()

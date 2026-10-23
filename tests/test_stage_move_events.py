@@ -128,7 +128,7 @@ def test_a_move_to_where_the_stage_already_is_ends_there(microscope, recorded):
 def test_a_move_to_a_device_is_one_event_not_three():
     # From the SEM pose to an offset FM: to the beams, re-pose there, travel out.
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
     microscope.move_to_orientation("SEM")
     events = []
@@ -267,7 +267,7 @@ def test_a_tescan_stable_move_is_one_event_not_three(monkeypatch):
     from tests.fixtures.tescan_sdk import connect
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     microscope, fake = connect(monkeypatch, system)
     events = []

@@ -27,7 +27,8 @@ IFLM = "sim-iflm-configuration.yaml"
 @pytest.fixture(scope="module", params=[ARCTIS, IFLM])
 def scope(request):
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, request.param), manufacturer="Demo"
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, request.param),
+        manufacturer="Demo",
     )
     return request.param, microscope
 

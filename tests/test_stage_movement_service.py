@@ -76,7 +76,9 @@ def iflm():
 
     os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"
+        ),
         setup_logging=False,
     )
     return microscope

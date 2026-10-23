@@ -793,7 +793,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         protocol_path = fui.open_existing_file_dialog(
             msg="Select a task protocol file (*.yaml)",
-            path=str(cfg.TASK_PROTOCOL_PATH),
+            path=str(cfg.USER_PROTOCOL_PATH),
             parent=self,
         )
 

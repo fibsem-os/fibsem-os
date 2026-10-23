@@ -54,7 +54,9 @@ def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 

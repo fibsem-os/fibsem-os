@@ -36,7 +36,7 @@ from fibsem.structures import (
 from tests.fixtures.demoted_messages import as_logged_now
 from tests.fm import _odemis_stubs as stubs
 
-ODEMIS_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
+ODEMIS_CONFIG_PATH = os.path.join(cfg.SHIPPED_CONFIG_PATH, "odemis-configuration.yaml")
 RECORDED = os.path.join(
     os.path.dirname(__file__), "..", "..", "fixtures", "odemis_device_calls.json"
 )

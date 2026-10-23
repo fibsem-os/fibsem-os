@@ -31,7 +31,7 @@ TILTS = np.radians([-10.0, 0.0, 15.0, 35.0, 55.0])
 
 def _system(stage=True):
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     system.stage.enabled = stage
     system.stage.shuttle_pre_tilt = 35.0

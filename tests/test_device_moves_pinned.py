@@ -51,8 +51,8 @@ from fibsem.structures import FibsemStagePosition
 
 PINS_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "device_move_pins.json")
 
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
-IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 
 MOUNTS = ("arctis", "iflm", "arctis_beam_side")
 DEVICES = ("FIBSEM", "FM")

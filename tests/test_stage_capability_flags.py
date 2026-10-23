@@ -45,7 +45,7 @@ CONFIGS = (
 
 
 def _stage_block(filename: str) -> dict:
-    config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
+    config = utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename))
     return utils.configuration_device(config, "stage")
 
 
@@ -64,7 +64,7 @@ def test_no_shipped_file_states_a_manipulator_capability(filename: str, key: str
     changed no instrument's behaviour -- and a manipulator's axes are the
     instrument's to report, not a file's to restate.
     """
-    config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
+    config = utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename))
     assert utils.configuration_device(config, "manipulator") == {}
 
 
@@ -131,7 +131,9 @@ def test_a_stored_stage_tilt_is_ignored_rather_than_rejected():
 def test_the_live_microscope_still_answers_for_rotation():
     """`is_available` lost `stage_tilt` and kept `stage_rotation`."""
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
         manufacturer="Demo",
     )
     assert microscope.is_available("stage_rotation") is False
@@ -165,7 +167,7 @@ def test_connecting_fills_the_capability_from_the_stage(
     and something else happened to be false.
     """
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, filename), manufacturer="Demo"
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, filename), manufacturer="Demo"
     )
 
     assert microscope._fm_is_a_pose() is compustage

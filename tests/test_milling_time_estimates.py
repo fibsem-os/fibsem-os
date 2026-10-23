@@ -213,7 +213,7 @@ def test_a_connected_tescan_estimates_with_the_dose_model(monkeypatch):
     from fibsem import utils
     from tests.fixtures import tescan_sdk
 
-    config_path = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    config_path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     system = utils.load_microscope_configuration(config_path).system
     microscope, _ = tescan_sdk.connect(monkeypatch, system)
     assert isinstance(microscope.milling, TescanMilling)
@@ -228,7 +228,7 @@ def _make_tescan(monkeypatch) -> TescanMicroscope:
     from fibsem import utils
     from fibsem.drivers.tescan import microscope as tescan_module
 
-    config_path = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+    config_path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     system = utils.load_microscope_configuration(config_path).system
     # __init__ only guards on the SDK's availability, it does not use it
     monkeypatch.setattr(tescan_module, "TESCAN_API_AVAILABLE", True)

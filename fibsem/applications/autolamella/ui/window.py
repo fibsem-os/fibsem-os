@@ -1506,7 +1506,7 @@ class AutoLamellaWindow(AppWindow):
 
         protocol_path = fui.open_save_file_dialog(
             msg="Select a protocol file",
-            path=str(cfg.TASK_PROTOCOL_PATH),
+            path=str(cfg.USER_PROTOCOL_PATH),
             _filter="*.yaml",
             parent=self,
         )

@@ -29,7 +29,7 @@ microscope = demo_microscope(scope="function")
 
 
 def _load(filename: str) -> dict:
-    return utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
+    return utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename))
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ def test_the_demo_default_is_a_manipulator(microscope):
 def test_a_simulated_file_can_say_otherwise():
     """sim-arctis: no manipulator -- what its file used to state under
     `manipulator:`, now where the other stand-ins live."""
-    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
     try:
         assert microscope.is_available("manipulator") is False

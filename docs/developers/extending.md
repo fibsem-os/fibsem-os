@@ -243,8 +243,9 @@ work unchanged.
   its label, its vendor package, the device values every instrument of the
   driver has (`devices`, such as each column's `column_tilt`, written in the
   configuration file's layout), and a `SetupModel` per instrument.
-- **Configuration.** Instruments are described by a YAML file in
-  `fibsem/config/`; the setup wizard creates one. For a manufacturer it
+- **Configuration.** Instruments are described by a YAML file. The shipped
+  ones are in `fibsem/config/`; the setup wizard writes a new one to
+  `~/.fibsem/config/`. For a manufacturer it
   does not know, start from a Demo configuration and edit it. The devices
   are listed under `hardware.devices`; see
   [Configuring devices](devices.md#configuring-devices).

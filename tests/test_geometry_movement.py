@@ -277,7 +277,7 @@ def test_the_backends_share_one_implementation(backend, name):
 # FIB-1124: the shared moves ask the stage what it can do, not whether it is a
 # compustage. These build real sessions from configuration -- the `microscope` fixture
 # re-poses after connect, which does not select either behaviour.
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
 def _session(compustage: bool):

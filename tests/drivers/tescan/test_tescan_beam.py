@@ -40,7 +40,7 @@ RECORDED = os.path.join(
 
 def _system(electron=True, ion=True):
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     system.electron.enabled = electron
     system.ion.enabled = ion

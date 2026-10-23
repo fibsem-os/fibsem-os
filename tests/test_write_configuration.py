@@ -15,7 +15,7 @@ from fibsem import utils
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.structures import MicroscopeSettings
 
-SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 def _site_file(tmp_path):

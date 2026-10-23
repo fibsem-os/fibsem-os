@@ -444,7 +444,7 @@ def test_a_settings_record_does_not_keep_the_microscope_alive():
     import gc
     import weakref
 
-    path = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
     microscope, settings = utils.setup_session(config_path=path, manufacturer="Demo")
     assert settings.system.stage.holders, (
         "fixture no longer puts a holder on the record"
@@ -498,7 +498,7 @@ def test_the_compustage_holder_states_its_pre_tilt():
     """
     from fibsem.services.sample_handling import bind_sample_handling
 
-    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(config_path=path, manufacturer="Demo")
     assert microscope._fm_is_a_pose(), "fixture no longer exercises the compustage"
 

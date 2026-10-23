@@ -59,7 +59,9 @@ def test_a_real_run_reads_back_as_one_row_per_run_with_its_alignment(tmp_path):
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+        ),
         setup_logging=False,
     )
     try:
@@ -141,7 +143,9 @@ def test_a_task_run_twice_keeps_both_runs_images_in_their_own_folders(tmp_path):
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+        ),
         setup_logging=False,
     )
     try:

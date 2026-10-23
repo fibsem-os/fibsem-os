@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import logging
 import os
@@ -8,8 +9,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-import fibsem
 import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
+from fibsem import paths, state_move
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.saved_format import saved_app
 
@@ -72,19 +73,31 @@ POSITION_FOV_HEIGHT = POSITION_FOV_WIDTH * (
 )
 
 
-BASE_PATH = os.path.dirname(fibsem.__path__[0])
-CONFIG_PATH = os.path.join(BASE_PATH, "fibsem", "config")
-LOG_PATH = os.path.join(BASE_PATH, "fibsem", "log")
+# Shipped files are read from the package; everything written goes under the state
+# root (`fibsem.paths`). An older release's files are brought over on the first start.
+PACKAGE_PATH = str(paths.PACKAGE_DIR)
+SHIPPED_CONFIG_PATH = os.path.join(PACKAGE_PATH, "config")
+STATE_PATH = str(paths.state_root())
+CONFIG_PATH = os.path.join(STATE_PATH, "config")
+LOG_PATH = os.path.join(STATE_PATH, "log")
+EXPERIMENTS_PATH = os.path.join(STATE_PATH, "experiments")
 DATA_PATH = os.path.join(LOG_PATH, "data")
 DATA_ML_PATH: str = os.path.join(DATA_PATH, "ml")
 DATA_CC_PATH: str = os.path.join(DATA_PATH, "crosscorrelation")
+
+state_move.move_package_state(
+    paths.PACKAGE_DIR,
+    paths.state_root(),
+    scripts_from=Path.home() / ".autolamella" / "scripts",
+)
+
 # Saved positions are session state (`fibsem.saved_positions`); these two files are
 # where they lived before, read once to import them and never written.
 POSITION_PATH = os.path.join(CONFIG_PATH, "saved-positions.yaml")
 LEGACY_POSITIONS_PATH = os.path.join(CONFIG_PATH, "positions.yaml")
 USER_PREFERENCES_PATH = os.path.join(CONFIG_PATH, "user-preferences.yaml")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
-    CONFIG_PATH, "microscope-configuration.yaml"
+    SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
 )
 # fluorescence settings persistence
 FM_RECENT_CHANNELS_PATH = os.path.join(
@@ -100,10 +113,14 @@ SAMPLE_HOLDER_OCCUPANCY_PATH = os.path.join(CONFIG_PATH, "sample-holder-occupanc
 REFERENCE_FILENAME = "alignment_reference"
 
 
-os.makedirs(LOG_PATH, exist_ok=True)
-os.makedirs(DATA_PATH, exist_ok=True)
-os.makedirs(DATA_ML_PATH, exist_ok=True)
-os.makedirs(DATA_CC_PATH, exist_ok=True)
+try:
+    for _directory in (CONFIG_PATH, DATA_ML_PATH, DATA_CC_PATH, EXPERIMENTS_PATH):
+        os.makedirs(_directory, exist_ok=True)
+except OSError as e:
+    raise RuntimeError(
+        f"fibsemOS cannot write to its settings folder {STATE_PATH} ({e}). "
+        f"Set {paths.STATE_ROOT_ENV} to a folder this account can write."
+    ) from e
 
 
 def load_yaml(fname):
@@ -471,24 +488,48 @@ def _sub_from_dict(cls, d: dict):
     return cls(**{k: v for k, v in d.items() if k in known})
 
 
+# The last file read, keyed by its modification time and size, so a call does not
+# re-parse an unchanged file; an edit from outside is still seen on the next call.
+_preferences_cache: Optional[tuple] = None
+
+
+def _file_key(path: str) -> Optional[tuple]:
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 def load_user_preferences() -> UserPreferences:
-    """Load persisted user preferences, returning a UserPreferences dataclass."""
-    if not os.path.exists(USER_PREFERENCES_PATH):
+    """Load persisted user preferences, returning a UserPreferences dataclass.
+
+    Each call returns its own copy, which the caller may change."""
+    global _preferences_cache
+    key = _file_key(USER_PREFERENCES_PATH)
+    if key is None:
         return UserPreferences()
+    cached = _preferences_cache
+    if cached is not None and cached[0] == (USER_PREFERENCES_PATH, key):
+        return copy.deepcopy(cached[1])
 
     try:
         with open(USER_PREFERENCES_PATH) as f:
             loaded = yaml.safe_load(f) or {}
-        return UserPreferences.from_dict(loaded)
+        preferences = UserPreferences.from_dict(loaded)
     except Exception as e:
         logging.warning(
             f"Failed to load user preferences from {USER_PREFERENCES_PATH}: {e}"
         )
         return UserPreferences()
+    _preferences_cache = ((USER_PREFERENCES_PATH, key), preferences)
+    return copy.deepcopy(preferences)
 
 
 def save_user_preferences(preferences) -> None:
     """Persist user preferences to disk. Accepts UserPreferences or dict."""
+    global _preferences_cache
+    _preferences_cache = None
     try:
         os.makedirs(CONFIG_PATH, exist_ok=True)
         if isinstance(preferences, UserPreferences):
@@ -686,7 +727,12 @@ def get_last_experiment_file() -> Optional[str]:
 AUTOLAMELLA_BASE_PATH: Path = os.path.join(
     os.path.dirname(__file__), "applications", "autolamella"
 )
-AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "log")
+# Where a new experiment goes when the preferences name no folder.
+AUTOLAMELLA_LOG_PATH: Path = EXPERIMENTS_PATH
+# The operator's own protocols; the shipped ones stay beside the package code.
+AUTOLAMELLA_USER_PROTOCOL_PATH: Path = os.path.join(
+    STATE_PATH, "autolamella", "protocols"
+)
 AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
 AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(
     AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml"
@@ -696,4 +742,4 @@ AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
 )
 AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 
-os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
+os.makedirs(AUTOLAMELLA_USER_PROTOCOL_PATH, exist_ok=True)

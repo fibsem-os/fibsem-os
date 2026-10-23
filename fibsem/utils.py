@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple, Un
 import yaml
 
 from fibsem import config as cfg
+from fibsem import state_move
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
@@ -290,6 +291,7 @@ def configure_logging(
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("napari").setLevel(logging.WARNING)
 
+    state_move.log_pending()
     return logfile
 
 

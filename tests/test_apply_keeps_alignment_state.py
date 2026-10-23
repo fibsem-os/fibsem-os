@@ -15,7 +15,7 @@ from fibsem.structures import (
 )
 from tests.fixtures.microscopes import demo_microscope
 
-SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 microscope = demo_microscope("microscope-configuration.yaml", scope="function")
