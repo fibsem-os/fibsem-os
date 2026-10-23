@@ -4,7 +4,7 @@ The metadata carries its ``version`` (`fibsem.config.METADATA_VERSION`); a file 
 none was written before versioning (``v0``). What changed, oldest first:
 
 - up to v5 the whole ``SystemSettings`` was written as ``system``; v6 replaced it with
-  ``system_info`` and ``hardware_geometry`` (FIB-481), so the geometry is recovered
+  ``system_info`` and ``hardware_geometry``, so the geometry is recovered
   from the blob here;
 - ``hardware_geometry`` changed shape on its own (`hardware_geometry.upgrade`);
 - ``system_info`` and ``hardware_geometry`` were written as ``{}`` when unknown.

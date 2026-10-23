@@ -28,9 +28,9 @@ logger = logging.getLogger(__name__)
 
 # The specimen grid's radius in metres, for the boundary drawn around each slot.
 #
-# A constant only because nothing currently reports it. FIB-572 wants the radius from
-# `SampleGrid.radius`, which would retire this: a holder knows how big its grids are,
-# and a fixed 1 mm is right for the common case and wrong for anything else.
+# A constant only because nothing currently reports it; `SampleGrid.radius` would
+# replace it: a holder knows how big its grids are, and a fixed 1 mm is right for the
+# common case and wrong for anything else.
 GRID_BOUNDARY_RADIUS_M = 1000e-6
 
 # The device holder places are written against.

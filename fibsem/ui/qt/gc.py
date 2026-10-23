@@ -11,7 +11,7 @@ finalizers run *off* the GUI thread:
   plain (unlocked) Python list that the GUI thread's ``paintGL`` is
   concurrently flushing. On Windows GL drivers this intermittently ends in a
   native access violation inside ``glDrawArrays`` and takes the whole process
-  down (observed repeatedly on a Tescan support PC, 2026-07-22).
+  down (observed repeatedly on a Tescan support PC).
 
 The fix — as shipped by ilastik and other large PyQt apps — is to disable
 automatic collection and run the collector from a QTimer on the main thread,
@@ -21,9 +21,10 @@ rather than a periodic stop-the-world full sweep.
 Scope: this moves *cyclic* garbage finalization to the main thread. Plain
 refcount-zero deallocation still runs on whichever thread drops the last
 reference; cycles (signal connections, parent links, closures) are the
-dominant path for Qt/napari/vispy objects and the one observed in the crash
+dominant path for Qt objects and the one observed in the crash
 logs.
 """
+
 from __future__ import annotations
 
 import gc
@@ -95,9 +96,7 @@ def install_main_thread_gc(
     """
     app = QCoreApplication.instance()
     if app is None:
-        raise RuntimeError(
-            "install_main_thread_gc requires a QApplication to exist"
-        )
+        raise RuntimeError("install_main_thread_gc requires a QApplication to exist")
     if QThread.currentThread() is not app.thread():
         raise RuntimeError(
             "install_main_thread_gc must be called from the Qt main thread"

@@ -12,11 +12,11 @@ computer:
 - ``RemoteFluorescenceMicroscope`` (``fibsem.fm.remote``) is this over remote devices,
   plus connecting to their server.
 
-Every property is a live read, or a write through the old API path
-(``write_through``): nothing is cached behind the caller's back, so a guard reading
-``fm.objective.state`` asks the device, and a remote one fails closed with
-``RemoteDeviceUnreachable`` when its server can't be reached. Acquiring a channel is
-one command on the ``fm`` group, run next to the hardware.
+Every property is a live read, or a write through ``write_through``: nothing is cached
+behind the caller's back, so a guard reading ``fm.objective.state`` asks the device, and
+a remote one fails closed with ``RemoteDeviceUnreachable`` when its server can't be
+reached. Acquiring a channel is one command on the ``fm`` group, run next to the
+hardware.
 
 What belongs to the session rather than the hardware stays here: the objective's
 saved focus position, the channel name and colour, and the image transform.
@@ -95,9 +95,9 @@ def _param(device: Device, name: str) -> BoundParameter:
 class ObjectiveLens:
     # Raised after the objective moves, carrying position (metres) and state, so a
     # display can refresh instead of polling the device for numbers it mostly does not
-    # need (FIB-534). On a TFS system each such read takes the shared imaging channel,
+    # need. On a TFS system each such read takes the shared imaging channel,
     # so a label refreshed on every stage poll moves the microscope's own active view to
-    # the FM and back to fetch a millimetre reading -- which is how FIB-517 happened.
+    # the FM and back to fetch a millimetre reading.
     #
     # Carries the values rather than being a bare "something moved", for the reason
     # `stage.position.changed` does: subscribers that each re-read would turn one move
@@ -118,7 +118,7 @@ class ObjectiveLens:
     #
     # Emitted from whichever thread made the move -- connect with `@ensure_main_thread`
     # if the slot touches widgets, and disconnect on teardown: this is psygnal, so
-    # nothing is severed for you when the C++ object goes (FIB-550).
+    # nothing is severed for you when the C++ object goes.
     position_changed = Signal(float, InsertableDeviceState)
     # The saved focus position, whoever saved it (the FM tab, the agent): the
     # device parameter's changes, or None when cleared. Same threading as above.
@@ -139,7 +139,7 @@ class ObjectiveLens:
     blocked_axes: Tuple[str, ...] = ("z", "t")
     """The stage axes an absolute move leaves alone while this objective is inserted.
 
-    z and t, as measured on a compustage (FIB-640): with the objective in, the
+    z and t, as measured on a compustage: with the objective in, the
     microscope refuses a height or tilt change, and a move that sends them anyway
     half-succeeds. A driver whose objective differs overrides this."""
 
@@ -165,7 +165,7 @@ class ObjectiveLens:
             self.focus_position_changed.emit(value)
 
     def _notify_moved(self) -> None:
-        """Announce where the objective ended up, for displays to refresh on (FIB-534).
+        """Announce where the objective ended up, for displays to refresh on.
 
         Called by every write method that actually moves the device, in every
         implementation -- there is no single chokepoint to put it behind, and the shape
@@ -494,7 +494,7 @@ class FluorescenceMicroscope:
     # live acquisition signals (psygnal binds these per-instance on access)
     acquisition_signal = Signal(FluorescenceImage)
     # How far along an acquisition *routine* is. Still a bare dict, pending the typed
-    # payload it should carry (FIB-401); until then the contract is here rather than
+    # payload it should carry; until then the contract is here rather than
     # only in the emit sites.
     #
     #   operation: which routine -- "channels" | "z-stack" | "autofocus". A closed set,
@@ -514,7 +514,7 @@ class FluorescenceMicroscope:
     #
     # What a *task* is doing belongs on the task's own signals (the runner's `step`
     # and `status`), and tile progress belongs on the imaging service's
-    # `tiled_progress` (FIB-725). This signal is the acquisition functions', and
+    # `tiled_progress`. This signal is the acquisition functions', and
     # nothing else's.
     acquisition_progress_signal = Signal(FluorescenceAcquisitionProgress)
     # Raised when something starts or stops driving the FM, so a widget that did not
@@ -523,8 +523,8 @@ class FluorescenceMicroscope:
     acquiring_changed = Signal(bool)
     # Raised when the user's image transform changes. It is part of
     # `fm_image_geometry()`, so it is an input to every projection between stage space
-    # and a canvas -- a display that keeps one has to be told, and had no way to know
-    # (FIB-521). Same threading contract as the signals above.
+    # and a canvas -- a display that keeps one has to be told, and had no way to know.
+    # Same threading contract as the signals above.
     transform_changed = Signal(object)  # CameraImageTransform
 
     def __init__(
@@ -542,7 +542,7 @@ class FluorescenceMicroscope:
         self.parent = parent
         self.devices = devices
 
-        # per-instance acquisition state (previously shared class attributes)
+        # per-instance acquisition state
         self._stop_acquisition_event = threading.Event()
         self._acquisition_thread: Optional[threading.Thread] = None
         # Set while the live stream runs: by `start_acquisition`, and cleared by the
@@ -578,12 +578,11 @@ class FluorescenceMicroscope:
         # -- the stage owns stage questions.
         #
         # Read from the device declaration (`stage.devices.FM.available_orientations`)
-        # so there is exactly one source of truth. On a compustage that is `["FM"]` --
-        # what this attribute always held. On an offset mount it is the beam pose the
-        # sample is held in at the FM (`["FIB"]` on the iFLM simulator), which the old
-        # hardcoded `[default_orientation]` got wrong: `"FM"` is a pose the classifier
-        # never returns there. This attribute survives only until its readers move onto
-        # `get_device_imaging_state` (FIB-839), then goes with them.
+        # so there is exactly one source of truth. On a compustage that is `["FM"]`.
+        # On an offset mount it is the beam pose the sample is held in at the FM
+        # (`["FIB"]` on the iFLM simulator): `"FM"` is a pose the classifier never
+        # returns there. This attribute goes when its readers move onto
+        # `get_device_imaging_state`.
         self.acquisition_orientations: list[str] = (
             self._configured_acquisition_orientations()
         )
@@ -611,7 +610,7 @@ class FluorescenceMicroscope:
     # ── what is running ──────────────────────────────────────────────────
     #
     # Three questions, because widgets ask three. Assembling them at each call site is
-    # what produced six overlapping flags and one wrong answer (FIB-513):
+    # what produced six overlapping flags and one wrong answer:
     #
     #   is_streaming    the live view is on
     #   is_acquiring    anything is running: the stream, or a claimed operation
@@ -634,7 +633,7 @@ class FluorescenceMicroscope:
         The question to ask before starting new work. A tileset moves the stage between
         every pair of tiles with no stream running, so `is_streaming` reads idle for most
         of somebody else's run -- which is how a live stream came to be startable
-        mid-tileset (FIB-441).
+        mid-tileset.
         """
         return self.is_streaming or self._acquiring
 
@@ -649,7 +648,7 @@ class FluorescenceMicroscope:
 
         Widgets used to derive this per call site from two or three flags, and the
         objective panel got it wrong -- it asked only whether *this* widget was busy, so
-        another tab's tileset left it live (FIB-513).
+        another tab's tileset left it live.
         """
         return not self.is_acquiring or self.is_streaming
 
@@ -680,13 +679,10 @@ class FluorescenceMicroscope:
     def refusal_to_start(self, what: str) -> Optional[str]:
         """Why *what* may not start right now, as one actionable sentence -- or None.
 
-        The two questions every entry point has to ask, in the order that matters
-        (FIB-839): *when* first -- is something already driving the instrument --
+        The two questions every entry point has to ask, in the order that matters:
+        *when* first -- is something already driving the instrument --
         then *where* -- can it image the sample from here. Asked together so no
-        caller assembles them its own way; the control widget used to be the only
-        site that composed both, as a private method returning a bare bool, and
-        every other gate either asked half the question or logged a message about
-        the wrong half.
+        caller assembles them its own way.
 
         Returns the message rather than raising or logging, because the right
         delivery differs per caller: a workflow raises, a widget toasts, a canvas
@@ -727,9 +723,9 @@ class FluorescenceMicroscope:
         the channel for a live stream that owns it until it stops -- can call it on any
         FM without asking what it is talking to.
 
-        Prefer :meth:`active_channel`. This is the form that caused FIB-517: a read that
-        takes the channel and walks away leaves the microscope pointed at the FM, and
-        the next beam operation to read a buffer reads the FM's.
+        Prefer :meth:`active_channel`: a read that takes the channel and walks away
+        leaves the microscope pointed at the FM, and the next beam operation to read a
+        buffer reads the FM's.
         """
         return
 
@@ -740,7 +736,7 @@ class FluorescenceMicroscope:
         A no-op here, and on any system where the FM has a connection of its own. On a
         TFS system the FM and the beams share one -- one active view, one active device,
         last writer wins -- so the driver overrides this to point it at the FM and put it
-        back afterwards (FIB-517).
+        back afterwards.
 
         Wrap whole operations rather than individual reads. Each frame of a tileset
         taking and returning the channel would flick the microscope's own UI between
@@ -887,8 +883,8 @@ class FluorescenceMicroscope:
         logging.info(f"Image transform set to: {transform}")
         # Announced, because this is not only a display preference: `fm_image_geometry()`
         # carries it, so it is an input to every projection between stage space and a
-        # canvas. A view holding a projection has no other way to learn it moved
-        # (FIB-521). Only on a real change -- the camera widget re-applies the saved
+        # canvas. A view holding a projection has no other way to learn it moved.
+        # Only on a real change -- the camera widget re-applies the saved
         # transform on load, and a redraw for a value that did not move is noise.
         if self._transform is not previous:
             self.transform_changed.emit(self._transform)
@@ -920,7 +916,7 @@ class FluorescenceMicroscope:
 
         The camera's analogue of a beam column's ``column_tilt``; used to project
         in-image displacements onto the tilted sample plane. The FM entry's
-        ``camera_tilt`` where the configuration states one (FIB-335); otherwise from
+        ``camera_tilt`` where the configuration states one; otherwise from
         the mount (`fibsem.geometry.frames.fm_camera_tilt`): a half turn where the
         stage reaches the FM by turning the grid over, else the ion column's tilt.
         """
@@ -1112,7 +1108,7 @@ class FluorescenceMicroscope:
 
         # Which experiment, item and task, from the same place the beam path reads it.
         # Copied rather than referenced: the workflow half is rewritten as the run
-        # moves on, and an image should keep saying where it was taken (FIB-466).
+        # moves on, and an image should keep saying where it was taken.
         experiment = deepcopy(self.parent.experiment) if self.parent else None
 
         # Create complete image metadata

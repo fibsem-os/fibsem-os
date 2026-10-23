@@ -65,8 +65,7 @@ def fibsem_icon(key: str, color: Optional[str] = None, **kwargs) -> QIcon:
     except Exception:
         # Unknown/misspelled icon name: qtawesome raises, but widget code (often
         # a paint/refresh path) expects a QIcon. Degrade gracefully to a blank
-        # icon - matching the old superqt.QIconifyIcon, which drew a placeholder
-        # rather than crashing - and log so the missing key can be fixed.
+        # icon and log so the missing key can be fixed.
         logging.warning("fibsem_icon: unknown icon %r; rendering blank", key)
         return QIcon()
 

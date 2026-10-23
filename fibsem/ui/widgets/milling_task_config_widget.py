@@ -52,12 +52,12 @@ def _set_state_chip(chip, on: bool) -> None:
     )
 
 
-class MillingTaskConfigWidget2(QWidget):
+class MillingTaskConfigWidget(QWidget):
     """MillingTaskConfigWidget using TitledPanel + FibsemMillingStagesWidget.
 
     Layout: Task (core) → Alignment → Acquisition → Milling stages.
     Alignment and acquisition panels start collapsed.
-    No viewer/napari/correlation dependencies.
+    No viewer or correlation dependencies.
     """
 
     settings_changed = pyqtSignal(FibsemMillingTaskConfig)
@@ -68,7 +68,6 @@ class MillingTaskConfigWidget2(QWidget):
         microscope: FibsemMicroscope,
         milling_task_config: Optional[FibsemMillingTaskConfig] = None,
         milling_enabled: bool = True,
-        correlation_enabled: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -162,8 +161,7 @@ class MillingTaskConfigWidget2(QWidget):
         )
         self.acquisition_widget.image_settings_widget.set_show_advanced_button(False)
 
-        # "on" when either beam acquires; the old header switch set both beams
-        # at once, which nothing on it said.
+        # "on" when either beam acquires.
         self._acquisition_state_chip = header_chip("on", stylesheets.ACCENT_COLOR)
         self._btn_advanced_acquisition = IconToolButton(
             icon="mdi:tune",
@@ -186,8 +184,8 @@ class MillingTaskConfigWidget2(QWidget):
             microscope=self.microscope, stages=[]
         )
         # How many stages are enabled, readable with the panel collapsed. Text
-        # rather than the digit-in-a-box icon it used to be, which looked like a
-        # disabled button and stopped at 9.
+        # rather than a digit-in-a-box icon, which looks like a disabled button
+        # and stops at 9.
         self._stage_count_chip = header_chip("0 stages", stylesheets.ACCENT_COLOR)
 
         milling_panel = TitledPanel(
@@ -302,7 +300,7 @@ class MillingTaskConfigWidget2(QWidget):
             self.alignment_widget.enabled_checkbox.isChecked()
         )
         self._on_acquisition_checkbox_changed()
-        # enabled stages, as the change handler counts them; loading used to count all
+        # enabled stages, as the change handler counts them
         self._update_stage_count_icon(len([s for s in settings.stages if s.enabled]))
         self.blockSignals(False)
         self._on_alignment_checkbox_changed(

@@ -60,7 +60,7 @@ def agent_setup_text(
     config, so its line is for the person, and says to merge, not replace.
     ``pythonpath`` is the checkout the app runs from when it came from
     ``PYTHONPATH`` (:func:`~fibsem.server.discovery.dev_checkout`): the sidecar
-    gets it too, or it imports the environment's own ``fibsem`` (FIB-1429).
+    gets it too, or it imports the environment's own ``fibsem``.
     """
     platform = platform or sys.platform
     url = url or DEFAULT_URL

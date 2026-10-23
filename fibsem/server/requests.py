@@ -1,4 +1,4 @@
-"""The agent's requests: actions the operator approves before they run (FIB-1283).
+"""The agent's requests: actions the operator approves before they run.
 
 At Assist the agent acts by asking. It files a request -- one or more of its
 own tool calls, and why -- and the operator approves or rejects it in the app.
@@ -15,7 +15,7 @@ approve its own request.
 
 One request is pending at a time; a batch covers "several things at once".
 There is no expiry at Assist -- silence means no -- but a request may carry one,
-with what expiry does, for Drive's countdown (FIB-1267).
+with what expiry does, for Drive's countdown.
 
 Each request is an ``actions`` proposal on the experiment, so it is saved with
 who approved or rejected it and why; this store keeps what only this session
@@ -128,11 +128,11 @@ class AgentRequest:
     cancel_reason: str = ""
     # One per action run: tool, status_code, ok, and the route's answer.
     results: List[Dict[str, Any]] = field(default_factory=list)
-    # For Drive's countdown (FIB-1267): when it lapses, and what lapsing does.
+    # For Drive's countdown: when it lapses, and what lapsing does.
     expires_at: Optional[float] = None
     on_expiry: str = "reject"
     # What the agent judged from (`fibsem.workflows.evidence`, its record), and
-    # the beam image of it the card draws the actions' values on (FIB-1411).
+    # the beam image of it the card draws the actions' values on.
     evidence: Optional[Dict[str, Any]] = None
     image: Optional[str] = None
     # The experiment its proposal is on.
@@ -219,7 +219,7 @@ async def _asgi_call(app, method: str, path: str, body, token: str, query: str =
 def _call_named(spec: ToolSpec, tool: str, arguments: Dict[str, Any]) -> str:
     """A tool call as the record names it: the tool and what its route names
     ("device_set_parameter electron.on"), so a refusal at filing says what was
-    refused rather than "requests" (FIB-1421)."""
+    refused rather than "requests"."""
     target = ".".join(
         str(arguments[name])
         for name in re.findall(r"{(\w+)}", spec.path)
@@ -230,7 +230,7 @@ def _call_named(spec: ToolSpec, tool: str, arguments: Dict[str, Any]) -> str:
 
 def _argument_problem(spec: ToolSpec, unknown: List[str], missing: List[str]) -> str:
     """What is wrong with a request's arguments for *spec*, in the agent's terms:
-    the names it does not take, the ones it needs, and what it takes (FIB-1425).
+    the names it does not take, the ones it needs, and what it takes.
     Checked at filing, so the operator never reads an action with a value left
     out ("Load 'None'")."""
     parts = []
@@ -256,8 +256,8 @@ def _started_run(answer: Any) -> Optional[Dict[str, Any]]:
 
 def _cut_short(answer: Any) -> bool:
     """Whether an action ran but was stopped part way: a mill answers
-    ``cancelled`` rather than failing (FIB-1377). Applied, but the operator and
-    the agent are told it was cut short (FIB-1398). A long command answers its
+    ``cancelled`` rather than failing. Applied, but the operator and
+    the agent are told it was cut short. A long command answers its
     run, whose ``state`` says so when it ended before the answer."""
     if not isinstance(answer, dict):
         return False
@@ -674,7 +674,7 @@ class RequestStore:
 
     def expire_due(self, now: Optional[float] = None) -> Optional[AgentRequest]:
         """Lapse the pending request if its time is up, as its ``on_expiry``
-        says. Driven by whoever shows the countdown (FIB-1267)."""
+        says. Driven by whoever shows the countdown."""
         now = time.time() if now is None else now
         request = self.pending()
         if request is None or request.expires_at is None or now < request.expires_at:
@@ -762,7 +762,7 @@ class RequestStore:
     def _wait_for_run(self, request: AgentRequest, action: Action, run: Dict):
         """Wait for the *run* *action* started to end: (status, answer), the
         answer the ended run as the command's own would be. A run that raised
-        is its error, with the status the route answers it with (FIB-1491); one
+        is its error, with the status the route answers it with; one
         that failed otherwise is a 500. A stopped one is cut short. Stops
         waiting, the run still going, when the request is cancelled."""
         run_id = run["run_id"]
@@ -798,9 +798,9 @@ class RequestStore:
 
     def refresh(self, request_id: str) -> bool:
         """Describe a waiting request's actions again: the values now, read when
-        the operator looks, not when it was filed (FIB-1412). An edit against a
+        the operator looks, not when it was filed. An edit against a
         version keeps the line it was filed with: it applies only to the values
-        it was read against, so those are its "now" (FIB-1491). Reads the routes
+        it was read against, so those are its "now". Reads the routes
         it describes, so never on the GUI thread. False when it no longer
         waits."""
         request = self.get(request_id)

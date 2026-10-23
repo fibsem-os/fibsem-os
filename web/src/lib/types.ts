@@ -332,6 +332,8 @@ export interface StackSlice {
   z: number | null;
   pixel_size: number | null;
   hfw: number | null;
+  /** The file, relative to the experiment folder. */
+  path?: string | null;
 }
 
 /** GET /app/experiment/items/{name}/stack?role=: the item's images of one role, in iteration order. */
@@ -457,13 +459,11 @@ export interface ReplayRow {
 
 /** GET /app/experiment/replay: every recorded action, in time order. */
 export interface ReplayTimeline {
-  available: boolean;
   source: string | null;
   start: string | null;
   end: string | null;
   counts: Record<string, number>;
   events: ReplayRow[];
-  error: string | null;
 }
 
 /** A replay image and what is drawn over it, in fractions of the image (+y down). */
@@ -482,7 +482,6 @@ export interface ReplayImage {
 
 /** GET /app/experiment/replay/{index}: the instrument at one recorded action. */
 export interface ReplayView {
-  available: boolean;
   index: number;
   event: ReplayRow | null;
   sem: ReplayImage | null;
@@ -490,7 +489,6 @@ export interface ReplayView {
   fm: string | null;
   stage_position: Record<string, number | string | null> | null;
   stage: StageDrawing | null;
-  error: string | null;
 }
 
 /** A named place on a stage map, in metres on the map's plane (+y down). */

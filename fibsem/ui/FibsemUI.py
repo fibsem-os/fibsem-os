@@ -2,21 +2,13 @@
 
 Two top-level tabs, the same shape AutoLamella's window has:
 
-* **Microscope** — the quad view beside the control panel, which is what this whole
-  window used to be.
+* **Microscope** — the quad view beside the control panel.
 * **Overview** — the tiled overview on the real-space canvas.
 
-The Overview tab replaces the napari minimap this window used to open in a viewer of
-its own, and it is the last napari overview anyone had as a default (FIB-821). It is
-hosted *bare*: `FibsemOverviewWidget` knows nothing about lamellae by design -- it says
-*where* a user pointed and leaves the meaning to whoever is listening -- and this
-application has no experiment to listen with. So there is no lamella list and there are
+The Overview tab is hosted *bare*: `FibsemOverviewWidget` knows nothing about lamellae
+by design -- it says *where* a user pointed and leaves the meaning to whoever is
+listening -- and this application has no experiment to listen with. So there is no lamella list and there are
 no markers, which is the whole of what `BeamOverviewTab` adds on top of it.
-
-Written by hand rather than loaded from `qtdesigner_files/FibsemUI.ui`. The generated
-window contributed a title label this file deleted on the next line, a Tools menu with
-one live entry, and a tab widget -- and it could not express the tab-in-a-tab this
-layout is. Both it and the `.ui` it came from are gone.
 """
 
 from typing import List, Optional
@@ -60,17 +52,16 @@ class FibsemUI(QMainWindow):
     def __init__(self, viewer=None):
         super().__init__()
 
-        # napari-style dark theme, matching AutoLamellaWindow. The napari window used to
-        # supply this; a standalone window has to set it itself.
+        # The app's dark theme, matching AutoLamellaWindow; a standalone window sets it
+        # itself.
         self.setStyleSheet(NAPARI_STYLE)
 
-        # get_version_string (not fibsem.__version__) so the running git revision still
-        # shows once napari's viewer.title is gone — see FIB-349 / #202.
+        # get_version_string (not fibsem.__version__) so the running git revision shows.
         self.setWindowTitle(f"fibsemOS v{get_version_string()}")
 
-        # Viewer-less by default: the quad-view controller is the display. `viewer` is
-        # retained so a caller that still has a napari Viewer gets the old layer path —
-        # the image/movement widgets read it off this attribute.
+        # Viewer-less by default: the quad-view controller is the display. A caller
+        # that passes a napari Viewer gets layers too; the image/movement widgets read
+        # it off this attribute.
         self.viewer = viewer
 
         self.microscope: Optional[FibsemMicroscope] = None
@@ -84,9 +75,8 @@ class FibsemUI(QMainWindow):
         self.overview_widget: Optional[FibsemOverviewWidget] = None
 
         # The control tabs that exist only while a microscope is connected, in the order
-        # they were added. Held so that adding and removing them is by identity: the
-        # disconnect path used to remove indices 4..1, which is only correct for as long
-        # as that set never changes size — and one of them is already conditional.
+        # they were added. Held so that adding and removing them is by identity, not
+        # index: one of them is conditional.
         self._microscope_tabs: List[QWidget] = []
 
         self.tab_widget = QTabWidget()
@@ -95,7 +85,7 @@ class FibsemUI(QMainWindow):
         self._create_microscope_tab()
         self._create_overview_tab()
 
-        # What the instrument is doing, in words, while it does it (FIB-1188).
+        # What the instrument is doing, in words, while it does it.
         self.status_bar = FibsemStatusBar(self)
         self.setStatusBar(self.status_bar)
         self.status_bar.follow(self.view_controller)
@@ -248,7 +238,7 @@ class FibsemUI(QMainWindow):
             # add widgets to tabs
             self._add_control_tab(self.image_widget, "Image")
             self._add_control_tab(self.movement_widget, "Movement")
-            # the milling widget no longer scrolls itself; the tab does
+            # the tab scrolls the milling widget
             self._add_control_tab(scrollable(self.milling_widget), "Milling")
             self._add_control_tab(self.sample_widget, "Sample")
 
@@ -331,8 +321,7 @@ def main(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     flags. ``splash`` is the launcher's splash screen (fibsem.tools.desktop_launch),
     closed once the main window is up.
     """
-    # Fully viewer-less: the quad-view controller is the display, and the overview is a
-    # tab beside it rather than a napari viewer of its own.
+    # The quad-view controller is the display, and the overview is a tab beside it.
     set_app_identity(FIBSEM_UI.name, windows_app_id=FIBSEM_UI.app_id)
     app = QApplication.instance() or QApplication([])
     app.setApplicationName(FIBSEM_UI.name)

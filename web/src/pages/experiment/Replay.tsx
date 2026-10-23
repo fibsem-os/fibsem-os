@@ -344,8 +344,6 @@ export function Replay() {
 
   if (timeline.isPending) return <div className="text-[13px] text-muted-foreground">Reading the record…</div>;
   if (timeline.error) return <div className="text-[13px] text-destructive">{timeline.error.message}</div>;
-  if (!timeline.data.available)
-    return <div className="text-[13px] text-muted-foreground">{timeline.data.error ?? "Nothing to replay."}</div>;
   if (!events.length) return <div className="text-[13px] text-muted-foreground">Nothing has been recorded yet.</div>;
 
   const go = (to: number) => {
@@ -353,7 +351,7 @@ export function Replay() {
     const next = shown[Math.max(0, Math.min(shown.length - 1, to))];
     if (next) setIndex(next.index);
   };
-  const view = scene.data?.available ? scene.data : null;
+  const view = scene.data ?? null;
   const paths = [view?.sem?.path, view?.fib?.path, view?.fm].filter((p): p is string => !!p);
   const open = (path: string) => setViewing({ paths, at: paths.indexOf(path) });
   return (

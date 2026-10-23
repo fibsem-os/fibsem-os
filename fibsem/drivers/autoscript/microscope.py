@@ -214,8 +214,8 @@ def _format_candidate_list(paths: List[str], limit: int = 5) -> str:
 def autoscript_unavailable_message() -> str:
     """Why AutoScript could not be used, with the most likely fix.
 
-    Three different situations used to share one "not installed" message: never
-    installed, too old, or a partial copy. The import error is quoted when there
+    Tells apart three situations: never installed, too old, or a partial copy.
+    The import error is quoted when there
     is one, and any copies found on disk are sorted by whether they sit in the
     environment that is running.
     """
@@ -527,7 +527,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self.system: SystemSettings = system_settings
 
         # user, experiment metadata
-        # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
@@ -622,7 +621,6 @@ class ThermoMicroscope(FibsemMicroscope):
         self._compucentric_offset = self._connection.read_compucentric_offset()
         self._build_stage()
         self._build_stage_movement()
-        # TODO: set default move settings, is this dependent on the stage type?
         if self.milling is not None:
             # AutoScript needs a valid application file before a pattern is made
             self.milling._set_application_file("Si", default=True)
@@ -751,7 +749,7 @@ class ThermoMicroscope(FibsemMicroscope):
 
     @property
     def rotation_centre(self) -> Optional[Tuple[float, float]]:
-        """Where a half turn is centred, raw (x, y) in metres (FIB-655).
+        """Where a half turn is centred, raw (x, y) in metres.
 
         xT's compucentric centre, read at connect, plus the instrument's calibrated
         `rotation_centre_correction`. Stage moves and image reprojection both use it,

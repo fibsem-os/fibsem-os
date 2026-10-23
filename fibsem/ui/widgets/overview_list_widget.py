@@ -1,7 +1,7 @@
 """The overviews currently on the canvas, one row each.
 
 The canvas can hold several overviews at once, and until this existed nothing said
-which ones — you could see them but not name, hide or drop one (FIB-543).
+which ones — you could see them but not name, hide or drop one.
 
 Shaped after `LamellaRow`: a name, its details, and icon buttons that appear
 when the row is under the cursor or selected. The difference is where the reveal

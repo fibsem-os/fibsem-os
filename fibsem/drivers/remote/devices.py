@@ -1008,7 +1008,7 @@ def build_remote_fm(
     ``driver: remote`` names at its ``address`` and ``port``.
 
     A server that isn't answering yet gives an FM that is offline: its reads fail
-    closed, and it comes online by itself when the server starts (FIB-1086), so the
+    closed, and it comes online by itself when the server starts, so the
     beams never wait for the FM's PC. With ``required: true`` an unreachable server
     fails the build instead. The objective calibration is pushed again each time the
     FM comes (back) online, since a restarted FM computer starts from its own

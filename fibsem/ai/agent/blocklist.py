@@ -1,6 +1,6 @@
 """The App Server's blocklist: what the agent may never touch, at any level.
 
-Two separate questions (Patrick, 2026-10-14). The level says how the agent may
+Two separate questions. The level says how the agent may
 act right now: Watch reads, Assist asks, Drive acts. This blocklist names what
 it may never touch: a blocked write or command is refused (403
 ``not_allowed``) at every level, an approved Assist request included, since a
@@ -50,7 +50,7 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
     # The safety limit the objective's moves are checked against.
     (Objective, {"write": {"limit_position"}}),
     # The raw absolute move: the safe one tilts flat for a large rotation and
-    # rotates first (Patrick, 2026-10-16).
+    # rotates first.
     (StageMovement, {"command": {"move_absolute"}}),
     # Starts a mill and returns at once, so nothing holds control while it
     # mills: a run lending control would carry on beside it. run_stage and
@@ -145,7 +145,7 @@ def image_refusal(
     """Why the image the agent's evidence is in is refused, as (status,
     error_type, message), or None: an image file inside the open experiment, as
     the image tools answered its path. A request and a suggested answer take
-    one (FIB-1424)."""
+    one."""
     if not isinstance(image, str) or not os.path.isfile(image):
         return (
             422,

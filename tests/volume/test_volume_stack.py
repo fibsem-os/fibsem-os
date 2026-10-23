@@ -68,6 +68,10 @@ def test_the_slices_are_one_stack_in_iteration_order(agent, sliced):
         "slice_0002_eb.tif",
     ]
     assert [s["z"] for s in slices] == pytest.approx([0, thickness, 2 * thickness])
+    # where the files route finds each one, for the web viewer
+    for entry in slices:
+        read = agent.get(f"/app/experiment/files/{entry['path']}", params={"width": 64})
+        assert read.status_code == 200 and read.json()["name"] == entry["filename"]
     for entry in slices:
         assert entry["pixel_size"] > 0
         assert entry["hfw"] > 0

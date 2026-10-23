@@ -6,7 +6,7 @@ import logging
 import math
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
 
 from fibsem.applications.autolamella.tools.replay import (
     LOGFILE_NAME,
@@ -18,13 +18,17 @@ from fibsem.applications.autolamella.tools.replay import (
     proposal_marks,
 )
 from fibsem.server.responses import (
+    Refusal,
     ReplayImage,
     ReplayMillingStage,
     ReplayRow,
     ReplayStage,
     ReplayTimeline,
     ReplayView,
+    refused,
 )
+
+NOTHING_TO_REPLAY = "This experiment has no events.jsonl or log to replay."
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.event_recording import EVENTS_FILENAME
 
@@ -55,16 +59,12 @@ class ReplayReader:
                 self._replay, self._key = replay, key
             return self._replay, self._rows
 
-    def timeline(self, root: Path) -> ReplayTimeline:
+    def timeline(self, root: Path) -> Union[ReplayTimeline, Refusal]:
         try:
             replay, rows = self._load(root)
         except FileNotFoundError:
-            return ReplayTimeline(
-                available=False,
-                error="This experiment has no events.jsonl or log to replay.",
-            )
+            return refused("not_found", NOTHING_TO_REPLAY)
         return ReplayTimeline(
-            available=True,
             source=replay.source,
             start=_iso(replay.start),
             end=_iso(replay.end),
@@ -85,18 +85,13 @@ class ReplayReader:
         try:
             replay, rows = self._load(root)
         except FileNotFoundError:
-            return ReplayView(
-                available=False,
-                error="This experiment has no events.jsonl or log to replay.",
-            )
+            return refused("not_found", NOTHING_TO_REPLAY)
         if not 0 <= index < len(replay.events):
-            return {
-                "error_type": "not_found",
-                "error": f"No event {index}: the replay has {len(replay.events)}.",
-            }
+            return refused(
+                "not_found", f"No event {index}: the replay has {len(replay.events)}."
+            )
         scene = replay.scene(index, item)
         return ReplayView(
-            available=True,
             index=index,
             event=rows[index],
             sem=_image(root, scene, scene.sem, scene.sem_unsaved_since),

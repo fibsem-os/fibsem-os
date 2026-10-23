@@ -457,7 +457,7 @@ class Beam(Device):
                 f"{image_settings.beam_type.name} beam"
             )
         # When the image was acquired, taken just before the driver runs, so every
-        # backend's image carries it (FIB-1190). A driver that reads a time off the
+        # backend's image carries it. A driver that reads a time off the
         # instrument has already set its own, and keeps it.
         started = now()
         if "scanner" in self.roles:

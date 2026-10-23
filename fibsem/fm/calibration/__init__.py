@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from fibsem.fm.structures import ChannelSettings, ZParameters
 
 
-# What a sweep with flat scores says (FIB-1519).
+# What a sweep with flat scores says.
 NO_FOCUS = "no focus found: the scores were flat over the range searched"
 
 
@@ -258,7 +258,7 @@ def run_coarse_fine_autofocus(
     a narrower fine pass). Iterations from all passes are combined into a single
     flat result, tagged by ``pass_index``.
 
-    Records one ``fm_autofocus`` event, however it ends (FIB-1257): when it
+    Records one ``fm_autofocus`` event, however it ends: when it
     started, and ``completed``; ``cancelled`` (a Stop, with the passes it
     finished); ``failed`` with the error (and re-raises), or `NO_FOCUS` when a
     pass's scores were flat (the result's ``found`` is False, the objective back
