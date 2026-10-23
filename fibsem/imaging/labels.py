@@ -138,6 +138,16 @@ class LabelPlacer:
         self._taken.append(box)
         return box
 
+    def put(self, x: float, y: float, text: str, colour) -> Box:
+        """*text* in a box with its top-left corner at (*x*, *y*) (PNG pixels,
+        kept inside the picture): a label whose place is fixed, as a cell's
+        name in its corner. Later labels keep clear of it."""
+        w, h = self._measure(text)
+        box = _clamped((x, y, x + w, y + h), self.width, self.height)
+        self._draw(box, box, text, colour, False)
+        self._taken.append(box)
+        return box
+
     def _draw(self, box: Box, anchor: Box, text: str, colour, leader: bool) -> None:
         from matplotlib.colors import to_rgba
 

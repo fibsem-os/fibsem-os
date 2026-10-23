@@ -1750,6 +1750,87 @@ def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):
         assert refused.status_code == 422, params
 
 
+def test_overview_cells_name_its_tiles_and_crop_by_name(
+    client, host, grid_with_overview
+):
+    """A tiled overview shown cut into its tiles, lettered and numbered, each
+    with its box and centre stage position; cells cropped by name; and a point
+    or marks read off a crop's picture converted to the image's pixels."""
+    import base64
+
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    (overview / "overview").mkdir()
+    tiles = [{"row": r, "col": c} for r in range(2) for c in range(3)]
+    (overview / "overview" / "overview-metadata.json").write_text(
+        json.dumps({"settings": {"overlap": 0.0}, "tiles": tiles})
+    )
+    url = f"/app/experiment/files/{OVERVIEW}"
+    shown = client.get(url, params={"cells": "true"}, headers=AUTH).json()["preview"]
+    cells = shown["cells"]
+    assert (cells["kind"], cells["columns"], cells["rows"]) == ("tiles", 3, 2)
+    items = {item["name"]: item for item in cells["items"]}
+    assert list(items) == ["A1", "B1", "C1", "A2", "B2", "C2"]
+    assert items["B2"]["box"] == [43, 64, 42, 64]
+    assert set(items["B2"]["stage"]) == {"x", "y"}
+    assert base64.b64decode(shown["image_b64_jpeg"])[:2] == b"\xff\xd8"
+
+    crops = client.get(url, params={"cells": "c1,B2"}, headers=AUTH).json()["crops"]
+    assert [crop["name"] for crop in crops] == ["C1", "B2"]
+    assert crops[1]["preview"]["region"] == {
+        "x": 43,
+        "y": 64,
+        "width": 42,
+        "height": 64,
+    }
+    assert crops[1]["preview"]["width"] == 42
+    assert crops[1]["stage"] == items["B2"]["stage"]
+    for params in (
+        {"cells": "D1"},
+        {"cells": ",".join(["A1"] * 9)},
+        {"cells": "true", "box": "0,0,8,8"},
+        {"cells": "A1", "box": "0,0,8,8"},
+    ):
+        refused = client.get(url, params=params, headers=AUTH)
+        assert refused.status_code == 422, params
+
+    path = str(overview / "overview.tif")
+
+    def stage(**params):
+        resp = client.get(
+            "/app/experiment/images/stage_position",
+            params={"path": path, **params},
+            headers=AUTH,
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["stage_position"]
+
+    assert stage(x=5, y=6, crop="B2") == stage(x=48, y=70)
+    assert stage(fx=0.5, fy=0.5, crop="10,10,20,40") == stage(x=20, y=30)
+    bad = client.get(
+        "/app/experiment/images/stage_position",
+        params={"path": path, "x": 1, "y": 1, "crop": "Z1"},
+        headers=AUTH,
+    )
+    assert bad.status_code == 422
+
+    drawn = client.post(
+        "/app/experiment/images/drawn",
+        headers=AUTH,
+        json={"path": path, "marks": {"crop": "B2", "points": [{"x": 5, "y": 6}]}},
+    ).json()
+    point = drawn["marks"]["points"][0]
+    assert (point["x"], point["y"]) == (48, 70)
+
+    jpeg = client.get(
+        f"/app/experiment/grids/{grid_with_overview.name}/outputs/overview.tif",
+        params={"cells": "true"},
+        headers=AUTH,
+    )
+    assert jpeg.status_code == 200 and jpeg.content[:2] == b"\xff\xd8"
+    metadata = json.loads(jpeg.headers["X-Image-Metadata"])
+    assert len(metadata["cells"]["items"]) == 6
+
+
 def test_experiment_files_stay_inside_the_experiment(client, host, tmp_path):
     outside = tmp_path / "elsewhere.md"
     outside.write_text("secret")

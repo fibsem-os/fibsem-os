@@ -574,7 +574,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_get_image_stage_position",
         returns="SavedImagePosition",
-        description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview. Nothing moves.",
+        description="The stage position under a point of any saved image in the experiment, beam or FM, from the image's own metadata, so it holds wherever the stage is now. Give x, y in source pixels, or fx, fy from 0 to 1 for a point read off a preview; with crop, x, y as read off that crop's picture (or fx, fy of it), converted for you. Nothing moves.",
         method="GET",
         path="/app/experiment/images/stage_position",
         level="watch",
@@ -585,8 +585,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "y": "source-pixel y, +y down (with x)",
             "fx": "fraction across the image, 0-1 (with fy)",
             "fy": "fraction down the image, 0-1 (with fx)",
+            "crop": "optional: the crop the point was read off: a cell's name (B3) from experiment_crop_image, or its box [x, y, width, height]",
         },
-        optional=("x", "y", "fx", "fy"),
+        optional=("x", "y", "fx", "fy", "crop"),
     ),
     ToolSpec(
         name="experiment_get_image_pixels",
@@ -618,7 +619,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_read_file",
         returns="FileRead",
-        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. A fluorescence stack (.ome.tiff) shows the max projection of every channel; give z for one plane and channels for some of them. Its metadata's fm block lists the channels, z_positions, and each channel's sharpness per plane (1 the sharpest) and sharpest_plane. Previews and metadata: for detail in part of an image, experiment_crop_image; for the file itself, to work on with your own code, experiment_fetch_file. Paths outside the experiment are refused.",
+        description="One file of the open experiment: text (yaml, json, log, md, csv) as text, up to 512 KB; an image (tif, png, jpg) as a 768 px preview you can look at, with its metadata block; a folder as its listing. A fluorescence stack (.ome.tiff) shows the max projection of every channel; give z for one plane and channels for some of them. Its metadata's fm block lists the channels, z_positions, and each channel's sharpness per plane (1 the sharpest) and sharpest_plane. Previews and metadata: for detail in part of an image, experiment_crop_image; for the file itself, to work on with your own code, experiment_fetch_file. With cells, the preview shows the image cut into named cells (columns A, B, ..., rows 1, 2, ...: a tiled overview's own tiles, else a plain grid) and lists each cell's box and centre stage position; crop them by name. Paths outside the experiment are refused.",
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
@@ -626,9 +627,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "path": "a path from experiment_list_files, or an image path an image answer gave",
             **_STACK_PARAMS,
+            "cells": "optional: true draws the image's named cells on the preview and lists them (default false)",
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
-        optional=("z", "channels", "experiment"),
+        optional=("z", "channels", "cells", "experiment"),
     ),
     ToolSpec(
         name="experiment_fetch_file",
@@ -647,7 +649,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_crop_image",
         returns="FileRead",
-        description="One region of an image in the open experiment, at native resolution (downscaled only when wider than 768 px): full detail where it matters, without the whole file. Give box in source pixels or fraction (0 to 1, as read off a preview), each [x, y, width, height]. The answer's preview carries the region and its own scale.",
+        description="One region of an image in the open experiment, at native resolution (downscaled only when wider than 768 px): full detail where it matters, without the whole file. Give box in source pixels or fraction (0 to 1, as read off a preview), each [x, y, width, height]; or cells, up to 8 cells by name (B3, as experiment_read_file with cells lists them), each answered with its own preview and centre stage position. The answer's preview carries the region and its own scale. A point read off a crop's picture goes to experiment_get_image_stage_position and marks with crop (the cell's name or the box), so you never offset it yourself.",
         method="GET",
         path="/app/experiment/files/{path}",
         level="watch",
@@ -656,10 +658,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "path": "an image path from experiment_list_files, or one an image answer gave",
             "box": "[x, y, width, height] in source pixels (instead of fraction)",
             "fraction": "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
+            "cells": 'up to 8 cell names, e.g. ["B3", "C3"] (instead of box)',
             **_STACK_PARAMS,
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
-        optional=("box", "fraction", "z", "channels", "experiment"),
+        optional=("box", "fraction", "cells", "z", "channels", "experiment"),
     ),
     ToolSpec(
         name="protocol_get_task_config",

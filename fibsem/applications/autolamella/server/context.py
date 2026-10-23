@@ -405,14 +405,15 @@ class AutoLamellaAppContext(AppContext):
         return detail
 
     def grid_output_image(
-        self, grid_name: str, filename: str, max_width: int = 768
+        self, grid_name: str, filename: str, max_width: int = 768, cells: bool = False
     ) -> Dict[str, Any]:
         """One grid output (overview or thumbnail), rendered as JPEG.
 
         ``filename`` is a basename the grid's history recorded, or a saved
         image's path in the experiment (`_grid_file`); anything else is
         refused with the valid names. Overviews are large; this is the
-        downscaled preview.
+        downscaled preview, with *cells* the overview's named cells drawn on
+        it and listed in its metadata.
         """
         experiment = self._experiment
         if experiment is None:
@@ -423,7 +424,7 @@ class AutoLamellaAppContext(AppContext):
         match, refusal = _grid_file(experiment, grid, filename)
         if refusal:
             return {"available": True, "jpeg": None, **refusal}
-        return jpeg_preview(match, filename, max_width)
+        return jpeg_preview(match, filename, max_width, cells=cells)
 
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]:
         """Where the experiment's items fall on one recorded overview.

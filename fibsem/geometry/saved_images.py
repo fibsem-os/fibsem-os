@@ -75,6 +75,18 @@ def image_pixel_size(path: str) -> Optional[float]:
     return float(size) if size else None
 
 
+def image_shape(path: str) -> Tuple[int, int]:
+    """``(height, width)`` in source pixels of the saved image at *path*: a
+    beam image, a fluorescence stack, or a plain picture."""
+    if not path.lower().endswith((".tif", ".tiff")):
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return im.height, im.width
+    height, width = _load(path).data.shape[-2:]
+    return int(height), int(width)
+
+
 def stage_projector(path: str) -> Tuple[Dict[str, Any], Callable]:
     """Open the saved image at *path* and return its scale block plus a projector.
 
