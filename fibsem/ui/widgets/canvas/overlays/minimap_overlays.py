@@ -23,7 +23,9 @@ from typing import TYPE_CHECKING
 import matplotlib.patches as mpatches
 
 # Re-exported: the overview tabs import the grid radius from here.
-from fibsem.geometry.stage_places import GRID_BOUNDARY_RADIUS_M
+from fibsem.geometry.stage_places import (
+    GRID_BOUNDARY_RADIUS_M as GRID_BOUNDARY_RADIUS_M,
+)
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 if TYPE_CHECKING:
