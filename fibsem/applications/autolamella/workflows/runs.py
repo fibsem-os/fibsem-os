@@ -167,39 +167,7 @@ def lamella_run_hooks() -> HookManager:
     hook_defaults.default_hooks() when there is not; re-read each time, so
     editing user-preferences.yaml by hand takes effect on the next run.
     """
-    manager = build_hook_manager(fibsem_cfg.load_user_preferences().hooks)
-
-    # Deliberately not registered yet. The trigger is proven end to end and the
-    # writer is tested, but completion-summary.json is a placeholder for the real
-    # artifacts (the PDF and the overview PNG), and turning it on here would start
-    # writing a throwaway file into every user's lamella directories. Re-enable when
-    # the artifact is the one people actually want -- see FIB-461. It comes back
-    # with write_completion_summary from fibsem.applications.autolamella.tools.
-    # artifacts, FunctionHook + HookEvent from fibsem.hooks, and the experiment
-    # passed in.
-    #
-    # Per lamella, not per experiment: a lamella is what gets delivered, and an
-    # experiment with one abandoned lamella never reaches completion at all, so
-    # hanging the artifact off the experiment would mean it was almost never
-    # written.
-    #
-    # A FunctionHook rather than a template-driven one because this needs the
-    # experiment itself, which the context deliberately does not carry -- the path
-    # is derivable from the record, and in-process hooks can reach the record. A
-    # webhook could not, which is the distinction.
-    #
-    # HookManager.fire contains what this raises, so a summary that cannot be
-    # written is logged and the run carries on. FIB-461 asks for exactly that, and
-    # it comes for free rather than needing a second guard here.
-    #
-    # manager.register(
-    #     FunctionHook(
-    #         name="completion_summary",
-    #         events=[HookEvent.ITEM_COMPLETED],
-    #         callback=lambda ctx: write_completion_summary(experiment, ctx),
-    #     )
-    # )
-    return manager
+    return build_hook_manager(fibsem_cfg.load_user_preferences().hooks)
 
 
 RUNS = AppRuns(

@@ -106,9 +106,6 @@ TASK_PLUGINS: PluginRegistry[Type[AutoLamellaTask]] = PluginRegistry(
     builtins=BUILTIN_TASKS,
 )
 
-# Runtime registered tasks
-REGISTERED_TASKS: Dict[str, Type[AutoLamellaTask]] = TASK_PLUGINS.registered
-
 
 def register_task(task_cls: Type[AutoLamellaTask]) -> None:
     """Register a task class at runtime.
@@ -122,11 +119,6 @@ def register_task(task_cls: Type[AutoLamellaTask]) -> None:
         >>> register_task(CustomTask)
     """
     TASK_PLUGINS.register(task_cls.config_cls.task_type, task_cls)
-
-
-def get_task_plugin_records() -> Tuple[PluginRecord, ...]:
-    """Every ``fibsem.autolamella.tasks`` entry point and what became of it."""
-    return TASK_PLUGINS.plugin_records()
 
 
 def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
@@ -160,19 +152,9 @@ def load_task_config(
     return EventedDict(load_task_configs(TASK_PLUGINS, ddict))
 
 
-def load_config(task_type: str, ddict: Dict[str, Any]) -> "AutoLamellaTaskConfig":
-    """Load a task configuration from a dictionary."""
-    config_class = get_task_config(task_type=task_type)
-    return config_class.from_dict(ddict)
-
-
 def get_task_config(task_type: str) -> Type["AutoLamellaTaskConfig"]:
     """Get the task configuration by name."""
     task_registry = get_tasks()
     if task_type not in task_registry:
         raise TaskNotRegisteredError(task_type)
     return task_registry[task_type].config_cls  # type: ignore
-
-
-# Legacy support - maintain backward compatibility
-TASK_REGISTRY: Dict[str, Type[AutoLamellaTask]] = get_tasks()

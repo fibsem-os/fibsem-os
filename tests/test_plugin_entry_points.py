@@ -240,12 +240,9 @@ def test_shadowed_plugin_is_not_silently_reported_as_the_builtin():
 
 def test_load_records_report_the_failures_the_registry_drops():
     """Both failure shapes are reported, with the declared target intact."""
-    from fibsem.applications.autolamella.workflows.tasks import (
-        get_task_plugin_records,
-        get_tasks,
-    )
+    from fibsem.applications.autolamella.workflows.tasks import TASK_PLUGINS, get_tasks
 
-    failures = {r.entry_point: r for r in get_task_plugin_records() if not r.loaded}
+    failures = {r.entry_point: r for r in TASK_PLUGINS.plugin_records() if not r.loaded}
     assert set(failures) == set(FAILING_ENTRY_POINTS), sorted(failures)
 
     wrong_base = failures["wrong_base_class"]
@@ -263,10 +260,10 @@ def test_load_records_report_the_failures_the_registry_drops():
 
 def test_load_records_carry_the_providing_distribution():
     """Which install a plugin came from, for a machine with several envs."""
-    from fibsem.applications.autolamella.workflows.tasks import get_task_plugin_records
+    from fibsem.applications.autolamella.workflows.tasks import TASK_PLUGINS
 
     record = next(
-        r for r in get_task_plugin_records() if r.entry_point == "fixture_task"
+        r for r in TASK_PLUGINS.plugin_records() if r.entry_point == "fixture_task"
     )
     assert record.distribution == "fibsem-test-plugin"
     assert record.version == "0.0.0"

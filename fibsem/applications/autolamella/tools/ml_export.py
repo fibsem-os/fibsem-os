@@ -22,9 +22,7 @@ experiment carries its training data with it::
 
 One sample is one lamella. ``points/`` is authoritative and ``labels/`` is derived
 from it, so the raster should never be hand-edited -- to change the label geometry,
-re-export at a different ``radius_m`` (or rasterise the sidecar yourself). The
-``images/`` + ``labels/`` pairing is what
-:func:`~fibsem.applications.autolamella.tools.upload_to_hf.create_dataset` consumes.
+re-export at a different ``radius_m`` (or rasterise the sidecar yourself).
 
 No stage reprojection is involved: the reference image is acquired at the milling
 position, so the POI -- already a milling-coordinate offset in metres from the image
