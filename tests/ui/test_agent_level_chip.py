@@ -12,6 +12,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
+from fibsem.codec import encode  # noqa: E402
 from fibsem.ui.agent.card import AgentCard  # noqa: E402
 from fibsem.ui.agent.level_chip import AgentLevelChip, last_heard_text  # noqa: E402
 
@@ -690,7 +691,7 @@ def test_the_agent_s_workflow_stop_turns_the_border_red(main_ui, qapp):
         # Painted on the GUI thread, not the server's: nothing until it runs.
         assert main_ui.run_border.shown == "automated"
         qapp.processEvents()
-        assert answers == [{"available": True, "stopped": True}]
+        assert [encode(a) for a in answers] == [{"stopped": True}]
         assert main_ui.run_border.shown == "stopping"
     finally:
         runner._thread = None

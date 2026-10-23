@@ -46,6 +46,7 @@ from fibsem.fm.reader import (
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.theme.tokens import CANVAS_BG, ERROR_COLOR, TEXT_COLOR, WARN_COLOR
 from fibsem.ui import stylesheets
+from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.overlay_controls import panel_hint, panel_section
 
 # More channels than this and the channel axis is probably z.
@@ -65,8 +66,6 @@ class ImportImageDialog(QDialog):
         self.resize(1150, 720)
         self.source = source
         self._channel_rows: List[tuple] = []
-
-        from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 
         self.preview = FMCanvasWidget()
 

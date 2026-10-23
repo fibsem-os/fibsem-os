@@ -20,8 +20,8 @@ model cannot read.
 import pytest
 
 from fibsem.drivers.tescan.connection import TescanConnection
-from fibsem.drivers.tescan.microscope import TescanMicroscope, parse_current_from_preset
-from fibsem.drivers.tescan.services import TescanMilling
+from fibsem.drivers.tescan.microscope import TescanMicroscope
+from fibsem.drivers.tescan.services import TescanMilling, parse_current_from_preset
 from fibsem.drivers.tescan.settings import TescanMillingSettings
 from fibsem.milling import base
 from fibsem.milling.base import (
@@ -224,12 +224,12 @@ def _make_tescan(monkeypatch) -> TescanMicroscope:
 
     import fibsem.config as cfg
     from fibsem import utils
-    from fibsem.drivers.tescan import microscope as tescan_module
+    from fibsem.drivers.tescan import sdk
 
     config_path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     system = utils.load_microscope_configuration(config_path).system
     # __init__ only guards on the SDK's availability, it does not use it
-    monkeypatch.setattr(tescan_module, "TESCAN_API_AVAILABLE", True)
+    monkeypatch.setattr(sdk, "TESCAN_API_AVAILABLE", True)
     return TescanMicroscope(system_settings=system)
 
 

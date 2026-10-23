@@ -27,7 +27,7 @@ from typing import Any, Callable, Dict, Optional
 from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
 
-from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.levels import AgentLevel, chip_request_text
 from fibsem.theme.tokens import BORDER_COLOR
 from fibsem.ui.agent.card import (
     AgentCard,
@@ -70,30 +70,6 @@ _HELP = (
     ".\n\nClick for the agent's card. “Agent” is any client holding the App "
     "Server's agent token: the fibsem-mcp sidecar, FibsemClient or a script."
 )
-
-
-def _doing(tool: Any) -> str:
-    """What a request's step is doing, in a word: "applying" read as writing a
-    config whatever the step was."""
-    tool = str(tool or "")
-    if tool.startswith(("milling_", "spot_burn")):
-        return "milling"
-    if tool.startswith(("stage_", "item_move_", "grid_load", "grid_unload")):
-        return "moving"
-    if "acquire" in tool or tool.startswith(("fm_auto_focus", "beam_auto_")):
-        return "imaging"
-    return "running"
-
-
-def chip_request_text(request: Dict[str, Any]) -> str:
-    """The chip's word while a request waits or is being applied."""
-    if request.get("status") == "applying":
-        actions = request.get("actions", [])
-        total = len(actions)
-        step = min(len(request.get("results", [])) + 1, total)
-        doing = _doing(actions[step - 1].get("tool")) if actions else "running"
-        return f"Agent: {doing} {step}/{total}"
-    return "Agent asks"
 
 
 class _CardPopup(QFrame):

@@ -63,7 +63,17 @@ from fibsem.applications.autolamella.ui.lamella.selected import (
     SelectedLamellaController,
     SelectedLamellaWidget,
 )
-from fibsem.fm.structures import FluorescenceImage
+from fibsem.fm.acquisition import acquire_image as fm_acquire_image
+from fibsem.fm.config import load_fm_configuration, save_fm_configuration
+from fibsem.fm.structures import (
+    ChannelSettings,
+    FluorescenceConfiguration,
+    FluorescenceImage,
+    OverviewParameters,
+    ZParameters,
+)
+from fibsem.milling.base import FibsemMillingSettings, FibsemMillingStage
+from fibsem.milling.patterning import RectanglePattern
 from fibsem.milling.progress import (
     MillingMessageTracker,
     MillingProgress,
@@ -73,10 +83,15 @@ from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategy,
     CoincidenceMillingStrategyConfig,
 )
+from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.session_state import session_state_for
 from fibsem.structures import (
     BeamType,
+    CrossSectionPattern,
     DeviceImagingState,
     FibsemImage,
+    FibsemRectangle,
+    FibsemRectangleSettings,
     Point,
 )
 from fibsem.theme import tokens
@@ -90,18 +105,28 @@ from fibsem.theme.tokens import (
 )
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.control import control_of
-from fibsem.ui.fm.widgets import LinePlotWidget
+from fibsem.ui.fm.widgets import (
+    CameraWidget,
+    FluorescenceMultiChannelWidget,
+    LinePlotWidget,
+    ObjectiveControlWidget,
+)
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 from fibsem.ui.widgets.custom_widgets import (
+    IconToolButton,
     IntegerValueSpinBox,
     TitledPanel,
     scrollable,
 )
+from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.run_border import RunBorder
 from fibsem.util import timestamps
+from fibsem.util.durations import format_duration_precise
+from fibsem.workflows.status import TaskState, TaskStatus
 from fibsem.workflows.task import run_folder
 
 if TYPE_CHECKING:
@@ -714,8 +739,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None:
             return self._placeholder("No microscope connected")
 
-        from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
-
         scroll_content = QWidget()
         layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -761,12 +784,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None:
             return self._placeholder("No microscope connected")
 
-        from fibsem.milling.base import FibsemMillingSettings, FibsemMillingStage
-        from fibsem.milling.patterning import RectanglePattern
-        from fibsem.milling.tasks import FibsemMillingTaskConfig
-        from fibsem.structures import CrossSectionPattern
-        from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
-
         # Default coincidence milling task config.
         DEFAULT_MILLING_TASK_CONFIG = FibsemMillingTaskConfig(
             name="Coincidence Milling Task",
@@ -808,13 +825,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None or self.microscope.fm is None:
             return self._placeholder("No fluorescence microscope connected")
 
-        from fibsem.fm.structures import ChannelSettings
-        from fibsem.ui.fm.widgets import (
-            CameraWidget,
-            FluorescenceMultiChannelWidget,
-            ObjectiveControlWidget,
-        )
-
         fm = self.microscope.fm
 
         scroll_content = QWidget()
@@ -823,7 +833,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         layout.setSpacing(4)
 
         # Objective control
-        from fibsem.ui.widgets.custom_widgets import IconToolButton
 
         self.fm_objective_widget = ObjectiveControlWidget(
             fm=fm, microscope=self.microscope
@@ -890,12 +899,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def _read_fm_configuration(self) -> "FluorescenceConfiguration":
         """Build a FluorescenceConfiguration from the FM tab's sub-widgets."""
-        from fibsem.fm.structures import (
-            FluorescenceConfiguration,
-            OverviewParameters,
-            ZParameters,
-        )
-
         fm = self.microscope.fm
         return FluorescenceConfiguration(
             channel_settings=self.fm_channel_widget.channel_settings,
@@ -920,9 +923,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     def _seed_fm_configuration(self) -> None:
         """On open, apply the FM config: the live main-UI config if provided,
         else the last-used working state as a fallback."""
-        from fibsem.fm.config import load_fm_configuration
-        from fibsem.session_state import session_state_for
-
         config = self._seed_fm_config or load_fm_configuration(
             session_state_for(self.microscope)
         )
@@ -934,9 +934,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def _save_fm_configuration(self) -> None:
         """Persist the current FM configuration as the working state."""
-        from fibsem.fm.config import save_fm_configuration
-        from fibsem.session_state import session_state_for
-
         try:
             save_fm_configuration(
                 self._read_fm_configuration(),
@@ -1241,8 +1238,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def _acquire_fm_image(self):
         """Acquire a single FM image in a background thread and display it."""
-        from fibsem.fm.acquisition import acquire_image as fm_acquire_image
-
         channel = self.fm_channel_widget.selected_channel
         if channel is None:
             QMessageBox.warning(
@@ -1280,8 +1275,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             btn.setEnabled(enabled)
 
     def _run_fib_autocontrast(self) -> None:
-        from fibsem.structures import FibsemRectangle
-
         self._set_fib_buttons_enabled(False)
         self.btn_autocontrast_fib.setText("Running…")
 
@@ -1311,8 +1304,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self._fib_acquire_done.emit()
 
     def _run_fib_autofocus(self) -> None:
-        from fibsem.structures import FibsemRectangle
-
         self._set_fib_buttons_enabled(False)
         self.btn_autofocus_fib.setText("Running…")
 
@@ -1508,7 +1499,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         shape = self.fm_canvas._img_shape
         if shape is None:
             return
-        from fibsem.structures import FibsemRectangle
 
         H, W = shape
         w, h = info["width"], info["height"]
@@ -1846,7 +1836,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             if remaining is not None and report.estimated_time:
                 pct = int((1 - remaining / report.estimated_time) * 100)
                 self.progressBar_stage.setValue(pct)
-                from fibsem.util.durations import format_duration_precise
 
                 self.progressBar_stage.setFormat(
                     f"{label} - {format_duration_precise(remaining)} remaining"
@@ -1935,7 +1924,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         image = self._latest_fib_image
         if lamella is None or self.experiment is None or image is None:
             return
-        from fibsem.workflows.status import TaskState, TaskStatus
 
         try:
             now = timestamps.now()
@@ -1987,7 +1975,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         img_h = self.fib_canvas.canvas.img_height
         if not pixel_size or not img_w or not img_h:
             return
-        from fibsem.structures import FibsemRectangleSettings
 
         patterns = stage.define_patterns()
         rect_pattern = next(

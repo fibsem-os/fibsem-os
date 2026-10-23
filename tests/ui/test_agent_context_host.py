@@ -47,16 +47,10 @@ def test_a_fresh_window_satisfies_the_host_contract(ui):
     assert status["microscope_connected"] is False
     assert status["experiment"] is None
     assert status["workflow"]["running"] is False
-    assert ctx.queue().available is False
-    assert ctx.run_summary()["available"] is False
-    # No images until a microscope connects: unavailable, not an error.
-    assert encode(ctx.display_images()) == {
-        "available": False,
-        "sem": None,
-        "fib": None,
-        "fm": None,
-        "fm_available": False,
-    }
+    assert encode(ctx.queue()) == {"items": [], "version": None}
+    assert ctx.run_summary().error_type == "not_found"
+    # No images until a microscope connects.
+    assert ctx.display_images().error_type == "not_found"
 
 
 def test_display_images_are_the_sessions_latest_images(ui):
@@ -78,7 +72,6 @@ def test_display_images_are_the_sessions_latest_images(ui):
         finally:
             ui.session.microscope = None
     json.dumps(payload)
-    assert payload["available"] is True
     assert payload["fib"] is None  # nothing displayed on that side yet
     sem = payload["sem"]
     assert sem["width"] > 0 and sem["height"] > 0
@@ -101,7 +94,7 @@ def test_an_adopted_experiment_is_visible_through_the_facade(ui, tmp_path):
     status = encode(ctx.status())
     assert status["experiment"]["name"] == "host-exp"
     assert status["experiment"]["num_items"] == 1
-    assert ctx.task_outputs(exp.positions[0].name).available is True
+    assert ctx.task_outputs(exp.positions[0].name).item_name == exp.positions[0].name
 
 
 class _Dialog:
@@ -170,7 +163,6 @@ def test_run_summary_survives_the_run_end_toast(ui, toasts):
     assert _Dialog.opened == [(ui.session.runner.last_summary, ""), "show"]
 
     payload = AutoLamellaAppContext(ui.session).run_summary()
-    assert payload["available"] is True
     assert payload["items"][0]["task_name"] == "Rough Milling"
     json.dumps(payload)
 

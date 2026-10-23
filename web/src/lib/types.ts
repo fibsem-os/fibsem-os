@@ -100,7 +100,6 @@ export interface ImagePayload {
 }
 
 export interface DisplayImages {
-  available: boolean;
   sem: ImagePayload | null;
   fib: ImagePayload | null;
   fm?: ImagePayload | null;
@@ -204,6 +203,8 @@ export interface AgentState {
   facts: [string, string][];
   /** The agent has spent most of its budget: the session line warns. */
   budget_low: boolean;
+  /** The chip's words: the level, or what the agent asks for. */
+  chip: string;
 }
 
 /** One row of GET /app/agent/recent. */
@@ -441,7 +442,6 @@ export interface GridMarkers {
   unplaced: { item_name: string; reason: string }[];
   linked?: boolean;
   reason?: string;
-  error?: string;
 }
 
 /** One recorded action of the experiment replay. */
@@ -461,13 +461,11 @@ export interface ReplayRow {
 
 /** GET /app/experiment/replay: every recorded action, in time order. */
 export interface ReplayTimeline {
-  available: boolean;
   source: string | null;
   start: string | null;
   end: string | null;
   counts: Record<string, number>;
   events: ReplayRow[];
-  error: string | null;
 }
 
 /** A replay image and what is drawn over it, in fractions of the image (+y down). */
@@ -486,7 +484,6 @@ export interface ReplayImage {
 
 /** GET /app/experiment/replay/{index}: the instrument at one recorded action. */
 export interface ReplayView {
-  available: boolean;
   index: number;
   event: ReplayRow | null;
   sem: ReplayImage | null;
@@ -494,7 +491,6 @@ export interface ReplayView {
   fm: string | null;
   stage_position: Record<string, number | string | null> | null;
   stage: StageDrawing | null;
-  error: string | null;
 }
 
 /** A named place on a stage map, in metres on the map's plane (+y down). */

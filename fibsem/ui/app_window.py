@@ -14,8 +14,8 @@ import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
-from fibsem.ui import FibsemSystemSetupWidget
 from fibsem.ui.agent.chip_host import AgentChipHost
+from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.qt.connections import connect_on_gui_thread
 from fibsem.ui.qt.run_bridge import GuiExecutor, RunRelay
 from fibsem.ui.run.proposals import ProposalPresenter
