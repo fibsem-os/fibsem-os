@@ -36,6 +36,9 @@ SEMANTIC_ERROR_HOVER_COLOR = "#BF2A38"
 SEMANTIC_ERROR_PRESSED_COLOR = "#b71c1c"
 SEMANTIC_WARNING_COLOR = "#E3B617"
 PURPLE_COLOR = "#7C3AED"
+# Marks on an image: the agent's in a light purple that reads on a dark or
+# grey image (the web's), the operator's in the accent blue.
+AGENT_MARK_COLOR = "#a78bfa"
 ORANGE_COLOR = "#ff9800"
 DEFECT_ORANGE_COLOR = "#e8a020"
 

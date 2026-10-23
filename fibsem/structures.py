@@ -3021,8 +3021,8 @@ class FluorescenceSystemSettings:
     # The objective's calibration, in metres: where it is in focus, and how far it
     # may be inserted. Measured at this instrument, so it is written under
     # `calibration.objective` by `SystemSettings.to_dict` rather than in this
-    # block. `None` means the configuration does not state one, and the working
-    # state file (`fm-configuration.yaml`) still answers, exactly as before -- so
+    # block. `None` means the configuration does not state one, and the FM
+    # working state (`fm.working` in the session state) answers instead -- so
     # a site that has not pressed "Save as Calibration" sees no change.
     focus_position: Optional[float] = None
     limit_position: Optional[float] = None
