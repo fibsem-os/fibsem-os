@@ -11,7 +11,6 @@ from PIL import Image
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.detection.detection import DetectedFeatures, Feature
-from fibsem.structures import FibsemImageMetadata
 
 
 def decode_segmap(image, nc=3):

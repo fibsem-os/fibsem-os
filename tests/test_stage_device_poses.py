@@ -6,11 +6,9 @@ which, and that a backend without a stage device gets the same table as one with
 """
 
 import math
-import os
 
 import pytest
 
-import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.stage import Axes, flip_stage_poses, rotating_stage_poses
 from fibsem.drivers.autoscript.devices import AutoscriptCompustage, AutoscriptStage

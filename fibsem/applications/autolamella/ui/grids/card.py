@@ -31,7 +31,7 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     add_verdict_actions,
     mark_current_verdict,
 )
-from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
+from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY
 from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import fibsem_icon

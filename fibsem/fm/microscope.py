@@ -37,7 +37,6 @@ from typing import (
     Iterator,
     List,
     Optional,
-    Sequence,
     Tuple,
     Union,
 )
@@ -50,7 +49,6 @@ from fibsem.fm.progress import (
     FluorescenceAcquisitionStatus,
 )
 from fibsem.fm.structures import (
-    REFLECTION,
     CameraImageTransform,
     ChannelSettings,
     EmissionFilter,

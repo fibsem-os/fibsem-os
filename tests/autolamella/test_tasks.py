@@ -4,7 +4,6 @@ from typing import Literal, Optional
 import numpy as np
 import pytest
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTask,

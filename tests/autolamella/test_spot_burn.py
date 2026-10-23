@@ -8,7 +8,6 @@ These cover the failure modes that crashed the unsupervised (automatic) path:
 - the widget factory rendering float/int fields as a text box instead of a spinbox.
 """
 
-import threading
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -20,9 +19,7 @@ from fibsem.imaging.spot import (
     SpotBurnStatus,
     run_spot_burn,
 )
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, Point
-from fibsem.workflows.attention import Attention
 from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )

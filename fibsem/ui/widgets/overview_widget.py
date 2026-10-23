@@ -43,7 +43,6 @@ from typing import Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tu
 import numpy as np
 from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal, pyqtSlot
 from PyQt5.QtWidgets import (
-    QCheckBox,
     QDialog,
     QFormLayout,
     QFrame,
@@ -60,7 +59,6 @@ from superqt import ensure_main_thread
 
 from fibsem import constants
 from fibsem.config import (
-    DEFAULT_STANDARD_RESOLUTION_LIST,
     POSITION_FOV_HEIGHT,
     POSITION_FOV_WIDTH,
 )
@@ -75,7 +73,6 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -91,7 +88,6 @@ from fibsem.ui.tokens import (
     BORDER_COLOR,
     CURRENT_POSITION_COLOUR,
     GRAY_WHITE_COLOR,
-    GRID_BOUNDARY_COLOUR,
     NEUTRAL_300,
     NEUTRAL_650,
     NEUTRAL_750,
@@ -101,8 +97,6 @@ from fibsem.ui.tokens import (
     SAVED_POSITION_COLOUR,
     SELECTED_POSITION_COLOUR,
     SEMANTIC_WARNING_COLOR,
-    SLOT_COLOUR,
-    STAGE_LIMITS_COLOUR,
 )
 from fibsem.ui.widgets.aligned_image_panel import AlignedImagePanel
 from fibsem.ui.widgets.canvas.aligned_images import AlignedImages
@@ -118,9 +112,7 @@ from fibsem.ui.widgets.canvas.overlay_controls import (
 from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (
-    GRID_BOUNDARY_RADIUS_M,
     MinimapShapesOverlay,
-    ShapeSpec,
 )
 from fibsem.ui.widgets.canvas.overlays.point_overlay import (
     FieldOfViewOverlay,

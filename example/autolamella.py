@@ -9,7 +9,6 @@ from fibsem.milling.base import get_milling_stages
 from fibsem.structures import (
     BeamType,
     FibsemImage,
-    FibsemStagePosition,
     MicroscopeState,
 )
 

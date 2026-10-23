@@ -38,7 +38,6 @@ from fibsem.workflows.proposals import (
     patch_values,
     prepare_values,
 )
-from fibsem.workflows.status import TaskState, TaskStatus
 from tests.proposal_records import set_proposals
 
 ROUGH = "Rough Milling"

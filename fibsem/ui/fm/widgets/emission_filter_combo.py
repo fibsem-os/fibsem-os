@@ -6,7 +6,7 @@ band drawn on a 400 to 700 nm strip, and the band's edges and centre in the tool
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional, Sequence, Tuple, Union
+from typing import Optional, Sequence, Tuple
 
 from PyQt5.QtCore import QPointF, QRectF, QSize, Qt
 from PyQt5.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap

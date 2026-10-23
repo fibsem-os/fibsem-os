@@ -20,7 +20,6 @@ import json
 import logging
 import os
 import sys
-import threading
 import types
 
 logging.disable(logging.CRITICAL)
@@ -216,6 +215,7 @@ from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemStagePosition,
     InsertableDeviceState,
+    RangeLimit,
 )
 
 assert A.THERMO_API_AVAILABLE, A.THERMO_API_IMPORT_ERROR
@@ -445,10 +445,10 @@ def cases():
                 for axis in ("x", "y", "z", "t"):
                     raw = m._connection.vendor_stage.get_axis_limits(axis)
                     scale = np.degrees if axis == "t" else float
-                    limits[axis] = A.RangeLimit(min=scale(raw.min), max=scale(raw.max))
-                limits["r"] = A.RangeLimit(min=-360, max=360)
+                    limits[axis] = RangeLimit(min=scale(raw.min), max=scale(raw.max))
+                limits["r"] = RangeLimit(min=-360, max=360)
             return {
-                k: A.RangeLimit(
+                k: RangeLimit(
                     min=float(np.radians(v.min)) if k in "rt" else v.min,
                     max=float(np.radians(v.max)) if k in "rt" else v.max,
                 )

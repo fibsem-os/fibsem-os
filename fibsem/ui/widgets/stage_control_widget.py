@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import QDoubleSpinBox, QGridLayout, QLabel, QPushButton, QW
 from superqt import ensure_main_thread
 
 from fibsem import config as cfg
-from fibsem import constants, conversions
+from fibsem import conversions
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import (
     BEAM_ORIENTATIONS,

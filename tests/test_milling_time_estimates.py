@@ -17,8 +17,6 @@ must be byte-identical to the legacy behaviour, and so must every preset the
 model cannot read.
 """
 
-import threading
-
 import pytest
 
 from fibsem.drivers.tescan.connection import TescanConnection

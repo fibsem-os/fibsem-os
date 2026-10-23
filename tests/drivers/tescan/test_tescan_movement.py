@@ -14,7 +14,6 @@ rather than converting it to fibsem's, so the move is recorded in Tescan's frame
 """
 
 import os
-import threading
 
 import numpy as np
 import pytest

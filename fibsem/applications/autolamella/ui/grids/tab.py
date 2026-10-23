@@ -47,7 +47,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import thread_worker
-from fibsem.ui.tokens import ERROR_COLOR, NEUTRAL_200, PANEL_COLOR, TEXT_MUTED_COLOR
+from fibsem.ui.tokens import ERROR_COLOR, PANEL_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.widgets.overview_widget import MODALITY_CHIP_STYLE, VIEW_CHIP_SPACING
 from fibsem.ui.widgets.sample_loader_widget import _ICON_BTN_STYLE, ICON_INVENTORY
 from fibsem.workflows.actions import NOTE

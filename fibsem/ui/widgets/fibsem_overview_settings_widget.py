@@ -42,7 +42,6 @@ from fibsem.structures import (
     Parameter,
     Resolution,
     TileOrderStrategy,
-    field_specs,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR

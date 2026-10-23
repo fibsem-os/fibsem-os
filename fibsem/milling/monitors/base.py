@@ -17,7 +17,7 @@ import logging
 import os
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Any,

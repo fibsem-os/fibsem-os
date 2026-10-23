@@ -34,7 +34,6 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 __all__ = ["AppServerDialog"]
 

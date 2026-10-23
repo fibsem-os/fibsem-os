@@ -22,7 +22,6 @@ from fibsem.workflows.grid import (
     GridTask,
     GridTaskConfig,
     get_grid_tasks,
-    load_grid_task_configs,
     run_grid_task,
 )
 from fibsem.workflows.grid.protocol import GridTaskProtocol

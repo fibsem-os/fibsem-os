@@ -21,9 +21,7 @@ from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState
 from fibsem.workflows.status import TaskStatus as Status
-from tests.proposal_records import set_proposals
 from tests.protocols import planned, task_protocol
-from tests.run_state import stub_session
 
 
 class RecordingUI:

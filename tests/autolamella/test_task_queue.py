@@ -14,7 +14,6 @@ import pytest
 from fibsem.workflows.queue import (
     QueueOp,
     TaskQueue,
-    WorkItem,
 )
 from fibsem.workflows.status import TaskStatus as Status
 

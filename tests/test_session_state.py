@@ -9,7 +9,6 @@ file is imported once.
 import os
 import stat
 import threading
-from pathlib import Path
 
 import numpy as np
 import pytest

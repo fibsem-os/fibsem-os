@@ -145,7 +145,6 @@ def load_image(
     dropped.
     """
     from fibsem.fm.preview import is_fluorescence_image, load_stack_preview
-    from fibsem.structures import FibsemImage
 
     image = None
     pixel_size = None

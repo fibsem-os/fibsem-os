@@ -2,15 +2,12 @@ from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QComboBox,
-    QDoubleSpinBox,
     QGridLayout,
     QLabel,
     QWidget,
 )
 
 from fibsem.fm.structures import ZParameters, ZStackOrder
-from fibsem.structures import field_specs
 from fibsem.ui.tokens import (
     NEUTRAL_650,
 )

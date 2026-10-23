@@ -17,7 +17,7 @@ from fibsem.alignment.coincidence import (
     REASON_MAX_ITERATIONS,
     ensure_coincident,
 )
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures import BeamType
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).

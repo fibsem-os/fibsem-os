@@ -40,7 +40,6 @@ from copy import deepcopy
 import numpy as np
 import pytest
 
-from fibsem import utils
 from fibsem.structures import FibsemStagePosition
 from tests.fixtures.demo_stage import demo_session
 

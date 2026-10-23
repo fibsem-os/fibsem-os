@@ -29,7 +29,6 @@ from fibsem.workflows.proposals import (
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus
-from tests.proposal_records import set_proposals
 
 TASK = "Mill Undercut"
 RUN = "run-1"

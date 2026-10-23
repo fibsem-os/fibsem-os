@@ -3,7 +3,6 @@
 import numpy as np
 import pytest
 
-from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import CirclePattern, RectanglePattern
 from fibsem.milling.patterning.utils import (
     bbox_to_normalized_coords,
@@ -12,9 +11,7 @@ from fibsem.milling.patterning.utils import (
     get_patterns_bounding_box,
 )
 from fibsem.structures import (
-    FibsemCircleSettings,
     FibsemImage,
-    FibsemRectangleSettings,
     Point,
 )
 

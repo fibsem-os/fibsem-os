@@ -24,7 +24,6 @@ from fibsem.ui.tokens import (
     NEUTRAL_400,
     NEUTRAL_450,
     ORANGE_COLOR,
-    SURFACE_COLOR,
 )
 
 _OVERLAY_BTN_STYLE = (

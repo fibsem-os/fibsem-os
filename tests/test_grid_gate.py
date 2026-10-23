@@ -16,7 +16,6 @@ from fibsem.applications.autolamella.workflows.runs import (
     run_refusal,
 )
 from fibsem.structures import MicroscopeState
-from fibsem.workflows.grids import GridRecord
 
 
 @pytest.fixture

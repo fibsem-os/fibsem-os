@@ -4,7 +4,6 @@ import dataclasses
 import datetime
 import logging
 import threading
-import warnings
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import replace
@@ -23,9 +22,6 @@ from typing import (
     Tuple,
     Union,
 )
-
-import numpy as np
-from psygnal import Signal
 
 from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session

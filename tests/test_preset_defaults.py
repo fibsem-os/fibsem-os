@@ -5,7 +5,6 @@ default voltage and current there did nothing. The preset is what sets it (FIB-1
 """
 
 import os
-import threading
 
 import pytest
 

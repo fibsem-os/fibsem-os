@@ -40,8 +40,8 @@ from fibsem.server.responses import (
     TaskOutputs,
     WorkflowState,
 )
-from fibsem.structures import BeamType, FibsemStagePosition
-from fibsem.util.records import content_hash, dataframe_records
+from fibsem.structures import BeamType
+from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record

@@ -26,7 +26,6 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
-    FibsemPatternSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,

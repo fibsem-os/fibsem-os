@@ -3,7 +3,6 @@ alignment or the detector levels the last autocontrast left."""
 
 import os
 
-import pytest
 import yaml
 
 import fibsem.config as cfg

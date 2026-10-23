@@ -273,7 +273,6 @@ class AppServerHost:
         from fibsem.server.devices import WS_PROTOCOL
         from fibsem.server.discovery import (
             read_discovery_file,
-            remove_discovery_file,
             write_discovery_file,
         )
 

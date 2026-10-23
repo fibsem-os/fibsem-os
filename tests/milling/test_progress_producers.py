@@ -7,12 +7,9 @@ strategies, and the task layer. All of them report on the milling service's
 The guard at the bottom keeps it that way: nothing emits on a progress signal itself.
 """
 
-import ast
 import threading
 import time
-from pathlib import Path
 
-import fibsem
 from fibsem.milling import FibsemMillingStage
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.milling.strategy.coincidence import (
