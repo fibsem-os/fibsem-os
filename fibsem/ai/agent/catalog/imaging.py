@@ -396,6 +396,16 @@ def _fm_insert_objective(
     return {"what": "Fluorescence", "change": "Insert the objective"}
 
 
+def _fm_save_focus_position(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    change = "Save the objective position now as the focus position"
+    now = ctx.get("/microscope/devices/objective/focus_position")
+    if isinstance(now, dict) and isinstance(now.get("value"), (int, float)):
+        change += f" (saved now: {now['value'] * 1e6:.1f} µm)"
+    return {"what": "Fluorescence", "change": change}
+
+
 def _fm_retract_objective(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -646,6 +656,22 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         line=_fm_insert_objective,
+        call=lambda a: ({}, kwargs_body()),
+    ),
+    ToolSpec(
+        name="fm_save_focus_position",
+        description=(
+            "Save where the FM objective is now as its focus position, as the FM "
+            "tab's Set Focus Position does: an FM overview set to start from the "
+            "saved focus position starts there, and is refused while none is saved. "
+            "Focus first (fm_auto_focus). Read it with device_get_parameter "
+            "objective focus_position (null when none is saved)."
+        ),
+        method="POST",
+        path="/microscope/devices/objective/commands/save_focus_position",
+        level="drive",
+        hardware=True,
+        line=_fm_save_focus_position,
         call=lambda a: ({}, kwargs_body()),
     ),
     ToolSpec(

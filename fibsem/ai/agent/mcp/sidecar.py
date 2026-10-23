@@ -906,6 +906,9 @@ def build_sidecar(client, capabilities):
     def fm_retract_objective():
         return _routed("fm_retract_objective")
 
+    def fm_save_focus_position():
+        return _routed("fm_save_focus_position")
+
     def fm_acquire_image(
         channels: List[dict],
         path: str,
@@ -1767,6 +1770,7 @@ def build_sidecar(client, capabilities):
             beam_acquire_focus_stack,
             fm_insert_objective,
             fm_retract_objective,
+            fm_save_focus_position,
             fm_acquire_image,
             milling_run_stage,
             milling_run_task,
