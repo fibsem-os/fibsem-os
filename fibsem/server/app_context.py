@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.acting import OPERATOR, Actor, current_actor
+from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor
 from fibsem.codec import decode, encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.responses import (
@@ -31,6 +31,7 @@ from fibsem.server.responses import (
     PixelPoint,
     Queue,
     QueueEntry,
+    RunFailed,
     SavedImageMetadata,
     SavedImagePixels,
     SavedImagePosition,
@@ -40,66 +41,28 @@ from fibsem.server.responses import (
     WorkflowState,
 )
 from fibsem.structures import BeamType, FibsemStagePosition
-from fibsem.util.records import dataframe_records
+from fibsem.util.records import content_hash, dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record
+from fibsem.workflows.events import iso_time
 from fibsem.workflows.evidence import EVIDENCE, frame_path
+from fibsem.workflows.experiment import find_item
 from fibsem.workflows.experiments import (
     default_experiment_directory,
     discover_experiments,
     filter_experiments,
 )
+from fibsem.workflows.item import item_poses
 from fibsem.workflows.outputs import files_by_run, recorded_outputs, stack_slices
+from fibsem.workflows.progress_line import ProgressLine, ProgressLines
 from fibsem.workflows.runner import ITEMS, RunRequest, stop_message
 from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
 
 __all__ = [
     "AppContext",
-    "content_hash",
-    "find_item",
-    "item_pose_positions",
-    "item_poses",
 ]
-
-
-def content_hash(data) -> str:
-    """A short hash naming exactly this content: a document's version."""
-    import hashlib
-    import json
-
-    return hashlib.sha256(
-        json.dumps(data, sort_keys=True, default=str).encode()
-    ).hexdigest()[:16]
-
-
-def item_poses(item) -> Dict[str, Optional[FibsemStagePosition]]:
-    """Where each of an item's poses puts the stage, by pose name (None where a
-    pose has no position): the item document's ``poses``."""
-    return {
-        pose_name: getattr(pose, "stage_position", None)
-        for pose_name, pose in dict(item.poses).items()
-    }
-
-
-def item_pose_positions(item) -> Dict[str, Any]:
-    """`item_poses` as plain data, for a document's version."""
-    return encode(item_poses(item))
-
-
-def find_item(experiment, item_name: str):
-    """The item named *item_name*, and None; or None and why not, in the words
-    every route refuses an unknown item with, and the names there are. Each
-    route puts the refusal in its own answer's shape."""
-    positions = experiment.positions if experiment is not None else []
-    item = next((p for p in positions if p.name == item_name), None)
-    if item is not None:
-        return item, None
-    return None, {
-        "error": f"No item named {item_name!r} in this experiment.",
-        "item_names": [p.name for p in positions],
-    }
 
 
 def is_failure(item) -> bool:
@@ -138,6 +101,10 @@ class AppContext:
     def __init__(self, session, event_buffer=None):
         self._session = session
         self._event_buffer = event_buffer
+        # The microscope's progress, followed from the first status read.
+        self._progress = ProgressLines()
+        self._progress_microscope = None
+        self._stop_progress: Optional[Callable[[], None]] = None
 
     # --- call-time resolution: never cache what the app rebinds ---------------
 
@@ -380,7 +347,47 @@ class AppContext:
             if active is not None:
                 status.workflow.current_task = active.task_name
                 status.workflow.current_item = active.item_name
+        self._run_line(status.workflow)
+        status.progress = self._progress_now()
+        control = getattr(self._microscope, "control", None)
+        held = getattr(control, "current", None)
+        if held is not None and held.by != WORKFLOW:
+            status.in_control = held
         return status
+
+    def _run_line(self, workflow: WorkflowState) -> None:
+        """What the run last said (`RunLine`): its place, step, hold and failures."""
+        runner = self._runner
+        line = runner.line
+        report = line.report
+        if self._running:
+            if report is not None:
+                workflow.queue_position = report.queue_position
+                workflow.iteration = report.iteration
+            workflow.step = line.step or None
+            if line.hold is not None:
+                workflow.waiting_on = line.hold.releases
+                workflow.waiting_since = iso_time(line.held_since)
+        if line.failures:
+            last = line.failures[-1]
+            workflow.failed = RunFailed(
+                last.what, last.message, iso_time(last.at), len(line.failures)
+            )
+        elif not self._running and runner.last_note:
+            workflow.failed = RunFailed("Run stalled", runner.last_note)
+
+    def _progress_now(self) -> Optional[ProgressLine]:
+        """The microscope's progress line now, following the microscope there is."""
+        microscope = self._microscope
+        if microscope is not self._progress_microscope:
+            if self._stop_progress is not None:
+                self._stop_progress()
+            self._progress = ProgressLines()
+            self._stop_progress = (
+                self._progress.follow(microscope) if microscope is not None else None
+            )
+            self._progress_microscope = microscope
+        return self._progress.current
 
     def queue(self) -> Queue:
         """The live work queue: id-anchored items plus the mutation version."""
@@ -1532,8 +1539,8 @@ class AppContext:
         """One config as a wire document with its version token: the full
         ``to_dict``, the contract for editing (you cannot patch what you
         cannot read)."""
-        from fibsem.server.task_configs import config_version
         from fibsem.workflows.events import to_plain
+        from fibsem.workflows.task_configs import config_version
 
         return {
             "available": True,
@@ -1552,7 +1559,7 @@ class AppContext:
     ) -> Dict[str, Any]:
         """Patch a task's protocol-level settings, what each run of it reads,
         when *version* names the state the patch was written against."""
-        from fibsem.server.task_configs import patch_config
+        from fibsem.workflows.task_configs import patch_config
 
         session = self._session
 
