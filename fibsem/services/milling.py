@@ -106,6 +106,7 @@ from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
+    DriverMillingSettings,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemImage,
@@ -436,6 +437,10 @@ class Milling(Service):
     # The `FibsemMillingSettings` fields this driver's ``setup`` reads; it ignores
     # the rest. A driver sets it.
     setting_names: Tuple[str, ...] = ()
+    # The driver's own settings, which a recipe keeps in its ``driver`` block under
+    # the driver's name; its registry entry names the same class
+    # (`DriverEntry.milling_settings`). None for a driver with none.
+    settings_class: Optional[Type[DriverMillingSettings]] = None
     # The directions this driver can scan a pattern in. A driver sets it.
     scan_directions: Tuple[str, ...] = ()
     # The RTM modes this driver reads in (`fibsem.milling.rtm.RTM_MODES`); none
@@ -601,11 +606,47 @@ class Milling(Service):
         """The beam that mills on ``channel``."""
         return self.electron if channel is BeamType.ELECTRON else self.ion
 
+    @classmethod
+    def own_name(cls) -> Optional[str]:
+        """The name of the block a recipe keeps this driver's own settings in: the
+        driver's registry name. None for a driver with none."""
+        if cls.settings_class is None:
+            return None
+        from fibsem.drivers.registry import milling_settings_name
+
+        return milling_settings_name(cls.settings_class)
+
+    @classmethod
+    def own_settings(cls, settings: FibsemMillingSettings) -> Any:
+        """This driver's own settings in *settings*, an instance of its
+        ``settings_class``."""
+        block = settings.driver.get(cls.own_name())
+        return block if isinstance(block, cls.settings_class) else cls.settings_class()
+
+    def ignored_settings(self, settings: FibsemMillingSettings) -> Optional[str]:
+        """The warning for the fields *settings* sets, away from their defaults,
+        that this driver does not mill with; None when there are none."""
+        default = FibsemMillingSettings()
+        ignored = [
+            f"{name}: {getattr(settings, name)!r}"
+            for name in field_specs(FibsemMillingSettings)
+            if name not in self.setting_names
+            and name not in _NOT_A_SETTING
+            and getattr(settings, name) != getattr(default, name)
+        ]
+        if not ignored:
+            return None
+        return (
+            f"{', '.join(ignored)} {'is' if len(ignored) == 1 else 'are'} ignored "
+            f"on this instrument ({type(self).__name__})."
+        )
+
     def supported_settings(
         self, channel: BeamType = BeamType.ION
     ) -> Dict[str, ParameterMetadata]:
         """The recipe (`FibsemMillingSettings`) fields this instrument mills with on
         ``channel``, each with its choices and limits; the fields left out it ignores.
+        The driver's own are named by their path, ``driver.Tescan.preset``.
 
         A field bound to one of the milling beam's parameters
         (milling current and voltage, preset, hfw) has that parameter's own metadata, and is left out when that beam doesn't
@@ -617,10 +658,17 @@ class Milling(Service):
         if channel not in (self._metadata_of("milling_channel").choices or ()):
             return {}
         beam = self.beam(channel)
-        available: Dict[str, ParameterMetadata] = {}
         specs = FibsemMillingSettings.params
-        for name in self.setting_names:
-            beam_parameter = specs[name].bound_name
+        fields = [(name, specs[name]) for name in self.setting_names]
+        if self.settings_class is not None:
+            prefix = f"driver.{self.own_name()}."
+            fields += [
+                (prefix + name, spec)
+                for name, spec in self.settings_class.params.items()
+            ]
+        available: Dict[str, ParameterMetadata] = {}
+        for name, spec in fields:
+            beam_parameter = spec.bound_name
             if beam_parameter not in beam.parameters:
                 available[name] = self._metadata_of(name)
             elif _settable(beam, beam_parameter):
@@ -677,6 +725,9 @@ class Milling(Service):
             self._save(self.beam(settings.milling_channel))
         self._name = name
         self._set_up = settings
+        ignored = self.ignored_settings(settings)
+        if ignored is not None:
+            logging.warning(ignored)
         self._setup(settings, name)
         if self._drawn:
             self._set_drawn([])
@@ -739,7 +790,8 @@ class Milling(Service):
     ) -> Dict[str, Any]:
         """``setup`` with ``settings``, then ``draw`` ``patterns``. Answers the
         current the milling beam reads after the setup, in amps, and a warning when
-        the recipe asked for a current the beam doesn't list (`milling_current`)."""
+        the recipe asked for a current the beam doesn't list or set fields this
+        instrument ignores (`_milling_current`)."""
         self.setup(settings, name)
         self.draw(patterns)
         return self._milling_current(live=True)
@@ -753,13 +805,15 @@ class Milling(Service):
         """The current what is drawn mills at: ``milling_current``, the milling
         beam's current in amps (read now when *live*, else the last one read or
         written; None before there is one), and ``warning``, set when the last
-        setup asked for a current that is not one of those the beam lists. A beam
-        that lists no currents, or a driver that sets the current another way
-        (Tescan's preset), has no warning."""
+        setup asked for a current that is not one of those the beam lists (a beam
+        that lists no currents, or a driver that sets the current another way,
+        Tescan's preset, has none), or set fields this instrument ignores
+        (`ignored_settings`)."""
         settings = self._set_up
+        ignored = self.ignored_settings(settings) if settings is not None else None
         beam = self.beam(settings.milling_channel if settings else BeamType.ION)
         if beam is None or "current" not in beam.parameters:
-            return {"milling_current": None, "warning": None}
+            return {"milling_current": None, "warning": ignored}
         parameter = beam.parameters["current"]
         used = parameter.last_known
         if live:
@@ -772,7 +826,8 @@ class Milling(Service):
             if settings is not None and "milling_current" in self.setting_names
             else None
         )
-        return {"milling_current": used, "warning": _unlisted(asked, used, parameter)}
+        warnings = [w for w in (_unlisted(asked, used, parameter), ignored) if w]
+        return {"milling_current": used, "warning": " ".join(warnings) or None}
 
     @command(line=_said("Start milling what is drawn"))
     def start(self) -> None:
@@ -1518,6 +1573,10 @@ class _Drawn:
 
 def _settable(beam: Optional[Beam], name: str) -> bool:
     return beam is not None and name in beam.parameters and getattr(beam, name).settable
+
+
+# The recipe fields no driver lists: what the recipe is for, not how it mills.
+_NOT_A_SETTING = ("milling_channel", "acquire_images", "driver")
 
 
 def _unlisted(asked: Any, used: Any, current: Any) -> Optional[str]:
