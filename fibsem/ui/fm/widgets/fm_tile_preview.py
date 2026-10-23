@@ -317,7 +317,7 @@ class FMTilePreviewWidget(QWidget):
         cheaper to hear that while the region is still under the cursor.
 
         Through `unreachable_tiles`, which is this arithmetic lifted out when the
-        overview pre-flight dialogs came to need it too (FIB-741). It centres the grid
+        overview pre-flight dialogs came to need it too. It centres the grid
         from the tiles' own extent rather than from a step size recomputed here, and
         goes through `order_tiles` for the dropping, so every surface that asks this
         question asks it of the same tiles as the runner.

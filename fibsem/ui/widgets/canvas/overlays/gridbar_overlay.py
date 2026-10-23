@@ -1,23 +1,18 @@
 """A cryo grid's bars, drawn where they should be -- and dragged to where they are.
 
-The Overview tab has always been able to show the grid bars, as an alignment reference:
-does the overview sit where I think it does on the grid? It did that by *generating a
-raster* of bars matched to the overview's pixel size, adding it as a napari layer, and
-letting you drag it into place with napari's transform tool.
-
-Neither half survives the move to a real-space canvas, and neither needs to. Grid bars
-are a regular lattice at a known pitch, and a real-space canvas already knows how many
-canvas pixels a metre is -- so the bars can simply be *drawn*, exactly, at any zoom,
-with no raster to generate and no pixel size to match. Dragging them somewhere other
-than where the holder says they belong is the gesture in
+The Overview tab shows the grid bars as an alignment reference: does the overview sit
+where I think it does on the grid? Grid bars are a regular lattice at a known pitch, and
+a real-space canvas knows how many canvas pixels a metre is -- so the bars are *drawn*,
+exactly, at any zoom, with no raster to generate and no pixel size to match. Dragging
+them somewhere other than where the holder says they belong is the gesture in
 :class:`~fibsem.ui.widgets.canvas.overlays.transform_overlay.TransformGestureOverlay`:
 move by dragging, turn by the handle, only while the canvas has made this its active
-overlay (FIB-608).
+overlay.
 
 The lattice is square on the sample and drawn through the view: a beam looking at the
 sample from off its normal sees the pitch along the squashed axis shortened by the
 view's foreshortening, so the bars land on the bars in the picture in every view rather
-than in the two the tab was built against (FIB-615). Spacing and width are in canvas
+than in the two the tab was built against. Spacing and width are in canvas
 units along the unsquashed axis; the squash is the caller's, read off its frame.
 """
 

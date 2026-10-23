@@ -1,4 +1,4 @@
-"""The correlation points, as Qt signals (FIB-973).
+"""The correlation points, as Qt signals.
 
 The points, their order and the selection are
 :class:`fibsem.correlation.points.CorrelationPoints`, which holds no Qt: the

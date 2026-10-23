@@ -23,7 +23,6 @@ from fibsem.ui import (
     FibsemMovementWidget,
     FibsemSpotBurnWidget,
     MillingTaskViewerWidget,
-    notification_service,
 )
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.widgets.custom_widgets import scrollable
@@ -218,10 +217,6 @@ class MicroscopePanel(QWidget):
         Asked of the Overview tab rather than of a widget held here: the tab owns both
         modalities and rebuilds its widgets on every reconnection, so anything holding
         one of them directly would be answering for a widget that had been replaced.
-
-        This used to ask the napari minimap, which means it stopped being true the
-        moment the Overview tab took over acquisition -- a run from there did not
-        suppress anything.
         """
         return self._overview_acquiring()
 
@@ -241,7 +236,7 @@ class MicroscopePanel(QWidget):
         """Keep the stage readout on ``microscope``'s moves, and off any other's.
 
         The readout follows the microscope, not the experiment: a move with no
-        experiment open still moves the stage (FIB-1421)."""
+        experiment open still moves the stage."""
         followed = self._stage_followed
         if followed is microscope:
             return
@@ -315,7 +310,7 @@ class MicroscopePanel(QWidget):
                 image_widget=self.image_widget,
                 parent=self,
             )
-            # The milling widget no longer scrolls itself; its tab does. The tab is
+            # The tab scrolls the milling widget. The tab is
             # kept by name because indexOf / setCurrentWidget want the tab, not the
             # widget inside it -- see front_tab.
             self.milling_tab = scrollable(self.milling_task_config_widget)
@@ -415,38 +410,6 @@ class MicroscopePanel(QWidget):
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
-
-    def import_fm_configuration(self) -> None:
-        """Load a fluorescence microscope configuration via the control widget."""
-        if self.fm_control_widget is None:
-            msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-
-        try:
-            self.fm_control_widget.import_fm_configuration()
-        except Exception:
-            logging.exception("Failed to load FM configuration from AutoLamella UI.")
-            notification_service.show_toast(
-                "Failed to load FM configuration. Check logs for details.", "error"
-            )
-
-    def export_fm_configuration(self) -> None:
-        """Save the current fluorescence microscope configuration via the control widget."""
-        if self.fm_control_widget is None:
-            msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-
-        try:
-            self.fm_control_widget.export_fm_configuration()
-        except Exception:
-            logging.exception("Failed to save FM configuration from AutoLamella UI.")
-            notification_service.show_toast(
-                "Failed to save FM configuration. Check logs for details.", "error"
-            )
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""

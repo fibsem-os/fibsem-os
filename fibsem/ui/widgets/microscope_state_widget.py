@@ -277,9 +277,7 @@ def _stage_rows(state: Optional[MicroscopeState]) -> List[Tuple[str, str]]:
     A compustage has no rotation axis -- AutoScript's ``CompustagePosition`` carries
     x, y, z, a, so ``stage_position_from_autoscript`` writes ``r=0.0`` as a literal --
     and the row therefore reads 0.0 degrees there rather than saying the axis is
-    absent. Kept that way deliberately (Patrick, 2026-09-08): the alternative was a
-    flag the host had to set correctly from a capability the record does not carry,
-    which is a lot of machinery to avoid one honest zero.
+    absent: the record does not carry whether the stage has the axis.
     """
     if state is None or state.stage_position is None:
         return [(axis, NOT_AVAILABLE) for axis in ("X", "Y", "Z", "R", "T")]

@@ -175,7 +175,7 @@ def _create_combobox_control(
         if isinstance(item, (float, int)):
             item_str = format_value(val=item, unit=units, precision=1)
         elif isinstance(item, Enum):
-            item_str = item.name  # TODO: migrate to QEnumComboBox
+            item_str = item.name
         elif format_fn is not None:
             item_str = format_fn(item)
         else:
@@ -233,12 +233,8 @@ class ValueComboBox(QComboBox):
     def _format_item(self, item) -> str:
         """Render an item for display, using the unit/format_fn given at construction.
 
-        An explicit `format_fn` wins over every built-in rule. It used to be consulted
-        last, so a caller that supplied one still got the default rendering for numbers
-        and enums -- silently, since nothing errors when a label is merely wrong. Three
-        call sites were affected: two mode combo boxes showed `EACH_ROW` in place of
-        the label they asked for, and emission wavelengths rendered as `550.0` rather
-        than the `550 nm` their formatter produces.
+        An explicit `format_fn` wins over every built-in rule, numbers and enums
+        included.
         """
         if self._format_fn is not None:
             return self._format_fn(item)
@@ -1077,11 +1073,9 @@ class FormGrid(QGridLayout):
 def align_form(layout) -> None:
     """Give *layout* the shared label column: labels FORM_LABEL_WIDTH, fields the rest.
 
-    Forms in the editor column used to size their label column each to their own
-    longest label, or split the width in half, so reading down the column no two
-    panels lined their controls up. Works on a QGridLayout (labels in column 0)
-    and a QFormLayout (labels in the label role); call it after the rows exist for
-    a form that is rebuilt.
+    So that reading down the editor column, every panel lines its controls up. Works on
+    a QGridLayout (labels in column 0) and a QFormLayout (labels in the label role);
+    call it after the rows exist for a form that is rebuilt.
     """
     if isinstance(layout, QGridLayout):
         layout.setColumnMinimumWidth(0, FORM_LABEL_WIDTH)

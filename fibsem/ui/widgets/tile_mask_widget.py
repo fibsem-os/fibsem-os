@@ -27,9 +27,8 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
 )
 
-# napari-dark palette, matching the rest of the app's chrome. Taken from the
-# shared tokens rather than restated, so retuning the palette reaches this
-# widget too -- these were copies of the same five values.
+# The dark palette of the rest of the app's chrome, from the shared tokens, so
+# retuning the palette reaches this widget too.
 BACKGROUND = QColor(SURFACE_COLOR)
 PANEL = QColor(PANEL_COLOR)
 BORDER = QColor(BORDER_COLOR)

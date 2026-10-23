@@ -194,7 +194,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
     def __init__(self, session: "AppSession", parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.session = session
-        # Each edit, for the experiment's record (FIB-1034).
+        # Each edit, for the experiment's record.
         self._edits = PendingEdits(
             lambda: self.session.microscope,
             via="protocol editor",
@@ -362,7 +362,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col2_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
         col2_scroll.setWidget(col2_content)
 
-        # --- Column 3: Milling parameters (config panels, no napari canvas) ---
+        # --- Column 3: Milling parameters (config panels) ---
         col3_scroll = QScrollArea()
         col3_scroll.setWidgetResizable(True)
         col3_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
@@ -593,7 +593,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
     def _touch_protocol(self, task_name: str, via: Optional[str] = None) -> None:
         """Before the protocol's config for *task_name* is replaced, added or
-        removed: for the experiment's record (FIB-1034)."""
+        removed: for the experiment's record."""
         configs = self.experiment.task_protocol.task_config
         self._edits.touch(
             None, task_name, "protocol.task_config", lambda: configs.get(task_name), via

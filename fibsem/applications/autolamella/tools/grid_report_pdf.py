@@ -1,4 +1,4 @@
-"""The grid screening report as a PDF (FIB-1057).
+"""The grid screening report as a PDF.
 
 Lays out what `grid_report.collect_grid_report` read: a cover that is the
 operator's verdicts, one row per grid with its latest overview; then a section
@@ -173,8 +173,8 @@ def render_overview(entry: OverviewEntry, max_edge: int = PRINT_MAX_EDGE) -> byt
 
 
 def _when(stamp, fmt: str = "%H:%M", zone: Optional[tzinfo] = None) -> str:
-    """A time in the zone the cover names (FIB-1196): the instrument's when the
-    experiment recorded it, else this machine's. A task's time is aware (FIB-1197),
+    """A time in the zone the cover names: the instrument's when the
+    experiment recorded it, else this machine's. A task's time is aware,
     the report's own is POSIX; both are converted, so every time on the page is on
     the one clock the cover states."""
     when = to_datetime(stamp) if stamp else None

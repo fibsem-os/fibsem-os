@@ -1,11 +1,3 @@
-# TODO: the following files still use napari.utils.notifications and need migrating:
-#   fibsem/ui/FibsemSpotBurnWidget.py
-#   fibsem/ui/FibsemUI.py
-#   fibsem/ui/FibsemEmbeddedDetectionWidget.py
-#   fibsem/ui/FibsemManipulatorWidget.py
-#   fibsem/ui/FibsemLabellingUI.py          (standalone — needs listener registration)
-#   fibsem/ui/FibsemSegmentationModelWidget.py
-
 from __future__ import annotations
 
 from typing import Callable, Optional, Tuple

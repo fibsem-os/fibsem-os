@@ -11,9 +11,9 @@ Both live in the instrument's session state (`fibsem.session_state`) under `fm:`
 
 Each function takes the `SessionState` to use, so every caller says which
 instrument it means and whether it may write: the application passes a writable
-store, a script a read-only one. Each sub-key is imported from the file it used to
-live in (``fm-configuration.yaml``, ``fm-recent-channels.yaml``) the first time it
-is absent; those files are never deleted.
+store, a script a read-only one. Recent channels are imported from the file they
+used to live in (``fm-recent-channels.yaml``) the first time they are absent; that
+file is never deleted.
 """
 
 import logging
@@ -40,18 +40,6 @@ def fm_session_state(fm, writable: bool = False) -> SessionState:
 # ---- the working configuration ----------------------------------------------
 
 
-def _import_working() -> Optional[dict]:
-    """The working configuration from the file it lived in before, if any."""
-    path = cfg.FM_CONFIGURATION_PATH
-    if not os.path.exists(path):
-        return None
-    with open(path) as f:
-        data = yaml.safe_load(f)
-    # Parsed once here so a file that cannot become a configuration is not
-    # imported as one.
-    return FluorescenceConfiguration.from_dict(data).to_dict() if data else None
-
-
 def save_fm_configuration(
     config: FluorescenceConfiguration, state: SessionState
 ) -> bool:
@@ -61,7 +49,7 @@ def save_fm_configuration(
 
 def load_fm_configuration(state: SessionState) -> Optional[FluorescenceConfiguration]:
     """The working FM configuration, or None if there is none."""
-    data = state.load_section(WORKING, migrate=_import_working)
+    data = state.load_section(WORKING)
     if not data:
         return None
     try:

@@ -1,4 +1,4 @@
-"""Report v2: an experiment's record as one self-contained HTML page (FIB-1036).
+"""Report v2: an experiment's record as one self-contained HTML page.
 
 Built from ``events.jsonl`` alone, through the tables in ``event_tables``. The
 page answers what a session got, where its time went, and what needs a look:
@@ -162,7 +162,7 @@ def render_report(
     ``folders`` are the lamellae's folders, where their images are: without
     them the cards have no thumbnails. ``zone`` is the instrument's, as the
     experiment recorded it: the record's times are already on its clock, and
-    the header names it (FIB-1196)."""
+    the header names it."""
     runs = _runs(tables)
     fm = _fm(tables)
     items = _ordered(items, [r["item"] for r in runs] + [a["item"] for a in fm])

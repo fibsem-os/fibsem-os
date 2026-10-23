@@ -1,4 +1,4 @@
-"""Dialog to configure FM z-stack interpolation (FIB-253).
+"""Dialog to configure FM z-stack interpolation.
 
 Collects a target z pixel size and interpolation method for
 :func:`fibsem.fm.interpolation.interpolate_fm_volume`. Interpolation only
@@ -59,7 +59,7 @@ class InterpolateZDialog(QDialog):
         self.setWindowTitle("Interpolate z-stack")
         self.setModal(True)
         # The label/chip colours below are picked for a dark surface, so don't
-        # rely on the app-level napari stylesheet being installed — state it
+        # rely on the app-level stylesheet being installed — state it
         # here, as FitConfirmationDialog does.
         self.setStyleSheet(f"background: {CANVAS_BG}; color: {TEXT_COLOR};")
 
