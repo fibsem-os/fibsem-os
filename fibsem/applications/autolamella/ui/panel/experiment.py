@@ -67,6 +67,8 @@ class ExperimentTab(QWidget):
         self.lamella_list.enable_move_to_action(True)
         self.lamella_list.enable_update_action(True)
         self.lamella_list.enable_remove_button(True)
+        # what the Image and Fluorescence tabs save with
+        self.item_selection = self.lamella_list
 
         self.selected_lamella_widget = SelectedLamellaWidget()
 
