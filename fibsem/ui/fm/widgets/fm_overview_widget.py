@@ -149,15 +149,13 @@ class PlacedOverviewImageRecord:
     confused with: the canvas's own `PlacedImage`, which is an artist and an extent,
     and the `FluorescenceImage` this was built from.
 
-    The canvas can hold several overviews at once and, until this existed, nothing
-    tracked them: the widget kept a single `_displayed_image` that each new
-    acquisition overwrote, so an earlier overview's pixels stayed on screen with its
-    provenance already discarded (FIB-543).
+    The canvas can hold several overviews at once; this keeps each one's provenance
+    for as long as its pixels are on screen.
 
     Holds the *metadata*, not the image. What a list needs -- where it was, when, at
     what scale -- is all in there, and keeping N full-resolution mosaics alive to
-    reach it would cost hundreds of megabytes on a canvas already short of them
-    (FIB-414). The pixels the canvas redraws from are its own decimated copies.
+    reach it would cost hundreds of megabytes on a canvas already short of them.
+    The pixels the canvas redraws from are its own decimated copies.
     """
 
     id: str
@@ -197,7 +195,7 @@ class FMOverviewWidget(QWidget):
     # rather than an edge, so a host that connects late or recomputes from
     # several facts cannot end up holding a stale answer. The host that matters
     # is the window, which must stop the other overview driving the stage while
-    # this one is mid-tileset (FIB-706).
+    # this one is mid-tileset.
     acquiring_changed = pyqtSignal(bool)
 
     # A user right-clicked the canvas and asked for a position there. Both carry a
@@ -224,14 +222,10 @@ class FMOverviewWidget(QWidget):
     #
     # One per source, because the two describe different things at different scales and
     # each drives its own bar: the run as a whole, and the tile currently being taken.
-    # `object`, not `TiledProgress`: the producers have flipped (FIB-402), but psygnal
-    # hands a slot whatever was emitted, and a plugin-loaded producer is not obliged to
-    # emit the typed record. Both marshal to `PyQt_PyObject` regardless, so `object` is
-    # the honest declaration rather than a looser one.
+    # `object`, not `TiledProgress`: psygnal hands a slot whatever was emitted, and a
+    # plugin-loaded producer is not obliged to emit the typed record.
     _tile_progress_received = pyqtSignal(object)
-    # `object`, not the typed record: the producers have flipped (FIB-401), but psygnal
-    # hands a slot whatever was emitted. Both marshal to `PyQt_PyObject` regardless, so
-    # `object` is the honest declaration rather than a looser one.
+    # `object`, not the typed record, for the same reason.
     _fm_progress_received = pyqtSignal(object)
     # Same hop for stage moves: `stage.position.changed` is a psygnal, so it fires
     # on whichever thread moved the stage -- a worker, during an acquisition.
@@ -251,7 +245,7 @@ class FMOverviewWidget(QWidget):
         if session.kind != FLUORESCENCE:
             raise ValueError("This widget draws a fluorescence overview session.")
         # The positions, selection, lock, run state, mosaic and cached stage
-        # position: the overview's, which a host writes (FIB-1449).
+        # position: the overview's, which a host writes.
         self.session = session
         self.microscope = session.microscope
         self.fm = session.microscope.fm
@@ -312,14 +306,9 @@ class FMOverviewWidget(QWidget):
         # Two scales, two signals, two handlers. The tileset -- tile n of N, the mosaic
         # so far, and how the run ended -- reports on the imaging service's
         # `tiled_progress` beside the beam tiler's, because it is the same event
-        # (FIB-725). The work *inside* a tile stays on the detector's own progress
-        # signal, which is where a z-stack, a channel acquisition and an autofocus
-        # sweep report from whether or not a tileset is running.
-        #
-        # They were briefly merged into one slot that sorted them back apart by `task`.
-        # Sorting a stream that arrived already sorted is work with a failure mode and
-        # no benefit: a payload reaching the wrong bar is a mislabelled run, and the
-        # only thing keeping them apart was a vocabulary neither producer declares.
+        # The work *inside* a tile stays on the detector's own progress signal, which
+        # is where a z-stack, a channel acquisition and an autofocus sweep report from
+        # whether or not a tileset is running.
         # On the imaging service, which every microscope with an FM has.
         self.microscope.imaging.tiled_progress.connect(self._on_tile_progress)
         self.microscope.imaging.overview_acquired.connect(self._on_acquired)
@@ -345,10 +334,10 @@ class FMOverviewWidget(QWidget):
         self.fm.objective.position_changed.connect(self._on_objective_moved)
         # Same contract as the objective's, and for the same reason: the transform is an
         # input to every projection this widget draws through, and the projection is kept
-        # rather than re-read, so nothing else would notice it moved (FIB-521).
+        # rather than re-read, so nothing else would notice it moved.
         self.fm.transform_changed.connect(self._on_transform_changed)
         # Same contract again. The holder's slots are drawn from its calibration, and
-        # a stage move no longer redraws them, so a recalibration has to say so. On
+        # a stage move does not redraw them, so a recalibration has to say so. On
         # the sample handling service, which a microscope with no stage doesn't have.
         if self.microscope.sample_handling is not None:
             self.microscope.sample_handling.holder_changed.connect(
@@ -535,8 +524,7 @@ class FMOverviewWidget(QWidget):
         splitter.addWidget(self.canvas)
 
         # Two bars: across the grid, and within the tile being acquired. Both are
-        # `FibsemProgressWidget`, which distinguishes finished from failed -- a failed
-        # run used to paint the same full green bar as a successful one.
+        # `FibsemProgressWidget`, which distinguishes finished from failed.
         # Hidden until a run starts: they are empty most of the time, and stacked in a
         # column there is nothing beside them to shift when they come and go.
         self.progress_tiles = shrink_progress_text(FibsemProgressWidget())
@@ -547,8 +535,7 @@ class FMOverviewWidget(QWidget):
 
         # Shown only when the stage is somewhere an overview cannot be acquired from.
         # A line saying what is wrong and a button that fixes it, rather than a greyed
-        # Acquire button with no explanation -- which is what the old FM tab did, and
-        # which leaves you looking at a dead panel (FIB-436).
+        # Acquire button with no explanation.
         self.orientation_notice = ElidedLabel("")
         self.orientation_notice.setStyleSheet(
             f"color: {stylesheets.WARN_COLOR}; font-size: 11px;"
@@ -657,7 +644,7 @@ class FMOverviewWidget(QWidget):
         `_set_running(True)` *before* it builds the worker, so for the width of that
         gap a worker-only answer says no while a run is starting. That gap is exactly
         when `acquiring_changed` is emitted, so a host locking the other overview off
-        this property got False and locked nothing (FIB-706).
+        this property would get False and lock nothing.
 
         Keeping the worker check as well as the flag, rather than replacing it: the
         union is true over a superset of the interval either is, and every caller is a
@@ -803,14 +790,13 @@ class FMOverviewWidget(QWidget):
         # by then the image has set it, and changing it would move what is already drawn.
         rescaled = self.canvas.canvas.set_reference_pixel_size(pixel_size)
         # Centred on the position the run will be centred on -- a dragged target, or
-        # the stage itself -- not on whatever happens to be displayed. It used to be
-        # pinned to the canvas origin, which is where the stage was the *first* time
-        # anything was drawn: correct until the stage moved, and then quietly not.
+        # the stage itself -- not on whatever happens to be displayed, nor on the canvas
+        # origin, which is where the stage was the *first* time anything was drawn.
         offset = self._grid_offset()
 
         # Anchor and flags handed over with the grid rather than set separately: this
-        # runs on every motion event of a drag, and each setter used to repaint every
-        # tile patch, so setting two of them cost two full repaints (FIB-751).
+        # runs on every motion event of a drag, and each setter repaints every tile
+        # patch.
         #
         # No `display_pixel_size`: the overlay reads it from the canvas at draw time.
         # Pinning it here would freeze the scale at whatever was displayed when the
@@ -849,14 +835,13 @@ class FMOverviewWidget(QWidget):
         # Keep the declared working area on the grid, always and silently. It is what
         # the zoom limiter measures against, so an area left behind stretches the
         # content across the gap and caps how far the view can zoom in. `refit=False`
-        # is what makes doing this safe: re-declaring used to re-frame, so dragging the
-        # grid snapped the view onto it on every motion event.
+        # is what makes doing this safe: without it dragging the grid would snap the
+        # view onto it on every motion event.
         #
-        # Not *during* a drag, though, which is what "continuously" used to mean here.
-        # Re-declaring asks the canvas to repaint, and a repaint is what the blitted
-        # grid is drawn over -- so this alone put two full canvas draws on every motion
-        # event and undid the whole of FIB-752 on this tab. Deferred to
-        # `drag_finished`, which arrives once. Nobody is measuring zoom limits against
+        # Not *during* a drag, though. Re-declaring asks the canvas to repaint, and a
+        # repaint is what the blitted grid is drawn over, so it would put two full
+        # canvas draws on every motion event. Deferred to `drag_finished`, which
+        # arrives once. Nobody is measuring zoom limits against
         # it mid-gesture.
         if not self.tile_grid_overlay.is_dragging:
             self.canvas.set_world_extent(span_x, span_y, offset, refit=False)
@@ -913,10 +898,9 @@ class FMOverviewWidget(QWidget):
         to the content, so it read the span as 48 mm when what mattered was 0.1 mm.
 
         Re-declaring it re-frames the view, though, so it cannot simply follow every
-        move -- a double-click to somewhere 100 µm away would throw the zoom away, the
-        same failure a tile toggle used to cause. It follows only once the grid has
-        left the area outright, at which point what is framed and what is planned no
-        longer overlap at all.
+        move -- a double-click to somewhere 100 µm away would throw the zoom away. It
+        follows only once the grid has left the area outright, at which point what is
+        framed and what is planned no longer overlap at all.
         """
         declared = self.canvas.canvas.world_extent
         if declared is None:
@@ -940,8 +924,7 @@ class FMOverviewWidget(QWidget):
         panel opens. The panel is a fixed width with a word-wrapped summary, so its
         height is however many lines that text takes -- and the text grows: dragging the
         grid adds a line saying how far it now sits from the stage. Sized once at open
-        time, the panel kept that height and clipped the extra lines top and bottom
-        (FIB-510).
+        time, the panel would clip the extra lines.
 
         The move is not optional after a resize. The panel is anchored by its top-*right*
         corner, so its x is computed from its own width; leaving it alone would be fine
@@ -1041,8 +1024,7 @@ class FMOverviewWidget(QWidget):
         grid size, so a loaded overview's row shows its grid as well as its scale.
 
         Separate from the dialog so it can be called with a path -- by a test, by a
-        host restoring a session, or later by whatever knows an experiment's own
-        overviews (FIB-547).
+        host restoring a session, or by whatever knows an experiment's own overviews.
         """
         try:
             image = FluorescenceImage.load(path)
@@ -1056,7 +1038,8 @@ class FMOverviewWidget(QWidget):
         # Placed even without a geometry, but said out loud. `_offset_of` falls back to
         # the origin, which puts it in the middle of the view rather than where it was
         # taken -- and an overview silently in the wrong place is worse than one you
-        # have been told to distrust. Anything acquired before FIB-416 is this case.
+        # have been told to distrust. An overview saved before geometry was recorded
+        # is this case.
         if FMStageProjection.from_image(image) is None:
             logging.warning(
                 f"Overview {path} has no recorded geometry; placing at the origin."
@@ -1091,7 +1074,7 @@ class FMOverviewWidget(QWidget):
 
         Hidden rather than removed, so it can come back without being re-acquired. The
         canvas skips drawing a hidden image entirely, so this also takes it out of the
-        redraw cost -- which is the point on a canvas holding several (FIB-414).
+        redraw cost -- which is the point on a canvas holding several.
         """
         record = self._records.get(record_id)
         if record is None:
@@ -1327,8 +1310,7 @@ class FMOverviewWidget(QWidget):
         *reason* completes the sentence "Cannot move the stage while ___" when a move is
         refused. The widget cannot know why it was locked -- a workflow owning the
         instrument and the other overview being mid-tileset are the same `False` here --
-        and a refusal naming the wrong one is barely better than one naming nothing
-        (FIB-706).
+        and a refusal naming the wrong one is barely better than one naming nothing.
         """
         self.session.set_interactive(enabled, reason)
 
@@ -1433,13 +1415,11 @@ class FMOverviewWidget(QWidget):
 
         This canvas is the FM's view of the sample, so its zero is the place the
         objective looks at when the stage is at the FM -- `stage.devices.FM.origin`,
-        which is configured, and the same every session. It used to be wherever the
-        stage was standing the first time anything drew, which on an offset mount is
-        almost always the beams: canvas zero then sat 48.8 mm from every marker,
-        image and overlay the canvas would ever show, and its red marker pointed at
-        nothing. On a compustage the device origin is the objective's offset from the
-        beams' coincidence point (zero unless configured), so zero is the holder's
-        centre as the objective sees it.
+        which is configured, and the same every session, rather than wherever the stage
+        was standing the first time anything drew, which on an offset mount is almost
+        always the beams, far from anything this canvas shows. On a compustage the
+        device origin is the objective's offset from the beams' coincidence point (zero
+        unless configured), so zero is the holder's centre as the objective sees it.
 
         Only a *place*. The configuration declares x, and may declare y and z; an
         axis it leaves out reads as 0. The pose is not part of the anchor at all --
@@ -1527,10 +1507,7 @@ class FMOverviewWidget(QWidget):
 
         The context an overview is read against: which grid you are on, how far from its
         centre, and how much travel is left. The same shapes the beam tab draws, from the
-        same functions -- this tab had a copy, and the copy had drifted three ways: the
-        travel box gated on `stage_is_compustage`, the grid boundary sized in stage axes
-        rather than along the surface and drawn as a circle, and raw slot positions
-        handed to a frame that raises on the `r=None` the holder file leaves (FIB-698).
+        same functions.
         """
         frame = self._frame()
         if frame is None:
@@ -1624,9 +1601,8 @@ class FMOverviewWidget(QWidget):
         because the decorator has already marshalled it.
 
         The values come from the signal rather than a fresh read, so this costs nothing
-        and cannot disagree with the move that prompted it. That is the whole point:
-        this label used to be rebuilt from two device reads on every stage poll, and on
-        a shared connection each of those took the imaging channel (FIB-534).
+        and cannot disagree with the move that prompted it. Two device reads on every
+        stage poll would each take the imaging channel on a shared connection.
         """
         self._set_objective_info(position, state)
 
@@ -1642,10 +1618,8 @@ class FMOverviewWidget(QWidget):
         the current-position marker, marked positions, the stage and grid limits, the
         planned grid, and the canvas-to-stage direction a double-click moves on.
 
-        This used to be self-correcting by accident: `_frame` re-read the projection on
-        every use, so the next redraw picked the new transform up. Keeping the projection
-        (FIB-600) removed the accident and left nothing in its place, which is what makes
-        this a subscription rather than a comment.
+        The projection is kept rather than re-read on every use, so nothing else would
+        pick the new transform up; hence a subscription.
 
         The grid is redrawn whatever it is pinned to, unlike on a stage move: that gating
         exists because a translation leaves a pinned grid where it was, and a transform
@@ -1660,12 +1634,11 @@ class FMOverviewWidget(QWidget):
     def _refresh_objective_info(self) -> None:
         """Re-read the objective for the info bar. Touches hardware -- call sparingly.
 
-        This used to happen inside `_refresh_stage_info`, which runs on every stage poll.
-        On a real system that is not a cheap read: the FM and the beams share one
-        connection, so reading the objective points it at the FM, and every poll was
-        doing it. It stopped a workflow task (FIB-517).
+        Not inside `_refresh_stage_info`, which runs on every stage poll: on a real
+        system the FM and the beams share one connection, so reading the objective
+        points it at the FM.
 
-        Now a backstop rather than the usual path: `ObjectiveLens.position_changed`
+        A backstop rather than the usual path: `ObjectiveLens.position_changed`
         carries the values whenever *we* move the objective, and this covers the moves we
         do not make -- the microscope's own UI, or a routine driving the device -- at the
         two moments something external may have acted, on entry and when an acquisition
@@ -1680,7 +1653,7 @@ class FMOverviewWidget(QWidget):
             return
         # `_set_objective_info` also feeds the start-position options, which say what
         # each one currently means -- one read serving both, since on a shared
-        # connection two reads are two takes of the imaging channel (FIB-517).
+        # connection two reads are two takes of the imaging channel.
         self._set_objective_info(position, state)
 
     def _objective_state(self) -> Optional[InsertableDeviceState]:
@@ -1808,11 +1781,6 @@ class FMOverviewWidget(QWidget):
         the acquire gate walks a grid and stitches through it, marking writes the pose
         into a lamella. From a pose the objective cannot image from, nothing has
         checked those numbers.
-
-        On an offset mount this used to be unanswerable -- the old predicate returned
-        True everywhere off a compustage by documented design, and its stricter
-        sibling (`== default_orientation`) was never true there, which is why *Add
-        Position Here* declined forever with no error.
         """
         return (
             self.microscope.get_device_imaging_state("FM") is DeviceImagingState.READY
@@ -1821,12 +1789,10 @@ class FMOverviewWidget(QWidget):
     def move_to_fm_device(self) -> None:
         """Drive the stage to where the FM can image, having asked first.
 
-        The target is the *device*, not an orientation -- this used to read a variable
-        named `orientation` from `fm.default_orientation` and pass it to a device
-        parameter, which worked only because "FM" happened to name both (FIB-832). On
-        an offset mount the move is a traverse across the chamber, possibly with a
-        re-pose at the beams first; the confirmation describes the actual route, since
-        one button press should not grow into a multi-leg motion silently.
+        The target is the *device*, not an orientation. On an offset mount the move is a
+        traverse across the chamber, possibly with a re-pose at the beams first; the
+        confirmation describes the actual route, since one button press should not grow
+        into a multi-leg motion silently.
 
         A real stage move, so it gets the same confirmation as the other moves in this
         widget -- and the same worker, since `move_to_device` blocks for as long as
@@ -1903,8 +1869,7 @@ class FMOverviewWidget(QWidget):
                 f"{self._where_the_stage_needs_to_be()}."
             )
             # The device, by name: the button travels to the FM, whatever pose that
-            # takes on this mounting -- naming an orientation here was half of the
-            # device/orientation mix-up FIB-832 records.
+            # takes on this mounting.
             self.button_move_to_fm.setText("Move to FM")
 
     def _on_fm_acquiring_signal(self, acquiring: bool) -> None:
@@ -2041,7 +2006,7 @@ class FMOverviewWidget(QWidget):
         boxes -- and lamellae closer together than one camera frame do overlap.
                 *crosshair_only* drops the box and leaves the radius, for a caller that has to
         share the canvas with something else. The tile grid stands aside wherever this
-        answers a name (FIB-767), and a field-of-view box is a large thing to reserve:
+        answers a name, and a field-of-view box is a large thing to reserve:
         it is a whole tile on the fluorescence tab by construction, and a whole tile on
         this one at any HFW of 100 um or under. Reserving it would leave tiles that
         cannot be toggled at all, with nothing on screen to say why -- where reserving
@@ -2095,15 +2060,11 @@ class FMOverviewWidget(QWidget):
     def _may_move(self) -> bool:
         """Whether driving the stage from this tab is allowed right now, and say if not.
 
-        The orientation check here used to be a predicate an escape flag answered yes
-        to unconditionally -- so it refused nothing. It now asks the enforced
-        question, which is what it was always meant to mean: a click is a stage move
-        computed through a frame built from the current pose, and from a pose the
-        objective cannot image from there is nothing that has checked where it would
-        send the stage (FIB-436).
+        A click is a stage move computed through a frame built from the current pose,
+        and from a pose the objective cannot image from there is nothing that has
+        checked where it would send the stage.
         """
-        # The lock covers the canvas as well as the buttons, as on the beam overview
-        # (FIB-706).
+        # The lock covers the canvas as well as the buttons, as on the beam overview.
         refusal = (
             "Cannot move the stage during an acquisition."
             if self.is_acquiring
@@ -2317,10 +2278,8 @@ class FMOverviewWidget(QWidget):
         demand: the canvas is a map, and a map you have to click to get a coordinate out
         of cannot be used to decide whether to click.
 
-        Through the canvas's status zone rather than a label of this widget's own. It
-        used to be hand-placed at the top left, "the one free corner" -- which stopped
-        being free when the status zone took that row, and the two then drew on top of
-        each other. The zone shows one thing at a time, so they cannot collide: the
+        Through the canvas's status zone rather than a label of this widget's own. The
+        zone shows one thing at a time, so they cannot collide: the
         readout outranks the grid hint while the pointer is over the canvas, and a focus
         flash outranks both.
 
@@ -2422,7 +2381,7 @@ class FMOverviewWidget(QWidget):
         # Acquisition only. Display and navigation stay live from any pose: looking at an
         # overview that has already been acquired is harmless wherever the stage is, and
         # the settings panel stays editable so a run can be set up while the stage is on
-        # its way (FIB-436).
+        # its way.
         self.button_acquire.setEnabled(
             idle and has_tiles and self.at_acquisition_orientation()
         )
@@ -2445,8 +2404,8 @@ class FMOverviewWidget(QWidget):
         # boundary: binning cannot change mid-run, and it is the only thing that moves.
         self.invalidate_projection()
         # `is_acquiring`, not `is_streaming`: a z-stack or an autofocus sweep in the
-        # control widget is not a stream, and this widget's own tileset was invisible to
-        # that one, which is the direction that mattered (FIB-441).
+        # control widget is not a stream, and this widget's own tileset must be visible
+        # to that one.
         if self.fm.is_acquiring:
             reason = self.fm.acquiring_reason or "another acquisition"
             logging.warning(f"Cannot acquire an overview: the FM is in use ({reason}).")
@@ -2484,7 +2443,7 @@ class FMOverviewWidget(QWidget):
         # Both of these are checked in the runner too, for a caller driving it directly.
         # Here as well because by then the dialog has said yes and the stage is moving,
         # so the message arrives as a failed run rather than as an answer to the
-        # question that was just asked (FIB-417).
+        # question that was just asked.
         state = self._objective_state()
         if state is not None and state is not InsertableDeviceState.INSERTED:
             message = (
@@ -2672,9 +2631,7 @@ class FMOverviewWidget(QWidget):
         """Show the progress bars only while there is progress to show.
 
         They spend most of their life empty. Stacked in the settings column nothing sits
-        beside them, so they can come and go without moving anything -- which is what
-        made this possible: they used to be inline with the buttons, where hiding one
-        slid the actions sideways, and a fixed-size holder existed purely to stop that.
+        beside them, so they can come and go without moving anything.
         """
         self.progress_tiles.setVisible(visible)
         self.progress_tile_detail.setVisible(visible)
@@ -2695,7 +2652,7 @@ class FMOverviewWidget(QWidget):
             # meets it once rather than twice -- one composite under one key while the
             # run goes -- but the end is the same swap: the stitch is placed and the
             # preview removed, two extent changes at the moment there is finally
-            # something worth looking at (FIB-648). Taken back by "reset view".
+            # something worth looking at. Taken back by "reset view".
             self.canvas.canvas.auto_fit = False
 
         # After the resets above, not before: `FibsemProgressWidget.reset()` hides
@@ -2789,7 +2746,7 @@ class FMOverviewWidget(QWidget):
         if event.modality != MODALITY_FLUORESCENCE:
             # A beam run, on the signal this shares with the beam tiler. Checked before
             # anything else, terminal states included: the two tilers write into
-            # different canvases and different bars (FIB-725).
+            # different canvases and different bars.
             return
 
         if event.status.is_terminal:
@@ -2812,17 +2769,15 @@ class FMOverviewWidget(QWidget):
         self.status.setText("")
 
         if event.status is TiledStatus.TILE_COLLECTED and event.preview is not None:
-            # Deliberately does *not* clear the within-tile bar. It used to, which made
-            # it vanish and reappear at every tile boundary -- a flicker for the whole
-            # run. The next tile's first report overwrites it a moment later anyway.
+            # Deliberately does *not* clear the within-tile bar, which would flicker at
+            # every tile boundary. The next tile's first report overwrites it anyway.
             self._show_preview(event.preview)
 
         if event.completed is None or not event.total:
             # An announcement rather than a progress report: the report that says which
             # tile is starting carries no counts, because emitted *before* the tile it
-            # could only ever be one short -- a bar driven from it stopped at 3/4 for the
-            # whole run (FIB-736). It has already done its job above, clearing the label
-            # the stage move put up.
+            # could only ever be one short. It has already done its job above, clearing
+            # the label the stage move put up.
             return
 
         # The final report of a run gives 0 remaining and so renders as a plain count --
@@ -2956,8 +2911,8 @@ class FMOverviewWidget(QWidget):
 
     def hideEvent(self, event) -> None:
         # The tile grid panel is a top-level window, so it does not go with this
-        # widget on its own: switching tab left it floating over the next one
-        # (FIB-1110). The button is unchecked with it, so one click opens it again.
+        # widget on its own, and would float over the next tab. The button is
+        # unchecked with it, so one click opens it again.
         # Reached from C++ during teardown too, where raising is fatal under PyQt5,
         # so looked up tolerantly and never raises.
         super().hideEvent(event)
@@ -2977,14 +2932,11 @@ class FMOverviewWidget(QWidget):
         # Every psygnal this widget subscribed to, without exception. They outlive the
         # widget -- they belong to the microscope -- and they hold bound methods of Qt
         # objects that `close` has already torn down on the C++ side, so the next emit
-        # writes into freed memory. Closing the tab and then moving the stage from
-        # anywhere else in the application was a hard segfault, not an exception.
+        # writes into freed memory: a hard segfault, not an exception.
         subscriptions = [
             (self.session.changed, self._on_session_signal),
             (self.fm.acquisition_progress_signal, self._on_fm_progress),
             (self.fm.objective.position_changed, self._on_objective_moved),
-            # Subscribed since FIB-441 and never in this list, though the comment above
-            # has always claimed "without exception".
             (self.fm.acquiring_changed, self._on_fm_acquiring_signal),
             (self.fm.transform_changed, self._on_transform_changed),
         ]
