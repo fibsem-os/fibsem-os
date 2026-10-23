@@ -52,7 +52,6 @@ from fibsem.drivers.demo.services import (
     bind_demo_spot_burn,
 )
 from fibsem.drivers.demo.simulator import (
-    SIM_OBJECTIVE_FOCUS_POSITION,
     DemoParts,
     DemoSimulator,
     initial_demo_parts,
@@ -106,8 +105,6 @@ class DemoFluorescenceMicroscope(FluorescenceMicroscope):
             devices = bind_demo_fm(parent)
         super().__init__(devices, parent=parent)
         self._channel = devices["fm"].channel
-        # The Demo FM starts with a saved focus; a session setting, so kept here.
-        self.objective._focus_position = SIM_OBJECTIVE_FOCUS_POSITION
 
     def set_active_channel(self) -> None:
         self._channel.set_active_channel()

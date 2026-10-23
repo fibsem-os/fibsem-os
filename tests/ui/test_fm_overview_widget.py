@@ -5093,7 +5093,7 @@ def test_an_unsaved_focus_position_says_so_rather_than_showing_nothing(
 ):
     """The refusal comes later; the label is where you would notice first."""
     widget = overview_widget
-    widget.fm.objective._focus_position = None
+    widget.fm.objective.focus_position = None
 
     widget._refresh_objective_start_options()
 
@@ -5142,7 +5142,7 @@ def test_starting_from_an_unsaved_focus_is_refused_before_the_dialog(
         "a different guard would fire first"
     )
 
-    widget.fm.objective._focus_position = None
+    widget.fm.objective.focus_position = None
     widget.settings_widget.combo_objective_start.set_value(ObjectiveStartPosition.FOCUS)
     shown = []
     monkeypatch.setattr(

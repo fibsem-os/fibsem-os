@@ -330,7 +330,7 @@ def render_fm_scene(
     )
     scene.holder_slots = simulator.scene_holder_slots()
     frame = scene.render_fm(
-        microscope.get_stage_position(),
+        simulator.scene_stage_position(),
         resolution,
         projection,
         weights=weights,
@@ -489,7 +489,7 @@ class DemoSimulator:
             self.sample_scene.holder_slots = self.scene_holder_slots()
             image.data = self.sample_scene.render(
                 beam_type=effective_beam_type,
-                stage_position=self.microscope.get_stage_position(),
+                stage_position=self.scene_stage_position(),
                 hfw=effective_image_settings.hfw,
                 resolution=effective_image_settings.resolution,
                 projection=projection,
@@ -803,7 +803,7 @@ class DemoSimulator:
             # anchor the world NOW, at the connect pose - so moving straight
             # to a saved position and acquiring shows that position's
             # surroundings rather than anchoring the world there
-            self.sample_scene.anchor(self.microscope.get_stage_position())
+            self.sample_scene.anchor(self.scene_stage_position())
         except Exception as e:
             logging.warning(
                 "Could not anchor the sample scene at connect (%s); "
@@ -816,6 +816,15 @@ class DemoSimulator:
             self.sample_scene.coincidence_offset * 1e6,
             self.sample_scene.tilt_axis_offset * 1e6,
         )
+
+    def scene_stage_position(self) -> FibsemStagePosition:
+        """Where the stage really is, for the sample scene: what it reads back,
+        unless `sim.stage_error` is on (``fibsem.drivers.demo.stage_error``)."""
+        position = self.microscope.get_stage_position()
+        stage = self.microscope.stage
+        if stage is None or not hasattr(stage, "sim_actual"):
+            return position
+        return stage.sim_actual(position)
 
     def scene_holder_slots(self) -> list:
         """The holder's occupied slots with a position, for the scene to put
@@ -832,14 +841,19 @@ class DemoSimulator:
         # as on a real Arctis, where a loaded grid sits off the origin (FIB-1144).
         device = self.microscope.devices.get("sample_loader")
         grid_position = getattr(device, "sim_grid_position", None)
+        # A slot's position was saved on this stage, so with a stage error on the
+        # grid is where a move there really lands.
+        calibrated = getattr(self.microscope.stage, "sim_calibrated", lambda p: p)
         try:
             return [
                 (
                     slot.loaded_grid.name,
                     slot.loaded_grid.radius,
-                    _grid_stage_position(grid_position)
-                    if grid_position
-                    else slot.position,
+                    calibrated(
+                        _grid_stage_position(grid_position)
+                        if grid_position
+                        else slot.position
+                    ),
                 )
                 for slot in holder.occupied_slots
                 if slot.position is not None
@@ -866,7 +880,7 @@ class DemoSimulator:
         scene.mill(
             list(self.milling_system.patterns),
             beam,
-            self.microscope.get_stage_position(),
+            self.scene_stage_position(),
             projection,
             beam_shift=(float(shift.x), float(shift.y)),
             beam_current=float(milling_current) if milling_current else None,
@@ -909,7 +923,7 @@ class DemoSimulator:
         scene.burn(
             [(dx, dy)],
             beam_type,
-            self.microscope.get_stage_position(),
+            self.scene_stage_position(),
             projection,
             beam_shift=(float(shift.x), float(shift.y)),
             beam_current=float(beam.beam_current) if beam.beam_current else None,

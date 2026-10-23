@@ -101,4 +101,9 @@ sim:
         grid_radius: 1.4e-3                                # usable radius (m); beyond it the rim, then the holder
         beam_offset: {ion: [1.3e-6, 0.0]}                  # fixed per-beam misalignment (m): the coincidence measurement's dx
         current_offset_scale: 1.5e-6                       # sigma (m) of a seeded per-beam-current offset; 0 = off
+    stage_error:                                            # the stage goes further than it reports, as the Arctis overviews showed; the read-back stays as sent, only the scene sees it
+        enabled: false
+        scale: [1.06, 1.09]                                # x, y: distance really moved per metre reported
+        jitter: 0.01                                       # each move lands off by about this fraction of it (sigma), drawn fresh every move
+        seed: null                                         # an int repeats the same jitter
     is_compustage: true

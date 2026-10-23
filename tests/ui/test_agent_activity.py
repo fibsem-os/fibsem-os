@@ -251,3 +251,33 @@ def test_the_now_line_says_which_mill_how_far_and_how_long_is_left(qapp):
     assert activity.now is None
     activity.set_microscope(None)
     bar.deleteLater()
+
+
+def test_the_agent_s_message_is_a_toast_and_its_note_is_not(window, monkeypatch):
+    from fibsem.workflows.events import EventBuffer
+
+    _, activity, _ = window
+    shown = []
+    monkeypatch.setattr(
+        agent_activity.notification_service,
+        "show",
+        lambda message, kind="info", **kw: shown.append((message, kw.get("always"))),
+    )
+    buffer = EventBuffer()
+    activity.follow_events(buffer)
+    buffer.append("note", {"text": "02 looks fine"}, actor=AGENT)
+    buffer.append(
+        "note",
+        {
+            "text": "Spot burn failed:\nModule is Unavailable",
+            "to": "operator",
+            "id": "c3",
+        },
+        actor=AGENT,
+    )
+    buffer.append(
+        "note", {"text": "skip 03", "to": "agent", "id": "ab12"}, actor=OPERATOR
+    )
+    _wait(50)
+    assert shown == [("Agent: Spot burn failed: Module is Unavailable", True)]
+    activity.follow_events(None)

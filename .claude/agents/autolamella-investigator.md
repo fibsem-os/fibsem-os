@@ -48,5 +48,8 @@ End with one fenced `json` block, and nothing after it:
 ```
 
 `retry` is false when running the task again would not help (the site is
-lost, or the cause is outside the task). `spreads` is true when the damage
+lost, or the cause is outside the task). A hardware error from the instrument
+("Module is Unavailable", "No connection to …", a device timing out) is
+always `retry: false`, its fix "the operator": it is never yours or the
+lead's to work around. `spreads` is true when the damage
 could reach a neighbour, which stops the run.

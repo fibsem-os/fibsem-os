@@ -14,7 +14,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Set, Tuple
 
-from fibsem.acting import OPERATOR
+from fibsem.acting import AGENT, OPERATOR
 from fibsem.ai.agent.levels import AgentLevel, if_allowed
 from fibsem.workflows.actions import ACTION, NOTE, action_record, note_record
 from fibsem.workflows.evidence import EVIDENCE
@@ -437,10 +437,10 @@ class AgentSession:
     ) -> Optional[str]:
         """Put the operator's message to the agent on the session's record,
         where the agent's watch hears it as a ``MESSAGE`` line and answers with
-        a note naming its id (FIB-1423). *evidence*, the record of the image
-        the operator marked for it (`fibsem.workflows.evidence.save`), goes on
-        the record first and the message cites it. Returns the id, or None
-        when nothing is recording, so the agent can't hear it."""
+        a message naming its id (FIB-1423). *evidence*, the record of the
+        image the operator marked for it (`fibsem.workflows.evidence.save`),
+        goes on the record first and the message cites it. Returns the id, or
+        None when nothing is recording, so the agent can't hear it."""
         recorder = self._session.recorder
         if recorder is None:
             return None
@@ -452,7 +452,7 @@ class AgentSession:
             recorder.buffer.append(EVIDENCE, dict(evidence), actor=OPERATOR)
         recorder.buffer.append(
             NOTE,
-            note_record(text, id=message_id, evidence=evidence_id),
+            note_record(text, to=AGENT, id=message_id, evidence=evidence_id),
             actor=OPERATOR,
         )
         return message_id

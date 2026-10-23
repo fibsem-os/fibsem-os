@@ -239,10 +239,13 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
             e.preventDefault();
           }}
         >
-          <div className="flex min-h-[240px] items-center justify-center bg-black p-2">
+          <div className="relative flex min-h-[240px] items-center justify-center bg-black p-2">
+            {shown && (!p || read.isPlaceholderData) && (
+              <span className="absolute top-3 left-3 bg-black/70 px-2 py-0.5 text-[12px] text-white">Reading…</span>
+            )}
             {shown ? (
               <img
-                className={cn("block max-h-[70vh] w-full object-contain", !p && "opacity-50")}
+                className={cn("block max-h-[70vh] w-full object-contain", (!p || read.isPlaceholderData) && "opacity-50")}
                 alt={name}
                 src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
               />

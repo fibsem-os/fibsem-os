@@ -2517,6 +2517,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
         self._limit_position: float = DEFAULT_CONFIGURATION.get(
             "limit_position", 8.6e-3
         )
+        self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
 
     def _focus_limits(self) -> Tuple[float, float]:
         with self._channel.scope():
@@ -2673,12 +2674,11 @@ class AutoscriptFM(FM):
 
 class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
     """The FM API's objective over the Thermo objective device, with what the old
-    Thermo objective added: its configured focus position, and homing."""
+    Thermo objective added: homing."""
 
     def __init__(self, device, channel, parent=None):
         super().__init__(device, parent=parent)
         self._channel = channel
-        self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
 
     def is_homed(self) -> bool:
         with self._channel.scope():

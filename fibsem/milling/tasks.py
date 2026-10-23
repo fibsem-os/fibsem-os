@@ -37,6 +37,7 @@ from fibsem.structures import (
     ImageSettings,
     MillingAlignment,
     Point,
+    distance_param,
     param,
 )
 from fibsem.util.timestamps import now_iso
@@ -279,7 +280,12 @@ class FibsemMillingTaskConfig(Configurable):
     """Configuration for a milling task."""
 
     name: str = "Milling Task"
-    field_of_view: float = 150e-6
+    field_of_view: float = param(
+        150e-6,
+        distance_param(
+            "Field of view", "The FIB field of view the patterns mill in.", decimals=1
+        ),
+    )
     channel: BeamType = BeamType.ION
     alignment: MillingAlignment = field(default_factory=MillingAlignment)
     acquisition: MillingTaskAcquisitionSettings = field(

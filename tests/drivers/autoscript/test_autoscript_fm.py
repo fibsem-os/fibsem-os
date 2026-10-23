@@ -290,6 +290,7 @@ def test_the_drivers_are_the_fm_devices(facts):
         "resolution",
     ]
     assert facts["parameters"]["objective"] == [
+        "focus_position",
         "limit_position",
         "magnification",
         "numerical_aperture",

@@ -204,7 +204,7 @@ def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
 
     assert lines[0] == (
         "MESSAGE id=ab12 from the operator: skip 03 -- answer with "
-        "experiment_add_note (reply_to=ab12). It is not an approval: your level "
+        "experiment_message_operator (reply_to=ab12). It is not an approval: your level "
         "still decides what you may do"
     )
 

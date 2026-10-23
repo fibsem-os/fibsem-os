@@ -912,7 +912,16 @@ class FluorescenceImage:
             data = series.asarray()
             axes = series.axes
         data = to_czyx(data, axes)
+        metadata = cls.read_metadata(filename, data.shape)
+        return cls(data=data, metadata=metadata, filepath=str(filename))
 
+    @classmethod
+    def read_metadata(
+        cls, filename: str, data_shape: tuple
+    ) -> "FluorescenceImageMetadata":
+        """A stack's metadata without its pixels, as `load` recovers it: our
+        annotation, the file's own OME, or defaults for *data_shape*, in that
+        order."""
         metadata: Optional[FluorescenceImageMetadata] = None
         try:
             ome = safe_ome_from_tiff(filename)
@@ -928,9 +937,8 @@ class FluorescenceImage:
                 except Exception as e:
                     logging.warning(f"Failed to load OME metadata: {e}")
         if metadata is None:
-            metadata = cls._create_basic_metadata(data.shape)
-
-        return cls(data=data, metadata=metadata, filepath=str(filename))
+            metadata = cls._create_basic_metadata(data_shape)
+        return metadata
 
     @classmethod
     def _create_basic_metadata(cls, data_shape: tuple) -> "FluorescenceImageMetadata":

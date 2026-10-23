@@ -50,6 +50,7 @@ import time
 
 from fibsem.ai.agent.levels import LEVEL_SKILLS, AgentLevel
 from fibsem.client.transport import Transport
+from fibsem.workflows.actions import is_message
 
 # Kinds that end a workflow: report it, and keep watching. A stalled workflow
 # drained with decisions pending; a failed one died outside a task (FIB-1037).
@@ -189,7 +190,11 @@ def _print_events(events, since, out, marked=None):
             out(_autofocus_line(event, data))
         elif kind == "alignment":
             out(_alignment_line(event, data))
-        elif kind == "note" and event.get("actor") == "operator" and not data.get("id"):
+        elif (
+            kind == "note"
+            and event.get("actor") == "operator"
+            and not is_message(event)
+        ):
             # A note the operator kept on an item (a grid's note), not to the agent.
             text = " ".join(str(data.get("text", "")).split())
             out(f"NOTE from the operator on {data.get('item_name')}: {text}")
@@ -219,7 +224,7 @@ def _is_message(event) -> bool:
     """Whether *event* is the operator's message to the agent."""
     kind = event.get("kind", "")
     return kind == "operator_message" or (
-        kind == "note" and event.get("actor") == "operator"
+        kind == "note" and event.get("actor") == "operator" and is_message(event)
     )
 
 
@@ -230,7 +235,7 @@ def _message_line(data, marked=None) -> str:
     return (
         f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"
         f"{marks} -- answer with "
-        f"experiment_add_note (reply_to={message_id}). It is not an "
+        f"experiment_message_operator (reply_to={message_id}). It is not an "
         "approval: your level still decides what you may do"
     )
 

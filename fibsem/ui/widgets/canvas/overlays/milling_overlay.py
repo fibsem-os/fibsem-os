@@ -65,6 +65,12 @@ _LINEWIDTH_SELECTED = 2.5  # selected stage edge width
 _BACKGROUND_COLOUR = "black"  # background milling stages
 _EXCLUSION_COLOUR = "black"  # exclusion shapes, whatever their stage's colour
 _DASHED_FILL_ALPHA = 0.15  # a preview's fill: there, but not milled yet
+# A stage's own style, over the spec's: (linestyle, fill alpha).
+STAGE_STYLES = {
+    "filled": ("-", _FILL_ALPHA),
+    "outline": ("-", 0.0),
+    "dashed": ("--", 0.0),
+}
 
 
 class MillingPatternOverlay(CanvasOverlay):
@@ -84,6 +90,8 @@ class MillingPatternOverlay(CanvasOverlay):
         self._legend = None
         self._colour: Optional[str] = None
         self._dashed = False
+        self._stage_styles: List[str] = []
+        self._style_index: Optional[int] = None
         self._legend_loc = "upper right"
 
     # ── overlay protocol ──────────────────────────────────────────────────
@@ -119,6 +127,7 @@ class MillingPatternOverlay(CanvasOverlay):
         colour: Optional[str] = None,
         dashed: bool = False,
         legend_loc: str = "upper right",
+        stage_styles: Sequence[str] = (),
     ) -> None:
         """Display *stages* against *image*.
 
@@ -126,8 +135,10 @@ class MillingPatternOverlay(CanvasOverlay):
         ``selected_index`` (into *stages*) is drawn with a thicker edge, on top.
         ``colour`` draws every stage in it instead of a colour each; ``dashed``
         draws them as a preview, dashed with a fainter fill. ``legend_loc`` places
-        the stage legend.
+        the stage legend. ``stage_styles`` gives a stage its own style, one of
+        ``STAGE_STYLES``, by index: a volume's slices cut, next and still to cut.
         """
+        self._stage_styles = list(stage_styles)
         self._colour = colour
         self._dashed = dashed
         self._legend_loc = legend_loc
@@ -193,6 +204,7 @@ class MillingPatternOverlay(CanvasOverlay):
 
         # foreground stages (per-colour; selected is thicker and on top)
         for i, stage in enumerate(self._stages):
+            self._style_index = i
             colour = self._stage_colour(i)
             selected = i == self._selected_index
             linewidth = _LINEWIDTH_SELECTED if selected else _LINEWIDTH
@@ -206,24 +218,36 @@ class MillingPatternOverlay(CanvasOverlay):
                     "MillingPatternOverlay: failed to draw stage %r",
                     getattr(stage, "name", i),
                 )
+        self._style_index = None
         self._draw_legend()
 
     def _stage_colour(self, index: int) -> str:
         return self._colour or COLOURS[index % len(COLOURS)]
 
-    def _fill_alpha(self) -> float:
+    def _stage_style(self, index: Optional[int]) -> Optional[tuple]:
+        if index is None or index >= len(self._stage_styles):
+            return None
+        return STAGE_STYLES[self._stage_styles[index]]
+
+    def _fill_alpha(self, index: Optional[int] = None) -> float:
+        style = self._stage_style(index if index is not None else self._style_index)
+        if style is not None:
+            return style[1]
         return _DASHED_FILL_ALPHA if self._dashed else _FILL_ALPHA
 
-    def _linestyle(self) -> str:
+    def _linestyle(self, index: Optional[int] = None) -> str:
+        style = self._stage_style(index if index is not None else self._style_index)
+        if style is not None:
+            return style[0]
         return "--" if self._dashed else "-"
 
     def _draw_legend(self) -> None:
         """Colour-keyed legend of stage names, top-right."""
         handles = [
             mpatches.Patch(
-                facecolor=to_rgba(self._stage_colour(i), self._fill_alpha()),
+                facecolor=to_rgba(self._stage_colour(i), self._fill_alpha(i)),
                 edgecolor=self._stage_colour(i),
-                linestyle=self._linestyle(),
+                linestyle=self._linestyle(i),
                 label=getattr(stage, "name", f"Stage {i + 1}"),
             )
             for i, stage in enumerate(self._stages)
