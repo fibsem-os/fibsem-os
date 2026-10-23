@@ -67,7 +67,7 @@ def test_the_shipped_rotating_stages_derive_what_they_used_to_state(filename: st
 
     Tescan is the row worth having: reference 180, so its opposite is 0 and not 360.
     """
-    config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
+    config = utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename))
     stage = StageSystemSettings.from_dict(utils.configuration_device(config, "stage"))
 
     assert stage.rotation_180 == SHIPPED[filename]
@@ -87,7 +87,9 @@ def test_a_connected_compustage_derives_no_opposite_rotation():
     at does not have a compustage. That is the change working, not a gap in it.
     """
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
         manufacturer="Demo",
     )
 
@@ -99,7 +101,9 @@ def test_a_connected_compustage_derives_no_opposite_rotation():
 def test_a_connected_rotating_stage_sits_half_a_turn_away():
     """The counterpart, so the test above is not passing for a trivial reason."""
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+        ),
         manufacturer="Demo",
     )
 
@@ -110,7 +114,7 @@ def test_a_connected_rotating_stage_sits_half_a_turn_away():
 
 @pytest.mark.parametrize("filename", sorted(ALL_CONFIGS))
 def test_no_shipped_file_still_states_it(filename: str):
-    config = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
+    config = utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename))
     assert "rotation_180" not in utils.configuration_device(config, "stage")
 
 

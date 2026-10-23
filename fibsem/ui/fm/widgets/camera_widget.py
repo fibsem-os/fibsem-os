@@ -2,8 +2,6 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QComboBox,
-    QDoubleSpinBox,
     QGridLayout,
     QLabel,
     QWidget,

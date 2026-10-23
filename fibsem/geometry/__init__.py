@@ -10,6 +10,5 @@ movement and back) and the stage movements built on it, and ``projection`` the v
 canvas draws stage positions in (``StageProjection``). ``orientations`` names the pose a
 position is in, the milling angle a tilt gives, and carries a position from one pose to
 another. ``similarity`` fits the 2D turn, scale and offset between point pairs, behind
-three-point alignment. ``fibsem.transformations`` and ``fibsem.projection`` re-export what
-moved here.
+three-point alignment.
 """

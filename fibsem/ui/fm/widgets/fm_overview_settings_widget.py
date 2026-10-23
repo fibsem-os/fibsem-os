@@ -14,7 +14,6 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
     QFormLayout,
-    QHBoxLayout,
     QLabel,
     QLineEdit,
     QSizePolicy,
@@ -383,11 +382,6 @@ class FMOverviewSettingsWidget(QWidget):
     def set_channel_settings(self, channels: List[ChannelSettings]) -> None:
         """Keep the focus-channel choices in step with the channels being acquired."""
         self.autofocus_widget.update_channels(list(channels))
-
-    @property
-    def autofocus_channel_name(self) -> Optional[str]:
-        channel = self.autofocus_widget.get_selected_channel()
-        return channel.name if channel is not None else None
 
     @property
     def autofocus_settings(self) -> Optional[AutoFocusSettings]:

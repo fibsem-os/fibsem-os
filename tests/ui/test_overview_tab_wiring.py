@@ -167,7 +167,7 @@ def test_the_retired_flag_is_gone_everywhere(window_source):
     """
     import fibsem.config as fibsem_cfg
 
-    assert not hasattr(fibsem_cfg.FeatureFlags(), "overview_canvas_tab")
+    assert "overview_canvas_tab" not in str(fibsem_cfg.UserPreferences().to_dict())
     assert "overview_canvas_tab" not in window_source
     # Read from disk, not imported. This is one of the few CI runs *without* PyQt5, and
     # `import preferences_dialog` pulls it in -- taking the whole module down at
@@ -203,7 +203,7 @@ def test_the_napari_tab_and_its_flag_are_gone(window_source):
     """
     import fibsem.config as fibsem_cfg
 
-    assert not hasattr(fibsem_cfg.FeatureFlags(), "napari_overview_tab")
+    assert "napari_overview_tab" not in str(fibsem_cfg.UserPreferences().to_dict())
     for gone in (
         "add_minimap_tab",
         "FibsemMinimapWidget",

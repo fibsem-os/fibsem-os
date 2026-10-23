@@ -18,7 +18,6 @@ these as starting values to be re-measured, not as settled. Each constant carrie
 its own sample count and spread below.
 """
 
-import logging
 from typing import TYPE_CHECKING, Iterable, Optional
 
 from fibsem.structures import (
@@ -279,9 +278,3 @@ def beam_overview_cost(settings: Optional[OverviewAcquisitionSettings]) -> float
     # the runner returns the stage to where it started
     total += stage_move_cost(1)
     return total
-
-
-def log_estimate(label: str, seconds: float) -> None:
-    """Debug-log an estimate in the same shape everywhere, for later comparison
-    against the durations the experiment record already stores."""
-    logging.debug({"msg": "duration_estimate", "label": label, "seconds": seconds})

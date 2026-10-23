@@ -160,7 +160,7 @@ def _microscope(config: str):
     from fibsem import utils
 
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, config), setup_logging=False
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, config), setup_logging=False
     )
     return microscope
 

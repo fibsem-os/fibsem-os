@@ -25,7 +25,7 @@ from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
 from tests.protocols import planned, task_protocol
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
-    fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
+    fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
 )
 
 

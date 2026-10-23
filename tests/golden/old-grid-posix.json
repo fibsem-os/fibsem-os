@@ -1,0 +1,30 @@
+{
+  "_id": "grid-1",
+  "created_at": "2025-10-09T08:53:20+00:00",
+  "description": "",
+  "name": "grid-01",
+  "overlays": [],
+  "proposals": [],
+  "quality": {
+    "actor": "",
+    "at_task": "",
+    "decision_id": null,
+    "reason": "",
+    "updated_at": null,
+    "verdict": "GOOD"
+  },
+  "task_history": [],
+  "task_state": {
+    "end_timestamp": null,
+    "item_id": "grid-1",
+    "iteration": null,
+    "name": "",
+    "outputs": {},
+    "start_timestamp": "2025-10-09T08:53:20+00:00",
+    "status": "NotStarted",
+    "status_message": "",
+    "step": "",
+    "task_id": "task-1",
+    "task_type": ""
+  }
+}

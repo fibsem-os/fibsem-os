@@ -1021,3 +1021,261 @@ def test_a_correlation_config_section_absent_reads_as_the_defaults():
     assert CorrelationConfig.from_dict(None) == CorrelationConfig()
     assert FitSettings.from_dict(None) == FitSettings()
     assert RISettings.from_dict(None) == RISettings()
+
+
+# ---- workflow records: verdicts, runs, proposals, grids, plans -----------------
+
+WHEN = datetime.fromisoformat("2026-10-20T09:00:00+10:00")
+LATER = datetime.fromisoformat("2026-10-20T09:05:30+10:00")
+
+
+def _proposal():
+    from fibsem.acting import Actor
+    from fibsem.imaging.spot import SpotBurnSettings
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+    from fibsem.workflows.proposals import (
+        Decision,
+        DecisionOutcome,
+        Proposal,
+        Suggestion,
+    )
+
+    values = {
+        "poi": Point(x=1e-6, y=-2e-6),
+        "stage_position": FibsemStagePosition(
+            name="pos", x=1e-3, y=2e-3, z=3e-3, r=0.5, t=0.6
+        ),
+        "alignment_area": RECTANGLE,
+        "features": [{"name": "LamellaCentre", "px": Point(x=10.0, y=20.0)}],
+        "milling_config": FibsemMillingTaskConfig(stages=[_stage()]),
+        "spot_burn": SpotBurnSettings(coordinates=[Point(x=0.5, y=0.5)]),
+        "note": "kept as it is",
+    }
+    return Proposal(
+        kind="milling",
+        values=values,
+        provenance={"task_id": "task-1", "image": "ref_image.tif"},
+        decisions=[
+            Decision(
+                outcome=DecisionOutcome.Confirmed,
+                actor=Actor.operator("operator"),
+                values={"poi": Point(x=2e-6, y=-2e-6)},
+                timestamp=LATER,
+                via="workflow",
+                task_id="task-1",
+                proposal_id="proposal-1",
+                action="run",
+                suggestion_id="suggestion-1",
+                evidence="evidence-1",
+            ),
+            Decision(
+                outcome=DecisionOutcome.Rejected,
+                actor=Actor.agent("model"),
+                reason="off the lamella",
+                timestamp=LATER,
+            ),
+        ],
+        created_at=WHEN,
+        id="proposal-1",
+        asked_by=Actor.task("Mill Rough"),
+        suggestion=Suggestion(
+            actor=Actor.agent("model"),
+            reason="closer to the centre",
+            values={"poi": Point(x=3e-6, y=0.0)},
+            patch={"depth": 1e-6},
+            action="edit",
+            image="ref_image.tif",
+            evidence="evidence-2",
+            timestamp=LATER,
+            id="suggestion-1",
+            declined=True,
+            declined_reason="no",
+        ),
+    )
+
+
+def _grid():
+    from fibsem.acting import Actor
+    from fibsem.workflows.grids import GridRecord, OverlayRecord
+    from fibsem.workflows.quality import QualityRecord, Verdict
+    from fibsem.workflows.status import TaskState, TaskStatus
+
+    grid = GridRecord(
+        name="grid-01",
+        id="grid-1",
+        description="cryo",
+        quality=QualityRecord(verdict=Verdict.GOOD, actor=str(Actor.operator("op"))),
+        task_history=[
+            TaskState(
+                name="SEM Overview",
+                task_id="task-9",
+                start_timestamp=WHEN,
+                end_timestamp=LATER,
+                status=TaskStatus.Completed,
+            )
+        ],
+        created_at=WHEN,
+        proposals=[_proposal()],
+        overlays=[
+            OverlayRecord(
+                kind="gridbar",
+                dx=np.float64(1e-6),
+                dy=2e-6,
+                rotation=3.0,
+                scale=1.5,
+                mirrored=np.bool_(True),
+                pitch=60e-6,
+                bar_width=np.float32(10e-6),
+                reference="overview.tif",
+                view="SEM",
+                fit={"residual": np.float64(0.5), "pairs": [[1, 2], [3, 4]]},
+                display={"opacity": 0.5},
+                id="overlay-1",
+                created_at=WHEN,
+            )
+        ],
+    )
+    grid.task_state.task_id = "task-10"
+    grid.task_state.start_timestamp = WHEN
+    return grid
+
+
+def _built_records():
+    from fibsem.acting import Actor
+    from fibsem.workflows.attention import Attention
+    from fibsem.workflows.history_rows import HistoryFilter
+    from fibsem.workflows.quality import QualityRecord, Verdict
+    from fibsem.workflows.status import TaskState, TaskStatus
+    from fibsem.workflows.task_config import RunPlan, TaskPlan, WorkflowOptions
+
+    plan = TaskPlan(
+        name="Mill Rough",
+        attention=Attention.supervised,
+        requires=["Setup"],
+        required=False,
+        scheduled_at=LATER,
+    )
+    return {
+        "record-quality": QualityRecord(
+            verdict=Verdict.REWORK,
+            actor=str(Actor.agent("model")),
+            reason="too thick",
+            at_task="Mill Rough",
+            updated_at=WHEN,
+            decision_id=("lamella-1", "Mill Rough"),
+        ),
+        "record-task-state": TaskState(
+            name="Mill Rough",
+            step="Milling",
+            task_id="task-1",
+            task_type="MILL_ROUGH",
+            item_id="lamella-1",
+            iteration=2,
+            start_timestamp=WHEN,
+            end_timestamp=LATER,
+            status=TaskStatus.Failed,
+            status_message="stopped",
+            outputs={"final_fib": ["ref_final_fib.tif"]},
+        ),
+        "record-proposal": _proposal(),
+        "record-grid": _grid(),
+        "record-history-filter": HistoryFilter(
+            show="images", status="failed", task="Mill Rough", decided_by="agent"
+        ),
+        "record-task-plan": plan,
+        "record-run-plan": RunPlan(tasks=[plan, TaskPlan(name="Setup")]),
+        "record-workflow-options": WorkflowOptions(
+            turn_beams_off=True, show_run_summary=False
+        ),
+    }
+
+
+@pytest.mark.parametrize("case", sorted(_built_records()))
+def test_a_built_record_saves_as_pinned_and_reads_back(case):
+    value = _built_records()[case]
+    saved = value.to_dict()
+    _check(case, saved)
+    assert _plain(type(value).from_dict(_plain(saved)).to_dict()) == _plain(saved)
+
+
+def _old_records():
+    from fibsem.workflows.grids import GridRecord, OverlayRecord
+    from fibsem.workflows.history_rows import HistoryFilter
+    from fibsem.workflows.proposals import Proposal
+    from fibsem.workflows.quality import QualityRecord
+    from fibsem.workflows.status import TaskState
+
+    decision = {
+        "outcome": "Confirmed",
+        "author": "human:operator",
+        "values": {"poi": {"x": 1e-6, "y": 0.0}},
+        "timestamp": 1760000000.0,
+    }
+    return {
+        "old-quality-has-defect": (
+            QualityRecord,
+            {"has_defect": True, "requires_rework": True, "description": "thick"},
+        ),
+        "old-quality-no-defect": (QualityRecord, {"has_defect": False}),
+        "old-quality-defect-state": (
+            QualityRecord,
+            {
+                "state": "FAILURE",
+                "description": "cracked",
+                "last_completed_task": "Mill Polishing",
+                "updated_at": 1760000000.0,
+            },
+        ),
+        "old-quality-alias-names": (QualityRecord, {"verdict": "NONE"}),
+        "old-task-state-lamella-id": (
+            TaskState,
+            {
+                "name": "Mill Rough",
+                "task_id": "task-1",
+                "lamella_id": "lamella-1",
+                "start_timestamp": 1760000000.0,
+                "end_timestamp": 1760000060.5,
+                "status": "AwaitingDecision",
+                "retired_key": 1,
+            },
+        ),
+        "old-proposal-author": (
+            Proposal,
+            {
+                "id": "proposal-1",
+                "kind": "poi",
+                "values": {"poi": {"x": 0.0, "y": 1e-6}},
+                "provenance": {"task_id": "task-1"},
+                "decisions": [decision],
+                "created_at": 1760000000.0,
+            },
+        ),
+        "old-overlay-posix": (
+            OverlayRecord,
+            {"kind": "gridbar", "dx": 1e-6, "created_at": 1760000000.0, "id": "o-1"},
+        ),
+        "old-grid-posix": (
+            GridRecord,
+            {
+                "name": "grid-01",
+                "_id": "grid-1",
+                "created_at": 1760000000.0,
+                "quality": {"verdict": "GOOD"},
+                "task_state": {"task_id": "task-1", "start_timestamp": 1760000000.0},
+            },
+        ),
+        "old-history-filter-empty": (HistoryFilter, {}),
+    }
+
+
+@pytest.mark.parametrize("case", sorted(_old_records()))
+def test_an_old_record_shape_saves_again_as_pinned(case):
+    cls, data = _old_records()[case]
+    _check(case, cls.from_dict(deepcopy(data)).to_dict())
+
+
+def test_proposals_keyed_by_task_read_as_that_tasks_asking():
+    from fibsem.workflows.proposals import proposals_from_dict, proposals_to_dict
+
+    saved = {"Mill Rough": [{"kind": "poi", "id": "p-1", "created_at": 1760000000.0}]}
+    _check("old-proposals-by-task", proposals_to_dict(proposals_from_dict(saved)))

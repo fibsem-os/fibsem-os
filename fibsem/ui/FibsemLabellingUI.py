@@ -22,7 +22,6 @@ from PIL import Image
 from PyQt5 import QtWidgets
 from PyQt5.QtGui import QFont
 
-import fibsem
 from fibsem.segmentation import utils as seg_utils
 from fibsem.segmentation.config import (
     CLASS_COLORS,

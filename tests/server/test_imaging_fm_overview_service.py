@@ -39,7 +39,9 @@ ONE_BY_TWO = OverviewParameters(rows=1, cols=2, overlap=0.1)
 def microscope(tmp_path_factory):
     """A Demo microscope with an FM, the sample scene off (noise frames), at the
     FM pose with the objective in."""
-    with open(os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+    with open(
+        os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+    ) as f:
         config = yaml.safe_load(f)
     config.setdefault("sim", {}).setdefault("sample", {})["enabled"] = False
     path = tmp_path_factory.mktemp("fm-config") / "sim-arctis-configuration.yaml"

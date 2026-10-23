@@ -142,7 +142,6 @@ class _SlotRow(QWidget):
         super().__init__(parent)
         self.slot = slot
         self._has_microscope = has_microscope
-        self._names_editable = names_editable
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.setFixedHeight(_ROW_HEIGHT)

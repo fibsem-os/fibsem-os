@@ -259,7 +259,7 @@ def _install(monkeypatch, *entry_points):
 def _read(monkeypatch, *entry_points):
     """Read *entry_points* as if they were the installed fibsem.drivers group."""
     _install(monkeypatch, *entry_points)
-    records = registry.get_driver_plugin_records()
+    records = registry.DRIVER_PLUGINS.plugin_records()
     return {record.entry_point: record for record in records}
 
 

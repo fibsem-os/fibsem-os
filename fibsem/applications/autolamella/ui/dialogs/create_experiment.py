@@ -161,7 +161,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         prefs = load_user_preferences()
         self.lineEdit_experiment_directory.setText(default_experiment_directory())
 
-        exp_prefs = prefs.experiment
+        exp_prefs = prefs.shared
         if exp_prefs.user:
             self.lineEdit_experiment_user.setText(exp_prefs.user)
         if exp_prefs.project:
@@ -407,7 +407,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
     def _select_protocol(self):
         """Open dialog to select a protocol file."""
         # Open file dialog at the directory of the current protocol or default
-        start_path = cfg.TASK_PROTOCOL_PATH
+        start_path = cfg.USER_PROTOCOL_PATH
         if self.protocol_path:
             start_path = os.path.dirname(self.protocol_path)
 

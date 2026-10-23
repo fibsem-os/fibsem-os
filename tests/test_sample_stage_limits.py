@@ -29,7 +29,7 @@ from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE, STAGE_LIMITS_
 def connected(request):
     configuration, table = request.param
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, configuration),
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, configuration),
         setup_logging=False,
     )
     return microscope, table

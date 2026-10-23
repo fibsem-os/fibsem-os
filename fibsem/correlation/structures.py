@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from dataclasses import dataclass, field, replace
-from datetime import datetime
-from enum import Enum, auto
-from typing import Annotated, Any, Dict, List, Optional, Tuple
+from enum import Enum
+from typing import Annotated, Any, Dict, Optional, Tuple
 
 import numpy as np
 from pydantic import Field
@@ -21,7 +19,7 @@ from fibsem.codec.upgrades.correlation import (
 from fibsem.conversions import image_to_microscope_image_coordinates_px
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage, Point
-from fibsem.util.timestamps import now, to_datetime, to_iso
+from fibsem.util.timestamps import now, to_datetime
 
 
 class PointType(NamedEnum, Enum):

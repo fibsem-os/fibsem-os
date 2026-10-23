@@ -24,7 +24,6 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from PyQt5.QtCore import QEventLoop, QTimer
-from PyQt5.QtWidgets import QWidget
 
 # The real construction seam: a host with a view controller, a real image widget and a
 # Demo microscope. The guards read `image_widget.eb_image` and the host's milling widget,
