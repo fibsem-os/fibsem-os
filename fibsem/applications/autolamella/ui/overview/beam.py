@@ -368,8 +368,7 @@ class BeamOverviewTab(AutoLamellaOverviewTabBase):
         experiment = self.experiment
         if experiment is None:
             return
-        experiment.sign_verdict(lamella)
-        experiment.save()
+        experiment.save_verdict(lamella)
         self.refresh_positions()
 
     # ── turning a request into a lamella ─────────────────────────────────
