@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor
+from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor, signer
 from fibsem.codec import decode, encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.server.responses import (
@@ -962,11 +962,7 @@ class AppContext:
                 return refused("invalid_value", str(exc))
         decision = Decision(
             outcome=decided,
-            actor=(
-                experiment.actor()
-                if current_actor() is OPERATOR
-                else Actor.agent(actor or "remote")
-            ),
+            actor=signer(experiment.actor(), actor or "remote"),
             values=decoded,
             reason=reason,
             via="server",
