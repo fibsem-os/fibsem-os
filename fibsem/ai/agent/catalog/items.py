@@ -403,7 +403,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="item_set_pose",
         returns="ItemEdit",
-        description="Set the stage position now as one of a lamella's poses, as the tab's Set pose does. Setting MILLING moves the lamella: its milling angle and fluorescence pose follow. Saved; answers with the item.",
+        description="Set the stage position now as one of a lamella's poses, as the tab's Set pose does. Setting MILLING moves the lamella: its milling angle and fluorescence pose follow. A volume position has MILLING and SEM_IMAGING, and keeps MILLING once a slice is cut. Saved; answers with the item.",
         method="POST",
         path="/app/experiment/items/{item_name}/poses/{pose}",
         level="drive",
@@ -454,7 +454,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="item_set_position",
         returns="ItemEdit",
-        description="Move a lamella to a point, as moving it on an overview does: to stage_position, or under a point of a grid overview (overview = {grid_name, filename: one grid_get lists or any saved image's path in the experiment, px: [x, y] source pixels or fraction: [x, y] 0-1}). A point on the fluorescence side moves its fluorescence pose and the milling pose follows; otherwise its milling pose moves, with its milling angle, and the fluorescence pose follows. The stage does not move. Refused for the lamella a run is working on. Saved; answers with the item.",
+        description="Move a lamella to a point, as moving it on an overview does: to stage_position, or under a point of a grid overview (overview = {grid_name, filename: one grid_get lists or any saved image's path in the experiment, px: [x, y] source pixels or fraction: [x, y] 0-1}). A point on the fluorescence side moves its fluorescence pose and the milling pose follows; otherwise its milling pose moves, with its milling angle, and the fluorescence pose follows. The stage does not move. Refused for the lamella a run is working on. A volume position takes stage_position only and moves its MILLING pose, refused once a slice is cut. Saved; answers with the item.",
         method="POST",
         path="/app/experiment/items/{item_name}/position",
         level="drive",

@@ -386,6 +386,9 @@ class ImagePayload:
     pixelsize: Optional[PixelSize] = None
     preview_pixelsize: Optional[float] = None
     acquired_at: Optional[str] = None
+    # what the bar under the image says, and its scalebar
+    # (`fibsem.server.image_payloads.image_info`); only where an answer adds it
+    info: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -393,6 +396,10 @@ class DisplayImages:
     available: bool
     sem: Optional[ImagePayload] = None
     fib: Optional[ImagePayload] = None
+    # the FM's latest frame, in its channel's colour; fm_available is False on a
+    # microscope without an FM
+    fm: Optional[ImagePayload] = None
+    fm_available: bool = False
 
 
 @dataclass
@@ -755,6 +762,33 @@ class GridPlan:
     steps: List[PlanStep] = field(default_factory=list)
     # seconds of work, and each task's count and seconds
     estimate: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class RunStep:
+    item: str
+    task: str
+
+
+@dataclass
+class RunPlan:
+    """A lamella run's steps in queue order and its estimate, or for an
+    addition to the running queue what it adds and delays; why not when
+    ``valid`` is false."""
+
+    available: bool
+    valid: bool
+    reason: Optional[str] = None
+    add: Optional[bool] = None
+    run_next: Optional[bool] = None
+    task_names: Optional[List[str]] = None
+    item_names: Optional[List[str]] = None
+    steps: List[RunStep] = field(default_factory=list)
+    already_queued: List[str] = field(default_factory=list)
+    # work and hold seconds, expected finish, and each task's count and seconds
+    estimate: Optional[Dict[str, Any]] = None
+    # work and delay seconds, finish before and after, hold seconds
+    addition: Optional[Dict[str, Any]] = None
 
 
 @dataclass

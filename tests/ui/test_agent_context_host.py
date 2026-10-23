@@ -54,6 +54,8 @@ def test_a_fresh_window_satisfies_the_host_contract(ui):
         "available": False,
         "sem": None,
         "fib": None,
+        "fm": None,
+        "fm_available": False,
     }
 
 

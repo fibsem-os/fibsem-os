@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AgentPage } from "@/pages/Agent";
 import { ExperimentPage } from "@/pages/Experiment";
+import { GatewayPage } from "@/pages/Gateway";
 import { GridsPage } from "@/pages/Grids";
 import { LamellaePage } from "@/pages/Lamellae";
 import { MicroscopePage } from "@/pages/Microscope";
@@ -63,6 +64,8 @@ export function App() {
         }
       />
     );
-  // Keyed on the token, so a new pairing starts with nothing cached.
+  // Keyed on the token, so a new pairing starts with nothing cached. The
+  // gateway (fibsem-gateway) serves the same files and has one page.
+  if (location.pathname.startsWith("/ui/gateway")) return <GatewayPage key={token} />;
   return <Shell key={token} />;
 }

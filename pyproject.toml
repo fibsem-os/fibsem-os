@@ -54,11 +54,7 @@ Homepage = "https://github.com/fibsem-os/fibsem-os"
 
 [project.optional-dependencies]
 ml = [
-    "tqdm>=4.65.0",
-    "zarr>=2.13.6",
-    "dask>=2023.3.0",
     "torch>=2.0.0,<=2.3.0",
-    "torchvision>=0.15.1",
     "segmentation-models-pytorch>=0.3.2",
     "plotly>=5.14.1",
     "kaleido==0.2.0",
@@ -119,17 +115,18 @@ test = [
 dev = ["ruff==0.16.3"]
 
 [project.scripts]
-fibsem_ui = "fibsem.tools.launcher:fibsem_ui"
+fibsem_ui = "fibsem.tools.desktop_launch:fibsem_ui"
 fibsem_label = "fibsem.ui.FibsemLabellingUI:main"
-fibsem-autolamella-ui = "fibsem.tools.launcher:autolamella"
+fibsem-autolamella-ui = "fibsem.tools.desktop_launch:autolamella"
 fm-image-viewer-ui = "fibsem.ui.fm.widgets.fm_image_viewer_widget:main"
 fibsem-correlation-ui = "fibsem.ui.correlation.widgets.correlation_tab_widget:main"
 fibsem-cli = "fibsem.cli:main"
 fibsem-mcp = "fibsem.ai.agent.mcp.sidecar:main"
 fibsem-volume = "fibsem.applications.volume.launch:main"
-fibsem-volume-ui = "fibsem.tools.launcher:volume"
+fibsem-volume-ui = "fibsem.tools.desktop_launch:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 fibsem-agent = "fibsem.ai.agent.runner:main"
+fibsem-gateway = "fibsem.gateway.main:main"
 
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
 # only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc. That

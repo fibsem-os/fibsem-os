@@ -4167,10 +4167,12 @@ class FibsemImageMetadata:
     def read(path: str) -> Optional["FibsemImageMetadata"]:
         """A saved beam image's metadata, without reading its pixels; None for
         a file that records none (an FM stack's OME, a plain TIFF)."""
+        from fibsem.image_format import read_metadata_dict
+
         try:
             with tff.TiffFile(path) as tiff:
-                raw = tiff.pages[0].tags["ImageDescription"].value
-            return FibsemImageMetadata.from_dict(json.loads(raw))
+                raw = read_metadata_dict(tiff)
+            return FibsemImageMetadata.from_dict(raw) if raw is not None else None
         except Exception:
             logging.debug(f"Could not read the metadata of {path}", exc_info=True)
             return None
@@ -4321,18 +4323,14 @@ class FibsemImage:
         Returns:
             FibsemImage: instance of FibsemImage
         """
+        from fibsem.image_format import read_metadata_dict
+
         with tff.TiffFile(tiff_path) as tiff_image:
             data = tiff_image.asarray()
             try:
-                metadata = json.loads(
-                    tiff_image.pages[0].tags["ImageDescription"].value
-                )
-                metadata = FibsemImageMetadata.from_dict(metadata)
-            except Exception as e:
+                metadata = FibsemImageMetadata.from_dict(read_metadata_dict(tiff_image))
+            except Exception:
                 metadata = None
-                # print(f"Error: {e}")
-                # import traceback
-                # traceback.print_exc()
         image = cls(data=data, metadata=metadata)
         image.filepath = str(tiff_path)
         return image
@@ -4377,14 +4375,13 @@ class FibsemImage:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         path = Path(path).with_suffix(".tif")
 
-        if self.metadata is not None:
-            metadata_dict = self.metadata.to_dict()
-        else:
-            metadata_dict = None
-        tff.imwrite(
-            path,
+        from fibsem import image_format
+
+        image_format.write(
+            str(path),
             self.data,
-            metadata=metadata_dict,
+            description=image_format.beam_image_ome(self.data, self.metadata),
+            levels=image_format.has_levels(self.data.shape),
         )
         # set only after a successful write, so a recorded path is always a path that exists
         self.filepath = str(path)
