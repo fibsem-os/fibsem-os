@@ -53,6 +53,8 @@ class MillingSpec(OverlaySpec):
     legend_loc: str = "upper right"
     # A stage's own style by index ("filled", "outline", "dashed"), over the above.
     stage_styles: Sequence[str] = ()
+    # A stage's own colour by index, over ``colour``.
+    stage_colours: Sequence[str] = ()
 
 
 @dataclass

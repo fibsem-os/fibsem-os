@@ -91,6 +91,7 @@ class MillingPatternOverlay(CanvasOverlay):
         self._colour: Optional[str] = None
         self._dashed = False
         self._stage_styles: List[str] = []
+        self._stage_colours: List[str] = []
         self._style_index: Optional[int] = None
         self._legend_loc = "upper right"
 
@@ -128,6 +129,7 @@ class MillingPatternOverlay(CanvasOverlay):
         dashed: bool = False,
         legend_loc: str = "upper right",
         stage_styles: Sequence[str] = (),
+        stage_colours: Sequence[str] = (),
     ) -> None:
         """Display *stages* against *image*.
 
@@ -136,9 +138,11 @@ class MillingPatternOverlay(CanvasOverlay):
         ``colour`` draws every stage in it instead of a colour each; ``dashed``
         draws them as a preview, dashed with a fainter fill. ``legend_loc`` places
         the stage legend. ``stage_styles`` gives a stage its own style, one of
-        ``STAGE_STYLES``, by index: a volume's slices cut, next and still to cut.
+        ``STAGE_STYLES``, by index: a volume's slices cut, next and still to cut;
+        ``stage_colours`` a stage its own colour, by index, over ``colour``.
         """
         self._stage_styles = list(stage_styles)
+        self._stage_colours = list(stage_colours)
         self._colour = colour
         self._dashed = dashed
         self._legend_loc = legend_loc
@@ -222,6 +226,8 @@ class MillingPatternOverlay(CanvasOverlay):
         self._draw_legend()
 
     def _stage_colour(self, index: int) -> str:
+        if index < len(self._stage_colours):
+            return self._stage_colours[index]
         return self._colour or COLOURS[index % len(COLOURS)]
 
     def _stage_style(self, index: Optional[int]) -> Optional[tuple]:
