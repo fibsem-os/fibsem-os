@@ -1,15 +1,19 @@
 """Test script for run_correlation_from_data.
 
-Loads real test images and coordinates, runs the correlation, and prints the result.
+Loads a folder of test images and coordinates, runs the correlation, and prints
+the result.
 
 Usage
 -----
-    python demos/correlation/demo_correlation_v2.py
+    python demos/correlation/demo_correlation_v2.py <folder>
+
+The folder holds the FIB image, the FM z-stack and the coordinates CSV named below.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 
 import pandas as pd
 
@@ -23,7 +27,6 @@ from fibsem.correlation.structures import (
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.structures import FibsemImage
 
-DEV_PATH = "/home/patrick/github/fibsem/fibsem/applications/test-data"
 DEV_FIB_IMAGE = "ref_ReferenceImage-Spot-Burn-Fiducial-10-36-30_res_02_ib.tif"
 DEV_FM_IMAGE = "zstack-Feature-1-Active-002.ome.tiff"
 DEV_CSV = "data2.csv"
@@ -48,16 +51,19 @@ def load_coordinates(csv_path: str) -> list[Coordinate]:
 
 
 def main():
+    if len(sys.argv) != 2:
+        sys.exit(__doc__)
+    folder = sys.argv[1]
     # Load images
-    fib_image = FibsemImage.load(os.path.join(DEV_PATH, DEV_FIB_IMAGE))
-    fm_image = FluorescenceImage.load(os.path.join(DEV_PATH, DEV_FM_IMAGE))
+    fib_image = FibsemImage.load(os.path.join(folder, DEV_FIB_IMAGE))
+    fm_image = FluorescenceImage.load(os.path.join(folder, DEV_FM_IMAGE))
 
     print(f"FIB image shape:  {fib_image.data.shape}")
     print(f"FIB pixel size:   {fib_image.metadata.pixel_size.x:.3e} m")
     print(f"FM  image shape:  {fm_image.data.shape}")
 
     # Parse coordinates
-    all_coords = load_coordinates(os.path.join(DEV_PATH, DEV_CSV))
+    all_coords = load_coordinates(os.path.join(folder, DEV_CSV))
     fib = [c for c in all_coords if c.point_type == PointType.FIB]
     fm = [c for c in all_coords if c.point_type == PointType.FM]
     poi = [c for c in all_coords if c.point_type == PointType.POI]
@@ -76,7 +82,7 @@ def main():
         surface_coordinate=surface,
     )
 
-    data.save(os.path.join(DEV_PATH, "correlation_input_data.json"))
+    data.save(os.path.join(folder, "correlation_input_data.json"))
 
     print(
         f"\nimage_props will be: fib_shape={data.fib_image_shape}, pixel_size_um={data.fib_image_pixel_size * 1e6:.4f}, fm_shape={data.fm_image_shape}"
