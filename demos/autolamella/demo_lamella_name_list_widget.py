@@ -1,4 +1,7 @@
-"""Test script for LamellaNameListWidget with real experiment data."""
+"""Test script for LamellaNameListWidget with real experiment data.
+
+python demos/autolamella/demo_lamella_name_list_widget.py <experiment.yaml>
+"""
 
 import sys
 from pathlib import Path
@@ -8,16 +11,13 @@ from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
 
-EXPERIMENT_PATH = Path(
-    "/home/patrick/github/fibsem/fibsem/applications/autolamella/log/"
-    "AutoLamella-2026-03-11-17-14/experiment.yaml"
-)
-
 
 def main():
+    if len(sys.argv) != 2:
+        sys.exit(__doc__)
     app = QApplication(sys.argv)
 
-    experiment = Experiment.load(EXPERIMENT_PATH)
+    experiment = Experiment.load(Path(sys.argv[1]))
 
     window = QWidget()
     window.setWindowTitle("LamellaNameListWidget Test")

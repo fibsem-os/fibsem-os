@@ -51,10 +51,11 @@ import os
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import (
     Any,
     Callable,
+    ContextManager,
     Dict,
     Iterator,
     List,
@@ -106,6 +107,7 @@ from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures import (
     ACTIVE_MILLING_STATES,
     BeamType,
+    DriverMillingSettings,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemImage,
@@ -115,6 +117,7 @@ from fibsem.structures import (
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
+    Parameter,
     field_specs,
 )
 from fibsem.util import wording
@@ -124,6 +127,9 @@ from fibsem.util.timestamps import now_iso
 # written back: a preset first, since it sets the others on a column that has one,
 # then the voltage before the current, as the instruments want.
 SAVED_BEAM_CONDITIONS = ("preset", "voltage", "current", "hfw")
+
+# The patterning modes a recipe mills in.
+PATTERNING_MODES = ("Serial", "Parallel")
 
 # What a stage update leaves out and the run's own reports said: which run, which
 # task config, which stage (FIB-1356). A backend's poll loop and a strategy's tick
@@ -436,6 +442,10 @@ class Milling(Service):
     # The `FibsemMillingSettings` fields this driver's ``setup`` reads; it ignores
     # the rest. A driver sets it.
     setting_names: Tuple[str, ...] = ()
+    # The driver's own settings, which a recipe keeps in its ``driver`` block under
+    # the driver's name; its registry entry names the same class
+    # (`DriverEntry.milling_settings`). None for a driver with none.
+    settings_class: Optional[Type[DriverMillingSettings]] = None
     # The directions this driver can scan a pattern in. A driver sets it.
     scan_directions: Tuple[str, ...] = ()
     # The RTM modes this driver reads in (`fibsem.milling.rtm.RTM_MODES`); none
@@ -601,11 +611,47 @@ class Milling(Service):
         """The beam that mills on ``channel``."""
         return self.electron if channel is BeamType.ELECTRON else self.ion
 
+    @classmethod
+    def own_name(cls) -> Optional[str]:
+        """The name of the block a recipe keeps this driver's own settings in: the
+        driver's registry name. None for a driver with none."""
+        if cls.settings_class is None:
+            return None
+        from fibsem.drivers.registry import milling_settings_name
+
+        return milling_settings_name(cls.settings_class)
+
+    @classmethod
+    def own_settings(cls, settings: FibsemMillingSettings) -> Any:
+        """This driver's own settings in *settings*, an instance of its
+        ``settings_class``."""
+        block = settings.driver.get(cls.own_name())
+        return block if isinstance(block, cls.settings_class) else cls.settings_class()
+
+    def ignored_settings(self, settings: FibsemMillingSettings) -> Optional[str]:
+        """The warning for the fields *settings* sets, away from their defaults,
+        that this driver does not mill with; None when there are none."""
+        default = FibsemMillingSettings()
+        ignored = [
+            f"{name}: {getattr(settings, name)!r}"
+            for name in field_specs(FibsemMillingSettings)
+            if name not in self.setting_names
+            and name not in _NOT_A_SETTING
+            and getattr(settings, name) != getattr(default, name)
+        ]
+        if not ignored:
+            return None
+        return (
+            f"{', '.join(ignored)} {'is' if len(ignored) == 1 else 'are'} ignored "
+            f"on this instrument ({type(self).__name__})."
+        )
+
     def supported_settings(
         self, channel: BeamType = BeamType.ION
     ) -> Dict[str, ParameterMetadata]:
         """The recipe (`FibsemMillingSettings`) fields this instrument mills with on
         ``channel``, each with its choices and limits; the fields left out it ignores.
+        The driver's own are named by their path, ``driver.Tescan.preset``.
 
         A field bound to one of the milling beam's parameters
         (milling current and voltage, preset, hfw) has that parameter's own metadata, and is left out when that beam doesn't
@@ -618,14 +664,51 @@ class Milling(Service):
             return {}
         beam = self.beam(channel)
         available: Dict[str, ParameterMetadata] = {}
-        specs = FibsemMillingSettings.params
-        for name in self.setting_names:
-            beam_parameter = specs[name].bound_name
+        for name, spec in self._setting_specs().items():
+            beam_parameter = spec.bound_name
             if beam_parameter not in beam.parameters:
                 available[name] = self._metadata_of(name)
             elif _settable(beam, beam_parameter):
                 available[name] = beam.parameters[beam_parameter].metadata
         return available
+
+    def _setting_specs(self) -> Dict[str, Parameter]:
+        """The declared field of each recipe setting this driver lists, by its path:
+        its ``setting_names``, then its own (``driver.Tescan.preset``)."""
+        specs = FibsemMillingSettings.params
+        fields = {name: specs[name] for name in self.setting_names}
+        if self.settings_class is not None:
+            prefix = f"driver.{self.own_name()}."
+            fields.update(
+                (prefix + name, spec)
+                for name, spec in self.settings_class.params.items()
+            )
+        return fields
+
+    def settings_schema(self, channel: BeamType = BeamType.ION) -> Dict[str, Any]:
+        """``supported_settings`` as one JSON Schema object, a property per setting
+        by its path, in the shape a monitor config's ``describe()`` has. A number the
+        beam lists values for (the milling current) keeps any value, so its listed
+        ones are its ``examples``."""
+        from fibsem.schema import _plain, parameter_schema
+
+        specs = self._setting_specs()
+        properties: Dict[str, Any] = {}
+        for name, reported in self.supported_settings(channel).items():
+            spec = specs[name]
+            numeric = spec.choices is None and spec.type in (int, float)
+            listed = reported.choices if numeric else None
+            if listed is not None:
+                reported = dataclasses.replace(reported, choices=None)
+            schema = parameter_schema(spec.with_reported(reported), {})
+            if listed:
+                schema["examples"] = [_plain(choice) for choice in listed]
+            properties[name] = schema
+        return {
+            "type": "object",
+            "title": f"{type(self).__name__} settings",
+            "properties": properties,
+        }
 
     def supported_pattern_settings(self) -> Dict[str, ParameterMetadata]:
         """The pattern fields whose choices this instrument decides: the scan
@@ -660,7 +743,7 @@ class Milling(Service):
                 channels.append(BeamType.ELECTRON)
             return ParameterMetadata(choices=tuple(channels))
         if name == "patterning_mode":
-            return ParameterMetadata(choices=("Serial", "Parallel"))
+            return ParameterMetadata(choices=PATTERNING_MODES)
         return ParameterMetadata()
 
     # -- commands ----------------------------------------------------------------
@@ -677,6 +760,9 @@ class Milling(Service):
             self._save(self.beam(settings.milling_channel))
         self._name = name
         self._set_up = settings
+        ignored = self.ignored_settings(settings)
+        if ignored is not None:
+            logging.warning(ignored)
         self._setup(settings, name)
         if self._drawn:
             self._set_drawn([])
@@ -739,7 +825,8 @@ class Milling(Service):
     ) -> Dict[str, Any]:
         """``setup`` with ``settings``, then ``draw`` ``patterns``. Answers the
         current the milling beam reads after the setup, in amps, and a warning when
-        the recipe asked for a current the beam doesn't list (`milling_current`)."""
+        the recipe asked for a current the beam doesn't list or set fields this
+        instrument ignores (`_milling_current`)."""
         self.setup(settings, name)
         self.draw(patterns)
         return self._milling_current(live=True)
@@ -753,13 +840,15 @@ class Milling(Service):
         """The current what is drawn mills at: ``milling_current``, the milling
         beam's current in amps (read now when *live*, else the last one read or
         written; None before there is one), and ``warning``, set when the last
-        setup asked for a current that is not one of those the beam lists. A beam
-        that lists no currents, or a driver that sets the current another way
-        (Tescan's preset), has no warning."""
+        setup asked for a current that is not one of those the beam lists (a beam
+        that lists no currents, or a driver that sets the current another way,
+        Tescan's preset, has none), or set fields this instrument ignores
+        (`ignored_settings`)."""
         settings = self._set_up
+        ignored = self.ignored_settings(settings) if settings is not None else None
         beam = self.beam(settings.milling_channel if settings else BeamType.ION)
         if beam is None or "current" not in beam.parameters:
-            return {"milling_current": None, "warning": None}
+            return {"milling_current": None, "warning": ignored}
         parameter = beam.parameters["current"]
         used = parameter.last_known
         if live:
@@ -772,7 +861,8 @@ class Milling(Service):
             if settings is not None and "milling_current" in self.setting_names
             else None
         )
-        return {"milling_current": used, "warning": _unlisted(asked, used, parameter)}
+        warnings = [w for w in (_unlisted(asked, used, parameter), ignored) if w]
+        return {"milling_current": used, "warning": " ".join(warnings) or None}
 
     @command(line=_said("Start milling what is drawn"))
     def start(self) -> None:
@@ -1064,8 +1154,10 @@ class Milling(Service):
 
     @query
     def list_options(self) -> Dict[str, Any]:
-        """The names a stage's ``pattern.name`` and ``strategy.name`` take, and
-        the monitors this instrument can run: each name with its config's fields."""
+        """The names a stage's ``pattern.name`` and ``strategy.name`` take, the
+        monitors this instrument can run (each name with its config's fields), and
+        the recipe settings it mills with on each channel it mills on
+        (`settings_schema`)."""
         from fibsem.milling.monitors import get_monitors
         from fibsem.milling.patterning import get_pattern_names
         from fibsem.milling.strategy import get_strategy_names
@@ -1077,6 +1169,11 @@ class Milling(Service):
                 name: monitor.config_class.describe()
                 for name, monitor in get_monitors().items()
                 if monitor.available(self)
+            },
+            "settings": {
+                channel.name: schema
+                for channel in (BeamType.ION, BeamType.ELECTRON)
+                if (schema := self.settings_schema(channel))["properties"]
             },
         }
 
@@ -1382,6 +1479,103 @@ class Milling(Service):
             time.sleep(seconds)
 
 
+class BeamMilling(Milling):
+    """Milling where the recipe sets the milling beam's own conditions (field of
+    view, voltage, current) and the instrument patterns with an application file
+    and a patterning mode: ThermoFisher's, through AutoScript or Odemis, and the
+    Demo's.
+
+    The sequence and its state checks are here; a driver implements the vendor
+    calls: ``_select`` (the milling view, the application file and the patterning
+    mode), ``_set_patterning_mode``, ``_start_patterning``, ``_stop_patterning``,
+    ``_pause_patterning`` and ``_resume_patterning``, and ``_locked`` when its calls
+    go under a lock."""
+
+    setting_names = (
+        "milling_channel",
+        "hfw",
+        "milling_current",
+        "milling_voltage",
+        "application_file",
+        "patterning_mode",
+    )
+
+    def _locked(self) -> ContextManager[Any]:
+        """The lock the vendor calls go under, held across a state check and the
+        call it decides; none by default."""
+        return nullcontext()
+
+    def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
+        if settings.patterning_mode not in PATTERNING_MODES:
+            raise ValueError(
+                f"Patterning mode {settings.patterning_mode} not supported. "
+                f"Supported modes: {', '.join(PATTERNING_MODES)}"
+            )
+        channel = settings.milling_channel
+        self.parent.milling_channel = channel
+        with self._locked():
+            self._select(settings)
+            self._clear()
+        beam = self.beam(channel)
+        beam.hfw.write_through(settings.hfw)
+        # voltage before current: the available ion currents are calibrated per voltage
+        beam.voltage.write_through(settings.milling_voltage)
+        beam.current.write_through(settings.milling_current)
+        logging.debug({"msg": "setup_milling", "mill_settings": settings.to_dict()})
+
+    def _select(self, settings: FibsemMillingSettings) -> None:
+        """Select the milling view on ``settings.milling_channel``, and set the
+        application file and the patterning mode new patterns are made with."""
+        raise NotImplementedError
+
+    def _start(self) -> None:
+        with self._locked():
+            if self.read_state() is MillingState.IDLE:
+                self._start_patterning()
+                logging.info("Starting milling...")
+
+    def _stop(self) -> None:
+        with self._locked():
+            if self.read_state() in ACTIVE_MILLING_STATES:
+                logging.info("Stopping milling...")
+                self._stop_patterning()
+                logging.info("Milling stopped.")
+
+    def _pause(self) -> None:
+        with self._locked():
+            if self.read_state() is MillingState.RUNNING:
+                logging.info("Pausing milling...")
+                self._pause_patterning()
+                logging.info("Milling paused.")
+
+    def _resume(self) -> None:
+        with self._locked():
+            if self.read_state() is MillingState.PAUSED:
+                logging.info("Resuming milling...")
+                self._resume_patterning()
+                logging.info("Milling resumed.")
+
+    def _restore(self) -> None:
+        # The patterning mode persists on the instrument (xT), so a stage left in
+        # Parallel would carry over to the next one unless reset.
+        self._set_patterning_mode("Serial")
+
+    def _set_patterning_mode(self, mode: str) -> None:
+        raise NotImplementedError
+
+    def _start_patterning(self) -> None:
+        raise NotImplementedError
+
+    def _stop_patterning(self) -> None:
+        raise NotImplementedError
+
+    def _pause_patterning(self) -> None:
+        raise NotImplementedError
+
+    def _resume_patterning(self) -> None:
+        raise NotImplementedError
+
+
 class MillingStateMonitor:
     """The monitor every mill step runs: it looks at the instrument every
     ``poll_interval``, reports ``progress``, and ends the step ``finished`` when
@@ -1518,6 +1712,10 @@ class _Drawn:
 
 def _settable(beam: Optional[Beam], name: str) -> bool:
     return beam is not None and name in beam.parameters and getattr(beam, name).settable
+
+
+# The recipe fields no driver lists: what the recipe is for, not how it mills.
+_NOT_A_SETTING = ("milling_channel", "acquire_images", "driver")
 
 
 def _unlisted(asked: Any, used: Any, current: Any) -> Optional[str]:

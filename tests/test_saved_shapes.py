@@ -680,15 +680,19 @@ def test_a_task_protocol_file_saves_again_as_pinned_and_reads_back(case):
     assert _plain(again) == _plain(saved)
 
 
-def test_a_legacy_protocol_converts_as_pinned():
-    from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
+PRE_TASK_PROTOCOLS = {
+    "protocol-legacy-on-grid": PROTOCOLS / "legacy" / "protocol-on-grid.yaml",
+    "protocol-legacy-trench": PROTOCOLS / "legacy" / "protocol-trench.yaml",
+    "protocol-legacy-waffle": PROTOCOLS / "legacy" / "protocol-waffle.yaml",
+    "protocol-legacy-flat-on-grid": FIXTURES
+    / "protocol_pre_task"
+    / "protocol-flat-on-grid.yaml",
+}
 
-    protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
-        PROTOCOLS / "legacy" / "protocol-on-grid.yaml"
-    )
-    protocol.id = "pinned-protocol-id"
-    protocol.grid_tasks.id = "pinned-grid-protocol-id"
-    _check("protocol-legacy-on-grid", protocol.to_dict())
+
+@pytest.mark.parametrize("case", sorted(PRE_TASK_PROTOCOLS))
+def test_a_pre_task_protocol_converts_as_pinned(case):
+    _check(case, _task_protocol(PRE_TASK_PROTOCOLS[case]).to_dict())
 
 
 def _experiment():

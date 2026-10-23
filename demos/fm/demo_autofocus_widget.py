@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
 from fibsem.ui.tokens import (
     SURFACE_COLOR,
@@ -41,15 +41,17 @@ def main() -> None:
 
     channels = [
         ChannelSettings(
-            name="Reflection", excitation_wavelength=550, emission_wavelength=None
+            name="Reflection", excitation_wavelength=550, emission_filter=REFLECTION
         ),
         ChannelSettings(
-            name="GFP", excitation_wavelength=488, emission_wavelength="FLUORESCENCE"
+            name="GFP",
+            excitation_wavelength=488,
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
         ),
         ChannelSettings(
             name="mCherry",
             excitation_wavelength=550,
-            emission_wavelength="FLUORESCENCE",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
         ),
     ]
 

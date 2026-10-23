@@ -16,7 +16,10 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.applications.autolamella.config_edits import set_reference_imaging
+from fibsem.applications.autolamella.config_edits import (
+    copy_task_configs,
+    set_reference_imaging,
+)
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.applications.autolamella.ui.grids.protocol import GridProtocolWidget
 from fibsem.applications.autolamella.ui.protocol.dialogs import (
@@ -51,6 +54,7 @@ from fibsem.ui.widgets.canvas.quad_view import (
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget
 from fibsem.ui.widgets.spot_burn_coordinates_widget import SpotBurnCoordinatesWidget
 from fibsem.ui.widgets.workflow.add_task_dialog import AddTaskDialog
+from fibsem.workflows.workflow_edits import add_task, remove_task
 
 # Frame used by the spot-burn coordinate dialog when the task's stored reference
 # imaging is unusable (missing/zero). Matches ImageSettings' own defaults.
@@ -615,11 +619,13 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         via = "add task"
         self._touch_protocol(task_name, via)
         self._edits.touch_task_configs(self.experiment.positions, [task_name], via)
-        # To the protocol, the workflow and every lamella
-        self.experiment.add_task(task_type, task_name)
-
-        # Save experiment
-        self._save_experiment()
+        # To the protocol, the workflow and every lamella; saved and recorded
+        result = add_task(
+            self.experiment, task_type, task_name, self.session.record_event
+        )
+        if not result["applied"]:
+            QMessageBox.warning(self, "Cannot add the task", result["error"])
+            return
 
         # Refresh widgets
         self._initialise_widgets()
@@ -663,10 +669,9 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 self._edits.touch_task_configs(
                     self.experiment.positions, [selected_task_name], via
                 )
-                self.experiment.remove_task(selected_task_name)
-
-                # Save experiment
-                self._save_experiment()
+                remove_task(
+                    self.experiment, selected_task_name, self.session.record_event
+                )
 
                 # Refresh widgets
                 self._initialise_widgets()
@@ -833,13 +838,14 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self._edits.touch_task_configs(
                 self.experiment.positions, [selected_task_name], via="sync to lamellae"
             )
-            updated_count = self.experiment.apply_lamella_config(
-                lamella_names=all_lamella_names,
-                task_names=[selected_task_name],
+            # From the protocol, so "update the base protocol" only saves it
+            # along with the lamellae.
+            updated_count, _ = copy_task_configs(
+                self.experiment,
+                all_lamella_names,
+                [selected_task_name],
+                update_base_protocol=True,
             )
-
-            # Save the experiment
-            self._save_experiment()
             self._set_protocol_dirty(False)
 
             # Show success message

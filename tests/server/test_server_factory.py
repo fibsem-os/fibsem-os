@@ -71,12 +71,9 @@ def test_health_is_open(read_client):
     assert resp.json() == {"status": "ok"}
 
 
-def test_event_log_page_is_served_open_like_health(read_client):
-    # Static page holding no session data; its API calls carry the bearer token.
-    resp = read_client.get("/dashboard/log")
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("text/html")
-    assert "App Server Event Log" in resp.text
+def test_the_old_event_log_page_is_gone(read_client):
+    # The web app's Events page took its place.
+    assert read_client.get("/dashboard/log").status_code == 404
 
 
 def test_missing_token_is_401(read_client):
