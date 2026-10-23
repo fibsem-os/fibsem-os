@@ -27,7 +27,7 @@ from fibsem.applications.autolamella.ui.lamella.rows import (
     LamellaListWidget,
     LamellaNameListWidget,
 )
-from fibsem.server.config_patch import apply_patch
+from fibsem.workflows.config_patch import apply_patch
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
