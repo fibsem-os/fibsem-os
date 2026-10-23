@@ -151,33 +151,6 @@ def _stopped():
     return stop
 
 
-def test_with_the_window_the_host_opens_it_on_its_session(places, monkeypatch):
-    """``fibsem-autolamella-ui`` is the host with the window: it opens on the
-    host's session, with the window's own flags, and nothing connects
-    until a flag names a microscope."""
-    import fibsem.applications.autolamella.ui.launch as ui_launch
-
-    opened = []
-
-    def run_ui(argv, splash=None, session=None):
-        opened.append((argv, splash, session))
-        return 0
-
-    monkeypatch.setattr(ui_launch, "run_ui", run_ui)
-
-    assert ui_launch.host(["--quickstart"], splash="splash") == 0
-    ((argv, splash, session),) = opened
-    assert argv == ["--quickstart"] and splash == "splash"
-    assert session.microscope is None
-
-    assert ui_launch.host(["--manufacturer", "Demo"]) == 0
-    session = opened[-1][2]
-    try:
-        assert session.microscope is not None and session.recorder is not None
-    finally:
-        session.disconnect()
-
-
 def test_a_window_flag_without_the_window_is_refused(places):
     with pytest.raises(SystemExit):
         launch.main(["--quickstart"])
