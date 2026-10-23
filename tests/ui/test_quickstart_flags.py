@@ -10,6 +10,8 @@ run never reads or rewrites the developer's own recents.
 import os
 from pathlib import Path
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -21,11 +23,9 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui.launch import _parse_args
-from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
-from tests.fixtures.main_window import close_window
 from tests.protocols import planned, task_protocol
 
 TASKS = ["Trench", "Polishing"]
@@ -61,14 +61,7 @@ def remember(experiment: Experiment) -> None:
     cfg.record_recent_experiment(os.path.join(experiment.path, "experiment.yaml"))
 
 
-@pytest.fixture
-def ui(qapp):
-    """A real window."""
-    widget = AutoLamellaWindow()
-    yield widget
-    if widget.microscope is not None:
-        widget.microscope.disconnect()
-    close_window(widget)
+ui = main_window_fixture(name="ui")
 
 
 # ── Flags ─────────────────────────────────────────────────────────────────────

@@ -18,10 +18,11 @@ from pathlib import Path
 import pytest
 from psygnal.containers import EventedDict
 
+from tests.fixtures.microscopes import demo_microscope
+
 pytest.importorskip("segmentation_models_pytorch")
 
 import fibsem.config as fibsem_config
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     Experiment,
 )
@@ -39,7 +40,6 @@ from tests.protocols import planned, task_protocol
 
 UNDERCUT = "Mill Undercut"
 CHECKPOINT = "autolamella-waffle-20240107.pt"
-CONFIG = os.path.join(fibsem_config.CONFIG_PATH, "microscope-configuration.yaml")
 
 
 @pytest.fixture
@@ -64,11 +64,7 @@ def checkpoint(monkeypatch) -> str:
     return cached
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _experiment(tmp_path: Path, microscope, attention=Attention.automated):

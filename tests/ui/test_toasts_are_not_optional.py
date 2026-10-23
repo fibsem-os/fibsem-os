@@ -19,17 +19,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QWidget  # noqa: E402
+from PyQt5.QtWidgets import QWidget  # noqa: E402
 
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
 from fibsem.config import QtPreferences, UserPreferences  # noqa: E402
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
-
 
 # --- the preference is gone, and gone in a way old files survive ----------------
 

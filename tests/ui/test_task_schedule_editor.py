@@ -22,18 +22,11 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import QDateTime
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.workflow.task_editor import (
     WorkflowTaskEditorWidget,
 )
 from fibsem.workflows.task_config import TaskPlan
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 def _task(scheduled_at=None) -> TaskPlan:

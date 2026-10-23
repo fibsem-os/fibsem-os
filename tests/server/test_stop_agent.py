@@ -1,24 +1,17 @@
 """Stop agent stops what the agent is doing on the microscope (FIB-1267), and
 nothing anyone else is doing."""
 
-import os
-
 import pytest
 
-from fibsem import utils
 from fibsem.acting import AGENT, SCRIPT, WORKFLOW
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server.hosting import AppServerHost
+from tests.fixtures.microscopes import demo_microscope
 
 pytest.importorskip("fastapi")
 
 
-@pytest.fixture
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture

@@ -28,14 +28,6 @@ from fibsem.applications.autolamella.ui.overview.container import (  # noqa: E40
 )
 
 
-@pytest.fixture
-def qapp():
-    from PyQt5.QtWidgets import QApplication
-
-    app = QApplication.instance() or QApplication([])
-    yield app
-
-
 @pytest.fixture(autouse=True)
 def _destroy_widgets(destroy_widgets_after_test):
     """The tabs below are built inline in each test and never torn down."""

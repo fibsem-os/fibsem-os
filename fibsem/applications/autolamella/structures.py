@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import uuid
 from abc import ABC
 from copy import deepcopy
@@ -28,20 +29,10 @@ from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.protocol.constants import (
-    FIDUCIAL_KEY,
-    MICROEXPANSION_KEY,
-    MILL_POLISHING_KEY,
-    MILL_ROUGH_KEY,
-    NOTCH_KEY,
-    STRESS_RELIEF_KEY,
-    TRENCH_KEY,
-    UNDERCUT_KEY,
-)
+from fibsem.codec.upgrades import pre_task_protocol
 from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.correlation.config import CorrelationConfig
-from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
     Configurable,
@@ -58,7 +49,6 @@ from fibsem.structures import (
 )
 from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now
-from fibsem.workflows.attention import Attention, attention_from
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.grid.protocol import GridTaskProtocol
@@ -76,7 +66,6 @@ from fibsem.workflows.status import TaskState
 from fibsem.workflows.task_config import (
     RunPlan,
     TaskConfig,
-    TaskPlan,
     TaskProtocol,
     WorkflowOptions,
 )
@@ -262,185 +251,17 @@ class AutoLamellaTaskProtocol(TaskProtocol):
         return protocol
 
     @classmethod
-    def load_from_old_protocol(cls, path: Path) -> "AutoLamellaTaskProtocol":
-        """Convert an AutoLamellaProtocol to an AutoLamellaTaskProtocol.
-        This involves mapping the milling configurations to the new task names.
-        Used to converte old protocols to the new task-based protocol format."""
-
-        from fibsem.applications.autolamella.protocol.legacy import (
-            AutoLamellaMethod,
-            AutoLamellaProtocol,
-            AutoLamellaStage,
-        )
-        from fibsem.applications.autolamella.workflows.tasks.tasks import (
-            MillFiducialTaskConfig,
-            MillPolishingTaskConfig,
-            MillRoughTaskConfig,
-            MillTrenchTaskConfig,
-            MillUndercutTaskConfig,
-            SelectMillingPositionTaskConfig,
-        )
-
-        protocol = AutoLamellaProtocol.load(path)
-
-        # we need to map the milling configurations to the new task names
-        # mill_rough -> Rough Milling / mill_rough
-        # microexpansion -> Rough Milling / stress-relief
-        # notch -> Rough Milling / stress-relief
-        # trench -> Trench Milling / trench
-        # undercut -> Trench Milling / undercut
-        # fiducial -> Setup Lamella / fiducial
-        # mill_polishing -> Polishing
-
-        if protocol.method not in [
-            AutoLamellaMethod.ON_GRID,
-            AutoLamellaMethod.TRENCH,
-            AutoLamellaMethod.WAFFLE,
-        ]:
-            raise ValueError(
-                f"Protocol method {protocol.method} not supported for conversion to task protocol"
-            )
-
-        ROUGH_MILLING_TASK_NAME = "Rough Milling"
-        POLISHING_TASK_NAME = "Polishing"
-        TRENCH_MILLING_TASK_NAME = "Trench Milling"
-        MILL_FIDUCIAL_TASK_NAME = "Mill Fiducial"
-        UNDERCUT_TASK_NAME = "Undercut"
-        SETUP_LAMELLA_POSITION_TASK_NAME = "Setup Lamella Position"
-
-        workflow_config = AutoLamellaWorkflowConfig()
-        task_config = EventedDict({})
-
-        def supervision(stage: AutoLamellaStage) -> Attention:
-            return attention_from(protocol.supervision[stage])
-
-        if protocol.method in [AutoLamellaMethod.ON_GRID, AutoLamellaMethod.WAFFLE]:
-            rough_milling_task = MillRoughTaskConfig(
-                task_name=ROUGH_MILLING_TASK_NAME,
-                milling={
-                    MILL_ROUGH_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[MILL_ROUGH_KEY], name="Rough Milling"
-                    )
-                },
-            )
-
-            if protocol.options.use_microexpansion:
-                rough_milling_task.milling[MILL_ROUGH_KEY].stages.extend(
-                    protocol.milling[MICROEXPANSION_KEY]
-                )
-            if protocol.options.use_notch:
-                rough_milling_task.milling[STRESS_RELIEF_KEY] = (
-                    FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[NOTCH_KEY], name="Notch"
-                    )
-                )
-
-            polishing_milling_task = MillPolishingTaskConfig(
-                task_name=POLISHING_TASK_NAME,
-                milling={
-                    MILL_POLISHING_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[MILL_POLISHING_KEY], name="Polishing"
-                    )
-                },
-            )
-
-            mill_fiducial_task = MillFiducialTaskConfig(
-                task_name=MILL_FIDUCIAL_TASK_NAME,
-                milling={
-                    FIDUCIAL_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[FIDUCIAL_KEY], name="Fiducial"
-                    )
-                },
-            )
-            setup_lamella_task = SelectMillingPositionTaskConfig(
-                task_name=SETUP_LAMELLA_POSITION_TASK_NAME,
-                milling={},
-                milling_angle=protocol.options.milling_angle,
-            )
-
-            task_config[ROUGH_MILLING_TASK_NAME] = rough_milling_task
-            task_config[POLISHING_TASK_NAME] = polishing_milling_task
-            task_config[MILL_FIDUCIAL_TASK_NAME] = mill_fiducial_task
-            task_config[SETUP_LAMELLA_POSITION_TASK_NAME] = setup_lamella_task
-
-            workflow_config.tasks = [
-                TaskPlan(
-                    name=SETUP_LAMELLA_POSITION_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.SetupLamella),
-                ),
-                TaskPlan(
-                    name=MILL_FIDUCIAL_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.SetupLamella),
-                ),
-                TaskPlan(
-                    name=ROUGH_MILLING_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.MillRough),
-                    requires=[MILL_FIDUCIAL_TASK_NAME],
-                ),
-                TaskPlan(
-                    name=POLISHING_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.MillPolishing),
-                    requires=[ROUGH_MILLING_TASK_NAME],
-                ),
-            ]
-
-        if protocol.method in [AutoLamellaMethod.TRENCH, AutoLamellaMethod.WAFFLE]:
-            trench_milling_task = MillTrenchTaskConfig(
-                task_name=TRENCH_MILLING_TASK_NAME,
-                milling={
-                    TRENCH_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[TRENCH_KEY], name="Trench"
-                    ),
-                },
-                orientation="FIB",
-            )
-            task_config[TRENCH_MILLING_TASK_NAME] = trench_milling_task
-            workflow_config.tasks.insert(
-                0,
-                TaskPlan(
-                    name=TRENCH_MILLING_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.MillTrench),
-                ),
-            )
-
-        if protocol.method is AutoLamellaMethod.WAFFLE:
-            undercut_task = MillUndercutTaskConfig(
-                task_name=UNDERCUT_TASK_NAME,
-                milling={
-                    UNDERCUT_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[UNDERCUT_KEY], name="Undercut"
-                    )
-                },
-                orientation="SEM",
-            )
-            task_config[UNDERCUT_TASK_NAME] = undercut_task
-            workflow_config.tasks.insert(
-                1,
-                TaskPlan(
-                    name=UNDERCUT_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.MillUndercut),
-                    requires=[TRENCH_MILLING_TASK_NAME],
-                ),
-            )
-
-        options = WorkflowOptions(
-            turn_beams_off=protocol.options.turn_beams_off,
-        )
-
-        workflow_config.name = protocol.name
-        workflow_config.description = (
-            f"auto-converted protocol from {protocol.name} - {protocol.method.name}"
-        )
-
-        task_protocol = AutoLamellaTaskProtocol(
-            name=protocol.name,
-            description=f"auto-converted protocol from {protocol.name} - {protocol.method.name}",
-            task_config=task_config,
-            workflow_config=workflow_config,
-            options=options,
-        )
-
-        return task_protocol
+    def load(cls, filename: str) -> "AutoLamellaTaskProtocol":
+        """Read the protocol file at *filename*. One from before task protocols
+        is saved back as the task protocol it becomes (`pre_task_protocol`),
+        after a copy of it is kept as ``<file>.before-v1``; where it can't be
+        written, it is converted each time it opens."""
+        with open(filename) as file:
+            data = yaml.safe_load(file)
+        protocol = cls.from_dict(data)
+        if pre_task_protocol.is_pre_task(data):
+            _save_converted_protocol(filename, protocol)
+        return protocol
 
     def get_task_config_by_type(
         self, task_type: Type["AutoLamellaTaskConfig"]
@@ -451,6 +272,25 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             if isinstance(v, task_type):
                 task_configs[k] = v
         return task_configs
+
+
+def _save_converted_protocol(path: str, protocol: AutoLamellaTaskProtocol) -> None:
+    """Save *protocol*, converted from the pre-task protocol at *path*, over it,
+    once a copy of the file as it was is kept."""
+    backup = Path(f"{path}.before-v1")
+    try:
+        if not backup.exists():
+            shutil.copy2(path, backup)
+        protocol.save(path)
+    except OSError as e:
+        logging.warning(
+            f"Could not save {path} as a task protocol ({e}); it is converted "
+            "each time it opens."
+        )
+        return
+    logging.info(
+        f"Saved {path} as a task protocol; the file as it was is kept as {backup}."
+    )
 
 
 # The names this type and its enum had before they were one thing. Every reader
