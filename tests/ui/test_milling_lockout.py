@@ -26,7 +26,6 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem import utils
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -41,12 +40,6 @@ class _RunningThread:
 
     def is_alive(self) -> bool:
         return True
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    return scope
 
 
 def _config_with_a_stage() -> FibsemMillingTaskConfig:

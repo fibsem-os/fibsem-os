@@ -8,16 +8,8 @@ everything it needs from `fibsem.devices`.
 
 import pytest
 
-from fibsem import utils
 from fibsem.devices import Device, DeviceParameter, Display
 from fibsem.structures import BeamType, display_to_dict
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    yield microscope
-    microscope.disconnect()
 
 
 def test_each_built_device_names_the_driver_that_built_it(microscope):
