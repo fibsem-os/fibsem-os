@@ -54,7 +54,6 @@ from fibsem.server.responses import (
     ProtocolView,
     Refusal,
     ReplayTimeline,
-    ReplayView,
     SummaryRow,
     TaskOutputs,
     no_experiment,
@@ -324,7 +323,7 @@ class AutoLamellaAppContext(AppContext):
 
         from fibsem.fm.preview import is_fluorescence_image
         from fibsem.imaging.thickness import DEFAULT_WINDOW, measure_lamella_band
-        from fibsem.structures import FibsemImage, Point
+        from fibsem.structures import BeamType, FibsemImage, Point
 
         experiment = self._experiment
         if experiment is None:
