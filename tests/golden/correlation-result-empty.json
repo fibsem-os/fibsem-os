@@ -1,0 +1,22 @@
+{
+  "branch_check": null,
+  "delta_2d": [],
+  "diagnostics": null,
+  "fm_z_scale": 1.0,
+  "input_data": null,
+  "mean_absolute_error": [],
+  "placement_offset": null,
+  "poi": [],
+  "poi_uncorrected": [],
+  "refractive_index_correction_factor": null,
+  "refractive_index_correction_mode": null,
+  "reprojected_3d": [],
+  "rms_error": 0.0,
+  "rotation_eulers": [],
+  "rotation_matrix": [],
+  "scale": 0.0,
+  "seed": null,
+  "translation": [],
+  "translation_custom": [],
+  "updated_at": "2026-10-20T10:30:00+00:00"
+}

@@ -870,3 +870,157 @@ def test_an_upgrade_leaves_what_it_is_given_alone():
         before = deepcopy(data)
         step(data)
         assert data == before, name
+
+
+# ---- correlation -----------------------------------------------------------------
+
+
+def _correlation_points():
+    from fibsem.correlation.structures import (
+        Coordinate,
+        CorrelationInputData,
+        PointProvenance,
+        PointStatus,
+        PointType,
+        PointXYZ,
+    )
+
+    def at(x, y, z, kind, status="", provenance=""):
+        return Coordinate(
+            PointXYZ(x, y, z),
+            kind,
+            status=status,
+            provenance=provenance,
+            suggested=True,
+        )
+
+    return CorrelationInputData(
+        fib_coordinates=[
+            at(
+                10.0, 20.0, 0.0, PointType.FIB, PointStatus.PLACED, PointProvenance.USER
+            ),
+            at(30.5, 40.25, 0.0, PointType.FIB, PointStatus.FITTED),
+        ],
+        fm_coordinates=[
+            at(1.0, 2.0, 3.0, PointType.FM, PointStatus.PREDICTED, "projected"),
+            at(4.0, 5.0, 6.5, PointType.FM),
+        ],
+        poi_coordinates=[at(7.0, 8.0, 9.0, PointType.POI)],
+        fm_surface_coordinate=at(0.5, 0.5, 2.0, PointType.SURFACE_FM),
+        ri_pre_correction_factor=1.5,
+        ri_pre_correction_params={"tilt_deg": 15.0, "source": "computed"},
+        stored_fib_image_shape=(512, 768),
+        stored_fib_image_pixel_size=5e-9,
+        stored_fm_pixel_size_z=2e-7,
+        stored_fib_image_filename="ref_fib.tif",
+        stored_fm_image_filename="fm_stack.ome.tiff",
+    )
+
+
+def _correlation_result():
+    from fibsem.correlation.structures import (
+        CorrelationPointOfInterest,
+        CorrelationResult,
+        PointXYZ,
+    )
+
+    poi = CorrelationPointOfInterest(
+        image_px=Point(100.0, 200.0),
+        px=Point(-284.0, 56.0),
+        px_m=Point(-1.42e-6, 2.8e-7),
+    )
+    return CorrelationResult(
+        poi=[poi],
+        scale=1.25,
+        rotation_eulers=[10.0, 20.0, 30.0],
+        rotation_matrix=[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        translation=[1.0, 2.0, 3.0],
+        translation_custom=[4.0, 5.0, 6.0],
+        rms_error=0.5,
+        mean_absolute_error=[0.25, 0.75],
+        delta_2d=[Point(0.1, -0.2)],
+        reprojected_3d=[PointXYZ(1.0, 2.0, 0.0)],
+        input_data=_correlation_points(),
+        refractive_index_correction_factor=1.5,
+        refractive_index_correction_mode="pre",
+        updated_at=datetime.fromisoformat("2026-10-20T10:30:00+00:00"),
+        fm_z_scale=2.5,
+        seed={"source": "metadata"},
+        branch_check={"ratio": 3.0},
+        diagnostics={"rms_um": 0.1},
+        placement_offset=[0.5, -0.5],
+    )
+
+
+def _fit_evidence():
+    from fibsem.correlation.verdict import FitEvidence, PairDiagnostic
+
+    return FitEvidence(
+        rms_um=0.2,
+        pairs=[PairDiagnostic(0, 0.1, 0.3), PairDiagnostic(2, 0.2, 0.4)],
+        mirror_ratio=4.0,
+        depth_span_um=2.5,
+        scale_ratio=1.01,
+        n_pairs=2,
+        n_accepted=1,
+        poi_jackknife_um=0.05,
+        worst=1,
+        suggested_z=12.0,
+        rotation=np.eye(3),
+    )
+
+
+def _correlation_config():
+    from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
+
+    return CorrelationConfig(
+        fit=FitSettings(fib_method="Gaussian", fm_poi_channel="Cy5"),
+        ri=RISettings(na=0.8, mode="post"),
+        auto_rerun=True,
+        delete_fiducial="pair",
+    )
+
+
+def _correlation_built():
+    from fibsem.correlation.config import CorrelationConfig
+    from fibsem.correlation.structures import CorrelationResult, CorrelationState
+    from fibsem.correlation.verdict import FitEvidence
+
+    return {
+        "correlation-state": (
+            CorrelationState,
+            CorrelationState(
+                input_data=_correlation_points(), result=_correlation_result()
+            ),
+        ),
+        "correlation-state-no-result": (
+            CorrelationState,
+            CorrelationState(input_data=_correlation_points()),
+        ),
+        "correlation-result-empty": (
+            CorrelationResult,
+            CorrelationResult(
+                updated_at=datetime.fromisoformat("2026-10-20T10:30:00+00:00")
+            ),
+        ),
+        "correlation-fit-evidence": (FitEvidence, _fit_evidence()),
+        "correlation-config": (CorrelationConfig, _correlation_config()),
+        "correlation-config-default": (CorrelationConfig, CorrelationConfig()),
+    }
+
+
+@pytest.mark.parametrize("case", sorted(_correlation_built()))
+def test_a_correlation_structure_saves_as_pinned_and_reads_back(case):
+    cls, built = _correlation_built()[case]
+    saved = built.to_dict()
+    _check(case, saved)
+    assert _plain(cls.from_dict(_plain(saved)).to_dict()) == _plain(saved)
+
+
+def test_a_correlation_config_section_absent_reads_as_the_defaults():
+    from fibsem.correlation.config import CorrelationConfig, FitSettings, RISettings
+
+    assert CorrelationConfig.from_dict(None) == CorrelationConfig()
+    assert CorrelationConfig.from_dict({"fit": None, "ri": None}) == CorrelationConfig()
+    assert FitSettings.from_dict(None) == FitSettings()
+    assert RISettings.from_dict(None) == RISettings()
