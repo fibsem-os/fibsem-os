@@ -106,12 +106,12 @@ class AppWindow(QMainWindow):
         )
 
     def _create_status_bar(self):
-        """Create the status bar: the shared bar's line on the left (FIB-1188), with
+        """Create the status bar: the shared bar's line on the left, with
         the microscope's progress in it, and this window's workflow buttons on the
         right."""
         self.status_bar = FibsemStatusBar(self)
         self.setStatusBar(self.status_bar)
-        # The agent's chip, beside the workflow buttons (FIB-1035).
+        # The agent's chip, beside the workflow buttons.
         self.agent_host = AgentChipHost(
             self.status_bar,
             session=lambda: self.session,
@@ -149,7 +149,7 @@ class AppWindow(QMainWindow):
         # The operator decides the run's proposals here, for the session's life.
         self.session.attach_decider(OPERATOR)
         # Edits to the experiment run on this thread: its widgets listen to it.
-        # The editors' pending edits are written first (FIB-683): an edit
+        # The editors' pending edits are written first: an edit
         # from elsewhere to the same config then finds it changed.
         self.session.executor = GuiExecutor(self.flush_editors, parent=self)
 
@@ -159,7 +159,7 @@ class AppWindow(QMainWindow):
         self.run_relay.status.connect(panel.handle_workflow_status)
 
     def flush_editors(self) -> None:
-        """Write the edits the window's editors still hold (FIB-683), before
+        """Write the edits the window's editors still hold, before
         anything else writes the experiment."""
 
     def _setup_experiment_connections(self) -> None:
@@ -229,7 +229,7 @@ class AppWindow(QMainWindow):
             host.stop()
 
     def set_app_server_microscope(self, serve: bool) -> None:
-        """Serve the microscope, or stop serving it (FIB-1359), from Tools →
+        """Serve the microscope, or stop serving it, from Tools →
         App Server, which also saves the choice for the next launch.
 
         The services are fixed when the server starts, so a change restarts a
@@ -311,7 +311,7 @@ class AppWindow(QMainWindow):
         if not self.run_view.confirm_close():
             event.ignore()
             return
-        # The editors hold edits for a moment before writing them (FIB-683);
+        # The editors hold edits for a moment before writing them;
         # this is the last chance to get the final one onto disk.
         try:
             self.flush_editors()

@@ -478,8 +478,8 @@ class GridTaskManager(BaseTaskManager):
     def _report_at_end(self) -> None:
         """Write the grid screening report to the experiment folder, the file
         Tools -> Reporting writes. Usually nobody has judged a grid yet; the
-        cover then says so and recommends none. A failure -- reportlab not
-        installed, an unreadable image -- is a notification and a log line."""
+        cover then says so and recommends none. A failure -- an unwritable
+        folder -- is a notification and a log line."""
         self._say(status_bar="Writing the grid screening report...")
         try:
             # The stage's own record, for the slot column; no hardware call.

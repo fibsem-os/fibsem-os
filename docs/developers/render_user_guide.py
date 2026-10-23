@@ -2066,7 +2066,7 @@ def render_grid_workflow(h: Harness) -> None:
     from PyQt5.QtGui import QTextCursor
     from PyQt5.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
 
-    from fibsem.applications.autolamella.tools import grid_report_pdf
+    from fibsem.applications.autolamella.tools import grid_report_html
     from fibsem.applications.autolamella.ui import window as main_module
     from fibsem.applications.autolamella.ui.common.lamella_display import (
         add_verdict_actions,
@@ -2379,9 +2379,10 @@ def render_grid_workflow(h: Harness) -> None:
 
     # -- the report, from Tools -> Reporting ---------------------------------
     # The cover names the experiment folder, which is the scratch directory;
-    # the worked example's is on the support PC. The PDF opens in the
-    # desktop's viewer, so its path is kept instead, and two pages drawn.
-    real_collect = grid_report_pdf.collect_grid_report
+    # the worked example's is on the support PC. The page opens in the
+    # desktop's browser, so its path is kept instead, and two pages of the PDF
+    # printed beside it drawn.
+    real_collect = grid_report_html.collect_grid_report
 
     def collect(*args, **kwargs):
         report = real_collect(*args, **kwargs)
@@ -2389,7 +2390,7 @@ def render_grid_workflow(h: Harness) -> None:
         return report
 
     written: List[str] = []
-    grid_report_pdf.collect_grid_report = collect
+    grid_report_html.collect_grid_report = collect
     gt.open_report = written.append
     try:
         h.window.action_generate_grid_report.trigger()
@@ -2398,13 +2399,16 @@ def render_grid_workflow(h: Harness) -> None:
             h.pump(250)
             waited += 250
     finally:
-        grid_report_pdf.collect_grid_report = real_collect
+        grid_report_html.collect_grid_report = real_collect
         del gt.open_report
     if not written:
         raise RuntimeError("the grid screening report was not written")
     import fitz
 
-    pdf = fitz.open(written[0])
+    printed = Path(written[0]).with_suffix(".pdf")
+    if not printed.exists():
+        raise RuntimeError("no browser printed the grid screening report to a PDF")
+    pdf = fitz.open(str(printed))
     pages = [p.get_text() for p in pdf]
     grid_page = next(
         (i for i, text in enumerate(pages) if i > 0 and first.name in text), None

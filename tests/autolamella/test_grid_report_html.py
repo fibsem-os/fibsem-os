@@ -1,8 +1,6 @@
-"""The grid screening report on the page (FIB-1057).
-
-The image rendering is checked wherever Pillow is, which is everywhere. The PDF
-itself needs the `reporting` extra (reportlab), which CI does not install, so
-those tests skip there and run locally.
+"""The grid screening report on the page (FIB-1057): the overviews as drawn, and
+the HTML page they are embedded in. Printing it to a PDF is `pdf_export`'s,
+tested in `test_pdf_export.py`; here it is a stand-in.
 """
 
 import io
@@ -15,15 +13,16 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from fibsem.applications.autolamella.tools.grid_report_pdf import (
+from fibsem.applications.autolamella.tools import grid_report_html, pdf_export
+from fibsem.applications.autolamella.tools.grid_report_html import (
     PRINT_MAX_EDGE,
     REPORT_FILENAME,
     _clock,
     _when,
     generate_grid_report,
     render_overview,
-    report_unavailable_reason,
     scale_bar_length,
+    write_grid_report,
 )
 from fibsem.util.timestamps import from_posix
 from fibsem.workflows.quality import Verdict
@@ -93,105 +92,117 @@ class TestScaleBar:
 
 
 @pytest.fixture(scope="module")
-def pdf(screened, tmp_path_factory):
-    pytest.importorskip("reportlab")
+def page(screened, tmp_path_factory):
     path = generate_grid_report(
-        screened,
-        output_path=str(tmp_path_factory.mktemp("pdf") / "report.pdf"),
-        compress=False,
+        screened, output_path=str(tmp_path_factory.mktemp("page") / "report.html")
     )
-    return Path(path).read_bytes()
+    return Path(path).read_text(encoding="utf-8")
 
 
-def _pages(pdf: bytes) -> int:
-    return len(re.findall(rb"/Type\s*/Page[^s]", pdf))
+def _shown(page: str) -> str:
+    """The text the page shows, without its tags or its embedded images.
 
-
-def _shown(pdf: bytes) -> bytes:
-    """The text the pages show: the strings handed to the PDF's text operator.
-
-    For asserting a word is *absent*. The raw bytes also hold the embedded images,
-    which differ every run, and a short word turns up in them by chance -- "Poor"
-    did, in one run in a few.
+    For asserting a word is *absent*: the images' data is long, and a short word
+    turns up in it by chance.
     """
-    return b"\n".join(re.findall(rb"\(((?:[^()\\]|\\.)*)\)\s*Tj", pdf))
+    return re.sub(r"<[^>]+>", " ", re.sub(r"<img[^>]*>", "", page))
 
 
-class TestPDF:
+class TestPage:
     def test_writes_under_the_experiment_by_default(self, screened):
-        pytest.importorskip("reportlab")
         path = generate_grid_report(screened)
-        assert path.endswith(REPORT_FILENAME)
-        assert path.startswith(str(screened.path))
-        assert Path(path).read_bytes()[:4] == b"%PDF"
+        assert Path(path) == Path(screened.path) / "reporting" / REPORT_FILENAME
+        assert Path(path).read_text(encoding="utf-8").startswith("<!doctype html>")
 
-    def test_a_cover_a_page_per_grid_and_an_appendix(self, pdf):
-        # cover, three grids (one of them over two pages), appendix
-        assert _pages(pdf) >= 5
+    def test_a_cover_a_section_per_grid_and_an_appendix(self, page):
+        # three grids and the appendix, each printed from a new page
+        assert page.count('<section class="grid"') == 4
+        assert "How each task ran" in page
 
-    def test_the_cover_reads_as_the_verdicts(self, pdf):
+    def test_the_overviews_are_in_the_page(self, page):
+        """One file to pass on: every image is embedded, none is a link."""
+        sources = re.findall(r'<img src="([^"]*)"', page)
+        assert len(sources) >= 5  # the cover's and each section's
+        assert all(s.startswith("data:image/jpeg;base64,") for s in sources)
+
+    def test_the_cover_reads_as_the_verdicts(self, page):
         for text in (
-            b"Grid screening report",
-            b"grid-aspen",
-            b"grid-birch",
-            b"grid-cedar",
-            b"Recommended",
-            b"Even ice, cells on the east half.",
-            b"could not be gripped",
+            "Grid screening report",
+            "grid-aspen",
+            "grid-birch",
+            "grid-cedar",
+            "Recommended",
+            "Even ice, cells on the east half.",
+            "could not be gripped",
         ):
-            assert text in pdf, text
+            assert text in page, text
 
-    def test_the_verdicts_read_as_the_app_says_them(self, pdf):
+    def test_the_verdicts_read_as_the_app_says_them(self, page):
         """The Grids tab says Failed and Not assessed; the page said Poor and
         Unassessed."""
-        text = _shown(pdf)
-        assert b"Failed" in text and b"Not assessed" in text
-        assert b"Poor" not in text and b"Unassessed" not in text
+        text = _shown(page)
+        assert "Failed" in text and "Not assessed" in text
+        assert "Poor" not in text and "Unassessed" not in text
 
-    def test_a_verdict_names_the_person_not_the_stored_form(self, pdf):
+    def test_a_verdict_names_the_person_not_the_stored_form(self, page):
         """A verdict is signed "operator:<name>"; the page shows the name."""
-        text = _shown(pdf)
-        assert b"Good \\267 operator" in text  # \\267 is the middle dot
-        assert b"operator:operator" not in text
+        text = _shown(page)
+        assert "Good · operator" in text
+        assert "operator:operator" not in text
 
-    def test_a_failed_run_says_why(self, pdf):
-        assert b"Load it first" in pdf
-        assert b"Failed" in pdf
+    def test_a_failed_run_says_why(self, page):
+        assert "Load it first" in page
+        assert "Failed" in page
 
-    def test_the_fm_row_names_its_channels(self, pdf):
-        assert b"GFP, mCherry" in pdf
+    def test_the_fm_row_names_its_channels(self, page):
+        assert "GFP, mCherry" in page
 
-    def test_with_verdicts_the_cover_says_nothing_of_their_absence(self, pdf):
-        assert b"No grid has a verdict yet" not in _shown(pdf)
+    def test_with_verdicts_the_cover_says_nothing_of_their_absence(self, page):
+        assert "No grid has a verdict yet" not in _shown(page)
 
     def test_before_any_verdict_the_cover_says_so(self, screened, tmp_path):
         """Written at the end of a run, before anyone has judged a grid: a
         record of the overviews, not yet the handout for choosing one."""
-        pytest.importorskip("reportlab")
         verdicts = [g.quality.verdict for g in screened.grids]
         try:
             for grid in screened.grids:
                 grid.quality.verdict = Verdict.UNASSESSED
-            path = generate_grid_report(
-                screened, output_path=str(tmp_path / "r.pdf"), compress=False
-            )
+            path = generate_grid_report(screened, output_path=str(tmp_path / "r.html"))
         finally:
             for grid, verdict in zip(screened.grids, verdicts):
                 grid.quality.verdict = verdict
-        text = _shown(Path(path).read_bytes())
-        assert b"No grid has a verdict yet" in text
-        assert b"0 recommended" in text
+        text = _shown(Path(path).read_text(encoding="utf-8"))
+        assert "No grid has a verdict yet" in text
+        assert "0 recommended" in text
 
-    def test_says_when_reportlab_is_missing(self, monkeypatch):
-        from fibsem.applications.autolamella.tools import grid_report_pdf
+    def test_every_run_has_a_row(self, page):
+        assert page.count("overview_sem") >= 3  # protocol line, aspen row, birch row
 
-        monkeypatch.setattr(
-            grid_report_pdf.importlib.util, "find_spec", lambda name: None
-        )
-        assert "fibsem-os[reporting]" in report_unavailable_reason()
 
-    def test_every_run_has_a_row(self, pdf):
-        assert pdf.count(b"overview_sem") >= 3  # protocol line, aspen row, birch row
+class TestPrinting:
+    def test_the_pdf_is_printed_beside_the_page(self, screened, monkeypatch):
+        printed = []
+
+        def print_to_pdf(path):
+            printed.append(Path(path))
+            return Path(path).with_suffix(".pdf")
+
+        monkeypatch.setattr(pdf_export, "html_to_pdf", print_to_pdf)
+        path = write_grid_report(screened)
+        assert printed == [path]
+        assert path.suffix == ".html" and path.exists()
+
+    def test_without_a_browser_there_is_still_the_page(
+        self, screened, monkeypatch, caplog
+    ):
+        def no_browser(path):
+            raise pdf_export.PdfExportError("no Edge, Chrome or Chromium was found")
+
+        monkeypatch.setattr(pdf_export, "html_to_pdf", no_browser)
+        with caplog.at_level("INFO", logger=grid_report_html.logger.name):
+            path = write_grid_report(screened)
+        assert path.exists()
+        assert "No PDF of the grid screening report" in caplog.text
 
 
 class TestTimes:
@@ -230,7 +241,7 @@ class TestTimes:
         expected = time.strftime("%H:%M", time.localtime(self.STAMP))
         assert _when(self.STAMP) == expected
 
-    def test_the_cover_names_the_clock(self, pdf):
+    def test_the_cover_names_the_clock(self, page):
         assert _clock(self.MDT) == "the instrument's clock, MDT (UTC-06:00)"
         # the fixture's session is a Demo one, which records no zone
-        assert b"this computer" in pdf
+        assert "this computer" in page

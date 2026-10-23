@@ -52,7 +52,6 @@ class MenuActions:
     save_protocol: Callable[[], None]
     fm_image_viewer: Callable[[], None]
     coincidence_viewer: Callable[[], None]
-    generate_report: Callable[[], None]
     generate_overview_plot: Callable[[], None]
     grid_report: Callable[[], None]
     app_server: Callable[[], None]
@@ -117,7 +116,7 @@ class MainMenuBar(QObject):
         # telling create from load at a glance. Qt hides action icons in menus on
         # macOS unless each action asks for them, hence set_menu_icon.
         # Connecting had no menu entry at all -- the Connection tab was the only
-        # door, which is what made that tab impossible to remove (FIB-775). Built
+        # door, which is what made that tab impossible to remove. Built
         # unconditionally, offered only when the feature flag is on: see below.
         self.action_connect_microscope = QAction("Connect to Microscope...", self._host)
         set_menu_icon(self.action_connect_microscope, "mdi:connection")
@@ -201,7 +200,7 @@ class MainMenuBar(QObject):
             fullscreen_menu.addAction(act)
 
         # The standalone viewer, where a multi-channel image is composed: the
-        # Microscope tab's fluorescence view shows one frame (FIB-942). Needs no
+        # Microscope tab's fluorescence view shows one frame. Needs no
         # experiment; it is a file viewer.
         view_menu.addSeparator()
         self.action_open_fm_image_viewer = QAction(
@@ -252,39 +251,33 @@ class MainMenuBar(QObject):
         reporting_menu = tools_menu.addMenu("Reporting")
         if reporting_menu is None:
             raise RuntimeError("Failed to create Reporting submenu in AutoLamella UI.")
+        # An HTML page built from events.jsonl.
         self.action_generate_report = QAction("Generate Report", self._host)
-        self.action_generate_report.triggered.connect(self._actions.generate_report)
-        # Report v2 (FIB-1036): an HTML page built from events.jsonl. Offered
-        # beside the PDF report until it has been checked against real runs.
-        self.action_generate_report_v2 = QAction(
-            "Generate Report v2 (preview)", self._host
-        )
-        self.action_generate_report_v2.setToolTip(
+        self.action_generate_report.setToolTip(
             "Write an HTML report from the experiment's events.jsonl under its "
             "folder, and open it"
         )
-        self.action_generate_report_v2.triggered.connect(self._on_generate_report_v2)
+        self.action_generate_report.triggered.connect(self._on_generate_report)
         self.action_generate_overview_plot = QAction(
             "Generate Overview Plot", self._host
         )
         self.action_generate_overview_plot.triggered.connect(
             self._actions.generate_overview_plot
         )
-        # The grid screening report (FIB-1057): what the Grids tab holds, as a PDF.
+        # The grid screening report: what the Grids tab holds, as a page.
         self.action_generate_grid_report = QAction(
             "Generate Grid Screening Report", self
         )
         self.action_generate_grid_report.setToolTip(
-            "Write a PDF of every grid's overviews and verdicts under the "
-            "experiment folder, and open it"
+            "Write a page of every grid's overviews and verdicts under the "
+            "experiment folder, with its PDF, and open it"
         )
         self.action_generate_grid_report.triggered.connect(self._actions.grid_report)
         reporting_menu.addAction(self.action_generate_report)
-        reporting_menu.addAction(self.action_generate_report_v2)
         reporting_menu.addAction(self.action_generate_grid_report)
         reporting_menu.addAction(self.action_generate_overview_plot)
 
-        # user scripts (FIB-338). The menu itself is application-agnostic; this
+        # user scripts. The menu itself is application-agnostic; this
         # supplies only the folder, the context, and how to notify.
         #
         # Constructing the controller costs nothing -- it adds two fixed actions and
@@ -304,9 +297,9 @@ class MainMenuBar(QObject):
         )
 
         # The embedded App Server's dialog: whether it runs, its services, the
-        # event log. The agent's level and connecting one are the agent chip's
-        # (FIB-1035). Always visible: it is where the server is turned on. Next
-        # to Scripts (FIB-863).
+        # event log. The agent's level and connecting one are the agent chip's.
+        # Always visible: it is where the server is turned on. Next
+        # to Scripts.
         self.action_app_server = QAction("App Server...", self._host)
         self.action_app_server.setMenuRole(QAction.NoRole)
         self.action_app_server.setToolTip(
@@ -395,24 +388,6 @@ class MainMenuBar(QObject):
         )
 
         self._dev_menu = dev_menu
-
-        action_load_fm_configuration = QAction(
-            "Load Fluorescence Configuration", self._host
-        )
-        action_load_fm_configuration.triggered.connect(
-            lambda: self._panel().import_fm_configuration()
-        )
-        dev_menu.addAction(action_load_fm_configuration)
-
-        action_save_fm_configuration = QAction(
-            "Save Fluorescence Configuration", self._host
-        )
-        action_save_fm_configuration.triggered.connect(
-            lambda: self._panel().export_fm_configuration()
-        )
-        dev_menu.addAction(action_save_fm_configuration)
-
-        dev_menu.addSeparator()
 
         self.action_export_targeting_ml_data = QAction(
             "Export Targeting ML Data...", self
@@ -512,7 +487,7 @@ class MainMenuBar(QObject):
 
     def _on_sound_toggle(self, checked: bool):
         # Through the file, not a copy held here: another widget may have saved a
-        # setting of its own since start-up (the view bars' fields, FIB-1186).
+        # setting of its own since start-up (the view bars' fields).
         self.preferences_saved.emit(
             fibsem_cfg.update_user_preferences(
                 lambda p: setattr(p.qt, "sound_enabled", checked)
@@ -557,7 +532,7 @@ class MainMenuBar(QObject):
         self._dev_menu.menuAction().setVisible(d.dev_mode)
         self._test_menu.menuAction().setVisible(d.dev_mode)
 
-    #### USER SCRIPTS (FIB-338)
+    #### USER SCRIPTS
 
     def _script_context(self):
         """Build the context a script runs against, or explain why it cannot.
@@ -736,7 +711,7 @@ class MainMenuBar(QObject):
                 return
             # `is_acquisition_active`, not `is_acquiring` — the latter does not exist on
             # this widget, so a getattr default of False would make the guard inert and
-            # let F2 start a second FM acquisition mid-run (cf. FIB-441 / FIB-436).
+            # let F2 start a second FM acquisition mid-run.
             if fm_widget.is_acquisition_active:
                 logging.info("F2 acquire: fluorescence acquisition already in progress")
                 return
@@ -776,8 +751,8 @@ class MainMenuBar(QObject):
             return
         image_widget.run_autofocus()
 
-    def _on_generate_report_v2(self):
-        """Tools → Reporting → Generate Report v2 (preview): write the page from
+    def _on_generate_report(self):
+        """Tools → Reporting → Generate Report: write the page from
         the experiment's events.jsonl, under its folder, and open it; then
         print it to a PDF beside it.
 

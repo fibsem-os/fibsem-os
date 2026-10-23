@@ -9,9 +9,6 @@ waiting for the Connection tab"), and no menu offered the action at all.
 This dialog is the other door. It is deliberately dismissable: preferences, a
 protocol or the logs are all reasons to open the application without hardware, and
 a modal that cannot be closed turns those into a reason not to open it at all.
-
-See FIB-775. The Connection tab is untouched by this -- swapping it out is separate
-work, and this has to be usable first.
 """
 
 from __future__ import annotations
@@ -128,12 +125,10 @@ class ConnectionDialog(QDialog):
     # ── construction ────────────────────────────────────────────────────────
 
     def _build_first_run_offer(self) -> QFrame:
-        """The guided-setup offer, which used to live on the Connection tab.
+        """The guided-setup offer.
 
-        It came with the tab (FIB-740, #472) and would have gone with it: a fresh
-        install would have been left with Tools > Guided Setup, which is not
-        somewhere a first-time user thinks to look. This dialog is what they reach
-        first instead, so the offer follows it here.
+        Here because this dialog is what a fresh install reaches first; Tools >
+        Guided Setup is not somewhere a first-time user thinks to look.
         """
         frame = QFrame()
         frame.setObjectName("frame_first_run")
@@ -551,7 +546,7 @@ class ConnectionDialog(QDialog):
         `setup_session` runs on this thread, so the window cannot repaint by itself
         until it is done; this is called before it and at each step it reports, so
         the window says what it is waiting for -- a column turning on can take a
-        while (FIB-1153). User input is held back while it paints, so nothing can be
+        while. User input is held back while it paints, so nothing can be
         pressed, or the dialog closed, mid-connect.
         """
         for widget in (

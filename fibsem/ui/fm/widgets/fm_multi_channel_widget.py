@@ -172,7 +172,7 @@ class FluorescenceMultiChannelWidget(QWidget):
         """Point this widget and both of its halves at a different microscope.
 
         Both halves derive their wavelength choices from the microscope, and both
-        do it at construction, so both have to be told (FIB-525). The channel
+        do it at construction, so both have to be told. The channel
         objects are unaffected -- only the choices offered for them change.
         """
         self.fm = fm

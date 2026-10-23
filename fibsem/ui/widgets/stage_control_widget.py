@@ -3,7 +3,7 @@
 Everything on the Movement tab that *moves* the stage. The readout it moves is
 ``StagePositionWidget``, which this widget writes to but does not otherwise own.
 
-Extracted from ``FibsemMovementWidget`` (FIB-783), which is now the container: it lays
+Extracted from ``FibsemMovementWidget``, which is now the container: it lays
 out the panels and forwards the four calls hosts make.
 
 It is handed three neighbours, and none of them is optional decoration:
@@ -11,7 +11,7 @@ It is handed three neighbours, and none of them is optional decoration:
 * ``image_widget`` -- the interaction handshake (the buttons stay down through the
   acquisition that follows a move, and the image widget brings them back), the live
   image a canvas click is resolved against, and the acquisition-finished signal.
-* ``milling_widget`` -- refuses a click-to-move while milling (FIB-855). A getter:
+* ``milling_widget`` -- refuses a click-to-move while milling. A getter:
   the milling tab is built after this one.
 * ``view_controller`` -- the quad view, where move status and the position readout
   are written.
@@ -22,7 +22,7 @@ host at all.
 **The teardown is load-bearing.** The canvases are app-lifetime and outlive this widget,
 which is destroyed by ``removeTab`` + ``deleteLater`` -- neither of which fires
 ``closeEvent``. A stale double-click arriving after that makes PyQt call ``qFatal`` and
-the process aborts (FIB-329). Whatever else changes here, registration and
+the process aborts. Whatever else changes here, registration and
 ``_teardown_connections`` stay together.
 """
 
@@ -151,7 +151,7 @@ class StageControlWidget(QWidget):
         # (owned by the controller), so store each (canvas, slot) pair and disconnect it in
         # _teardown_connections: this widget is torn down via removeTab + deleteLater
         # (which fires neither closeEvent nor close), and a stale double-click firing on the
-        # deleted widget makes PyQt call qFatal -> the process aborts (FIB-329).
+        # deleted widget makes PyQt call qFatal -> the process aborts.
         # partial (not lambda) so the exact slot object can be disconnected.
         self._canvas_dbl_click_conns = []
         controller = self._view_controller()
@@ -239,8 +239,7 @@ class StageControlWidget(QWidget):
         """Whether a mill is running right now.
 
         False when no milling widget can be found at all -- a host without one cannot
-        be milling. That is the same fail-open the old ``hasattr`` had, but it is now
-        the answer to a question rather than the side effect of looking in one place.
+        be milling.
         """
         widget = self._milling_widget()
         return bool(widget is not None and widget.is_milling)
@@ -272,16 +271,16 @@ class StageControlWidget(QWidget):
         images do not already show. On the info bar the same words stay put for the
         duration of the move, which is when they are worth reading.
 
-        Toasts show unconditionally (FIB-781), so that wall of popups is what these
+        Toasts show unconditionally, so that wall of popups is what these
         messages would actually produce rather than a thing to worry about later.
 
-        Not the canvases' info text either, where it was until FIB-1188: it covered
-        the image the user was watching. The views say what the move did to them
+        Not the canvases' info text either: it would cover
+        the image the user is watching. The views say what the move did to them
         with their chips; the words are the host's (`activity_changed`).
         """
         logging.debug(msg)
         self._set_move_status(msg)
-        # The chips on the views (FIB-1188): every message here but the acquisition
+        # The chips on the views: every message here but the acquisition
         # one opens a move.
         controller = self._view_controller()
         if controller is not None and msg != ACQUIRING_IMAGES:

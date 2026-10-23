@@ -429,33 +429,23 @@ class TestPanelChrome:
         view.btn_settings.click()
         assert view.options.isVisible()
         assert not view.unload_at_end()
-        assert view.report_at_end() == view.options.report_check.isEnabled()
+        assert view.report_at_end()
         view.options.hide()
         hints = view.btn_help.toolTip()
         assert "order they run" in hints and "Protocol tab's Grid page" in hints
 
     def test_unload_is_offered_only_with_a_loader(self, view):
         options = view.options
-        options.set_availability(can_unload=False, report_unavailable="")
+        options.set_availability(can_unload=False)
         options.unload_check.setChecked(True)
         assert options.unload_check.isHidden()
         assert not view.unload_at_end(), "a fixed holder has nothing to unload"
-        options.set_availability(can_unload=True, report_unavailable="")
+        options.set_availability(can_unload=True)
         assert not options.unload_check.isHidden()
         assert view.unload_at_end(), "the choice is kept"
 
-    def test_the_gear_says_why_it_cannot_write_the_report(self, view):
-        reason = "Needs the reporting tools: pip install fibsem-os[reporting]"
-        view.options.set_availability(can_unload=False, report_unavailable=reason)
-        assert not view.options.report_check.isEnabled()
-        assert not view.options.report_check.isChecked(), "reads unticked"
-        assert view.options.report_check.toolTip() == reason
-        assert not view.report_at_end()
-        view.options.set_availability(can_unload=False, report_unavailable="")
-        assert view.report_at_end(), "not a choice the operator made"
-
     def test_the_gear_is_accent_while_an_option_is_off_its_default(self, view):
-        view.options.set_availability(can_unload=True, report_unavailable="")
+        view.options.set_availability(can_unload=True)
         assert "some set" not in view.btn_settings.toolTip()
         view.options.unload_check.setChecked(True)
         assert "some set" in view.btn_settings.toolTip()

@@ -186,10 +186,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
     def refresh_first_run_offer(self) -> None:
         """Show the offer when nothing is configured yet and it has not been dismissed.
 
-        Two separate conditions on purpose. Folding them together is what broke this
-        the first time: dismissal used to be inferred from the same file whose
-        absence meant "fresh install", which made recording a dismissal look like an
-        undo of it.
+        Two separate conditions on purpose: inferring dismissal from the same file
+        whose absence means "fresh install" would make recording a dismissal look
+        like an undo of it.
         """
         self._frame_first_run.setVisible(
             not guided_setup.is_offer_dismissed() and guided_setup.is_first_run()
@@ -396,8 +395,6 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             )
             return
 
-        # TODO: validate configuration
-
         # register the configuration. this is unconditional: registering is what makes a
         # configuration selectable, so skipping it left the combo box holding a name that
         # resolved to nothing, and selecting it took the app down.
@@ -439,7 +436,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 self.microscope.disconnect()
             except Exception as e:
                 # Same reasoning as the connect path below: an exception escaping this
-                # slot is a process abort rather than an error message (FIB-329). A
+                # slot is a process abort rather than an error message. A
                 # disconnect can fail for ordinary reasons -- the instrument went away,
                 # the client is already dead -- and none of them are worth losing the
                 # application over.
@@ -474,7 +471,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             # connect. On this thread, on purpose: the window does not take input
             # while it runs, so nothing can be started against a half-made session.
             # Each step is painted as it starts, so a long one -- a ThermoFisher
-            # column turning on -- reads as waiting rather than hung (FIB-1153).
+            # column turning on -- reads as waiting rather than hung.
             self._show_connecting(
                 f"Connecting with {os.path.basename(configuration_path)}…"
             )
@@ -486,7 +483,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             except Exception as e:
                 # Reported, not raised. This runs as a Qt slot, and PyQt5 turns an
                 # unhandled exception in a slot into qFatal -- the entire application
-                # aborts, leaving the traceback and nothing else (FIB-329). Failing to
+                # aborts, leaving the traceback and nothing else. Failing to
                 # connect is an ordinary outcome here rather than a defect: the vendor
                 # API may not be installed, the instrument may be off, the address may
                 # belong to a different bay.

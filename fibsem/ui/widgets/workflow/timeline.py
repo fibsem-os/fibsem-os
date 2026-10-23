@@ -39,8 +39,8 @@ _DOT_ACTIVE = stylesheets.ORANGE_COLOR
 _DOT_PENDING = NEUTRAL_700
 _DOT_FAILED = stylesheets.RED_COLOR
 _DOT_SKIPPED = NEUTRAL_500
-# Slate, not amber: the old #e0a030 was indistinguishable from the active orange,
-# so a cancelled row read as still running — especially when it was the last thing
+# Slate, not amber: amber is indistinguishable from the active orange,
+# so a cancelled row would read as still running — especially when it was the last thing
 # to run and there was no active row beside it to compare against. Still not red:
 # a user abort is not an error.
 _DOT_CANCELLED = "#6f7d8c"
@@ -161,7 +161,7 @@ def _trailing_style(status: StepStatus) -> str:
     already mark it, so a coloured number would be a third marker saying the same thing —
     and the active orange is a shade off the amber that was rejected for looking like a
     warning, which is exactly how it would read once the row outruns its estimate and the
-    column starts reporting elapsed. Nothing here changes colour for that (FIB-666).
+    column starts reporting elapsed. Nothing here changes colour for that.
 
     `background: transparent` is not decoration: the app applies NAPARI_STYLE, whose bare
     `QWidget { background-color: ... }` rule reaches every descendant, so a label that
@@ -712,11 +712,9 @@ class WorkflowProgressWidget(QWidget):
         # next to Stop invites the wrong click.
         header_row = QHBoxLayout()
         # 2px + the button's own 6px padding = the 8px the header label is inset by,
-        # so the two ends of the strip match. This used to reserve 20px for the
-        # scroll bar column below, which only appears when the queue overflows -- so
-        # on a short queue the button floated in an empty gutter. Nothing is lost by
-        # dropping it: the reservation was there to keep the button's menu arrow off
-        # the scroll bar's, and _ADD_BTN_STYLE hides that arrow (FIB-584).
+        # so the two ends of the strip match. No room is kept for the scroll bar,
+        # which only appears when the queue overflows: _ADD_BTN_STYLE hides the
+        # button's menu arrow, which is all it would have to clear.
         header_row.setContentsMargins(0, 0, 2, 0)
         header_row.setSpacing(4)
 
@@ -774,7 +772,7 @@ class WorkflowProgressWidget(QWidget):
     # ── Public API ────────────────────────────────────────────────────────
     def show_first_failed(self) -> Optional[int]:
         """Select the run's first failed row and scroll to it: where a failed run's
-        status line sends you (FIB-1188). Its index, or None when nothing failed."""
+        status line sends you. Its index, or None when nothing failed."""
         return self._outer.show_first(StepStatus.FAILED)
 
     def set_actions_enabled(self, enabled: bool) -> None:
@@ -874,7 +872,7 @@ class WorkflowProgressWidget(QWidget):
         )
 
         # One decode at the boundary: accepts the dict the signal still carries and the
-        # typed report the producer will send (FIB-827).
+        # typed report the producer will send.
         report = WorkflowStatusUpdate.from_payload(status)
 
         queue_items = report.queue_items

@@ -10,8 +10,8 @@ inventory on every refresh and drawn as chips.
 
 Run inventory, Load and Unload are conveniences over the same ``Stage``
 primitives the Sample view uses, run off the GUI thread. ``generate_report``
-writes the grid screening PDF (FIB-1057) under the experiment folder and opens
-it; Tools → Reporting is what calls it, and the outcome is said on this tab's
+writes the grid screening report under the experiment folder and
+opens it; Tools → Reporting is what calls it, and the outcome is said on this tab's
 strip. Running tasks is not on this tab; that is Workflow → Grids.
 """
 
@@ -39,9 +39,6 @@ from PyQt5.QtWidgets import (
 from fibsem.acting import OPERATOR, acting
 from fibsem.applications.autolamella.run_edits import grid_edit_refusal
 from fibsem.applications.autolamella.structures import Experiment, Lamella
-from fibsem.applications.autolamella.tools.grid_report_pdf import (
-    generate_grid_report,
-)
 from fibsem.applications.autolamella.ui.grids.card import GridCardContainer
 from fibsem.applications.autolamella.ui.grids.overview import GridPositionsWidget
 from fibsem.applications.autolamella.ui.grids.results import GridResultsWidget
@@ -497,7 +494,8 @@ class GridsTabWidget(QWidget):
     # -- the report ---------------------------------------------------------------
 
     def generate_report(self) -> None:
-        """Write the grid screening PDF under the experiment folder and open it.
+        """Write the grid screening report under the experiment folder, print it to
+        a PDF beside it where a browser can, and open the page.
 
         Needs records, not hardware: the report reads the experiment only, so this
         works with nothing connected. The stage inventory the tab holds, if any,
@@ -514,13 +512,7 @@ class GridsTabWidget(QWidget):
         written: Dict[str, str] = {}
 
         def job() -> None:
-            try:
-                written["path"] = generate_grid_report(experiment, inventory=inventory)
-            except ImportError as e:
-                raise RuntimeError(
-                    "Reporting tools are not installed: pip install "
-                    f"fibsem-os[reporting] ({e})"
-                ) from e
+            written["path"] = str(experiment.write_grid_report(inventory))
 
         def opened() -> None:
             path = written.get("path")
@@ -532,7 +524,7 @@ class GridsTabWidget(QWidget):
         self._start(job, "Writing the grid screening report…", "", after=opened)
 
     def open_report(self, path: str) -> None:
-        """Hand the PDF to the desktop's viewer. Separate so a test can watch it."""
+        """Open the page in the desktop's browser. Separate so a test can watch it."""
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
 
     def _confirm(self, title: str, text: str) -> bool:
