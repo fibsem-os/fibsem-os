@@ -59,7 +59,6 @@ import importlib
 import io
 import json
 import logging
-import math
 import threading
 from functools import partial
 from pathlib import Path
@@ -92,7 +91,7 @@ from fastapi.responses import Response
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.cancellation import NothingToStop, OperationCancelledError
-from fibsem.codec import encode
+from fibsem.codec import decode, encode
 from fibsem.devices.core import (
     Device,
     DeviceFault,
@@ -100,7 +99,6 @@ from fibsem.devices.core import (
     ParameterReadOnly,
     ParameterUnavailable,
     ResourceBusy,
-    _limits_to_dict,
 )
 from fibsem.devices.runs import RUNNING, Run
 from fibsem.devices.sample_loader import GridExchangeError
@@ -134,11 +132,9 @@ from fibsem.server.responses import (
     DeviceDescription,
     DeviceHealth,
     Health,
-    Limits,
     MetadataAnswer,
     ParameterDescription,
     QueryDescription,
-    Range,
     ResultAnswer,
     RunAnswer,
     RunEnvelope,
@@ -146,7 +142,7 @@ from fibsem.server.responses import (
     Values,
     answer,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures import FibsemImage, Limits
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
 # which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
@@ -212,19 +208,9 @@ def _choices_to_wire(choices: Any) -> Any:
     return None if choices is None else [to_wire(choice) for choice in choices]
 
 
-def _bound(value: Any) -> Any:
-    """JSON has no infinity: an unbounded end of a limit (a Tescan stage axis) goes
-    as None, and the remote driver reads None back as unbounded."""
-    return None if isinstance(value, float) and math.isinf(value) else value
-
-
-def _limits_to_wire(limits: Any) -> Optional[Limits]:
-    """``_limits_to_dict``'s output with each infinite end as None."""
-    if limits is None:
-        return None
-    if set(limits) == {"min", "max"}:
-        return Range(_bound(limits["min"]), _bound(limits["max"]))
-    return {name: _limits_to_wire(limit) for name, limit in limits.items()}
+def _limits(limits: Any) -> Optional[Limits]:
+    """``_limits_to_dict``'s output as the limits it describes."""
+    return None if limits is None else decode(Limits, limits)
 
 
 def _facts(device: Device) -> Dict[str, Any]:
@@ -282,7 +268,7 @@ def describe_device(
             name: ParameterDescription(
                 **{
                     **info,
-                    "limits": _limits_to_wire(info["limits"]),
+                    "limits": _limits(info["limits"]),
                     "choices": _choices_to_wire(info["choices"]),
                 },
                 type_path=_type_path(device, name),
@@ -347,7 +333,7 @@ def _returns(device: Device, name: str) -> Optional[str]:
 
 def metadata_payload(metadata: ParameterMetadata) -> MetadataAnswer:
     return MetadataAnswer(
-        limits=_limits_to_wire(_limits_to_dict(metadata.limits)),
+        limits=metadata.limits,
         choices=_choices_to_wire(metadata.choices),
         settable=metadata.settable,
         native_max=metadata.native_max,

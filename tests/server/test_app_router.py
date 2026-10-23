@@ -61,7 +61,14 @@ def client(microscope, host, event_buffer):
 def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
     assert body["routers"] == {"microscope": True, "services": True, "app": True}
-    assert body["parts"] == ["items", "poses", "grids", "milling_stages", "lamellae"]
+    assert body["parts"] == [
+        "items",
+        "poses",
+        "grids",
+        "milling_stages",
+        "lamellae",
+        "replay",
+    ]
     assert body["app_name"] == "AutoLamella"
 
 
@@ -112,7 +119,7 @@ def test_status_and_queue_over_http(client):
     assert status["experiment"]["name"] == "router-exp"
     assert status["workflow"]["running"] is False
     queue = client.get("/app/workflow/queue", headers=AUTH).json()
-    assert queue["available"] is False  # no run yet
+    assert queue["items"] == [] and queue["version"] is None  # no run yet
 
 
 def test_an_items_history_comes_through_the_tabs_filter(client, host):
@@ -176,10 +183,10 @@ def test_the_sidecars_history_tool_sends_its_filter(client, host):
 def test_task_outputs_round_trip(client, host):
     name = host.experiment.positions[0].name
     payload = client.get(f"/app/experiment/items/{name}/outputs", headers=AUTH).json()
-    assert payload["available"] is True
     assert payload["item_name"] == name
-    missing = client.get("/app/experiment/items/nope/outputs", headers=AUTH).json()
-    assert missing["available"] is False
+    missing = client.get("/app/experiment/items/nope/outputs", headers=AUTH)
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["item_names"] == [name]
 
 
 def test_output_images_serve_jpeg_and_refuse_unknown_names(client, host):
@@ -338,7 +345,7 @@ def test_task_config_reads_over_http(client, host):
     doc = client.get(
         "/app/experiment/protocol/task_config/Rough Milling", headers=AUTH
     ).json()
-    assert doc["available"] is True and doc["level"] == "protocol"
+    assert doc["level"] == "protocol"
     assert "version" in doc and "config" in doc
 
     item_doc = client.get(
@@ -347,10 +354,9 @@ def test_task_config_reads_over_http(client, host):
     assert item_doc["level"] == "item"
     assert item_doc["version"] == doc["version"]
 
-    unknown = client.get(
-        "/app/experiment/protocol/task_config/Nope", headers=AUTH
-    ).json()
-    assert "task_names" in unknown
+    unknown = client.get("/app/experiment/protocol/task_config/Nope", headers=AUTH)
+    assert unknown.status_code == 404
+    assert "task_names" in unknown.json()["detail"]
 
 
 def test_summaries_and_protocol_over_http(client):
@@ -359,11 +365,9 @@ def test_summaries_and_protocol_over_http(client):
         "/app/experiment/task_history",
         "/app/experiment/protocol",
     ):
-        body = client.get(path, headers=AUTH).json()
-        assert body["available"] is True, path
-    assert (
-        client.get("/app/workflow/summary", headers=AUTH).json()["available"] is False
-    )
+        assert client.get(path, headers=AUTH).status_code == 200, path
+    summary = client.get("/app/workflow/summary", headers=AUTH)
+    assert summary.status_code == 404  # no run yet
 
 
 def test_sidecar_grows_the_app_tools_from_capabilities(client):
@@ -478,7 +482,6 @@ def test_event_history_reads_the_record_before_the_live_buffer(
     path.write_text("".join(json.dumps(r) + "\n" for r in lines), encoding="utf-8")
 
     body = client.get("/app/events/history", headers=AUTH).json()
-    assert body["available"] is True
     assert [(e["session"], e["seq"]) for e in body["events"]] == [
         ("night", 1),
         (held.get("session"), 0),
@@ -715,7 +718,6 @@ def grid_with_overview(host, microscope):
 
 def test_grids_list_and_detail_over_http(client, host, grid_with_overview):
     listed = client.get("/app/experiment/grids", headers=AUTH).json()
-    assert listed["available"] is True
     (summary,) = listed["items"]
     assert summary["name"] == "grid-aspen"
     assert summary["quality"] == "UNASSESSED"
@@ -734,9 +736,9 @@ def test_grids_list_and_detail_over_http(client, host, grid_with_overview):
     ]
     assert sorted(detail["items"]) == sorted(p.name for p in host.experiment.positions)
 
-    missing = client.get("/app/experiment/grids/nope", headers=AUTH).json()
-    assert missing["available"] is False
-    assert missing["grid_names"] == ["grid-aspen"]
+    missing = client.get("/app/experiment/grids/nope", headers=AUTH)
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["grid_names"] == ["grid-aspen"]
 
 
 def test_grid_overview_serves_jpeg_and_refuses_unlisted_names(
@@ -869,7 +871,6 @@ def test_grid_markers_place_items_in_source_pixels(client, host, grid_with_overv
     body = client.get(
         "/app/experiment/grids/grid-aspen/outputs/overview.tif/markers", headers=AUTH
     ).json()
-    assert body["available"] is True
     assert body["linked"] is True
     assert body["image"]["width"] == 128 and body["image"]["height"] == 128
     assert body["image"]["hfw"] == pytest.approx(200e-6)
@@ -925,9 +926,9 @@ def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview)
 
     unknown = client.get(
         "/app/experiment/grids/grid-aspen/outputs/nope.tif/markers", headers=AUTH
-    ).json()
-    assert unknown["markers"] == []
-    assert unknown["filenames"] == ["overview.tif"]
+    )
+    assert unknown.status_code == 404
+    assert unknown.json()["detail"]["filenames"] == ["overview.tif"]
 
 
 def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
@@ -953,7 +954,6 @@ def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
             "grid_names": ["grid-birch"],
         },
     ).json()
-    assert body["valid"] is True
     assert body["steps"] == [
         {"grid": "grid-birch", "step": LOAD_ENTRY_NAME},
         {"grid": "grid-birch", "step": "overview_fib"},
@@ -971,21 +971,21 @@ def test_grid_workflow_plan_is_the_preflight_without_hardware(client, host):
         headers=AUTH,
         json={"task_names": ["overview_sem"], "screen_all": True},
     ).json()
-    assert screen["valid"] is True and screen["screen_all"] is True
+    assert screen["screen_all"] is True
     assert "inventory" in screen["note"]
 
     bad_task = client.post(
         "/app/workflow/grids/plan", headers=AUTH, json={"task_names": ["nope"]}
-    ).json()
-    assert bad_task["valid"] is False
-    assert bad_task["task_names"] == ["overview_sem", "overview_fib"]
+    )
+    assert bad_task.status_code == 404
+    assert bad_task.json()["detail"]["task_names"] == ["overview_sem", "overview_fib"]
     bad_grid = client.post(
         "/app/workflow/grids/plan",
         headers=AUTH,
         json={"task_names": ["overview_sem"], "grid_names": ["grid-oak"]},
-    ).json()
-    assert bad_grid["valid"] is False
-    assert bad_grid["grid_names"] == ["grid-aspen", "grid-birch"]
+    )
+    assert bad_grid.status_code == 404
+    assert bad_grid.json()["detail"]["grid_names"] == ["grid-aspen", "grid-birch"]
     malformed = client.post("/app/workflow/grids/plan", headers=AUTH, json={})
     assert malformed.status_code == 422
 
@@ -1716,6 +1716,25 @@ def test_an_image_read_is_kept_by_the_browser_until_the_file_changes(
         "/app/experiment/files/" + os.path.dirname(OVERVIEW), headers=AUTH
     )
     assert "ETag" not in listing.headers
+
+
+def test_an_images_raw_planes_for_the_web_viewer(client, host, grid_with_overview):
+    import numpy as np
+
+    from fibsem.structures import FibsemImage
+
+    url = f"/app/experiment/planes/{OVERVIEW}"
+    answer = client.get(url, headers=AUTH)
+    assert answer.status_code == 200
+    header = json.loads(answer.headers["X-Planes"])
+    # the client undoes the gzip, as a browser does
+    values = np.frombuffer(answer.content, dtype=header["dtype"])
+    image = FibsemImage.load(os.path.join(str(host.experiment.path), OVERVIEW))
+    np.testing.assert_array_equal(values.reshape(header["shape"])[0, 0], image.data)
+    again = client.get(url, headers={**AUTH, "If-None-Match": answer.headers["ETag"]})
+    assert again.status_code == 304
+    refused = client.get(url, params={"factor": 3}, headers=AUTH)
+    assert refused.status_code == 422
 
 
 def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):

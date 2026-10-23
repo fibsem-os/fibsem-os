@@ -111,7 +111,11 @@ def task_config_at(experiment, level: str, item_name: str, task_name: str):
         protocol = getattr(experiment, "task_protocol", None)
         config_map = getattr(protocol, "task_config", None)
         if config_map is None:
-            return None, None, {"error": "no protocol is loaded"}
+            return (
+                None,
+                None,
+                {"error": "no protocol is loaded", "error_type": "no_experiment"},
+            )
         config = dict(config_map).get(task_name)
         if config is None:
             return (
@@ -147,7 +151,7 @@ def patch_task_config(
     refused as stale, never half-merged."""
     _lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
     if refusal:
-        return {"applied": False, **refusal}
+        return {"applied": False, "error_type": "not_found", **refusal}
     patched = patch_config(config, patch, version)
     if not patched["applied"]:
         return patched
@@ -234,7 +238,7 @@ def set_task_config_values(
     settle."""
     lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
     if refusal:
-        return {"applied": False, **refusal}
+        return {"applied": False, "error_type": "not_found", **refusal}
     changes = []
     for path, value in values.items():
         *parents, leaf = path.split(".")

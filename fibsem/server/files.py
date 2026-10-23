@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from fibsem.server.responses import refused
+
 TEXT_SUFFIXES = (".yaml", ".yml", ".json", ".jsonl", ".log", ".md", ".csv", ".txt")
 IMAGE_SUFFIXES = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 # A text answer's cap: a session log runs to megabytes, and app_get_log reads it
@@ -238,13 +240,8 @@ def jpeg_preview(
             # metres per PREVIEW pixel, as image answers carry it.
             metadata["preview_pixelsize"] = metadata["pixel_size"] * full[1] / width
     except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
-        return {
-            "available": True,
-            "jpeg": None,
-            "error": f"Could not render {filename!r}: {exc}",
-        }
+        return refused("invalid", f"Could not render {filename!r}: {exc}")
     return {
-        "available": True,
         "jpeg": jpeg,
         "width": width,
         "height": height,

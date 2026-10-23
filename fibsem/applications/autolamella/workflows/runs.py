@@ -100,13 +100,16 @@ def check_lamella_run(
     if not task_names or unknown:
         return refused(
             f"unknown tasks: {unknown!r}" if unknown else "no tasks",
+            "not_found" if unknown else "invalid",
             task_names=known_tasks,
         )
     known_items = [p.name for p in experiment.positions]
     if request.names is not None:
         missing = [n for n in request.names if n not in known_items]
         if missing:
-            return refused(f"unknown items: {missing!r}", item_names=known_items)
+            return refused(
+                f"unknown items: {missing!r}", "not_found", item_names=known_items
+            )
     names = tuple(request.names) if request.names is not None else tuple(known_items)
     stage = getattr(microscope, "sample_handling", None)
     if stage is not None:

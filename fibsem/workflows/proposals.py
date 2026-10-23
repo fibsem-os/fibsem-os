@@ -1072,9 +1072,10 @@ class DecisionResult:
     reason: str = ""
     running: bool = False
     # Why a refusal, for a client to act on: "missing_field" (the decision
-    # names no run), "stale_proposal" (the task re-ran since it was shown),
-    # "invalid_value" (the values cannot be confirmed as given). Empty when
-    # applied, and for the other refusals (running, nothing pending).
+    # names no run, or a reject no reason), "stale_proposal" (the task re-ran
+    # since it was shown), "invalid_value" (the values cannot be confirmed as
+    # given), "not_found" (no such item or proposal). Empty when applied, and
+    # for the other refusals (running, a value that failed to apply).
     error_type: str = ""
     synced_tasks: List[str] = field(default_factory=list)
     # Applied, but the experiment could not be saved after it: the decision is

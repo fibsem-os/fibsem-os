@@ -1420,3 +1420,16 @@ def _correlation(t, payload, actor, **context):
     record = _record(t, "correlation", payload, **context)
     record["actor"] = actor
     return record
+
+
+def test_grid_loads_and_unloads_are_replayed_as_stage_actions(tmp_path):
+    loaded = {"grid": "Grid-01", "slot": "Slot-01", "working_slot": "Shuttle"}
+    _write_events(
+        tmp_path,
+        _record(_at(0), "grid_loaded", loaded),
+        _record(_at(1), "grid_unloaded", {**loaded, "error": "stuck"}),
+    )
+    load, unload = load_replay(tmp_path).events
+    assert (load.kind, unload.kind) == (EventKind.STAGE, EventKind.STAGE)
+    assert load.summary == "Loaded Grid-01 from Slot-01"
+    assert unload.summary == "Unloaded Grid-01 to Slot-01 — failed: stuck"

@@ -11,7 +11,9 @@ before any edit runs (its executor) and redraws when ``session.changed`` says th
 applied. The versions an edit is checked against are here too, for the server's reads to
 serve.
 
-Each returns a plain dict: the applied changes, or a structured refusal.
+Each returns a plain dict of the applied changes, or a `Refusal`; a patch
+written against an old version, or one that cannot apply, answers ``stale``
+or ``invalid_patch``.
 """
 
 from __future__ import annotations
@@ -124,9 +126,15 @@ def touch_agent_patch(
         logging.debug("could not note what an agent patch changes", exc_info=True)
 
 
+def _refused(error_type: str, **why: Any) -> dict:
+    """An edit that did nothing: ``error`` says why, ``error_type`` what kind
+    of refusal it is (the App Server's status), and the names there are."""
+    return {"applied": False, "error_type": error_type, **why}
+
+
 def _apply(experiment, level, item_name, task_name, patch, version) -> dict:
     if experiment is None:
-        return {"applied": False, "error": "no experiment is loaded"}
+        return _refused("no_experiment", error="No experiment is loaded.")
     if level == "item_fields":
         return patch_item_fields(experiment, item_name, patch, version)
     if level == "reorder_stages":
@@ -165,9 +173,9 @@ def item_patch_refusal(lamella, patch: dict) -> Optional[str]:
 def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> dict:
     """The App Server's item patch: :func:`edit_item_fields` on the item named
     *item_name*, saved."""
-    lamella, refusal = find_item(experiment, item_name)
-    if refusal:
-        return {"applied": False, **refusal}
+    lamella, why = find_item(experiment, item_name)
+    if why:
+        return _refused("not_found", **why)
     result = edit_item_fields(lamella, patch, version)
     if result["applied"]:
         result["saved"] = save_experiment(experiment, "agent item patch")
@@ -298,7 +306,7 @@ def reorder_milling_stages(
         experiment, "protocol" if level == "protocol" else "item", item_name, task_name
     )
     if refusal:
-        return {"applied": False, **refusal}
+        return _refused("not_found", **refusal)
     milling = getattr(config, "milling", None) or {}
     if milling_key not in milling:
         return {
@@ -353,21 +361,21 @@ def apply_protocol_to_item(
     does (``Experiment.apply_lamella_config``): the item keeps its milling
     pattern positions. No version check. ``task_names`` of None means every
     task the protocol defines."""
-    lamella, refusal = find_item(experiment, item_name)
-    if refusal:
-        return {"applied": False, **refusal}
+    lamella, why = find_item(experiment, item_name)
+    if why:
+        return _refused("not_found", **why)
     protocol = getattr(experiment, "task_protocol", None)
     config_map = getattr(protocol, "task_config", None)
     if config_map is None:
-        return {"applied": False, "error": "no protocol is loaded"}
+        return _refused("no_experiment", error="No experiment is loaded.")
     names = list(task_names) if task_names else list(config_map.keys())
     unknown = [n for n in names if n not in config_map]
     if unknown:
-        return {
-            "applied": False,
-            "error": f"Not in the protocol: {unknown!r}.",
-            "task_names": list(config_map.keys()),
-        }
+        return _refused(
+            "not_found",
+            error=f"Not in the protocol: {unknown!r}.",
+            task_names=list(config_map.keys()),
+        )
     _, saved = copy_task_configs(experiment, [lamella.name], names)
     return {
         "applied": True,
