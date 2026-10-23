@@ -18,12 +18,14 @@ It must stay cheap to import: the standard library, ``fibsem`` itself and
 Qt-free modules only. Qt is imported inside the functions, as everywhere outside
 a ui/ path (tests/test_ui_extra_isolation.py): core installs have no ui extra.
 Anything under ``fibsem.ui`` would load the widgets before the splash screen
-appears and defeat it; tests/ui/test_launcher.py checks that.
+appears and defeat it; tests/ui/test_desktop_launch.py checks that.
 """
 
 from __future__ import annotations
 
 import importlib
+import logging
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -308,6 +310,8 @@ def launch(key: str, argv: Optional[List[str]] = None) -> None:
         getattr(importlib.import_module(module), function)(argv)
         return
 
+    if not gateway_allows(key, app):
+        return
     splash = Splash(app)
     for status, modules in app.load_steps:
         splash.step(f"{status}…")
@@ -315,6 +319,84 @@ def launch(key: str, argv: Optional[List[str]] = None) -> None:
             importlib.import_module(name)
     splash.step("Opening the window…")
     getattr(importlib.import_module(module), function)(argv, splash=splash)
+
+
+def gateway_allows(key: str, app: App) -> bool:
+    """Whether the window may open, asking the gateway on this PC when one runs
+    (fibsem.gateway): with it off, the window takes window mode; with the app
+    running remotely, the operator chooses Take over (it is stopped) or Cancel.
+    No gateway, or one that doesn't answer, changes nothing."""
+    from urllib.error import HTTPError
+
+    from fibsem.gateway.gateway import CHILD_ENV, HEADLESS, OFF, STOP_WAIT_S, WINDOW
+    from fibsem.gateway.main import call
+
+    if os.environ.get(CHILD_ENV) == WINDOW:
+        return True
+    try:
+        state = call("GET", "/gateway")
+    except (OSError, ValueError) as e:
+        logging.warning("Gateway didn't answer (%s); opening as usual", e)
+        return True
+    if state is None or state["mode"] not in (OFF, HEADLESS):
+        return True
+    if state["mode"] == HEADLESS:
+        if not _take_over(app, state):
+            return False
+        try:
+            call(
+                "POST",
+                "/gateway/stop",
+                {"force": True, "via": "desktop launch"},
+                timeout=STOP_WAIT_S + 10,
+            )
+        except HTTPError as e:
+            _say(
+                app,
+                f"The remote run didn't stop: {e.read().decode('utf-8', 'replace')}",
+            )
+            return False
+        except (OSError, ValueError) as e:
+            _say(app, f"The remote run didn't stop: {e}")
+            return False
+    try:
+        call("POST", "/gateway/claim", {"pid": os.getpid(), "app": key})
+    except (OSError, ValueError) as e:
+        logging.warning("Gateway claim failed (%s); opening anyway", e)
+    return True
+
+
+def _take_over(app: App, state: dict) -> bool:
+    """Ask the operator whether to stop the remote run and open the window."""
+    box, take = take_over_box(app, state)
+    box.exec_()
+    return box.clickedButton() is take
+
+
+def take_over_box(app: App, state: dict):
+    """The Take over / Cancel question, and its Take over button."""
+    from PyQt5.QtWidgets import QApplication, QMessageBox
+
+    QApplication.instance() or QApplication(sys.argv)
+    experiment = state.get("experiment") or "no experiment"
+    who = state.get("who") or "remotely"
+    box = QMessageBox()
+    box.setWindowTitle(app.name)
+    box.setIcon(QMessageBox.Question)
+    box.setText(f"{app.name} is running remotely ({experiment}, started by {who}).")
+    box.setInformativeText(
+        "Take over stops it, and any workflow it is running, then opens the window."
+    )
+    take = box.addButton("Take over", QMessageBox.AcceptRole)
+    box.addButton(QMessageBox.Cancel)
+    return box, take
+
+
+def _say(app: App, text: str) -> None:
+    from PyQt5.QtWidgets import QApplication, QMessageBox
+
+    QApplication.instance() or QApplication(sys.argv)
+    QMessageBox.warning(None, app.name, text)
 
 
 # The console commands. Their names are what existing installs' scripts call.
@@ -331,3 +413,8 @@ def fibsem_ui(argv: Optional[List[str]] = None) -> None:
 def volume(argv: Optional[List[str]] = None) -> None:
     """``fibsem-volume-ui``."""
     launch("volume", argv)
+
+
+if __name__ == "__main__":
+    # How the gateway opens a window: python -m fibsem.tools.desktop_launch <app>
+    launch(sys.argv[1], sys.argv[2:])

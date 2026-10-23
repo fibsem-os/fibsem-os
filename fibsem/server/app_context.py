@@ -984,7 +984,7 @@ class AppContext:
     ) -> Dict[str, Any]:
         """Put the agent's message to the operator on the record: something they
         should read now, or its answer to their message (``reply_to``, the
-        message's id). The window tells the operator; it changes nothing."""
+        message's id). It changes nothing."""
         message_id = uuid.uuid4().hex[:8]
         result = self._note(
             text,

@@ -4,7 +4,7 @@ token and paired computers, and a link to the event log.
 The App Server is the API inside AutoLamella that the agent, the event log and
 ``FibsemClient`` reach. This dialog is about the server, not the agent
 (FIB-1035): what the agent may do is its level, on the chip in the status bar,
-and connecting one is the chip's "Connect an agent…" (``connect_agent_dialog``).
+and connecting one is the web app's (Agent page, Settings).
 
 Whether it runs, and whether it serves the microscope, are both set here and
 saved: they are the operator's standing choice, so the next launch starts the
