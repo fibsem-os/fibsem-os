@@ -23,7 +23,6 @@ from fibsem.ui import (
     FibsemMovementWidget,
     FibsemSpotBurnWidget,
     MillingTaskViewerWidget,
-    notification_service,
 )
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.widgets.custom_widgets import scrollable
@@ -415,38 +414,6 @@ class MicroscopePanel(QWidget):
                 )
                 self.image_widget.deleteLater()
                 self.image_widget = None
-
-    def import_fm_configuration(self) -> None:
-        """Load a fluorescence microscope configuration via the control widget."""
-        if self.fm_control_widget is None:
-            msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-
-        try:
-            self.fm_control_widget.import_fm_configuration()
-        except Exception:
-            logging.exception("Failed to load FM configuration from AutoLamella UI.")
-            notification_service.show_toast(
-                "Failed to load FM configuration. Check logs for details.", "error"
-            )
-
-    def export_fm_configuration(self) -> None:
-        """Save the current fluorescence microscope configuration via the control widget."""
-        if self.fm_control_widget is None:
-            msg = "Fluorescence control not available. Connect to an FM-enabled microscope first."
-            logging.warning(msg)
-            notification_service.show_toast(msg, "warning")
-            return
-
-        try:
-            self.fm_control_widget.export_fm_configuration()
-        except Exception:
-            logging.exception("Failed to save FM configuration from AutoLamella UI.")
-            notification_service.show_toast(
-                "Failed to save FM configuration. Check logs for details.", "error"
-            )
 
     def set_spot_burn_widget_active(self, active: bool = True) -> None:
         """Set the spot burn widget active (sets the tab visible, activate point layer)."""

@@ -178,6 +178,18 @@ fibsem-agent
   agent to re-read the status. If the app can't be watched, the runner waits
   up to `--server-wait` seconds (default 600) for it to answer again, then
   stops with exit code 1.
+- **Profiles.** `--profile NAME` runs with `NAME.yaml` from this computer's
+  `~/.fibsem/agent/profiles/` or the checkout's `.claude/fibsem-agent/` (this
+  computer's wins): model, effort, budget and turns, the mode and its folder,
+  extra skills, instructions added to the prompt, and reminders. Flags on the
+  command line win over it; the level and the API key are never in it.
+  `--show-config` prints what the agent would run with and starts nothing,
+  `--list-profiles` lists them, and `--json` gives either as JSON. The
+  checkout ships `default`.
+- **Reminders.** A profile's `hooks` are `when` plus `say`: the text reaches
+  the agent at the moment it makes a matching tool call, before it or after it
+  (`--list-hooks` lists the options and their tools). The tools and the App
+  Server know nothing of them.
 - **Limits.** `--max-turns` (default 40) caps the tool calls in one
   wake-up; the next wake-up starts a fresh count. `--max-budget-usd`
   (default 5) caps what one run of `fibsem-agent` spends, and reaching it

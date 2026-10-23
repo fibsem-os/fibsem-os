@@ -35,7 +35,7 @@ import os
 import re
 import sys
 from contextvars import ContextVar
-from typing import Annotated, Any, Dict, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from fibsem.ai.agent.calls import headers_for
@@ -1148,14 +1148,90 @@ def build_sidecar(client, capabilities):
         y: Optional[float] = None,
         fx: Optional[float] = None,
         fy: Optional[float] = None,
+        crop: Optional[Union[str, List[float]]] = None,
     ):
+        if isinstance(crop, (list, tuple)):
+            crop = ",".join(str(v) for v in crop)
         return _tool(
-            "experiment_get_image_stage_position", path=path, x=x, y=y, fx=fx, fy=fy
+            "experiment_get_image_stage_position",
+            path=path,
+            x=x,
+            y=y,
+            fx=fx,
+            fy=fy,
+            crop=crop,
         )
 
-    def experiment_render_markers(path: str, grid_name: Optional[str] = None):
+    def experiment_render_markers(
+        path: str,
+        grid_name: Optional[str] = None,
+        fov: Optional[bool] = None,
+        current: Optional[bool] = None,
+    ):
         return _routed(
-            "experiment_render_markers", path=path, **_given(grid_name=grid_name)
+            "experiment_render_markers",
+            path=path,
+            **_given(grid_name=grid_name, fov=fov, current=current),
+        )
+
+    def experiment_draw_image(
+        path: str,
+        marks: Optional[dict] = None,
+        crosshair: Optional[bool] = None,
+        metadata_bar: Optional[bool] = None,
+        channels: Optional[List[str]] = None,
+    ):
+        return _routed(
+            "experiment_draw_image",
+            path=path,
+            **_given(
+                marks=dict(marks) if marks is not None else None,
+                crosshair=crosshair,
+                metadata_bar=metadata_bar,
+                channels=list(channels) if channels is not None else None,
+            ),
+        )
+
+    def experiment_draw_pair(
+        before: str,
+        after: str,
+        marks: Optional[dict] = None,
+        metadata_bar: Optional[bool] = None,
+        channels: Optional[List[str]] = None,
+    ):
+        return _routed(
+            "experiment_draw_pair",
+            before=before,
+            after=after,
+            **_given(
+                marks=dict(marks) if marks is not None else None,
+                metadata_bar=metadata_bar,
+                channels=list(channels) if channels is not None else None,
+            ),
+        )
+
+    def item_draw_milling(
+        item_name: str,
+        task_names: List[str],
+        image_path: Optional[str] = None,
+        background: Optional[str] = None,
+        scan_direction: Optional[bool] = None,
+        alignment_area: Optional[bool] = None,
+        metadata_bar: Optional[bool] = None,
+    ):
+        return _routed(
+            "item_draw_milling",
+            item_name=item_name,
+            task_names=[task_names]
+            if isinstance(task_names, str)
+            else list(task_names),
+            **_given(
+                image_path=image_path,
+                background=background,
+                scan_direction=scan_direction,
+                alignment_area=alignment_area,
+                metadata_bar=metadata_bar,
+            ),
         )
 
     def experiment_get_image_pixels(path: str, stage_positions: list):
@@ -1169,9 +1245,20 @@ def build_sidecar(client, capabilities):
         return None if values is None else ",".join(str(float(v)) for v in values)
 
     def _read_file(
-        path, box=None, fraction=None, z=None, channels=None, experiment=None
+        path,
+        box=None,
+        fraction=None,
+        z=None,
+        channels=None,
+        experiment=None,
+        cells=None,
     ):
-        """The file route's answer for *path*: (data, err)."""
+        """The file route's answer for *path*: (data, err). *cells* is true
+        (show the cells) or the cells' names (crop them)."""
+        if isinstance(cells, (list, tuple)):
+            cells = ",".join(str(name) for name in cells)
+        elif cells is not None:
+            cells = "true" if cells else None
         return _route(
             "experiment_read_file",
             path=str(path),
@@ -1179,6 +1266,7 @@ def build_sidecar(client, capabilities):
             fraction=_region(fraction),
             z=z,
             channels=",".join(channels) if channels else None,
+            cells=cells,
             experiment=experiment,
         )
 
@@ -1191,15 +1279,19 @@ def build_sidecar(client, capabilities):
         path: str,
         z: Optional[int] = None,
         channels: Optional[List[str]] = None,
+        cells: Optional[bool] = None,
         experiment: Optional[str] = None,
     ):
-        data, err = _read_file(path, z=z, channels=channels, experiment=experiment)
+        data, err = _read_file(
+            path, z=z, channels=channels, experiment=experiment, cells=cells
+        )
         return err if err else _with_images(data)
 
     def experiment_crop_image(
         path: str,
         box: Optional[list] = None,
         fraction: Optional[list] = None,
+        cells: Optional[List[str]] = None,
         z: Optional[int] = None,
         channels: Optional[List[str]] = None,
         experiment: Optional[str] = None,
@@ -1211,6 +1303,7 @@ def build_sidecar(client, capabilities):
             z=z,
             channels=channels,
             experiment=experiment,
+            cells=list(cells) if cells is not None else None,
         )
         return err if err else _with_images(data)
 
@@ -1281,10 +1374,17 @@ def build_sidecar(client, capabilities):
     def grid_get(grid_name: str):
         return _routed("grid_get", grid_name=grid_name)
 
-    def grid_get_output_image(grid_name: str, filename: str):
-        # A JPEG, like an item's output image.
+    def grid_get_output_image(
+        grid_name: str, filename: str, cells: Optional[bool] = None
+    ):
+        # A JPEG, like an item's output image; its cells ride in the metadata.
         resp = _send(
-            "grid_get_output_image", dict(grid_name=grid_name, filename=filename)
+            "grid_get_output_image",
+            dict(
+                grid_name=grid_name,
+                filename=filename,
+                **_given(cells="true" if cells else None),
+            ),
         )
         if resp.status_code >= 400:
             return _refusal(resp)
@@ -1761,6 +1861,9 @@ def build_sidecar(client, capabilities):
             microscope_set_state,
             experiment_get_image_stage_position,
             experiment_render_markers,
+            experiment_draw_image,
+            experiment_draw_pair,
+            item_draw_milling,
             experiment_get_image_pixels,
             grid_set_quality,
             grid_set_note,

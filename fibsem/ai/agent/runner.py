@@ -12,6 +12,8 @@ decides what the agent may do, and the runner never sets the level. Needs the
     fibsem-agent --session-id <id>            # a new session with this id (a manager's)
     cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
     fibsem-agent --files ~/fibsem-work         # it reads and writes files there, runs nothing
+    fibsem-agent --profile overnight-lamella  # what it runs with, from a profile
+    fibsem-agent --profile overnight-lamella --show-config
 """
 
 import argparse
@@ -31,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode
+from fibsem.ai.agent import code_mode, profiles
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
@@ -167,6 +169,27 @@ def runner_prompt(work: Optional[Path] = None, code: bool = True) -> str:
     if work is None:
         return RUNNER_PROMPT.format(tools=NO_CODE)
     return RUNNER_PROMPT.format(tools=code_mode.prompt(work, code))
+
+
+def system_prompt(
+    work: Optional[Path] = None,
+    code: bool = True,
+    profile: Optional[profiles.Profile] = None,
+) -> str:
+    """The runner's prompt, and the profile's instructions after it."""
+    prompt = runner_prompt(work, code)
+    if profile is not None and profile.prompt:
+        prompt += (
+            f"\n\nInstructions from the {profile.name} profile you run with:\n"
+            + profile.prompt
+        )
+    return prompt
+
+
+def skills_for(profile: Optional[profiles.Profile] = None) -> List[str]:
+    """The skills the agent loads: the base and level skills, and a profile's."""
+    extra = [name for name in (profile.skills if profile else []) if name not in SKILLS]
+    return list(SKILLS) + extra
 
 
 REREAD_PROPOSALS = (
@@ -1190,11 +1213,13 @@ def build_options(
     session_id: Optional[str] = None,
     code: bool = True,
     alarm: Optional[Alarm] = None,
+    profile: Optional[profiles.Profile] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
-    copied the skills there); without ``code``, the file tools only."""
+    copied the skills there); without ``code``, the file tools only. A
+    *profile* adds its skills, its instructions and its reminders."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     command = sidecar_command()
@@ -1223,7 +1248,7 @@ def build_options(
         # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
         # ~/.claude: the user's own settings, hooks and skills stay out.
         setting_sources=["project"],
-        skills=list(SKILLS),
+        skills=skills_for(profile),
         tools=list(tools),
         allowed_tools=list(allowed),
         disallowed_tools=list(denied),
@@ -1236,8 +1261,9 @@ def build_options(
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
-            "append": runner_prompt(work, code),
+            "append": system_prompt(work, code, profile),
         },
+        hooks=profiles.sdk_hooks(profile.hooks, SERVER) if profile else None,
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
         max_turns=max_turns,
@@ -1289,6 +1315,7 @@ def status(
     rows = [
         ("fibsem", __version__),
         ("Server", args.url or "this computer's App Server"),
+        ("Profile", getattr(args, "profile", None) or "none"),
         ("Model", args.model or "Claude Code's default"),
         ("Goal", args.goal or "none: the skills decide"),
         (
@@ -1325,20 +1352,20 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--effort",
         choices=EFFORTS,
-        default=EFFORT,
+        default=None,
         help=f"the agent's reasoning effort (default {EFFORT}); each "
         "specialist sets its own",
     )
     parser.add_argument(
         "--max-turns",
         type=int,
-        default=MAX_TURNS,
+        default=None,
         help=f"tool calls the agent may make per wake-up (default {MAX_TURNS})",
     )
     parser.add_argument(
         "--max-budget-usd",
         type=float,
-        default=MAX_BUDGET_USD,
+        default=None,
         help="what this run may spend, after which fibsem-agent stops "
         f"(default {MAX_BUDGET_USD:g})",
     )
@@ -1395,20 +1422,37 @@ def main(argv=None) -> int:
         help="the agent reads and writes files in PATH (the current folder if "
         "none) and runs nothing: no shell",
     )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        metavar="NAME",
+        help="run with the profile NAME.yaml, from ~/.fibsem/agent/profiles/ or "
+        "the checkout's .claude/fibsem-agent/; flags given here win over it",
+    )
+    parser.add_argument(
+        "--show-config",
+        action="store_true",
+        help="print what the agent would run with, and start nothing",
+    )
+    parser.add_argument(
+        "--list-profiles", action="store_true", help="list the profiles found"
+    )
+    parser.add_argument(
+        "--list-hooks",
+        action="store_true",
+        help="list when a profile's reminders can fire",
+    )
+    parser.add_argument(
+        "--json", action="store_true", help="with --show-config or --list-*: JSON"
+    )
     args = parser.parse_args(argv)
     if args.code and args.files:
         parser.error("--code already gives the agent its files: use one of them")
     if args.session_id and args.resume:
         parser.error("--session-id starts a new session: --resume carries one on")
+    if args.list_hooks:
+        return _print(profiles.hook_rows(), args.json, _hook_text)
 
-    try:
-        import claude_agent_sdk  # noqa: F401
-    except ImportError:
-        print(
-            "fibsem-agent needs the [agent] extra: pip install fibsem[agent]",
-            file=sys.stderr,
-        )
-        return 1
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, OSError, ValueError):
@@ -1421,6 +1465,25 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.list_profiles:
+        return _print(_profile_rows(checkout), args.json, _profile_text)
+    profile = None
+    if args.profile:
+        path = profiles.find(args.profile, checkout)
+        if path is None:
+            print(
+                f"No profile {args.profile!r} in "
+                + " or ".join(str(d) for d in profiles.dirs(checkout))
+                + " (fibsem-agent --list-profiles).",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            profile = profiles.load(path, EFFORTS, checkout)
+        except profiles.ProfileError as error:
+            print(error, file=sys.stderr)
+            return 1
+    _resolve(args, profile)
     work = None
     code = bool(args.code)
     if args.code or args.files:
@@ -1429,6 +1492,17 @@ def main(argv=None) -> int:
         if refused:
             print(refused, file=sys.stderr)
             return 1
+    if args.show_config:
+        config = show_config(args, checkout, work, code, profile)
+        return _print(config, args.json, _config_text)
+    try:
+        import claude_agent_sdk  # noqa: F401
+    except ImportError:
+        print(
+            "fibsem-agent needs the [agent] extra: pip install fibsem[agent]",
+            file=sys.stderr,
+        )
+        return 1
     if args.resume == LAST:
         args.resume = sessions.last_session(work or checkout)
         if args.resume is None:
@@ -1443,7 +1517,7 @@ def main(argv=None) -> int:
     # A new session's id is chosen here, so the status can name it.
     session_id = args.resume or args.session_id or str(uuid.uuid4())
     session = sessions.SessionFolder.open(
-        session_id, _about(args, checkout, work, code)
+        session_id, _about(args, checkout, work, code, profile)
     )
     log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
@@ -1451,7 +1525,7 @@ def main(argv=None) -> int:
     for line in status(args, checkout, log_path, work, session_id, code):
         log.info(line)
     if work is not None:
-        code_mode.prepare(work, checkout, list(SKILLS), list(SPECIALISTS))
+        code_mode.prepare(work, checkout, skills_for(profile), list(SPECIALISTS))
         for line in code_mode.details():
             log.debug(line)
 
@@ -1469,6 +1543,7 @@ def main(argv=None) -> int:
         work=work,
         session_id=None if args.resume else session_id,
         code=code,
+        profile=profile,
     )
     agent = SdkAgent(options)
     runner = Runner(
@@ -1484,7 +1559,7 @@ def main(argv=None) -> int:
             "files": work is not None and not code,
             "workdir": str(work) if work is not None else None,
             "effort": args.effort,
-            "skills": list(SKILLS),
+            "skills": skills_for(profile),
             "resumed": args.resume is not None,
         },
     )
@@ -1520,7 +1595,13 @@ def _session_id(text: str) -> str:
         raise argparse.ArgumentTypeError(f"not a UUID: {text}") from None
 
 
-def _about(args, checkout: Path, work: Optional[Path], code: bool) -> dict:
+def _about(
+    args,
+    checkout: Path,
+    work: Optional[Path],
+    code: bool,
+    profile: Optional[profiles.Profile] = None,
+) -> dict:
     """What a session runs with, for its record."""
     from fibsem import __version__
 
@@ -1535,7 +1616,140 @@ def _about(args, checkout: Path, work: Optional[Path], code: bool) -> dict:
         "max_turns": args.max_turns,
         "mode": ("code" if code else "files") if work is not None else "none",
         "checkout": str(checkout),
+        "profile": profile.name if profile else None,
+        "profile_hash": profile.hash if profile else None,
     }
+
+
+def _resolve(args, profile: Optional[profiles.Profile]) -> None:
+    """Fill what the command line left out: the profile's, else the default."""
+    given = profile or profiles.Profile(name="", path=Path(), hash="")
+    if args.model is None:
+        args.model = given.model
+    if args.effort is None:
+        args.effort = given.effort or EFFORT
+    if args.max_turns is None:
+        args.max_turns = given.max_turns or MAX_TURNS
+    if args.max_budget_usd is None:
+        args.max_budget_usd = given.max_budget_usd or MAX_BUDGET_USD
+    if not (args.code or args.files) and given.mode != "none":
+        folder = str(Path(given.folder).expanduser())
+        if given.mode == "code":
+            args.code = folder
+        else:
+            args.files = folder
+
+
+def show_config(
+    args,
+    checkout: Path,
+    work: Optional[Path],
+    code: bool,
+    profile: Optional[profiles.Profile],
+) -> dict:
+    """``--show-config``: everything the agent would run with, from the same
+    pieces `build_options` uses, without the SDK and without starting."""
+    tools, allowed, denied = BUILT_IN_TOOLS, ALLOWED_TOOLS, DENIED_TOOLS
+    if work is not None:
+        given = code_mode.tools(code)
+        tools = BUILT_IN_TOOLS + given
+        allowed = ALLOWED_TOOLS + code_mode.allowed_tools(work, code)
+        denied = [tool for tool in DENIED_TOOLS if tool not in given]
+    hooks = []
+    for hook in profile.hooks if profile else []:
+        option = profiles.HOOK_OPTIONS[hook.when]
+        hooks.append({"when": hook.when, "label": option.label, "say": hook.say})
+    return {
+        "profile": (
+            {"name": profile.name, "path": str(profile.path), "hash": profile.hash}
+            if profile
+            else None
+        ),
+        "model": args.model,
+        "effort": args.effort,
+        "max_budget_usd": args.max_budget_usd,
+        "max_turns": args.max_turns,
+        "mode": ("code" if code else "files") if work is not None else "none",
+        "folder": str(work) if work is not None else None,
+        "checkout": str(checkout),
+        "skills": skills_for(profile),
+        "specialists": list(SPECIALISTS),
+        "tools": list(tools),
+        "allowed_tools": list(allowed),
+        "denied_tools": list(denied),
+        "hooks": hooks,
+        "system_prompt": system_prompt(work, code, profile),
+    }
+
+
+def _profile_rows(checkout: Path) -> List[dict]:
+    rows = []
+    for path in profiles.available(checkout):
+        try:
+            profile = profiles.load(path, EFFORTS, checkout)
+        except profiles.ProfileError as error:
+            rows.append({"name": path.stem, "path": str(path), "error": str(error)})
+            continue
+        rows.append(
+            {
+                "name": profile.name,
+                "path": str(path),
+                "hash": profile.hash,
+                "mode": profile.mode,
+                "hooks": len(profile.hooks),
+            }
+        )
+    return rows
+
+
+def _print(data, as_json: bool, as_text) -> int:
+    print(json.dumps(data, indent=2) if as_json else as_text(data))
+    return 0
+
+
+def _hook_text(rows: List[dict]) -> str:
+    return "\n".join(
+        f"{row['when']:<16}{row['label']}, {row['fires']}: {row['tools']}"
+        for row in rows
+    )
+
+
+def _profile_text(rows: List[dict]) -> str:
+    if not rows:
+        return "No profiles."
+    return "\n".join(
+        f"{row['name']:<20}"
+        + (f"error: {row['error']}" if "error" in row else f"{row['mode']:<6}")
+        + f"  {row['path']}"
+        for row in rows
+    )
+
+
+def _config_text(config: dict) -> str:
+    profile = config["profile"]
+    lines = [
+        "Profile:  "
+        + (
+            f"{profile['name']} ({profile['path']}, {profile['hash']})"
+            if profile
+            else "none"
+        ),
+        f"Model:    {config['model'] or 'the CLI default'}, {config['effort']} effort",
+        f"Budget:   ${config['max_budget_usd']:g} per run, "
+        f"{config['max_turns']} tool calls per wake-up",
+        f"Mode:     {config['mode']}"
+        + (f" in {config['folder']}" if config["folder"] else ""),
+        f"Skills:   {', '.join(config['skills'])}",
+        f"Agents:   {', '.join(config['specialists'])}",
+        f"Tools:    {', '.join(config['tools'])}",
+        f"Allowed:  {', '.join(config['allowed_tools'])}",
+        f"Denied:   {', '.join(config['denied_tools'])}",
+        "Reminders:",
+    ]
+    lines += [f"  {hook['label']}: {hook['say']}" for hook in config["hooks"]] or [
+        "  none"
+    ]
+    return "\n".join(lines + ["", "System prompt (appended):", config["system_prompt"]])
 
 
 if __name__ == "__main__":

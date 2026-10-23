@@ -941,14 +941,11 @@ class AutoLamellaProtocolEditorWidget(QWidget):
 
         # display milling stages from other tasks as background in the milling task editor for context
         if task_config.milling:
-            background_milling_stages = []
-            if self.show_related_milling_tasks and (
-                related_configs := task_config.related_tasks
-            ):
-                for cfg in selected_lamella.task_config.values():
-                    if isinstance(cfg, tuple(related_configs)) and cfg.milling:
-                        for mcfg in cfg.milling.values():
-                            background_milling_stages.extend(mcfg.enabled_stages)
+            background_milling_stages = (
+                selected_lamella.related_milling_stages(selected_stage_name)
+                if self.show_related_milling_tasks
+                else []
+            )
             self.task_editor.milling.set_fib_image(self.image)
             self.task_editor.milling.set_background_milling_stages(
                 background_milling_stages
