@@ -9,7 +9,23 @@ import logging
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
 
+from fibsem.acting import AGENT
+from fibsem.detection.decided import detection_values
 from fibsem.ui.widgets.canvas.overlays.poi_marker import PoiMarker
+from fibsem.workflows.proposals import (
+    ACTION_EDIT,
+    ACTION_RUN,
+    ALIGNMENT_AREA,
+    DETECTION,
+    MILLING,
+    POINT_OF_INTEREST,
+    SPOT_BURN,
+    Decision,
+    DecisionOutcome,
+    loop_prompt,
+)
+from fibsem.workflows.reference_images import load_reference_image
+from fibsem.workflows.status import WorkflowStatusEvent
 
 if TYPE_CHECKING:
     from fibsem.ui.qt.run_bridge import RunRelay
@@ -61,8 +77,6 @@ class ProposalPresenter:
     def _agent_deciding(self) -> bool:
         """The agent decides proposals now (Drive, listening): the panel shows
         them without taking the operator's view to them."""
-        from fibsem.acting import AGENT
-
         return AGENT in self._session.deciders()
 
     def set_agent_deciding(self, deciding: bool) -> None:
@@ -94,10 +108,6 @@ class ProposalPresenter:
         task then reads the instrument for the position as confirmed. A task
         that can do without it names a second button (``negative``: the
         tilt's Skip), which rejects it: "don't", and the task carries on."""
-        from fibsem.workflows.status import (
-            WorkflowStatusEvent,
-        )
-
         self._state_proposal = (item_id, task_name, proposal.id)
         message = str(
             proposal.provenance.get("message") or "Press Continue when ready."
@@ -115,9 +125,6 @@ class ProposalPresenter:
         shown = self._state_proposal
         if shown is None or shown[:2] != (item_id, task_name):
             return
-        from fibsem.workflows.status import (
-            WorkflowStatusEvent,
-        )
 
         self._state_proposal = None
         self._panel.prompt_bar.clear()
@@ -129,7 +136,6 @@ class ProposalPresenter:
         if shown is None or experiment is None:
             return
         item_id, task_name, proposal_id = shown
-        from fibsem.workflows.proposals import Decision, DecisionOutcome
 
         result = experiment.decide(
             item_id,
@@ -155,8 +161,6 @@ class ProposalPresenter:
 
     def _loop_widget(self, kind: str):
         """The widget a pass of ``kind`` is decided in, or None without one."""
-        from fibsem.workflows.proposals import MILLING, SPOT_BURN
-
         if kind == MILLING:
             return self._panel.milling_task_config_widget
         if kind == SPOT_BURN:
@@ -171,9 +175,6 @@ class ProposalPresenter:
         through ``Experiment.decide`` with the widget's value. Without the
         widget (no spot-burn hardware) the buttons decide the pass as
         proposed."""
-        from fibsem.workflows.proposals import SPOT_BURN, loop_prompt
-        from fibsem.workflows.status import WorkflowStatusEvent
-
         widget = self._loop_widget(proposal.kind)
         if widget is None:
             pass
@@ -206,7 +207,6 @@ class ProposalPresenter:
         shown = self._loop_proposal
         if shown is None or shown[:2] != (item_id, task_name):
             return
-        from fibsem.workflows.status import WorkflowStatusEvent
 
         self._loop_proposal = None
         self._panel.prompt_bar.clear()
@@ -218,14 +218,6 @@ class ProposalPresenter:
         if shown is None or experiment is None:
             return
         item_id, task_name, proposal = shown
-        from fibsem.workflows.proposals import (
-            ACTION_EDIT,
-            ACTION_RUN,
-            SPOT_BURN,
-            Decision,
-            DecisionOutcome,
-            loop_prompt,
-        )
 
         prompt = loop_prompt(proposal)
         action = prompt.yes if clicked_yes else prompt.no
@@ -265,13 +257,6 @@ class ProposalPresenter:
         message and Continue, which records the decision through
         ``Experiment.decide`` with the widget's value. Without the widget the
         Continue confirms the value as proposed."""
-        from fibsem.workflows.proposals import (
-            ALIGNMENT_AREA,
-            DETECTION,
-            POINT_OF_INTEREST,
-        )
-        from fibsem.workflows.status import WorkflowStatusEvent
-
         message = str(proposal.provenance.get("message") or "")
         # The agent deciding, the values are shown where they are edited, but
         # the operator's view stays where it is.
@@ -300,8 +285,6 @@ class ProposalPresenter:
 
     def _reference_image(self, item_id: str, proposal):
         """The image the proposal's values sit on, for a view showing none."""
-        from fibsem.workflows.reference_images import load_reference_image
-
         item = self.experiment.get_item_by_id(item_id)
         return load_reference_image(self.experiment, item, proposal)
 
@@ -316,8 +299,6 @@ class ProposalPresenter:
     def widget_proposal_host(self):
         """The tab the value now up is edited on, when it has one of its own
         (a detection), for the attention button to go back to."""
-        from fibsem.workflows.proposals import DETECTION
-
         shown = self._widget_proposal
         if shown is None or shown[2].kind != DETECTION:
             return None
@@ -332,8 +313,6 @@ class ProposalPresenter:
         self._poi_frames_followed = self._panel.image_widget
 
     def _sync_poi_proposal(self, *_args) -> None:
-        from fibsem.workflows.proposals import POINT_OF_INTEREST
-
         shown = self._widget_proposal
         if shown is not None and shown[2].kind == POINT_OF_INTEREST:
             self.poi_marker.sync()
@@ -345,12 +324,6 @@ class ProposalPresenter:
         shown = self._widget_proposal
         if shown is None or shown[:2] != (item_id, task_name):
             return
-        from fibsem.workflows.proposals import (
-            ALIGNMENT_AREA,
-            DETECTION,
-            POINT_OF_INTEREST,
-        )
-        from fibsem.workflows.status import WorkflowStatusEvent
 
         self._widget_proposal = None
         kind = shown[2].kind
@@ -366,13 +339,6 @@ class ProposalPresenter:
     def _widget_value(self, proposal) -> Dict[str, Any]:
         """What the widget holds for ``proposal``'s kind; empty (as proposed)
         when the widget was not there to edit it on."""
-        from fibsem.detection.decided import detection_values
-        from fibsem.workflows.proposals import (
-            ALIGNMENT_AREA,
-            DETECTION,
-            POINT_OF_INTEREST,
-        )
-
         if proposal.kind == DETECTION and self._detection_shown():
             return detection_values(self._panel.det_widget._get_detected_features())
         if proposal.kind == ALIGNMENT_AREA and self._panel.image_widget is not None:
@@ -389,7 +355,6 @@ class ProposalPresenter:
         if shown is None or experiment is None:
             return
         item_id, task_name, proposal = shown
-        from fibsem.workflows.proposals import Decision, DecisionOutcome
 
         result = experiment.decide(
             item_id,

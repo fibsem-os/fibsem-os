@@ -35,6 +35,7 @@ def check_grid_run(experiment: Any, microscope: Any, request: RunRequest) -> Run
     if not task_names or unknown:
         return refused(
             f"unknown grid tasks: {unknown!r}" if unknown else "no tasks",
+            "not_found" if unknown else "invalid",
             task_names=known_tasks,
         )
     known_grids = [g.name for g in experiment.grids]
@@ -50,7 +51,9 @@ def check_grid_run(experiment: Any, microscope: Any, request: RunRequest) -> Run
     else:
         missing = [n for n in names if n not in known_grids]
         if missing:
-            return refused(f"unknown grids: {missing!r}", grid_names=known_grids)
+            return refused(
+                f"unknown grids: {missing!r}", "not_found", grid_names=known_grids
+            )
     if not screen_all and not names:
         return refused("no grids", grid_names=known_grids)
     details: dict = {"screen_all": screen_all}
