@@ -28,9 +28,15 @@ from fibsem.microscope import _chamber_state_name  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
     FibsemManipulatorPosition,
+    InsertableDeviceState,
 )
 
 LOG, STRUCTS, Node = S.LOG, S.STRUCTS, S.Node
+
+
+def _inserted(m):
+    return m.manipulator_device.state.get_value() is InsertableDeviceState.INSERTED
+
 
 # the waits (the needle's retract) are logged, not slept
 time.sleep = lambda seconds: LOG.append(["sleep", seconds])
@@ -154,15 +160,15 @@ CALLS = (
         "get manipulator_position",
         lambda m: m.manipulator_device.position.get_value(),
     ),
-    ("get manipulator_state", lambda m: m.get_manipulator_state()),
-    ("manipulator state", lambda m: m.get_manipulator_state()),
+    ("get manipulator_state", lambda m: _inserted(m)),
+    ("manipulator state", lambda m: _inserted(m)),
     ("manipulator position", lambda m: m.get_manipulator_position()),
     ("insert PARK", lambda m: m.insert_manipulator("PARK")),
     ("insert EUCENTRIC", lambda m: m.insert_manipulator("EUCENTRIC")),
     ("insert BAD", lambda m: m.insert_manipulator("BAD")),
     (
         "insert then state",
-        lambda m: (m.insert_manipulator(), m.get_manipulator_state()),
+        lambda m: (m.insert_manipulator(), _inserted(m)),
     ),
     ("retract", lambda m: m.retract_manipulator()),
     ("move relative", lambda m: m.move_manipulator_relative(OFFSET)),

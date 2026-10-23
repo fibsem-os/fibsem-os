@@ -7,7 +7,6 @@ suite (`test_finish_milling_puts_the_beam_back`), for both demos.
 
 import pytest
 
-from fibsem import config as cfg
 from fibsem import utils
 from fibsem.devices.core import Device
 from fibsem.drivers.demo.services import DemoMilling
@@ -23,16 +22,9 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
 )
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=cfg.DEFAULT_CONFIGURATION_PATH,
-        manufacturer="Demo",
-        setup_logging=False,
-    )
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 def _rectangle() -> FibsemRectangleSettings:
@@ -131,20 +123,20 @@ def test_the_old_methods_go_through_the_service(microscope):
     microscope.milling.state.get_value()
     microscope.milling.changed.connect(lambda name, value: seen.append(value))
     microscope.start_milling()
-    assert microscope.get_milling_state() is MillingState.RUNNING
+    assert microscope.milling.state.get_value() is MillingState.RUNNING
     microscope.pause_milling()
     assert microscope.milling.state.get_value() is MillingState.PAUSED
     microscope.resume_milling()
-    microscope.get_milling_state()
+    microscope.milling.state.get_value()
     microscope.stop_milling()
-    assert microscope.get_milling_state() is MillingState.IDLE
+    assert microscope.milling.state.get_value() is MillingState.IDLE
     assert seen == [
         MillingState.RUNNING,
         MillingState.PAUSED,
         MillingState.RUNNING,
         MillingState.IDLE,
     ]
-    microscope.clear_patterns()
+    microscope.milling.clear()
     assert microscope._connection.milling_system.patterns == []
 
 
@@ -152,7 +144,7 @@ def test_run_milling_mills_what_the_service_drew(microscope):
     microscope.setup_milling(_recipe())
     microscope.draw_patterns([_rectangle()])
     microscope.run_milling()
-    assert microscope.get_milling_state() is MillingState.IDLE
+    assert microscope.milling.state.get_value() is MillingState.IDLE
     assert microscope._connection.milling_system.patterns == []
 
 
@@ -222,10 +214,7 @@ def test_without_an_ion_beam_the_demo_does_not_mill(microscope):
     with pytest.raises(ValueError, match="ION beam is not enabled"):
         electron_only.draw_patterns([_rectangle()])
     assert electron_only._connection.milling_system.patterns == []
-    with pytest.raises(ValueError, match="ION beam is not enabled"):
-        electron_only.clear_patterns()
     electron_only.stop_milling()
-    assert electron_only.get_milling_state() is MillingState.IDLE
 
 
 def test_the_demo_says_which_settings_it_mills_with(microscope):
@@ -297,7 +286,7 @@ def test_the_drawn_patterns_are_announced_until_they_are_removed(microscope):
     milling.run()
     assert milling.drawn_patterns == []
     milling.prepare(_recipe(), [_rectangle()])
-    microscope.clear_patterns()
+    microscope.milling.clear()
     assert seen == [2, 3, 0, 1, 0]
 
 

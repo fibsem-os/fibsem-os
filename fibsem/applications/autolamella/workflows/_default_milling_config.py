@@ -1,8 +1,7 @@
-from typing import Dict, Optional
+from typing import Dict
 
 from fibsem.applications.autolamella.protocol.constants import (
     FIDUCIAL_KEY,
-    MICROEXPANSION_KEY,
     MILL_POLISHING_KEY,
     MILL_ROUGH_KEY,
     PERFORATION_KEY,
@@ -16,11 +15,9 @@ from fibsem.milling.patterning.patterns import (
     MicroExpansionPattern,
     RectanglePattern,
     TrenchPattern,
-    WaffleNotchPattern,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
-    BeamType,
     CrossSectionPattern,
     FibsemMillingSettings,
     Point,

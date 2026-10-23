@@ -85,7 +85,7 @@ class AppWindow(QMainWindow):
 
         self.toast_manager = ToastManager(self)
         self._preferences = fibsem_cfg.load_user_preferences()
-        self.run_border.set_on(self._preferences.display.border_enabled)
+        self.run_border.set_on(self._preferences.qt.border_enabled)
 
     def app_context(self) -> "AppContext":
         """What the App Server serves over this window's session."""
@@ -112,12 +112,12 @@ class AppWindow(QMainWindow):
         )
 
     def _create_status_bar(self):
-        """Create the status bar: the shared bar's line on the left (FIB-1188), with
+        """Create the status bar: the shared bar's line on the left, with
         the microscope's progress in it, and this window's workflow buttons on the
         right."""
         self.status_bar = FibsemStatusBar(self)
         self.setStatusBar(self.status_bar)
-        # The agent's chip, beside the workflow buttons (FIB-1035).
+        # The agent's chip, beside the workflow buttons.
         self.agent_host = AgentChipHost(
             self.status_bar,
             session=lambda: self.session,
@@ -155,7 +155,7 @@ class AppWindow(QMainWindow):
         # The operator decides the run's proposals here, for the session's life.
         self.session.attach_decider(OPERATOR)
         # Edits to the experiment run on this thread: its widgets listen to it.
-        # The editors' pending edits are written first (FIB-683): an edit
+        # The editors' pending edits are written first: an edit
         # from elsewhere to the same config then finds it changed.
         self.session.executor = GuiExecutor(self.flush_editors, parent=self)
 
@@ -163,7 +163,7 @@ class AppWindow(QMainWindow):
         self.run_relay.status.connect(panel.handle_workflow_status)
 
     def flush_editors(self) -> None:
-        """Write the edits the window's editors still hold (FIB-683), before
+        """Write the edits the window's editors still hold, before
         anything else writes the experiment."""
 
     def _setup_experiment_connections(self) -> None:
@@ -192,7 +192,7 @@ class AppWindow(QMainWindow):
         The agent starts at Watch; never raises — an optional observer
         must not be able to take the session down (see fibsem/server/hosting.py).
         """
-        preference = fibsem_cfg.load_user_preferences().app_server
+        preference = fibsem_cfg.load_user_preferences().install.app_server
         if preference.enabled:
             if self.session.serve_microscope is None:
                 # the operator's choice in Tools → App Server is per session,
@@ -205,7 +205,7 @@ class AppWindow(QMainWindow):
         at launch, with or without a microscope, and when Tools → App Server
         saves the switch."""
         host = self.session.app_server
-        preference = fibsem_cfg.load_user_preferences().app_server
+        preference = fibsem_cfg.load_user_preferences().install.app_server
         if preference.enabled:
             if host is None or not host.running:
                 self._start_app_server()
@@ -213,7 +213,7 @@ class AppWindow(QMainWindow):
             host.stop()
 
     def set_app_server_microscope(self, serve: bool) -> None:
-        """Serve the microscope, or stop serving it (FIB-1359), from Tools →
+        """Serve the microscope, or stop serving it, from Tools →
         App Server, which also saves the choice for the next launch.
 
         The services are fixed when the server starts, so a change restarts a
@@ -236,7 +236,7 @@ class AppWindow(QMainWindow):
             AppServerDialog,
         )
 
-        preference = fibsem_cfg.load_user_preferences().app_server
+        preference = fibsem_cfg.load_user_preferences().install.app_server
         dialog = AppServerDialog(
             host_provider=lambda: self.session.app_server,
             parent=self,
@@ -250,7 +250,7 @@ class AppWindow(QMainWindow):
     def _set_app_server_enabled(self, enabled: bool) -> None:
         """Tools → App Server: save whether the server runs, and act on it now."""
         self._preferences = fibsem_cfg.update_user_preferences(
-            lambda p: setattr(p.app_server, "enabled", bool(enabled))
+            lambda p: setattr(p.install.app_server, "enabled", bool(enabled))
         )
         self.sync_app_server_with_preference()
 
@@ -258,7 +258,7 @@ class AppWindow(QMainWindow):
         """Tools → App Server: save whether the microscope is served, and act on it
         now (a running server restarts)."""
         self._preferences = fibsem_cfg.update_user_preferences(
-            lambda p: setattr(p.app_server, "microscope", bool(serve))
+            lambda p: setattr(p.install.app_server, "microscope", bool(serve))
         )
         self.set_app_server_microscope(serve)
 
@@ -287,7 +287,7 @@ class AppWindow(QMainWindow):
         if not self.run_view.confirm_close():
             event.ignore()
             return
-        # The editors hold edits for a moment before writing them (FIB-683);
+        # The editors hold edits for a moment before writing them;
         # this is the last chance to get the final one onto disk.
         try:
             self.flush_editors()

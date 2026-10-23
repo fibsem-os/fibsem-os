@@ -14,7 +14,6 @@ from datetime import datetime
 
 import pytest
 
-from fibsem import utils
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows import event_recording
 from fibsem.workflows.event_recording import (
@@ -26,14 +25,6 @@ from fibsem.workflows.event_recording import (
     read_new_events,
 )
 from fibsem.workflows.events import EventBuffer
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    microscope.disconnect()
 
 
 def _move(microscope):

@@ -4,8 +4,6 @@ the device routes, behind the same token, scopes and control.
 Skipped when the [server] extra is not installed.
 """
 
-import os
-
 import pytest
 
 pytest.importorskip("fastapi")
@@ -13,25 +11,12 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.devices.wire import to_wire  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures import BeamType, FibsemStagePosition, MillingState  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
 
 
 @pytest.fixture(scope="module")
@@ -195,7 +180,7 @@ def test_the_device_reads_are_queries(read_client, microscope):
         assert resp.status_code == 200, resp.text
         return resp.json()["result"]
 
-    device = microscope.get_current_device(at_sem)
+    device = microscope.stage_movement.current_device(at_sem)
     assert ask("current_device", **position) == device
     assert ask("is_at_device", device=device, **position) is True
     state = microscope.get_device_imaging_state(device, at_sem)
@@ -216,7 +201,7 @@ def test_the_view_corrected_movements_are_queries(read_client, microscope):
         return resp.json()["result"]
 
     ion = to_wire(BeamType.ION)
-    move = microscope._y_corrected_stage_movement(10e-6, beam_type=BeamType.ION)
+    move = microscope.stage_movement.y_corrected_movement(10e-6, beam_type=BeamType.ION)
     answer = ask("y_corrected_movement", expected_y=10e-6, beam_type=ion)
     assert answer["y"] == pytest.approx(move.y)
     assert answer["z"] == pytest.approx(move.z)

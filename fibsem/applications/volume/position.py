@@ -35,8 +35,8 @@ class VolumePosition(SiteItem):
     """A site cut into ``iterations`` slices, each one iteration of its tasks.
 
     What a slice needs is worked out from the record, not counted on the
-    position: a slice's point of interest from ``poi`` and its number,
-    and which slices are done from ``task_history``. A resume after a stop reads
+    position: where a slice is milled from ``poi`` and its number (see
+    ``tasks.milling``), and which slices are done from ``task_history``. A resume after a stop reads
     the same answer the run would have.
     """
 
@@ -45,7 +45,7 @@ class VolumePosition(SiteItem):
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
     description: str = ""
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
-    # The point of interest on the face; each slice steps down from it.
+    # The point of interest: the start slice's centre, which the slices step on from.
     poi: Point = field(default_factory=Point)
     # Where the alignment references are taken, in fractions of the frame.
     alignment_area: FibsemRectangle = field(
@@ -67,11 +67,6 @@ class VolumePosition(SiteItem):
         if name == SEM_POSE and SEM_POSE not in self.poses:
             name = MILLING_POSE
         return super().pose(name)
-
-    def slice_poi(self, iteration: int, slice_thickness: float) -> Point:
-        """Where slice ``iteration`` (from 0) is milled: ``poi`` moved down
-        the face by one ``slice_thickness`` per slice before it."""
-        return Point(x=self.poi.x, y=self.poi.y - iteration * slice_thickness)
 
     def poi_sync_plan(self, point: Point) -> Tuple[List[str], List[Tuple[Any, Point]]]:
         """Nothing on the position follows the point: each slice is placed

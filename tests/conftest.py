@@ -1,8 +1,11 @@
 import gc
 import logging
 import os
+import tempfile
 
 import pytest
+
+from tests.fixtures.microscopes import demo_microscope
 
 # The Demo microscope and the simulated fluorescence microscope sleep to emulate
 # real hardware timing, which otherwise makes the suite spend most of its
@@ -10,6 +13,16 @@ import pytest
 # drivers override the methods and are unaffected (see fibsem._timing.sim_sleep).
 # Use FIBSEM_SIM_NO_DELAY=0 to run with the delays enabled.
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+
+# A state root of the run's own, so no test writes to ~/.fibsem. Its config folder
+# exists already, so the first-start move never takes a checkout's files.
+if "FIBSEM_HOME" not in os.environ:
+    os.environ["FIBSEM_HOME"] = tempfile.mkdtemp(prefix="fibsem-home-")
+    os.makedirs(os.path.join(os.environ["FIBSEM_HOME"], "config"))
+
+# The Demo microscope on the default configuration, one per test module. A file
+# that needs another declares its own (tests/fixtures/microscopes.py).
+microscope = demo_microscope()
 
 
 @pytest.fixture(autouse=True)
@@ -84,20 +97,11 @@ def _point_session_state_at(monkeypatch, directory):
 
     monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(directory))
     monkeypatch.setattr(
-        cfg, "FM_CONFIGURATION_PATH", str(directory / "fm-configuration.yaml")
-    )
-    monkeypatch.setattr(
         cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
     )
     # and the two files saved positions are imported from
     monkeypatch.setattr(cfg, "POSITION_PATH", str(directory / "saved-positions.yaml"))
     monkeypatch.setattr(cfg, "LEGACY_POSITIONS_PATH", str(directory / "positions.yaml"))
-    # the coincidence viewer saves its milling config when it closes
-    monkeypatch.setattr(
-        cfg,
-        "COINCIDENCE_MILLING_CONFIG_PATH",
-        str(directory / "coincidence-milling-config.yaml"),
-    )
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -263,6 +267,24 @@ def destroy_widgets_after_test(qapp):
     QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
+@pytest.fixture
+def no_pyplot(monkeypatch):
+    """Fail the test if it makes a pyplot figure or switches matplotlib's backend.
+
+    Figures the server draws must not: with the Qt backend active, a pyplot
+    figure made off the main thread raises "Starting a Matplotlib GUI outside of
+    the main thread", and switching to Agg takes the live app's backend with it.
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    def refused(*args, **kwargs):
+        raise AssertionError("drew with pyplot or switched the backend")
+
+    monkeypatch.setattr(plt, "figure", refused)
+    monkeypatch.setattr(matplotlib, "use", refused)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _isolate_device_server_token(tmp_path_factory):
     """Keep every test's Device Server token and pairings out of ~/.fibsem: a
@@ -283,3 +305,24 @@ def _isolate_device_server_token(tmp_path_factory):
         mp.setattr(client_pairing, "REMOTE_DIR", directory / "remote")
         mp.setattr(client_pairing, "AGENT_DIR", directory / "agent")
         yield
+
+
+@pytest.fixture(scope="module")
+def odemis_microscope_cls():
+    """Import OdemisThermoMicroscope against stub odemis modules."""
+    import sys
+
+    from tests.fm import _odemis_stubs as stubs
+
+    saved = {}
+    for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
+        if name in sys.modules:
+            saved[name] = sys.modules.pop(name)
+
+    stubs.install_odemis_stubs()
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
+
+    yield OdemisThermoMicroscope
+
+    stubs.remove_odemis_stubs()
+    sys.modules.update(saved)

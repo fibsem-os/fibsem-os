@@ -13,6 +13,7 @@ import socket
 import sys
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -226,6 +227,60 @@ def test_the_wake_up_tool_is_the_runners_own_server():
     assert runner_mod.WAKE_TOOL in options.allowed_tools
 
 
+def test_a_constraints_time_wakes_the_agent_before_it_and_at_it():
+    async def main():
+        rang = []
+        deadlines = runner_mod.Deadlines(warn_s=0.2)
+        deadlines.bind(asyncio.get_running_loop(), rang.append)
+        by = (datetime.now().astimezone() + timedelta(seconds=0.4)).isoformat()
+        deadlines.set([{"text": "Finish", "by": by}, {"text": "No currents"}])
+        # Kept from one report to the next, it keeps its timers.
+        deadlines.set([{"text": "Finish", "by": by}])
+        await asyncio.sleep(0.8)
+        at = datetime.fromisoformat(by).strftime("%H:%M")
+        assert rang == [
+            f"DEADLINE in 0.00333333 min: Finish (by {at})",
+            f"DEADLINE now: Finish (by {at})",
+        ]
+
+    asyncio.run(main())
+
+
+def test_a_constraint_taken_away_or_already_past_rings_nothing():
+    async def main():
+        rang = []
+        deadlines = runner_mod.Deadlines(warn_s=0.1)
+        deadlines.bind(asyncio.get_running_loop(), rang.append)
+        now = datetime.now().astimezone()
+        soon = (now + timedelta(seconds=0.3)).isoformat()
+        past = (now - timedelta(minutes=1)).isoformat()
+        deadlines.set([{"text": "Finish", "by": soon}, {"text": "Old", "by": past}])
+        deadlines.set([])
+        await asyncio.sleep(0.5)
+        assert rang == [] and deadlines.times == []
+
+    asyncio.run(main())
+
+
+def test_the_runner_keeps_the_constraints_the_agent_set(session):
+    by = (datetime.now().astimezone() + timedelta(hours=2)).replace(second=0)
+
+    async def reply(prompt):
+        with _http(session) as http:
+            http.post(
+                "/app/agent/session",
+                json={"constraints": [{"text": "Finish", "by": by.isoformat()}]},
+            )
+        return TurnEnd(session_id="scripted")
+
+    agent = ScriptedAgent(reply)
+    running = _runner(session, agent)
+    _until(lambda: running.runner._deadlines.times, what="the deadline")
+    assert running.runner._deadlines.times == [by.isoformat(timespec="minutes")]
+    running.stop()
+    assert running.runner._deadlines.times == []
+
+
 def test_a_wake_up_rings_into_the_next_turn(session):
     agent = ScriptedAgent()
     running = _runner(session, agent, alarm=(alarm := runner_mod.Alarm()))
@@ -262,20 +317,10 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.permission_mode == "dontAsk"
     assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch", "SendMessage"] + [
         f"Agent({name})" for name in runner_mod.SPECIALISTS
-    ] + runner_mod.TODO_TOOLS + [runner_mod.WAKE_TOOL]
-    # SendMessage carries a specialist on (one Verifier per lamella's passes);
-    # the todo tools keep the operator's instructions.
-    assert (
-        options.tools
-        == [
-            "Skill",
-            "ToolSearch",
-            "Agent",
-            "SendMessage",
-        ]
-        + runner_mod.TODO_TOOLS
-    )
-    assert "TodoWrite" in options.tools and "TodoWrite" not in options.disallowed_tools
+    ] + [runner_mod.WAKE_TOOL]
+    # SendMessage carries a specialist on (one Verifier per lamella's passes).
+    # The checklist is a fibsem tool, so the operator sees it: no CLI todo list.
+    assert options.tools == ["Skill", "ToolSearch", "Agent", "SendMessage"]
     for tool in ("Bash", "Read", "Grep", "Glob", "Write", "Edit", "WebFetch"):
         assert tool in options.disallowed_tools
     assert options.effort == "high"

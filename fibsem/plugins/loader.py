@@ -1,34 +1,17 @@
 """Load fibsem's entry point groups, and remember what happened.
 
-fibsem's class plugin groups -- ``fibsem.milling.patterns``,
-``fibsem.milling.strategies`` and the task groups -- were each loaded by what used to be
-three near-identical private functions. They returned ``{name: class}`` and
-wrote every failure to a log line, which meant the two questions a user
-actually asks could not be answered:
-
-* *"my plugin isn't in the list"* -- a plugin that failed to import leaves no
-  trace in the returned dict at all.
-* *"why is my plugin being ignored?"* -- a plugin whose name collides with a
-  built-in loads fine, registers fine, and is then overwritten when
-  ``get_patterns()`` merges built-ins last. Nothing downstream can tell it ever
-  existed.
-
-So loading records what it did. ``load_entry_point_group`` returns one
-:class:`PluginRecord` per declared entry point -- successes, failures and
-shadowed-later-on alike -- and the registries derive their dict from those.
-Recording at load time rather than re-walking the entry points separately is
-the point: a second walk can disagree with what actually registered, and a
-disagreement is precisely the fault this data exists to diagnose.
+``load_entry_point_group`` returns one :class:`PluginRecord` per declared entry point
+-- successes, failures and ones a built-in shadows -- and the registries derive their
+dict from those records. Recording at load time, rather than walking the entry points
+again later, means the listing cannot disagree with what actually registered.
 
 ``fibsem.plugins.report`` turns these records into the plugin listing shown by
 ``fibsem-cli plugins`` and the Plugins panel.
 
-**This module must not import anything from fibsem.** ``milling/base.py``
-imports ``fibsem.milling.patterning``, whose ``__init__`` ends with a
-module-level ``MILLING_PATTERNS = get_patterns()`` -- so this code runs while
-``fibsem.milling.base`` is only half initialised, and any import reaching back
-into it raises. The base class and the name-extraction callable are therefore
-passed in as arguments rather than imported here.
+**This module must not import anything from fibsem.** The registries import it
+while their own packages are still initialising (``fibsem.milling.patterning``
+while ``fibsem.milling.base`` is), so the base class and the name-extraction
+callable are passed in as arguments rather than imported here.
 
 A group whose plugins are not classes passes ``resolve`` instead: it turns what
 the entry point loaded into the name and object to register, and raises
@@ -285,9 +268,7 @@ def plugin_classes(records: Tuple[PluginRecord, ...]) -> Dict[str, Type[Any]]:
 def clear_cache() -> None:
     """Forget every loaded group, so the next call re-walks the entry points.
 
-    For tests. Calling this in a running application will make the registries
-    disagree with the module-level snapshots taken at import time
-    (``MILLING_PATTERNS``, ``TASK_REGISTRY``), which is worse than a stale list.
+    For tests.
     """
     _CACHE.clear()
 

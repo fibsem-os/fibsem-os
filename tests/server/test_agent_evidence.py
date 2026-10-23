@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from PIL import Image  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.ai.agent.calls import (  # noqa: E402
     EVIDENCE_HEADER,
     from_headers,
@@ -64,13 +63,6 @@ class RecordingContext(AutoLamellaAppContext):
 
     def record_event(self, kind, payload, actor=None):
         self.recorded.append((kind, payload))
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture
@@ -152,6 +144,8 @@ def test_a_large_upload_is_saved_at_most_2048_px(client):
         ({"upload": _png(), "marks": {"points": [{"x": "a"}]}}, 422),
         ({"upload": _png(), "item_name": "nope"}, 404),
         ({"image": "/etc/hostname"}, 403),
+        # A crop is of an image in the experiment.
+        ({"upload": _png(), "marks": {"crop": "A1", "points": []}}, 422),
     ],
 )
 def test_evidence_that_cannot_be_kept_is_refused(client, body, status):
@@ -300,7 +294,7 @@ def test_a_suggestion_and_a_decision_keep_the_evidence_they_cite():
     assert decision.to_dict()["evidence"] == "ab12cd34"
     assert Decision.from_dict(decision.to_dict()).evidence == "ab12cd34"
     # Saved only when there is one: old files read the same.
-    assert "evidence" not in Decision(DecisionOutcome.Confirmed, "agent:x").to_dict()
+    assert Decision(DecisionOutcome.Confirmed, "agent:x").to_dict()["evidence"] == ""
 
 
 def test_a_reference_image_is_cited_as_proposal_list_gives_it(client, context):
@@ -331,3 +325,15 @@ def test_only_a_beam_image_is_a_frame_to_draw_on():
     assert frame_path({"image": "/exp/markers/overview.png"}) is None
     assert frame_path({"image": "/exp/a.png", "uploaded": True}) is None
     assert frame_path(None) is None
+
+
+def test_marks_read_off_a_crop_are_kept_in_the_image_s_pixels(client, context):
+    exp = context._session.experiment
+    path = os.path.join(str(exp.path), "wide.png")
+    Image.new("RGB", (3072, 2048)).save(path)
+    marks = {"crop": "B2", "points": [{"x": 10, "y": 20}]}
+    record = _keep(client, image=path, marks=marks).json()
+    point = record["marks"]["points"][0]
+    assert (point["x"], point["y"]) == (778, 703)
+    bad = _keep(client, image=path, marks={"crop": "Q1", "points": []})
+    assert bad.status_code == 422 and "A1 to D3" in bad.json()["detail"]["message"]

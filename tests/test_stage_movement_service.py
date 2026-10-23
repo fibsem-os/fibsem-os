@@ -14,15 +14,9 @@ from fibsem import utils
 from fibsem.devices.stage import StageLimitError
 from fibsem.services.stage_movement import StageMovement
 from fibsem.structures import BeamType, FibsemStagePosition
+from tests.fixtures.microscopes import demo_microscope
 
-
-@pytest.fixture
-def microscope():
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(
-        manufacturer="Demo", ip_address="localhost", setup_logging=False
-    )
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 def test_the_demo_builds_one_over_its_stage_and_beams(microscope):
@@ -82,7 +76,9 @@ def iflm():
 
     os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"
+        ),
         setup_logging=False,
     )
     return microscope

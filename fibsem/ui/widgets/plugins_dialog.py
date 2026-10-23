@@ -310,10 +310,9 @@ class PluginsDialog(QDialog):
         self.rows = [e for g in self.groups for e in g.visible(show_builtins)]
         self._update_meta(show_builtins)
 
-        # Only a script-loaded extension has a file to reveal, and nothing
-        # produces those until FIB-339 lands -- so in every environment today
-        # this button would sit permanently greyed out, which reads as broken
-        # rather than as inapplicable. Hidden until there is something to open.
+        # Only a script-loaded extension has a file to reveal; a permanently
+        # greyed button reads as broken rather than as inapplicable, so it is
+        # hidden until there is something to open.
         self.open_folder_button.setVisible(any(e.path is not None for e in self.rows))
 
         self.table.clearContents()
@@ -372,9 +371,9 @@ class PluginsDialog(QDialog):
         self.meta_label.setToolTip(
             "\n".join(
                 [f"{g.group}: {group_counts_phrase(g)}" for g in self.groups]
-                # Which install this is, for a machine with several environments.
-                # Went with the footer it used to hang off; it is the first thing
-                # anyone asks about a pasted report, so it stays reachable.
+                # Which install this is, for a machine with several environments. It is
+                # the first thing anyone asks about a pasted report, so it stays
+                # reachable.
                 + ["", environment_line()]
             )
         )

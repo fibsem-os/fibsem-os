@@ -5,7 +5,6 @@ default voltage and current there did nothing. The preset is what sets it (FIB-1
 """
 
 import os
-import threading
 
 import pytest
 
@@ -20,7 +19,7 @@ def test_only_the_tescan_ion_column_is_set_by_preset(monkeypatch):
     """Read from the beams: the ion column takes a preset but not a voltage. The
     electron column takes a preset too, but sets its voltage directly."""
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     tescan, _ = connect(monkeypatch, system)
 

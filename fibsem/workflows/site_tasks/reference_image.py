@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal, Optional, Type
 
 from fibsem import utils
+from fibsem.constants import TIME_FILE
 from fibsem.structures import param
 from fibsem.workflows.proposals import STATE
 from fibsem.workflows.site_task import SiteTask, SiteTaskConfig
@@ -71,11 +72,11 @@ class AcquireReferenceImageTask(SiteTask):
                 task_name = self.item.last_completed_task.name.replace(" ", "-")
             base = f"ReferenceImage-{task_name}"
 
-        filename = f"ref_{base}-{utils.current_timestamp_v3()}"
+        filename = f"ref_{base}-{utils.current_timestamp(TIME_FILE)}"
         # phase="final" because this set is what the task exists to produce. The
         # default rule reads the role off the filename and would file a named set
         # under "other", which is right for a task grabbing an extra set mid-run and
-        # wrong here -- it hid these images from the History panel entirely (FIB-579).
+        # wrong here -- it hid these images from the History panel entirely.
         self._acquire_set_of_reference_images(
             image_settings=image_settings, filename=filename, phase="final"
         )

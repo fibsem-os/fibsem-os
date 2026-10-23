@@ -13,7 +13,6 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
-    GridQuality,
 )
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
 from fibsem.applications.autolamella.ui.grids.tab import GridsTabWidget
@@ -23,6 +22,7 @@ from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
 )
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.run_state import StubRunner
 
@@ -31,7 +31,9 @@ from tests.run_state import StubRunner
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 
@@ -161,12 +163,12 @@ class TestCards:
         changed = []
         tab.experiment_changed.connect(lambda: changed.append(True))
         card = tab.cards.cards[0]
-        card.set_quality(GridQuality.GOOD)
-        assert card.grid.quality.verdict is GridQuality.GOOD
+        card.set_quality(Verdict.GOOD)
+        assert card.grid.quality.verdict is Verdict.GOOD
         assert "Good" in card._btn_quality.toolTip()
         assert changed == [True]
         loaded = Experiment.load(Path(experiment.path) / "experiment.yaml")
-        assert loaded.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
+        assert loaded.get_grid_by_name("Grid-01").quality.verdict is Verdict.GOOD
         # a task outcome does not touch it
         assert grid_headline(card.grid)[0] == ""
 
@@ -349,22 +351,6 @@ def test_on_a_fixed_holder_there_is_nothing_to_load(qapp, experiment):
     assert not card._action_load.isVisible() and not card._action_unload.isVisible()
 
 
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
-
-
 class _NoMinimap:
     def set_experiment(self) -> None:
         pass
@@ -388,7 +374,7 @@ def test_the_grid_workflow_flag_is_gone():
     drops unknown keys, checked here rather than assumed, because the failure would
     be at every startup.
     """
-    assert not hasattr(cfg.FeatureFlags(), "grid_workflow")
+    assert "grid_workflow" not in str(cfg.UserPreferences().to_dict())
     for value in (False, True):
         stale = {"features": {"grid_workflow": value}}
         assert cfg.UserPreferences.from_dict(stale) is not None
@@ -602,28 +588,29 @@ class TestReport:
     def test_writes_under_the_experiment_and_opens_it(
         self, tab, experiment, monkeypatch
     ):
-        pytest.importorskip("reportlab")
         tab.btn_inventory.click()
         opened = []
         monkeypatch.setattr(tab, "open_report", opened.append)
         tab.generate_report()
         (path,) = opened
-        assert path == os.path.join(str(experiment.path), "grid-screening-report.pdf")
+        assert path == os.path.join(
+            str(experiment.path), "reporting", "grid-screening-report.html"
+        )
         assert os.path.getsize(path) > 0
-        assert tab.status_label.text() == "Report written: grid-screening-report.pdf"
+        assert tab.status_label.text() == "Report written: grid-screening-report.html"
         assert not tab.busy
 
-    def test_a_missing_reporting_extra_is_said_plainly(self, tab, monkeypatch):
-        import fibsem.applications.autolamella.ui.grids.tab as module
-
+    def test_a_report_that_cannot_be_written_is_said_plainly(
+        self, tab, experiment, monkeypatch
+    ):
         tab.btn_inventory.click()
 
         def refuse(*_args, **_kwargs):
-            raise ImportError("No module named 'reportlab'")
+            raise OSError("the experiment folder is read-only")
 
-        monkeypatch.setattr(module, "generate_grid_report", refuse)
+        monkeypatch.setattr(experiment, "write_grid_report", refuse)
         tab.generate_report()
-        assert "pip install fibsem-os[reporting]" in tab.status_label.text()
+        assert "the experiment folder is read-only" in tab.status_label.text()
 
 
 class TestNote:
@@ -665,7 +652,7 @@ class TestNote:
     def test_a_verdict_keeps_the_note(self, card, monkeypatch):
         self.type_note(monkeypatch, self.NOTE)
         card._action_note.trigger()
-        card.set_quality(GridQuality.GOOD)
+        card.set_quality(Verdict.GOOD)
         assert card.grid.description == self.NOTE
 
     def test_an_empty_note_clears_it(self, card, monkeypatch):
@@ -695,21 +682,15 @@ class TestNote:
         report = collect_grid_report(experiment)
         assert report.sections[0].description == self.NOTE
 
-        pytest.importorskip("reportlab")
-        from fibsem.applications.autolamella.tools.grid_report_pdf import (
+        from fibsem.applications.autolamella.tools.grid_report_html import (
             generate_grid_report,
         )
 
         path = generate_grid_report(
-            experiment,
-            output_path=str(Path(experiment.path) / "report.pdf"),
-            compress=False,
+            experiment, output_path=str(Path(experiment.path) / "report.html")
         )
-        # Once on the cover, once under the grid's name. The cover's column wraps
-        # the note, so look for its two ends rather than the whole string.
-        pdf = Path(path).read_bytes()
-        assert pdf.count(b"Even ice across") == 2
-        assert pdf.count(b"east half.") == 2
+        # Once on the cover, once under the grid's name.
+        assert Path(path).read_text(encoding="utf-8").count(self.NOTE) == 2
 
 
 def test_the_tab_s_grid_edits_are_the_app_server_s(tab, arctis, experiment):

@@ -45,19 +45,13 @@ from fibsem.ui.widgets.strategy_settings_widget import (  # noqa: E402
 )
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return scope
-
-
 @pytest.fixture
 def tescan(monkeypatch):
     """A Tescan microscope over the fake SDK: its form has number fields of its own."""
     from tests.fixtures import tescan_sdk
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     scope, _ = tescan_sdk.connect(monkeypatch, system)
     return scope

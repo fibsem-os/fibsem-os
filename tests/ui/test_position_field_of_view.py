@@ -22,6 +22,8 @@ from __future__ import annotations
 import os
 import sys
 
+from tests.fixtures.microscopes import demo_microscope
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
@@ -34,7 +36,6 @@ from matplotlib.patches import Rectangle  # noqa: E402
 from matplotlib.text import Annotation  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
@@ -52,8 +53,6 @@ from fibsem.ui.widgets.canvas.real_space_canvas import (  # noqa: E402
 )
 from fibsem.ui.widgets.overview_widget import (  # noqa: E402
     PICK_RADIUS_PX,
-    POSITION_FOV_HEIGHT,
-    POSITION_FOV_WIDTH,
     FibsemOverviewWidget,
 )
 
@@ -276,18 +275,7 @@ class TestCoversIsTheBoxThatIsDrawn:
 # ── the beam tab ─────────────────────────────────────────────────────────────
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    """The same simulated Arctis `test_overview_widget.py` uses."""
-    import fibsem.config as fibsem_config
-
-    path = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    return scope
+microscope = demo_microscope("sim-arctis-configuration.yaml")
 
 
 @pytest.fixture

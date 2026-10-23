@@ -1,7 +1,7 @@
 """A 2D similarity from point pairs: the closed-form fit behind "three-point" alignment.
 
 Two images of one flat sample differ by a turn, a uniform scale and an offset once the
-known geometry has been taken out -- which is what an aligned overview needs (FIB-1030),
+known geometry has been taken out -- which is what an aligned overview needs,
 and what three clicked pairs are enough to give. Umeyama's solution is exact and
 closed-form: no seed, no iterations, no optimiser to wander, and it takes any number of
 pairs from two up.

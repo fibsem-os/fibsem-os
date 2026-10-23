@@ -1,12 +1,11 @@
 """The sample holder as hardware: its slots, whether each is calibrated, and what sits in it.
 
-Two things used to live here and now live elsewhere. Slot *positions* are set only
-by the calibration wizard (``holder_calibration_dialog``), which moves the stage to
-the right orientation first and writes a record saying so; the per-row capture
-button that took whatever the stage said is gone. Holder *geometry* -- the slot
+Slot *positions* are set only by the calibration wizard (``holder_calibration_dialog``),
+which moves the stage to the right orientation first and writes a record saying so.
+Holder *geometry* -- the slot
 count -- is set in the wizard's first step, because changing it means recalibrating.
 
-What is left is what an operator needs at a glance: is each slot calibrated, when,
+This shows what an operator needs at a glance: is each slot calibrated, when,
 against what, which grid is in it, and a way to drive to it. Pre-tilt and reference
 rotation come from the system configuration and are shown as facts, not as inputs.
 """
@@ -69,7 +68,7 @@ def _captured_when(slot: GridSlot) -> str:
     record = slot.calibration
     if record is None:
         return ""
-    # In the viewer's zone when the record has an offset (FIB-1190); as written when
+    # In the viewer's zone when the record has an offset; as written when
     # it has none, as records from before that do.
     when = to_datetime(record.captured_at)
     if when is None:
@@ -143,7 +142,6 @@ class _SlotRow(QWidget):
         super().__init__(parent)
         self.slot = slot
         self._has_microscope = has_microscope
-        self._names_editable = names_editable
         self.setAttribute(Qt.WA_TranslucentBackground)
 
         self.setFixedHeight(_ROW_HEIGHT)

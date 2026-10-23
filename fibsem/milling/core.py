@@ -8,12 +8,13 @@ from typing import TYPE_CHECKING, Optional
 
 from fibsem import config as fcfg
 from fibsem.cancellation import raise_if_cancelled
+from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.milling import FibsemMillingStage
 from fibsem.structures import (
     FibsemImage,
     ImageSettings,
 )
-from fibsem.utils import current_timestamp_v2
+from fibsem.utils import current_timestamp
 
 if TYPE_CHECKING:
     # Type-checking only, so `fibsem.milling` stays microscope-free -- see the note
@@ -42,7 +43,7 @@ def setup_milling(
     alignment_settings = milling_stage.alignment
     full_frame_reference: Optional[FibsemImage] = None
     if alignment_settings.enabled:
-        raise_if_cancelled(stop_event)  # no beam after a stop (FIB-1430)
+        raise_if_cancelled(stop_event)  # no beam after a stop
         reference_image = get_stage_reference_image(
             microscope=microscope, milling_stage=milling_stage
         )
@@ -130,7 +131,7 @@ def get_stage_reference_image(
             reduced_area=None if full_frame else milling_stage.alignment.rect,
             save=True,
             path=path,
-            filename=f"ref_{milling_stage.name}_initial_alignment{'_full-frame' if full_frame else ''}_{current_timestamp_v2()}",
+            filename=f"ref_{milling_stage.name}_initial_alignment{'_full-frame' if full_frame else ''}_{current_timestamp(DATETIME_FILE_NANO)}",
         )
         # Imported here rather than at module scope: `fibsem.acquire` imports
         # `fibsem.microscope`, which is the other half of the cycle the

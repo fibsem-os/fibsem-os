@@ -10,7 +10,6 @@ from typing import List
 
 import pytest
 
-from fibsem import utils
 from fibsem.cancellation import OperationCancelledError
 from fibsem.drivers.demo.services import DemoMilling
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
@@ -22,6 +21,7 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     MillingState,
 )
+from tests.fixtures.microscopes import demo_microscope
 
 RUNNING, PAUSED, IDLE = MillingState.RUNNING, MillingState.PAUSED, MillingState.IDLE
 
@@ -41,11 +41,7 @@ def _ticks(reports: List[MillingProgress]) -> List[MillingProgress]:
     ]
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", setup_logging=False)
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 def _draw(microscope, n=2):
@@ -143,7 +139,7 @@ def test_the_demo_mills_for_its_estimate_and_reports_as_it_goes(microscope):
     microscope.run_milling()
 
     assert isinstance(microscope.milling, DemoMilling)
-    assert microscope.get_milling_state() is IDLE
+    assert microscope.milling.state.get_value() is IDLE
     assert microscope._connection.milling_system.patterns == []
     ticks = _ticks(reports)
     assert [_elapsed(r) for r in ticks] == list(range(11))
@@ -175,7 +171,7 @@ def test_a_set_stop_event_stops_the_beam_and_cancels(microscope):
     with pytest.raises(OperationCancelledError):
         microscope.run_milling(stop_event=stop)
 
-    assert microscope.get_milling_state() is IDLE
+    assert microscope.milling.state.get_value() is IDLE
     assert microscope._connection.milling_system.patterns == []
     assert _elapsed(_ticks(reports)[-1]) == 2
     assert reports[-1].status is MillingProgressStatus.TASK_CANCELLED

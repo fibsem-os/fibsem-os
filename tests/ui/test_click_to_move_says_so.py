@@ -22,9 +22,10 @@ from __future__ import annotations
 import os
 import sys
 
+from tests.fixtures.microscopes import demo_microscope
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import numpy as np
 import pytest
 
 pytest.importorskip("PyQt5")
@@ -32,7 +33,6 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtCore import QObject, pyqtSignal  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 from fibsem.ui.widgets import overview_widget as beam_module  # noqa: E402
@@ -75,17 +75,7 @@ class SynchronousWorker(QObject):
         return False
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    import fibsem.config as fibsem_config
-
-    path = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    return scope
+microscope = demo_microscope("sim-arctis-configuration.yaml")
 
 
 @pytest.fixture

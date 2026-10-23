@@ -9,7 +9,6 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 import fibsem.config as cfg  # noqa: E402
 import fibsem.ui.widgets.microscope_defaults_widget as defaults_widget  # noqa: E402
@@ -20,32 +19,9 @@ from fibsem.ui.widgets.microscope_defaults_widget import (  # noqa: E402
     MicroscopeDefaultsWidget,
 )
 
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
-
-
-@pytest.fixture(autouse=True)
-def toasts(monkeypatch):
-    """Toasts go to a list, not to the notification service.
-
-    The service is a module-level QObject owned by whichever QApplication first
-    created it; a later test module's teardown can delete it, and the next toast
-    raises "wrapped C/C++ object has been deleted" from inside the widget under
-    test. The widgets' own behaviour is what these tests are about.
-    """
-    from fibsem.ui import notification_service
-
-    shown = []
-    monkeypatch.setattr(
-        notification_service,
-        "show_toast",
-        lambda message, notification_type="info": shown.append(
-            (message, notification_type)
-        ),
-    )
-    return shown
+# Toasts go to a list (tests/ui/conftest.py); the widgets' own behaviour
+# is what these tests are about.
+pytestmark = pytest.mark.usefixtures("toasts")
 
 
 @pytest.fixture()
@@ -56,7 +32,7 @@ def microscope(tmp_path):
     path.write_text(
         yaml.safe_dump(
             utils.load_yaml(
-                os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+                os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
             )
         )
     )

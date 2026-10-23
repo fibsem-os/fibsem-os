@@ -1,4 +1,4 @@
-"""Lamella setup section for the correlation window's Images tab (FIB-302).
+"""Lamella setup section for the correlation window's Images tab.
 
 The correlation widget is generic and standalone-launchable; a *lamella* brings
 extra context it can be set up from — its spot burns and its previous correlation
@@ -72,7 +72,7 @@ def format_run_label(run: CorrelationRun) -> str:
     A run folder is not proof a correlation ran — ``File > Save Correlation``
     writes one deliberately, and a run whose result was discarded keeps its
     folder. Without the suffix those are indistinguishable from a completed
-    correlation at the moment you pick what to seed from (FIB-320).
+    correlation at the moment you pick what to seed from.
     """
     label = format_run_timestamp(run.name)
     if run.state.result is None:
@@ -154,7 +154,7 @@ class CorrelationSetupSection(QWidget):
         # the same precedence the editor applied implicitly before this section.
         # load_spot_burns gates the *default*, not the choice: before this section
         # the flag meant "don't seed burns automatically", and an explicit click
-        # here is not automatic (FIB-319).
+        # here is not automatic.
         if self._prev_runs:
             self.rb_prev.setChecked(True)
         elif self.rb_burns.isEnabled() and self._config.load_spot_burns:
@@ -269,8 +269,8 @@ class CorrelationSetupSection(QWidget):
     def _apply_burn_availability(self) -> None:
         """Burns are normalised to the FIB image they were placed on, so with no
         image loaded there is nothing to multiply them by. Say that on the
-        control, rather than accepting the choice and quietly doing nothing
-        (FIB-319)."""
+        control, rather than accepting the choice and quietly doing nothing.
+        """
         self.rb_burns.setEnabled(bool(self._spot_burns) and self._burns_available)
         label = f"Spot-burn fiducials · {len(self._spot_burns)} found"
         if self._spot_burns and not self._burns_available:
@@ -301,7 +301,7 @@ class CorrelationSetupSection(QWidget):
         Qt flips a radio's checked state *before* emitting ``toggled``, so a
         request the widget refuses would otherwise leave the control claiming a
         source that was never applied — and unrecoverable by the obvious action,
-        since re-clicking the same radio emits nothing (FIB-319).
+        since re-clicking the same radio emits nothing.
         """
         source, run_index = self._applied
         widgets = (self.rb_none, self.rb_burns, self.rb_prev, self.run_combo)

@@ -3,9 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
-
-import numpy as np
+from typing import TYPE_CHECKING, Optional, Tuple
 
 from fibsem.drivers.odemis import add_odemis_path
 from fibsem.drivers.odemis.connection import OdemisConnection
@@ -21,7 +19,6 @@ from fibsem.structures import (
     FibsemExperimentRef,
     FibsemImage,
     FibsemImageMetadata,
-    FibsemRectangle,
     FibsemStagePosition,
     FibsemUser,
     ImageSettings,
@@ -46,14 +43,12 @@ except ImportError as e:
 if TYPE_CHECKING:
     from odemis.driver.autoscript_client import SEM as OdemisAutoscriptClient
 
-    from fibsem.fm.microscope import FluorescenceMicroscope
-
 
 def stage_position_to_odemis_dict(position: FibsemStagePosition) -> dict:
     """Convert a FibsemStagePosition to a dict with the odemis keys"""
     pdict = position.to_dict()
     pdict.pop("name")
-    pdict.pop("coordinate_system")  # no longer used in odemis
+    pdict.pop("coordinate_system")  # odemis does not take it
     pdict["rz"] = pdict.pop("r")
     pdict["rx"] = pdict.pop("t")
 
@@ -144,7 +139,6 @@ def from_odemis_image(image: model.DataArray, path: str = None) -> FibsemImage:
     # image settings
     pixel_size = Point.from_list(md[model.MD_PIXEL_SIZE])
 
-    # TODO: this should be acq_type, but it's not saved in the metadata yet...
     d2b = {"SEM": BeamType.ELECTRON, "FIB": BeamType.ION}
 
     if d2b[md[model.MD_DESCRIPTION]] is BeamType.ELECTRON:
@@ -172,7 +166,6 @@ def from_odemis_image(image: model.DataArray, path: str = None) -> FibsemImage:
         image_settings=image_settings,
         pixel_size=pixel_size,
         microscope_state=ms,
-        # TODO: the rest of the metadata is not saved in the odemis metadata
     )
 
     # get the data
@@ -218,8 +211,6 @@ ODEMIS_CHAMBER_STATES = {
     "vacuum_error": "Error",
 }
 
-# TODO: load default system settings?
-
 
 # The devices Odemis builds by itself. There is no other code for what they do, so
 # each is required: one that cannot be built fails the connection. One the
@@ -252,7 +243,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     @property
     def rotation_centre(self) -> Tuple[float, float]:
-        """Where a half turn is centred, in stage-bare's (x, y), metres (FIB-1373).
+        """Where a half turn is centred, in stage-bare's (x, y), metres.
 
         stage-bare is AutoScript RAW plus the specimen offset odemis measures at
         startup, so the specimen origin, which xT turns about, is its (0, 0); odemis's
@@ -275,7 +266,6 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
         logging.info("OdemisThermoMicroscope initialized")
 
-        # system information # TODO: split this version info properly
         software_version = client.get_software_version()
         hardware_version = client.get_hardware_version()
         self.system.info.model = hardware_version

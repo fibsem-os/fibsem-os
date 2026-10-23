@@ -10,6 +10,8 @@ import time
 from copy import deepcopy
 from types import SimpleNamespace
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -59,12 +61,7 @@ def window(qapp):
     yield win
     if win.microscope is not None:
         win.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        win.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(win)
 
 
 @pytest.fixture
@@ -708,11 +705,8 @@ def test_a_correlation_that_cannot_be_recorded_is_still_applied(
 def test_the_replay_shows_a_correlation_before_the_point_it_moved(
     qapp, window, editor, experiment, tmp_path, monkeypatch
 ):
-    """From the file the app writes, through the reader, to the replay window."""
+    """From the file the app writes, through the replay reader."""
     from fibsem.applications.autolamella.tools.replay import EventKind, load_replay
-    from fibsem.applications.autolamella.ui.tools.replay_viewer import (
-        ExperimentReplayWidget,
-    )
 
     record = tmp_path / "record"
     record.mkdir()
@@ -742,17 +736,6 @@ def test_the_replay_shows_a_correlation_before_the_point_it_moved(
     assert {(e.kind, e.item, e.data["via"]) for e in edits} == {
         (EventKind.EDIT, lamella.name, "correlation")
     }
-
-    widget = ExperimentReplayWidget.from_directory(record)
-    try:
-        assert widget.filter_boxes[EventKind.CORRELATION].text() == "Correlation (1)"
-        row = widget.replay.events.index(correlation)
-        cells = [widget.table.item(row, col).text() for col in (1, 2)]
-        assert cells == [lamella.name, "Correlation"]
-    finally:
-        widget.close()
-        widget.deleteLater()
-        qapp.processEvents()
 
 
 # ── the agent ────────────────────────────────────────────────────────────────
@@ -890,11 +873,8 @@ def test_an_edit_whose_record_cannot_be_taken_is_still_made(
 def test_the_replay_shows_each_edit_on_the_lamella_edited(
     qapp, window, editor, experiment, tmp_path
 ):
-    """From the file the app writes, through the reader, to the replay window."""
+    """From the file the app writes, through the replay reader."""
     from fibsem.applications.autolamella.tools.replay import EventKind, load_replay
-    from fibsem.applications.autolamella.ui.tools.replay_viewer import (
-        ExperimentReplayWidget,
-    )
 
     record = tmp_path / "record"
     record.mkdir()
@@ -927,14 +907,3 @@ def test_the_replay_shows_each_edit_on_the_lamella_edited(
         " → 2.5e-06 (agent patch)",
     ]
     assert [e.actor for e in rows] == ["operator", "agent"]
-
-    widget = ExperimentReplayWidget.from_directory(record)
-    try:
-        assert widget.filter_boxes[EventKind.EDIT].text() == "Edit (2)"
-        row = widget.replay.events.index(rows[0])
-        cells = [widget.table.item(row, col).text() for col in (1, 2)]
-        assert cells == [first.name, "Edit"]
-    finally:
-        widget.close()
-        widget.deleteLater()
-        qapp.processEvents()

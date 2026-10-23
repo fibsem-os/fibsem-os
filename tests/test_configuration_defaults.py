@@ -29,6 +29,7 @@ from fibsem.structures import (
     MicroscopeSettings,
     SystemSettings,
 )
+from tests.fixtures.microscopes import demo_microscope
 from tests.test_configuration_schema import SHIPPED
 
 HARDWARE_KEYS = set(SystemSettings.HARDWARE_BEAM_KEYS)
@@ -44,7 +45,7 @@ DEFAULT_KEYS = {
 
 
 def _load(filename: str) -> dict:
-    return utils.load_yaml(os.path.join(cfg.CONFIG_PATH, filename))
+    return utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, filename))
 
 
 # ---------------------------------------------------------------------------
@@ -201,11 +202,7 @@ def test_writing_a_configuration_produces_the_split_shape():
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope(scope="function")
 
 
 def test_a_default_that_is_not_stated_is_not_pushed(microscope):
@@ -315,11 +312,6 @@ def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
         return original(self, key, *args, **kwargs)
 
     monkeypatch.setattr(FibsemMicroscope, "_write_beam", spy)
-    # the column's enabled flag, geometry and gas are set only with the system settings
-    system = []
-    monkeypatch.setattr(
-        FibsemMicroscope, "set_beam_system_settings", lambda *a: system.append(a)
-    )
     moved = []
     monkeypatch.setattr(
         FibsemMicroscope, "move_stage_absolute", lambda *a, **k: moved.append(a)
@@ -329,7 +321,6 @@ def test_applying_at_connect_sets_only_the_defaults(tmp_path, monkeypatch):
         assert microscope.connect_actions["defaults"] is True
         assert "hfw" in keys
         assert "plasma_gas" not in keys
-        assert system == []
         assert moved == []
     finally:
         microscope.disconnect()

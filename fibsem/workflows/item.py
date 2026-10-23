@@ -14,7 +14,13 @@ from __future__ import annotations
 from typing import Any, ClassVar, Dict, List, Optional
 
 from fibsem.acting import Actor, ActorKind
-from fibsem.structures import FibsemRectangle, MicroscopeState, Point
+from fibsem.codec import encode
+from fibsem.structures import (
+    FibsemRectangle,
+    FibsemStagePosition,
+    MicroscopeState,
+    Point,
+)
 from fibsem.workflows.proposals import (
     Proposal,
     current_proposal,
@@ -46,7 +52,7 @@ class ExperimentItem:
         """The names of the tasks that have completed on this item.
 
         Filtered on status: task_history records every terminal outcome, not
-        just successes (FIB-490), so an unfiltered read would count a failed
+        just successes, so an unfiltered read would count a failed
         task as done -- and a failed prerequisite would license the task that
         requires it.
         """
@@ -165,3 +171,17 @@ class SiteItem(ExperimentItem):
         """A task finished here with *config*, *image* the last FIB image it
         took (or None): what the item keeps of it, before it is marked done.
         Nothing, unless the item keeps something."""
+
+
+def item_poses(item) -> Dict[str, Optional[FibsemStagePosition]]:
+    """Where each of an item's poses puts the stage, by pose name (None where a
+    pose has no position): the item document's ``poses``."""
+    return {
+        pose_name: getattr(pose, "stage_position", None)
+        for pose_name, pose in dict(item.poses).items()
+    }
+
+
+def item_pose_positions(item) -> Dict[str, Any]:
+    """`item_poses` as plain data, for a document's version."""
+    return encode(item_poses(item))

@@ -27,7 +27,6 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.applications.autolamella.ui.common.run_refusal import refused_during_run
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
 from fibsem.applications.autolamella.ui.lamella.selected import (
     SelectedLamellaController,
@@ -36,6 +35,7 @@ from fibsem.applications.autolamella.ui.lamella.selected import (
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui import notification_service
+from fibsem.ui.run.run_refusal import refused_during_run
 
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
@@ -87,8 +87,8 @@ class ExperimentTab(QWidget):
         # in connects the same signal to its own handler, which saves *and* redraws the
         # rows, the cards and the name list -- so a second handler here only bought a
         # second full `experiment.save()` for one toggled icon, which is 0.8 s of frozen
-        # GUI at 100 lamella (FIB-682). Every other host of this list keeps its own
-        # handler, because nothing else is listening for them (FIB-564).
+        # GUI at 100 lamella. Every other host of this list keeps its own
+        # handler, because nothing else is listening for them.
         self.lamella_list.lamella_selected.connect(self.update_selected)
 
         self.selected_lamella = SelectedLamellaController(
@@ -174,7 +174,7 @@ class ExperimentTab(QWidget):
 
     def refresh_run_edits(self) -> None:
         """While a run is on, the selected lamella stays editable, the one the
-        run is on included (only its running task's config waits, FIB-1505);
+        run is on included (only its running task's config waits);
         the stage and objective are the run's."""
         self.selected_lamella_widget.setEnabled(True)
         self.selected_lamella_widget.set_instrument_actions_enabled(

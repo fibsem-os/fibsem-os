@@ -35,7 +35,6 @@ from __future__ import annotations
 import sys
 
 import numpy as np
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QHBoxLayout,

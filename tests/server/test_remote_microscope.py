@@ -4,22 +4,21 @@ Server's, over the Demo. The facade's calls run on the server.
 Skipped when the [server] extra is not installed.
 """
 
-import os
 import threading
 import time
 
 import pytest
 
+from tests.fixtures.app_server import serving
+
 pytest.importorskip("fastapi")
 uvicorn = pytest.importorskip("uvicorn")
 
-from fibsem import utils  # noqa: E402
 from fibsem.cancellation import OperationCancelledError  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.drivers.remote.devices import RemoteBeam, RemoteStage  # noqa: E402
 from fibsem.drivers.remote.services import RemoteService  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.devices import WS_PROTOCOL  # noqa: E402
 from fibsem.services.milling import Milling  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
@@ -44,38 +43,14 @@ def wait_for(condition, timeout=5.0):
 
 
 @pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
-
-
-@pytest.fixture(scope="module")
 def auth():
     return AuthConfig.generate(level="drive", token=TOKEN)
 
 
 @pytest.fixture(scope="module")
 def url(microscope, auth):
-    app = build_server(microscope, auth=auth)
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app, host="127.0.0.1", port=0, log_level="warning", ws=WS_PROTOCOL
-        )
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    while not server.started:
-        assert thread.is_alive(), "App Server failed to start"
-        threading.Event().wait(0.01)
-    yield f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
-    server.should_exit = True
-    thread.join(timeout=5)
+    with serving(build_server(microscope, auth=auth)) as url:
+        yield url
 
 
 @pytest.fixture(scope="module")
@@ -148,7 +123,7 @@ def test_a_mill_runs_on_the_server_and_its_signals_cross(remote):
         remote.draw_patterns([_square()])
         remote.run_milling()  # waits on the server's run
         remote.finish_milling()
-        assert remote.get_milling_state() is MillingState.IDLE
+        assert remote.milling.state.get_value() is MillingState.IDLE
         # drawn, then cleared at the end of the run
         assert wait_for(lambda: len(drawn) >= 2)
         assert len(drawn[0]) == 1 and drawn[-1] == []

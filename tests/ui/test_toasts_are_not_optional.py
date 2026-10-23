@@ -19,23 +19,17 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QWidget  # noqa: E402
+from PyQt5.QtWidgets import QWidget  # noqa: E402
 
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
-from fibsem.config import DisplayPreferences, UserPreferences  # noqa: E402
+from fibsem.config import QtPreferences, UserPreferences  # noqa: E402
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager  # noqa: E402
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
-
 
 # --- the preference is gone, and gone in a way old files survive ----------------
 
 
 def test_there_is_no_preference_for_turning_toasts_off():
-    names = {f.name for f in dataclasses.fields(DisplayPreferences)}
+    names = {f.name for f in dataclasses.fields(QtPreferences)}
     assert "toasts_enabled" not in names, sorted(names)
 
 
@@ -45,7 +39,7 @@ def test_a_save_can_no_longer_pin_the_old_value():
     ``to_dict`` writes every field, so for as long as the field exists, a file written
     before the change goes on deciding the answer no matter what the default says.
     """
-    assert "toasts_enabled" not in UserPreferences().to_dict()["display"]
+    assert "toasts_enabled" not in UserPreferences().to_dict()["qt"]
 
 
 def test_a_preferences_file_written_before_the_change_still_loads():
@@ -53,14 +47,14 @@ def test_a_preferences_file_written_before_the_change_still_loads():
     prefs = UserPreferences.from_dict(
         {"display": {"toasts_enabled": False, "sound_enabled": True}}
     )
-    assert not hasattr(prefs.display, "toasts_enabled")
-    assert prefs.display.sound_enabled is True  # the rest of the file survives
+    assert not hasattr(prefs.qt, "toasts_enabled")
+    assert prefs.qt.sound_enabled is True  # the rest of the file survives
 
 
 def test_sound_is_still_a_preference():
     """The neighbour this was wrongly grouped with. An audio alert really is a taste,
     and removing the toast switch is not an argument for removing that one too."""
-    assert DisplayPreferences().sound_enabled is False
+    assert QtPreferences().sound_enabled is False
 
 
 # --- and the messages actually arrive -------------------------------------------

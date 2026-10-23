@@ -12,6 +12,8 @@ on whatever grid *is* there. The defect icon is drawn only once there is a defec
 import gc
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -22,8 +24,6 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    DefectState,
-    DefectType,
     Experiment,
 )
 from fibsem.applications.autolamella.ui.common.lamella_display import (
@@ -40,6 +40,7 @@ from fibsem.applications.autolamella.ui.lamella.rows import (
 from fibsem.structures import FibsemStagePosition, MicroscopeState
 from fibsem.ui.tokens import ACCENT_COLOR, NEUTRAL_550
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import QualityRecord, Verdict
 
 _app = QApplication.instance() or QApplication([])
 
@@ -166,7 +167,7 @@ class TestTheCard:
         container = LamellaCardContainer(columns=1, mode="standard")
         card = container.add_lamella(lamellae["on-oak"])
         assert not card._btn_defect.isVisibleTo(card)
-        lamellae["on-oak"].defect = DefectState(state=DefectType.REWORK)
+        lamellae["on-oak"].defect = QualityRecord(verdict=Verdict.REWORK)
         assert card._btn_defect.isVisibleTo(card)
         assert card._btn_defect.toolTip().startswith("Rework")
         # Set back from the actions menu's Verdict submenu.
@@ -174,7 +175,7 @@ class TestTheCard:
             a for a in card._defect_menu.actions() if a.text() == "Not assessed"
         )
         none.trigger()
-        assert lamellae["on-oak"].defect.state is DefectType.NONE
+        assert lamellae["on-oak"].defect.verdict is Verdict.UNASSESSED
         assert not card._btn_defect.isVisibleTo(card)
 
     def test_compact_drops_the_time_and_the_grid_survives_a_mode_switch(
@@ -255,12 +256,7 @@ class TestFromTheWindow:
         ui.system_widget.connect_to_microscope()
         yield window
         ui.microscope.disconnect()
-        original_quit = qapp.quit
-        qapp.quit = lambda: None
-        try:
-            window.close()
-        finally:
-            qapp.quit = original_quit
+        close_window(window)
         # Destroyed here, on purpose, rather than left to the collector: a
         # window this size collected during a later test's `processEvents`
         # took that test down with a segfault.

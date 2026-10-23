@@ -27,7 +27,7 @@ class OperationCancelledError(Exception):
 
 class NothingToStop(Exception):
     """A stop with nothing running to stop: refused, so the caller is not told it
-    stopped something (FIB-1398)."""
+    stopped something."""
 
 
 # Notified by every StopEvent as it is set, so a wait on any of them wakes then.

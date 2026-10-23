@@ -61,7 +61,9 @@ def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 
@@ -395,22 +397,6 @@ def test_the_preflight_says_how_the_run_ends(qapp):
     assert not any(t.startswith("When the run ends") for t in _labels(adding))
 
 
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
-
-
 def _wait_for_run(ui, timeout_s: float = 90.0) -> None:
     deadline = time.monotonic() + timeout_s
     while ui.session.runner.is_running and time.monotonic() < deadline:
@@ -445,33 +431,23 @@ class TestPanelChrome:
         view.btn_settings.click()
         assert view.options.isVisible()
         assert not view.unload_at_end()
-        assert view.report_at_end() == view.options.report_check.isEnabled()
+        assert view.report_at_end()
         view.options.hide()
         hints = view.btn_help.toolTip()
         assert "order they run" in hints and "Protocol tab's Grid page" in hints
 
     def test_unload_is_offered_only_with_a_loader(self, view):
         options = view.options
-        options.set_availability(can_unload=False, report_unavailable="")
+        options.set_availability(can_unload=False)
         options.unload_check.setChecked(True)
         assert options.unload_check.isHidden()
         assert not view.unload_at_end(), "a fixed holder has nothing to unload"
-        options.set_availability(can_unload=True, report_unavailable="")
+        options.set_availability(can_unload=True)
         assert not options.unload_check.isHidden()
         assert view.unload_at_end(), "the choice is kept"
 
-    def test_the_gear_says_why_it_cannot_write_the_report(self, view):
-        reason = "Needs the reporting tools: pip install fibsem-os[reporting]"
-        view.options.set_availability(can_unload=False, report_unavailable=reason)
-        assert not view.options.report_check.isEnabled()
-        assert not view.options.report_check.isChecked(), "reads unticked"
-        assert view.options.report_check.toolTip() == reason
-        assert not view.report_at_end()
-        view.options.set_availability(can_unload=False, report_unavailable="")
-        assert view.report_at_end(), "not a choice the operator made"
-
     def test_the_gear_is_accent_while_an_option_is_off_its_default(self, view):
-        view.options.set_availability(can_unload=True, report_unavailable="")
+        view.options.set_availability(can_unload=True)
         assert "some set" not in view.btn_settings.toolTip()
         view.options.unload_check.setChecked(True)
         assert "some set" in view.btn_settings.toolTip()
@@ -535,7 +511,7 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
     nothing pressed on the Grids tab. An autoloader, so the Sample view has a
     loader panel to fire from."""
     ui = main_ui
-    config = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    config = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     monkeypatch.setattr(
         ui.system_widget, "load_configuration", lambda configuration_name=None: config
     )
@@ -568,7 +544,6 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
     shared timeline and the record. A fixed holder, so no exchange."""
     ui = main_ui
     # The post-run summary is modal; under offscreen it would block forever.
-    from fibsem.applications.autolamella.ui import window as ui_module
     from fibsem.ui.run import view as run_view_module
 
     class _NoDialog:

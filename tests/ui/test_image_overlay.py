@@ -18,19 +18,12 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.canvas_base import ContentRect
 from fibsem.ui.widgets.canvas.overlays.image_overlay import ImageOverlay
 from fibsem.ui.widgets.canvas.overlays.transform_overlay import MIN_CORNER_REACH_PX
 
 W, H = 200.0, 100.0
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 class _FakeCanvas:

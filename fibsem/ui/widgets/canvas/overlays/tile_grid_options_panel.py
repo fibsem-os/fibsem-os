@@ -16,13 +16,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFrame,
-    QHBoxLayout,
     QLabel,
     QPushButton,
     QSlider,
@@ -126,7 +125,7 @@ class TileGridOptionsPanel(QFrame):
         grew (dragging the grid adds a line saying how far it sits from the stage, and
         that line wraps) the label kept a height computed for fewer lines and clipped
         the text top and bottom, the overflow split evenly because a QLabel centres its
-        text vertically (FIB-510).
+        text vertically.
 
         Measured rather than reasoned: at 196px wide the label reported height 36 for
         text needing 48 -- exactly one line short.

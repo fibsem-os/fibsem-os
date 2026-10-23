@@ -2435,38 +2435,6 @@ def test_fluorescence_configuration_from_dict_missing_orientation():
     assert restored.default_orientation == "FM"
 
 
-def test_fluorescence_configuration_yaml_roundtrip():
-    """Export to YAML and reload preserves default_orientation."""
-    config = _make_minimal_config(default_orientation="SEM")
-    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
-        filename = f.name
-    try:
-        config.export(filename)
-        loaded = FluorescenceConfiguration.load(filename)
-        assert loaded.default_orientation == "SEM"
-    finally:
-        import os
-
-        if os.path.exists(filename):
-            os.unlink(filename)
-
-
-def test_fluorescence_configuration_yaml_roundtrip_fm():
-    """Export to YAML and reload preserves default_orientation 'FM'."""
-    config = _make_minimal_config(default_orientation="FM")
-    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
-        filename = f.name
-    try:
-        config.export(filename)
-        loaded = FluorescenceConfiguration.load(filename)
-        assert loaded.default_orientation == "FM"
-    finally:
-        import os
-
-        if os.path.exists(filename):
-            os.unlink(filename)
-
-
 # FluorescenceImage.filepath — the file an image is associated with on disk
 
 

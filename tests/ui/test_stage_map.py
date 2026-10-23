@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.fixtures.microscopes import demo_microscope
+
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from PyQt5.QtCore import QRectF
@@ -44,10 +46,7 @@ def _config(name: str) -> str:
     )
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo")
-    return microscope
+microscope = demo_microscope(scope="function")
 
 
 def _calibrate(microscope, xs=(-2.5e-3, 2.5e-3)):
@@ -211,7 +210,10 @@ def test_an_offset_fm_station_is_drawn_where_the_stage_goes_for_it(qapp, pose):
     )
     microscope.move_stage_absolute(at_fm)
     stage_map = _update(controller, microscope).map
-    assert microscope.get_current_device(microscope.get_stage_position()) == "FM"
+    assert (
+        microscope.stage_movement.current_device(microscope.get_stage_position())
+        == "FM"
+    )
 
     stations = stage_map._device_stations()
     assert [name for name, _ in stations] == ["FM"]

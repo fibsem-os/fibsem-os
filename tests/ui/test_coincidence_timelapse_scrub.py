@@ -22,13 +22,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 
-@pytest.fixture(scope="module")
-def qapp():
-    from PyQt5.QtWidgets import QApplication
-
-    return QApplication.instance() or QApplication([])
-
-
 @pytest.fixture
 def viewer(qapp, tmp_path):
     from fibsem import config as cfg
@@ -39,7 +32,9 @@ def viewer(qapp, tmp_path):
     )
 
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        )
     )
     widget = FluorescenceCoincidenceViewerWidget(
         microscope=microscope,

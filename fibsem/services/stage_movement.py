@@ -31,7 +31,11 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter, Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage, recording_move
-from fibsem.geometry.angles import wrap_angle
+from fibsem.geometry.angles import (
+    rotation_angle_is_larger,
+    rotation_angle_is_smaller,
+    wrap_angle,
+)
 from fibsem.geometry.frames import StageModel
 from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.movement import (
@@ -49,7 +53,6 @@ from fibsem.geometry.orientations import (
     milling_angle_from_tilt,
     repose,
 )
-from fibsem.movement import rotation_angle_is_smaller
 from fibsem.services.core import Service
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
@@ -93,7 +96,7 @@ SAFE_INSERT_TILT_TOLERANCE_DEG = 0.5
 class StageMovement(Service):
     """The stage, moved by what a view of the sample shows.
 
-    Every command returns the stage position afterwards, as the old methods did,
+    Every command returns the stage position afterwards,
     except ``safe_absolute_stage_movement``, which returns nothing, and
     ``move_to_milling_angle``, which says whether the stage reached the angle.
     """
@@ -156,7 +159,7 @@ class StageMovement(Service):
     def turned_over(self, tilt: float) -> bool:
         """Whether the stage has the sample turned over at this tilt, in radians.
 
-        The stage device says (FIB-1124); with no stage, nothing is turned over.
+        The stage device says; with no stage, nothing is turned over.
         """
         stage = self.parent.stage_device
         return False if stage is None else stage.turned_over(tilt)
@@ -164,7 +167,7 @@ class StageMovement(Service):
     def stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name, from the configured geometry.
 
-        The stage device declares them (FIB-1101). With no stage there are none.
+        The stage device declares them. With no stage there are none.
         """
         stage = self.parent.stage_device
         if stage is None:
@@ -179,7 +182,7 @@ class StageMovement(Service):
     def fm_is_a_pose(self) -> bool:
         """Does the stage reach the FM by re-posing rather than by travelling?
 
-        True where the stage declares an FM pose (FIB-1101): the objective is under
+        True where the stage declares an FM pose: the objective is under
         the grid and the stage turns the grid over to face it, so the beams and the
         FM are one place. False on an offset mount, where the FM is a place the stage
         travels to in whatever pose it holds. Today it is true exactly on a compustage.
@@ -416,7 +419,7 @@ class StageMovement(Service):
         as "needs travel".
 
         Each device has its own range, and the beams' is unbounded, so the stage can be
-        within more than one; it is at the one `get_current_device` picks, the nearest
+        within more than one; it is at the one `current_device` picks, the nearest
         origin. Within the beams' range but nearer the FM's origin is at the FM. Where
         the stage device says a pose puts it at a device (`Stage.device_at_pose`), the
         pose decides and no range is checked.
@@ -528,7 +531,7 @@ class StageMovement(Service):
         """Can `device` see the sample from where the stage is -- and if not, why not.
 
         One question, answered the same way on both mountings, with the mounting
-        expressed entirely in configuration (FIB-839). Two terms:
+        expressed entirely in configuration. Two terms:
 
         * **place** -- `is_at_device`, against the device's declared origin
         * **pose** -- `get_stage_orientation`, against the device's declared
@@ -546,10 +549,10 @@ class StageMovement(Service):
         `DeviceImagingState`. Pass `stage_position` to ask about a stored pose rather
         than the current one; both workflow tasks do.
         """
-        # The fluorescence microscope is the one device whose instrument can be
-        # absent -- the beams always exist, and there is no third device yet. `fm` is
-        # an object or None (a present-but-faulted state is not modelled; noted on
-        # FIB-839), so this is the whole of the "no device" test.
+        # The fluorescence microscope is the one device whose instrument can be absent
+        # -- the beams always exist, and there is no third device yet. `fm` is an object
+        # or None (a present-but-faulted state is not modelled), so this is the whole of
+        # the "no device" test.
         if device == "FM" and self.parent.fm is None:
             return DeviceImagingState.NO_DEVICE
 
@@ -576,7 +579,7 @@ class StageMovement(Service):
     ) -> str:
         """One sentence a person can act on, for each imaging state.
 
-        The vocabulary is the two axes' (FIB-858): the stage travels between
+        The vocabulary is the two axes': the stage travels between
         *devices* and is re-posed between *orientations*, and the failing term names
         the verb -- so a refusal built from this says which of the two to do, in
         which order, rather than announcing a false generality like "not in a valid
@@ -632,7 +635,7 @@ class StageMovement(Service):
         """The relative stage move from one device to another.
 
         A difference of two configured places rather than a constant, so the traverse
-        and the "am I already there" windows can no longer drift apart. Relative
+        and the "am I already there" windows cannot drift apart. Relative
         rather than absolute on purpose: the devices constrain x only, and a relative
         move carries y, z, r and t across unchanged.
 
@@ -798,7 +801,7 @@ class StageMovement(Service):
         # source and target -- which is exactly what the reverse call does.
         #
         # This computes a target; it does not order the moves. Nothing yet stops a
-        # caller re-posing while at the FM -- see FIB-841, a prerequisite for opening
+        # caller re-posing while at the FM --, a prerequisite for opening
         # the connection gate.
         #
         # A compustage brackets with a zero translation, so it takes this path and
@@ -879,7 +882,7 @@ class StageMovement(Service):
         return param.get_value()
 
     def _set_working_distance(self, beam_type: BeamType, wd: float) -> None:
-        """Write a working distance as the old API does (no new checks), or nothing
+        """Write a working distance with no new checks, or nothing
         where the beam has none (the TESCAN ion column)."""
         beam = self._beam(beam_type)
         param = None if beam is None else beam.parameters.get("working_distance")
@@ -1199,7 +1202,7 @@ class StageMovement(Service):
     def camera_tilt(self) -> float:
         """Tilt of the FM camera's optical axis from the SEM column, in degrees.
 
-        The FM entry's ``camera_tilt`` where the configuration states one (FIB-335),
+        The FM entry's ``camera_tilt`` where the configuration states one,
         else derived from the mount (`fibsem.geometry.frames.fm_camera_tilt`).
         """
         return fm_camera_tilt(self.parent)
@@ -1293,13 +1296,12 @@ class StageMovement(Service):
 
         The **orientation** half asks where the move is *going*, not where the stage is
         standing, and blocks z (and r, which a stage with an FM pose does not have).
-        Asking the current pose is what dropped z from the very move that was leaving
-        the fluorescence pose: the stage landed at the requested x/y/t at the old
-        z-height, and the operator pressed Move a second time to finish it. Measured on
-        the Arctis (Aug 2026): with the objective retracted, z and t are both available
-        at t = -180, so a move out of that pose has nothing to lose. A move *into* it is
-        still restricted here -- more conservative than the measurement requires, and
-        free, because the one path that enters the pose sends r and t only.
+        Asking the current pose would drop z from the very move that leaves the
+        fluorescence pose. Measured on the Arctis: with the objective retracted, z and t
+        are both available at t = -180, so a move out of that pose has nothing to lose.
+        A move *into* it is still restricted here -- more conservative than the
+        measurement requires, and free, because the one path that enters the pose sends
+        r and t only.
 
         `position` is the destination. Without one, or with a partial pose that has no
         orientation to read (the safe move's rotation step sends a bare tilt), the stage's
@@ -1310,7 +1312,7 @@ class StageMovement(Service):
         is naturally confined to the stages that declare an FM pose.
 
         The **objective** half applies on every mount: while the objective is
-        inserted, the axes it names (`ObjectiveLens.blocked_axes`, z and t as FIB-640
+        inserted, the axes it names (`ObjectiveLens.blocked_axes`, z and t as
         measured) are left alone. The objective state is read live, every move: a stale
         "Retracted" here moves the stage with the objective in the chamber.
         """
@@ -1359,7 +1361,7 @@ class StageMovement(Service):
 
         **Rotation only.** A tilt pivots about an axis through the sample instead of
         swinging it, and where the objective does restrict tilt the microscope refuses
-        it itself -- FIB-640 measured z and t. This does not duplicate that.
+        it itself (z and t, measured). This does not duplicate that.
 
         Not a restriction on FM-MILLING. That pose is a half turn from the FM's own
         orientation (measured: FM sits at r=180, MILLING at r=0), so it was never
@@ -1493,7 +1495,7 @@ class StageMovement(Service):
                 self._move_across_devices(stage_position, *crossing)
                 return self._position()
 
-            # Before anything moves (FIB-841).
+            # Before anything moves.
             self._refuse_rotation_at_the_fm(stage_position)
             self._safe_rotation(stage_position)
 
@@ -1550,16 +1552,12 @@ class StageMovement(Service):
         if not self.parent.system.stage.rotation or stage_position.r is None:
             return
 
-        from fibsem import movement
-
         current_position = self._position()
-        if movement.rotation_angle_is_larger(stage_position.r, current_position.r):
+        if rotation_angle_is_larger(stage_position.r, current_position.r):
             self._move_stage(FibsemStagePosition(t=0))
             logging.info("tilting to flat for large rotation.")
 
-        self._move_stage(
-            FibsemStagePosition(r=stage_position.r)
-        )  # TODO: support compucentric rotation directly
+        self._move_stage(FibsemStagePosition(r=stage_position.r))
 
     @command
     def move_to_orientation(self, orientation: str) -> FibsemStagePosition:
@@ -1575,7 +1573,7 @@ class StageMovement(Service):
         """Where a move to a named orientation ends: its pose (r, t), and on a stage
         that turns a half turn, x and y carried round the rotation centre.
 
-        Only where the driver reports its ``rotation_centre`` (FIB-655). Without one,
+        Only where the driver reports its ``rotation_centre``. Without one,
         or from a position at no named orientation, the pose alone, as before.
         """
         microscope = self.parent
@@ -1648,8 +1646,8 @@ class StageMovement(Service):
         """The stage tilt, in radians, that gives ``milling_angle`` (degrees) at
         ``rotation`` (radians). At the SEM rotation that is ``sem_tilt``, the
         tilt-plane formula's answer; elsewhere the pre-tilt leans another way, so the
-        tilt is searched for with the same model ``current_milling_angle`` reads
-        (FIB-1392), between -90 and 90 degrees, nearest ``sem_tilt`` on a tie."""
+        tilt is searched for with the same model ``current_milling_angle`` reads,
+        between -90 and 90 degrees, nearest ``sem_tilt`` on a tie."""
         reference = np.radians(self.parent.system.stage.rotation_reference)
         if np.isclose(wrap_angle(rotation - reference), 0.0):
             return sem_tilt
@@ -1720,7 +1718,7 @@ class StageMovement(Service):
 
         One call that owns the safe order -- retract the objective, re-pose at the
         beams, travel out -- so a rotation never happens with the stage parked under
-        an objective. The rotation guard (FIB-841) stays underneath as the last-line
+        an objective. The rotation guard stays underneath as the last-line
         assert; the route this composes never trips it.
 
         `orientation` names the pose to arrive in. Omitted, the pose is carried
@@ -1729,7 +1727,7 @@ class StageMovement(Service):
         orientation's *name* through `move_to_orientation`: doing so would snap r and
         t to nominal and quietly discard a milling angle somebody dialled in. When
         the pose does have to change (an offset FM images in the FIB pose; asking
-        for it from SEM used to be a refusal), the device's first declared
+        for it from SEM), the device's first declared
         acquisition orientation is used.
         """
         with recording_move(
@@ -1861,7 +1859,7 @@ class StageMovement(Service):
     def _check_arrival(self, device: str, arrival: FibsemStagePosition) -> None:
         """Refuse a traverse that would arrive outside *device*'s range.
 
-        The start is checked by finding the source (`get_current_device`); this is the
+        The start is checked by finding the source (`current_device`); this is the
         other end. Each device has its own range, and the stage keeps its offset from
         the source's origin, so a position well inside the beams' range can land
         outside an FM's -- where the stage would report it had not arrived, and could

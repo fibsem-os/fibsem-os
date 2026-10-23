@@ -11,7 +11,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem import utils
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.demo import devices as demo_devices
 from fibsem.services import sample_handling as stage_module

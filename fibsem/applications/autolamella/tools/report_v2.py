@@ -1,8 +1,7 @@
-"""Report v2: an experiment's record as one self-contained HTML page (FIB-1036).
+"""Report v2: an experiment's record as one self-contained HTML page.
 
-Built from ``events.jsonl`` alone, through the tables in ``event_tables``, beside
-the log-based report rather than replacing it. The page answers what a session
-got, where its time went, and what needs a look:
+Built from ``events.jsonl`` alone, through the tables in ``event_tables``. The
+page answers what a session got, where its time went, and what needs a look:
 
 * headline numbers: lamellae finished, throughput, and the time budget --
   machine, waiting for an answer, and idle (nothing running)
@@ -104,7 +103,7 @@ def write_report(experiment: Any, path: Union[str, Path, None] = None) -> Path:
     folder unless ``path`` says where -- and return where it went.
 
     Raises FileNotFoundError for an experiment with no ``events.jsonl``: one
-    recorded before the event stream, whose report is the log-based one.
+    recorded before the event stream, which has no report.
     """
     folder = Path(experiment.path)
     events = folder / EVENTS_FILENAME
@@ -137,7 +136,7 @@ def no_record(experiment: Any) -> Optional[str]:
         return None
     return (
         f"{experiment.name} has no {EVENTS_FILENAME}: it was recorded before the "
-        "event stream, so its report is the log-based one."
+        "event stream, so it has no report."
     )
 
 
@@ -163,7 +162,7 @@ def render_report(
     ``folders`` are the lamellae's folders, where their images are: without
     them the cards have no thumbnails. ``zone`` is the instrument's, as the
     experiment recorded it: the record's times are already on its clock, and
-    the header names it (FIB-1196)."""
+    the header names it."""
     runs = _runs(tables)
     fm = _fm(tables)
     items = _ordered(items, [r["item"] for r in runs] + [a["item"] for a in fm])
@@ -190,7 +189,7 @@ def render_report(
         ]
     else:
         body.append('<p class="muted">No task runs were recorded.</p>')
-    return _PAGE.format(title=_e(name), style=_STYLE, body="\n".join(body))
+    return html_page(f"{name} · AutoLamella report", "\n".join(body))
 
 
 def summarise(tables: EventTables, items: Sequence[str], tasks: Sequence[str]):
@@ -1062,10 +1061,16 @@ def _e(value: Any) -> str:
     return html.escape(str(value), quote=True)
 
 
+def html_page(title: str, body: str, style: str = "") -> str:
+    """A self-contained report page in this report's style; ``style`` is added
+    to it. The grid screening report is one too."""
+    return _PAGE.format(title=_e(title), style=_STYLE + style, body=body)
+
+
 _PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} · AutoLamella report</title>
+<title>{title}</title>
 <style>{style}</style></head>
 <body>
 {body}

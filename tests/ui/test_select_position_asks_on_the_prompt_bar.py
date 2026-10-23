@@ -9,6 +9,8 @@ carries on, and nothing waits on it once it ends.
 
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import threading
@@ -37,7 +39,6 @@ from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     POINT_OF_INTEREST,
     STATE,
-    Decision,
     DecisionOutcome,
 )
 from fibsem.workflows.status import HoldKind, TaskStatus
@@ -89,12 +90,7 @@ def window(qapp, tmp_path):
         manager.stop()
         _pump(qapp, lambda: not thread.is_alive())
     ui.session.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        win.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(win)
     win.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     qapp.processEvents()

@@ -1,6 +1,6 @@
 """Standalone viewer for loading and displaying FluorescenceImages from file.
 
-The image viewer (FIB-1189) with an Open… button: files picked in the load dialog, or
+The image viewer with an Open… button: files picked in the load dialog, or
 dropped onto the window, join its filmstrip, and the newest is shown. The FM viewer brings the per-channel colour,
 visibility and contrast, the z-slider, max projection and the scalebar; the bar under it
 says what the image is, in the same words as the quad view.

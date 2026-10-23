@@ -17,8 +17,8 @@ from fibsem.structures import BeamType, FibsemImage, Point
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
-from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
-from fibsem.ui.widgets.milling_widget import FibsemMillingWidget2
+from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
+from fibsem.ui.widgets.milling_widget import FibsemMillingWidget
 
 if TYPE_CHECKING:
     from fibsem.ui import FibsemImageSettingsWidget
@@ -35,11 +35,13 @@ def _apply_diff_to_pattern(pattern, diff: Point) -> None:
 
 
 class MillingTaskViewerWidget(QWidget):
-    """MillingTaskConfigWidget2 + canvas pattern visualization + milling execution.
+    """MillingTaskConfigWidget + canvas pattern visualization + milling execution.
 
     Layout (top → bottom):
-        MillingTaskConfigWidget2   — collapsible config panels (Task / Alignment / Acquisition / Stages)
-        FibsemMillingWidget2       — Run / Pause / Stop + progress bars (hidden when milling_enabled=False)
+        MillingTaskConfigWidget — collapsible config panels (Task / Alignment /
+                                  Acquisition / Stages)
+        FibsemMillingWidget     — Run / Pause / Stop + progress bars (hidden when
+                                  milling_enabled=False)
 
     Pattern visualization is driven by ``settings_changed``: whenever the config changes the
     stages are pushed to the FIB canvas through the reducer as a ``MillingSpec``. This needs
@@ -97,14 +99,14 @@ class MillingTaskViewerWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.config_widget = MillingTaskConfigWidget2(
+        self.config_widget = MillingTaskConfigWidget(
             microscope=self.microscope,
             milling_task_config=milling_task_config,
             parent=self,
         )
         layout.addWidget(self.config_widget)
 
-        self.milling_widget = FibsemMillingWidget2(
+        self.milling_widget = FibsemMillingWidget(
             microscope=self.microscope,
             parent=self,
         )
@@ -237,8 +239,8 @@ class MillingTaskViewerWidget(QWidget):
         ``_move_patterns``.
         """
         # The canvas is not part of the editor, so disabling that panel does not reach
-        # this menu -- it has to be turned away itself while a mill is running
-        # (FIB-580). Offering "Move Patterns Here" over a lamella being milled invites
+        # this menu -- it has to be turned away itself while a mill is running.
+        # Offering "Move Patterns Here" over a lamella being milled invites
         # exactly the edit the lock exists to prevent.
         if self.is_milling:
             return
@@ -435,7 +437,7 @@ class MillingTaskViewerWidget(QWidget):
             self._controller.set_overlay_visible(BeamType.ION, "milling", visible)
 
     # ------------------------------------------------------------------
-    # Public API — required by FibsemMillingWidget2
+    # Public API — required by FibsemMillingWidget
     # ------------------------------------------------------------------
 
     @property
@@ -444,7 +446,7 @@ class MillingTaskViewerWidget(QWidget):
 
         Delegates to the embedded run controls, which own the milling thread. Hosts hold
         *this* widget as ``milling_widget``, so callers asking "is it milling?" land here
-        rather than on ``FibsemMillingWidget2`` — ``FibsemMovementWidget`` blocks
+        rather than on ``FibsemMillingWidget`` — ``FibsemMovementWidget`` blocks
         click-to-move on it. That guard was written against the widget this class
         replaced and had been raising ``AttributeError`` in ``FibsemUI`` ever since,
         which is what broke click-to-move there.

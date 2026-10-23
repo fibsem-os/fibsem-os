@@ -10,20 +10,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem import utils
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events, recorder_for
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 from tests.protocols import add_planned, planned
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    microscope.disconnect()
 
 
 @pytest.fixture

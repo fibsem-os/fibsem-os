@@ -98,7 +98,7 @@ def test_mirroring_is_measured_from_the_rotation_reference(
 ):
     """The reference is a system setting, not zero: SEM sits at it, FIB half a turn on."""
     microscope.system.stage.rotation_reference = 120
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     chamber = _show(controller, microscope, orientation)
     assert chamber.diagram._mirrored is mirrored
 

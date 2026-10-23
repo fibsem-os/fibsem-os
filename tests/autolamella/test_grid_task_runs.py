@@ -6,15 +6,11 @@ or waits on a decision once it has ended. Placing lamellae on the overview is
 the Grids window's, outside the record.
 """
 
-import os
 from pathlib import Path
 
 import pytest
 import yaml
 
-import fibsem.config as cfg
-from fibsem import utils
-from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -32,6 +28,7 @@ from fibsem.workflows.grid.manager import (
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.outputs import latest_item_output
 from fibsem.workflows.status import TaskStatus
+from tests.fixtures.microscopes import demo_microscope
 from tests.run_state import stub_session
 
 GRID = "Grid-01"
@@ -63,13 +60,7 @@ def _small_settings() -> OverviewAcquisitionSettings:
     )
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
-    )
-    return microscope
+microscope = demo_microscope("sim-arctis-configuration.yaml", scope="function")
 
 
 @pytest.fixture

@@ -23,7 +23,7 @@ from fibsem.structures import InsertableDeviceState
 pytest.importorskip("PyQt5")
 
 from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QLabel
+from PyQt5.QtWidgets import QLabel
 
 from fibsem.fm.progress import (
     FluorescenceAcquisitionProgress,
@@ -54,12 +54,6 @@ from fibsem.ui.widgets.custom_widgets import ValueComboBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 from fibsem.ui.widgets.tile_mask_widget import TileMaskWidget
 from fibsem.util.durations import format_duration_rounded
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    app = QApplication.instance() or QApplication([])
-    yield app
 
 
 def plus_mask(n):
@@ -1887,10 +1881,10 @@ def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
     from fibsem import utils
 
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
     microscope.move_to_orientation("SEM")
-    assert microscope.get_current_device() == "FIBSEM"
+    assert microscope.stage_movement.current_device() == "FIBSEM"
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
     try:
         frame = widget._frame()
@@ -2809,7 +2803,7 @@ def _microscope_at(tilt_deg: float):
 
     microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
-    microscope._update_orientations()
+    microscope.stage_movement.update_orientations()
     if microscope.fm is None:
         microscope.fm = DemoFluorescenceMicroscope(parent=microscope)
     microscope.move_stage_absolute(
@@ -3474,8 +3468,8 @@ def test_adding_records_where_the_objective_actually_is(qapp, tmp_path):
 
 def test_a_retracted_objective_is_not_recorded_as_a_focus(qapp, tmp_path):
     """It is parked ~10 mm from anything and nobody focused on it. None hands the
-    decision to `build_lamella_poses`' fallback, because `fluorescence_selected` only
-    asks whether an objective position exists -- a parked one would read as focused."""
+    decision to `build_lamella_poses`' fallback, because restoring the pose drives the
+    objective to whatever position it holds -- a parked one would be restored as a focus."""
     host = _wired_host(qapp, tmp_path)
     objective = host.microscope.fm.objective
     objective.retract()

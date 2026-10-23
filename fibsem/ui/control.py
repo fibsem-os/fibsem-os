@@ -1,4 +1,4 @@
-"""The operator's clicks take control of the microscope (FIB-1488).
+"""The operator's clicks take control of the microscope.
 
 A worker takes it with ``FunctionWorker.start(control=...)``; a one-shot write on
 the GUI thread takes it with :func:`operator_acts`. Either way a refusal names

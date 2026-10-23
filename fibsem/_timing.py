@@ -15,12 +15,17 @@ import os
 import time
 
 
+def sim_delays_off() -> bool:
+    """Whether ``FIBSEM_SIM_NO_DELAY=1`` turns the simulated delays off. Read on
+    every call so it can be toggled per run without re-importing."""
+    return os.environ.get("FIBSEM_SIM_NO_DELAY") == "1"
+
+
 def sim_sleep(seconds: float) -> None:
     """Sleep to emulate simulated-hardware timing.
 
     A no-op when ``FIBSEM_SIM_NO_DELAY=1`` (or when ``seconds`` is non-positive),
-    which is how the test suite skips the simulator's artificial delays. Reads the
-    environment on every call so it can be toggled per run without re-importing.
+    which is how the test suite skips the simulator's artificial delays.
     """
-    if seconds > 0 and os.environ.get("FIBSEM_SIM_NO_DELAY") != "1":
+    if seconds > 0 and not sim_delays_off():
         time.sleep(seconds)

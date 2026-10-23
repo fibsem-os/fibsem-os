@@ -42,7 +42,7 @@ def ui(qapp):
 def app_server_enabled(monkeypatch, tmp_path):
     """Flip the preference on and confine the host to a test port + tmp file."""
     preferences = fibsem_cfg.UserPreferences()
-    preferences.app_server.enabled = True
+    preferences.install.app_server.enabled = True
     monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: preferences)
 
     real_host = hosting.AppServerHost
@@ -141,7 +141,7 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
     assert ui.session.app_server is None  # flag off
 
     # The user ticks the box and saves: the server starts now, not next connect.
-    preferences.app_server.enabled = True
+    preferences.install.app_server.enabled = True
     ui.sync_app_server_with_preference()
     host = ui.session.app_server
     assert host is not None and host.running
@@ -151,7 +151,7 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
     assert ui.session.app_server is host and host.running
 
     # Unticking stops it just as immediately.
-    preferences.app_server.enabled = False
+    preferences.install.app_server.enabled = False
     ui.sync_app_server_with_preference()
     assert not host.running
 
@@ -168,7 +168,7 @@ def test_the_microscope_is_served_by_default_and_restarts_when_changed(
     ui, monkeypatch, tmp_path
 ):
     preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
-    preferences.app_server.enabled = True
+    preferences.install.app_server.enabled = True
     ui.sync_app_server_with_preference()
     first = ui.session.app_server
     assert first is not None and first.running
@@ -188,7 +188,7 @@ def test_the_microscope_is_served_by_default_and_restarts_when_changed(
 
     # Syncing only starts or stops the server; the microscope is applied by
     # set_app_server_microscope, which Tools → App Server calls after saving it.
-    preferences.app_server.microscope = True
+    preferences.install.app_server.microscope = True
     ui.sync_app_server_with_preference()
     assert ui.session.app_server is second and not second.serve_microscope
 
@@ -254,6 +254,6 @@ def test_tools_app_server_saves_both_switches(monkeypatch):
     AutoLamellaWindow._set_app_server_microscope(window, True)
     AutoLamellaWindow._set_app_server_enabled(window, True)
 
-    assert saved.app_server.microscope and saved.app_server.enabled
+    assert saved.install.app_server.microscope and saved.install.app_server.enabled
     assert window._preferences is saved
     assert calls == [("microscope", True), "sync"]

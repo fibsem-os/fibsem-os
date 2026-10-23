@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 
 import pytest
 
+from tests.fixtures.microscopes import demo_microscope
+
 pytest.importorskip("PyQt5")
 
 import fibsem.config as cfg  # noqa: E402
@@ -16,15 +18,7 @@ from fibsem.ui.widgets.microscope_configuration_window import (  # noqa: E402
     slot_rows,
 )
 
-
-@pytest.fixture
-def microscope():
-    path = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
-    microscope, _ = utils.setup_session(
-        config_path=path, manufacturer="Demo", setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("sim-iflm-configuration.yaml", scope="function")
 
 
 def _texts(widget) -> str:
@@ -103,7 +97,7 @@ def test_devices_say_who_reported_them(microscope):
 )
 def test_the_stage_row_says_when_the_stage_does_not_rotate(configuration, detail):
     """Read from the stage's axes at connect, not from the stage type."""
-    path = os.path.join(cfg.CONFIG_PATH, configuration)
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, configuration)
     microscope, _ = utils.setup_session(
         config_path=path, manufacturer="Demo", setup_logging=False
     )
@@ -189,7 +183,7 @@ def test_saving_a_slot_calibration_refreshes_the_tab(qapp, microscope):
 def test_a_loader_holder_has_no_slots_to_calibrate(qapp):
     from PyQt5.QtWidgets import QPushButton
 
-    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(
         config_path=path, manufacturer="Demo", setup_logging=False
     )
@@ -308,7 +302,9 @@ def site(tmp_path):
     import shutil
 
     path = tmp_path / "site.yaml"
-    shutil.copy(os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"), path)
+    shutil.copy(
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"), path
+    )
     microscope, _ = utils.setup_session(
         config_path=str(path), manufacturer="Demo", setup_logging=False
     )
