@@ -495,6 +495,26 @@ def test_fibsem_agent_starts_with_its_status(tmp_path):
     assert len({line.index(line.split()[1]) for line in lines}) == 1, "aligned"
 
 
+def test_a_bare_resume_carries_on_the_last_session_in_the_same_folder(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(runner_mod.Path, "home", lambda: tmp_path)
+    work, other = tmp_path / "work", tmp_path / "other"
+    assert runner_mod.last_session(work) is None
+    runner_mod.keep_session(work, "first")
+    runner_mod.keep_session(other, "elsewhere")
+    runner_mod.keep_session(work, "second")
+    assert runner_mod.last_session(work) == "second"
+    assert runner_mod.last_session(other) == "elsewhere"
+
+
+def test_a_bare_resume_with_no_earlier_session_says_so(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("claude_agent_sdk")
+    monkeypatch.setattr(runner_mod.Path, "home", lambda: tmp_path)
+    assert runner_mod.main(["--resume", "--files", str(tmp_path / "w")]) == 1
+    assert "No earlier fibsem-agent session" in capsys.readouterr().err
+
+
 def test_code_with_no_path_is_the_current_folder(tmp_path, monkeypatch):
     from fibsem.ai.agent import code_mode
 
