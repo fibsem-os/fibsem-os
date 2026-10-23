@@ -51,6 +51,8 @@ from fibsem.server.responses import (
     GridPlan,
     Grids,
     GridTasksQueued,
+    ImageDrawn,
+    ImagePairDrawn,
     ItemDetail,
     ItemEdit,
     ItemHistory,
@@ -618,6 +620,42 @@ def build_app_router(context: Any) -> APIRouter:
                 detail={"error_type": "invalid", "message": "grid_name is a string"},
             )
         return _answer_or_refusal(context.render_markers(path, grid_name))
+
+    def _draw_options(body: Dict[str, Any]) -> Dict[str, Any]:
+        options = {}
+        for key in ("crosshair", "metadata_bar"):
+            if key in body:
+                if not isinstance(body[key], bool):
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "error_type": "invalid",
+                            "message": f"{key} is true or false",
+                        },
+                    )
+                options[key] = body[key]
+        channels = body.get("channels")
+        if channels is not None:
+            options["channels"] = _names(
+                body, "channels", "the fluorescence channels to show, by name"
+            )
+        return options
+
+    @router.post("/experiment/images/drawn", response_model=ImageDrawn)
+    def draw_image(body: Dict[str, Any]):
+        # A POST because the picture is saved beside the image, as markers are.
+        path = _required_text(body, "path", "a saved image inside the experiment")
+        return _typed(
+            context.draw_image(path, body.get("marks"), **_draw_options(body))
+        )
+
+    @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
+    def draw_pair(body: Dict[str, Any]):
+        before = _required_text(body, "before", "a saved image inside the experiment")
+        after = _required_text(body, "after", "a saved image inside the experiment")
+        options = _draw_options(body)
+        options.pop("crosshair", None)
+        return _typed(context.draw_pair(before, after, body.get("marks"), **options))
 
     @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
     def image_pixels(body: Dict[str, Any]):

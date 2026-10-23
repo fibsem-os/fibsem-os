@@ -770,6 +770,26 @@ class MarkersDrawn:
 
 
 @dataclass
+class ImageDrawn:
+    image: str
+    # The picture saved beside the image: drawn/<image>.png.
+    path: str
+    # The marks as drawn: measured lines labelled with their length, each
+    # place with its stage position when the image says where it was taken.
+    marks: Optional[Dict[str, Any]]
+    plot: Dict[str, str]
+
+
+@dataclass
+class ImagePairDrawn:
+    before: str
+    after: str
+    path: str
+    marks: Optional[Dict[str, Any]]
+    plot: Dict[str, str]
+
+
+@dataclass
 class PlanStep:
     grid: str
     step: str

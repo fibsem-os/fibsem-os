@@ -1158,6 +1158,42 @@ def build_sidecar(client, capabilities):
             "experiment_render_markers", path=path, **_given(grid_name=grid_name)
         )
 
+    def experiment_draw_image(
+        path: str,
+        marks: Optional[dict] = None,
+        crosshair: Optional[bool] = None,
+        metadata_bar: Optional[bool] = None,
+        channels: Optional[List[str]] = None,
+    ):
+        return _routed(
+            "experiment_draw_image",
+            path=path,
+            **_given(
+                marks=dict(marks) if marks is not None else None,
+                crosshair=crosshair,
+                metadata_bar=metadata_bar,
+                channels=list(channels) if channels is not None else None,
+            ),
+        )
+
+    def experiment_draw_pair(
+        before: str,
+        after: str,
+        marks: Optional[dict] = None,
+        metadata_bar: Optional[bool] = None,
+        channels: Optional[List[str]] = None,
+    ):
+        return _routed(
+            "experiment_draw_pair",
+            before=before,
+            after=after,
+            **_given(
+                marks=dict(marks) if marks is not None else None,
+                metadata_bar=metadata_bar,
+                channels=list(channels) if channels is not None else None,
+            ),
+        )
+
     def experiment_get_image_pixels(path: str, stage_positions: list):
         return _tool(
             "experiment_get_image_pixels",
@@ -1761,6 +1797,8 @@ def build_sidecar(client, capabilities):
             microscope_set_state,
             experiment_get_image_stage_position,
             experiment_render_markers,
+            experiment_draw_image,
+            experiment_draw_pair,
             experiment_get_image_pixels,
             grid_set_quality,
             grid_set_note,
