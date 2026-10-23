@@ -405,6 +405,8 @@ def test_every_app_route_declares_its_answer(client):
     images = {
         "/app/experiment/items/{item_name}/outputs/{filename}",
         "/app/experiment/grids/{grid_name}/outputs/{filename}",
+        "/app/experiment/export/image",
+        "/app/experiment/export/animation",
     }
     untyped = [
         (method, path)

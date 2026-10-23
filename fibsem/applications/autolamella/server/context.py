@@ -249,6 +249,26 @@ class AutoLamellaAppContext(AppContext):
     def history_images(self, experiment, item):
         return _task_outputs.history_images(item)
 
+    def animation_steps(self, item_name: str) -> Dict[str, Any]:
+        """A lamella's workflow animation, as the History tab's button makes it:
+        a step per task, with its final images and fluorescence stacks."""
+        from fibsem.imaging.animation import AnimationStep
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "no_experiment", "error": "No experiment is open."}
+        item, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        return {
+            "item_name": item.name,
+            "root": str(experiment.path),
+            "steps": [
+                AnimationStep(title=name, paths=finals, fluorescence=stacks)
+                for name, finals, stacks in _task_outputs.images_by_task(item)
+            ],
+        }
+
     def output_image(
         self, item_name: str, filename: str, max_width: int = 768
     ) -> Dict[str, Any]:
