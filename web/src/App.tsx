@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { AgentPage } from "@/pages/Agent";
 import { ExperimentPage } from "@/pages/Experiment";
+import { GatewayPage } from "@/pages/Gateway";
 import { GridsPage } from "@/pages/Grids";
 import { LamellaePage } from "@/pages/Lamellae";
 import { MicroscopePage } from "@/pages/Microscope";
 import { PositionsPage } from "@/pages/Positions";
+import { Notices } from "@/shell/Notices";
 import { Pair } from "@/shell/Pair";
 import { Rail } from "@/shell/Rail";
 import { Settings } from "@/shell/Settings";
@@ -40,6 +42,7 @@ function Shell() {
           {page === "agent" && <AgentPage />}
         </div>
       </div>
+      <Notices page={page} go={go} />
       <Settings open={settings} onOpenChange={setSettings} />
     </div>
   );
@@ -61,6 +64,8 @@ export function App() {
         }
       />
     );
-  // Keyed on the token, so a new pairing starts with nothing cached.
+  // Keyed on the token, so a new pairing starts with nothing cached. The
+  // gateway (fibsem-gateway) serves the same files and has one page.
+  if (location.pathname.startsWith("/ui/gateway")) return <GatewayPage key={token} />;
   return <Shell key={token} />;
 }

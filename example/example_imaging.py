@@ -1,13 +1,9 @@
 import logging
 
-import matplotlib
 import matplotlib.pyplot as plt
 
 from fibsem import acquire, utils
 from fibsem.structures import BeamType
-
-matplotlib.use("TkAgg", force=True)  # Activate 'agg' backend for off-screen plotting.
-
 
 """
 This script will take an image with the electron beam, an image with the ion beam, and an image with both beams. 

@@ -17,6 +17,7 @@ What the generic codec can't know, a type or a mixin here says:
 
 - `NamedEnum`: an enum written by name, and read by name or by value.
 - `Tagged`: a base class whose subclasses are saved with a ``type`` key naming which.
+- `Blocks`: a dict of blocks by name, each read as the class its name has.
 - `Array`: a numpy array, written as nested lists.
 - `NotSaved`: a field that belongs to the running object, never written.
 - `Timestamp`: a time, read from any form ``fibsem.util.timestamps`` reads and
@@ -36,6 +37,7 @@ that kind of file; nothing in a class reads an old shape.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import functools
 import math
 from datetime import datetime
@@ -58,6 +60,7 @@ from pydantic import (
     PlainSerializer,
     PlainValidator,
     TypeAdapter,
+    ValidationError,
 )
 from pydantic_core import core_schema
 
@@ -379,6 +382,103 @@ def saved(
         return cls
 
     return apply
+
+
+class Blocks:
+    """A dict of blocks by name, each read as the class ``classes()`` gives for its
+    name (a driver's own milling settings, by driver)::
+
+        driver: Annotated[Dict[str, Any], Blocks(classes, normalize)] = ...
+
+    A name is read through ``normalize`` (another spelling of a known name reads as
+    it). A block whose name has no class is kept as it was read, so a file written
+    where that class is installed reads and saves back unchanged where it isn't; on
+    the wire it is refused, as is a key a known block's class doesn't have. A known
+    name the data leaves out reads as that class's defaults. A block is written
+    with only the fields that differ from its class's defaults, and not at all
+    when none do, so a file carries no defaults it never chose.
+    """
+
+    def __init__(
+        self,
+        classes: Callable[[], Mapping[str, type]],
+        normalize: Callable[[str], str] = lambda name: name,
+    ) -> None:
+        self.classes = classes
+        self.normalize = normalize
+
+    def defaults(self) -> dict:
+        """Each known block, at its class's defaults."""
+        return {name: cls() for name, cls in self.classes().items()}
+
+    def read(self, value: Any, strict: bool) -> dict:
+        if value is None:
+            value = {}
+        if not isinstance(value, dict):
+            raise ValueError("is a dict of blocks by name")
+        classes = self.classes()
+        blocks = self.defaults()
+        seen: dict = {}
+        for raw, block in value.items():
+            name = self.normalize(raw) if isinstance(raw, str) else raw
+            if name in seen:
+                raise ValueError(f"{raw!r} and {seen[name]!r} name the same block")
+            seen[name] = raw
+            cls = classes.get(name)
+            if cls is None:
+                if strict:
+                    known = ", ".join(sorted(classes)) or "none"
+                    raise ValueError(f"no block is called {raw!r}; known: {known}")
+                blocks[name] = copy.deepcopy(block)
+            elif isinstance(block, cls):
+                blocks[name] = block
+            else:
+                blocks[name] = _read_block(name, cls, block, strict)
+        return blocks
+
+    def write(self, value: Any) -> dict:
+        written = {}
+        for name, block in (value or {}).items():
+            if dataclasses.is_dataclass(block) and not isinstance(block, type):
+                data = encode(block)
+                default = encode(type(block)())
+                data = {k: v for k, v in data.items() if default.get(k) != v}
+            else:
+                data = copy.deepcopy(block)
+            if data:
+                written[name] = data
+        return written
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> Any:
+        return core_schema.with_info_plain_validator_function(
+            lambda value, info: self.read(value, _strict(info)),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                self.write, when_used="json"
+            ),
+        )
+
+    def __get_pydantic_json_schema__(self, schema: Any, handler: Any) -> Any:
+        return {
+            "type": "object",
+            "properties": {
+                name: handler(_adapter(cls).core_schema)
+                for name, cls in self.classes().items()
+            },
+        }
+
+
+def _read_block(name: str, cls: type, block: Any, strict: bool) -> Any:
+    """*block* read as *cls*, an error naming the block's field."""
+    try:
+        return decode(cls, block, strict=strict)
+    except ValidationError as error:
+        first = error.errors()[0]
+        where = ".".join(str(part) for part in (name, *first["loc"]))
+        if first["type"] in ("extra_forbidden", "unexpected_keyword_argument"):
+            known = ", ".join(f.name for f in dataclasses.fields(cls) if f.init)
+            raise ValueError(f"{where} is not a setting; {name} takes: {known}")
+        message = first["msg"].removeprefix("Value error, ")
+        raise ValueError(f"{where}: {message}") from None
 
 
 def _array(value: Any) -> np.ndarray:

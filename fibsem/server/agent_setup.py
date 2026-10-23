@@ -87,12 +87,12 @@ def agent_setup_text(
         f"{desktop_config_path(platform)}. Merge it into the servers already "
         "there; don't replace the file.)\n"
         f"2. Check the connection: {check} asks the app to let you connect. "
-        f'Tell me to click Allow on the agent card; then it prints "connected '
+        f'Tell me to click Allow on the Agent page; then it prints "connected '
         f'to {url}".\n'
         "3. Tell me to start a new session, or reconnect fibsem in /mcp, so the "
         "tools load.\n"
         "4. Then call server_get_capabilities and tell me your agent level. I set it "
-        "from the Agent chip, or the chat page with no window.\n"
+        "from the Agent chip or the Agent page.\n"
         "5. If you ask me before each tool, tell me which fibsem tools I can allow "
         "for good: the ones that only read (marked read-only), and "
         "experiment_add_note and experiment_message_operator, which only add a "

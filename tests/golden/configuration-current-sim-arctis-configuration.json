@@ -168,6 +168,16 @@
       "tilt_axis_offset": 0.0
     },
     "sem": null,
+    "stage_error": {
+      "enabled": true,
+      "jitter": 0.01,
+      "jitter_max": 2e-06,
+      "scale": [
+        1.06,
+        1.09
+      ],
+      "seed": null
+    },
     "use_cycle": true
   },
   "version": 2

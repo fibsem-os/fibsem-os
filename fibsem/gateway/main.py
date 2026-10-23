@@ -1,0 +1,231 @@
+"""``fibsem-gateway``: run the gateway (with its tray icon when Qt is there),
+install it to start at logon, open pairing, or show its mode.
+
+Microscope connection flags (``--manufacturer``, ``--ip-address``,
+``--config``) after ``run`` are passed to the headless app as they are.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+import subprocess
+import sys
+import threading
+import urllib.request
+from pathlib import Path
+from typing import List, Optional
+
+from fibsem.gateway.gateway import (
+    GATEWAY_FILE,
+    GATEWAY_PORT,
+    Gateway,
+    GatewayRefused,
+    read_gateway_file,
+)
+from fibsem.server.operator_token import read_operator_token
+
+__all__ = ["call", "main", "shortcut_command"]
+
+SHORTCUT_NAME = "fibsemOS Gateway"
+
+
+def call(method: str, route: str, body: Optional[dict] = None, timeout: float = 3.0):
+    """Call the gateway on this PC as the operator: its answer, or None when no
+    gateway runs. Raises `urllib.error.HTTPError` for a refusal. Standard
+    library only, so a desktop launch stays cheap to import."""
+    found = read_gateway_file()
+    if found is None:
+        return None
+    request = urllib.request.Request(
+        found["url"] + route,
+        method=method,
+        data=json.dumps(body).encode("utf-8") if body is not None else None,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {read_operator_token()}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="fibsem-gateway",
+        description="Run apps on this microscope PC for a hub, one mode at a time.",
+    )
+    commands = parser.add_subparsers(dest="command")
+    run = commands.add_parser("run", help="Run the gateway (the default).")
+    run.add_argument("--port", type=int, default=GATEWAY_PORT)
+    run.add_argument("--no-tray", action="store_true", help="No tray icon.")
+    install = commands.add_parser(
+        "install", help="Start the gateway at logon (Windows: a Startup shortcut)."
+    )
+    install.add_argument("connection", nargs=argparse.REMAINDER)
+    commands.add_parser("uninstall", help="Stop starting it at logon.")
+    pair = commands.add_parser("pair", help="Open pairing and show the code.")
+    pair.add_argument("--hub", action="store_true", help="Pair a hub.")
+    pair.add_argument(
+        "--may-switch",
+        action="store_true",
+        help="The hub may start and stop apps.",
+    )
+    commands.add_parser("status", help="Show the gateway's mode.")
+    return parser
+
+
+def _connection(extra: List[str]) -> List[str]:
+    """*extra* checked as headless connection flags, passed on as given."""
+    from fibsem.server.headless import connection_parser
+
+    argparse.ArgumentParser(parents=[connection_parser()]).parse_args(extra)
+    return extra
+
+
+def run(port: int, tray: bool, connection: List[str]) -> int:
+    import uvicorn
+
+    from fibsem.gateway.server import GatewayAuth, build_gateway_app
+
+    running = read_gateway_file()
+    if running is not None:
+        print(f"A gateway already runs here (pid {running['pid']}, {running['url']}).")
+        return 1
+    gateway = Gateway(connection)
+    auth = GatewayAuth.from_disk()
+    server = uvicorn.Server(
+        uvicorn.Config(
+            build_gateway_app(gateway, auth),
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+        )
+    )
+    server.install_signal_handlers = lambda: None
+    thread = threading.Thread(target=server.run, name="gateway-http", daemon=True)
+    thread.start()
+    GATEWAY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    GATEWAY_FILE.write_text(
+        json.dumps({"url": f"http://127.0.0.1:{port}", "pid": os.getpid()})
+    )
+    gateway.start()
+    print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
+    try:
+        if not (tray and _run_tray(gateway, auth, port)):
+            forever = threading.Event()
+            # in short waits: Ctrl-C does not break a bare wait on Windows
+            while not forever.wait(0.5):
+                pass
+    except KeyboardInterrupt:
+        pass
+    finally:
+        quit_gateway(gateway)
+        gateway.close()
+        server.should_exit = True
+        GATEWAY_FILE.unlink(missing_ok=True)
+    return 0
+
+
+def quit_gateway(gateway: Gateway) -> None:
+    """Stop a headless app that isn't running a workflow, so nothing is left
+    holding the microscope without a gateway; a running one is left alone."""
+    try:
+        gateway.stop("operator", "quit")
+    except GatewayRefused as refusal:
+        logging.warning("Gateway quit: %s", refusal)
+
+
+def _run_tray(gateway: Gateway, auth, port: int) -> bool:
+    """The tray's event loop until Quit; False when Qt or a tray isn't there."""
+    try:
+        from fibsem.gateway.ui.tray import run_tray
+    except ImportError:
+        return False
+    return run_tray(gateway, auth, port)
+
+
+def _startup_folder() -> Path:
+    return (
+        Path(os.environ.get("APPDATA", Path.home()))
+        / "Microsoft"
+        / "Windows"
+        / "Start Menu"
+        / "Programs"
+        / "Startup"
+    )
+
+
+def shortcut_command(path: Path, connection: List[str]) -> List[str]:
+    """PowerShell that writes a shortcut at *path* running the gateway with no
+    console (``pythonw``)."""
+    exe = Path(sys.executable)
+    pythonw = exe.with_name("pythonw" + exe.suffix)
+    arguments = subprocess.list2cmdline(["-m", "fibsem.gateway", "run", *connection])
+
+    def quoted(text: str) -> str:
+        return "'" + text.replace("'", "''") + "'"
+
+    script = (
+        f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut({quoted(str(path))}); "
+        f"$s.TargetPath = {quoted(str(pythonw))}; "
+        f"$s.Arguments = {quoted(arguments)}; "
+        f"$s.WorkingDirectory = {quoted(str(Path.home()))}; "
+        f"$s.Description = {quoted('Runs apps on this microscope PC for a hub')}; "
+        "$s.Save()"
+    )
+    return ["powershell", "-NoProfile", "-NonInteractive", "-Command", script]
+
+
+def install(connection: List[str]) -> int:
+    if sys.platform != "win32":
+        command = " ".join(["fibsem-gateway", "run", *connection])
+        print(f"Starting at logon is set up on Windows only. Run: {command}")
+        return 0
+    path = _startup_folder() / f"{SHORTCUT_NAME}.lnk"
+    subprocess.run(shortcut_command(path, connection), check=True)
+    print(f"The gateway starts at logon: {path}")
+    return 0
+
+
+def uninstall() -> int:
+    path = _startup_folder() / f"{SHORTCUT_NAME}.lnk"
+    if path.exists():
+        path.unlink()
+        print(f"Removed {path}")
+    else:
+        print("The gateway isn't set to start at logon.")
+    return 0
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if not argv or argv[0].startswith("-") and argv[0] not in ("-h", "--help"):
+        argv = ["run", *argv]
+    args, extra = _parser().parse_known_args(argv)
+    if args.command == "run":
+        return run(args.port, not args.no_tray, _connection(extra))
+    if extra:
+        _parser().error(f"unrecognized arguments: {' '.join(extra)}")
+    if args.command == "install":
+        return install(_connection(args.connection))
+    if args.command == "uninstall":
+        return uninstall()
+    if args.command == "pair":
+        body = {"role": "hub" if args.hub else "operator"}
+        if args.hub and args.may_switch:
+            body["grants"] = ["switch_modes"]
+        listing = call("POST", "/pairing", body)
+        if listing is None:
+            print("No gateway runs here.")
+            return 1
+        print(f"Pairing code: {listing['code']} (5 minutes, {listing['role']}).")
+        return 0
+    state = call("GET", "/gateway")
+    if state is None:
+        print("No gateway runs here.")
+        return 1
+    print(json.dumps(state, indent=2))
+    return 0

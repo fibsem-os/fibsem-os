@@ -721,6 +721,18 @@ def build_sidecar(client, capabilities):
             static_wd=static_wd,
         )
 
+    def stage_get_saved_positions():
+        return _service_call("stage_get_saved_positions", "saved_positions")
+
+    def stage_save_position(name: str):
+        return _routed("stage_save_position", "position", name=name)
+
+    def stage_move_to_saved_position(name: str):
+        return _routed("stage_move_to_saved_position", "position", name=name)
+
+    def stage_remove_saved_position(name: str):
+        return _routed("stage_remove_saved_position", name=name)
+
     def stage_move_to_device(device: str, orientation: Optional[str] = None):
         return _routed("stage_move_to_device", device=device, orientation=orientation)
 
@@ -906,11 +918,14 @@ def build_sidecar(client, capabilities):
     def beam_turn_off(beam_type: str):
         return _routed("beam_turn_off", beam_type=beam_type)
 
-    def fm_insert_objective():
-        return _routed("fm_insert_objective")
+    def fm_insert_objective(tilt: Optional[float] = None):
+        return _routed("fm_insert_objective", tilt=tilt)
 
     def fm_retract_objective():
         return _routed("fm_retract_objective")
+
+    def fm_save_focus_position():
+        return _routed("fm_save_focus_position")
 
     def fm_acquire_image(
         channels: List[dict],
@@ -1562,6 +1577,21 @@ def build_sidecar(client, capabilities):
             payload["item_names"] = list(item_names)
         return _tool("workflow_start", **payload)
 
+    def workflow_plan(
+        task_names: list,
+        item_names: list = None,  # noqa: RUF013
+        add: bool = False,
+        run_next: bool = False,
+    ):
+        payload = {
+            "task_names": list(task_names),
+            "add": bool(add),
+            "run_next": bool(run_next),
+        }
+        if item_names is not None:
+            payload["item_names"] = list(item_names)
+        return _tool("workflow_plan", **payload)
+
     def workflow_plan_grids(
         task_names: list, grid_names: list = None, screen_all: bool = False
     ):  # noqa: RUF013
@@ -1753,6 +1783,10 @@ def build_sidecar(client, capabilities):
             stage_move_relative,
             stage_stable_move,
             stage_fm_stable_move,
+            stage_get_saved_positions,
+            stage_save_position,
+            stage_move_to_saved_position,
+            stage_remove_saved_position,
             stage_move_to_device,
             stage_vertical_move,
             stage_move_to_orientation,
@@ -1778,6 +1812,7 @@ def build_sidecar(client, capabilities):
             beam_turn_off,
             fm_insert_objective,
             fm_retract_objective,
+            fm_save_focus_position,
             fm_acquire_image,
             milling_run_stage,
             milling_run_task,
@@ -1857,6 +1892,7 @@ def build_sidecar(client, capabilities):
             proposal_decide,
             proposal_suggest,
             workflow_stop,
+            workflow_plan,
             workflow_plan_grids,
             workflow_start_grids,
             protocol_set_supervision,

@@ -574,6 +574,9 @@ _SAMPLE_ARGUMENTS = {
     "grid_move_to_slot": {"slot_name": "Shuttle"},
     "device_call_command": {"device": "stage", "command": "home"},
     "service_call_command": {"service": "milling", "command": "run"},
+    "stage_save_position": {"name": "Lamella 01 FM"},
+    "stage_move_to_saved_position": {"name": "Lamella 01 FM"},
+    "stage_remove_saved_position": {"name": "Lamella 01 FM"},
 }
 
 

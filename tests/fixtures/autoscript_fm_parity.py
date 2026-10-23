@@ -981,6 +981,21 @@ def _thermo_microscope_fm():
     }
 
 
+def _emission_filter_after_writes():
+    """The filter read after each write, over a fake whose filter type stays on
+    reflection: the driver holds what it set."""
+    connection = make_connection("Retracted", CameraFilterType.REFLECTION)
+    filters = bind_autoscript_fm(Parent(connection))["filter_set"]
+    out = [_value(filters.emission_filter.get_value())]
+    for value in (MULTI_BAND, REFLECTION):
+        filters.emission_filter.write_through(value)
+        connection.detector.camera_settings.filter.type.value = (
+            CameraFilterType.REFLECTION
+        )
+        out.append(_value(filters.emission_filter.get_value()))
+    return out
+
+
 def facts():
     """What the drivers are, beside the parity cases."""
     parent = Parent(make_connection("Retracted", CameraFilterType.FLUORESCENCE))
@@ -1006,6 +1021,7 @@ def facts():
         "read_after_a_beam_takes_the_view": _read_after_a_beam_takes_the_view(),
         "writes_hold_the_lock": _write_holds_the_lock(),
         "writes_go_through_while_live": _writes_while_live(),
+        "emission_filter_after_writes": _emission_filter_after_writes(),
     }
 
 

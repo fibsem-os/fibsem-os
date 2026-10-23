@@ -35,6 +35,7 @@ from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
+from fibsem.devices.entries import beam_type_of, named
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
@@ -68,6 +69,7 @@ from fibsem.drivers.demo.simulator import (
     SIM_CAMERA_PIXEL_SIZE,
     SIM_CAMERA_RESOLUTION,
     SIM_LIGHT_SOURCE_POWER,
+    SIM_OBJECTIVE_FOCUS_POSITION,
     SIM_OBJECTIVE_INSERT_POSITION,
     SIM_OBJECTIVE_MAGNIFICATION,
     SIM_OBJECTIVE_NA,
@@ -81,6 +83,7 @@ from fibsem.drivers.demo.simulator import (
     UINT16_MIN,
     sim_is_compustage,
 )
+from fibsem.drivers.demo.stage_error import StageMoveError
 from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
@@ -401,12 +404,31 @@ class DemoStage(Stage):
         self._axis_limits = (
             STAGE_LIMITS_COMPUSTAGE if self.compustage else STAGE_LIMITS_DEFAULT
         )
+        # Off unless `sim.stage_error` turns it on (`fibsem.drivers.demo.stage_error`).
+        self.sim_error = StageMoveError.from_config(
+            (parent.system.sim or {}).get("stage_error")
+        )
+        if self.sim_error is not None:
+            self.sim_error.start_at(self.sim_position)
 
     # -- position ----------------------------------------------------------------
 
     def read_position(self) -> FibsemStagePosition:
         sim_sleep(0.1)  # the read delay the Demo branch has
         return deepcopy(self.sim_position)
+
+    def sim_actual(self, position: FibsemStagePosition) -> FibsemStagePosition:
+        """Where the stage really is when it reads back `position`: the same, unless
+        the stage error is on. The sample scene renders here."""
+        if self.sim_error is None:
+            return position
+        return self.sim_error.actual(position)
+
+    def sim_calibrated(self, position: FibsemStagePosition) -> FibsemStagePosition:
+        """Where a position saved on this stage really is, without a move's jitter."""
+        if self.sim_error is None:
+            return position
+        return self.sim_error.calibrated(position)
 
     def metadata_position(self) -> ParameterMetadata:
         # The axes are the ones the simulator gives limits for: a compustage has no r.
@@ -454,18 +476,35 @@ class DemoStage(Stage):
         from fibsem.drivers.demo.simulator import STAGE_MOVEMENT_SLEEP_TIME
 
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
+        before = deepcopy(self.sim_position)
         for axis in ("x", "y", "z", "r", "t"):
             value = getattr(position, axis)
             if value is not None:
                 setattr(self.sim_position, axis, value)
+        self._moved(before)
         logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
         from fibsem.drivers.demo.simulator import STAGE_MOVEMENT_SLEEP_TIME
 
         sim_sleep(STAGE_MOVEMENT_SLEEP_TIME)
+        before = deepcopy(self.sim_position)
         self.sim_position += delta
+        self._moved(before)
         logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
+
+    def _moved(self, before: FibsemStagePosition) -> None:
+        if self.sim_error is None:
+            return
+        self.sim_error.moved(before, self.sim_position)
+        actual = self.sim_error.actual(self.sim_position)
+        logging.debug(
+            {
+                "msg": "sim_stage_error",
+                "reported": self.sim_position.to_dict(),
+                "actual_xy": (actual.x, actual.y),
+            }
+        )
 
     def _home(self) -> None:
         logging.info("Homing stage...")
@@ -1000,16 +1039,9 @@ def _demo_start(context: "BuildContext") -> Tuple[Resources, "DemoParts"]:
     return context.shared["Demo"]
 
 
-def _named(device: Device, entry: "DeviceEntry") -> Device:
-    device.name = entry.name
-    return device.connect()
-
-
 def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
     """The beam an ``electron`` or ``ion`` entry names."""
-    if entry.name not in ("electron", "ion"):
-        raise ValueError("a Demo beam is named 'electron' or 'ion'")
-    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    beam_type = beam_type_of(entry)
     resources, start = _demo_start(context)
     microscope = context.microscope
     return DemoBeam(
@@ -1018,11 +1050,11 @@ def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
 
 
 def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage:
-    return _named(DemoStage(context.microscope, *_demo_start(context)), entry)
+    return named(DemoStage(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_chamber(entry: "DeviceEntry", context: "BuildContext") -> DemoChamber:
-    return _named(DemoChamber(context.microscope, *_demo_start(context)), entry)
+    return named(DemoChamber(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_chamber_camera(
@@ -1030,7 +1062,7 @@ def build_demo_chamber_camera(
 ) -> DemoChamberCamera:
     resources, _ = _demo_start(context)
     microscope = context.microscope
-    return _named(
+    return named(
         DemoChamberCamera(microscope, microscope._connection, resources), entry
     )
 
@@ -1038,7 +1070,7 @@ def build_demo_chamber_camera(
 def build_demo_manipulator(
     entry: "DeviceEntry", context: "BuildContext"
 ) -> DemoManipulator:
-    return _named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
+    return named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_sample_loader(
@@ -1054,7 +1086,7 @@ def build_demo_sample_loader(
         for key, default in DEMO_SAMPLE_LOADER_KEYS.items()
     }
     resources, _ = _demo_start(context)
-    return _named(
+    return named(
         DemoSampleLoader(
             microscope,
             resources,
@@ -1074,7 +1106,7 @@ def build_demo_gis(entry: "DeviceEntry", context: "BuildContext") -> DemoGasInje
     """A simulated gas injector, from its entry's keys (``DEMO_GIS_KEYS``)."""
     keys = {key: entry.options.get(key, d) for key, d in DEMO_GIS_KEYS.items()}
     resources, _ = _demo_start(context)
-    return _named(
+    return named(
         DemoGasInjector(
             context.microscope,
             resources,
@@ -1096,7 +1128,7 @@ def build_demo_sputter_coater(
         key: entry.options.get(key, d) for key, d in DEMO_SPUTTER_COATER_KEYS.items()
     }
     resources, _ = _demo_start(context)
-    return _named(
+    return named(
         DemoSputterCoater(
             context.microscope,
             resources,
@@ -1309,6 +1341,8 @@ class DemoObjective(Objective):
         self.sim_insert_position: float = SIM_OBJECTIVE_INSERT_POSITION
         self.sim_retract_position: float = SIM_OBJECTIVE_RETRACT_POSITION
         self.sim_limit_position: float = SIM_OBJECTIVE_USER_POSITION_LIMIT
+        # The Demo FM starts with a saved focus.
+        self._focus_position = SIM_OBJECTIVE_FOCUS_POSITION
 
     def read_position(self) -> float:
         sim_sleep(0.1)

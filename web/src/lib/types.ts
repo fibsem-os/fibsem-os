@@ -1,6 +1,8 @@
 // The answers the pages read, typed by hand until the routes declare response
 // models and the types are generated from openapi.json.
 
+import type { Marks } from "./marks";
+
 export interface Capabilities {
   api_version: string;
   routers: { microscope: boolean; services: boolean; app: boolean };
@@ -66,26 +68,36 @@ export interface ImagePayload {
   image_b64_jpeg: string;
   width: number;
   height: number;
+  /** The source image's size in pixels, which the preview is a copy of. */
+  full_width?: number;
+  full_height?: number;
   hfw?: number;
   beam_type?: string;
   acquired_at?: string | null;
+  info?: ImageInfo | null;
 }
 
 export interface DisplayImages {
   sem: ImagePayload | null;
   fib: ImagePayload | null;
+  fm?: ImagePayload | null;
+  fm_available?: boolean;
 }
 
 export interface PairedComputer {
   id: string;
   name: string;
   paired_at: number; // Unix seconds
-  role: "operator" | "agent";
+  role: PairingRole;
+  grants: string[];
 }
+
+export type PairingRole = "operator" | "agent" | "hub";
 
 export interface Pairing {
   open: boolean;
-  role: "operator" | "agent" | null;
+  role: PairingRole | null;
+  grants: string[];
   code: string | null;
   expires_in_s: number;
   computers: PairedComputer[];
@@ -198,12 +210,11 @@ export interface TranscriptLine {
 }
 
 export interface EvidenceAnswer {
-  preview: (ImagePayload & { full_width?: number; full_height?: number }) | null;
-  marks: {
-    points?: { x: number; y: number; label?: string }[];
-    areas?: { x: number; y: number; width: number; height: number; label?: string }[];
-  } | null;
+  preview: ImagePayload | null;
+  marks: Marks | null;
   path: string;
+  by?: "operator" | "agent";
+  channels?: string[] | null;
 }
 
 /** One experiment in /app/experiment/recent. */
@@ -258,7 +269,25 @@ export type FileRead = FileEntry & {
   truncated?: boolean;
   preview?: ImagePayload;
   summary?: { fm?: StackFacts; [key: string]: unknown };
+  info?: ImageInfo | null;
 };
+
+/** One value on an image's bar: `HFW 80 µm`, its *title* said in full on hover. */
+export interface ImageField {
+  key: string;
+  label: string;
+  title: string;
+  value: string;
+}
+
+/** What the bar under an image says (fibsem.server.image_payloads.fields_info). */
+export interface ImageInfo {
+  kind: string;
+  header: ImageField[];
+  fields: ImageField[];
+  time: string | null;
+  scalebar: { length: number; label: string; fraction: number } | null;
+}
 
 /** GET /app/experiment: one row per item. */
 export interface ItemSummary {

@@ -36,7 +36,8 @@ observer with a doorbell, not a second driver.
    off, because a read of the instrument is hardware access, not
    monitoring. Only the agent's level resets at every launch.
 4. The **Agent chip** in the status bar shows and sets the agent's level
-   (below). Its menu's *Connect an agent…* shows how to connect one.
+   (below). Its card links to the web app's **Agent page**, where you answer
+   the agent, message it and connect one (*Connect an agent…*).
 
 ## The agent's level
 
@@ -53,7 +54,7 @@ Every launch starts at **Watch**. The level lasts the session: nothing in any
 file raises it. Changing it is recorded on the event stream, with you as the
 actor.
 
-While the agent is at Assist or Drive the chip's menu leads with **Stop agent**. It drops
+While the agent is at Assist or Drive the chip's card has **Stop agent**. It drops
 the agent to Watch at once, with no confirmation, and the agent is told it was
 stopped. If the agent is using the microscope, Stop agent also stops what it
 is doing: a mill, a spot burn, an auto focus or live imaging. A stage move
@@ -66,8 +67,8 @@ Drive and *Serve the microscope*. At Assist the agent asks for it.
 ## Approving the agent's requests (Assist)
 
 At Assist the agent asks before it acts. When it does, the Agent chip turns
-amber and says how many actions it is asking for ("Agent asks · 3"). Click
-the chip: the request is at the top of its menu. Each action is shown with
+amber ("Agent asks") and its card says what it asks in one line. You decide
+on the web Agent page (*Open in Agent page* on the card). Each action is shown with
 what it acts on and what it changes (a setting shows old → new). These
 lines are written by the app from the actions themselves, not by the agent.
 Under them is the agent's reason. The picture beside it is the image the agent
@@ -75,8 +76,8 @@ judged from, its evidence, with any points or areas it marked: a beam image has
 the actions' values drawn on it too, while an image the agent drew itself is
 shown as it is. Without evidence the picture is the image the values were
 measured on, and "No evidence" shows under the reason. Evidence is kept in the
-experiment under `evidence/`, and Recent has an "evidence" link on each row
-that cites some.
+experiment under `evidence/`, and the Agent page's record has an "evidence"
+link on each row that cites some.
 
 - **Approve** runs the actions in order, each checked as if the agent had
   made the call at Drive. The block shows each one's progress. If one is
@@ -195,8 +196,8 @@ The first decision wins, and you can always decide first. The window shows the
 ordinary orange border, attention button and sound whether or not an agent is
 connected, and the record keeps who decided. At Watch the agent sees the
 proposal and can tell you what it would decide. At Assist it can suggest a
-decision: the Agent chip says "Agent suggests", and its card shows the
-agent's reason and the suggested value drawn on the proposal's image. Approve
+decision: the Agent chip says "Agent suggests", and the web Agent page shows
+the agent's reason and the suggested value drawn on the proposal's image. Approve
 decides the proposal as suggested, as your decision, and the record names the
 agent as the one who suggested it; Decline drops the suggestion, with an
 optional reason that goes back to the agent, and the proposal stays up for
@@ -220,25 +221,25 @@ level doesn't affect it.
 
 ## Connecting an agent
 
-**On the same machine**, use *Copy for your agent* in *Connect an agent…*
-(the Agent chip's menu) and paste the text into Claude Code. The agent
+**On the same machine**, use *Connect an agent…* on the web Agent page and
+paste the text into Claude Code. The agent
 registers the sidecar by its absolute path, checks the connection with
 `fibsem-mcp --check`, and reports its level. For Claude Desktop the text says
 which entry to merge into `mcpServers` in its config file. The token isn't
 in the text: the running server writes a discovery file
 (`~/.fibsem/app-server.json`; `agent-server.json` before v0.6.0, still read)
 that the `fibsem-mcp` sidecar finds by itself. Its token only asks to connect:
-the first time, the agent card shows **Agent wants to connect**, naming the
+the first time, the Agent chip turns amber and the Agent page shows **Agent
+wants to connect**, naming the
 client, where it connects from and the PC user it runs as. **Allow** gives it a
 token of its own, kept in `~/.fibsem/agent/`, so later connections don't ask;
-it is listed under *Connect an agent… → Allowed agents* with Unpair. **Deny…**
+it is listed in the web app's *Settings → Paired computers* with Unpair. **Deny…**
 refuses it, with your reason, and it can ask again after a minute. With
-**Always allow agents logged in to this PC** ticked (under Allowed agents, or
-in the web app's Settings), an ask that reaches the server from the PC itself,
-over SSH too, is allowed without the card; it still acts only at the level you
-set. An ask from another computer's address still shows the card. One agent
-per microscope: allowing or pairing a new agent unpairs the one before, and the
-card says which. By hand, registering the sidecar is:
+**Always allow agents logged in to the microscope PC** ticked in the web app's
+Settings, an ask that reaches the server from the PC itself, over SSH too, is
+allowed without asking; it still acts only at the level you set. An ask from
+another computer's address still asks. One agent per microscope: allowing or
+pairing a new agent unpairs the one before, and the Agent page says which. By hand, registering the sidecar is:
 
 ```bash
 claude mcp add -s user fibsem -- fibsem-mcp
@@ -247,8 +248,8 @@ claude mcp add -s user fibsem -- fibsem-mcp
 `-s user` registers it for all your projects; without it, `claude mcp add`
 covers only the current directory's project.
 
-**From another machine** — click *Pair an agent* in *Connect an agent…*,
-run `fibsem-mcp pair <code>` on that machine with the code it shows, and
+**From another machine** — show a code in the web app's *Settings → Paired
+computers*, run `fibsem-mcp pair <code>` on that machine with it, and
 point the sidecar at the microscope PC:
 
 ```bash
@@ -293,9 +294,9 @@ bearer token — the sidecar is convenience, not a requirement.
 - *The sidecar exits with "no server found"* — it waited for a server that
   never appeared; start AutoLamella (with the feature on) first, or pass
   `--url` explicitly.
-- *A tool says "Waiting for the operator to allow this agent"* — the agent
-  card shows **Agent wants to connect**: click Allow, and the agent's next
-  call goes through.
+- *A tool says "Waiting for the operator to allow this agent"* — the web
+  Agent page shows **Agent wants to connect**: click Allow, and the agent's
+  next call goes through.
 - *The agent says it can't act* — it is at Watch. Raise it from the Agent chip
   if you want it to: to Assist, where it asks you before each action, or Drive; refusals name the level (`level`, or `ask_first` at Assist),
   a stop (`agent_stopped`) or Off (`agent_off`).

@@ -29,7 +29,7 @@ sets what the agent may do with them.
   (url + a connect token) so local clients find it without copying anything,
   and refuses to start if another live server owns that file.
 - The connect token only asks to connect. The sidecar's first call (or
-  `fibsem-mcp --check`) puts **Agent wants to connect** on the agent card;
+  `fibsem-mcp --check`) puts **Agent wants to connect** on the web Agent page;
   once the operator clicks Allow it gets a token of its own, kept in
   `~/.fibsem/agent/`, and later launches don't ask. Until then a call answers
   `connect_waiting`.
@@ -42,12 +42,11 @@ sets what the agent may do with them.
 claude mcp add -s user fibsem -- fibsem-mcp
 ```
 
-`-s user` registers it for all your projects. In AutoLamella, *Copy for your
-agent* in the Agent chip's *Connect an agent…* gives the same setup with the
-absolute path filled in, for the agent to run itself. Same-machine setups need
-nothing more: the sidecar autodiscovers the running
-server. For a server on another machine, pair once: *Pair an agent* in
-*Connect an agent…* (or the chat page's Computers panel) shows a code, and
+`-s user` registers it for all your projects. *Connect an agent…* on the web
+Agent page gives the same setup with the absolute path filled in, for the agent
+to run itself. Same-machine setups need nothing more: the sidecar autodiscovers
+the running server. For a server on another machine, pair once: the web app's
+*Settings → Paired computers* shows a code, and
 
 ```bash
 fibsem-mcp pair 1234            # the SSH tunnel's end, http://localhost:8001
@@ -96,12 +95,14 @@ fibsem-mcp watch
 It finds the server as the sidecar does (`--url`/`--token`, the environment
 variables, the discovery file) and follows a restarted app the same way;
 `--since N` resumes after event N. It
-prints `PROMPT`, `ANSWERED`, `PROMPT WITHDRAWN`, `PROPOSAL`,
-`PROPOSAL RELEASED`, `REQUEST` (the agent's request decided, finished or
-cancelled), `COMMAND ENDED` (a long command's end), task `EVENT` lines,
-`WORKFLOW STARTED`, `WORKFLOW ENDED` and `GAP` (events were lost; re-read the
-prompt and status). A workflow ends completed, cancelled, stalled or failed;
-one that stops without recording an end is reported as
+prints `PROPOSAL`, `PROPOSAL RELEASED`, `SUGGESTION APPROVED`/`DECLINED`,
+`REQUEST` (the agent's request decided, finished or cancelled), `COMMAND ENDED`
+(a long command's end), `MILL STAGE STARTED`, `MILL ENDED` and `MILL READING`,
+`AUTOFOCUS` and `ALIGNMENT` (with their check), task `EVENT` lines,
+`WORKFLOW STARTED`, `WORKFLOW ENDED`, `MESSAGE` (the operator wrote to the
+agent), `NOTE` (the operator kept a note on a grid), `LEVEL`, `RESTARTED` and
+`GAP` (events were lost; re-read the proposals and status). A workflow ends completed, cancelled,
+stalled or failed; one that stops without recording an end is reported as
 `WORKFLOW ENDED (stopped without an end event)`. A workflow's end does not end
 the watch: the agent may start the next one. While the operator has the agent
 level at Off it prints `AGENT OFF` and waits, then `AGENT BACK`. A running workflow
@@ -159,11 +160,18 @@ fibsem-agent
   rather than wait. Its log never shows a bearer token or an API key.
 - **Instructions.** It reads this checkout's skills and nothing else: not the
   checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
+- **Its session's folder.** Each session has one,
+  `~/.fibsem/agent/sessions/<date>-<session id>/`, kept by a resume:
+  `session.json` (what it runs with, and each run's start, exit code, reason
+  and spend) and `fibsem-agent.log`. A `stop` file there ends the run as
+  Ctrl-C does, which is how the gateway and the hub stop an agent they started
+  (`fibsem.ai.agent.manager`); `--session-id <uuid>` starts a new session
+  with an id chosen beforehand.
 - **What it says.** The agent's replies and tool calls go to the console and
-  to `~/.fibsem/agent/fibsem-agent-<time>.log` (`--log` to choose). What the
+  to the session's log (`--log` to choose another file). What the
   operator must read in the app, it sends as a message
-  (`experiment_message_operator`, a toast in the window), answering a message
-  from the Agent card with its `reply_to`; a judgment worth keeping is a note
+  (`experiment_message_operator`, a toast on the web Agent page), answering a
+  message from the Agent page with its `reply_to`; a judgment worth keeping is a note
   (`experiment_add_note`).
 - **Waking.** Lines are held while the level is Off, and come as one turn
   once it is back; started at Off, the agent's first turn waits for it too. A `GAP`, a restart or the level coming back tells the

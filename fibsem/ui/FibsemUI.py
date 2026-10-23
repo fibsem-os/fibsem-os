@@ -37,7 +37,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import MicroscopeSettings
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import FIBSEM_UI
-from fibsem.tools.launcher import Splash
+from fibsem.tools.desktop_launch import Splash
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
@@ -328,7 +328,7 @@ def main(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     """Run the fibsemOS UI.
 
     ``argv`` is accepted for the launcher's common signature; the UI takes no
-    flags. ``splash`` is the launcher's splash screen (fibsem.tools.launcher),
+    flags. ``splash`` is the launcher's splash screen (fibsem.tools.desktop_launch),
     closed once the main window is up.
     """
     # Fully viewer-less: the quad-view controller is the display, and the overview is a

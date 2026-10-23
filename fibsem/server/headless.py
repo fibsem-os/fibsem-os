@@ -18,25 +18,27 @@ __all__ = ["connect", "connection_parser", "open_session", "serve_until_stopped"
 
 def connection_parser() -> argparse.ArgumentParser:
     """The flags that name the microscope a headless command connects to, as a
-    parent parser: ``--manufacturer`` (Demo by default), ``--ip-address``,
-    ``--config``, ``--debug``."""
+    parent parser: ``--manufacturer``, ``--ip-address``, ``--config``,
+    ``--debug``. A configuration file's manufacturer and address stand unless
+    a flag names another; with no file, the default configuration's, as the
+    app's own Connect uses (``--manufacturer Demo`` for the Demo microscope)."""
     from fibsem.drivers import registry
 
     p = argparse.ArgumentParser(add_help=False)
     p.add_argument(
         "--manufacturer",
-        default="Demo",
+        default=None,
         # normalise BEFORE the choices check, so historical spellings
         # (--manufacturer Thermo) keep working while --help shows canonical
         type=registry.normalize_name,
         choices=registry.registered_manufacturers(),
-        help="Microscope manufacturer (default: Demo)",
+        help="Microscope manufacturer (default: the configuration's)",
     )
     p.add_argument(
         "--ip-address",
-        default="localhost",
+        default=None,
         dest="ip_address",
-        help="Microscope IP address (default: localhost)",
+        help="Microscope IP address (default: the configuration's)",
     )
     p.add_argument(
         "--config",
@@ -44,15 +46,14 @@ def connection_parser() -> argparse.ArgumentParser:
         dest="config_path",
         type=Path,
         metavar="PATH",
-        help="Path to microscope config YAML",
+        help="Path to microscope config YAML (default: the default configuration)",
     )
     p.add_argument("--debug", action="store_true", help="Enable debug logging")
     return p
 
 
 def connect(args: argparse.Namespace) -> Any:
-    """The microscope the connection flags name (`connection_parser`, Demo by
-    default)."""
+    """The microscope the connection flags name (`connection_parser`)."""
     microscope, _ = utils.setup_session(
         manufacturer=args.manufacturer,
         ip_address=args.ip_address,

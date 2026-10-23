@@ -72,6 +72,7 @@ from fibsem.server.responses import (
     Recorded,
     Refusal,
     Requeued,
+    RunPlan,
     RunStarted,
     RunSummary,
     SavedExperiments,
@@ -218,6 +219,30 @@ def _numbers(text: Optional[str]) -> Optional[List[float]]:
                 "message": f"A region is four numbers, x,y,width,height; not {text!r}.",
             },
         )
+
+
+def _run_body(body: Dict[str, Any]) -> Tuple[List[str], Optional[List[str]]]:
+    """A lamella run's task_names and item_names, or the 422 naming them."""
+    task_names = body.get("task_names")
+    item_names = body.get("item_names")
+    if (
+        not isinstance(task_names, list)
+        or not task_names
+        or not all(isinstance(t, str) for t in task_names)
+        or (
+            item_names is not None
+            and not (
+                isinstance(item_names, list)
+                and all(isinstance(i, str) for i in item_names)
+            )
+        )
+    ):
+        raise _missing_field(
+            "Pass task_names (non-empty list of strings); "
+            "item_names (list of strings) is optional — omitted "
+            "means every item."
+        )
+    return task_names, item_names
 
 
 def _answer_or_refusal(result: Any) -> Any:
@@ -633,6 +658,14 @@ def build_app_router(context: Any) -> APIRouter:
         # width: the preview's at most, for a thumbnail or a full-size view.
         # A fluorescence stack: plane z (0 the first; none, the max projection)
         # in channels, comma-separated names (none, all).
+        tag = _files_answer(
+            experiment, files.read_etag, path, box, fraction, width, z, channels
+        )
+        # kept by the browser, but asked about each time: an unchanged file answers 304
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            _record_read(experiment, path, False)
+            return Response(status_code=304, headers=cache)
         answer = _files_answer(
             experiment,
             files.read,
@@ -644,11 +677,21 @@ def build_app_router(context: Any) -> APIRouter:
             channels=[c for c in (channels or "").split(",") if c] or None,
         )
         _record_read(experiment, path, False)
-        return answer
+        return JSONResponse(jsonable_encoder(answer), headers=cache)
 
     @router.get("/workflow/proposals", response_model=Proposals)
     def proposals():
         return context.proposals()
+
+    @router.post("/workflow/plan", response_model=RunPlan, tags=[LAMELLAE])
+    def lamella_run_plan(body: Dict[str, Any]):
+        # The Workflow tab's confirmation for a run, or for adding to the
+        # running queue (add): computes, never acts.
+        task_names, item_names = _run_body(body)
+        run_next, add = body.get("run_next", False), body.get("add", False)
+        if not isinstance(run_next, bool) or not isinstance(add, bool):
+            raise _missing_field("run_next and add are booleans.")
+        return context.lamella_run_plan(task_names, item_names, run_next, add)
 
     @router.post("/workflow/grids/plan", response_model=GridPlan, tags=[GRIDS])
     def grid_workflow_plan(body: Dict[str, Any]):
@@ -674,8 +717,8 @@ def build_app_router(context: Any) -> APIRouter:
 
     @router.post("/experiment/messages", response_model=Recorded)
     def add_message(body: Dict[str, Any]):
-        # The agent's message to the operator, on the record as a note to them;
-        # the window tells them. Like a note, it changes nothing.
+        # The agent's message to the operator, on the record as a note to them.
+        # Like a note, it changes nothing.
         text, item_name = _note_body(body, "reply_to")
         reply_to = body.get("reply_to")
         cited = cited_evidence(context)
@@ -822,26 +865,7 @@ def build_app_control_router(context: Any) -> APIRouter:
 
     @router.post("/workflow/start", response_model=RunStarted)
     def start_workflow(body: Dict[str, Any]):
-        task_names = body.get("task_names")
-        item_names = body.get("item_names")
-        if (
-            not isinstance(task_names, list)
-            or not task_names
-            or not all(isinstance(t, str) for t in task_names)
-            or (
-                item_names is not None
-                and not (
-                    isinstance(item_names, list)
-                    and all(isinstance(i, str) for i in item_names)
-                )
-            )
-        ):
-            raise _missing_field(
-                "Pass task_names (non-empty list of strings); "
-                "item_names (list of strings) is optional — omitted "
-                "means every item."
-            )
-        return context.start_workflow(task_names, item_names)
+        return context.start_workflow(*_run_body(body))
 
     @router.post("/workflow/grids/start", response_model=RunStarted, tags=[GRIDS])
     def start_grid_workflow(body: Dict[str, Any]):

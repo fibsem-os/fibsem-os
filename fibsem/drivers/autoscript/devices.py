@@ -87,6 +87,7 @@ from fibsem.devices.core import (
     Resources,
     resources_of,
 )
+from fibsem.devices.entries import beam_type_of, named
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
@@ -1227,7 +1228,7 @@ def autoloader_installed(microscope: ThermoMicroscope) -> bool:
 _MANIPULATOR_NAMES = ("PARK", "EUCENTRIC")
 
 
-def _in_raw_unless_named(
+def _in_raw_unlessnamed(
     position: FibsemManipulatorPosition,
 ) -> FibsemManipulatorPosition:
     """A position that names no coordinate system moves in the needle's raw frame."""
@@ -1355,7 +1356,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
-        delta = _in_raw_unless_named(delta)
+        delta = _in_raw_unlessnamed(delta)
         logging.info(f"moving manipulator by {delta}")
         self._needle.relative_move(manipulator_position_to_autoscript(delta))
         logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
@@ -1365,7 +1366,7 @@ class AutoscriptManipulator(Manipulator):
             manipulator_position_to_autoscript,
         )
 
-        position = _in_raw_unless_named(position)
+        position = _in_raw_unlessnamed(position)
         logging.info(f"moving manipulator to {position}")
         self._needle.absolute_move(manipulator_position_to_autoscript(position))
         logging.debug(
@@ -1934,16 +1935,9 @@ def sputter_coater_fitted(microscope: ThermoMicroscope) -> bool:
 # ``_build_parts``).
 
 
-def _named(device: Device, entry: DeviceEntry) -> Device:
-    device.name = entry.name
-    return device.connect()
-
-
 def build_autoscript_beam(entry: DeviceEntry, context: BuildContext) -> AutoscriptBeam:
     """The column an ``electron`` or ``ion`` entry names."""
-    if entry.name not in ("electron", "ion"):
-        raise ValueError("a Thermo beam is named 'electron' or 'ion'")
-    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    beam_type = beam_type_of(entry)
     microscope = context.microscope
     return AutoscriptBeam(beam_type, microscope, microscope._connection).connect()
 
@@ -1953,35 +1947,35 @@ def build_autoscript_stage(
 ) -> AutoscriptStage:
     microscope = context.microscope
     stage = autoscript_stage_class(microscope)
-    return _named(stage(microscope, microscope._connection), entry)
+    return named(stage(microscope, microscope._connection), entry)
 
 
 def build_autoscript_chamber(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptChamber:
     microscope = context.microscope
-    return _named(AutoscriptChamber(microscope, microscope._connection), entry)
+    return named(AutoscriptChamber(microscope, microscope._connection), entry)
 
 
 def build_autoscript_chamber_camera(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptChamberCamera:
     microscope = context.microscope
-    return _named(AutoscriptChamberCamera(microscope, microscope._connection), entry)
+    return named(AutoscriptChamberCamera(microscope, microscope._connection), entry)
 
 
 def build_autoscript_manipulator(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptManipulator:
     microscope = context.microscope
-    return _named(AutoscriptManipulator(microscope, microscope._connection), entry)
+    return named(AutoscriptManipulator(microscope, microscope._connection), entry)
 
 
 def build_autoscript_sample_loader(
     entry: DeviceEntry, context: BuildContext
 ) -> AutoscriptSampleLoader:
     microscope = context.microscope
-    return _named(AutoscriptSampleLoader(microscope, microscope._connection), entry)
+    return named(AutoscriptSampleLoader(microscope, microscope._connection), entry)
 
 
 def build_autoscript_sputter_coater(
@@ -1998,7 +1992,7 @@ def build_autoscript_sputter_coater(
         device = AutoscriptArctisSputterCoater(microscope, connection)
     if not device.is_installed():
         raise ValueError("the instrument reports no sputter coater")
-    return _named(device, entry)
+    return named(device, entry)
 
 
 def build_autoscript_gis(
@@ -2035,7 +2029,7 @@ def build_autoscript_gis(
         )
     if device.is_installed() is False:
         raise ValueError(f"the instrument has no GIS port {port!r}")
-    return _named(device, entry)
+    return named(device, entry)
 
 
 # The FM.
@@ -2273,7 +2267,9 @@ class _OnTheFMChannel(Device):
 class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
     """The excitation is held here, as the old filter set holds it: AutoScript's
     emission type is read-only, so the colour is applied when the light starts. The
-    emission filter is the camera's filter type, reflection or fluorescence."""
+    emission filter is the camera's filter type, reflection or fluorescence. It is held
+    too: AutoScript applies the filter type only during an acquisition and doesn't
+    store it, so reading it back is never right."""
 
     needs_channel = frozenset({"emission_filter"})
 
@@ -2282,6 +2278,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
 
         super().__init__("filter_set", channel, **kwargs)
         self.emission_type = CameraEmissionType.RED
+        self._emission_filter: EmissionFilter = REFLECTION
 
     def read_excitation_wavelength(self) -> float:
         color_to_wavelength = _color_to_wavelength()
@@ -2305,12 +2302,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
         return ParameterMetadata(choices=sorted(AVAILABLE_FM_WAVELENGTHS))
 
     def read_emission_filter(self) -> EmissionFilter:
-        from autoscript_sdb_microscope_client.enumerations import CameraFilterType
-
-        mode = self._channel.read(lambda: self._channel.settings().filter.type.value)
-        if mode is CameraFilterType.FLUORESCENCE:
-            return MULTI_BAND
-        return REFLECTION
+        return self._emission_filter
 
     def write_emission_filter(self, value: EmissionFilter) -> None:
         from autoscript_sdb_microscope_client.enumerations import CameraFilterType
@@ -2322,6 +2314,7 @@ class AutoscriptFMFilterSet(_OnTheFMChannel, FilterSet):
             settings.filter.type.value = CameraFilterType.REFLECTION
         else:
             settings.filter.type.value = CameraFilterType.FLUORESCENCE
+        self._emission_filter = value
 
     def metadata_emission_filter(self) -> ParameterMetadata:
         return ParameterMetadata(choices=[REFLECTION, MULTI_BAND])
@@ -2517,6 +2510,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
         self._limit_position: float = DEFAULT_CONFIGURATION.get(
             "limit_position", 8.6e-3
         )
+        self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
 
     def _focus_limits(self) -> Tuple[float, float]:
         with self._channel.scope():
@@ -2673,12 +2667,11 @@ class AutoscriptFM(FM):
 
 class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
     """The FM API's objective over the Thermo objective device, with what the old
-    Thermo objective added: its configured focus position, and homing."""
+    Thermo objective added: homing."""
 
     def __init__(self, device, channel, parent=None):
         super().__init__(device, parent=parent)
         self._channel = channel
-        self._focus_position = DEFAULT_CONFIGURATION["focus_position"]
 
     def is_homed(self) -> bool:
         with self._channel.scope():

@@ -1,21 +1,20 @@
-"""The agent on a window's status bar: its level chip and card, what it is
-doing on the microscope, and the session's pictures of what its waiting
-request would do.
+"""The agent on a window's status bar: its level chip and card, and what it is
+doing on the microscope.
 
 The window builds one and tells it the session's agent; the chip's clicks are
-handled here.
+handled here. The operator answers the agent on the web Agent page.
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Optional
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ui import notification_service
 from fibsem.ui.agent.activity import AgentActivity
-from fibsem.ui.agent.level_chip import AgentLevelChip, request_outcome
+from fibsem.ui.agent.level_chip import AgentLevelChip
 
 
 class AgentChipHost(QObject):
@@ -50,17 +49,9 @@ class AgentChipHost(QObject):
         )
         self.chip.hide()
         self.chip.level_chosen.connect(self._on_level_chosen)
-        self.chip.connect_clicked.connect(self._on_connect_agent)
         self.chip.event_log_clicked.connect(self._on_open_event_log)
         self.chip.chat_clicked.connect(self._on_open_chat)
         self.chip.stop_clicked.connect(self._on_stop)
-        self.chip.approve_clicked.connect(self._on_approve)
-        self.chip.reject_clicked.connect(self._on_reject)
-        self.chip.allow_clicked.connect(self._on_allow)
-        self.chip.deny_clicked.connect(self._on_deny)
-        self.chip.message_sent.connect(self._on_operator_message)
-        self.chip.suggestion_approved.connect(self._on_approve_suggestion)
-        self.chip.suggestion_declined.connect(self._on_decline_suggestion)
         status_bar.add_action(self.chip)
         self.request_changed.connect(self.refresh)
 
@@ -68,14 +59,8 @@ class AgentChipHost(QObject):
             status_bar, view_controller=view_controller, parent=self
         )
         self.activity.now_changed.connect(self.chip.set_now)
-        self.activity.recent_changed.connect(self.chip.set_recent)
 
-        # The pictures' versions the card shows, by kind.
-        self._pictures_shown: Dict[str, Optional[int]] = {}
-        self._picture_session = None
         self._experiment = None
-        # The pending proposal the card's suggestion is on: (item id, task, id).
-        self._suggested: Optional[Tuple[str, str, str]] = None
         # The asks to connect followed, and how to stop following them.
         self._connections = None
         self._unfollow_connections: Optional[Callable[[], None]] = None
@@ -92,13 +77,10 @@ class AgentChipHost(QObject):
 
     def refresh(self) -> None:
         """Show the chip while the App Server runs, at the level its auth holds."""
-        recorder = self._session().recorder
-        self.activity.follow_events(getattr(recorder, "buffer", None))
         agent = self._agent
         level = agent.level
         self._follow_requests()
         self._follow_connections()
-        self._show_pictures()
         if level is None:
             self.chip.set_request(None)
             self.chip.set_asking(None)
@@ -113,8 +95,8 @@ class AgentChipHost(QObject):
         self.chip.show()
 
     def listen(self, experiment) -> None:
-        """Show the agent's suggestions on *experiment*'s pending proposals;
-        the previous experiment's are dropped."""
+        """Show that the agent suggests a decision on *experiment*'s pending
+        proposals; the previous experiment's are dropped."""
         previous = self._experiment
         if previous is experiment:
             return
@@ -134,75 +116,19 @@ class AgentChipHost(QObject):
         self._show_suggestion()
 
     def _show_suggestion(self) -> None:
-        """The card shows the agent's suggestion on a pending proposal, until
+        """The chip shows the agent's suggestion on a pending proposal, until
         it is approved, declined or the proposal is decided otherwise."""
-        from fibsem.ai.agent.suggestions import (
-            front_suggestion,
-            suggestion_card,
-            suggestion_request,
-        )
+        from fibsem.ai.agent.suggestions import front_suggestion, suggestion_card
 
         experiment = self._experiment
         front = front_suggestion(experiment) if experiment is not None else None
         if front is None:
-            self._suggested = None
             self.chip.set_suggestion(None)
             return
         item, task_name, proposal = front
-        self._suggested = (item.id, task_name, proposal.id)
         self.chip.set_suggestion(
             suggestion_card(item, task_name, proposal, str(experiment.path))
         )
-
-    def _show_pictures(self) -> None:
-        """The card shows the session's pictures (``AgentSession.picture``),
-        the chat page's too, each as it is drawn."""
-        from PyQt5.QtGui import QImage
-
-        session = self._session()
-        if session is not self._picture_session:
-            self._picture_session = session
-            self._pictures_shown = {}
-
-            def drawn(signal=self.request_changed):
-                try:
-                    signal.emit()
-                except RuntimeError:  # the window has gone
-                    pass
-
-            session.agent.on_picture(drawn)
-        for kind in ("request", "suggestion"):
-            picture = self._agent.picture(kind)
-            version = picture["version"] if picture is not None else None
-            if self._pictures_shown.get(kind, -1) == version:
-                continue
-            self._pictures_shown[kind] = version
-            png = (picture or {}).get("png")
-            self.chip.card.set_image(
-                QImage.fromData(png, "PNG") if png else None,
-                (picture or {}).get("caption", ""),
-                suggestion=kind == "suggestion",
-            )
-
-    def _on_approve_suggestion(self) -> None:
-        """Approve on the card: the proposal is decided as suggested, as the
-        operator's decision, naming the suggestion."""
-        if self._suggested is None:
-            return
-        result = self._agent.approve_suggestion(self._suggested[2])
-        if not result.applied:
-            notification_service.show(
-                f"Could not approve the agent's suggestion: {result.reason}", "warning"
-            )
-        self._show_suggestion()
-
-    def _on_decline_suggestion(self, reason: str) -> None:
-        """Decline on the card: the suggestion is dropped, with the reason
-        for the agent; the proposal stays pending."""
-        if self._suggested is None:
-            return
-        self._agent.decline_suggestion(self._suggested[2], reason)
-        self._show_suggestion()
 
     def _follow_requests(self) -> None:
         """Move the chip as a request is filed and applied rather than on the
@@ -236,54 +162,14 @@ class AgentChipHost(QObject):
 
         self._unfollow_connections = connections.on_change(changed)
 
-    def _on_allow(self, ask_id: str) -> None:
-        """Allow on the card: the agent is paired and connects."""
-        try:
-            name = self._agent.allow_connection(ask_id)
-        except LookupError as exc:
-            notification_service.show(f"Could not allow the agent: {exc}", "warning")
-        else:
-            notification_service.show(f"{name} can connect", "info")
-        self.refresh()
-
-    def _on_deny(self, ask_id: str, reason: str) -> None:
-        """Deny on the card: the agent is refused, with the reason."""
-        try:
-            self._agent.deny_connection(ask_id, reason)
-        except LookupError as exc:
-            notification_service.show(f"Could not deny the agent: {exc}", "warning")
-        self.refresh()
-
     def _show_request(self) -> None:
-        """The chip shows a request waiting or being applied; how one ended is
-        said once, as a toast, so the status bar keeps what is running now."""
+        """The chip shows a request waiting or being applied."""
         agent = self._agent
-        for request in agent.outcomes():
-            outcome = request_outcome(request.to_dict())
-            if outcome is not None:
-                message, kind = outcome
-                # Kept in the bell's history: the toast goes, the outcome stays.
-                notification_service.show(
-                    message,
-                    kind,
-                    action=("Show in event log", self._on_open_event_log)
-                    if kind == "error"
-                    else None,
-                )
         current = agent.current()
         shown = current.to_dict() if current is not None else None
         if shown != self.chip.request:
             self.chip.set_request(shown)
         self.chip.set_now(self.activity.now)
-
-    def _on_connect_agent(self) -> None:
-        """From the card: how to register the sidecar, and the allowed agents."""
-        from fibsem.ui.agent.connect_agent_dialog import ConnectAgentDialog
-
-        dialog = ConnectAgentDialog(
-            lambda: self._session().app_server, self.chip.window()
-        )
-        dialog.exec_()
 
     def _on_open_event_log(self) -> None:
         """From the card: the App Server's event log in the browser."""
@@ -296,7 +182,7 @@ class AgentChipHost(QObject):
         open_in_browser(event_log_url(host))
 
     def _on_open_chat(self) -> None:
-        """From the card: the chat with the agent in the browser."""
+        """From the card: the web Agent page in the browser."""
         from fibsem.server.hosting import chat_url
         from fibsem.ui.agent.app_server_dialog import open_in_browser
 
@@ -304,27 +190,6 @@ class AgentChipHost(QObject):
         if host is None:
             return
         open_in_browser(chat_url(host))
-
-    def _on_approve(self, request_id: str) -> None:
-        """Run the request. Its actions run on their own worker thread, so this
-        returns at once."""
-        self._decide(request_id, approve=True)
-
-    def _on_reject(self, request_id: str, reason: str) -> None:
-        """Run none of it; the agent gets the reason."""
-        self._decide(request_id, approve=False, reason=reason)
-
-    def _decide(self, request_id: str, approve: bool, reason: str = "") -> None:
-        from fibsem.server.requests import RequestRefused
-
-        try:
-            if approve:
-                self._agent.approve(request_id)
-            else:
-                self._agent.reject(request_id, reason=reason)
-        except RequestRefused as refused:
-            notification_service.show_toast(f"Agent's request: {refused}", "error")
-        self.refresh()
 
     def _on_level_chosen(self, level: AgentLevel) -> None:
         """Set the agent's level, effective for its next request."""
@@ -338,10 +203,3 @@ class AgentChipHost(QObject):
         """The brake (``AgentSession.stop``)."""
         self._agent.stop()
         self.refresh()
-
-    def _on_operator_message(self, text: str) -> None:
-        """The operator's message to the agent (``AgentSession.message``)."""
-        if self._agent.message(text) is None:
-            notification_service.show_toast(
-                "No experiment is recording: the agent can't hear messages", "warning"
-            )

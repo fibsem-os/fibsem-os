@@ -173,6 +173,35 @@ class Objective(Device):
     limit_position = DeviceParameter(
         float, unit="m", doc="The furthest a move may go in."
     )
+    focus_position = DeviceParameter(
+        float,
+        unit="m",
+        doc="The saved focus position: where the objective focuses on the sample, "
+        "for a move or an overview to start from. None until one is saved.",
+        display=Display("Focus Position", scale=1e6, step=1.0, decimals=1),
+    )
+
+    # The saved focus is the session's, not the hardware's: every driver keeps it
+    # here. A driver that knows where its objective focuses starts it there.
+    _focus_position: Optional[float] = None
+
+    def read_focus_position(self) -> Optional[float]:
+        return self._focus_position
+
+    def write_focus_position(self, value: Optional[float]) -> None:
+        self._focus_position = None if value is None else float(value)
+        if value is None:
+            logging.info("Objective focus position cleared.")
+        else:
+            logging.info(f"Objective focus position set to: {value * 1e3:.3f} mm")
+
+    @command
+    def save_focus_position(self) -> float:
+        """Save where the objective is now as its focus position. Answers it, in
+        metres."""
+        position = self.position.get_value()
+        self.focus_position.set_value(position)
+        return position
 
     @command
     def insert(self) -> Optional[bool]:

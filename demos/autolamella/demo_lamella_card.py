@@ -1,7 +1,6 @@
 """Test script for LamellaCardContainer."""
 
 import sys
-import time
 from pathlib import Path
 
 from PyQt5.QtWidgets import (
@@ -15,27 +14,27 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import (
-    DefectState,
-    DefectType,
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardContainer
+from fibsem.util.timestamps import now
+from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
 
 
 def _make_lamella(
-    number, petname, last_task="", in_progress="", defect_state=DefectType.NONE
+    number, petname, last_task="", in_progress="", verdict=Verdict.UNASSESSED
 ):
     lamella = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     if last_task:
         state = TaskState(name=last_task, status=TaskStatus.Completed)
-        state.end_timestamp = time.time()
+        state.end_timestamp = now()
         lamella.task_history.append(state)
     if in_progress:
         lamella.task_state.name = in_progress
         lamella.task_state.status = TaskStatus.InProgress
-    if defect_state != DefectType.NONE:
-        lamella.defect = DefectState(state=defect_state, description="test defect")
+    if verdict is not Verdict.UNASSESSED:
+        lamella.defect = QualityRecord(verdict=verdict, reason="test defect")
     return lamella
 
 
@@ -45,18 +44,16 @@ SAMPLE = [
     _make_lamella(
         3, "02-jolly-koala", last_task="Mill Rough", in_progress="Mill Polishing"
     ),
+    _make_lamella(4, "03-brave-falcon", last_task="Mill Rough", verdict=Verdict.REWORK),
     _make_lamella(
-        4, "03-brave-falcon", last_task="Mill Rough", defect_state=DefectType.REWORK
-    ),
-    _make_lamella(
-        5, "04-eager-otter", last_task="Mill Polishing", defect_state=DefectType.FAILURE
+        5, "04-eager-otter", last_task="Mill Polishing", verdict=Verdict.FAILED
     ),
     _make_lamella(6, "05-swift-eagle", last_task="Mill Rough"),
     _make_lamella(
         7,
         "06-bold-panda",
         last_task="Acquire Reference Image",
-        defect_state=DefectType.REWORK,
+        verdict=Verdict.REWORK,
     ),
 ]
 
@@ -141,7 +138,7 @@ class TestWindow(QWidget):
             name,
             last_task="Acquire Reference Image",
             defect_state=random.choice(
-                [DefectType.NONE, DefectType.REWORK, DefectType.FAILURE]
+                [Verdict.UNASSESSED, Verdict.REWORK, Verdict.FAILED]
             ),
         )
         self._container.add_lamella(lamella)

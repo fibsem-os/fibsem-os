@@ -65,7 +65,7 @@ def _add(agent, name, **body):
 def test_volume_serves_the_core_and_items(agent):
     capabilities = _ok(agent.get("/capabilities"))
     assert capabilities["app_name"] == "Volume"
-    assert capabilities["parts"] == ["items"]
+    assert capabilities["parts"] == ["items", "poses"]
     assert _ok(agent.get("/app/workflow/status"))["experiment"]["name"] == "vol"
     tasks = _ok(agent.get("/app/experiment/protocol"))["tasks"]
     assert [t["name"] for t in tasks][:2] == [
@@ -371,3 +371,91 @@ def test_a_per_position_config_edit_is_refused_as_invalid_not_missing(agent):
     detail = refused.json()["detail"]
     assert detail["error_type"] == "invalid"
     assert "positions share the protocol's" in detail["message"]
+
+
+def _cut_a_slice(position):
+    from fibsem.workflows.status import TaskState, TaskStatus
+
+    position.task_history.append(
+        TaskState(name="Volume FIB Milling", status=TaskStatus.Completed, iteration=0)
+    )
+
+
+def test_a_pose_is_set_from_the_stage_and_moved_to(agent, experiment, microscope):
+    _add(agent, "aspen")
+    stage = microscope.get_stage_position()
+    stage.x += 20e-6
+    microscope.move_stage_absolute(stage)
+
+    set_ = _ok(agent.post("/app/experiment/items/aspen/poses/SEM_IMAGING"))
+
+    assert set_["pose"] == "SEM_IMAGING"
+    saved = VolumeExperiment.load(experiment.path).get_position_by_name("aspen")
+    assert saved.poses["SEM_IMAGING"].stage_position.x == pytest.approx(stage.x)
+    stage.x -= 40e-6
+    microscope.move_stage_absolute(stage)
+    moved = _ok(
+        agent.post("/app/experiment/items/aspen/move_to", json={"pose": "SEM_IMAGING"})
+    )
+    assert moved["stage_position"]["x"] == pytest.approx(stage.x + 40e-6)
+    unknown = agent.post("/app/experiment/items/aspen/poses/FLUORESCENCE")
+    assert unknown.status_code == 422
+    assert unknown.json()["detail"]["pose_names"] == ["MILLING", "SEM_IMAGING"]
+
+
+def test_the_milling_pose_stays_once_a_slice_is_cut(agent, experiment):
+    _add(agent, "aspen")
+    position = experiment.get_position_by_name("aspen")
+    before = position.poses["MILLING"].stage_position.x
+    _cut_a_slice(position)
+
+    refused = agent.post("/app/experiment/items/aspen/poses/MILLING")
+    moved = agent.post(
+        "/app/experiment/items/aspen/position",
+        json={"stage_position": FibsemStagePosition(x=1e-4).to_dict()},
+    )
+
+    for answer in (refused, moved):
+        assert answer.status_code == 422
+        assert "has cut slices" in answer.json()["detail"]["message"]
+    assert position.poses["MILLING"].stage_position.x == before
+
+
+def test_a_position_s_milling_pose_is_moved_without_the_stage(
+    agent, experiment, microscope
+):
+    _add(agent, "aspen")
+    stage = microscope.get_stage_position()
+
+    _ok(
+        agent.post(
+            "/app/experiment/items/aspen/position",
+            json={"stage_position": FibsemStagePosition(x=1e-4).to_dict()},
+        )
+    )
+
+    saved = VolumeExperiment.load(experiment.path).get_position_by_name("aspen")
+    assert saved.poses["MILLING"].stage_position.x == pytest.approx(1e-4)
+    assert microscope.get_stage_position().x == pytest.approx(stage.x)
+    overview = agent.post(
+        "/app/experiment/items/aspen/position",
+        json={"overview": {"grid_name": "g", "filename": "f", "px": [0, 0]}},
+    )
+    assert overview.status_code == 422
+
+
+def test_the_run_s_position_keeps_its_poses(agent, session, monkeypatch):
+    _add(agent, "aspen")
+    monkeypatch.setattr(type(session.runner), "working_on", property(lambda _: "aspen"))
+
+    answer = agent.post("/app/experiment/items/aspen/poses/SEM_IMAGING")
+
+    assert answer.status_code == 409
+    assert "working on aspen" in answer.json()["detail"]["message"]
+
+
+def test_volume_keeps_no_objective_position(agent):
+    _add(agent, "aspen")
+    answer = agent.post("/app/experiment/items/aspen/objective_position")
+    assert answer.status_code == 422
+    assert "objective position" in answer.json()["detail"]["message"]
