@@ -260,7 +260,7 @@ function About() {
     <Facts
       className="max-w-md [&_dd]:text-left"
       rows={[
-        ["App Server", location.host],
+        ["Host", location.host],
         ["App", caps.data?.app_name ?? "–"],
         ["fibsemOS", caps.data?.fibsem?.version ?? "–"],
         ["API", caps.data?.api_version ?? "–"],

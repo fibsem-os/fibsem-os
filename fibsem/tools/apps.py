@@ -83,7 +83,7 @@ AUTOLAMELLA = App(
     name="AutoLamella",
     app_id="fibsemOS.AutoLamella",
     command="fibsem-autolamella-ui",
-    target="fibsem.applications.autolamella.ui.launch:run_ui",
+    target="fibsem.applications.autolamella.ui.launch:host",
     icon=ICONS_DIR / "autolamella.svg",
     load_steps=_COMMON_STEPS
     + (
@@ -114,7 +114,7 @@ VOLUME = App(
     name="Volume",
     app_id="fibsemOS.Volume",
     command="fibsem-volume-ui",
-    target="fibsem.applications.volume.ui.window:main",
+    target="fibsem.applications.volume.ui.window:host",
     icon=ICONS_DIR / "fibsemos.svg",
     load_steps=_COMMON_STEPS
     + (("Loading Volume", ("fibsem.ui", "fibsem.applications.volume.ui.window")),),

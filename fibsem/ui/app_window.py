@@ -26,7 +26,7 @@ from fibsem.ui.widgets.run_border import RunBorder
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.ui.widgets.workflow.controls import WorkflowControls
 from fibsem.versioning import get_version_string
-from fibsem.workflows.session import MICROSCOPE, AppSession
+from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 
 if TYPE_CHECKING:
     from fibsem.server.app_context import AppContext
@@ -63,11 +63,13 @@ class AppWindow(QMainWindow):
     def experiment(self, experiment: Optional[Any]) -> None:
         self.session.experiment = experiment
 
-    def __init__(self, title: str):
+    def __init__(self, title: str, session: Optional[AppSession] = None):
         super().__init__()
         # The microscope, the open experiment and the connection's event
-        # stream are the session's; this window is one client of it.
-        self.session = AppSession()
+        # stream are the session's; this window is one client of it. The
+        # host process makes the session (fibsem.server.headless), connected
+        # or not, and the window opens on it.
+        self.session = session if session is not None else AppSession()
         # Before the app's own slots: its views are built for the microscope
         # by the time it hears one.
         self._session_changed.connect(self._follow_connection)
@@ -134,6 +136,14 @@ class AppWindow(QMainWindow):
 
     def _hear_session(self, what: str, detail: Any = None) -> None:
         self._session_changed.emit(what, detail)
+
+    def _catch_up(self) -> None:
+        """Hear what the session had before this window opened on it: the
+        host connects the microscope and opens the experiment first."""
+        if self.session.microscope is not None:
+            self._hear_session(MICROSCOPE)
+        if self.session.experiment is not None:
+            self._hear_session(EXPERIMENT)
 
     def _attach_run(self, panel: "MicroscopePanel") -> None:
         """The session's run, responder and executor, shown on *panel*, and the

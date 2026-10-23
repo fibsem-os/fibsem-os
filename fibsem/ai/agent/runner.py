@@ -861,8 +861,8 @@ class Runner:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 log.error(
-                    "No App Server answered within %.0f s; fibsem-agent stops. "
-                    "Start it again once the app's App Server is on.",
+                    "No fibsem host answered within %.0f s; fibsem-agent stops. "
+                    "Start it again once the host is serving.",
                     self._server_wait_s,
                 )
                 self._code = 1

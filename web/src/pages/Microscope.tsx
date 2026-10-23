@@ -356,7 +356,7 @@ export function MicroscopePage() {
         {caps.data && !caps.data.routers.microscope && (
           <Card>
             <p className="m-0 text-[13px] text-muted-foreground">
-              This App Server does not serve the microscope's own routes, so its devices are not shown.
+              This host does not serve the microscope's own routes, so its devices are not shown.
             </p>
           </Card>
         )}

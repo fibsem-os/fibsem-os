@@ -1,6 +1,8 @@
-"""Serve an app session over the App Server with no window, until Ctrl-C: the
-part every app's headless command shares (``fibsem-volume``,
-``fibsem-autolamella-server``). Each app opens its own experiment."""
+"""The fibsem host: one process per microscope that starts an app's session and
+its App Server, connects the microscope, and either serves until Ctrl-C or
+opens the app's window on the same session. The part every app's command
+shares (``fibsem-volume``, ``fibsem-autolamella-server``, and the window
+commands, which hand in the window). Each app opens its own experiment."""
 
 import argparse
 import logging
@@ -13,7 +15,13 @@ from fibsem import utils
 from fibsem.server.agent_setup import setup_text
 from fibsem.workflows.session import AppSession
 
-__all__ = ["connect", "connection_parser", "open_session", "serve_until_stopped"]
+__all__ = [
+    "connect",
+    "connection_parser",
+    "names_a_microscope",
+    "open_session",
+    "serve_until_stopped",
+]
 
 
 def connection_parser() -> argparse.ArgumentParser:
@@ -52,23 +60,35 @@ def connection_parser() -> argparse.ArgumentParser:
     return p
 
 
-def connect(args: argparse.Namespace) -> Any:
-    """The microscope the connection flags name (`connection_parser`)."""
-    microscope, _ = utils.setup_session(
+def names_a_microscope(args: argparse.Namespace) -> bool:
+    """Whether a connection flag names the microscope (not only --debug)."""
+    return any(
+        value is not None
+        for value in (args.manufacturer, args.ip_address, args.config_path)
+    )
+
+
+def connect(session: AppSession, args: argparse.Namespace) -> Any:
+    """Connect *session* to the microscope the connection flags name
+    (`connection_parser`)."""
+    return session.connect(
+        args.config_path,
         manufacturer=args.manufacturer,
         ip_address=args.ip_address,
-        config_path=args.config_path,
         debug=args.debug,
     )
-    return microscope
 
 
-def open_session(microscope, experiment=None) -> AppSession:
-    """A session on *microscope* with *experiment* open (when given) and its
-    events recorded."""
+def open_session(
+    args: argparse.Namespace, experiment=None, windowed: bool = False
+) -> AppSession:
+    """A session connected as *args* say, with *experiment* open (when given).
+    Headless it always connects (the default configuration without a flag);
+    *windowed*, only when a flag names a microscope (otherwise the window's
+    Connect does)."""
     session = AppSession()
-    session.microscope = microscope
-    session.start_recording()
+    if not windowed or names_a_microscope(args):
+        connect(session, args)
     if experiment is not None:
         session.adopt(experiment)
     return session
@@ -89,12 +109,12 @@ def serve_until_stopped(
     *stop*, or a terminate signal: a service stop, a Windows close) and stop
     the run, the server and the recording. The exit code."""
     if not serve(session):
-        print("error: the App Server did not start; see the log.")
+        print("error: the host did not start serving; see the log.")
         return 1
     host = session.app_server
     experiment = session.experiment
     what = experiment.name if experiment is not None else "no experiment"
-    print(f"Serving {what} at {host.url} (agent at Watch).")
+    print(f"The fibsem host is serving {what} at {host.url} (agent at Watch).")
     # The plain address, never the token: scrollback and service logs keep it.
     print(f"Chat and level controls: {host.url}/ui/agent (Pair this browser)")
     pairing = host.auth.pairing
