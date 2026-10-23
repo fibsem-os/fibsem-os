@@ -1081,16 +1081,13 @@ def test_draw_image_saves_the_marks_drawn_beside_the_image(
     plain = client.post(url, headers=AUTH, json={"path": path})
     assert plain.status_code == 200 and plain.json()["marks"] is None
 
-    bad = client.post(
-        url, headers=AUTH, json={"path": path, "marks": {"arrows": []}}
-    )
+    bad = client.post(url, headers=AUTH, json={"path": path, "marks": {"arrows": []}})
     assert bad.status_code == 422 and "circles" in bad.json()["detail"]["message"]
     flag = client.post(url, headers=AUTH, json={"path": path, "crosshair": "yes"})
     assert flag.status_code == 422
     assert client.post(url, headers=AUTH, json={}).status_code == 422
     assert (
-        client.post(url, headers=AUTH, json={"path": path + ".nope"}).status_code
-        == 404
+        client.post(url, headers=AUTH, json={"path": path + ".nope"}).status_code == 404
     )
 
 
