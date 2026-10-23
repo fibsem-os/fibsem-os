@@ -446,13 +446,6 @@ class Lamella(SiteItem):
             raise TypeError("Fluorescence pose must be a MicroscopeState instance.")
         self.poses["FLUORESCENCE"] = value
 
-    @property
-    def fluorescence_selected(self) -> bool:
-        return (
-            self.fluorescence_pose is not None
-            and self.fluorescence_pose.objective_position is not None
-        )
-
     def related_milling_stages(self, task_name: str) -> list:
         """The enabled milling stages of this lamella's tasks related to
         *task_name*'s (its config's ``related_tasks``): what the lamella editor

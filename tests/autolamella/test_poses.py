@@ -149,8 +149,8 @@ def test_a_beam_position_still_derives_a_fluorescence_pose():
 
 
 def test_the_fluorescence_pose_carries_an_objective_position():
-    """Without one the pose does not count as selected — `fluorescence_selected` checks
-    exactly this — so a lamella could be marked and still read as unmarked."""
+    """Without one, restoring the pose leaves the objective wherever it is, so the
+    lamella would come back out of focus."""
     microscope = _microscope()
 
     poses = build_lamella_poses(microscope, _at(microscope, MILLING_ORIENTATION))
@@ -385,9 +385,8 @@ def test_syncing_keeps_the_objective_position():
 
 
 def test_a_lamella_with_no_fluorescence_pose_is_not_given_one():
-    """It has never been marked under fluorescence, and `fluorescence_selected` asks
-    only whether an objective position exists -- so conjuring one here would make a
-    lamella nobody has looked at report itself as focused."""
+    """It has never been marked under fluorescence, so conjuring a pose here would
+    give a lamella nobody has looked at a focus to restore."""
     microscope = _microscope()
     lamella = _lamella(microscope, with_fluorescence=False)
     _move_milling_to(microscope, lamella, 400e-6, -200e-6)

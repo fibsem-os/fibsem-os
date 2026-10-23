@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     MillFiducialTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
+from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING, DecisionOutcome
 from tests.fixtures.microscopes import demo_microscope
 from tests.protocols import planned, task_protocol
 
@@ -115,7 +115,7 @@ def test_with_no_finished_image_the_task_takes_one_frame_to_ask_on(
     task.run()
 
     area = lamella.proposal(FIDUCIAL, ALIGNMENT_AREA)
-    assert area is not None and area.unreviewed
+    assert area is not None and area.current.outcome is DecisionOutcome.Unreviewed
     assert _in_run(area.provenance["reference_image"]) == (
         FIDUCIAL,
         f"ref_{FIDUCIAL}_post_mill_ib.tif",

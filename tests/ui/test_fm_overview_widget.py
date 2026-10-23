@@ -3468,8 +3468,8 @@ def test_adding_records_where_the_objective_actually_is(qapp, tmp_path):
 
 def test_a_retracted_objective_is_not_recorded_as_a_focus(qapp, tmp_path):
     """It is parked ~10 mm from anything and nobody focused on it. None hands the
-    decision to `build_lamella_poses`' fallback, because `fluorescence_selected` only
-    asks whether an objective position exists -- a parked one would read as focused."""
+    decision to `build_lamella_poses`' fallback, because restoring the pose drives the
+    objective to whatever position it holds -- a parked one would be restored as a focus."""
     host = _wired_host(qapp, tmp_path)
     objective = host.microscope.fm.objective
     objective.retract()
