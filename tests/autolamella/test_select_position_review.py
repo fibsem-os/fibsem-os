@@ -43,7 +43,7 @@ from tests.protocols import planned, task_protocol
 
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 def _in_run(relpath: str):

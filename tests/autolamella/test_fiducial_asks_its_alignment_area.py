@@ -24,7 +24,7 @@ from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
 from tests.protocols import planned, task_protocol
 
 FIDUCIAL = "Mill Fiducial"
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 def _in_run(relpath: str):

@@ -271,7 +271,9 @@ def _demo_with(tmp_path, *entries):
 
 def _arctis_with(tmp_path, *entries):
     """The shipped Arctis simulator, with *entries* replacing its own of one name."""
-    with open(os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+    with open(
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+    ) as f:
         config = yaml.safe_load(f)
     names = {entry["name"] for entry in entries}
     devices = [e for e in config["hardware"]["devices"] if e["name"] not in names]

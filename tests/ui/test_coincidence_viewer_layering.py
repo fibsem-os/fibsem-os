@@ -48,7 +48,9 @@ def viewer_widget(qapp, tmp_path):
     )
 
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        )
     )
     assert microscope.fm is not None, "expected an FM on the simulated Arctis"
     return FluorescenceCoincidenceViewerWidget(

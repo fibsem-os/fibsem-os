@@ -43,7 +43,7 @@ from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
 
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 SETUP = "Setup Lamella Position"
 ROUGH = "Rough Milling"
 

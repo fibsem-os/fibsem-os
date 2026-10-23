@@ -30,10 +30,10 @@ from fibsem.structures import (
     StageDeviceSettings,
 )
 
-IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 # The other mounting. Its objective is under the grid, and it declares no `devices:`
 # block at all -- so it is also the test of what saying nothing gets you.
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 # Past the FM's window (28.8 mm to 68.8 mm), so only the beams', which is unbounded,
 # contains it; travelling to the FM from here would arrive outside the FM's window.

@@ -36,7 +36,9 @@ THREE_PLANES = ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6)
 @pytest.fixture(scope="module")
 def microscope(tmp_path_factory):
     """A Demo microscope with an FM, the sample scene off (noise frames)."""
-    with open(os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+    with open(
+        os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+    ) as f:
         config = yaml.safe_load(f)
     config.setdefault("sim", {}).setdefault("sample", {})["enabled"] = False
     path = tmp_path_factory.mktemp("fm-config") / "sim-arctis-configuration.yaml"

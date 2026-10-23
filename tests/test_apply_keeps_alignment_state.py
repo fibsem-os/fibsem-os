@@ -22,7 +22,7 @@ from fibsem.structures import (
     Point,
 )
 
-SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 @pytest.fixture

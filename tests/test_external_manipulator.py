@@ -94,7 +94,7 @@ def needle_driver():
 
 def _tescan(monkeypatch, *entries):
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     system.other_devices = [DeviceEntry.from_dict(e) for e in entries]
     return connect(monkeypatch, system)
@@ -141,7 +141,7 @@ def test_the_entry_replaces_the_demo_manipulator():
 def test_it_is_fitted_where_the_instrument_says_there_is_none():
     """sim-arctis's simulated instrument has no manipulator, as a Thermo whose xT
     reports none; the configured one is fitted all the same."""
-    path = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     system = utils.load_microscope_configuration(path).system
     system.info.manufacturer = "Demo"
     system.other_devices = [DeviceEntry.from_dict(ENTRY)]

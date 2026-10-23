@@ -18,12 +18,14 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from fibsem import paths
+
 if TYPE_CHECKING:
     # Typing only: auth needs FastAPI, and the sidecar and ``fibsem-mcp watch``
     # read this file without the [server] extra.
     from fibsem.server.auth import AuthConfig
 
-DISCOVERY_DIR = Path.home() / ".fibsem"
+DISCOVERY_DIR = paths.user_dir()
 DISCOVERY_FILE = DISCOVERY_DIR / "app-server.json"
 # The file's name before the App Server rename (FIB-1035). Read, never written,
 # for one release, so a sidecar finds an App Server that predates the rename;

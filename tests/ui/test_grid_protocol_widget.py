@@ -249,7 +249,9 @@ def test_the_fluorescence_editor_takes_the_fm_when_one_connects(widget):
     widget.add_task(FM, "overview_fm")
     arctis, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     widget.set_microscope(arctis)
     assert widget.editor_panel.editor_for(FM).channels.fm is arctis.fm
@@ -343,7 +345,9 @@ def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
 def _arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 

@@ -39,10 +39,10 @@ PINS_PATH = os.path.join(
 
 MOUNTS = {
     "default": None,
-    "iflm": os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
-    "arctis": os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+    "iflm": os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"),
+    "arctis": os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"),
 }
-TESCAN_CONFIG = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+TESCAN_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
 
 NAMES = ("SEM", "FIB", "MILLING", "FM", "NONE")
 # Off centre, so a rotation shows in x and y.

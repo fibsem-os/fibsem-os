@@ -12,7 +12,7 @@ from fibsem.saved_positions import load_saved_positions  # noqa: E402
 from fibsem.session_state import session_state_for  # noqa: E402
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 
-SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 @pytest.fixture

@@ -143,7 +143,9 @@ def test_an_fm_with_no_beam_has_an_imaging_service(tmp_path):
 
     import fibsem.config as fconfig
 
-    with open(os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+    with open(
+        os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+    ) as f:
         config = yaml.safe_load(f)
     for device in config["hardware"]["devices"]:
         if device["name"] in ("electron", "ion"):

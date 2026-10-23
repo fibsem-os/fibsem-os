@@ -39,7 +39,7 @@ from tests.protocols import planned, task_protocol
 
 ROUGH = "Rough Milling"
 POLISH = "Polishing"
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 @pytest.fixture

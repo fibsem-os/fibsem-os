@@ -36,7 +36,7 @@ from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
 
 SETUP = "Setup Lamella Position"
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 @pytest.fixture(scope="module")

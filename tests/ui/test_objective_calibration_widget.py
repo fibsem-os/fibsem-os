@@ -126,7 +126,7 @@ def test_saving_the_calibration_writes_the_configuration(widget, tmp_path, monke
     path.write_text(
         yaml.safe_dump(
             utils.load_yaml(
-                os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+                os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
             )
         )
     )

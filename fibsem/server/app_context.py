@@ -1225,7 +1225,13 @@ class AppContext:
     protocol_type = None
 
     def _protocol_folder(self) -> Optional[str]:
+        """Where the app's protocols are saved; None for an app with none."""
         return None
+
+    def _protocol_folders(self) -> List[str]:
+        """Where the app's protocols are listed from, its saving folder first."""
+        folder = self._protocol_folder()
+        return [folder] if folder else []
 
     def _default_protocol_path(self) -> Optional[str]:
         """The protocol a new experiment starts with; None for the protocol
@@ -1252,8 +1258,8 @@ class AppContext:
     def _listed_protocols(self) -> List[Dict[str, Any]]:
         from fibsem.workflows.protocol_files import list_protocols
 
-        folder = self._protocol_folder()
-        return list_protocols(folder, self._default_protocol_path()) if folder else []
+        folders = self._protocol_folders()
+        return list_protocols(folders, self._default_protocol_path()) if folders else []
 
     def protocol(self) -> Dict[str, Any]:
         """The workflow: each task's plan entry, in order."""

@@ -413,7 +413,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
     def _select_protocol(self):
         """Open dialog to select a protocol file."""
         # Open file dialog at the directory of the current protocol or default
-        start_path = cfg.TASK_PROTOCOL_PATH
+        start_path = cfg.USER_PROTOCOL_PATH
         if self.protocol_path:
             start_path = os.path.dirname(self.protocol_path)
 

@@ -61,7 +61,9 @@ def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     return microscope
 
@@ -535,7 +537,7 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
     nothing pressed on the Grids tab. An autoloader, so the Sample view has a
     loader panel to fire from."""
     ui = main_ui
-    config = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+    config = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     monkeypatch.setattr(
         ui.system_widget, "load_configuration", lambda configuration_name=None: config
     )

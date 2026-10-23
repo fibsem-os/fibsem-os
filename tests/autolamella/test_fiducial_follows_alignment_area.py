@@ -31,7 +31,7 @@ from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.autolamella._on_the_record import manager_for
 from tests.protocols import planned, task_protocol
 
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 SETUP, FIDUCIAL, ROUGH = "Setup", "Mill Fiducial", "Rough Milling"
 
 # 01-alive-dory's area on the FIB-1035 test run, away from an off-centre POI

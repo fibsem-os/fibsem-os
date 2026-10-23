@@ -9,8 +9,8 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-import fibsem
 import fibsem.util.numpy_yaml  # noqa: F401  numpy scalars dump as numbers
+from fibsem import paths, state_move
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.saved_format import saved_app
 
@@ -64,20 +64,31 @@ REFERENCE_HFW_ULTRA = 50e-6
 DEFAULT_STANDARD_RESOLUTION_LIST = [1536, 1024]
 
 
-BASE_PATH = os.path.dirname(fibsem.__path__[0])
-CONFIG_PATH = os.path.join(BASE_PATH, "fibsem", "config")
-LOG_PATH = os.path.join(BASE_PATH, "fibsem", "log")
+# Shipped files are read from the package; everything written goes under the state
+# root (`fibsem.paths`). An older release's files are brought over on the first start.
+PACKAGE_PATH = str(paths.PACKAGE_DIR)
+SHIPPED_CONFIG_PATH = os.path.join(PACKAGE_PATH, "config")
+STATE_PATH = str(paths.state_root())
+CONFIG_PATH = os.path.join(STATE_PATH, "config")
+LOG_PATH = os.path.join(STATE_PATH, "log")
+EXPERIMENTS_PATH = os.path.join(STATE_PATH, "experiments")
 DATA_PATH = os.path.join(LOG_PATH, "data")
 DATA_ML_PATH: str = os.path.join(DATA_PATH, "ml")
 DATA_CC_PATH: str = os.path.join(DATA_PATH, "crosscorrelation")
+
+state_move.move_package_state(
+    paths.PACKAGE_DIR,
+    paths.state_root(),
+    scripts_from=Path.home() / ".autolamella" / "scripts",
+)
+
 # Saved positions are session state (`fibsem.saved_positions`); these two files are
 # where they lived before, read once to import them and never written.
 POSITION_PATH = os.path.join(CONFIG_PATH, "saved-positions.yaml")
 LEGACY_POSITIONS_PATH = os.path.join(CONFIG_PATH, "positions.yaml")
 USER_PREFERENCES_PATH = os.path.join(CONFIG_PATH, "user-preferences.yaml")
-MODELS_PATH = os.path.join(BASE_PATH, "fibsem", "segmentation", "models")
 MICROSCOPE_CONFIGURATION_PATH = os.path.join(
-    CONFIG_PATH, "microscope-configuration.yaml"
+    SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
 )
 # fluorescence settings persistence
 FM_CONFIGURATION_PATH = os.path.join(
@@ -99,10 +110,14 @@ SAMPLE_HOLDER_OCCUPANCY_PATH = os.path.join(CONFIG_PATH, "sample-holder-occupanc
 REFERENCE_FILENAME = "alignment_reference"
 
 
-os.makedirs(LOG_PATH, exist_ok=True)
-os.makedirs(DATA_PATH, exist_ok=True)
-os.makedirs(DATA_ML_PATH, exist_ok=True)
-os.makedirs(DATA_CC_PATH, exist_ok=True)
+try:
+    for _directory in (CONFIG_PATH, DATA_ML_PATH, DATA_CC_PATH, EXPERIMENTS_PATH):
+        os.makedirs(_directory, exist_ok=True)
+except OSError as e:
+    raise RuntimeError(
+        f"fibsemOS cannot write to its settings folder {STATE_PATH} ({e}). "
+        f"Set {paths.STATE_ROOT_ENV} to a folder this account can write."
+    ) from e
 
 
 def load_yaml(fname):
@@ -720,7 +735,12 @@ def get_last_experiment_file() -> Optional[str]:
 AUTOLAMELLA_BASE_PATH: Path = os.path.join(
     os.path.dirname(__file__), "applications", "autolamella"
 )
-AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "log")
+# Where a new experiment goes when the preferences name no folder.
+AUTOLAMELLA_LOG_PATH: Path = EXPERIMENTS_PATH
+# The operator's own protocols; the shipped ones stay beside the package code.
+AUTOLAMELLA_USER_PROTOCOL_PATH: Path = os.path.join(
+    STATE_PATH, "autolamella", "protocols"
+)
 AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
 AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(
     AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml"
@@ -730,4 +750,4 @@ AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
 )
 AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 
-os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
+os.makedirs(AUTOLAMELLA_USER_PROTOCOL_PATH, exist_ok=True)

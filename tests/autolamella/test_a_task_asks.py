@@ -39,7 +39,7 @@ from fibsem.workflows.proposals import (
 from tests.protocols import planned, task_protocol
 
 ROUGH = "Rough Milling"
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 class _AsksForAPoint(MillRoughTask):

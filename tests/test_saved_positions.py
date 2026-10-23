@@ -22,7 +22,7 @@ from fibsem.saved_positions import (
 from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import FibsemStagePosition
 
-SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 def _position(name: str, x: float = 0.0) -> dict:

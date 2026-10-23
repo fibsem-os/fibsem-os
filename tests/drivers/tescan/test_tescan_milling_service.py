@@ -59,7 +59,7 @@ def connect(monkeypatch, tescan_system):
 @pytest.fixture
 def tescan_system():
     return utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
 
 

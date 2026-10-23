@@ -1,6 +1,7 @@
 import gc
 import logging
 import os
+import tempfile
 
 import pytest
 
@@ -10,6 +11,12 @@ import pytest
 # drivers override the methods and are unaffected (see fibsem._timing.sim_sleep).
 # Use FIBSEM_SIM_NO_DELAY=0 to run with the delays enabled.
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+
+# A state root of the run's own, so no test writes to ~/.fibsem. Its config folder
+# exists already, so the first-start move never takes a checkout's files.
+if "FIBSEM_HOME" not in os.environ:
+    os.environ["FIBSEM_HOME"] = tempfile.mkdtemp(prefix="fibsem-home-")
+    os.makedirs(os.path.join(os.environ["FIBSEM_HOME"], "config"))
 
 
 @pytest.fixture(autouse=True)

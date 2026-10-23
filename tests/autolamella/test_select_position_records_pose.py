@@ -28,7 +28,7 @@ from tests.autolamella._on_the_record import manager_for
 # only; the nightly and release runs take them everywhere (python-package.yml).
 pytestmark = pytest.mark.slow
 
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 @pytest.fixture
@@ -81,7 +81,9 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
 
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     try:
         marked = microscope.get_stage_position()

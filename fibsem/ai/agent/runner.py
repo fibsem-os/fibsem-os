@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from fibsem import paths
 from fibsem.ai.agent import code_mode
 from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
@@ -1098,7 +1099,7 @@ LAST = "last"
 
 
 def _sessions_file() -> Path:
-    return Path.home() / ".fibsem" / "agent" / "sessions.json"
+    return paths.user_dir() / "agent" / "sessions.json"
 
 
 def _sessions() -> dict:
@@ -1131,7 +1132,7 @@ def keep_session(folder: Path, session_id: str) -> None:
 
 def _default_log() -> Path:
     stamp = timestamps.now().strftime("%Y-%m-%d-%H-%M-%S")
-    return Path.home() / ".fibsem" / "agent" / f"fibsem-agent-{stamp}.log"
+    return paths.user_dir() / "agent" / f"fibsem-agent-{stamp}.log"
 
 
 def status(

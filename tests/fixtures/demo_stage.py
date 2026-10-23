@@ -22,7 +22,7 @@ def demo_session(
     set and any other `sim:` keys in *sim*. The file is written to a directory that
     outlives the call, because the microscope keeps its path to write calibrations
     back to."""
-    data = utils.load_yaml(os.path.join(cfg.CONFIG_PATH, config))
+    data = utils.load_yaml(os.path.join(cfg.SHIPPED_CONFIG_PATH, config))
     data["sim"] = {
         **(data.get("sim") or {}),
         **(sim or {}),

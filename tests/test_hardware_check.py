@@ -25,7 +25,9 @@ from fibsem.tools.hardware_check import (
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml"
+        ),
         manufacturer="Demo",
         setup_logging=False,
     )

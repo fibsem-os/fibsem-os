@@ -43,7 +43,7 @@ from tests.protocols import planned, task_protocol
 
 SELECT = "Select Fluorescence Position"
 ACQUIRE = "Acquire Fluorescence Image"
-CONFIG = os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")
+CONFIG = os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 OBJECTIVE = 0.006
 
 

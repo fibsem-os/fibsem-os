@@ -39,7 +39,9 @@ from tests.protocols import planned, task_protocol
 
 UNDERCUT = "Mill Undercut"
 CHECKPOINT = "autolamella-waffle-20240107.pt"
-CONFIG = os.path.join(fibsem_config.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(
+    fibsem_config.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+)
 
 
 @pytest.fixture

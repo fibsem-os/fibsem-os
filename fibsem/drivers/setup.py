@@ -32,7 +32,7 @@ class SetupModel:
 
     summary: str
     filename: str
-    """The configuration to start from, in ``fibsem.config.CONFIG_PATH``."""
+    """The configuration to start from, in ``fibsem.config.SHIPPED_CONFIG_PATH``."""
 
     knows_stage: bool = True
     """Whether the configuration's stage values are right for every such instrument,

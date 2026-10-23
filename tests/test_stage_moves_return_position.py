@@ -48,7 +48,7 @@ class _TescanStage:
 def _tescan():
     microscope = object.__new__(TescanMicroscope)  # skip __init__ (requires the SDK)
     microscope.system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     microscope.fm = None
     stage = _TescanStage()
@@ -161,7 +161,7 @@ def _odemis(cls):
 
     microscope = object.__new__(cls)  # skip __init__ (requires odemis)
     microscope.system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "odemis-configuration.yaml")
     ).system
     microscope._connection = OdemisConnection(None, _OdemisStage(), None)
     microscope.stage = bind_odemis_stage(microscope)

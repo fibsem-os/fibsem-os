@@ -35,7 +35,9 @@ from fibsem.structures import (
 
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default
-TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+TFS_SHUTTLE_CONFIG = os.path.join(
+    cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+)
 
 COINCIDENCE_OFFSET = 8e-6
 MILLING_POSE_TILT = np.deg2rad(12.0)

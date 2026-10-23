@@ -32,7 +32,7 @@ from fibsem.workflows.status import TaskStatus
 from tests.protocols import planned, task_protocol
 from tests.run_state import run_lamellae
 
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 # Built-in tasks that cannot run here, and why. Any other built-in task runs in
 # this test, so a new one is guarded from the day it is registered; one that

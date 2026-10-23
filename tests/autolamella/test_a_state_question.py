@@ -34,7 +34,7 @@ from fibsem.workflows.site_tasks.reference_image import (
 from tests.protocols import planned, task_protocol
 
 REF = "Acquire Reference Image"
-CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 
 
 @pytest.fixture

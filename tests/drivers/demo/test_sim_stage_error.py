@@ -15,7 +15,7 @@ from fibsem.structures import (
     OverviewAcquisitionSettings,
 )
 
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
 @pytest.fixture
