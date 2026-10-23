@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -589,7 +588,7 @@ def test_wd_settable_capability_matrix(monkeypatch):
     from tests.fixtures.tescan_sdk import connect
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     tescan, _ = connect(monkeypatch, system)
     assert tescan.is_working_distance_settable(BeamType.ELECTRON) is True

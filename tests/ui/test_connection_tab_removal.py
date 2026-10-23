@@ -1,15 +1,11 @@
-"""The Connection tab goes, and the first-run offer goes with it — somewhere.
+"""The Connection tab, and the first-run offer in the connection dialog.
 
-The tab is a gate in a bar that otherwise means "the instrument needs you here
-now": the only tab that can never be a workflow step, sitting at position 0 for
-something done once a session (FIB-775). With `features.connection_chip` on, the
-dialog and the header chip reach the connection instead, and the tab is not built.
+The header chip that was to replace the tab is gone with its flag (FIB-1544): the
+tab is how the operator connects, and File > Connect to Microscope opens the
+dialog.
 
-The part that would have been lost silently is the **guided-setup offer** (#472).
-It is a banner inside `FibsemSystemSetupWidget`, and the Connection tab was the
-only place it rendered — removing the tab would have left a fresh install with
-Tools > Guided Setup, which is not somewhere a first-time user looks. It now lives
-in the connection dialog, which is what they reach first.
+The **guided-setup offer** (#472) is a banner inside `FibsemSystemSetupWidget`
+and in the connection dialog; a fresh install sees it in either.
 
 Preferences are redirected to a temp file throughout: `is_first_run` reads the
 real configuration registry, and these tests must neither depend on the
@@ -30,7 +26,6 @@ from fibsem import config as cfg  # noqa: E402
 from fibsem import guided_setup  # noqa: E402
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
 from fibsem.ui.widgets.connection_dialog import ConnectionDialog  # noqa: E402
-from tests.fixtures.main_window import close_window  # noqa: E402
 
 
 @pytest.fixture
@@ -48,28 +43,17 @@ def _tabs(ui: AutoLamellaWindow) -> list[str]:
     return [ui.panel.tabWidget.tabText(i) for i in range(ui.panel.tabWidget.count())]
 
 
-def test_the_tab_is_there_with_the_flag_off(qapp, prefs):
-    """The shipping default. Nothing about connecting has moved."""
-    prefs.features.connection_chip = False
-
+def test_the_tab_is_there(qapp, prefs):
+    """Nothing about connecting has moved."""
     ui = AutoLamellaWindow()
     try:
         assert "Connection" in _tabs(ui)
         # And it is the one the panel opens on, as it always was.
         assert ui.panel.tabWidget.tabText(0) == "Connection"
-    finally:
-        ui.deleteLater()
-
-
-def test_the_tab_is_gone_with_the_flag_on(qapp, prefs):
-    prefs.features.connection_chip = True
-
-    ui = AutoLamellaWindow()
-    try:
-        assert "Connection" not in _tabs(ui)
-        # The widget stays: it owns the connection, and everything in the
-        # application follows its signals. Only the tab was conditional.
-        assert ui.system_widget is not None
+        # The dialog is in the File menu for everyone.
+        assert ui.menu_bar.action_connect_microscope in (
+            ui.menuBar().actions()[0].menu().actions()
+        )
     finally:
         ui.deleteLater()
 
@@ -79,7 +63,6 @@ def test_the_tab_is_gone_with_the_flag_on(qapp, prefs):
 
 def test_the_offer_shows_on_a_fresh_install(qapp, prefs, monkeypatch):
     monkeypatch.setattr(guided_setup, "is_first_run", lambda: True)
-    prefs.display.guided_setup_dismissed = False
 
     dialog = ConnectionDialog()
     try:
@@ -104,7 +87,8 @@ def test_the_offer_stays_away_otherwise(qapp, prefs, monkeypatch, dismissed, fir
     that recorded a dismissal look like the same thing as undoing it.
     """
     monkeypatch.setattr(guided_setup, "is_first_run", lambda: first_run)
-    prefs.display.guided_setup_dismissed = dismissed
+    if dismissed:
+        guided_setup.dismiss_first_run()
 
     dialog = ConnectionDialog()
     try:

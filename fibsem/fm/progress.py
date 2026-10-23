@@ -50,8 +50,9 @@ there is no offset to apply anywhere.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
+
+from fibsem.progress import ProgressStatus, ends
 
 __all__ = [
     "FluorescenceAcquisitionStatus",
@@ -59,7 +60,7 @@ __all__ = [
 ]
 
 
-class FluorescenceAcquisitionStatus(str, Enum):
+class FluorescenceAcquisitionStatus(ProgressStatus):
     """What a fluorescence acquisition is doing.
 
     Four members for what used to be a `state` field crossed with an `operation` field.
@@ -83,13 +84,15 @@ class FluorescenceAcquisitionStatus(str, Enum):
     FINISHED = "finished"
 
 
+ends(FluorescenceAcquisitionStatus.FINISHED)
+
+
 @dataclass(frozen=True)
 class FluorescenceAcquisitionProgress:
     """One report from a fluorescence acquisition.
 
     Most fields are absent on most reports. `status` is the only one every report
-    carries, and the only required field -- which is also what keeps this constructible
-    on Python 3.8, where `kw_only` does not exist and required fields must come first.
+    carries, and the only required field.
 
     Equality is left generated, unlike `TiledProgress`. Nothing on this signal carries a
     numpy array, so there is no field whose `__eq__` returns an array and blows up the

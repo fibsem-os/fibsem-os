@@ -242,8 +242,8 @@ def _acquisitions(movement, monkeypatch) -> list:
 
 def _prefs(movement, monkeypatch, *, sem: bool, fib: bool) -> None:
     prefs = cfg.load_user_preferences()
-    prefs.movement.acquire_sem_after_stage_movement = sem
-    prefs.movement.acquire_fib_after_stage_movement = fib
+    prefs.qt.acquire_sem_after_stage_movement = sem
+    prefs.qt.acquire_fib_after_stage_movement = fib
     # The widget does `from fibsem import config as cfg`, so it holds this very module
     # object -- patching the attribute here is what it will read.
     monkeypatch.setattr(cfg, "load_user_preferences", lambda: prefs)

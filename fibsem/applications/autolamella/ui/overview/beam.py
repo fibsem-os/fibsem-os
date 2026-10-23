@@ -19,7 +19,7 @@ Why this exists at all
 ----------------------
 It replaced `FibsemMinimapWidget`, which was the last module under `fibsem/ui/` that
 imported AutoLamella: it reached through `parent_widget.experiment` in nineteen
-places, typed its parent as `AutoLamellaUI`, and knew about `DefectType`,
+places, typed its parent as `AutoLamellaUI`, and knew about lamella verdicts,
 `sync_fluorescence_pose` and milling protocol keys -- while also being the widget the
 generic `FibsemUI` hosted. Splitting it along the line the parent contract already
 suggested is what the pair does: `FibsemOverviewWidget` for anyone with a microscope,
@@ -37,12 +37,12 @@ from typing import TYPE_CHECKING, Callable, Optional
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import move_lamella
-from fibsem.applications.autolamella.structures import DefectType
 from fibsem.applications.autolamella.ui.overview.base import AutoLamellaOverviewTabBase
 from fibsem.imaging.overview_session import BEAM
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from fibsem.workflows.grids import OverlayRecord
+from fibsem.workflows.quality import Verdict
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.applications.autolamella.structures import Lamella
@@ -55,7 +55,7 @@ logger = logging.getLogger(__name__)
 # just re-target this": one has failed, the other needs work. The tab this replaces
 # drew them red and orange; there is one warning colour here, because the list beside
 # the canvas already distinguishes them and a second colour on a crosshair does not.
-FLAGGED_DEFECT_STATES = (DefectType.FAILURE, DefectType.REWORK)
+FLAGGED_DEFECT_STATES = (Verdict.FAILED, Verdict.REWORK)
 
 
 class BeamOverviewTab(AutoLamellaOverviewTabBase):
@@ -118,7 +118,7 @@ class BeamOverviewTab(AutoLamellaOverviewTabBase):
         flagged = [
             lamella.name
             for lamella in lamellae
-            if lamella.defect.state in FLAGGED_DEFECT_STATES
+            if lamella.defect.verdict in FLAGGED_DEFECT_STATES
         ]
         self.overview.set_positions(positions, flagged=flagged)
 

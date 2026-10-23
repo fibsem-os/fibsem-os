@@ -57,7 +57,7 @@ def test_a_drivers_own_fields_show_by_their_path(qapp, monkeypatch):
     from tests.fixtures import tescan_sdk
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     tescan, _ = tescan_sdk.connect(monkeypatch, system)
     widget = _widget(tescan)

@@ -5,10 +5,9 @@ This module provides a plugin architecture for AutoLamellaTask implementations,
 similar to the BasePattern plugin system in fibsem.milling.patterning.
 """
 
-import typing
-from typing import TYPE_CHECKING, Any, Dict, Tuple, Type
+from typing import TYPE_CHECKING, Any, Dict, Type
 
-from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
+from fibsem.plugins.loader import PluginRegistry, subclass_of
 from fibsem.workflows.site_task import SiteTask
 from fibsem.workflows.site_tasks import BUILTIN_SITE_TASKS
 
@@ -62,18 +61,6 @@ from fibsem.workflows.queue import (
     WorkItem,
 )
 
-
-class TaskNotRegisteredError(Exception):
-    """Exception raised when a task is not registered in the TASK_REGISTRY."""
-
-    def __init__(self, task_type: str):
-        super().__init__(f"Task '{task_type}' is not registered in the TASK_REGISTRY.")
-        self.task_type = task_type
-
-    def __str__(self) -> str:
-        return f"TaskNotRegisteredError: {self.task_type}"
-
-
 # Built-in tasks registry
 BUILTIN_TASKS: Dict[str, Type[SiteTask]] = {
     **BUILTIN_SITE_TASKS,
@@ -106,28 +93,6 @@ TASK_PLUGINS: PluginRegistry[Type[AutoLamellaTask]] = PluginRegistry(
     builtins=BUILTIN_TASKS,
 )
 
-# Runtime registered tasks
-REGISTERED_TASKS: Dict[str, Type[AutoLamellaTask]] = TASK_PLUGINS.registered
-
-
-def register_task(task_cls: Type[AutoLamellaTask]) -> None:
-    """Register a task class at runtime.
-
-    Args:
-        task_cls: The task class to register. Must be a subclass of AutoLamellaTask
-                  with a config_cls ClassVar that has a task_type ClassVar.
-
-    Example:
-        >>> from fibsem.applications.autolamella.workflows.tasks import register_task
-        >>> register_task(CustomTask)
-    """
-    TASK_PLUGINS.register(task_cls.config_cls.task_type, task_cls)
-
-
-def get_task_plugin_records() -> Tuple[PluginRecord, ...]:
-    """Every ``fibsem.autolamella.tasks`` entry point and what became of it."""
-    return TASK_PLUGINS.plugin_records()
-
 
 def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
     """Get all available tasks.
@@ -143,11 +108,6 @@ def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
     return TASK_PLUGINS.all()
 
 
-def get_task_names() -> typing.List[str]:
-    """Get list of all available task type names."""
-    return list(get_tasks().keys())
-
-
 def load_task_config(
     ddict: Dict[str, Any],
 ) -> "EventedDict[str, AutoLamellaTaskConfig]":
@@ -160,19 +120,49 @@ def load_task_config(
     return EventedDict(load_task_configs(TASK_PLUGINS, ddict))
 
 
-def load_config(task_type: str, ddict: Dict[str, Any]) -> "AutoLamellaTaskConfig":
-    """Load a task configuration from a dictionary."""
-    config_class = get_task_config(task_type=task_type)
-    return config_class.from_dict(ddict)
-
-
-def get_task_config(task_type: str) -> Type["AutoLamellaTaskConfig"]:
-    """Get the task configuration by name."""
-    task_registry = get_tasks()
-    if task_type not in task_registry:
-        raise TaskNotRegisteredError(task_type)
-    return task_registry[task_type].config_cls  # type: ignore
-
-
-# Legacy support - maintain backward compatibility
-TASK_REGISTRY: Dict[str, Type[AutoLamellaTask]] = get_tasks()
+__all__ = [
+    "TaskManager",
+    "run_task",
+    "AcquireFluorescenceImageConfig",
+    "AcquireFluorescenceImageTask",
+    "AcquireReferenceImageConfig",
+    "AcquireReferenceImageTask",
+    "AutoLamellaTask",
+    "MillCoincidentTask",
+    "MillCoincidentTaskConfig",
+    "MillFiducialTask",
+    "MillFiducialTaskConfig",
+    "MillPerforationTask",
+    "MillPerforationTaskConfig",
+    "MillPolishingTask",
+    "MillPolishingTaskConfig",
+    "MillRoughTask",
+    "MillRoughTaskConfig",
+    "MillTrenchTask",
+    "MillTrenchTaskConfig",
+    "MillUndercutTask",
+    "MillUndercutTaskConfig",
+    "SelectFluorescencePositionConfig",
+    "SelectFluorescencePositionTask",
+    "SelectMillingPositionTask",
+    "SelectMillingPositionTaskConfig",
+    "SetupCoincidenceMillingTask",
+    "SetupCoincidenceMillingTaskConfig",
+    "SpotBurnFiducialTask",
+    "SpotBurnFiducialTaskConfig",
+    "get_task_supervision",
+    "QueueOp",
+    "QueueResult",
+    "TaskQueue",
+    "WorkItem",
+    "TaskNotRegisteredError",
+    "BUILTIN_TASKS",
+    "TASK_ENTRY_POINT_GROUP",
+    "TASK_PLUGINS",
+    "REGISTERED_TASKS",
+    "register_task",
+    "get_task_plugin_records",
+    "get_tasks",
+    "get_task_names",
+    "load_task_config",
+]

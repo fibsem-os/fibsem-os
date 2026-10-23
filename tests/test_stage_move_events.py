@@ -15,7 +15,6 @@ import inspect
 import os
 import pkgutil
 import threading
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -128,7 +127,7 @@ def test_a_move_to_where_the_stage_already_is_ends_there(microscope, recorded):
 def test_a_move_to_a_device_is_one_event_not_three():
     # From the SEM pose to an offset FM: to the beams, re-pose there, travel out.
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
     microscope.move_to_orientation("SEM")
     events = []
@@ -141,7 +140,7 @@ def test_a_move_to_a_device_is_one_event_not_three():
     moves = [payload for kind, payload in events if kind == "stage_moved"]
     assert [m["move"] for m in moves] == ["move_to_device"]
     assert moves[0]["request"] == {"device": "FM", "orientation": None}
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
 
 
 def test_moves_made_one_after_another_are_each_recorded(microscope, recorded):
@@ -267,7 +266,7 @@ def test_a_tescan_stable_move_is_one_event_not_three(monkeypatch):
     from tests.fixtures.tescan_sdk import connect
 
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
     microscope, fake = connect(monkeypatch, system)
     events = []

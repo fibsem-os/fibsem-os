@@ -12,7 +12,7 @@ canvas does. When the row is too narrow, whole fields drop from the right behind
 ``+N`` chip that lists them on hover; a value is never cut off half way.
 
 The button at its end opens :class:`FieldPicker`, a checklist of what the bar shows.
-The choice is a display preference per kind of view (``display.info_bar_fields``):
+The choice is a display preference per kind of view (``shared.info_bar_fields``):
 every bar of that kind follows it, now and after a restart.
 
 The quad view's fourth cell has one too, with no image: the stage's position, pushed
@@ -122,7 +122,7 @@ def choose_field_keys(kind: str, keys: Optional[Sequence[str]]) -> Tuple[str, ..
     them on every open bar of that kind. Returns the keys now in effect."""
 
     def change(preferences) -> None:
-        chosen = preferences.display.info_bar_fields
+        chosen = preferences.shared.info_bar_fields
         if keys is None:
             chosen.pop(kind, None)
         else:

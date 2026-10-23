@@ -1,6 +1,7 @@
 import gc
 import logging
 import os
+import tempfile
 
 import pytest
 
@@ -12,6 +13,12 @@ from tests.fixtures.microscopes import demo_microscope
 # drivers override the methods and are unaffected (see fibsem._timing.sim_sleep).
 # Use FIBSEM_SIM_NO_DELAY=0 to run with the delays enabled.
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+
+# A state root of the run's own, so no test writes to ~/.fibsem. Its config folder
+# exists already, so the first-start move never takes a checkout's files.
+if "FIBSEM_HOME" not in os.environ:
+    os.environ["FIBSEM_HOME"] = tempfile.mkdtemp(prefix="fibsem-home-")
+    os.makedirs(os.path.join(os.environ["FIBSEM_HOME"], "config"))
 
 # The Demo microscope on the default configuration, one per test module. A file
 # that needs another declares its own (tests/fixtures/microscopes.py).

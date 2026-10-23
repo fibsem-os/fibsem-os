@@ -1,6 +1,6 @@
 """A lamella can be judged good, and a good lamella is not drawn as a defective one.
 
-The lamella's menu offered "No defect", which wrote ``Verdict.NONE`` -- an alias of
+The lamella's menu offered "No defect", which wrote ``Verdict.UNASSESSED`` -- an alias of
 ``UNASSESSED``. So "I looked and it is fine" was stored as "nobody has looked", and
 nothing in the app could record a good lamella. The model had ``GOOD`` all along (and
 the App Server could set it); every display then treated anything but ``NONE`` as a

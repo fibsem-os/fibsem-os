@@ -166,11 +166,10 @@ def test_an_experiment_under_the_folder_is_loaded(driver, host, places):
     driver.post("/app/experiment/create", json={"name": "lab/first"})
     driver.post("/app/experiment/create", json={"name": "second"})
     # off the recents list, but under the folder: by its folder, relative
-    from fibsem.config import load_user_preferences, save_user_preferences
+    from fibsem.config import RECENT_EXPERIMENTS
+    from fibsem.session_state import user_state
 
-    prefs = load_user_preferences()
-    prefs.experiment.recent_experiments = []
-    save_user_preferences(prefs)
+    user_state(writable=True).save_section(RECENT_EXPERIMENTS, [])
     loaded = driver.post("/app/experiment/load", json={"path": "lab/first"})
     assert loaded.status_code == 200, loaded.text
     assert host.experiment.name == "first"

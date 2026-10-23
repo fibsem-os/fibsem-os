@@ -8,7 +8,7 @@ import threading
 import pytest
 
 from fibsem import utils
-from fibsem.config import CONFIG_PATH
+from fibsem.config import SHIPPED_CONFIG_PATH
 from fibsem.devices import (
     STAGE_RESOURCE,
     ParameterReadOnly,
@@ -18,7 +18,7 @@ from fibsem.devices import (
 from fibsem.structures import FibsemStagePosition, RangeLimit
 
 # A simulated Arctis, whose stage is a compustage.
-_ARCTIS_CONFIG = os.path.join(CONFIG_PATH, "sim-arctis-configuration.yaml")
+_ARCTIS_CONFIG = os.path.join(SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
 def _demo_stage(config_path=None):

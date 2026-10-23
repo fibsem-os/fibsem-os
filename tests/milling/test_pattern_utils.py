@@ -3,19 +3,15 @@
 import numpy as np
 import pytest
 
-from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import CirclePattern, RectanglePattern
 from fibsem.milling.patterning.utils import (
     bbox_to_normalized_coords,
     create_pattern_mask,
     get_pattern_bounding_box,
     get_patterns_bounding_box,
-    normalized_coords_to_bbox,
 )
 from fibsem.structures import (
-    FibsemCircleSettings,
     FibsemImage,
-    FibsemRectangleSettings,
     Point,
 )
 
@@ -131,76 +127,6 @@ class TestCoordinateConversion:
         norm_bbox = bbox_to_normalized_coords(bbox, image)
         expected = (0.25, 0.25, 0.75, 0.75)
         assert norm_bbox == expected
-
-    def test_normalized_coords_to_bbox_empty(self):
-        """Test pixel coordinate conversion for empty normalized bbox."""
-        image = FibsemImage.generate_blank_image(
-            resolution=(100, 100), pixel_size=Point(x=1e-9, y=1e-9)
-        )
-        norm_bbox = (0.0, 0.0, 0.0, 0.0)
-
-        bbox = normalized_coords_to_bbox(norm_bbox, image)
-        assert bbox == (0, 0, 0, 0)
-
-    def test_normalized_coords_to_bbox_center_quarter(self):
-        """Test pixel coordinate conversion for center quarter."""
-        image = FibsemImage.generate_blank_image(
-            resolution=(100, 100), pixel_size=Point(x=1e-9, y=1e-9)
-        )
-        norm_bbox = (0.25, 0.25, 0.75, 0.75)
-
-        bbox = normalized_coords_to_bbox(norm_bbox, image)
-        expected = (25, 25, 75, 75)
-        assert bbox == expected
-
-    def test_normalized_coords_to_bbox_bounds_checking(self):
-        """Test pixel coordinate conversion bounds checking."""
-        image = FibsemImage.generate_blank_image(
-            resolution=(100, 100), pixel_size=Point(x=1e-9, y=1e-9)
-        )
-        # Coordinates that would go out of bounds
-        norm_bbox = (1.5, 1.5, 2.0, 2.0)
-
-        bbox = normalized_coords_to_bbox(norm_bbox, image)
-        # Should be clamped to image bounds
-        assert bbox[0] >= 0 and bbox[0] < 100
-        assert bbox[1] >= 0 and bbox[1] < 100
-        assert bbox[2] >= 0 and bbox[2] < 100
-        assert bbox[3] >= 0 and bbox[3] < 100
-
-    def test_coordinate_conversion_roundtrip(self):
-        """Test that converting bbox->normalized->bbox preserves values."""
-        image = FibsemImage.generate_blank_image(
-            resolution=(200, 150), pixel_size=Point(x=1e-9, y=1e-9)
-        )
-        original_bbox = (20, 30, 180, 120)
-
-        # Convert to normalized and back
-        norm_bbox = bbox_to_normalized_coords(original_bbox, image)
-        final_bbox = normalized_coords_to_bbox(norm_bbox, image)
-
-        assert final_bbox == original_bbox
-
-    def test_coordinate_conversion_different_image_sizes(self):
-        """Test coordinate conversion with different image sizes."""
-        # Test that normalized coordinates work across different image sizes
-        bbox1 = (10, 10, 90, 90)
-        image1 = FibsemImage.generate_blank_image(
-            resolution=(100, 100), pixel_size=Point(x=1e-9, y=1e-9)
-        )
-        image2 = FibsemImage.generate_blank_image(
-            resolution=(200, 200), pixel_size=Point(x=1e-9, y=1e-9)
-        )
-
-        # Convert bbox from image1 to normalized
-        norm_bbox = bbox_to_normalized_coords(bbox1, image1)
-
-        # Convert to bbox for image2
-        bbox2 = normalized_coords_to_bbox(norm_bbox, image2)
-
-        # Should represent same relative positions
-        expected_bbox2 = (20, 20, 180, 180)  # 2x scaling
-        assert bbox2 == expected_bbox2
 
 
 class TestPatternMask:

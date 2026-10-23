@@ -7,7 +7,9 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
+
+from pydantic import PlainSerializer
 
 from fibsem import acquire
 from fibsem import config as fcfg
@@ -21,6 +23,8 @@ from fibsem.cancellation import (
     ended_by,
     raise_if_cancelled,
 )
+from fibsem.codec import decode, encode
+from fibsem.constants import TIME_FILE
 from fibsem.devices.runs import Runs, current_run_id
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.base import FibsemMillingStage, MillingStrategyResult
@@ -41,7 +45,7 @@ from fibsem.structures import (
     param,
 )
 from fibsem.util.timestamps import now_iso
-from fibsem.utils import current_timestamp_v3
+from fibsem.utils import current_timestamp
 from fibsem.workflows.config_patch import PatchError, apply_patch
 
 
@@ -80,26 +84,11 @@ class MillingTaskAcquisitionSettings(Configurable):
         return self.imaging.estimated_time * n
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "acquire_sem": self.acquire_sem,
-            "acquire_fib": self.acquire_fib,
-            "acquire_final_image": self.acquire_final_image,
-            "imaging": self.imaging.to_dict(),
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MillingTaskAcquisitionSettings":
-        imaging = data.get("imaging", {})
-        if imaging == {} or imaging.get("path", None) is None:
-            imaging["path"] = None
-        return cls(
-            acquire_sem=data.get("acquire_sem", False),
-            acquire_fib=data.get("acquire_fib", False),
-            # default True so protocols written before this flag existed keep the
-            # post-task FIB refresh they have always had
-            acquire_final_image=data.get("acquire_final_image", True),
-            imaging=ImageSettings.from_dict(imaging),
-        )
+        return decode(cls, data)
 
 
 # What a milling task sets on each stage before the stage runs, as stage path: task
@@ -208,70 +197,11 @@ def patch_milling_config(
     return edited
 
 
-def describe_config_fields(config: "FibsemMillingTaskConfig") -> Dict[str, Any]:
-    """What each field of ``config`` means, for an agent editing it: the task's
-    fields and the stage's by dotted path, and each pattern's and strategy's
-    fields by its name. Each entry has the field's doc, its SI unit, and
-    ``not_used`` (why setting it does nothing) where that applies; the stage
-    fields the task sets itself say so. Only fields that say something."""
-
-    def walk(cls: type, prefix: str, out: Dict[str, Any], seen: tuple) -> None:
-        from dataclasses import is_dataclass
-
-        from fibsem.structures import field_specs
-
-        if cls in seen:
-            return
-        for name, spec in field_specs(cls).items():
-            path = f"{prefix}{name}"
-            entry = {
-                key: value
-                for key, value in (
-                    ("doc", spec.doc),
-                    ("unit", spec.unit),
-                    ("not_used", spec.not_used),
-                )
-                if value
-            }
-            if entry:
-                out[path] = entry
-            hint = spec.type
-            if isinstance(hint, type) and is_dataclass(hint) and not spec.not_used:
-                walk(hint, f"{path}.", out, seen + (cls,))
-
-    from fibsem.milling.base import FibsemMillingStage
-
-    task: Dict[str, Any] = {}
-    walk(type(config), "", task, ())
-    task.pop("stages", None)
-    stage: Dict[str, Any] = {}
-    walk(FibsemMillingStage, "", stage, ())
-    for path in list(stage):
-        # Inside a section the task sets: the section says so, below.
-        if path not in TASK_SETS_ON_STAGE and task_overridden_path(f"stages.0.{path}"):
-            del stage[path]
-    for path in TASK_SETS_ON_STAGE:
-        note = task_overridden_path(f"stages.0.{path}")
-        stage[path] = {**stage.get(path, {}), "not_used": note}
-    patterns: Dict[str, Any] = {}
-    strategies: Dict[str, Any] = {}
-    for each in config.stages:
-        pattern, strategy = each.pattern, each.strategy
-        if pattern.name not in patterns:
-            walk(type(pattern), "", patterns.setdefault(pattern.name, {}), ())
-        if strategy.strategy_name not in strategies:
-            walk(
-                type(strategy),
-                "",
-                strategies.setdefault(strategy.strategy_name, {}),
-                (),
-            )
-    return {
-        "task": task,
-        "stage": stage,
-        "pattern": patterns,
-        "strategy": strategies,
-    }
+# A stage as a milling task saves it: without what the task sets on it.
+TaskStage = Annotated[
+    FibsemMillingStage,
+    PlainSerializer(lambda stage: stage.to_dict(short=True), when_used="json"),
+]
 
 
 @dataclass
@@ -290,7 +220,7 @@ class FibsemMillingTaskConfig(Configurable):
     acquisition: MillingTaskAcquisitionSettings = field(
         default_factory=MillingTaskAcquisitionSettings
     )
-    stages: List[FibsemMillingStage] = field(default_factory=list)
+    stages: List[TaskStage] = field(default_factory=list)
 
     @property
     def enabled_stages(self) -> List[FibsemMillingStage]:
@@ -298,29 +228,11 @@ class FibsemMillingTaskConfig(Configurable):
         return [s for s in self.stages if s.enabled]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "field_of_view": self.field_of_view,
-            "channel": self.channel.name,
-            "alignment": self.alignment.to_dict(),
-            "acquisition": self.acquisition.to_dict(),
-            "stages": [stage.to_dict(short=True) for stage in self.stages],
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "FibsemMillingTaskConfig":
-        alignment = data.get("alignment", {})
-        acquisition = data.get("acquisition", {})
-        return cls(
-            name=data.get("name", "Milling Task"),
-            field_of_view=data.get("field_of_view", 150e-6),
-            channel=BeamType[data.get("channel", BeamType.ION.name)],
-            alignment=MillingAlignment.from_dict(alignment),
-            acquisition=MillingTaskAcquisitionSettings.from_dict(acquisition),
-            stages=[
-                FibsemMillingStage.from_dict(stage) for stage in data.get("stages", [])
-            ],
-        )
+        return decode(cls, data)
 
     @classmethod
     def from_stages(
@@ -824,7 +736,7 @@ class FibsemMillingTask:
         filename = f"{self.name}_{fcfg.REFERENCE_FILENAME}"
         if tag:
             filename = f"{filename}_{tag}"
-        filename = f"{filename}_{current_timestamp_v3(timeonly=True)}".replace(" ", "-")
+        filename = f"{filename}_{current_timestamp(TIME_FILE)}".replace(" ", "-")
         image_settings = ImageSettings(
             hfw=self.config.field_of_view,
             dwell_time=self.config.alignment.imaging.dwell_time,
@@ -851,7 +763,7 @@ class FibsemMillingTask:
         """
         self.microscope.finish_milling()
 
-        acq_date = current_timestamp_v3(timeonly=True)
+        acq_date = current_timestamp(TIME_FILE)
         self.config.acquisition.imaging.filename = (
             f"{stage_name}_{tag}_{acq_date}".replace(" ", "-")
         )

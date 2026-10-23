@@ -17,7 +17,6 @@ in Essence for its length, and reads the state, the elapsed time and the total f
 
 from __future__ import annotations
 
-import contextlib
 import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, Optional, Sequence, Tuple, Union

@@ -8,8 +8,8 @@ from fibsem.milling.base import (
     get_strategy,
 )
 from fibsem.milling.patterning.patterns import RectanglePattern
-from fibsem.milling.strategy import DEFAULT_STRATEGY, get_strategies
-from fibsem.structures import FibsemMillingSettings, MillingAlignment, Point
+from fibsem.milling.strategy import DEFAULT_STRATEGY
+from fibsem.structures import FibsemMillingSettings, MillingAlignment
 
 
 def test_milling_stage():

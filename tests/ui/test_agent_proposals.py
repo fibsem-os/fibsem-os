@@ -41,7 +41,6 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from fibsem.workflows.proposals import (  # noqa: E402
     POINT_OF_INTEREST,  # noqa: E402
-    Decision,
     DecisionOutcome,
     Proposal,
 )

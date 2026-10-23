@@ -103,9 +103,9 @@ class FluorescenceOverviewTab(AutoLamellaOverviewTabBase):
 
         Unless the objective is retracted, in which case its position is a parking spot
         ~10 mm from anything and nobody focused on anything. None hands the decision back
-        to the fallback -- which matters because `fluorescence_selected` only asks
-        whether an objective position exists, so a parked one would read as a focused
-        lamella.
+        to the fallback -- which matters because restoring the pose drives the
+        objective to whatever position it holds, so a parked one would be restored as
+        a focus.
         """
         microscope = self.microscope
         if microscope is None or microscope.fm is None:

@@ -253,7 +253,9 @@ def test_the_demo_builds_neither_unless_an_entry_lists_it():
 
 
 def _arctis(tmp_path, *extra):
-    with open(os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")) as f:
+    with open(
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+    ) as f:
         config = yaml.safe_load(f)
     config["hardware"]["devices"].extend(extra)
     path = tmp_path / "configuration.yaml"

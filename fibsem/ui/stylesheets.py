@@ -272,20 +272,6 @@ GHOST_BUTTON_STYLESHEET = f"""
     }}
 """
 
-# The same, with the label muted until hovered: for a line that is context rather
-# than the thing you came to read.
-MUTED_GHOST_BUTTON_STYLESHEET = (
-    GHOST_BUTTON_STYLESHEET
-    + f"""
-    QPushButton {{
-        color: {TEXT_MUTED_COLOR};
-    }}
-    QPushButton:hover, QPushButton:pressed {{
-        color: {TEXT_COLOR};
-    }}
-"""
-)
-
 # A pill on an accent tint, for news that is worth seeing but asks for nothing now
 # -- the newer-release chip in the main window's header.
 ACCENT_CHIP_BUTTON_STYLESHEET = f"""

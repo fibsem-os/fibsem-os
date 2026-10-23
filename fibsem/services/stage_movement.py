@@ -31,7 +31,11 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter, Role, command, query
 from fibsem.devices.fm import FM, mount_transform_from_name
 from fibsem.devices.stage import Stage, recording_move
-from fibsem.geometry.angles import wrap_angle
+from fibsem.geometry.angles import (
+    rotation_angle_is_larger,
+    rotation_angle_is_smaller,
+    wrap_angle,
+)
 from fibsem.geometry.frames import StageModel
 from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.movement import (
@@ -49,7 +53,6 @@ from fibsem.geometry.orientations import (
     milling_angle_from_tilt,
     repose,
 )
-from fibsem.movement import rotation_angle_is_smaller
 from fibsem.services.core import Service
 from fibsem.structures import (
     BEAMS_STAGE_DEVICE,
@@ -416,7 +419,7 @@ class StageMovement(Service):
         as "needs travel".
 
         Each device has its own range, and the beams' is unbounded, so the stage can be
-        within more than one; it is at the one `get_current_device` picks, the nearest
+        within more than one; it is at the one `current_device` picks, the nearest
         origin. Within the beams' range but nearer the FM's origin is at the FM. Where
         the stage device says a pose puts it at a device (`Stage.device_at_pose`), the
         pose decides and no range is checked.
@@ -1549,10 +1552,8 @@ class StageMovement(Service):
         if not self.parent.system.stage.rotation or stage_position.r is None:
             return
 
-        from fibsem import movement
-
         current_position = self._position()
-        if movement.rotation_angle_is_larger(stage_position.r, current_position.r):
+        if rotation_angle_is_larger(stage_position.r, current_position.r):
             self._move_stage(FibsemStagePosition(t=0))
             logging.info("tilting to flat for large rotation.")
 
@@ -1858,7 +1859,7 @@ class StageMovement(Service):
     def _check_arrival(self, device: str, arrival: FibsemStagePosition) -> None:
         """Refuse a traverse that would arrive outside *device*'s range.
 
-        The start is checked by finding the source (`get_current_device`); this is the
+        The start is checked by finding the source (`current_device`); this is the
         other end. Each device has its own range, and the stage keeps its offset from
         the source's origin, so a position well inside the beams' range can land
         outside an FM's -- where the stage would report it had not arrived, and could

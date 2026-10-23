@@ -26,8 +26,8 @@ from fibsem.fm.structures import (
     ZParameters,
 )
 
-IFLM_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 CHANNEL = ChannelSettings(
     name="DAPI",
@@ -82,7 +82,7 @@ def test_the_stage_comes_back_to_where_the_overview_started():
     ).run()
 
     assert microscope.get_stage_position().x == pytest.approx(start_x)
-    assert microscope.get_current_device() == "FM"
+    assert microscope.stage_movement.current_device() == "FM"
 
 
 def test_zstacked_overviews_work_at_the_fm_too():
