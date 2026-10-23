@@ -2,7 +2,6 @@
 
 import logging
 import os
-from pathlib import Path
 from typing import Optional
 
 from PyQt5 import QtWidgets
@@ -27,13 +26,6 @@ ERROR_INVALID_PROTOCOL_MSG = (
     "Please select a valid protocol file (*.yaml)."
 )
 
-ERROR_INVALID_LEGACY_PROTOCOL_TITLE = "Invalid Legacy Protocol"
-ERROR_INVALID_LEGACY_PROTOCOL_MSG = (
-    "The selected legacy protocol file could not be converted. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
-    "Error: {error}\n\n"
-    "Please select a valid legacy protocol file (*.yaml)."
-)
-
 ERROR_NO_PROTOCOL_TITLE = "No Protocol"
 ERROR_NO_PROTOCOL_MSG = "Please select a task protocol file."
 
@@ -44,7 +36,6 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
     Allows users to:
     - View current experiment information (read-only)
     - Select and validate a task protocol file
-    - Load legacy protocols with automatic conversion
     - Attach the protocol to the experiment
 
     Returns:
@@ -113,15 +104,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         protocol_layout = QtWidgets.QVBoxLayout(protocol_content)
         protocol_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Select Protocol buttons at top
+        # Select Protocol button at top
         protocol_button_layout = QtWidgets.QHBoxLayout()
         protocol_button_layout.addStretch()
-
-        self.btn_select_legacy_protocol = QtWidgets.QPushButton(
-            "Select Legacy Protocol"
-        )
-        self.btn_select_legacy_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        protocol_button_layout.addWidget(self.btn_select_legacy_protocol)
 
         self.btn_select_protocol = QtWidgets.QPushButton("Select Protocol")
         self.btn_select_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
@@ -202,7 +187,6 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
     def _connect_signals(self):
         """Connect UI signals."""
         self.btn_select_protocol.clicked.connect(self._select_protocol)
-        self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
         self.btn_ok.clicked.connect(self._on_ok_clicked)
         self.btn_cancel.clicked.connect(self.reject)
 
@@ -271,49 +255,6 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         self.btn_ok.setEnabled(True)  # Enable OK button when new protocol is loaded
         self._update_protocol_display()
         logging.info(f"Protocol loaded successfully from {protocol_path}")
-
-    def _select_legacy_protocol(self):
-        """Open dialog to select a legacy protocol file and convert it."""
-        # Open file dialog at the protocol path
-        protocol_path = fui.open_existing_file_dialog(
-            msg="Select a legacy protocol file (*.yaml)",
-            path=str(cfg.PROTOCOL_PATH),
-            parent=self,
-        )
-
-        if not protocol_path or protocol_path == "":
-            return
-
-        # Validate and convert the legacy protocol file
-        try:
-            loaded_protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
-                Path(protocol_path)
-            )
-        except Exception as e:
-            logging.error(f"Failed to load legacy protocol: {e}")
-            self.btn_ok.setEnabled(False)  # Keep OK button disabled on error
-            QtWidgets.QMessageBox.critical(
-                self,
-                ERROR_INVALID_LEGACY_PROTOCOL_TITLE,
-                ERROR_INVALID_LEGACY_PROTOCOL_MSG.format(error=e),
-            )
-            return
-
-        self.protocol = loaded_protocol
-        self.protocol_path = protocol_path
-        self._protocol_changed = not self._is_protocol_same_as_initial(loaded_protocol)
-        if not self._protocol_changed and self._initial_protocol_path:
-            self.protocol_path = self._initial_protocol_path
-        self.btn_ok.setEnabled(True)  # Enable OK button when new protocol is loaded
-        self._update_protocol_display()
-        logging.info(
-            f"Legacy protocol loaded and converted successfully from {protocol_path}"
-        )
-        QtWidgets.QMessageBox.information(
-            self,
-            "Legacy Protocol Converted",
-            "The legacy protocol has been successfully converted to the new task-based format.",
-        )
 
     def _update_protocol_display(self):
         """Update the protocol information display."""

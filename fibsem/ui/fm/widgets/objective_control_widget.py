@@ -47,7 +47,6 @@ STEP_SIZE_CONTROL = {
     "tooltip": "Step size for objective movement in microns",
 }
 MAX_OBJECTIVE_STEP_SIZE_UM = 100.0  # µm
-_SAFE_TILT_TOLERANCE_DEG = 0.5
 
 
 class _InsertObjectiveDialog(QDialog):
@@ -427,30 +426,19 @@ class ObjectiveControlWidget(QWidget):
             logging.info("Objective insertion cancelled by user.")
             return
 
-        target_tilt_deg = dlg.selected_tilt
-        target_stage_pos = None
-        if not np.isclose(tilt_deg, target_tilt_deg, atol=_SAFE_TILT_TOLERANCE_DEG):
-            stage_pos.t = np.radians(target_tilt_deg)
-            target_stage_pos = stage_pos
-
         self._set_objective_actions_enabled(False)
-        self._action_worker = worker = self._insert_objective_worker(target_stage_pos)
+        self._action_worker = worker = self._insert_objective_worker(
+            np.radians(dlg.selected_tilt)
+        )
         worker.returned.connect(self._on_objective_action_finished)
         worker.errored.connect(self._on_objective_action_error)
         worker.start(control=control_of(self.microscope), action="insert objective")
 
     @thread_worker
-    def _insert_objective_worker(self, target_stage_pos) -> None:
-        """Worker: move stage to the insert tilt (if needed), then insert."""
-        if target_stage_pos is not None:
-            logging.info(
-                f"Moving stage to {np.degrees(target_stage_pos.t):.0f}° tilt "
-                "before inserting objective."
-            )
-            self.microscope.move_stage_absolute(target_stage_pos)
-        logging.info("Inserting objective...")
-        self.fm.objective.insert()
-        logging.info("Objective inserted.")
+    def _insert_objective_worker(self, tilt: float) -> None:
+        """Worker: tilt the stage there if it isn't, then insert, through the
+        stage movement service the App Server's route calls."""
+        self.microscope.stage_movement.insert_objective(tilt=tilt)
 
     def retract_objective(self):
         """Retract the objective. The hardware move runs on a worker thread."""
@@ -483,10 +471,13 @@ class ObjectiveControlWidget(QWidget):
 
     @thread_worker
     def _retract_objective_worker(self) -> None:
-        """Worker: retract the objective."""
-        logging.info("Retracting objective...")
-        self.fm.objective.retract()
-        logging.info("Objective retracted.")
+        """Worker: retract the objective, recorded as a stage movement where
+        there is a microscope (a standalone FM has only the objective)."""
+        service = getattr(self.microscope, "stage_movement", None)
+        if service is None:
+            self.fm.objective.retract()
+        else:
+            service.retract_objective()
 
     def update_objective_position_labels(
         self,

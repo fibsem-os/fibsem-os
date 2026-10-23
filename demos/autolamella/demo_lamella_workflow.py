@@ -15,8 +15,6 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     AutoLamellaWorkflowConfig,
-    DefectState,
-    DefectType,
     Experiment,
     Lamella,
 )
@@ -26,6 +24,7 @@ from fibsem.applications.autolamella.ui.workflow.lamella_run import (
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.util.timestamps import now
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
@@ -45,16 +44,13 @@ for name, attention, required, requires in (
     ("Mill Polishing", Attention.supervised, True, ["Mill Rough"]),
     ("Acquire Final Image", Attention.automated, False, []),
 ):
-    SAMPLE_PROTOCOL.add(
-        AcquireReferenceImageConfig(
-            task_name=name, attention=attention, requires=requires
-        )
-    )
-    SAMPLE_PROTOCOL.workflow_config.get(name).required = required
+    SAMPLE_PROTOCOL.add(AcquireReferenceImageConfig(task_name=name))
+    plan = SAMPLE_PROTOCOL.workflow_config.get(name)
+    plan.attention, plan.required, plan.requires = attention, required, requires
 
 
 def _make_lamella(
-    number, petname, last_task="", in_progress="", defect_state=DefectType.NONE
+    number, petname, last_task="", in_progress="", verdict=Verdict.UNASSESSED
 ):
     lam = Lamella(path=Path(f"/tmp/test/{petname}"), number=number, petname=petname)
     if last_task:
@@ -64,8 +60,8 @@ def _make_lamella(
     if in_progress:
         lam.task_state.name = in_progress
         lam.task_state.status = TaskStatus.InProgress
-    if defect_state != DefectType.NONE:
-        lam.defect = DefectState(state=defect_state, description="test defect")
+    if verdict is not Verdict.UNASSESSED:
+        lam.defect = QualityRecord(verdict=verdict, reason="test defect")
     return lam
 
 
@@ -75,9 +71,7 @@ SAMPLE_LAMELLA = [
     _make_lamella(
         3, "02-jolly-koala", last_task="Mill Rough", in_progress="Mill Polishing"
     ),
-    _make_lamella(
-        4, "03-brave-falcon", last_task="Mill Rough", defect_state=DefectType.REWORK
-    ),
+    _make_lamella(4, "03-brave-falcon", last_task="Mill Rough", verdict=Verdict.REWORK),
 ]
 
 

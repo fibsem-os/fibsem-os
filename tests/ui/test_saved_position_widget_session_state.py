@@ -56,3 +56,19 @@ def test_without_a_microscope_nothing_is_written(qapp):
     assert panel.get_positions()[0].name == "cryo"  # still shown
     directory = session_state.SESSION_STATE_DIRECTORY
     assert not os.path.exists(directory) or os.listdir(directory) == []
+
+
+def test_the_panel_s_edits_go_through_the_stage_movement_service(qapp, microscope):
+    panel = _panel(microscope)
+    service = microscope.stage_movement
+
+    panel._on_add_clicked()
+    panel._on_add_clicked()
+    first, second = panel.get_positions()
+    panel._on_row_name_changed(first, "cryo")
+    panel._on_row_name_changed(second, "cryo")  # refused: taken
+
+    assert [p.name for p in service.saved_positions()] == ["cryo", "Position 01"]
+    assert [p.name for p in panel.get_positions()] == ["cryo", "Position 01"]
+    panel.remove_position(panel.get_positions()[1])
+    assert [p.name for p in service.saved_positions()] == ["cryo"]

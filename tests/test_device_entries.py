@@ -337,3 +337,12 @@ def test_the_demo_goes_on_without_a_device_marked_not_required(tmp_path):
 
     assert "laser" not in microscope.devices
     assert set(microscope.beams) == {BeamType.ELECTRON, BeamType.ION}
+
+
+def test_a_beam_entry_names_its_column():
+    from fibsem.devices.entries import beam_type_of
+
+    assert beam_type_of(DeviceEntry(name="electron", type="beam")) is BeamType.ELECTRON
+    assert beam_type_of(DeviceEntry(name="ion", type="beam")) is BeamType.ION
+    with pytest.raises(ValueError, match="'electron' or 'ion', not 'fib'"):
+        beam_type_of(DeviceEntry(name="fib", type="beam"))

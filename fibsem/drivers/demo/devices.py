@@ -34,6 +34,7 @@ from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.chamber_camera import ChamberCamera
 from fibsem.devices.core import Device, ParameterMetadata, Resources, resources_of
+from fibsem.devices.entries import beam_type_of, named
 from fibsem.devices.fm import FM, Camera, FilterSet, LightSource, Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
@@ -1037,16 +1038,9 @@ def _demo_start(context: "BuildContext") -> Tuple[Resources, "DemoParts"]:
     return context.shared["Demo"]
 
 
-def _named(device: Device, entry: "DeviceEntry") -> Device:
-    device.name = entry.name
-    return device.connect()
-
-
 def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
     """The beam an ``electron`` or ``ion`` entry names."""
-    if entry.name not in ("electron", "ion"):
-        raise ValueError("a Demo beam is named 'electron' or 'ion'")
-    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    beam_type = beam_type_of(entry)
     resources, start = _demo_start(context)
     microscope = context.microscope
     return DemoBeam(
@@ -1055,11 +1049,11 @@ def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
 
 
 def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage:
-    return _named(DemoStage(context.microscope, *_demo_start(context)), entry)
+    return named(DemoStage(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_chamber(entry: "DeviceEntry", context: "BuildContext") -> DemoChamber:
-    return _named(DemoChamber(context.microscope, *_demo_start(context)), entry)
+    return named(DemoChamber(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_chamber_camera(
@@ -1067,7 +1061,7 @@ def build_demo_chamber_camera(
 ) -> DemoChamberCamera:
     resources, _ = _demo_start(context)
     microscope = context.microscope
-    return _named(
+    return named(
         DemoChamberCamera(microscope, microscope._connection, resources), entry
     )
 
@@ -1075,7 +1069,7 @@ def build_demo_chamber_camera(
 def build_demo_manipulator(
     entry: "DeviceEntry", context: "BuildContext"
 ) -> DemoManipulator:
-    return _named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
+    return named(DemoManipulator(context.microscope, *_demo_start(context)), entry)
 
 
 def build_demo_sample_loader(
@@ -1091,7 +1085,7 @@ def build_demo_sample_loader(
         for key, default in DEMO_SAMPLE_LOADER_KEYS.items()
     }
     resources, _ = _demo_start(context)
-    return _named(
+    return named(
         DemoSampleLoader(
             microscope,
             resources,
@@ -1111,7 +1105,7 @@ def build_demo_gis(entry: "DeviceEntry", context: "BuildContext") -> DemoGasInje
     """A simulated gas injector, from its entry's keys (``DEMO_GIS_KEYS``)."""
     keys = {key: entry.options.get(key, d) for key, d in DEMO_GIS_KEYS.items()}
     resources, _ = _demo_start(context)
-    return _named(
+    return named(
         DemoGasInjector(
             context.microscope,
             resources,
@@ -1133,7 +1127,7 @@ def build_demo_sputter_coater(
         key: entry.options.get(key, d) for key, d in DEMO_SPUTTER_COATER_KEYS.items()
     }
     resources, _ = _demo_start(context)
-    return _named(
+    return named(
         DemoSputterCoater(
             context.microscope,
             resources,

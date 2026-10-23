@@ -5,8 +5,8 @@ recording fake client of tests/drivers/odemis/test_odemis_devices.py, through ``
 (OdemisMilling). tests/fixtures/odemis_milling_calls.json holds what the microscope's
 own milling code returned and called for the same cases before that code moved into
 the service; the service must make the same odemis calls and return the same. What
-the service changes on purpose, putting the beam back at the end, is asserted on its
-own.
+the service changes on purpose, putting the beam back at the end and the setup order
+it shares with AutoScript, is asserted on its own.
 """
 
 import json
@@ -106,6 +106,22 @@ SAVES = [
 ]
 
 
+def _in_the_shared_setup_order(calls):
+    """The old calls in the order the shared beam setup (`BeamMilling`) makes them:
+    the patterns cleared with the view selected, before the beam conditions, and
+    the voltage written before the current, as on AutoScript (the currents a
+    ThermoFisher column lists follow its voltage)."""
+    names = [call[0] for call in calls]
+    first_clear = names.index("clear_patterns")
+    calls = list(calls)
+    clear = calls.pop(first_clear)
+    calls.insert(names.index("set_field_of_view"), clear)
+    names = [call[0] for call in calls]
+    current, voltage = names.index("set_beam_current"), names.index("set_high_voltage")
+    calls[current], calls[voltage] = calls[voltage], calls[current]
+    return calls
+
+
 @pytest.mark.parametrize("call", [_setup, _draw, _run], ids=lambda c: c.__name__)
 def test_milling_makes_the_same_odemis_calls(odemis_cls, call):
     ran = run(make(odemis_cls), call)
@@ -117,7 +133,9 @@ def test_milling_makes_the_same_odemis_calls(odemis_cls, call):
     if call is not _draw:
         assert calls[: len(SAVES)] == SAVES
         calls = calls[len(SAVES) :]
-    assert calls == old["calls"]
+        assert calls == _in_the_shared_setup_order(old["calls"])
+    else:
+        assert calls == old["calls"]
 
 
 def test_the_state_is_read_on_the_milling_channel(odemis_cls):

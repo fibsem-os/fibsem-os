@@ -220,6 +220,20 @@ def _image_metadata(image: Any) -> Dict[str, Any]:
     return payload
 
 
+# The fewest seconds between two ``fm_acquisition`` events.
+FM_FRAME_EVENT_INTERVAL_S = 1.0
+
+
+def _fm_frame_metadata(image: Any) -> Dict[str, Any]:
+    """Metadata-only record of an FM frame: its shape and channel."""
+    data = getattr(image, "data", None)
+    channels = getattr(getattr(image, "metadata", None), "channels", None) or []
+    return {
+        "shape": list(data.shape) if data is not None else None,
+        "channels": [getattr(channel, "name", None) for channel in channels],
+    }
+
+
 def _beam_type(image: Any) -> Any:
     """The beam an image came from, or None when it has no metadata."""
     return getattr(getattr(image, "metadata", None), "beam_type", None)
@@ -320,6 +334,18 @@ def attach_microscope_taps(buffer: EventBuffer, microscope) -> List[Callable[[],
     fm = getattr(microscope, "fm", None)
     if fm is not None:
         tap(fm.acquisition_progress_signal, "fm_acquisition_progress", to_plain)
+        # Its frames, live or a plane of an acquisition, as the beams' live
+        # frames; one a second at most, as each is a line in the events file.
+        last_frame = [0.0]
+
+        def frame_due(image: Any) -> bool:
+            now = time.monotonic()
+            if now - last_frame[0] < FM_FRAME_EVENT_INTERVAL_S:
+                return False
+            last_frame[0] = now
+            return True
+
+        tap(fm.acquisition_signal, "fm_acquisition", _fm_frame_metadata, keep=frame_due)
         objective = getattr(fm, "objective", None)
         if objective is not None:
             # Every move announces itself, each z-stack plane included; the record

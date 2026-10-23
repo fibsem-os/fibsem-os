@@ -116,6 +116,34 @@ def _stage_move_to_device(
     return {"what": "Stage", "change": change}
 
 
+def _stage_save_position(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    change = f"Save the stage position now as {a.get('name')!r}"
+    now = ctx.stage_now()
+    if now:
+        change += f": {wording.position_text(now)}"
+    return {"what": "Saved positions", "change": change}
+
+
+def _stage_move_to_saved_position(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    return {
+        "what": "Stage",
+        "change": f"Safe move to the saved position {a.get('name')!r}",
+    }
+
+
+def _stage_remove_saved_position(
+    a: Dict[str, Any], ctx: wording.ActionContext
+) -> Dict[str, Any]:
+    return {
+        "what": "Saved positions",
+        "change": f"Forget the saved position {a.get('name')!r}",
+    }
+
+
 def _stage_vertical_move(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -665,6 +693,46 @@ TOOLS: Tuple[ToolSpec, ...] = (
         },
         line=_stage_fm_stable_move,
         call=lambda a: ({}, kwargs_body(dx=float(a["dx"]), dy=float(a["dy"]))),
+    ),
+    ToolSpec(
+        name="stage_get_saved_positions",
+        description="The named stage positions saved with this microscope configuration, as the Saved Positions panel lists them (metres and radians).",
+        method="POST",
+        path="/microscope/services/stage_movement/queries/saved_positions",
+        level="watch",
+        call=lambda a: ({}, kwargs_body()),
+    ),
+    ToolSpec(
+        name="stage_save_position",
+        description="Save the stage position now under name, as the Saved Positions panel's add and update do: a position already saved under that name is replaced. Kept with the microscope configuration.",
+        method="POST",
+        path="/microscope/services/stage_movement/commands/save_position",
+        level="drive",
+        params={"name": "the name to save it under"},
+        line=_stage_save_position,
+        call=lambda a: ({}, kwargs_body(name=str(a["name"]))),
+    ),
+    ToolSpec(
+        name="stage_move_to_saved_position",
+        description="Move the stage to a saved position by name (stage_get_saved_positions), through the safe absolute move that tilts flat before a large rotation."
+        + RETRACT_FIRST_SAFE_MOVE,
+        method="POST",
+        path="/microscope/services/stage_movement/commands/move_to_saved_position",
+        level="drive",
+        hardware=True,
+        params={"name": "the saved position's name"},
+        line=_stage_move_to_saved_position,
+        call=lambda a: ({}, kwargs_body(name=str(a["name"]))),
+    ),
+    ToolSpec(
+        name="stage_remove_saved_position",
+        description="Forget a saved position by name, as the Saved Positions panel's remove does.",
+        method="POST",
+        path="/microscope/services/stage_movement/commands/remove_saved_position",
+        level="drive",
+        params={"name": "the saved position's name"},
+        line=_stage_remove_saved_position,
+        call=lambda a: ({}, kwargs_body(name=str(a["name"]))),
     ),
     ToolSpec(
         name="stage_move_to_device",

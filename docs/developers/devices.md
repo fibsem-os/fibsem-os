@@ -776,6 +776,24 @@ it, naming the device: `raise DeviceFault("controller offline", device=self.name
 A bad argument is still a `ValueError`. The device server answers a fault as 502 and
 a remote copy raises it again, so a refusal from the hardware is told apart from a
 fault in fibsem.
+
+A driver that mills with settings of its own declares them as a
+`DriverMillingSettings` subclass, names it in `DriverEntry.milling_settings`
+(`"my_plugin.settings:KnifeMillingSettings"`, in a module that imports only
+`fibsem.structures`) and sets it as its milling service's `settings_class`. A recipe
+keeps them in its `driver` block under the driver's name:
+
+```yaml
+milling:
+    hfw: 8.0e-05
+    driver:
+        Tescan: {preset: 30 keV; 1 nA, spacing: 1.0}
+```
+
+The service reads its block with `own_settings(settings)`, and `supported_settings`
+lists the fields by their path (`driver.Tescan.preset`), so the milling form and a
+patch reach them. A block for a driver that isn't installed is kept and saved back
+unchanged.
 `BuildContext.shared` is scratch space the builders of one connect share, such as one
 connection per address. Each device built from an entry records its driver's
 registry name in `device.driver`, which the device server's description carries.

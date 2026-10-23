@@ -209,3 +209,26 @@ def test_a_change_at_a_control_is_the_operator_s_act_on_the_record():
     assert payload["what"] == "Set the ION field width"
     assert payload["setting"] == "hfw" and payload["via"] == "Beam settings"
     assert payload["value"] == pytest.approx(microscope.get_field_of_view(I))
+
+
+def test_a_preset_picked_in_the_stage_list_goes_into_the_driver_block(monkeypatch):
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.ui.widgets.milling_stage_list_widget import MillingStageRowWidget
+
+    microscope = _tescan(monkeypatch)
+    widget = FibsemMillingStagesWidget(microscope=microscope, stages=[])
+    presets = widget._list._preset_values
+    assert len(presets) >= 2
+    stage = FibsemMillingStage()
+    row = MillingStageRowWidget(
+        stage,
+        index=0,
+        pattern_names=[],
+        strategy_names=[],
+        preset_values=presets,
+        preset_setting=widget._list._preset_setting,
+    )
+    picked = next(p for p in presets if p != row.preset_combo.value())
+    row.preset_combo.set_value(picked)
+    assert stage.milling.driver["Tescan"].preset == picked
+    assert stage.milling.to_dict()["driver"] == {"Tescan": {"preset": picked}}
