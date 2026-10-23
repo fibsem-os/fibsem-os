@@ -260,6 +260,24 @@ def destroy_widgets_after_test(qapp):
     QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
+@pytest.fixture
+def no_pyplot(monkeypatch):
+    """Fail the test if it makes a pyplot figure or switches matplotlib's backend.
+
+    Figures the server draws must not: with the Qt backend active, a pyplot
+    figure made off the main thread raises "Starting a Matplotlib GUI outside of
+    the main thread", and switching to Agg takes the live app's backend with it.
+    """
+    import matplotlib
+    import matplotlib.pyplot as plt
+
+    def refused(*args, **kwargs):
+        raise AssertionError("drew with pyplot or switched the backend")
+
+    monkeypatch.setattr(plt, "figure", refused)
+    monkeypatch.setattr(matplotlib, "use", refused)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _isolate_device_server_token(tmp_path_factory):
     """Keep every test's Device Server token and pairings out of ~/.fibsem: a
