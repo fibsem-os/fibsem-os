@@ -206,6 +206,16 @@ as a toast. Everything else is a note (*Write down why*): messages about what
 can wait teach the operator to ignore them. A message decides nothing: a
 decision you want is a proposal or a request.
 
+**Keep a todo list of the operator's instructions.** Every instruction goes
+on your todo list (`TodoWrite`, or `TaskCreate` and `TaskUpdate`) in the
+operator's words, the moment it arrives: the goal, each MESSAGE that asks for
+something, and each standing rule ("check coincidence at every site", "a
+fluorescent target"). Read the list before each step. Tick an item only when
+it is done and you have said so; a standing rule stays open until the operator
+lifts it or the session ends. A new instruction adds to the list and never
+replaces what is there unless the operator says so: new instructions are when
+checks get dropped. If two items conflict, ask which wins.
+
 **When an ask leaves out the rule, ask for it.** "Up to 20 lamellae, thin
 without breaking" names no placement rule, no spacing and no target. Before
 you start, ask for what's missing, then say back the rule you will work to.
