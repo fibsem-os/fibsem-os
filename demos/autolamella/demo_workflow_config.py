@@ -39,12 +39,9 @@ for name, attention, required, requires in (
     ("Mill Polishing", Attention.supervised, True, ["Mill Rough"]),
     ("Acquire Final Image", Attention.automated, False, []),
 ):
-    SAMPLE_PROTOCOL.add(
-        AcquireReferenceImageConfig(
-            task_name=name, attention=attention, requires=requires
-        )
-    )
-    SAMPLE_PROTOCOL.workflow_config.get(name).required = required
+    SAMPLE_PROTOCOL.add(AcquireReferenceImageConfig(task_name=name))
+    plan = SAMPLE_PROTOCOL.workflow_config.get(name)
+    plan.attention, plan.required, plan.requires = attention, required, requires
 
 
 class TestWindow(QWidget):

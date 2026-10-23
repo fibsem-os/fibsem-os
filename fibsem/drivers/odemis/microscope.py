@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
 
 import numpy as np
 
-from fibsem.devices.entries import build_device_entries, resolve_system_devices
 from fibsem.drivers.odemis import add_odemis_path
 from fibsem.drivers.odemis.connection import OdemisConnection
 from fibsem.drivers.tescan.microscope import TescanMicroscope
@@ -294,7 +293,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
-        self._build_devices()
+        self._build_odemis_devices()
         self._build_milling()
         self._build_stage_movement()
         self._build_spot_burn()
@@ -308,7 +307,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not build the sample handling: {e}")
 
-    def _build_devices(self) -> None:
+    def _build_odemis_devices(self) -> None:
         """Build the beam, stage and chamber devices from the configuration's
         ``hardware.devices`` entries over ``ODEMIS_DEVICES``, then any other device it
         adds.
@@ -317,15 +316,7 @@ class OdemisThermoMicroscope(FibsemMicroscope):
         devices. There is no other code for them, so a device that cannot be built
         fails the connection, and one switched off is unsupported.
         """
-        resolved = resolve_system_devices(
-            self.system,
-            ODEMIS_DEVICES,
-            exclude_types=_FM_TYPES,
-            driver=self.driver_name,
-        )
-        built: Dict[str, Any] = build_device_entries(resolved, self)
-        for name, device in built.items():
-            self._set_device(name, device)
+        self._build_devices(ODEMIS_DEVICES, exclude_types=_FM_TYPES)
         self._bind_device_roles()
 
     def _build_milling(self) -> None:

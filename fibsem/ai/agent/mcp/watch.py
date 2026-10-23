@@ -10,28 +10,28 @@ it would block the agent from acting on what it prints.
     fibsem-mcp watch --since 42          # resume after event 42
     python -m fibsem.ai.agent.mcp.sidecar watch   # where fibsem-mcp is not on PATH
 
-The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``PROPOSAL``,
-``PROPOSAL RELEASED``, ``REQUEST`` (the agent's request decided, finished or
-cancelled, FIB-1283), ``COMMAND ENDED`` (unless a caller was waiting for it
+The lines: ``PROPOSAL``, ``PROPOSAL RELEASED``, ``SUGGESTION APPROVED`` and
+``DECLINED``, ``REQUEST`` (the agent's request decided, finished or
+cancelled), ``COMMAND ENDED`` (unless a caller was waiting for it
 with ``service_wait_for_run``, so has the end), ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
 monitor's trigger or error), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
 its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
-the agent from its card, FIB-1423; one still unanswered when the watch starts
+the agent from its card; one still unanswered when the watch starts
 is said first), ``NOTE`` (the operator kept a note on a
 grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
 changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
-workflows itself, and between them it still has to hear the app (FIB-1431). A
+workflows itself, and between them it still has to hear the app. A
 workflow's end is a line, not the end of the watch, and so is one that stops
 without an end event: ``WORKFLOW ENDED (stopped without an end event)``, once
 ``/app/workflow/status`` says nothing is running. It exits only when the
 server cannot be watched (1), or when it is stopped. While the operator has the
 agent level at Off the app refuses the agent, but it is still running: the
-watch says so once and waits for the level to come back (FIB-1429).
+watch says so once and waits for the level to come back.
 
 An agent only wakes on a line, so a run that goes quiet for ``--quiet-after``
 minutes gets one ``QUIET`` line to look at it; the next one waits for
@@ -604,7 +604,7 @@ def watch(
         say(line)
 
     # Seed the cursor at the tail: the buffer outlives workflows, so starting at
-    # 0 would replay history -- stale PROMPT lines, and a previous workflow's
+    # 0 would replay history -- stale PROPOSAL lines, and a previous workflow's
     # end reported as news.
     snapshot, failure = _poll(client, since=0, timeout=0.0)
     if failure == AGENT_OFF:
