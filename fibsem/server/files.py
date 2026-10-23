@@ -192,7 +192,7 @@ def load_image(
     if data.ndim == 3 and data.shape[-1] == 4:
         data = data[..., :3]
     if full is None:
-        full = tuple(data.shape)
+        full = data.shape[:2]
     return data, image, pixel_size, fm, tuple(full[-2:]) + tuple(data.shape[2:])
 
 
