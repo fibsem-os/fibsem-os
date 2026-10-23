@@ -66,7 +66,7 @@ def session(microscope, tmp_path, monkeypatch, caplog):  # noqa: F811
     session.agent_auth = AuthConfig.generate(level=AgentLevel.WATCH)
     session.app_server = AppServerHost(
         session,
-        lambda buffer: AutoLamellaAppContext(session, event_buffer=buffer),
+        lambda: AutoLamellaAppContext(session),
         port=_free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )

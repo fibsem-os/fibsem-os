@@ -386,18 +386,17 @@ class AppServerPreferences:
 
     Off by default and fail-closed (CONTRIBUTING's network rule): a missing or
     unreadable section reads as these defaults, so the server stays off. When on,
-    it starts when a microscope connects, listens on localhost only and requires
-    a token. Monitoring -- every read of the session -- is always served while
+    it starts with the app, before any microscope connects, listens on localhost
+    only and requires a token. Monitoring -- every read of the session -- is always served while
     it runs. What the agent may do is its level, which is never stored here: it
     resets to Watch at every launch.
     """
 
     enabled: bool = False
     # Whether a new session serves the microscope: every route under
-    # /microscope, local devices or a Device Server's, reads included. Off by
-    # default: a read of the instrument is hardware access, not monitoring.
-    # (Was `devices`, never released; a saved `devices` is ignored.)
-    microscope: bool = False
+    # /microscope, local devices or a Device Server's, reads included. The
+    # agent's level still gates each call.
+    microscope: bool = True
     # Allow an agent on this PC that asks to connect without the operator's
     # click (fibsem.server.connections). Off by default.
     allow_local_agents: bool = False

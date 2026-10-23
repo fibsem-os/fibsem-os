@@ -71,8 +71,11 @@ class App:
         self.context._session.runner.is_running = running
 
 
-def _serve(microscope, tmp_path, event_buffer):
+def _serve(microscope, tmp_path, event_buffer, stream=True):
     host = stub_session()
+    if not stream:
+        # A session with no stream at all.
+        host._idle_buffer = None
     exp = Experiment(path=tmp_path / "exp", name="watch-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)
@@ -644,7 +647,7 @@ def test_a_new_stream_says_the_app_restarted_and_reads_it_from_the_start(app):
     def restart():
         # The app restarted with a fresh buffer: seqs begin again below the
         # cursor, and every event in it is news.
-        app.context._event_buffer = EventBuffer()
+        app.context._fixed_buffer = EventBuffer()
         app.buffer.append("task_started", {"item_name": "l2"})
         app.buffer.append("workflow_completed", {})
 
@@ -664,7 +667,7 @@ def test_a_new_stream_past_the_cursor_is_still_a_restart(app):
     app.buffer.append("tick", {})
 
     def restart():
-        app.context._event_buffer = EventBuffer()
+        app.context._fixed_buffer = EventBuffer()
         app.buffer.append("task_started", {"item_name": "l2"})
         app.buffer.append("tick", {})
         app.buffer.append("workflow_completed", {})
@@ -783,7 +786,7 @@ def test_a_refused_token_ends_the_watch_at_once(app, discovery, monkeypatch):
 def test_without_an_event_stream_the_poll_parks_and_the_watch_ends(
     microscope, tmp_path, discovery
 ):
-    server, thread, app = _serve(microscope, tmp_path, None)
+    server, thread, app = _serve(microscope, tmp_path, None, stream=False)
     write_discovery_file("127.0.0.1", app.port, app.auth, path=discovery)
     keep_agent_token(f"http://127.0.0.1:{app.port}", TOKEN)
     try:

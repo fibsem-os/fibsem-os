@@ -14,17 +14,17 @@ from fibsem.applications.autolamella.server.context import (  # noqa: E402
 )
 from fibsem.server.hosting import AppServerHost  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402
-from tests.run_state import stub_session
-
-
-def _context(buffer):
-    return AutoLamellaAppContext(stub_session(), event_buffer=buffer)
 
 
 def _session(microscope):
     session = AppSession()
     session.microscope = microscope
+    session.start_recording()
     return session
+
+
+def _host(session, **kwargs):
+    return AppServerHost(session, lambda: AutoLamellaAppContext(session), **kwargs)
 
 
 def _free_port() -> int:
@@ -42,14 +42,13 @@ def microscope():
 
 @pytest.fixture
 def host(tmp_path, microscope):
-    server_host = AppServerHost(
-        _session(microscope),
-        _context,
-        port=_free_port(),
-        discovery_path=tmp_path / "agent-server.json",
+    session = _session(microscope)
+    server_host = _host(
+        session, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
     )
     yield server_host
     server_host.stop()
+    session.stop_recording()
 
 
 def _get(server_host, path):
@@ -103,7 +102,7 @@ def test_lifecycle_events_reach_the_agent_through_the_hook(host, microscope):
     host.start()
     # The runner registers this hook per run (run_hooks); simulate one firing.
     manager = HookManager()
-    manager.register(host.lifecycle_hook)
+    manager.register(host._session.recorder.lifecycle_hook)
     manager.fire(
         HookContext(event=HookEvent.TASK_STARTED.value, task_name="Rough Milling")
     )
@@ -111,7 +110,7 @@ def test_lifecycle_events_reach_the_agent_through_the_hook(host, microscope):
     assert any(e["kind"] == "task_started" for e in events)
 
 
-def test_microscope_taps_are_live_and_detach_on_stop(host, microscope):
+def test_the_server_serves_the_sessions_stream(host, microscope):
     host.start()
     microscope.get_stage_position()  # ensure cache exists
     from fibsem.structures import FibsemStagePosition
@@ -121,13 +120,7 @@ def test_microscope_taps_are_live_and_detach_on_stop(host, microscope):
     )
     events = _get(host, "/app/events?since=0").json()["events"]
     assert any(e["kind"] == "stage_position_changed" for e in events)
-    buffer = host.event_buffer
-    host.stop()
-    before = buffer.events_since(0)["latest_seq"]
-    microscope.move_stage_relative(
-        FibsemStagePosition(x=1e-6, y=0, z=0, r=0, t=0, coordinate_system="RAW")
-    )
-    assert buffer.events_since(0)["latest_seq"] == before  # taps detached
+    assert host.event_buffer is host._session.recorder.buffer
 
 
 def test_start_failure_is_contained_not_raised(microscope, tmp_path):
@@ -139,9 +132,8 @@ def test_start_failure_is_contained_not_raised(microscope, tmp_path):
             taken.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         taken.bind(("127.0.0.1", 0))
         taken.listen()
-        server_host = AppServerHost(
+        server_host = _host(
             _session(microscope),
-            _context,
             port=taken.getsockname()[1],
             discovery_path=tmp_path / "agent-server.json",
         )
@@ -154,9 +146,8 @@ def test_start_failure_is_contained_not_raised(microscope, tmp_path):
 
 def test_env_override_starts_at_drive(microscope, tmp_path, monkeypatch):
     monkeypatch.setenv("FIBSEM_AGENT_ARM_CONTROL", "1")
-    server_host = AppServerHost(
+    server_host = _host(
         _session(microscope),
-        _context,
         port=_free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
@@ -169,16 +160,15 @@ def test_env_override_starts_at_drive(microscope, tmp_path, monkeypatch):
 
 
 def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
-    """A microscope reconnect or devices toggle restarts the server; the
+    """A microscope toggle restarts the server; the
     agent's token, the level the operator set and the analysis services (a
     loaded model) survive it, for the app session only (FIB-1035 app test #5
     and the reconnect question)."""
     from fibsem.ai.agent.levels import AgentLevel
 
     session = _session(microscope)
-    first = AppServerHost(
+    first = _host(
         session,
-        _context,
         port=_free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
@@ -188,9 +178,8 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     services = first._app.state.services
     assert services is session.analysis_services
     first.stop()
-    second = AppServerHost(
+    second = _host(
         session,
-        _context,
         port=_free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
@@ -203,9 +192,8 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     finally:
         second.stop()
     # A new app session -- a new window -- starts at Watch with a new token.
-    fresh = AppServerHost(
+    fresh = _host(
         _session(microscope),
-        _context,
         port=_free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
@@ -224,3 +212,38 @@ def test_the_token_is_never_logged(host, microscope, caplog):
         assert host.start()
     assert host.auth.token not in caplog.text
     assert host.auth.dashboard_token not in caplog.text
+
+
+def test_a_host_with_no_microscope_serves_and_follows_a_connect(tmp_path, monkeypatch):
+    """The server starts before any microscope: /microscope answers 409
+    not_connected, the operator connects through the session, and the same
+    server then serves the microscope and its events."""
+    monkeypatch.setenv("FIBSEM_SIM_NO_DELAY", "1")
+    session = AppSession()
+    host = _host(
+        session, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+    )
+    try:
+        assert host.start()
+        assert _get(host, "/capabilities").json()["connected"] is False
+        refused = _get(host, "/microscope")
+        assert refused.status_code == 409
+        assert refused.json()["detail"]["error_type"] == "not_connected"
+        assert _get(host, "/app/workflow/status").status_code == 200
+        before = host.event_buffer
+
+        session.connect(manufacturer="Demo", ip_address="localhost")
+
+        assert _get(host, "/capabilities").json()["connected"] is True
+        assert _get(host, "/microscope").status_code == 200
+        assert host.event_buffer is session.recorder.buffer is not before
+        first = session.recorder
+        assert session.disconnect() is None
+        assert session.recorder is None
+        assert _get(host, "/microscope").status_code == 409
+        session.connect(manufacturer="Demo", ip_address="localhost")
+        assert session.recorder is not None and session.recorder is not first
+        assert host.running
+    finally:
+        host.stop()
+        session.disconnect()

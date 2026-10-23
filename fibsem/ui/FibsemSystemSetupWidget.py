@@ -25,6 +25,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.microscope_configuration_window import (
     MicroscopeConfigurationWindow,
 )
+from fibsem.workflows.session import MICROSCOPE, AppSession
 
 # What connecting did beyond connecting (`utils.setup_session`'s `connect_actions`),
 # said in the connect message.
@@ -36,14 +37,27 @@ FAILED = {
 
 
 class FibsemSystemSetupWidget(QtWidgets.QWidget):
+    """Connect and disconnect the session's microscope, and show which.
+
+    The connection is the session's (``AppSession.connect``): this widget asks
+    for it and follows ``session.changed``, whoever connected, the window or
+    the App Server."""
+
     connected_signal = pyqtSignal()
     disconnected_signal = pyqtSignal()
+    # The session's `changed`, carried to the GUI thread.
+    _session_changed = pyqtSignal(str)
 
-    def __init__(self, parent: Optional[QtWidgets.QWidget] = None):
+    def __init__(
+        self,
+        session: Optional[AppSession] = None,
+        parent: Optional[QtWidgets.QWidget] = None,
+    ):
         super().__init__(parent=parent)
 
-        self.microscope: Optional[FibsemMicroscope] = None
-        self.settings: Optional[MicroscopeSettings] = None
+        self.session = session if session is not None else AppSession()
+        # The selected configuration, read before connecting.
+        self._configuration: Optional[MicroscopeSettings] = None
         # Why the last attempt failed, or None if the last thing that happened was not
         # a failure. Held rather than only toasted: a toast is gone in five seconds,
         # and the reason a connection failed is exactly what the status card should
@@ -101,8 +115,37 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         layout.addStretch()
 
         self.setup_connections()
+        self._session_changed.connect(self._on_session_changed)
+        self.session.changed.connect(self._hear_session)
         self.update_ui()
         self.refresh_first_run_offer()
+
+    @property
+    def microscope(self) -> Optional[FibsemMicroscope]:
+        return self.session.microscope
+
+    @microscope.setter
+    def microscope(self, microscope: Optional[FibsemMicroscope]) -> None:
+        self.session.microscope = microscope
+
+    @property
+    def settings(self) -> Optional[MicroscopeSettings]:
+        """The connected microscope's settings, or the selected configuration's
+        while none is connected."""
+        if self.session.microscope is not None:
+            return self.session.settings
+        return self._configuration
+
+    @settings.setter
+    def settings(self, settings: Optional[MicroscopeSettings]) -> None:
+        self._configuration = settings
+
+    def _hear_session(self, what: str, *_: object) -> None:
+        if what == MICROSCOPE:
+            self._session_changed.emit(what)
+
+    def _on_session_changed(self, what: str) -> None:
+        self.update_ui()
 
     def _create_first_run_callout(self) -> QtWidgets.QFrame:
         """The offer to run the guided setup, shown only on a fresh install.
@@ -442,30 +485,23 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         is_microscope_connected = bool(self.microscope)
 
         if is_microscope_connected:
+            # The session lets go of the microscope even when its client will not
+            # close: holding one that could not be closed would leave the tab
+            # offering to disconnect something it can no longer reach. Refused
+            # only while a run is on.
             try:
-                self.microscope.disconnect()
-            except Exception as e:
-                # Same reasoning as the connect path below: an exception escaping this
-                # slot is a process abort rather than an error message (FIB-329). A
-                # disconnect can fail for ordinary reasons -- the instrument went away,
-                # the client is already dead -- and none of them are worth losing the
-                # application over.
-                #
-                # Logged rather than only toasted, because a client that would not
-                # close is a leak, and the log is where anyone would look for it.
-                logging.error(f"Could not cleanly disconnect the microscope: {e}")
-                # Phrased as one outcome, not two. The tab *does* drop to disconnected
-                # a line below, so "Disconnect failed" beside a disconnected tab reads
-                # as a contradiction; what actually happened is that we let go of a
-                # client that would not close.
+                error = self.session.disconnect()
+            except RuntimeError as e:
+                notification_service.show_toast(str(e), "warning")
+                return
+            if error is not None:
+                # Phrased as one outcome, not two: the tab does drop to
+                # disconnected, so "Disconnect failed" beside it would read as a
+                # contradiction.
                 notification_service.show_toast(
-                    f"Disconnected, but the client did not close cleanly: {e}", "error"
+                    f"Disconnected, but the client did not close cleanly: {error}",
+                    "error",
                 )
-            # Cleared either way, and outside the try for that reason. The request was
-            # to disconnect; holding a client that could not be closed would leave the
-            # tab offering to disconnect something it can no longer reach, with no way
-            # back to a working connection.
-            self.microscope, self.settings = None, None
         else:
             # Cleared before the attempt, so a retry never shows the previous reason
             # beside a connection that is still being made.
@@ -486,10 +522,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 f"Connecting with {os.path.basename(configuration_path)}…"
             )
             try:
-                self.microscope, self.settings = utils.setup_session(
-                    config_path=configuration_path,
-                    progress=self._show_connecting,
-                )
+                self.session.connect(configuration_path, progress=self._show_connecting)
             except Exception as e:
                 # Reported, not raised. This runs as a Qt slot, and PyQt5 turns an
                 # unhandled exception in a slot into qFatal -- the entire application
@@ -502,7 +535,6 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 # and the point is that *nothing* from this call reaches Qt -- a
                 # narrower except would leave the abort in place for the exception
                 # nobody predicted, which is the one that will happen.
-                self.microscope, self.settings = None, None
                 self._last_connection_error = str(e)
                 logging.error(f"Could not connect to the microscope: {e}")
                 notification_service.show_toast(f"Could not connect: {e}", "error")

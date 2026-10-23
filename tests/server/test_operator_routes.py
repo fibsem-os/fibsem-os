@@ -53,9 +53,10 @@ def server(microscope, tmp_path):  # noqa: F811
     session.agent_auth = AuthConfig.generate(level=AgentLevel.WATCH)
     session.app_server = AppServerHost(
         session,
-        lambda buffer: AutoLamellaAppContext(session, event_buffer=buffer),
+        lambda: AutoLamellaAppContext(session),
         port=_free_port(),
         discovery_path=tmp_path / "app-server.json",
+        serve_microscope=False,
     )
     assert session.app_server.start()
     with httpx.Client(base_url=session.app_server.url, timeout=30) as client:
@@ -120,7 +121,7 @@ def test_the_operator_reads_what_the_microscope_is(microscope, tmp_path):  # noq
     session.agent_auth = AuthConfig.generate(level=AgentLevel.WATCH)
     host = AppServerHost(
         session,
-        lambda buffer: AutoLamellaAppContext(session, event_buffer=buffer),
+        lambda: AutoLamellaAppContext(session),
         port=_free_port(),
         discovery_path=tmp_path / "app-server.json",
         serve_microscope=True,

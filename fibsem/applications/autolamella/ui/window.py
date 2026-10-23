@@ -1274,12 +1274,12 @@ class AutoLamellaWindow(AppWindow):
 
     # TODO: create a dialog to get the user to connect to microscope and create load experiment before continuing
     # then remove the system widget entirely... you will always be connected once you start
-    def app_context(self, event_buffer):
+    def app_context(self):
         from fibsem.applications.autolamella.server.context import (
             AutoLamellaAppContext,
         )
 
-        return AutoLamellaAppContext(self.session, event_buffer=event_buffer)
+        return AutoLamellaAppContext(self.session)
 
     #### REPORT GENERATION
     def action_generate_report(self) -> None:

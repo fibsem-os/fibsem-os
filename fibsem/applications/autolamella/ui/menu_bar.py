@@ -592,28 +592,9 @@ class MainMenuBar(QObject):
         ), ""
 
     def connect_microscope(self):
-        """Connect from the dialog, then hand the session to the system widget.
-
-        The widget stays the one place that owns the connection: everything else in
-        the application follows its `connected_signal`, so routing through it means
-        the dialog needs to know nothing about who cares.
-        """
-        system_widget = self._system_widget()
-        result = connect_to_microscope_dialog(
-            parent=self._host,
-            microscope=system_widget.microscope,
-            settings=system_widget.settings,
-            workflow_running=self._session.runner.is_running,
-        )
-        if not result.changed:
-            return
-
-        # Including a disconnect, where the new session is None. Handing that back
-        # through the widget is what tells the rest of the application, which
-        # follows its signals rather than knowing about this dialog.
-        system_widget.microscope = result.microscope
-        system_widget.settings = result.settings
-        system_widget.update_ui()
+        """Connect or disconnect the session from the dialog: everything else
+        in the application follows the session's ``changed``."""
+        connect_to_microscope_dialog(self._session, parent=self._host)
 
     def _on_export_image(self):
         """Handle Export Image action: pick an image, starting in the experiment."""

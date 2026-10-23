@@ -45,8 +45,8 @@ SETTLE_MS = 600
 
 ENABLED_LABEL = "Run the App Server"
 ENABLED_TIP = (
-    "Run the App Server while a microscope is connected: a local, token-protected "
-    "API over this session that an AI agent (through the fibsem-mcp sidecar) and "
+    "Run the App Server, with or without a microscope connected: a local, "
+    "token-protected API over this session that an AI agent (through the fibsem-mcp sidecar) and "
     "the event log can reach. Kept for the next launch. What the agent may do "
     "is its level, set from the Agent chip in the status bar, which resets to "
     "Watch at every launch."
@@ -270,7 +270,7 @@ class AppServerDialog(QDialog):
         if not running:
             self._status_dot.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._status_label.setText(
-                "Not running. It starts when a microscope connects."
+                "Not running. It did not start; see the log."
                 if self._chk_enabled.isChecked()
                 else "Not running."
             )

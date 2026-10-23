@@ -315,22 +315,10 @@ class WorkflowRunner:
         raise KeyError(f"No run of kind {kind!r}.")
 
     def run_hooks(self, app: str) -> HookManager:
-        """The hooks for one run of ``app``: the app's, plus the App Server's
-        lifecycle feed when it has one of its own, with notices to
-        ``notice`` when someone listens."""
+        """The hooks for one run of ``app``: the app's, with notices to
+        ``notice`` when someone listens. The event stream's lifecycle feed is
+        registered by the task manager for its run (FIB-1044)."""
         manager = app_runs(app).make_hooks()
-        # The event stream's lifecycle feed is registered by the task manager
-        # for its run (FIB-1044). The App Server shares the recorder's hook;
-        # one of its own (a server started without a recorder) is added here.
-        recorder = self._session.recorder
-        host = self._session.app_server
-        if (
-            host is not None
-            and host.running
-            and host.lifecycle_hook is not None
-            and (recorder is None or host.lifecycle_hook is not recorder.lifecycle_hook)
-        ):
-            manager.register(host.lifecycle_hook)
         if len(self.notice):
             manager.set_notifier(self.notice.emit)
         return manager

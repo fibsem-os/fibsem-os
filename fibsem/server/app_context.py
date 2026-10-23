@@ -135,9 +135,17 @@ class AppContext:
 
     def __init__(self, session, event_buffer=None):
         self._session = session
-        self._event_buffer = event_buffer
+        # A fixed stream (tests), else the session's at each call: it changes
+        # as a microscope connects.
+        self._fixed_buffer = event_buffer
 
     # --- call-time resolution: never cache what the app rebinds ---------------
+
+    @property
+    def _event_buffer(self):
+        if self._fixed_buffer is not None:
+            return self._fixed_buffer
+        return getattr(self._session, "event_buffer", None)
 
     @property
     def _experiment(self):

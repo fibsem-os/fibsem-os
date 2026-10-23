@@ -39,6 +39,22 @@ def demo_microscope():
     microscope.disconnect()
 
 
+class Demo:
+    """What the tab shows of a connected microscope."""
+
+    system = type(
+        "System",
+        (),
+        {
+            "info": type(
+                "Info",
+                (),
+                {"manufacturer": "Demo", "model": "Sim", "ip_address": "localhost"},
+            )
+        },
+    )
+
+
 @pytest.fixture
 def toasts(monkeypatch):
     """Collect the toasts rather than showing them."""
@@ -157,6 +173,8 @@ def test_a_failed_disconnect_does_not_escape_the_slot(widget, toasts):
     client is already dead -- and none are worth losing the application over."""
 
     class WillNotClose:
+        system = Demo.system
+
         def disconnect(self):
             raise RuntimeError("the client is already gone")
 
@@ -175,6 +193,8 @@ def test_a_failed_disconnect_still_lets_go_of_the_microscope(widget, toasts):
     something it can no longer reach, with no way back to a working connection."""
 
     class WillNotClose:
+        system = Demo.system
+
         def disconnect(self):
             raise RuntimeError("the client is already gone")
 

@@ -211,6 +211,41 @@ class RunEnvelope:
     run: RunAnswer
 
 
+# --- The microscope connection (the operator's) ---
+
+
+@dataclass
+class ConnectedConfiguration:
+    """The configuration the microscope was connected with."""
+
+    name: Optional[str] = None
+    path: Optional[str] = None
+    manufacturer: Optional[str] = None
+    model: Optional[str] = None
+    address: Optional[str] = None
+
+
+@dataclass
+class ConfigurationOption:
+    name: str
+    default: bool = False
+
+
+@dataclass
+class ConnectionView:
+    """Whether a microscope is connected, what a connect is doing now
+    (``connecting``) or why the last one failed (``error``), and the
+    configurations it can connect with."""
+
+    connected: bool
+    connecting: Optional[str] = None
+    error: Optional[str] = None
+    configuration: Optional[ConnectedConfiguration] = None
+    configurations: List[ConfigurationOption] = field(default_factory=list)
+    # The last connect started here, as a long command's run.
+    run: Optional[RunAnswer] = None
+
+
 @dataclass
 class DeviceHealth:
     ok: bool

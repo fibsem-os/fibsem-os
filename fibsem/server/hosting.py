@@ -1,14 +1,16 @@
 """Embedded hosting: the App Server running inside an application's process.
 
-This is the piece that turns the factory into the app's public interface: when
-a microscope connects (and the App Server preference, ``app_server.enabled``, is on), the
-app's session builds ``build_server(microscope, app_context=...)`` and runs it on a
-daemon thread. One process, one microscope connection, one commander — the whole
-reason embedded hosting exists. The microscope, the event stream
-(``event_recording.EventRecorder``, which exists whether or not this runs), the
-responder and the agent's token are the session's (``fibsem.workflows.session``);
-the ``/app`` view over them is the application's own (AutoLamella's is
-``AutoLamellaAppContext``).
+This is the piece that turns the factory into the app's public interface: the
+app's session builds ``build_server(session=...)`` with the app's ``/app`` view
+and runs it on a daemon thread, with or without a microscope connected. One
+process, one microscope connection, one commander — the whole reason embedded
+hosting exists. The microscope (connected through the session, whoever asks),
+the event stream (``event_recording.EventRecorder``, which exists whether or
+not this runs), the responder and the agent's token are the session's
+(``fibsem.workflows.session``); the ``/app`` view over them is the
+application's own (AutoLamella's is ``AutoLamellaAppContext``). Every route
+reads the session's microscope and stream when it is called, so a connect or a
+disconnect needs no restart.
 
 Threading notes, because this file is where the server meets Qt:
 
@@ -32,15 +34,11 @@ import os
 import threading
 import time
 from pathlib import Path
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, Optional
 
 from fibsem.acting import AGENT
 from fibsem.cancellation import NothingToStop
-from fibsem.workflows.events import (
-    EventBuffer,
-    attach_microscope_taps,
-    make_lifecycle_hook,
-)
+from fibsem.workflows.events import EventBuffer
 
 __all__ = ["AppServerHost", "chat_url", "event_log_url"]
 
@@ -83,21 +81,20 @@ def chat_url(host) -> str:
 
 
 class AppServerHost:
-    """Owns the embedded server's lifecycle: buffer, taps, thread, discovery.
+    """Owns the embedded server's lifecycle: thread and discovery.
 
     ``session`` is the application's ``AppSession``. ``app_context`` builds the
-    app's ``/app`` view over an event buffer: the session's stream, or one the
-    host feeds itself when the session records none.
+    app's ``/app`` view over it.
     """
 
     def __init__(
         self,
         session,
-        app_context: Callable[[EventBuffer], Any],
+        app_context: Callable[[], Any],
         host: str = "127.0.0.1",
         port: int = 8001,
         discovery_path=None,
-        serve_microscope: bool = False,
+        serve_microscope: bool = True,
     ):
         self._session = session
         self._app_context = app_context
@@ -123,11 +120,13 @@ class AppServerHost:
         # The running app: the window reads the agent's requests from it.
         self._app = None
         self._thread: Optional[threading.Thread] = None
-        self._disposers: List[Callable[[], None]] = []
         self._wrote_discovery = False
         self.auth = None
-        self.event_buffer: Optional[EventBuffer] = None
-        self.lifecycle_hook = None
+
+    @property
+    def event_buffer(self) -> Optional[EventBuffer]:
+        """The session's event stream, which the server serves."""
+        return getattr(self._session, "event_buffer", None)
 
     @property
     def running(self) -> bool:
@@ -251,13 +250,8 @@ class AppServerHost:
         return connections
 
     def start(self) -> bool:
-        """Serve the session's microscope. Returns False (and logs) rather than
-        ever raising.
-
-        The session's event stream (``event_recording.EventRecorder``) has its
-        taps and prompt feed attached already and outlives the server. A
-        session recording none gets a buffer the host builds and feeds itself.
-        """
+        """Serve the session, connected or not. Returns False (and logs)
+        rather than ever raising."""
         try:
             return self._start()
         except Exception:
@@ -300,12 +294,11 @@ class AppServerHost:
                 "(developer override)"
             )
         # One AuthConfig per app session, kept on the session across server
-        # restarts (a microscope reconnect, a microscope toggle): the agent's
+        # restarts (the microscope toggle): the agent's
         # token stays valid, so a connected sidecar carries on, and the level
         # the operator set stands. It starts at Watch at every launch and is
         # never written to disk (FIB-1035). The override is Drive.
         session = self._session
-        microscope = session.microscope
         if session.agent_auth is None:
             session.agent_auth = AuthConfig.generate(
                 level=AgentLevel.DRIVE if arm_control else AgentLevel.WATCH
@@ -321,19 +314,9 @@ class AppServerHost:
             self.auth.pairing = Pairing(PairedTokens(self._paired_path))
         if self.auth.connections is None:
             self.auth.connections = self._connections()
-        recorder = session.recorder
-        if recorder is not None:
-            # The app's stream: already fed, and not ours to detach on stop.
-            self.event_buffer = recorder.buffer
-            self.lifecycle_hook = recorder.lifecycle_hook
-        else:
-            self.event_buffer = EventBuffer()
-            self.lifecycle_hook = make_lifecycle_hook(self.event_buffer)
-            self._disposers = attach_microscope_taps(self.event_buffer, microscope)
-
         app = build_server(
-            microscope,
-            app_context=self._app_context(self.event_buffer),
+            session=session,
+            app_context=self._app_context(),
             auth=self.auth,
             serve_microscope=self.serve_microscope,
             services=session.analysis_services,
@@ -388,12 +371,6 @@ class AppServerHost:
         return True
 
     def stop(self) -> None:
-        for dispose in self._disposers:
-            try:
-                dispose()
-            except Exception:
-                pass
-        self._disposers = []
         if self._server is not None:
             self._server.should_exit = True
         if self._thread is not None:

@@ -8,7 +8,24 @@ export interface Capabilities {
   routers: { microscope: boolean; services: boolean; app: boolean };
   app_name?: string;
   level?: string;
+  connected?: boolean;
   fibsem?: { version: string; path: string };
+}
+
+/** The microscope connection, as the operator sees it (`/microscope/connection`). */
+export interface Connection {
+  connected: boolean;
+  connecting: string | null;
+  error: string | null;
+  configuration: {
+    name: string | null;
+    path: string | null;
+    manufacturer: string | null;
+    model: string | null;
+    address: string | null;
+  } | null;
+  configurations: { name: string; default: boolean }[];
+  run: { state: string; error: { message?: string } | null } | null;
 }
 
 export interface WorkflowStatus {

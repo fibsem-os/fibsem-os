@@ -454,6 +454,7 @@ def test_events_long_poll_over_http(client, event_buffer):
 
 
 def test_events_unavailable_without_a_buffer(microscope, host):
+    host._idle_buffer = None  # a session with no stream at all
     app = build_server(
         microscope,
         app_context=AutoLamellaAppContext(host),
