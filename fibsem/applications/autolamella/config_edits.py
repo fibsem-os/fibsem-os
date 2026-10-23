@@ -20,7 +20,7 @@ import copy
 import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
-from fibsem.acting import AGENT, acting
+from fibsem.acting import AGENT, Actor, acting
 from fibsem.util.records import content_hash
 from fibsem.workflows.config_patch import PatchError, apply_patch, check_patch
 from fibsem.workflows.edit_recording import PendingEdits
@@ -71,16 +71,21 @@ def apply_agent_edit(
     task_name: str,
     patch: Any,
     version: str,
+    actor: Optional[Actor] = None,
 ) -> Dict[str, Any]:
-    """Apply the agent's edit at *level*, recorded as the agent's: what it
-    changed, before and after, on *microscope*'s record. *level* is ``item``
-    or ``protocol`` (a task-config patch), ``item_fields``, ``reorder_stages``
-    or ``apply_protocol``."""
+    """Apply an App Server edit at *level*, recorded as *actor*'s (the agent
+    when not given): what it changed, before and after, on *microscope*'s
+    record. *level* is ``item`` or ``protocol`` (a task-config patch),
+    ``item_fields``, ``reorder_stages`` or ``apply_protocol``. A verdict set
+    by an ``item_fields`` patch is signed by *actor*."""
+    actor = actor or Actor.agent("remote")
     edits = PendingEdits(microscope, via="agent patch")
-    with acting(AGENT):
+    with acting(actor.kind):
         touch_agent_patch(edits, experiment, level, item_name, task_name, patch)
         try:
-            return _apply(experiment, level, item_name, task_name, patch, version)
+            return _apply(
+                experiment, level, item_name, task_name, patch, version, actor
+            )
         finally:
             edits.flush()
 
@@ -126,11 +131,11 @@ def touch_agent_patch(
         logging.debug("could not note what an agent patch changes", exc_info=True)
 
 
-def _apply(experiment, level, item_name, task_name, patch, version) -> dict:
+def _apply(experiment, level, item_name, task_name, patch, version, actor) -> dict:
     if experiment is None:
         return {"applied": False, "error": "no experiment is loaded"}
     if level == "item_fields":
-        return patch_item_fields(experiment, item_name, patch, version)
+        return patch_item_fields(experiment, item_name, patch, version, actor)
     if level == "reorder_stages":
         return reorder_milling_stages(experiment, item_name, task_name, patch, version)
     if level == "apply_protocol":
@@ -196,16 +201,29 @@ def item_patch_refusal(lamella, patch: dict) -> Optional[str]:
     return None
 
 
-def patch_item_fields(experiment, item_name: str, patch: dict, version: str) -> dict:
+def patch_item_fields(
+    experiment, item_name: str, patch: dict, version: str, actor: Actor
+) -> dict:
     """The App Server's item patch: :func:`edit_item_fields` on the item named
-    *item_name*, saved."""
+    *item_name*, a verdict it sets signed by *actor*, saved."""
     lamella, refusal = find_item(experiment, item_name)
     if refusal:
         return {"applied": False, **refusal}
     result = edit_item_fields(lamella, patch, version)
     if result["applied"]:
+        if any(c["path"].startswith("defect") for c in result["changes"]):
+            _sign_defect(lamella.defect, actor)
+            result["version"] = item_fields_version(lamella)
         result["saved"] = save_experiment(experiment, "agent item patch")
     return result
+
+
+def _sign_defect(record, actor: Actor) -> None:
+    """Name *actor* on a defect record it just changed; an unassessed one names
+    nobody."""
+    from fibsem.workflows.quality import Verdict
+
+    record.actor = "" if record.verdict is Verdict.UNASSESSED else str(actor)
 
 
 def edit_item_fields(lamella, patch: dict, version: str) -> dict:

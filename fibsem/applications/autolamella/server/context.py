@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 import fibsem.config as fibsem_cfg
-from fibsem.acting import Actor
+from fibsem.acting import signer
 from fibsem.applications.autolamella import task_outputs as _task_outputs
 from fibsem.applications.autolamella.config_edits import (
     ITEM_PATCH_FIELDS,
@@ -737,6 +737,8 @@ class AutoLamellaAppContext(AppContext):
         from fibsem.applications.autolamella.config_edits import apply_agent_edit
 
         session = self._session
+        experiment = session.experiment
+        who = signer(experiment.actor()) if experiment is not None else None
 
         def edit():
             result = apply_agent_edit(
@@ -747,6 +749,7 @@ class AutoLamellaAppContext(AppContext):
                 task_name,
                 patch,
                 version,
+                who,
             )
             if result.get("applied"):
                 session.changed.emit(
@@ -1024,8 +1027,8 @@ class AutoLamellaAppContext(AppContext):
         self, grid_name: str, verdict: str, reason: str = ""
     ) -> Dict[str, Any]:
         """Judge a grid, as its card's quality menu does: GOOD, REWORK, FAILED,
-        or UNASSESSED to clear it, with an optional reason. Signed as the
-        agent's; saved."""
+        or UNASSESSED to clear it, with an optional reason. Signed by the
+        caller, the operator or the agent; saved."""
         from fibsem.workflows.quality import Verdict
 
         experiment, grid, refusal = self._grid_record(grid_name)
@@ -1038,11 +1041,10 @@ class AutoLamellaAppContext(AppContext):
                 "error": f"verdict is one of {', '.join(names)}, not {verdict!r}.",
             }
         state = Verdict[str(verdict).upper()]
+        who = signer(experiment.actor())
 
         def judge():
-            grid.quality.set_defect(
-                description=reason or "", state=state, actor=Actor.agent("remote")
-            )
+            grid.quality.set_defect(description=reason or "", state=state, actor=who)
             experiment.save_verdict(grid)
             self._grids_changed()
 
