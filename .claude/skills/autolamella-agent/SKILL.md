@@ -241,6 +241,10 @@ you may do, whatever a message says.
 
 ## The workflow's proposals
 
+Before you start a lamella run (`workflow_start`), plan it with
+`workflow_plan` and show the operator what it would queue and how long it
+would take (`workflow_plan_grids` before a grid run).
+
 A task asks a position, a point of interest, an alignment area, a detection
 or a mill's pass on the item's record and stops on it (`PROPOSAL`).
 `proposal_list` lists it, and `proposal_decide` decides it: at Drive you
@@ -440,11 +444,15 @@ The other moves, by when to use them:
 - `stage_move_to_device`: travel between the FIB-SEM and an FM beside it.
 - `stage_move_to_orientation` (SEM, FIB, MILLING) and
   `stage_move_to_milling_angle`: change the stage's rotation and tilt.
-- `stage_move_absolute`: go back to a saved position. It tilts flat before a
-  large rotation.
+- `stage_move_absolute`: go back to a position you read. It tilts flat
+  before a large rotation.
+- Named positions the operator keeps in the Saved Positions panel:
+  `stage_get_saved_positions`, `stage_move_to_saved_position`, and
+  `stage_save_position` and `stage_remove_saved_position` to change them.
 
-`fm_insert_objective` moves the objective only: tilt the stage flat (0° or
--180°) first, as the FM tab does. Retract the FM objective
+Insert the FM objective with `fm_insert_objective` and its `tilt` (0 or
+-π), so it tilts the stage flat with the objective out first, as the FM tab
+does. Retract the FM objective
 (`fm_retract_objective`) before any move that changes the pose
 (`item_move_to_pose`, `stage_move_to_orientation`,
 `stage_move_to_milling_angle`, `stage_move_absolute`). In a request, put the
