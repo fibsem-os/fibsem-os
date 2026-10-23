@@ -119,7 +119,8 @@ def image_form(root: Optional[str], path: str) -> Dict[str, Any]:
         "fields": _field_rows(image.fields),
         "provenance": _field_rows(image.provenance),
         "channels": [
-            {"name": c.name, "color": "#{:02x}{:02x}{:02x}".format(*c.color)} for c in image.channels
+            {"name": c.name, "color": "#{:02x}{:02x}{:02x}".format(*c.color)}
+            for c in image.channels
         ],
         "scalebar_locations": list(SCALEBAR_LOCATIONS),
         "formats": list(IMAGE_FORMATS),
