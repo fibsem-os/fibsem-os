@@ -17,6 +17,7 @@ acquired outside a workflow has no lamella, and a bar that says so is noise.
 from __future__ import annotations
 
 import functools
+import logging
 import math
 import os
 from dataclasses import dataclass, field
@@ -157,6 +158,11 @@ FIELD_TITLES = {
     "detector": "Detector · mode",
     "objective": "Objective · numerical aperture",
 }
+
+
+def field_title(item: ExportField) -> str:
+    """What a field's label stands for: `Horizontal field width` for `HFW`."""
+    return FIELD_TITLES.get(item.key, item.name)
 
 
 def default_options(image: ExportImage) -> ExportOptions:
@@ -307,6 +313,62 @@ BEAM_FIELD_KEYS = (
     "dwell_time",
 )
 FM_FIELD_KEYS = ("objective", "hfw", "pixel_size", "z")
+
+
+# What a view's bar shows until someone picks (``display.info_bar_fields``). The
+# export's defaults less the pixel size: under a live view, HFW says the same thing
+# more usefully. Plus the working distance: every frame of a live view records it, so
+# the bar follows focusing -- at the vendor's console too, which nothing announces, so
+# a truly live readout would have to poll. Last, the time the image was taken.
+BAR_TIME_KEY = "date"  # the provenance field the bar's time comes from
+BAR_DEFAULT_FIELDS = (
+    "detector",
+    "objective",
+    "hfw",
+    "voltage",
+    "current",
+    "working_distance",
+    "z",
+    BAR_TIME_KEY,
+)
+
+
+def stored_bar_keys(kind: str) -> Optional[Tuple[str, ...]]:
+    """The fields someone chose for *kind*'s bar, or None to take the defaults."""
+    from fibsem import config as cfg
+
+    try:
+        chosen = cfg.load_user_preferences().display.info_bar_fields.get(kind)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "could not read the view bar's fields", exc_info=True
+        )
+        return None
+    return tuple(chosen) if chosen is not None else None
+
+
+def bar_selection(
+    info: ImageFields, keys: Sequence[str]
+) -> Tuple[List[ExportField], List[ExportField], Optional[str]]:
+    """What a bar showing *keys* says of *info*: (header fields, labelled fields,
+    time). The header is the unlabelled fields (detector, objective); at most
+    MAX_FIELDS labelled ones follow, in *keys* order."""
+    by_key = {item.key: item for item in info.fields}
+    header: List[ExportField] = []
+    labelled: List[ExportField] = []
+    for key in keys:
+        item = by_key.get(key)
+        if item is None:
+            continue
+        if item.label:
+            if len(labelled) < MAX_FIELDS:
+                labelled.append(item)
+        else:
+            header.append(item)
+    time = None
+    if BAR_TIME_KEY in keys:
+        time = next((p.value for p in info.provenance if p.key == BAR_TIME_KEY), None)
+    return header, labelled, time
 
 
 def field_keys_for(kind: str) -> Tuple[str, ...]:
@@ -470,15 +532,24 @@ def z_stack(image: FluorescenceImage) -> Optional[Tuple[int, float]]:
     Slices counted from the data, not z_positions: some files list a position per
     channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
     """
-    shape = np.shape(image.data)
+    return stack_planes(image.metadata, np.shape(image.data))
+
+
+def stack_planes(md, shape: Sequence[int]) -> Optional[Tuple[int, float]]:
+    """`z_stack` from a stack's metadata and shape."""
     slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
-    step = image.metadata.pixel_size_z
+    step = md.pixel_size_z
     return (slices, step) if slices > 1 and step else None
 
 
 def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
     """A fluorescence stack's fields. Z reads as the projection the export draws."""
-    md = image.metadata
+    return fluorescence_fields(image.metadata, np.shape(image.data))
+
+
+def fluorescence_fields(md, shape: Sequence[int]) -> ImageFields:
+    """As `fluorescence_image_fields`, from a stack's metadata and (C, Z, Y, X)
+    shape, for a file read without its planes."""
     fields: List[ExportField] = []
     first = md.channels[0] if md.channels else None
     if first is not None and first.objective_magnification:
@@ -486,12 +557,11 @@ def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
         if first.objective_numerical_aperture:
             objective += f" · {first.objective_numerical_aperture:g} NA"
         _add(fields, "objective", objective)
-    shape = np.shape(image.data)
     if md.pixel_size_x:
         hfw = format_si(md.pixel_size_x * shape[-1], "m")
         _add(fields, "hfw", hfw)
         _add(fields, "pixel_size", format_si(md.pixel_size_x, "m"))
-    stack = z_stack(image)
+    stack = stack_planes(md, shape)
     if stack is not None:
         _add(fields, "z", z_value(*stack))
 

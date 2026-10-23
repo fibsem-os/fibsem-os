@@ -37,7 +37,7 @@ AREA = FibsemRectangle(left=0.66, top=0.22, width=0.28, height=0.25)
 POI = Point(x=27.5e-6, y=-9.6e-6)
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def test_the_point_is_the_area_centre_in_the_image_frame():

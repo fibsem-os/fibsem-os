@@ -52,7 +52,7 @@ class _AsksButTurnedOff(_AsksForAPoint):
         return ()
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _experiment(tmp_path: Path, microscope, attention=Attention.automated):

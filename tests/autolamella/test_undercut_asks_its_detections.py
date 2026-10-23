@@ -64,7 +64,7 @@ def checkpoint(monkeypatch) -> str:
     return cached
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _experiment(tmp_path: Path, microscope, attention=Attention.automated):

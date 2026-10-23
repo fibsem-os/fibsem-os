@@ -21,7 +21,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
 from tests.fixtures.microscopes import demo_microscope
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 # ---------------------------------------------------------------------------

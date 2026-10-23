@@ -1685,10 +1685,7 @@ class FibsemOverviewWidget(QWidget):
 
     def _write_imported(self, image, name: str) -> str:
         """Save an imported image as our own OME-TIFF: a new file beside, never
-        over, anything already there. Compressed, as the files people bring are:
-        uncompressed, a Zeiss export's copy was six times the size of the export.
-        zlib rather than their LZW: smaller on 16-bit stacks, and readable on an
-        install without imagecodecs."""
+        over, anything already there."""
         import tempfile
 
         folder = self.aligned_image_folder() or os.path.join(
@@ -1704,7 +1701,7 @@ class FibsemOverviewWidget(QWidget):
         while os.path.exists(path):
             count += 1
             path = os.path.join(folder, f"{stem}-{count}.ome.tiff")
-        return image.save(path, compression="zlib")
+        return image.save(path)
 
     def _read_fluorescence_image(self, path: str):
         from fibsem.fm.structures import FluorescenceImage

@@ -35,7 +35,7 @@ from tests.protocols import planned, task_protocol
 REF = "Acquire Reference Image"
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _experiment(tmp_path: Path, microscope, attention=Attention.automated):

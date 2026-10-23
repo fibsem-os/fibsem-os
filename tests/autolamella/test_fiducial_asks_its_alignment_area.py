@@ -32,7 +32,7 @@ def _in_run(relpath: str):
     return parts[0], parts[-1]
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def test_the_area_is_a_question_with_a_switch():

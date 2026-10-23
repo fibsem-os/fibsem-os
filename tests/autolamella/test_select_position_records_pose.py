@@ -30,7 +30,7 @@ from tests.fixtures.microscopes import demo_microscope
 pytestmark = pytest.mark.slow
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 @pytest.mark.parametrize("auto_milling_alignment", [False, True])

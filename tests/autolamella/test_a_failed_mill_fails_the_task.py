@@ -23,7 +23,7 @@ from tests.run_state import run_lamellae
 ROUGH = "Rough Milling"
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 @pytest.fixture

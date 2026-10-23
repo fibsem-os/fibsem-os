@@ -51,7 +51,7 @@ def _in_run(relpath: str):
     return parts[0], parts[-1]
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _experiment(

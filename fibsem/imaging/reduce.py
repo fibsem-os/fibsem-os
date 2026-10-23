@@ -25,8 +25,13 @@ import math
 import cv2
 import numpy as np
 
-__all__ = ["downsample", "downsample_mask", "PreviewMosaic",
-           "PREVIEW_MAX_DIMENSION"]
+__all__ = [
+    "downsample",
+    "downsample_mask",
+    "reduce_by",
+    "PreviewMosaic",
+    "PREVIEW_MAX_DIMENSION",
+]
 
 
 # Element types `cv2.resize` accepts. Anything else takes the numpy path, which answers
@@ -88,7 +93,13 @@ def downsample(arr: np.ndarray, max_px: int) -> np.ndarray:
     h, w = arr.shape[:2]
     if h <= max_px and w <= max_px:
         return arr
-    factor = max(1, math.ceil(max(h, w) / max_px))
+    return reduce_by(arr, max(1, math.ceil(max(h, w) / max_px)))
+
+
+def reduce_by(arr: np.ndarray, factor: int) -> np.ndarray:
+    """*arr* averaged over *factor* x *factor* blocks, as :func:`downsample` reduces it:
+    ``ceil(n / factor)`` per axis, dtype kept, the ragged final block edge-padded."""
+    h, w = arr.shape[:2]
     out_h, out_w = math.ceil(h / factor), math.ceil(w / factor)
     too_many_channels = arr.ndim > 3 or (arr.ndim == 3 and arr.shape[2] > 4)
     if arr.dtype not in _CV2_DTYPES or too_many_channels:
@@ -195,8 +206,10 @@ class PreviewMosaic:
             max_px: longest side to decimate to.
         """
         self.stride = max(1, int(math.ceil(max(full_w, full_h) / max_px)))
-        shape = (int(math.ceil(full_h / self.stride)),
-                 int(math.ceil(full_w / self.stride)))
+        shape = (
+            int(math.ceil(full_h / self.stride)),
+            int(math.ceil(full_w / self.stride)),
+        )
         if channels is not None:
             shape = (int(channels),) + shape
         self.canvas = np.zeros(shape, dtype=dtype)
@@ -232,7 +245,7 @@ class PreviewMosaic:
             width = min(thumb.shape[1], target.shape[2] - x0)
             if height <= 0 or width <= 0:
                 return
-            target[index, y0:y0 + height, x0:x0 + width] = thumb[:height, :width]
+            target[index, y0 : y0 + height, x0 : x0 + width] = thumb[:height, :width]
 
     def describe(self) -> str:
         """One line for the log, the same on both sides."""

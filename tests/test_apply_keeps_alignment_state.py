@@ -26,7 +26,7 @@ from tests.fixtures.microscopes import demo_microscope
 SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
 
 
-microscope = demo_microscope(scope="function")
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])

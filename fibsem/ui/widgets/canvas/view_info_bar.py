@@ -43,12 +43,16 @@ from PyQt5.QtWidgets import (
 
 from fibsem import config as cfg
 from fibsem.imaging.export import (
+    BAR_DEFAULT_FIELDS,
+    BAR_TIME_KEY,
     FIELD_CATALOGUE,
-    FIELD_TITLES,
     MAX_FIELDS,
     ExportField,
     ImageFields,
+    bar_selection,
     field_keys_for,
+    field_title,
+    stored_bar_keys,
     z_value,
 )
 from fibsem.ui.icon import fibsem_icon
@@ -101,7 +105,6 @@ _CHIP_STYLE = (
     f" border: 1px solid {BORDER_COLOR}; border-radius: 7px;"
 )
 _TIME_TITLE = "Acquired at"
-_TIME_KEY = "date"  # the provenance field the time comes from
 _PICKER_STYLE = (
     f"#fieldPicker {{ background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR};"
     " border-radius: 4px; }"
@@ -110,35 +113,9 @@ _PICKER_STYLE = (
 )
 
 
-# What a new bar shows. The export's defaults less the pixel size: under a live view,
-# HFW says the same thing more usefully. Plus the working distance: every frame of a
-# live view records it, so the bar follows focusing -- at the vendor's console too,
-# which nothing announces, so a truly live readout would have to poll. Last, the time
-# the image was taken. Anything else is a tick away in the picker.
-BAR_DEFAULT_FIELDS = (
-    "detector",
-    "objective",
-    "hfw",
-    "voltage",
-    "current",
-    "working_distance",
-    "z",
-    _TIME_KEY,
-)
-
 # Every open bar, so a choice made on one reaches the others of its kind at once: the
 # quad view and the lamella editor each have an SEM bar, and both should follow.
 _BARS: "weakref.WeakSet[ViewInfoBar]" = weakref.WeakSet()
-
-
-def stored_field_keys(kind: str) -> Optional[Tuple[str, ...]]:
-    """The fields someone chose for *kind*'s bar, or None to take the defaults."""
-    try:
-        chosen = cfg.load_user_preferences().display.info_bar_fields.get(kind)
-    except Exception:
-        _logger.warning("could not read the view bar's fields", exc_info=True)
-        return None
-    return tuple(chosen) if chosen is not None else None
 
 
 def choose_field_keys(kind: str, keys: Optional[Sequence[str]]) -> Tuple[str, ...]:
@@ -176,11 +153,6 @@ def show_fm_plane(bar: "ViewInfoBar", fm_widget, stack: Optional[Tuple[int, floa
         return
     plane = None if fm_widget.max_projection else fm_widget.current_z
     bar.set_field_value("z", z_value(*stack, plane=plane))
-
-
-def field_title(item: ExportField) -> str:
-    """What a field's label stands for: `Horizontal field width` for `HFW`."""
-    return FIELD_TITLES.get(item.key, item.name)
 
 
 def _field_html(item: ExportField, value_color: str = _VALUE_COLOR) -> str:
@@ -228,7 +200,7 @@ class ViewInfoBar(QWidget):
         # The bar must never be what decides how wide a view can get.
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
 
-        self._keys: Tuple[str, ...] = stored_field_keys(kind) or BAR_DEFAULT_FIELDS
+        self._keys: Tuple[str, ...] = stored_bar_keys(kind) or BAR_DEFAULT_FIELDS
         self._info: Optional[ImageFields] = None
         self._overrides: Dict[str, str] = {}
         # Values that come from the microscope, not the image: they outlive an image
@@ -407,27 +379,15 @@ class ViewInfoBar(QWidget):
         live_header = [f for f in self._live.values() if not f.label]
         if self._info is None:
             return live_header, live, None
-        by_key = {item.key: item for item in self._info.fields}
-        header: List[ExportField] = []
-        labelled: List[ExportField] = []
-        for key in self._keys:
-            item = by_key.get(key)
-            if item is None:
-                continue
-            if key in self._overrides:
-                item = ExportField(
-                    item.key, item.name, item.label, self._overrides[key]
-                )
-            if item.label:
-                if len(labelled) < MAX_FIELDS:
-                    labelled.append(item)
-            else:
-                header.append(item)
-        time = None
-        if _TIME_KEY in self._keys:
-            time = next(
-                (p.value for p in self._info.provenance if p.key == _TIME_KEY), None
-            )
+        fields = [
+            ExportField(f.key, f.name, f.label, self._overrides[f.key])
+            if f.key in self._overrides
+            else f
+            for f in self._info.fields
+        ]
+        header, labelled, time = bar_selection(
+            ImageFields(self._info.kind, fields, self._info.provenance), self._keys
+        )
         return header + live_header, labelled + live, time
 
     def _rebuild(self) -> None:
@@ -616,9 +576,9 @@ class FieldPicker(QFrame):
         lay.addWidget(caption)
 
         self.checkboxes: Dict[str, QCheckBox] = {}
-        for key in field_keys_for(kind) + (_TIME_KEY,):
-            name = _TIME_TITLE if key == _TIME_KEY else FIELD_CATALOGUE[key][0]
-            label = FIELD_CATALOGUE[key][1] if key != _TIME_KEY else ""
+        for key in field_keys_for(kind) + (BAR_TIME_KEY,):
+            name = _TIME_TITLE if key == BAR_TIME_KEY else FIELD_CATALOGUE[key][0]
+            label = FIELD_CATALOGUE[key][1] if key != BAR_TIME_KEY else ""
             checkbox = QCheckBox(
                 f"{name} ({label})" if label and label != name else name
             )
