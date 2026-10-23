@@ -196,8 +196,8 @@ def test_a_patch_naming_attention_or_requires_is_refused(tmp_path):
 def test_the_editors_values_are_copied_touched_and_saved_on_one_path(tmp_path):
     """The editors' write: each value set whole and copied, touched for the
     record before it changes, and saved by the same save the patches make."""
-    from fibsem.server.task_configs import save_edits, set_task_config_values
     from fibsem.workflows.edit_recording import PendingEdits
+    from fibsem.workflows.task_configs import save_edits, set_task_config_values
 
     _, experiment, scope = _context(tmp_path)
     lamella = experiment.positions[0]
@@ -234,8 +234,8 @@ def test_the_editors_values_are_copied_touched_and_saved_on_one_path(tmp_path):
 
 
 def test_the_editors_values_refuse_an_unknown_task(tmp_path):
-    from fibsem.server.task_configs import set_task_config_values
     from fibsem.workflows.edit_recording import PendingEdits
+    from fibsem.workflows.task_configs import set_task_config_values
 
     _, experiment, scope = _context(tmp_path)
     result = set_task_config_values(

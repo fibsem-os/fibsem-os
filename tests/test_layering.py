@@ -124,6 +124,65 @@ def test_app_servers_import_no_ui():
     assert found == [], "\n".join(found)
 
 
+# The domain code: everything but the App Server, its clients (``ai``, ``client``,
+# ``gateway``) and the UI, with each app's code outside its server, UI and launch.
+_NOT_DOMAIN = ("ai", "client", "gateway", "server", "ui", "applications")
+_APP_HOSTING = ("server", "server.py", "ui", "launch.py")
+
+# Who may import ``fibsem.server``, and why.
+SERVER_IMPORTERS = {
+    # AppSession is the composition root: it starts the server it hosts.
+    "fibsem/workflows/session.py",
+    # The Qt agent card's server setup and pairing.
+    "fibsem/ui/agent/app_server_dialog.py",
+    "fibsem/ui/agent/chip_host.py",
+    "fibsem/ui/agent/pairing_widgets.py",
+}
+
+
+def _domain_files():
+    yield from sorted(FIBSEM.glob("*.py"))
+    for package in sorted(FIBSEM.iterdir()):
+        if package.is_dir() and package.name not in _NOT_DOMAIN:
+            yield from sorted(package.rglob("*.py"))
+    for app in sorted((FIBSEM / "applications").iterdir()):
+        if app.is_dir():
+            yield from sorted(
+                path
+                for path in app.rglob("*.py")
+                if path.relative_to(app).parts[0] not in _APP_HOSTING
+            )
+
+
+def _is_server(module: str) -> bool:
+    return module == "fibsem.server" or module.startswith("fibsem.server.")
+
+
+def _server_imports(paths):
+    for path in paths:
+        if path.relative_to(FIBSEM.parent).as_posix() not in SERVER_IMPORTERS:
+            yield from _imports(path, _is_server)
+
+
+def test_the_domain_imports_no_server():
+    found = list(_server_imports(_domain_files()))
+    assert found == [], "\n".join(found)
+
+
+def test_the_ui_imports_no_server():
+    found = list(_server_imports(_ui_files()))
+    assert found == [], "\n".join(found)
+
+
+def test_every_listed_server_importer_still_imports_it():
+    stale = [
+        name
+        for name in sorted(SERVER_IMPORTERS)
+        if not list(_imports(FIBSEM.parent / name, _is_server))
+    ]
+    assert stale == [], f"no longer import fibsem.server: {stale}"
+
+
 @pytest.mark.parametrize(
     "module, ui",
     [
