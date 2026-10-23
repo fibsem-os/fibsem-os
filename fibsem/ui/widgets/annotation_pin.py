@@ -23,11 +23,11 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import QPointF, Qt
 from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 
-_PIN_COLOR   = QColor(255, 80,  80,  230)
-_TEXT_BG     = QColor(20,  20,  20,  200)
-_TEXT_COLOR  = QColor(240, 240, 240, 230)
+_PIN_COLOR = QColor(255, 80, 80, 230)
+_TEXT_BG = QColor(20, 20, 20, 200)
+_TEXT_COLOR = QColor(240, 240, 240, 230)
 _DOT_R = 5
-_STEM = 14   # vertical stem below label
+_STEM = 14  # vertical stem below label
 
 
 @dataclass
@@ -76,7 +76,9 @@ class AnnotationPinOverlay(QtWidgets.QWidget):
         if not ok:
             return
 
-        self._pins.append(_Pin(scene_pos.x(), scene_pos.y(), label or f"Pin {self._counter}"))
+        self._pins.append(
+            _Pin(scene_pos.x(), scene_pos.y(), label or f"Pin {self._counter}")
+        )
         self._counter += 1
         self.update()
 
@@ -148,7 +150,8 @@ class AnnotationPinOverlay(QtWidgets.QWidget):
             # Dot
             painter.setBrush(_PIN_COLOR)
             painter.setPen(Qt.NoPen)
-            painter.drawEllipse(int(px - _DOT_R), int(py - _DOT_R),
-                                _DOT_R * 2, _DOT_R * 2)
+            painter.drawEllipse(
+                int(px - _DOT_R), int(py - _DOT_R), _DOT_R * 2, _DOT_R * 2
+            )
 
         painter.end()

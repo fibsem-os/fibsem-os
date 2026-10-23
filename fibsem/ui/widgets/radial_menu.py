@@ -32,30 +32,30 @@ from PyQt5.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 
 # Default colour palette — cycles if there are more items than colours
 _PALETTE = [
-    QColor(60,  120, 200, 180),   # blue
-    QColor(60,  180, 100, 180),   # green
-    QColor(200,  80,  80, 180),   # red
-    QColor(200, 160,  40, 180),   # amber
-    QColor(140,  60, 200, 180),   # purple
-    QColor(200, 110,  40, 180),   # orange
-    QColor( 40, 180, 180, 180),   # cyan
-    QColor(180,  40, 120, 180),   # pink
+    QColor(60, 120, 200, 180),  # blue
+    QColor(60, 180, 100, 180),  # green
+    QColor(200, 80, 80, 180),  # red
+    QColor(200, 160, 40, 180),  # amber
+    QColor(140, 60, 200, 180),  # purple
+    QColor(200, 110, 40, 180),  # orange
+    QColor(40, 180, 180, 180),  # cyan
+    QColor(180, 40, 120, 180),  # pink
 ]
 _PALETTE_ACTIVE = [
-    QColor( 90, 160, 255, 220),
-    QColor( 80, 230, 130, 220),
+    QColor(90, 160, 255, 220),
+    QColor(80, 230, 130, 220),
     QColor(255, 110, 110, 220),
-    QColor(255, 210,  60, 220),
+    QColor(255, 210, 60, 220),
     QColor(180, 100, 255, 220),
-    QColor(255, 160,  70, 220),
-    QColor( 60, 230, 230, 220),
-    QColor(240,  80, 160, 220),
+    QColor(255, 160, 70, 220),
+    QColor(60, 230, 230, 220),
+    QColor(240, 80, 160, 220),
 ]
 
-_SIZE             = 300
+_SIZE = 300
 _DEAD_ZONE_RADIUS = 38
-_OUTER_RADIUS     = _SIZE // 2
-_LABEL_RADIUS     = 0.58   # fraction of outer radius
+_OUTER_RADIUS = _SIZE // 2
+_LABEL_RADIUS = 0.58  # fraction of outer radius
 
 
 class RadialMenuOverlay(QtWidgets.QWidget):
@@ -78,7 +78,7 @@ class RadialMenuOverlay(QtWidgets.QWidget):
         parent: Optional[QtWidgets.QWidget] = None,
     ):
         super().__init__(parent)
-        self._items  = items            # [(label, callback), ...]
+        self._items = items  # [(label, callback), ...]
         self._colors = colors
         self._active_index: Optional[int] = None
 
@@ -132,8 +132,8 @@ class RadialMenuOverlay(QtWidgets.QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
-        n   = len(self._items)
-        cx  = cy = _SIZE // 2
+        n = len(self._items)
+        cx = cy = _SIZE // 2
         rect = QRect(0, 0, _SIZE, _SIZE)
         span_deg = 360.0 / n
 
@@ -142,7 +142,9 @@ class RadialMenuOverlay(QtWidgets.QWidget):
             # We want sector 0 at North, going CW in screen space.
             # North in Qt = 90°.  Each step CW = subtract span_deg.
             center_qt = 90.0 - i * span_deg
-            start_qt  = center_qt + span_deg / 2   # Qt CCW, so +half puts start CW of centre
+            start_qt = (
+                center_qt + span_deg / 2
+            )  # Qt CCW, so +half puts start CW of centre
             # We draw CCW spans, so negate span to go CW
             # Actually: drawPie(rect, startAngle*16, spanAngle*16)
             # positive span = CCW.  We want CW sectors → negative span.
@@ -152,16 +154,18 @@ class RadialMenuOverlay(QtWidgets.QWidget):
             color = self._sector_color(i, active=(i == self._active_index))
             painter.setBrush(color)
             painter.setPen(QPen(QColor(255, 255, 255, 50), 1))
-            painter.drawPie(rect,
-                            int(start_qt * 16),
-                            int(span_deg * 16))
+            painter.drawPie(rect, int(start_qt * 16), int(span_deg * 16))
 
         # Punch out dead-zone
         painter.setCompositionMode(QPainter.CompositionMode_Clear)
         painter.setBrush(Qt.transparent)
         painter.setPen(Qt.NoPen)
-        dz = QRect(cx - _DEAD_ZONE_RADIUS, cy - _DEAD_ZONE_RADIUS,
-                   _DEAD_ZONE_RADIUS * 2,  _DEAD_ZONE_RADIUS * 2)
+        dz = QRect(
+            cx - _DEAD_ZONE_RADIUS,
+            cy - _DEAD_ZONE_RADIUS,
+            _DEAD_ZONE_RADIUS * 2,
+            _DEAD_ZONE_RADIUS * 2,
+        )
         painter.drawEllipse(dz)
 
         painter.setCompositionMode(QPainter.CompositionMode_SourceOver)
@@ -175,7 +179,7 @@ class RadialMenuOverlay(QtWidgets.QWidget):
         painter.setPen(QPen(QColor(255, 255, 255, 70), 1))
         for i in range(n):
             # Angle of the boundary between sector i and i+1 (screen CW from North)
-            boundary_screen = i * 2 * math.pi / n   # radians, CW from North
+            boundary_screen = i * 2 * math.pi / n  # radians, CW from North
             bx = cx + (_OUTER_RADIUS - 1) * math.sin(boundary_screen)
             by = cy - (_OUTER_RADIUS - 1) * math.cos(boundary_screen)
             painter.drawLine(cx, cy, int(bx), int(by))
@@ -188,18 +192,19 @@ class RadialMenuOverlay(QtWidgets.QWidget):
         # Labels
         font = QFont("Arial", max(8, 12 - max(0, n - 4)), QFont.Bold)
         painter.setFont(font)
-        fm  = painter.fontMetrics()
-        lr  = _OUTER_RADIUS * _LABEL_RADIUS
+        fm = painter.fontMetrics()
+        lr = _OUTER_RADIUS * _LABEL_RADIUS
 
         for i, (label, _) in enumerate(self._items):
-            a = i * 2 * math.pi / n          # screen-CW from North
+            a = i * 2 * math.pi / n  # screen-CW from North
             lx = cx + lr * math.sin(a)
             ly = cy - lr * math.cos(a)
 
             text_w = fm.horizontalAdvance(label) + 16
             text_h = fm.height() + 8
-            label_rect = QRect(int(lx) - text_w // 2, int(ly) - text_h // 2,
-                               text_w, text_h)
+            label_rect = QRect(
+                int(lx) - text_w // 2, int(ly) - text_h // 2, text_w, text_h
+            )
 
             if i == self._active_index:
                 painter.setPen(QPen(Qt.white))
@@ -260,10 +265,7 @@ class QuadMenuOverlay(RadialMenuOverlay):
         labels: Optional[Dict[str, str]] = None,
         parent: Optional[QtWidgets.QWidget] = None,
     ):
-        cbs    = callbacks or {}
-        lbls   = labels    or {}
-        items  = [
-            (lbls.get(k, k), cbs.get(k))
-            for k in _QUAD_ORDER
-        ]
+        cbs = callbacks or {}
+        lbls = labels or {}
+        items = [(lbls.get(k, k), cbs.get(k)) for k in _QUAD_ORDER]
         super().__init__(items=items, parent=parent)

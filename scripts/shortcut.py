@@ -6,13 +6,13 @@ import win32com.client
 from fibsem.config import BASE_PATH
 
 # Get the user's desktop folder
-desktop = os.path.join(os.path.expanduser('~'), 'Desktop')
+desktop = os.path.join(os.path.expanduser("~"), "Desktop")
 
 # Specify the target file (e.g., a script or program you want to create a shortcut for)
-target_file = os.path.join(BASE_PATH, "run_ui.bat") # Replace with your program's path
+target_file = os.path.join(BASE_PATH, "run_ui.bat")  # Replace with your program's path
 
 # Create a shortcut name
-shortcut_name = 'FibsemUI.lnk'
+shortcut_name = "FibsemUI.lnk"
 
 # Create a shortcut on the desktop
 shell = win32com.client.Dispatch("WScript.Shell")

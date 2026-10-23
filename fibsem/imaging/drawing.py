@@ -20,19 +20,19 @@ _NICE_NUMBERS = [1, 2, 5]
 
 
 _FONT_CANDIDATES = [
-    "arial.ttf",                                                          # Windows
-    "Arial.ttf",                                                          # macOS
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",                   # Ubuntu/Debian
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",   # RHEL/Fedora
-    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",                   # fallback Linux
+    "arial.ttf",  # Windows
+    "Arial.ttf",  # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",  # Ubuntu/Debian
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # RHEL/Fedora
+    "/usr/share/fonts/truetype/freefont/FreeSans.ttf",  # fallback Linux
 ]
 
 _FONT_BOLD_CANDIDATES = [
-    "arialbd.ttf",                                                        # Windows
-    "Arial Bold.ttf",                                                     # macOS
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",              # Ubuntu/Debian
-    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",      # RHEL/Fedora
-    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",               # fallback Linux
+    "arialbd.ttf",  # Windows
+    "Arial Bold.ttf",  # macOS
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Ubuntu/Debian
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",  # RHEL/Fedora
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",  # fallback Linux
 ]
 
 
@@ -64,7 +64,7 @@ def _pick_scalebar_length_m(fov_m: float, target_ratio: float = 0.2) -> float:
         return 0.0
 
     exponent = math.floor(math.log10(target_m))
-    base = 10 ** exponent
+    base = 10**exponent
 
     best = _NICE_NUMBERS[0] * base
     best_diff = abs(target_m - best)
@@ -91,7 +91,11 @@ def _format_length(length_m: float) -> str:
     si_ranges = [
         (1e-9, 1e12, "pm"),
         (1e-6, 1e9, "nm"),
-        (1e-3, 1e6, f"{MICRON_SYMBOL}"), # default font on windows doesnt support greek characters
+        (
+            1e-3,
+            1e6,
+            f"{MICRON_SYMBOL}",
+        ),  # default font on windows doesnt support greek characters
         (1.0, 1e3, "mm"),
         (1e3, 1.0, "m"),
         (1e6, 1e-3, "km"),
@@ -275,7 +279,9 @@ def draw_rectangle_reduced(
     base = Image.fromarray(rgb).convert("RGBA")
     overlay = Image.new("RGBA", (w_px, h_px), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
-    draw.rectangle([(x0, y0), (x1, y1)], outline=(*color, int(alpha * 255)), width=thickness)
+    draw.rectangle(
+        [(x0, y0), (x1, y1)], outline=(*color, int(alpha * 255)), width=thickness
+    )
 
     result = Image.alpha_composite(base, overlay).convert("RGB")
     return np.array(result)
@@ -345,16 +351,25 @@ def draw_image_overlays(
     out = arr
     if show_crosshair:
         crosshair_kwargs = {
-            k: kwargs[k] for k in ("color", "alpha", "size_ratio", "thickness")
+            k: kwargs[k]
+            for k in ("color", "alpha", "size_ratio", "thickness")
             if k in kwargs
         }
         out = draw_crosshair(out, **crosshair_kwargs)
     if show_scalebar:
         scalebar_kwargs = {
-            k: kwargs[k] for k in (
-                "location", "bar_color", "text_color", "bg_color",
-                "bg_alpha", "margin", "bar_height", "font_scale",
-            ) if k in kwargs
+            k: kwargs[k]
+            for k in (
+                "location",
+                "bar_color",
+                "text_color",
+                "bg_color",
+                "bg_alpha",
+                "margin",
+                "bar_height",
+                "font_scale",
+            )
+            if k in kwargs
         }
         out = draw_scalebar(out, pixel_size_x, **scalebar_kwargs)
     return out

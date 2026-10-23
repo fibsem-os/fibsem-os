@@ -7,7 +7,7 @@ MILLIMETRE_TO_METRE = 1e-3
 METRE_TO_MILLIMETRE = 1.0 / MILLIMETRE_TO_METRE
 
 SI_TO_KILO = 1e-3
-KILO_TO_SI =  1/ SI_TO_KILO
+KILO_TO_SI = 1 / SI_TO_KILO
 
 SI_TO_MILLI = 1e3
 MILLI_TO_SI = 1 / SI_TO_MILLI
@@ -39,17 +39,19 @@ NANOSECOND_SYMBOL = "ns"
 PICOSECOND_SYMBOL = "ps"
 
 # Date / time format strings
-DATETIME_FILE           = "%Y-%m-%d_%H-%M-%S"    # filename-safe datetime
-DATETIME_COMPACT        = "%Y%m%d_%H%M%S"         # compact datetime (no separators)
-DATETIME_DISPLAY        = "%Y-%m-%d %H:%M:%S"     # human-readable datetime
-DATETIME_DISPLAY_SHORT  = "%Y-%m-%d  %H:%M"       # short display datetime
-DATETIME_DISPLAY_AMPM   = "%Y-%m-%d %I:%M %p"     # short display datetime, 12-hour AM/PM
-DATETIME_DISPLAY_FULL   = "%Y-%m-%d %H:%M:%S %p"  # datetime with AM/PM suffix
-DATETIME_EXPERIMENT     = "%Y-%m-%d-%H-%M"         # experiment folder name
-DATE_COMPACT            = "%Y%m%d"                 # compact date only
-DATE_LONG               = "%B %d, %Y"              # e.g. "March 19, 2026"
-TIME_FILE               = "%H-%M-%S"               # filename-safe time
-TIME_DISPLAY            = "%H:%M:%S"               # colon-separated time
-TIME_DISPLAY_AMPM_SHORT = "%I:%M%p"                # 12-hour time AM/PM (no space)
-DATETIME_LOG            = "%Y-%m-%d-%I-%M-%S%p"   # legacy log datetime (note: %p unavailable on Windows)
-DATETIME_FILE_NANO      = "%Y-%m-%d_%H-%M-%S-%f"   # filename-safe datetime with nanoseconds
+DATETIME_FILE = "%Y-%m-%d_%H-%M-%S"  # filename-safe datetime
+DATETIME_COMPACT = "%Y%m%d_%H%M%S"  # compact datetime (no separators)
+DATETIME_DISPLAY = "%Y-%m-%d %H:%M:%S"  # human-readable datetime
+DATETIME_DISPLAY_SHORT = "%Y-%m-%d  %H:%M"  # short display datetime
+DATETIME_DISPLAY_AMPM = "%Y-%m-%d %I:%M %p"  # short display datetime, 12-hour AM/PM
+DATETIME_DISPLAY_FULL = "%Y-%m-%d %H:%M:%S %p"  # datetime with AM/PM suffix
+DATETIME_EXPERIMENT = "%Y-%m-%d-%H-%M"  # experiment folder name
+DATE_COMPACT = "%Y%m%d"  # compact date only
+DATE_LONG = "%B %d, %Y"  # e.g. "March 19, 2026"
+TIME_FILE = "%H-%M-%S"  # filename-safe time
+TIME_DISPLAY = "%H:%M:%S"  # colon-separated time
+TIME_DISPLAY_AMPM_SHORT = "%I:%M%p"  # 12-hour time AM/PM (no space)
+DATETIME_LOG = (
+    "%Y-%m-%d-%I-%M-%S%p"  # legacy log datetime (note: %p unavailable on Windows)
+)
+DATETIME_FILE_NANO = "%Y-%m-%d_%H-%M-%S-%f"  # filename-safe datetime with nanoseconds
