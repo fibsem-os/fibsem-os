@@ -201,6 +201,15 @@ def test_kwargs_from_a_file(run, tmp_path, microscope):
     assert math.isclose(microscope.get_stage_position().y - before.y, 2e-6)
 
 
+def test_beam_turns_off_and_on(run, microscope):
+    code, out, _ = run("beam", "turn-off", "--beam-type", "ion")
+    assert code == 0 and "ION: off" in out
+    assert microscope.devices["ion"].on.get_value() is False
+    code, out, _ = run("beam", "turn-on", "--beam-type", "ion")
+    assert code == 0 and "ION: on" in out
+    assert microscope.devices["ion"].on.get_value() is True
+
+
 def test_what_the_agent_may_never_do_the_cli_may_not_either(run):
     """The blocklist holds for the operator token (#2121)."""
     code, _, err = run("device", "set-parameter", "electron", "on", "false")

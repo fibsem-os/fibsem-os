@@ -1756,15 +1756,20 @@ class FibsemMicroscope(ABC):
             return
         param.write_through(value)
 
-    def turn_on(self, beam_type: BeamType) -> bool:
-        """Turn on the specified beam type."""
-        self._write_beam("on", True, beam_type)
-        return self._read_beam("on", beam_type)
+    def turn_on(self, beam_type: BeamType) -> Optional[bool]:
+        """Turn on the specified beam type: the beam's turn_on command, or nothing
+        where there is no such beam or it can't switch (absent = unsupported)."""
+        return self._switch_beam("turn_on", beam_type)
 
-    def turn_off(self, beam_type: BeamType) -> bool:
-        "Turn off the specified beam type."
-        self._write_beam("on", False, beam_type)
-        return self._read_beam("on", beam_type)
+    def turn_off(self, beam_type: BeamType) -> Optional[bool]:
+        """Turn off the specified beam type: the beam's turn_off command."""
+        return self._switch_beam("turn_off", beam_type)
+
+    def _switch_beam(self, command: str, beam_type: BeamType) -> Optional[bool]:
+        if self._beam_parameter("on", beam_type) is None:
+            logging.debug(f"on is not supported here ({beam_type}).")
+            return None
+        return getattr(self.beams[beam_type], command)()
 
     def is_on(self, beam_type: BeamType) -> bool:
         """Check if the specified beam type is on."""

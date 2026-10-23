@@ -333,6 +333,8 @@ def test_actions_are_plain_methods_that_describe_themselves(beams):
         "auto_focus",
         "start_live",
         "stop_live",
+        "turn_on",
+        "turn_off",
     }
     assert commands["acquire"].signature.startswith("(image_settings")
     assert commands["blank"].available
