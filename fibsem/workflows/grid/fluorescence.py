@@ -9,10 +9,9 @@ channel-composite thumbnail.
 from __future__ import annotations
 
 import logging
-from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, ClassVar, List, Optional, Type
 
 from fibsem import timing
 from fibsem.autofunctions.autofocus import AutoFocusSettings
@@ -28,7 +27,6 @@ from fibsem.structures import (
     Display,
     FibsemStagePosition,
     InsertableDeviceState,
-    Parameter,
     param,
 )
 from fibsem.workflows.grid.base import (
@@ -37,7 +35,7 @@ from fibsem.workflows.grid.base import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.microscope import FibsemMicroscope
+    pass
 
 
 @dataclass

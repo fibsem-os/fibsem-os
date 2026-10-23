@@ -2,7 +2,6 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
 
 from fibsem.milling.tasks import MillingTaskAcquisitionSettings
-from fibsem.structures import field_specs
 from fibsem.ui.widgets.custom_widgets import align_form
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 

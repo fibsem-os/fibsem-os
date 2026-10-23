@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Mapping, Optional, Tuple
 
 import numpy as np
 
-from fibsem.movement import angle_difference, rotation_angle_is_smaller
+from fibsem.geometry.angles import angle_difference, rotation_angle_is_smaller
 from fibsem.structures import FibsemStagePosition
 from fibsem.transformations import convert_stage_tilt_to_milling_angle
 

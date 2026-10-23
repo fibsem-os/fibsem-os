@@ -11,7 +11,6 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (
     QCheckBox,
     QColorDialog,
-    QComboBox,
     QDialog,
     QFileDialog,
     QFormLayout,
@@ -19,7 +18,6 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
-    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -64,28 +62,6 @@ SPINBOX_STYLESHEET = f"""
     }}
     QSpinBox:hover {{
         background-color: {NEUTRAL_750};
-    }}
-"""
-
-COMBOBOX_STYLESHEET = f"""
-    QComboBox {{
-        background-color: {NEUTRAL_800};
-        color: white;
-        border: 1px solid #555;
-        padding: 4px 8px;
-        font-size: 10px;
-        min-width: 150px;
-    }}
-    QComboBox:hover {{
-        background-color: {NEUTRAL_750};
-    }}
-    QComboBox::drop-down {{
-        border: none;
-    }}
-    QComboBox QAbstractItemView {{
-        background-color: {NEUTRAL_800};
-        color: white;
-        selection-background-color: {NEUTRAL_750};
     }}
 """
 

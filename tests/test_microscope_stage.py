@@ -7,7 +7,6 @@ The vendor stage objects that used the name on Thermo and Odemis are private
 from fibsem import utils
 from fibsem.devices.stage import Stage
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition
 
 
 def _demo():

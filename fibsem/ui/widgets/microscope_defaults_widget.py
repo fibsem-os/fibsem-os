@@ -15,7 +15,7 @@ tab of the Microscope Configuration window, whose Save writes it.
 
 import logging
 import math
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
@@ -39,7 +39,6 @@ from fibsem.structures import (
     BeamType,
     ImageSettings,
     Resolution,
-    field_specs,
 )
 from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE

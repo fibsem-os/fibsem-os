@@ -17,7 +17,6 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import microscope as tescan_module
 from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.milling.progress import MillingProgressStatus
@@ -59,7 +58,7 @@ def connect(monkeypatch, tescan_system):
 @pytest.fixture
 def tescan_system():
     return utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
     ).system
 
 
@@ -75,22 +74,22 @@ def mill(microscope, fake, imaging_preset=IMAGING_PRESET):
         microscope.set_preset(imaging_preset, BeamType.ION)
     fake.log.clear()
     microscope.setup_milling(_recipe(hfw=80e-6))
-    microscope.draw_rectangle(
+    microscope.draw_pattern(
         FibsemRectangleSettings(
             width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
         )
     )
-    microscope.draw_line(
+    microscope.draw_pattern(
         FibsemLineSettings(start_x=0, end_x=1e-6, start_y=0, end_y=0, depth=1e-6)
     )
-    microscope.draw_circle(
+    microscope.draw_pattern(
         FibsemCircleSettings(radius=2e-6, depth=1e-6, centre_x=0, centre_y=0)
     )
     estimate = microscope.estimate_milling_time()
     microscope.start_milling()
-    running = microscope.get_milling_state()
+    running = microscope.milling.state.get_value()
     microscope.pause_milling()
-    paused = microscope.get_milling_state()
+    paused = microscope.milling.state.get_value()
     microscope.resume_milling()
     microscope.finish_milling()
     return estimate, running, paused
@@ -163,7 +162,7 @@ def test_milling_makes_the_same_drawbeam_calls(connect, imaging_preset):
     old = OLD_CALLS[str(imaging_preset)]
 
     assert _plain(list(mill(microscope, fake, imaging_preset))) == old["result"]
-    assert _plain(microscope.get_milling_state()) == old["state"]
+    assert _plain(microscope.milling.state.get_value()) == old["state"]
 
     # the same layer, patterns, run and unload
     assert _plain(drawbeam(fake)) == old["drawbeam"]
@@ -294,7 +293,7 @@ def _finishing(fake, running_looks=2):
 
 def _drawn(microscope):
     microscope.setup_milling(_recipe(hfw=80e-6))
-    microscope.draw_rectangle(
+    microscope.draw_pattern(
         FibsemRectangleSettings(
             width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
         )
@@ -373,7 +372,7 @@ def test_clearing_with_no_layer_loaded_is_quiet(connect):
     _no_layer(fake)
     fake.log.clear()
     for _ in range(3):
-        microscope.clear_patterns()  # must not raise
+        microscope.milling.clear()  # must not raise
     assert [p for p, _, _ in fake.log] == ["DrawBeam.UnloadLayer"] * 3
 
 

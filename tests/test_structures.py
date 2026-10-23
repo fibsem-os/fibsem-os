@@ -6,9 +6,6 @@ import pytest
 from fibsem.drivers.autoscript.microscope import THERMO_API_AVAILABLE
 from fibsem.structures import (
     AutoFocusMode,
-    BeamSettings,
-    BeamType,
-    FibsemDetectorSettings,
     FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,

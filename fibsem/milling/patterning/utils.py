@@ -207,43 +207,6 @@ def bbox_to_normalized_coords(
     return (x_min_norm, y_min_norm, x_max_norm, y_max_norm)
 
 
-def normalized_coords_to_bbox(
-    norm_bbox: Tuple[float, float, float, float], image: FibsemImage
-) -> Tuple[int, int, int, int]:
-    """Convert normalized coordinates (0-1) to pixel bounding box coordinates.
-
-    Args:
-        norm_bbox: Tuple of (x_min, y_min, x_max, y_max) in normalized coordinates (0.0-1.0).
-        image: FibsemImage to get dimensions from.
-
-    Returns:
-        Tuple of (x_min, y_min, x_max, y_max) in pixel coordinates.
-        Returns (0, 0, 0, 0) if norm_bbox is empty.
-    """
-    x_min_norm, y_min_norm, x_max_norm, y_max_norm = norm_bbox
-
-    # Check for empty normalized bounding box
-    if norm_bbox == (0.0, 0.0, 0.0, 0.0):
-        return (0, 0, 0, 0)
-
-    # Get image dimensions
-    image_height, image_width = image.data.shape
-
-    # Convert to pixel coordinates
-    x_min = int(x_min_norm * image_width)
-    y_min = int(y_min_norm * image_height)
-    x_max = int(x_max_norm * image_width)
-    y_max = int(y_max_norm * image_height)
-
-    # Ensure coordinates are within bounds
-    x_min = max(0, min(x_min, image_width - 1))
-    y_min = max(0, min(y_min, image_height - 1))
-    x_max = max(0, min(x_max, image_width - 1))
-    y_max = max(0, min(y_max, image_height - 1))
-
-    return (x_min, y_min, x_max, y_max)
-
-
 def get_pattern_reduced_area(
     pattern: "BasePattern", image: FibsemImage, expand_percent: int = 20
 ) -> FibsemRectangle:

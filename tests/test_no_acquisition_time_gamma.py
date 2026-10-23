@@ -12,7 +12,6 @@ removes a feature that was off everywhere rather than changing what anyone was g
 
 import inspect
 import json
-import os
 from pathlib import Path
 
 import numpy as np
@@ -79,7 +78,9 @@ def test_images_written_before_v7_still_load() -> None:
 def test_no_shipped_configuration_still_declares_it() -> None:
     """Leaving the key in would advertise a setting that does nothing."""
     declaring = [
-        path.name for path in CONFIG_DIR.glob("*.yaml") if "autogamma" in path.read_text(encoding="utf-8")
+        path.name
+        for path in CONFIG_DIR.glob("*.yaml")
+        if "autogamma" in path.read_text(encoding="utf-8")
     ]
 
     assert declaring == []

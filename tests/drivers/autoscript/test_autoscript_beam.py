@@ -20,7 +20,6 @@ Thermo does not have. The fake SDK has to be in place before
 """
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path

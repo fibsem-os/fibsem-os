@@ -496,9 +496,10 @@ Array = Annotated[
 
 # A time, read from a POSIX float, an ISO string with or without its offset, or the
 # month/day/year form older files carry (`to_datetime`), and written as ISO 8601 with
-# its offset. A naive time stays naive (CONTRIBUTING.md, "Times").
+# its offset. A naive time stays naive (CONTRIBUTING.md, "Times"), and one that
+# doesn't read as a time is unknown (None).
 Timestamp = Annotated[
-    datetime,
+    Optional[datetime],
     BeforeValidator(to_datetime),
     PlainSerializer(to_iso, when_used="json"),
 ]
@@ -506,7 +507,7 @@ Timestamp = Annotated[
 # A time that is an instant: as `Timestamp`, but a value with no zone reads as None
 # (`to_aware`), since its instant is unknown.
 AwareTimestamp = Annotated[
-    datetime,
+    Optional[datetime],
     BeforeValidator(to_aware),
     PlainSerializer(to_iso, when_used="json"),
 ]

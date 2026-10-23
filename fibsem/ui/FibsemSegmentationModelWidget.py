@@ -1,11 +1,10 @@
 try:
-    import napari
+    import napari  # noqa: F401 - fails early, with the message below
 except ImportError as _e:  # pragma: no cover - exercised only on a napari-less install
     raise ImportError(
         "Image labelling draws in napari, which is no longer part of the [ui] extra. "
         "Install it with: pip install 'fibsem[labelling]'"
     ) from _e
-import napari.utils.notifications
 from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtGui import QFont

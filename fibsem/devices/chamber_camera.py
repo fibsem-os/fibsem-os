@@ -1,7 +1,7 @@
 """The ChamberCamera device: the camera that looks into the chamber.
 
 It has no parameters; its one command, ``acquire``, returns a frame as the camera gives
-it. ``FibsemMicroscope.acquire_chamber_image`` wraps that frame in a ``FibsemImage``.
+it.
 
 A backend implements ``_acquire``. On Thermo the chamber camera is a third device on
 the channel the beams and the FM share, so the backend holds that channel for the

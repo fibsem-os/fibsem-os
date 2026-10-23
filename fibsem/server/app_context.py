@@ -44,8 +44,8 @@ from fibsem.server.responses import (
     refusal_of,
     refused,
 )
-from fibsem.structures import BeamType, FibsemStagePosition
-from fibsem.util.records import content_hash, dataframe_records
+from fibsem.structures import BeamType
+from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record
@@ -1279,7 +1279,13 @@ class AppContext:
     protocol_type = None
 
     def _protocol_folder(self) -> Optional[str]:
+        """Where the app's protocols are saved; None for an app with none."""
         return None
+
+    def _protocol_folders(self) -> List[str]:
+        """Where the app's protocols are listed from, its saving folder first."""
+        folder = self._protocol_folder()
+        return [folder] if folder else []
 
     def _default_protocol_path(self) -> Optional[str]:
         """The protocol a new experiment starts with; None for the protocol
@@ -1305,8 +1311,8 @@ class AppContext:
     def _listed_protocols(self) -> List[Dict[str, Any]]:
         from fibsem.workflows.protocol_files import list_protocols
 
-        folder = self._protocol_folder()
-        return list_protocols(folder, self._default_protocol_path()) if folder else []
+        folders = self._protocol_folders()
+        return list_protocols(folders, self._default_protocol_path()) if folders else []
 
     def protocol(self) -> Dict[str, Any]:
         """The workflow: each task's plan entry, in order."""

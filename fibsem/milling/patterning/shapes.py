@@ -26,9 +26,7 @@ from fibsem.structures import (
     FibsemCircleSettings,
     FibsemImage,
     FibsemLineSettings,
-    FibsemPatternSettings,
     FibsemPolygonSettings,
-    FibsemRectangle,
     FibsemRectangleSettings,
     Point,
     calculate_fiducial_area_v2,
@@ -184,43 +182,6 @@ def convert_pattern_to_napari_rect(
     return np.array(rect), {"translate": translation}
 
 
-def create_crosshair_shape(
-    centre_point: Point,
-    shape: Tuple[int, int],
-    pixelsize: float,
-    translation: Union[np.ndarray, Tuple[float, float]] = (0, 0),
-) -> Tuple[np.ndarray, Dict[str, Any]]:
-    pattern_centre_x = centre_point.x
-    pattern_centre_y = centre_point.y
-
-    centre = microscope_image_to_image_coordinates(
-        Point(x=pattern_centre_x, y=pattern_centre_y), shape, pixelsize
-    )
-    cx, cy = int(centre.x), int(centre.y)
-
-    r_angles = [0, np.deg2rad(90)]  #
-    w = 40
-    h = 1
-    crosshair_shapes = []
-
-    for r in r_angles:
-        xmin, xmax = -w / 2, w / 2
-        ymin, ymax = -h / 2, h / 2
-        px0 = cx + (xmin * np.cos(r) - ymin * np.sin(r))
-        py0 = cy + (xmin * np.sin(r) + ymin * np.cos(r))
-        px1 = cx + (xmax * np.cos(r) - ymin * np.sin(r))
-        py1 = cy + (xmax * np.sin(r) + ymin * np.cos(r))
-        px2 = cx + (xmax * np.cos(r) - ymax * np.sin(r))
-        py2 = cy + (xmax * np.sin(r) + ymax * np.cos(r))
-        px3 = cx + (xmin * np.cos(r) - ymax * np.sin(r))
-        py3 = cy + (xmin * np.sin(r) + ymax * np.cos(r))
-        # napari shape format
-        rect = [[py0, px0], [py1, px1], [py2, px2], [py3, px3]]
-        crosshair_shapes.append(rect)
-
-    return np.array(crosshair_shapes), {"translate": translation}
-
-
 def convert_bitmap_pattern_to_napari_image(
     pattern_settings: FibsemBitmapSettings,
     shape: Tuple[int, int],
@@ -299,17 +260,6 @@ NAPARI_DRAWING_DICT = {
     FibsemBitmapSettings: (convert_bitmap_pattern_to_napari_image, "bitmap"),
     FibsemPolygonSettings: (convert_pattern_to_napari_polygon, "polygon"),
 }
-
-
-def convert_point_to_napari(resolution: list, pixel_size: float, centre: Point):
-    # `resolution` is [x, y] (structures.py: "resolution of the acquired image
-    # in pixels, [x, y]"), the opposite order to a numpy `shape`. Swap it here
-    # rather than at the reader.
-    pt = microscope_image_to_image_coordinates(
-        centre, (resolution[1], resolution[0]), pixel_size
-    )
-
-    return Point(int(pt.x), int(pt.y))
 
 
 def validate_pattern_image_placement(
@@ -396,56 +346,3 @@ def is_pattern_placement_valid(pattern: BasePattern, image: FibsemImage) -> bool
             return False
 
     return True
-
-
-def convert_reduced_area_to_napari_shape(
-    reduced_area: FibsemRectangle, image_shape: Tuple[int, int]
-) -> np.ndarray:
-    """Convert a reduced area to a napari shape."""
-    x0 = reduced_area.left * image_shape[1]
-    y0 = reduced_area.top * image_shape[0]
-    x1 = x0 + reduced_area.width * image_shape[1]
-    y1 = y0 + reduced_area.height * image_shape[0]
-    data = [[y0, x0], [y0, x1], [y1, x1], [y1, x0]]
-    return np.array(data)
-
-
-def convert_shape_to_image_area(
-    shape: List[List[int]], image_shape: Tuple[int, int]
-) -> FibsemRectangle:
-    """Convert a napari shape (rectangle) to  a FibsemRectangle expressed as a percentage of the image (reduced area)
-    shape: the coordinates of the shape
-    image_shape: the shape of the image (usually the ion beam image)
-    """
-    # get limits of rectangle
-    y0, x0 = shape[0]
-    y1, x1 = shape[1]
-    """
-        0################1
-        |               |
-        |               |
-        |               |
-        3################2
-    """
-    # get min/max coordinates
-    x_coords = [x[1] for x in shape]
-    y_coords = [x[0] for x in shape]
-    x0, x1 = min(x_coords), max(x_coords)
-    y0, y1 = min(y_coords), max(y_coords)
-
-    logging.debug(
-        f"convert shape data: {x0}, {x1}, {y0}, {y1}, fib shape: {image_shape}"
-    )
-
-    # convert to percentage of image
-    x0 = float(x0 / image_shape[1])
-    x1 = float(x1 / image_shape[1])
-    y0 = float(y0 / image_shape[0])
-    y1 = float(y1 / image_shape[0])
-    w = x1 - x0
-    h = y1 - y0
-
-    reduced_area = FibsemRectangle(left=x0, top=y0, width=w, height=h)
-    logging.debug(f"reduced area: {reduced_area}")
-
-    return reduced_area

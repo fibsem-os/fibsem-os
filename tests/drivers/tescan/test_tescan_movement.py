@@ -14,7 +14,6 @@ rather than converting it to fibsem's, so the move is recorded in Tescan's frame
 """
 
 import os
-import threading
 
 import numpy as np
 import pytest
@@ -25,7 +24,7 @@ from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.drivers.tescan.services import TescanStageMovement
 from fibsem.structures import BeamType, FibsemStagePosition
 
-TESCAN_CONFIG_PATH = os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+TESCAN_CONFIG_PATH = os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
 
 # rotation conventions from tescan-configuration.yaml
 ROTATION_FLAT_TO_EB = np.deg2rad(180)  # stage.rotation_reference

@@ -40,7 +40,7 @@ def _configuration(tmp_path) -> Path:
     path = tmp_path / "configuration.yaml"
     if not path.exists():
         shutil.copyfile(
-            os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml"), path
+            os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"), path
         )
     return path
 
@@ -354,7 +354,7 @@ def _arctis_configuration(tmp_path) -> Path:
     path = tmp_path / "arctis-configuration.yaml"
     if not path.exists():
         shutil.copyfile(
-            os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"), path
+            os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"), path
         )
     return path
 

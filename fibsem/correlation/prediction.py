@@ -25,7 +25,6 @@ them, and so can a review renderer or a script.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 

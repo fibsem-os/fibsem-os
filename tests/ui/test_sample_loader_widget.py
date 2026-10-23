@@ -16,7 +16,9 @@ from fibsem.ui.widgets.sample_loader_widget import SampleLoaderWidget
 def arctis():
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     assert microscope.sample_handling.magazine is not None
     return microscope
