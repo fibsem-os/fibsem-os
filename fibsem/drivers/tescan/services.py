@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Optional, Sequence, Tuple, Union
 import numpy as np
 
 import fibsem.constants as constants
+from fibsem import conversions
 from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, command
@@ -520,8 +521,6 @@ class TescanSpotBurn(SpotBurn):
         Returns:
             Point: position in metres relative to the image centre.
         """
-        from fibsem import conversions
-
         width, height = resolution
         pixelsize = hfw / width
         pixel_coordinate = Point(x=point.x * width, y=point.y * height)

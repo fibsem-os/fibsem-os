@@ -15,7 +15,19 @@ from typing import Any, Callable, Dict, List, Optional
 
 from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor
 from fibsem.codec import decode, encode
+from fibsem.config import get_recent_experiments
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
+from fibsem.imaging.cells import from_crop
+from fibsem.imaging.marks import (
+    drawn_pair,
+    drawn_path,
+    drawn_picture,
+    image_stem,
+    save_drawn,
+)
+from fibsem.server import log_tail
+from fibsem.server.files import FileRefusal, resolve
+from fibsem.server.image_payloads import image_info, image_payload
 from fibsem.server.responses import (
     AppStatus,
     Asking,
@@ -40,25 +52,61 @@ from fibsem.server.responses import (
     TaskOutputs,
     WorkflowState,
 )
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition
 from fibsem.util.records import content_hash, dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
 from fibsem.workflows.actions import NOTE, note_record
-from fibsem.workflows.events import iso_time
-from fibsem.workflows.evidence import EVIDENCE, frame_path
-from fibsem.workflows.experiment import find_item
+from fibsem.workflows.event_recording import (
+    EVENTS_FILENAME,
+    LIVE_KINDS,
+    read_events_before,
+    read_new_events,
+)
+from fibsem.workflows.events import buffer_or_unavailable, iso_time, to_plain
+from fibsem.workflows.evidence import (
+    EVIDENCE,
+    EvidenceRefused,
+    checked_marks,
+    frame_path,
+)
+from fibsem.workflows.experiment import EXPERIMENT_FILENAME, find_item
 from fibsem.workflows.experiments import (
+    DEFAULT_MAX_DEPTH,
     default_experiment_directory,
     discover_experiments,
     filter_experiments,
 )
+from fibsem.workflows.history_rows import (
+    HISTORY_KINDS,
+    HistoryFilter,
+    filter_runs,
+    history_rows,
+    run_record,
+)
 from fibsem.workflows.item import item_poses
 from fibsem.workflows.outputs import files_by_run, recorded_outputs, stack_slices
 from fibsem.workflows.progress_line import ProgressLine, ProgressLines
+from fibsem.workflows.proposals import (
+    Decision,
+    DecisionOutcome,
+    Suggestion,
+    ValueRefused,
+    _decode_values,
+    patch_values,
+)
+from fibsem.workflows.protocol_files import (
+    adopt_protocol,
+    list_protocols,
+    protocol_file_for,
+    record_recent,
+)
+from fibsem.workflows.reference_images import load_reference_image, preview_of
 from fibsem.workflows.runner import ITEMS, RunRequest, stop_message
 from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task_configs import config_version, patch_config
+from fibsem.workflows.workflow_edits import set_supervision
 
 __all__ = [
     "AppContext",
@@ -123,8 +171,6 @@ class AppContext:
         *experiment*, a past one by its path from the recents or the
         experiments folder (its folder or experiment.yaml). Raises
         ``FileRefusal`` for any other."""
-        from fibsem.server.files import FileRefusal
-
         if experiment is None:
             return self.experiment_path
         wanted = os.path.normcase(os.path.realpath(experiment))
@@ -158,8 +204,6 @@ class AppContext:
         """A saved beam image's full metadata, as its file records it, for a
         path inside the open experiment only (the agent's drill-down behind
         the short block every image answer carries)."""
-        from fibsem.structures import FibsemImage
-
         target, refusal = self._experiment_image(path)
         if refusal:
             return refusal
@@ -175,8 +219,6 @@ class AppContext:
         """``(real path, None)`` for a file inside the open experiment, else
         ``(None, refusal)``: the agent reads saved images there only."""
         import os
-
-        from fibsem.server.files import FileRefusal, resolve
 
         try:
             target = resolve(self.experiment_path, path)
@@ -209,8 +251,6 @@ class AppContext:
         """Where each stage position falls on a saved image in the experiment,
         in source pixels, with the image's scale block. A position the image
         cannot place (no geometry for it) answers its reason instead."""
-        from fibsem.structures import FibsemStagePosition
-
         target, refusal = self._experiment_image(path)
         if refusal:
             return refusal
@@ -244,13 +284,6 @@ class AppContext:
         on it, as evidence draws them, the centre *crosshair*, the scale bar
         and the metadata bar. Saved as ``drawn/<image>.png`` beside the image
         (replaced when drawn again), a path to cite as evidence."""
-        from fibsem.imaging.marks import (
-            drawn_path,
-            drawn_picture,
-            image_stem,
-            save_drawn,
-        )
-
         target, refusal = self._experiment_image(path)
         if refusal:
             return refusal
@@ -282,8 +315,6 @@ class AppContext:
         with its own bars, *marks* (in *before*'s pixels) drawn on both: pre and
         post mill, before and after an alignment, SEM next to FIB. Saved as
         ``drawn/<before>-<after>.png`` beside *before*."""
-        from fibsem.imaging.marks import drawn_pair, drawn_path, image_stem, save_drawn
-
         first, refusal = self._experiment_image(before)
         if refusal:
             return refusal
@@ -534,15 +565,6 @@ class AppContext:
         the item ran, for a task filter; ``total`` counts the runs unfiltered."""
         from pathlib import Path
 
-        from fibsem.workflows.event_recording import EVENTS_FILENAME, read_new_events
-        from fibsem.workflows.history_rows import (
-            HISTORY_KINDS,
-            HistoryFilter,
-            filter_runs,
-            history_rows,
-            run_record,
-        )
-
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "item_name": item_name}
@@ -604,8 +626,6 @@ class AppContext:
         ``task_id`` (from its start to its end, a few seconds either side), or
         the tail when neither is given. See ``log_tail`` for what is served."""
         from pathlib import Path
-
-        from fibsem.server import log_tail
 
         experiment = self._experiment
         if experiment is None:
@@ -676,8 +696,6 @@ class AppContext:
         whole on acquisition, never mutated in place) and encodes previews on
         the server thread; the GUI thread is neither entered nor blocked.
         """
-        from fibsem.server.image_payloads import image_info, image_payload
-
         images = self._latest_images
         if images is None:
             return DisplayImages(available=False)
@@ -712,10 +730,6 @@ class AppContext:
         Unavailable (rather than empty) when the hosting wired no buffer, so a
         client can tell "no events yet" from "this server has no event stream".
         """
-        from fibsem.workflows.events import (
-            buffer_or_unavailable,
-        )
-
         return buffer_or_unavailable(self._event_buffer, since=since, timeout=timeout)
 
     def event_history(
@@ -729,12 +743,6 @@ class AppContext:
         before this one; 0 when this page reaches the file's start.
         """
         from pathlib import Path
-
-        from fibsem.workflows.event_recording import (
-            EVENTS_FILENAME,
-            LIVE_KINDS,
-            read_events_before,
-        )
 
         experiment = self._experiment
         if experiment is None:
@@ -808,8 +816,6 @@ class AppContext:
 
     def recent_experiments(self) -> List[Dict[str, Any]]:
         """The recents list, via the never-raising peek layer."""
-        from fibsem.config import get_recent_experiments
-
         return [self.experiment_entry(s) for s in get_recent_experiments()]
 
     def saved_experiments(
@@ -860,12 +866,6 @@ class AppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "proposals": []}
-        from fibsem.server.image_payloads import image_payload
-        from fibsem.workflows.events import to_plain
-        from fibsem.workflows.reference_images import (
-            load_reference_image,
-            preview_of,
-        )
 
         def describe(item, task_name, proposal):
             doc = to_plain(proposal.to_dict())
@@ -926,13 +926,6 @@ class AppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "applied": False, "reason": "No experiment."}
-        from fibsem.workflows.proposals import (
-            Decision,
-            DecisionOutcome,
-            ValueRefused,
-            _decode_values,
-            patch_values,
-        )
 
         try:
             decided = DecisionOutcome[outcome]
@@ -1009,11 +1002,6 @@ class AppContext:
         experiment = self._experiment
         if experiment is None:
             return {"available": False, "applied": False, "reason": "No experiment."}
-        from fibsem.workflows.proposals import (
-            DecisionOutcome,
-            Suggestion,
-            _decode_values,
-        )
 
         if outcome not in ("Confirmed", "Rejected"):
             return {
@@ -1346,8 +1334,6 @@ class AppContext:
         return None
 
     def _listed_protocols(self) -> List[Dict[str, Any]]:
-        from fibsem.workflows.protocol_files import list_protocols
-
         folder = self._protocol_folder()
         return list_protocols(folder, self._default_protocol_path()) if folder else []
 
@@ -1408,8 +1394,6 @@ class AppContext:
         folder (made as needed), and open it, with *protocol* from the protocol
         folder (the default protocol when omitted). An existing folder is
         refused, never overwritten."""
-        from fibsem.workflows.experiments import DEFAULT_MAX_DEPTH
-
         refusal = self._no_files() or self._session_refusal()
         if refusal:
             return refusal
@@ -1444,9 +1428,6 @@ class AppContext:
         one under the experiments folder (its folder or experiment.yaml,
         relative to that folder or absolute), as the Load dialog does. One the
         app cannot open is refused."""
-        from fibsem.workflows.experiment import EXPERIMENT_FILENAME
-        from fibsem.workflows.protocol_files import record_recent
-
         refusal = self._no_files() or self._session_refusal()
         if refusal:
             return refusal
@@ -1479,8 +1460,6 @@ class AppContext:
         """Load a protocol from the protocol folder into the open experiment, as
         the Load Protocol dialog does: it replaces the experiment's protocol and
         is saved beside it."""
-        from fibsem.workflows.protocol_files import adopt_protocol
-
         refusal = self._no_files() or self._session_refusal()
         if refusal:
             return refusal
@@ -1497,8 +1476,6 @@ class AppContext:
         """Save the experiment's protocol to the protocol folder as *name*, as
         Export Protocol does, so a later experiment can be created with it or
         load it. Refused when the file exists, unless *overwrite*."""
-        from fibsem.workflows.protocol_files import protocol_file_for
-
         refusal = self._no_files()
         if refusal:
             return refusal
@@ -1547,9 +1524,6 @@ class AppContext:
         """One config as a wire document with its version token: the full
         ``to_dict``, the contract for editing (you cannot patch what you
         cannot read)."""
-        from fibsem.workflows.events import to_plain
-        from fibsem.workflows.task_configs import config_version
-
         return {
             "available": True,
             "task_name": task_name,
@@ -1567,8 +1541,6 @@ class AppContext:
     ) -> Dict[str, Any]:
         """Patch a task's protocol-level settings, what each run of it reads,
         when *version* names the state the patch was written against."""
-        from fibsem.workflows.task_configs import patch_config
-
         session = self._session
 
         def edit():
@@ -1606,8 +1578,6 @@ class AppContext:
     def set_supervision(self, task_name: str, supervise: bool) -> Dict[str, Any]:
         """Set whether ``task_name`` asks for supervision
         (``workflow_edits.set_supervision``), as the window's chips do."""
-        from fibsem.workflows.workflow_edits import set_supervision
-
         experiment = self._experiment
         if experiment is None or experiment.task_protocol is None:
             return {"available": False, "applied": False}
@@ -1830,8 +1800,6 @@ class AppContext:
 def _uncropped_point(target: str, crop: Any, px, fraction):
     """``(px, None)``: the image's pixels under a point read off *crop*'s
     picture, *px* in its pixels or *fraction* of it. Raises ValueError."""
-    from fibsem.imaging.cells import from_crop
-
     scale, x0, y0, box = from_crop(target, crop)
     if (px is None) == (fraction is None):
         raise ValueError("Give exactly one of px ([x, y] source pixels) or fraction.")
@@ -1842,8 +1810,6 @@ def _uncropped_point(target: str, crop: Any, px, fraction):
 
 def _checked_marks(marks: Any, image_path: str):
     """``(marks, None)`` checked and placed on the stage, or ``(None, refusal)``."""
-    from fibsem.workflows.evidence import EvidenceRefused, checked_marks
-
     try:
         return checked_marks(marks, image_path), None
     except EvidenceRefused as refusal:

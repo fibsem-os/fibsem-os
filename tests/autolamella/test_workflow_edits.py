@@ -89,11 +89,12 @@ def test_the_agent_and_the_status_bar_chip_set_supervision_alike(
     import fibsem
 
     calls = []
+    import fibsem.server.app_context as app_context
     import fibsem.workflows.workflow_edits as edits
 
     real = edits.set_supervision
     monkeypatch.setattr(
-        edits, "set_supervision", lambda *a: calls.append(a[1:3]) or real(*a)
+        app_context, "set_supervision", lambda *a: calls.append(a[1:3]) or real(*a)
     )
     session = AppSession()
     session.experiment = experiment
