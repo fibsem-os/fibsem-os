@@ -22,7 +22,10 @@ from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
     ItemDetail,
+    Refusal,
     SummaryRow,
+    no_experiment,
+    refused,
 )
 from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.workflows.outputs import item_output_named, saved_file
@@ -50,13 +53,8 @@ class PositionDetail(ItemDetail):
     slices_cut: Optional[int] = None
 
 
-def _not_served(what: str) -> Dict[str, Any]:
-    return {
-        "available": False,
-        "applied": False,
-        "error_type": "invalid",
-        "error": f"Volume does not {what} yet.",
-    }
+def _not_served(what: str) -> Refusal:
+    return refused("invalid", f"Volume does not {what} yet.")
 
 
 class VolumeAppContext(AppContext):
@@ -134,20 +132,16 @@ class VolumeAppContext(AppContext):
         self, item_name: str, filename: str, max_width: int = 768
     ) -> Dict[str, Any]:
         experiment = self._experiment
-        if experiment is None:
-            return {"available": False, "jpeg": None}
         position, refusal = find_item(experiment, item_name)
         if refusal:
-            return {"available": False, "jpeg": None, **refusal}
+            return refusal
         path = item_output_named(experiment, position, filename) or saved_file(
             experiment, experiment.position_path(position), filename
         )
         if path is None:
-            return {
-                "available": True,
-                "jpeg": None,
-                "error": f"No output named {filename!r} for {item_name!r}.",
-            }
+            return refused(
+                "not_found", f"No output named {filename!r} for {item_name!r}."
+            )
         return jpeg_preview(path, filename, max_width)
 
     def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]:
@@ -173,21 +167,21 @@ class VolumeAppContext(AppContext):
         *stage_position*: the microscope state now, with that stage position."""
         experiment, microscope = self._experiment, self._microscope
         if experiment is None:
-            return {"error_type": "not_found", "error": "No experiment is loaded."}
+            return no_experiment()
         refusal = self._no_microscope()
         if refusal:
             return refusal
         if overview is not None:
-            return {
-                "error_type": "invalid",
-                "error": "A volume position is added at a stage position, "
-                "not on an overview.",
-            }
+            return refused(
+                "invalid",
+                "A volume position is added at a stage position, not on an overview.",
+            )
         if stage_position is None:
             refusal = self._not_while_running("add a position where the stage is")
             if refusal:
-                refusal["error"] += " Or give its stage_position."
-                return refusal
+                return refused(
+                    refusal.error_type, f"{refusal.message} Or give its stage_position."
+                )
         name = (name or "").strip() or experiment.next_position_name()
 
         def add():
@@ -199,23 +193,23 @@ class VolumeAppContext(AppContext):
         try:
             self._agent_call(add)
         except (ValueError, TypeError, KeyError) as exc:
-            return {"error_type": "invalid", "error": str(exc)}
+            return refused("invalid", str(exc))
         return {"applied": True, "item": self.item_detail(name)}
 
     def remove_item(self, item_name: str) -> Dict[str, Any]:
         """Remove a position; its folder stays. Refused for the one the run is on."""
         experiment = self._experiment
         if experiment is None:
-            return {"error_type": "not_found", "error": "No experiment is loaded."}
+            return no_experiment()
         position, refusal = find_item(experiment, item_name)
         if refusal:
-            return {"error_type": "not_found", **refusal}
+            return refusal
         refusal = self._busy(self._runner.busy_refusal([item_name], "remove it"))
         if refusal:
             return refusal
         why = self._agent_call(lambda: experiment.remove_position(item_name))
         if why:
-            return {"error_type": "invalid", "error": why}
+            return refused("invalid", why)
         return {"applied": True, "item_name": item_name}
 
     def apply_item_patch(
@@ -231,10 +225,10 @@ class VolumeAppContext(AppContext):
         keeps the name it was given."""
         experiment = self._experiment
         if experiment is None:
-            return {"applied": False, "error": "No experiment is loaded."}
+            return no_experiment()
         position, refusal = find_item(experiment, item_name)
         if refusal:
-            return {"applied": False, **refusal}
+            return refusal
         unknown = sorted(set(patch) - set(POSITION_PATCH_FIELDS))
         if unknown:
             return {
@@ -244,7 +238,7 @@ class VolumeAppContext(AppContext):
             }
         refusal = self._busy(self._runner.busy_refusal([item_name], "edit it"))
         if refusal:
-            return {"applied": False, **refusal}
+            return refusal
         try:
             fields = {
                 "iterations": patch.get("iterations"),

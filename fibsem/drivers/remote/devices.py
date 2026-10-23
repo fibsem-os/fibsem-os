@@ -59,7 +59,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import math
 import threading
 from copy import deepcopy
 from typing import (
@@ -110,6 +109,7 @@ from fibsem.structures import (
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
+    Limits,
     Point,
     RangeLimit,
 )
@@ -150,21 +150,9 @@ def _decoded(type_: type, value: Any) -> Any:
     return None if value is None else decode(type_, value)
 
 
-def _range(payload: Dict[str, Any]) -> RangeLimit:
-    """An end sent as None is unbounded: JSON has no infinity."""
-    low, high = payload["min"], payload["max"]
-    return RangeLimit(
-        min=-math.inf if low is None else low, max=math.inf if high is None else high
-    )
-
-
-def _limits(payload: Any) -> Any:
-    """The inverse of the server's limits: a RangeLimit, or one per field."""
-    if payload is None:
-        return None
-    if set(payload) == {"min", "max"}:
-        return _range(payload)
-    return {name: _range(limit) for name, limit in payload.items()}
+def _limits(payload: Any) -> Optional[Limits]:
+    """The server's limits: a RangeLimit, or one per field."""
+    return None if payload is None else decode(Limits, payload)
 
 
 def _metadata(payload: Dict[str, Any], type_: type) -> ParameterMetadata:

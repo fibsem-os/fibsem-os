@@ -67,10 +67,13 @@ class RunRequest:
 class RunStart:
     """Whether a run started, and if not why, with what the caller needs to
     ask again (the valid names). ``request`` is the run as it was checked:
-    the names it resolved to."""
+    the names it resolved to. ``error_type`` names a refusal for a client:
+    ``task_running``, ``no_experiment``, ``not_found`` (with the valid names)
+    or ``invalid``."""
 
     started: bool
     reason: str = ""
+    error_type: str = ""
     details: Dict[str, Any] = field(default_factory=dict)
     request: Optional[RunRequest] = None
 
@@ -82,8 +85,10 @@ class RunStart:
         return out
 
 
-def refused(reason: str, **details: Any) -> RunStart:
-    return RunStart(started=False, reason=reason, details=details)
+def refused(reason: str, error_type: str = "invalid", **details: Any) -> RunStart:
+    return RunStart(
+        started=False, reason=reason, error_type=error_type, details=details
+    )
 
 
 @dataclass(frozen=True)
@@ -344,15 +349,17 @@ class WorkflowRunner:
         """
         with self._lock:
             if self.is_running:
-                return refused("a workflow is already running")
+                return refused("a workflow is already running", "task_running")
             microscope = self._session.microscope
             if microscope is None:
-                return refused("no microscope is connected")
+                return refused("no microscope is connected", "not_found")
             if experiment is None or experiment.task_protocol is None:
-                return refused("no experiment is loaded")
+                return refused("no experiment is loaded", "no_experiment")
             current = microscope.control.current
             if current is not None:
-                return refused(f"Can't start the workflow: {current.describe()}.")
+                return refused(
+                    f"Can't start the workflow: {current.describe()}.", "task_running"
+                )
             try:
                 rules = self.rules(experiment, request.kind)
             except KeyError as e:
@@ -466,7 +473,9 @@ class WorkflowRunner:
         rules = self.rules(experiment, request.kind)
         checked = rules.check(experiment, manager.microscope, request)
         if not checked.started:
-            return not_edited(checked.reason, "refused", **checked.details)
+            return not_edited(
+                checked.reason, checked.error_type or "refused", **checked.details
+            )
         request = checked.request or request
         if rules.plan_addition is None:
             return QueuePlan(request, tuple(item_task_pairs(request)), run_next)
@@ -530,7 +539,9 @@ class WorkflowRunner:
         request = RunRequest(kind=kind, task_names=(task_name,), names=(name,))
         checked = rules.check(experiment, manager.microscope, request)
         if not checked.started:
-            return not_edited(checked.reason, "refused", **checked.details)
+            return not_edited(
+                checked.reason, checked.error_type or "refused", **checked.details
+            )
         label = f"{task_name} for {name}"
         if manager.queue.has_pending_pair(name, task_name):
             return not_edited(

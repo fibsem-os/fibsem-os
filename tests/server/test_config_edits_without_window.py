@@ -59,7 +59,7 @@ def test_an_item_task_config_patch_lands_and_is_the_agent_s_edit(tmp_path):
         lamella.name, TASK, {DEPTH: 2.7e-6}, config_version(config)
     )
 
-    assert result["available"] and result["applied"] and result["saved"], result
+    assert result["applied"] and result["saved"], result
     assert config.milling[KEY].stages[0].pattern.depth == 2.7e-6
     ((kind, actor, payload),) = scope.events
     assert (kind, str(actor), payload["target"]) == ("edit", "agent", "task_config")
@@ -75,7 +75,7 @@ def test_a_stale_version_is_refused(tmp_path):
     result = context.apply_item_task_config_patch(
         experiment.positions[0].name, TASK, {DEPTH: 2.7e-6}, "stale"
     )
-    assert result == {"applied": False, "stale": True, "available": True}
+    assert result == {"applied": False, "stale": True}
     assert scope.events == []
 
 
@@ -271,7 +271,7 @@ def test_the_running_task_s_config_is_refused_at_filing_and_at_apply(tmp_path):
     refused = context.apply_item_task_config_patch(
         lamella.name, TASK, {DEPTH: 2.5e-6}, config_version(lamella.task_config[TASK])
     )
-    assert refused["applied"] is False and refused["error"] == why
+    assert refused.error_type == "task_running" and refused.message == why
 
     other = dict(arguments, task_name="Setup Lamella Position")
     assert context.check_action("item_update_task_config", other) is None

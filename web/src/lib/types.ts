@@ -72,7 +72,6 @@ export interface ImagePayload {
 }
 
 export interface DisplayImages {
-  available: boolean;
   sem: ImagePayload | null;
   fib: ImagePayload | null;
 }

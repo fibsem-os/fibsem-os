@@ -21,6 +21,8 @@ What the generic codec can't know, a type or a mixin here says:
 - `NotSaved`: a field that belongs to the running object, never written.
 - `Timestamp`: a time, read from any form ``fibsem.util.timestamps`` reads and
   written as ISO 8601 with its offset.
+- `LowerBound`, `UpperBound`: a limit's end, unbounded written as null (JSON has
+  no infinity) and null read back as unbounded.
 - `saved`: a field saved under another key, read as something other than its
   default when its key is absent, or required to be present.
 
@@ -35,6 +37,7 @@ from __future__ import annotations
 
 import copy
 import functools
+import math
 from datetime import datetime
 from typing import (
     Annotated,
@@ -406,6 +409,30 @@ AwareTimestamp = Annotated[
     datetime,
     BeforeValidator(to_aware),
     PlainSerializer(to_iso, when_used="json"),
+]
+
+
+def _finite_or_none(value: float) -> Optional[float]:
+    return None if math.isinf(value) else value
+
+
+# A limit's lower and upper end: an infinite one (a Tescan stage axis) is written
+# as null, and null reads back as unbounded.
+LowerBound = Annotated[
+    float,
+    BeforeValidator(
+        lambda value: -math.inf if value is None else value,
+        json_schema_input_type=Optional[float],
+    ),
+    PlainSerializer(_finite_or_none, return_type=Optional[float], when_used="json"),
+]
+UpperBound = Annotated[
+    float,
+    BeforeValidator(
+        lambda value: math.inf if value is None else value,
+        json_schema_input_type=Optional[float],
+    ),
+    PlainSerializer(_finite_or_none, return_type=Optional[float], when_used="json"),
 ]
 
 

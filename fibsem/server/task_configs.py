@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fibsem.server.app_context import content_hash, find_item
 from fibsem.server.config_patch import PatchError, apply_patch
+from fibsem.server.responses import no_experiment, refused
 from fibsem.workflows.edit_recording import PendingEdits, serialise
 from fibsem.workflows.events import to_plain
 from fibsem.workflows.task_config import WORKFLOW_FIELDS
@@ -107,16 +108,17 @@ def task_config_at(experiment, level: str, item_name: str, task_name: str):
         protocol = getattr(experiment, "task_protocol", None)
         config_map = getattr(protocol, "task_config", None)
         if config_map is None:
-            return None, None, {"error": "no protocol is loaded"}
+            return None, None, no_experiment()
         config = dict(config_map).get(task_name)
         if config is None:
             return (
                 None,
                 None,
-                {
-                    "error": f"No task named {task_name!r} in the protocol.",
-                    "task_names": list(config_map.keys()),
-                },
+                refused(
+                    "not_found",
+                    f"No task named {task_name!r} in the protocol.",
+                    task_names=list(config_map.keys()),
+                ),
             )
         return None, config, None
     lamella, refusal = find_item(experiment, item_name)
@@ -127,10 +129,11 @@ def task_config_at(experiment, level: str, item_name: str, task_name: str):
         return (
             None,
             None,
-            {
-                "error": f"No task config named {task_name!r} on {item_name!r}.",
-                "task_names": list(lamella.task_config.keys()),
-            },
+            refused(
+                "not_found",
+                f"No task config named {task_name!r} on {item_name!r}.",
+                task_names=list(lamella.task_config.keys()),
+            ),
         )
     return lamella, config, None
 
@@ -161,7 +164,7 @@ def set_task_config_values(
     settle."""
     lamella, config, refusal = task_config_at(experiment, level, item_name, task_name)
     if refusal:
-        return {"applied": False, **refusal}
+        return {"applied": False, "error": refusal.message, **refusal.names}
     changes = []
     for path, value in values.items():
         *parents, leaf = path.split(".")
