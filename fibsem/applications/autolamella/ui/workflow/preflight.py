@@ -32,7 +32,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.workflows.estimate import estimate_lamella_run
+from fibsem.applications.autolamella.workflows.plan import LamellaRunPlan
 from fibsem.structures import BeamType
 from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
@@ -62,7 +62,6 @@ from fibsem.workflows.attendance import (
 from fibsem.workflows.estimate import AdditionEstimate, RunEstimate, TaskEstimate
 from fibsem.workflows.grid.manager import LOAD_ENTRY_NAME, plan_grid_run
 from fibsem.workflows.grid.naming import beam_name, is_default_grid_name
-from fibsem.workflows.runner import RunRequest, item_task_pairs
 
 # The duration column is fixed and right-aligned so the times hold one line down the
 # dialog however many chips a row carries. That column is what gets scanned; a ragged
@@ -389,18 +388,17 @@ class WorkflowPreflightDialog(QDialog):
 
 def confirm_run_workflow_dialog(
     experiment: Experiment,
-    request: RunRequest,
+    plan: LamellaRunPlan,
     parent=None,
 ) -> bool:
     """Show the pre-flight estimate before starting the workflow.
 
     Returns True if confirmed. Replaces two columns of bullets that restated the
     selection the user had just made; see WorkflowPreflightDialog. The estimate
-    walks the pairs the run will queue, priced from each lamella's task configs.
+    is the plan's (`plan_lamella_run`), as the App Server's plan route gives it.
     """
-    estimate = estimate_lamella_run(experiment, item_task_pairs(request))
-    attendance = run_attendance(experiment.task_protocol, request.task_names)
-    dlg = WorkflowPreflightDialog(estimate, attendance, parent=parent)
+    attendance = run_attendance(experiment.task_protocol, plan.request.task_names)
+    dlg = WorkflowPreflightDialog(plan.estimate, attendance, parent=parent)
     return dlg.exec_() == QDialog.Accepted
 
 

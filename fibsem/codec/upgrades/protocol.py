@@ -8,7 +8,8 @@ the current shape.
 - A task's ``attention`` and ``requires`` are on its plan entry; format 3 put
   them on its config. v0.5.2 and earlier wrote a ``supervise`` flag in place of
   ``attention``.
-- An AutoLamella protocol kept its plan under ``workflow``.
+- An AutoLamella protocol kept its plan under ``workflow``. One from before
+  task protocols becomes one (`fibsem.codec.upgrades.pre_task_protocol`).
 - A plan entry that is null was read as an optional task with no name. A
   protocol with no plan at all plans every task it has.
 
@@ -20,6 +21,8 @@ from __future__ import annotations
 
 import copy
 from typing import Any, Dict
+
+from fibsem.codec.upgrades import pre_task_protocol
 
 SUPERVISED = "supervised"
 AUTOMATED = "automated"
@@ -88,6 +91,8 @@ def task_protocol(data: Dict[str, Any]) -> Dict[str, Any]:
 def autolamella_protocol(data: Dict[str, Any]) -> Dict[str, Any]:
     """An AutoLamella protocol with the current keys, and its grid tasks
     upgraded too."""
+    if pre_task_protocol.is_pre_task(data):
+        data = pre_task_protocol.upgrade(data)
     data = copy.deepcopy(data or {})
     if "workflow" in data:
         data.setdefault("workflow_config", data.pop("workflow"))

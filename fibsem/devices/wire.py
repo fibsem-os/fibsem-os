@@ -264,10 +264,15 @@ def _home_of(key: str, structure: Any, path: str, depth: int = 3) -> Optional[st
     children = []
     for name in _known_keys(structure):
         child = getattr(structure, name, None)
-        if _known_keys(child):
-            if key in _known_keys(child):
-                return f"{path}.{name}.{key}"
-            children.append((name, child))
+        found = [(name, child)]
+        if isinstance(child, dict):
+            # a dict of structures by name (a recipe's driver blocks)
+            found += [(f"{name}.{k}", v) for k, v in child.items()]
+        for where, found_child in found:
+            if _known_keys(found_child):
+                if key in _known_keys(found_child):
+                    return f"{path}.{where}.{key}"
+                children.append((where, found_child))
     for name, child in children:
         home = _home_of(key, child, f"{path}.{name}", depth - 1)
         if home is not None:

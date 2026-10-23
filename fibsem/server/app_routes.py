@@ -72,6 +72,7 @@ from fibsem.server.responses import (
     RecentExperiments,
     Recorded,
     Requeued,
+    RunPlan,
     RunStarted,
     RunSummary,
     SavedExperiments,
@@ -247,6 +248,30 @@ def _numbers(text: Optional[str]) -> Optional[List[float]]:
                 "message": f"A region is four numbers, x,y,width,height; not {text!r}.",
             },
         )
+
+
+def _run_body(body: Dict[str, Any]) -> Tuple[List[str], Optional[List[str]]]:
+    """A lamella run's task_names and item_names, or the 422 naming them."""
+    task_names = body.get("task_names")
+    item_names = body.get("item_names")
+    if (
+        not isinstance(task_names, list)
+        or not task_names
+        or not all(isinstance(t, str) for t in task_names)
+        or (
+            item_names is not None
+            and not (
+                isinstance(item_names, list)
+                and all(isinstance(i, str) for i in item_names)
+            )
+        )
+    ):
+        raise _missing_field(
+            "Pass task_names (non-empty list of strings); "
+            "item_names (list of strings) is optional — omitted "
+            "means every item."
+        )
+    return task_names, item_names
 
 
 def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -729,6 +754,16 @@ def build_app_router(context: Any) -> APIRouter:
     def proposals():
         return context.proposals()
 
+    @router.post("/workflow/plan", response_model=RunPlan, tags=[LAMELLAE])
+    def lamella_run_plan(body: Dict[str, Any]):
+        # The Workflow tab's confirmation for a run, or for adding to the
+        # running queue (add): computes, never acts.
+        task_names, item_names = _run_body(body)
+        run_next, add = body.get("run_next", False), body.get("add", False)
+        if not isinstance(run_next, bool) or not isinstance(add, bool):
+            raise _missing_field("run_next and add are booleans.")
+        return context.lamella_run_plan(task_names, item_names, run_next, add)
+
     @router.post("/workflow/grids/plan", response_model=GridPlan, tags=[GRIDS])
     def grid_workflow_plan(body: Dict[str, Any]):
         # A POST on the read router because it computes, never acts: the
@@ -924,26 +959,7 @@ def build_app_control_router(context: Any) -> APIRouter:
 
     @router.post("/workflow/start", response_model=RunStarted)
     def start_workflow(body: Dict[str, Any]):
-        task_names = body.get("task_names")
-        item_names = body.get("item_names")
-        if (
-            not isinstance(task_names, list)
-            or not task_names
-            or not all(isinstance(t, str) for t in task_names)
-            or (
-                item_names is not None
-                and not (
-                    isinstance(item_names, list)
-                    and all(isinstance(i, str) for i in item_names)
-                )
-            )
-        ):
-            raise _missing_field(
-                "Pass task_names (non-empty list of strings); "
-                "item_names (list of strings) is optional — omitted "
-                "means every item."
-            )
-        return context.start_workflow(task_names, item_names)
+        return context.start_workflow(*_run_body(body))
 
     @router.post("/workflow/grids/start", response_model=RunStarted, tags=[GRIDS])
     def start_grid_workflow(body: Dict[str, Any]):
