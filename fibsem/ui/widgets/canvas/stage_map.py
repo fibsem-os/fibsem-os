@@ -35,6 +35,15 @@ from PyQt5.QtGui import QColor, QPainter, QPen, QPolygonF
 from PyQt5.QtWidgets import QWidget
 
 from fibsem.geometry.projection import BeamStageProjection
+from fibsem.geometry.stage_places import (
+    GRID_BOUNDARY_RADIUS_M,
+    HERE_M,
+    HOLDER_PAD_M,
+    StagePlane,
+    device_stations,
+    holder_square,
+    slot_points,
+)
 from fibsem.structures import BeamType, FibsemStagePosition
 from fibsem.ui.tokens import (
     CANVAS_BG,
@@ -46,9 +55,7 @@ from fibsem.ui.tokens import (
     SLOT_COLOUR,
     STAGE_LIMITS_COLOUR,
 )
-from fibsem.ui.widgets.canvas.overlays.minimap_overlays import GRID_BOUNDARY_RADIUS_M
 from fibsem.ui.widgets.canvas.overlays.stage_context import (
-    BEAMS_DEVICE,
     boundary_shapes,
     canvas_span,
     holder_is_calibrated,
@@ -81,14 +88,8 @@ _OFFSCREEN_INSET_PX = 12.0
 _MERGE_PX = 30.0
 # The diamond marking a device station, in pixels from centre to corner.
 _STATION_PX = (6.0, 3.0)  # detailed, thumbnail
-# A lamella the stage is within this distance of (in the map's plane) is "here".
-_HERE_M = 20e-6
 # The ring drawn round the lamella the stage is on, over the stage cross so it shows.
 _HERE_RING_PX = 6.0
-# The holder, drawn as a square around its slots: their extent padded by this much,
-# the grid's 1 mm radius and 2 mm of clearance. Holder files state slots, not an
-# outline, so this is schematic, not measured.
-_HOLDER_PAD_M = 3e-3
 # Room round the holder at holder zoom, for the inset and the zoom buttons.
 _HOLDER_MARGIN = 0.3
 
@@ -189,14 +190,10 @@ class StageMap(QWidget):
         return self._projection.to_plane(position, self._origin)
 
     def _slot_points(self) -> List[Tuple[float, float]]:
-        if not holder_is_calibrated(self._microscope):
-            return []
-        points = []
-        for slot in holder_slots(self._microscope):
-            place = slot_landmark(self._microscope, slot)
-            if place is not None:
-                points.append(self._plane(place))
-        return points
+        return [point for _, point in slot_points(self._microscope, self._plane_of())]
+
+    def _plane_of(self) -> StagePlane:
+        return StagePlane(self._projection, self._origin)
 
     def _view(
         self, rect: QRectF, zoom: int
@@ -225,51 +222,13 @@ class StageMap(QWidget):
     def _holder_square(self) -> Optional[Tuple[Tuple[float, float], float]]:
         """The holder's square on the plane: its centre and side, in metres; None with
         no calibrated slot. What `holder_box` draws, for framing the view."""
-        points = self._slot_points()
-        if not points:
-            return None
-        xs, ys = [p[0] for p in points], [p[1] for p in points]
-        side = 2 * _HOLDER_PAD_M + max(max(xs) - min(xs), max(ys) - min(ys))
-        return ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2), side
+        return holder_square(self._slot_points())
 
     def _device_stations(self) -> List[Tuple[str, FibsemStagePosition]]:
-        """The places the stage travels to for a device other than the beams: an offset
-        fluorescence microscope's station, say. Not the beams' own, which is where the
-        holder already is, and not a device that sits at the beams' origin (an Arctis
-        FM), which has nowhere separate to draw.
-
-        A station is a place in the chamber, so it is stated at the stage's current
-        rotation: the map is the holder's frame, and with the stage turned a half turn
-        the station is on the other side of the holder. Drawn at the frame's rotation
-        instead, a stage at the station in its FIB pose would sit 100 mm from it.
-        """
-        try:
-            devices = self._microscope.system.stage.devices
-            beams = self._microscope.get_device_origin(BEAMS_DEVICE)
-        except Exception:
-            return []
-        rotation = self._stage.r if self._stage is not None else self._origin.r
-        stations = []
-        for name in devices:
-            if name == BEAMS_DEVICE:
-                continue
-            try:
-                origin = self._microscope.get_device_origin(name)
-            except Exception:
-                continue
-            x = origin.x if origin.x is not None else beams.x
-            y = origin.y if origin.y is not None else beams.y
-            if x is None or y is None or (x == beams.x and y == beams.y):
-                continue
-            stations.append(
-                (
-                    name,
-                    FibsemStagePosition(
-                        x=x, y=y, z=self._origin.z, r=rotation, t=self._origin.t
-                    ),
-                )
-            )
-        return stations
+        """The places the stage travels to for another device (`device_stations`), at
+        the stage's rotation."""
+        rotation = self._stage.r if self._stage is not None else None
+        return device_stations(self._microscope, self._plane_of(), rotation)
 
     def _travel_view(
         self, width: float, height: float, stage: Tuple[float, float]
@@ -519,10 +478,10 @@ class StageMap(QWidget):
             return None
         # Canvas pixels per metre of sample surface, per axis: equal when the view
         # looks straight down, and the square stays square on the sample if not.
-        per_x, per_y = canvas_span(frame, _HOLDER_PAD_M)
-        per_x, per_y = per_x / _HOLDER_PAD_M, per_y / _HOLDER_PAD_M
+        per_x, per_y = canvas_span(frame, HOLDER_PAD_M)
+        per_x, per_y = per_x / HOLDER_PAD_M, per_y / HOLDER_PAD_M
         xs, ys = [p[0] for p in points], [p[1] for p in points]
-        side = 2 * _HOLDER_PAD_M + max(
+        side = 2 * HOLDER_PAD_M + max(
             (max(xs) - min(xs)) / per_x, (max(ys) - min(ys)) / per_y
         )
         width, height = side * per_x, side * per_y
@@ -586,7 +545,7 @@ class StageMap(QWidget):
         here = []
         for position in self._positions:
             try:
-                if math.dist(self._plane(position), stage) < _HERE_M:
+                if math.dist(self._plane(position), stage) < HERE_M:
                     here.append(position)
             except Exception:
                 continue

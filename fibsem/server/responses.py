@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar, U
 from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
 from fibsem.control import InControl
+from fibsem.geometry.stage_places import StageMapPlaces
 from fibsem.structures import (
     FibsemImageMetadata,
     FibsemRectangle,
@@ -708,6 +709,28 @@ class ReplayImage:
 
 
 @dataclass
+class ReplayStage:
+    """Where the stage was at a recorded action, as the stage card draws it:
+    angles in degrees, the map in metres (``StageMapPlaces``)."""
+
+    # "SEM", "FIB", "MILLING", "FM" or None between orientations
+    orientation: Optional[str] = None
+    # the slot whose grid the stage was over
+    grid: Optional[str] = None
+    milling_angle: Optional[float] = None
+    # the side view: the stage's tilt, the shuttle's pre-tilt and the ion column's
+    stage_tilt: Optional[float] = None
+    pre_tilt: float = 0.0
+    column_tilt: float = 0.0
+    # turned a half turn from the rotation reference, so the side view is drawn mirrored
+    mirrored: bool = False
+    # an FM objective under the stage (an Arctis), and whether it was inserted
+    objective_below: bool = False
+    objective_inserted: bool = False
+    map: Optional[StageMapPlaces] = None
+
+
+@dataclass
 class ReplayView:
     """The instrument at one recorded action."""
 
@@ -719,6 +742,7 @@ class ReplayView:
     # a fluorescence stack's path, for /app/experiment/files
     fm: Optional[str] = None
     stage_position: Optional[Dict[str, Any]] = None
+    stage: Optional[ReplayStage] = None
     error: Optional[str] = None
 
 

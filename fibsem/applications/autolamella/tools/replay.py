@@ -1563,6 +1563,16 @@ def _load_from_events(root: Path) -> ExperimentReplay:
                 data=payload,
                 position=end,
             )
+        elif kind in ("grid_loaded", "grid_unloaded"):
+            grid, slot = payload.get("grid") or "a grid", payload.get("slot")
+            summary = (
+                f"Loaded {grid}" + (f" from {slot}" if slot else "")
+                if kind == "grid_loaded"
+                else f"Unloaded {grid}" + (f" to {slot}" if slot else "")
+            ) + _failed(payload)
+            event = ReplayEvent(
+                time, EventKind.STAGE, summary, data={**payload, "msg": kind}
+            )
         elif kind == "beam_shifted":
             summary = _beam_shift_summary(payload) + _failed(payload)
             event = ReplayEvent(time, EventKind.ALIGNMENT, summary, data=payload)

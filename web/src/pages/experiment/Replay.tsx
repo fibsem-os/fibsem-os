@@ -3,6 +3,7 @@ import { Check, ListFilter, Pause, Play } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ImageInfoBar, ScaleBar } from "@/components/image-info";
 import { ImageViewer } from "@/components/images";
+import { StageCard } from "@/components/stage-card";
 import { Stepper } from "@/components/stepper";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -162,61 +163,6 @@ function Tile({
       </div>
       <ImageInfoBar info={read.data?.info} />
     </button>
-  );
-}
-
-function Facts({ title, sub, rows }: { title: string; sub?: string | null; rows: [string, string][] }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1">
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-[12px] font-semibold">{title}</span>
-        {sub && <span className="text-[11px] text-muted-foreground tabular-nums">{sub}</span>}
-      </div>
-      {rows.length ? (
-        <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[12px]">
-          {rows.map(([label, value]) => (
-            <div key={label} className="contents">
-              <dt className="text-muted-foreground">{label}</dt>
-              <dd className="m-0 text-right tabular-nums break-words">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      ) : (
-        <span className="text-[12px] text-muted-foreground">Not recorded yet</span>
-      )}
-    </div>
-  );
-}
-
-/** A beam's settings, as its image at this moment recorded them. */
-function Beam({ title, path }: { title: string; path: string | null }) {
-  const info = useFileRead(path, 1024).data?.info;
-  const rows = (info?.fields ?? []).map((f): [string, string] => [f.title, f.value]);
-  if (info?.header.length) rows.unshift(["Detector", info.header.map((f) => f.value).join(" · ")]);
-  const time = info?.time?.split(" ").pop();
-  return <Facts title={title} sub={time ? `at ${time}` : null} rows={rows} />;
-}
-
-/** The fourth tile: the stage where it was, as the Microscope tab's Stage card reads
- * it, and each beam's settings from its image. */
-function Conditions({ view }: { view: ReplayView | null }) {
-  const pos = view?.stage_position;
-  const n = (k: string) => (typeof pos?.[k] === "number" ? (pos[k] as number) : null);
-  const stage: [string, string][] = pos
-    ? [
-        ["X", fmt.length(n("x"))],
-        ["Y", fmt.length(n("y"))],
-        ["Z", fmt.length(n("z"))],
-        ["Rotation", fmt.angle(n("r"))],
-        ["Tilt", fmt.angle(n("t"))],
-      ]
-    : [];
-  return (
-    <div className="grid min-w-0 content-start gap-x-5 gap-y-3 rounded-sm bg-panel p-3 sm:grid-cols-3">
-      <Facts title="Stage" rows={stage} />
-      <Beam title="Electron beam" path={view?.sem?.path ?? null} />
-      <Beam title="Ion beam" path={view?.fib?.path ?? null} />
-    </div>
   );
 }
 
@@ -434,7 +380,7 @@ export function Replay() {
           <Tile label="SEM" path={view?.sem?.path ?? null} image={view?.sem} open={open} />
           <Tile label="FIB" path={view?.fib?.path ?? null} image={view?.fib} open={open} />
           <Tile label="FM" path={view?.fm ?? null} open={open} />
-          <Conditions view={view} />
+          <StageCard position={view?.stage_position ?? null} stage={view?.stage ?? null} />
         </div>
         <Stepper
           at={at}

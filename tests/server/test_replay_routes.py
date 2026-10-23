@@ -1,6 +1,8 @@
 """The experiment replay over the App Server: the timeline the web page lists,
 and the images and overlays at one recorded action."""
 
+import json
+import math
 import os
 from urllib.parse import quote
 
@@ -134,3 +136,69 @@ def test_without_an_experiment_there_is_nothing_to_replay(client, session):
     session.experiment = None
     assert _timeline(client)["available"] is False
     assert _view(client, 0)["available"] is False
+
+
+@pytest.fixture
+def calibrated(microscope):
+    """The holder's slots calibrated, the first at the stage's recorded x and y."""
+    from fibsem.geometry.stage_places import holder_slots
+    from fibsem.structures import FibsemStagePosition, SlotCalibration
+
+    stage = microscope.system.stage
+    slots = holder_slots(microscope)
+    saved = [(slot.position, slot.calibration) for slot in slots]
+    for slot, x in zip(slots, (0.0, 5e-3)):
+        slot.position = FibsemStagePosition(name=slot.name, x=x, y=0.0, z=0.0)
+        slot.calibration = SlotCalibration(
+            orientation="SEM",
+            pre_tilt=stage.shuttle_pre_tilt,
+            rotation_reference=stage.rotation_reference,
+        )
+    yield [slot.name for slot in slots[:2]]
+    for slot, (position, calibration) in zip(slots, saved):
+        slot.position, slot.calibration = position, calibration
+
+
+def test_a_scene_draws_the_stage_as_the_chamber_view_does(client, calibrated):
+    events = _timeline(client)["events"]
+    view = _view(client, len(events) - 1)
+    stage, recorded = view["stage"], view["stage_position"]
+    assert stage["stage_tilt"] == pytest.approx(math.degrees(recorded["t"]))
+    assert stage["orientation"] in ("SEM", "FIB", "MILLING", "FM", None)
+    assert stage["milling_angle"] is not None
+    places = stage["map"]
+    left, top, right, bottom = places["limits"]
+    assert left < places["stage"][0] < right and top < places["stage"][1] < bottom
+    assert [s["name"] for s in places["slots"]] == calibrated
+    assert stage["grid"] == calibrated[0]
+
+
+def test_without_a_microscope_the_stage_is_not_drawn(client, session):
+    session.microscope = None
+    events = _timeline(client)["events"]
+    assert _view(client, len(events) - 1)["stage"] is None
+
+
+def test_the_grid_and_the_objective_are_the_last_recorded(tmp_path):
+    from fibsem.applications.autolamella.server.replay import (
+        _grid_loaded,
+        _objective_inserted,
+    )
+    from fibsem.applications.autolamella.tools.replay import load_replay
+    from fibsem.workflows.event_recording import EVENTS_FILENAME
+
+    records = [
+        ("grid_loaded", {"grid": "Grid-01", "slot": "Slot-01"}),
+        ("objective_state_changed", {"state": "inserted"}),
+        ("objective_state_changed", {"state": "moving"}),
+        ("grid_unloaded", {"grid": "Grid-01", "slot": "Slot-01"}),
+    ]
+    (tmp_path / EVENTS_FILENAME).write_text(
+        "".join(
+            json.dumps({"t": f"2026-10-23T10:00:0{i}", "kind": k, "payload": p}) + "\n"
+            for i, (k, p) in enumerate(records)
+        )
+    )
+    replay = load_replay(tmp_path)
+    assert [_grid_loaded(replay, i) for i in range(4)] == ["Grid-01"] * 3 + [""]
+    assert [_objective_inserted(replay, i) for i in range(4)] == [False] + [True] * 3
