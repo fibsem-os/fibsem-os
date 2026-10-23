@@ -9,7 +9,7 @@ service declares itself (``type_path`` names its type).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar
 
 from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
@@ -19,6 +19,7 @@ from fibsem.structures import (
     FibsemImageMetadata,
     FibsemRectangle,
     FibsemStagePosition,
+    Limits,
     MicroscopeState,
     Point,
 )
@@ -50,6 +51,62 @@ def answer_class(returns: Any, answer_types: Dict[type, type]) -> Any:
             tuple(answer_types.get(p.__bound__, p.__bound__) for p in parameters)
         ]
     return returns
+
+
+# The HTTP status each kind of refusal answers.
+REFUSAL_STATUS = {
+    "not_found": 404,
+    "invalid": 422,
+    "invalid_value": 422,
+    "missing_field": 422,
+    "task_running": 409,
+    "not_pending": 409,
+    "not_running": 409,
+    "already_queued": 409,
+    "stale_config": 409,
+    "stale_proposal": 409,
+    "fixed": 409,
+    "refused": 409,
+    "no_experiment": 409,
+    "not_allowed": 403,
+}
+
+
+@dataclass
+class Refusal:
+    """Why a route did nothing, answered as an HTTP error: ``error_type`` picks
+    the status (`REFUSAL_STATUS`), and the names there are ride along
+    (``item_names``, ``task_names``, ...)."""
+
+    error_type: str
+    message: str
+    names: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def status(self) -> int:
+        return REFUSAL_STATUS.get(self.error_type, 422)
+
+    @property
+    def detail(self) -> Dict[str, Any]:
+        return {"error_type": self.error_type, "message": self.message, **self.names}
+
+
+def refused(error_type: str, message: str, **names: Any) -> Refusal:
+    return Refusal(error_type, message, names)
+
+
+def no_experiment() -> Refusal:
+    return Refusal("no_experiment", "No experiment is loaded.")
+
+
+def refusal_of(result: Dict[str, Any], error_type: str = "not_found"):
+    """An engine edit's answer (``applied``, and ``error`` when it did nothing)
+    as its refusal; *result* itself when it applied. A refusal that names no
+    type is *error_type*; the names there are ride along."""
+    if result.get("applied") or not result.get("error"):
+        return result
+    names = {k: v for k, v in result.items() if k.endswith(("_names", "_paths"))}
+    return refused(result.get("error_type") or error_type, result["error"], **names)
 
 
 @dataclass
@@ -106,18 +163,6 @@ class LendEnded:
 
 
 # --- Devices and services ---
-
-
-@dataclass
-class Range:
-    """A limit's ends; None is unbounded (JSON has no infinity)."""
-
-    min: Optional[float] = None
-    max: Optional[float] = None
-
-
-# One range, or one per field of a composite value.
-Limits = Union[Range, Dict[str, Range]]
 
 
 @dataclass
@@ -227,8 +272,9 @@ class Health:
 
 # --- The app's experiment and workflow (/app) ---
 #
-# A read answers ``available: false`` in a 200 when there is nothing to read
-# (no experiment open, no run yet), and an item read names the items there are.
+# A read with nothing to read is refused (`Refusal`): 409 ``no_experiment`` with
+# no experiment open, 404 ``not_found`` for a name that isn't there, with the
+# names there are.
 
 
 @dataclass
@@ -299,7 +345,6 @@ class QueueEntry:
 
 @dataclass
 class Queue:
-    available: bool
     version: Optional[int] = None
     items: List[QueueEntry] = field(default_factory=list)
 
@@ -319,7 +364,6 @@ class SummaryRow:
 
 @dataclass
 class ExperimentSummary:
-    available: bool
     items: List[SummaryRow] = field(default_factory=list)
 
 
@@ -343,19 +387,14 @@ class HistoryRow:
 
 @dataclass
 class TaskHistory:
-    available: bool
     items: List[HistoryRow] = field(default_factory=list)
 
 
 @dataclass
 class ItemRead:
-    """A read of one item: ``available: false`` with ``error`` and the
-    ``item_names`` there are when it isn't there."""
+    """A read of one item."""
 
-    available: bool
     item_name: str
-    error: Optional[str] = None
-    item_names: Optional[List[str]] = None
 
 
 @dataclass
@@ -419,7 +458,6 @@ class ImagePayload:
 
 @dataclass
 class DisplayImages:
-    available: bool
     sem: Optional[ImagePayload] = None
     fib: Optional[ImagePayload] = None
     # the FM's latest frame, in its channel's colour; fm_available is False on a
@@ -478,7 +516,6 @@ class FolderListing:
 
 @dataclass
 class RunSummary:
-    available: bool
     # the last run's outcome table, a row per item; its columns are the run's
     items: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -498,7 +535,6 @@ class ProtocolTask:
 class ProtocolView:
     """The workflow's tasks in order. An app adds its own in a subclass."""
 
-    available: bool
     name: Optional[str] = None
     tasks: List[ProtocolTask] = field(default_factory=list)
 
@@ -514,7 +550,6 @@ class LogRecord:
 
 @dataclass
 class LogRead:
-    available: bool
     records: List[LogRecord] = field(default_factory=list)
     since: Optional[str] = None
     until: Optional[str] = None
@@ -526,25 +561,17 @@ class LogRead:
 @dataclass
 class TaskConfigRead:
     """A task's config document, at the protocol's level or an item's, with the
-    version a patch echoes; ``error`` and the ``task_names`` there are when
-    there is no such task."""
+    version a patch echoes."""
 
-    available: bool
     task_name: Optional[str] = None
     item_name: Optional[str] = None
     level: Optional[str] = None
     version: Optional[str] = None
     config: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
-    error_type: Optional[str] = None
-    task_names: Optional[List[str]] = None
-    item_names: Optional[List[str]] = None
-    applied: Optional[bool] = None
 
 
 @dataclass
 class ItemHistory:
-    available: bool
     item_name: str
     # the filter shown (`history_rows.HistoryFilter`), the tasks run, and
     # how many runs before it filtered
@@ -553,8 +580,6 @@ class ItemHistory:
     total: Optional[int] = None
     # each run shown (`history_rows.run_record`), files relative to the experiment
     runs: List[Dict[str, Any]] = field(default_factory=list)
-    error: Optional[str] = None
-    item_names: Optional[List[str]] = None
 
 
 @dataclass
@@ -575,30 +600,13 @@ class GridSummary:
 
 @dataclass
 class Grids:
-    available: bool
     items: List[GridSummary] = field(default_factory=list)
 
 
 @dataclass
-class GridDetail:
-    """A grid's summary, every task run with its files, and its items; or
-    ``available: false`` with the ``grid_names`` there are."""
+class GridDetail(GridSummary):
+    """A grid's summary, every task run with its files, and its items."""
 
-    available: Optional[bool] = None
-    grid_name: Optional[str] = None
-    error: Optional[str] = None
-    grid_names: Optional[List[str]] = None
-    name: Optional[str] = None
-    id: Optional[str] = None
-    description: Optional[str] = None
-    quality: Optional[str] = None
-    status: Optional[str] = None
-    is_failure: Optional[bool] = None
-    current_task: Optional[str] = None
-    completed_tasks: List[str] = field(default_factory=list)
-    last_completed_task: Optional[str] = None
-    num_items: Optional[int] = None
-    overviews: Dict[str, str] = field(default_factory=dict)
     tasks: List[RunFiles] = field(default_factory=list)
     items: List[str] = field(default_factory=list)
 
@@ -631,7 +639,6 @@ class Unplaced:
 
 @dataclass
 class GridMarkers:
-    available: bool
     grid_name: Optional[str] = None
     filename: Optional[str] = None
     # the overview's scale block (`fibsem.server.images.image_metadata`)
@@ -641,9 +648,6 @@ class GridMarkers:
     unplaced: List[Unplaced] = field(default_factory=list)
     linked: Optional[bool] = None
     reason: Optional[str] = None
-    error: Optional[str] = None
-    grid_names: Optional[List[str]] = None
-    filenames: Optional[List[str]] = None
 
 
 # --- Replay: what an experiment recorded, step by step ---
@@ -668,14 +672,12 @@ class ReplayRow:
 
 @dataclass
 class ReplayTimeline:
-    available: bool
     # the file it was read from: events.jsonl, or the log
     source: Optional[str] = None
     start: Optional[str] = None
     end: Optional[str] = None
     counts: Dict[str, int] = field(default_factory=dict)
     events: List[ReplayRow] = field(default_factory=list)
-    error: Optional[str] = None
 
 
 @dataclass
@@ -734,7 +736,6 @@ class ReplayStage:
 class ReplayView:
     """The instrument at one recorded action."""
 
-    available: bool
     index: int = 0
     event: Optional[ReplayRow] = None
     sem: Optional[ReplayImage] = None
@@ -743,7 +744,6 @@ class ReplayView:
     fm: Optional[str] = None
     stage_position: Optional[Dict[str, Any]] = None
     stage: Optional[ReplayStage] = None
-    error: Optional[str] = None
 
 
 @dataclass
@@ -876,7 +876,6 @@ class FileRead:
 
 @dataclass
 class Proposals:
-    available: bool
     # each pending proposal (`Proposal.to_dict`) with its item, task, ids and
     # the reference image its values sit on
     proposals: List[Dict[str, Any]] = field(default_factory=list)
@@ -894,7 +893,6 @@ class Events:
 
 @dataclass
 class EventHistory:
-    available: bool
     events: List[Dict[str, Any]] = field(default_factory=list)
     # the offset to pass back as before for the page before this one
     start: Optional[int] = None
@@ -976,9 +974,6 @@ class PlanStep:
 
 @dataclass
 class GridPlan:
-    available: bool
-    valid: bool
-    reason: Optional[str] = None
     screen_all: Optional[bool] = None
     task_names: Optional[List[str]] = None
     grid_names: Optional[List[str]] = None
@@ -997,16 +992,10 @@ class RunStep:
 @dataclass
 class RunPlan:
     """A lamella run's steps in queue order and its estimate, or for an
-    addition to the running queue what it adds and delays; why not when
-    ``valid`` is false."""
+    addition to the running queue what it adds and delays."""
 
-    available: bool
-    valid: bool
-    reason: Optional[str] = None
     add: Optional[bool] = None
     run_next: Optional[bool] = None
-    task_names: Optional[List[str]] = None
-    item_names: Optional[List[str]] = None
     steps: List[RunStep] = field(default_factory=list)
     already_queued: List[str] = field(default_factory=list)
     # work and hold seconds, expected finish, and each task's count and seconds
@@ -1020,10 +1009,7 @@ class Recorded:
     """A note, a message or evidence put on the record; for a message, its
     ``id``; for evidence, its record (`fibsem.workflows.evidence.save`)."""
 
-    available: bool
     recorded: bool
-    error: Optional[str] = None
-    item_names: Optional[List[str]] = None
     evidence_id: Optional[str] = None
     image: Optional[str] = None
     uploaded: Optional[bool] = None
@@ -1039,42 +1025,29 @@ class Recorded:
 # --- Edits to the experiment and the run ---
 #
 # An edit answers ``applied`` and, when it changed a file, ``saved``. A
-# refusal is an HTTP error (`app_routes._answer_or_refusal`); what an edit
-# could not do but is not refused for is ``reason``.
+# refusal is an HTTP error (`Refusal`).
 
 
 @dataclass
 class Edit:
     applied: bool = False
-    available: Optional[bool] = None
     saved: Optional[bool] = None
     save_error: Optional[str] = None
-    reason: Optional[str] = None
-    error: Optional[str] = None
 
 
 @dataclass
 class Decided(Edit):
-    # what a decision could not do while a task runs, and its kind
-    running: Optional[Dict[str, Any]] = None
-    error_type: Optional[str] = None
     synced_tasks: Optional[List[str]] = None
 
 
 @dataclass
 class Suggested(Edit):
     suggestion_id: Optional[str] = None
-    error_type: Optional[str] = None
 
 
 @dataclass
 class RunStarted:
     started: bool
-    available: Optional[bool] = None
-    reason: Optional[str] = None
-    # the names there are, when it named one that isn't
-    task_names: Optional[List[str]] = None
-    item_names: Optional[List[str]] = None
     grid_names: Optional[List[str]] = None
     screen_all: Optional[bool] = None
     # a grid run's steps in order
@@ -1084,8 +1057,6 @@ class RunStarted:
 @dataclass
 class Requeued:
     queued: bool
-    available: Optional[bool] = None
-    reason: Optional[str] = None
     item_id: Optional[str] = None
     item_name: Optional[str] = None
     task_name: Optional[str] = None
@@ -1112,28 +1083,19 @@ class QueuedGridStep:
 @dataclass
 class GridTasksQueued:
     queued: bool
-    reason: Optional[str] = None
     added: List[QueuedGridStep] = field(default_factory=list)
     queue_version: Optional[int] = None
-    grid_names: Optional[List[str]] = None
-    task_names: Optional[List[str]] = None
-
-
-@dataclass
-class RunningTask:
-    item_name: str
-    task_name: str
 
 
 @dataclass
 class Stopped:
+    """A stop; ``stopped`` false with ``reason`` when nothing was running,
+    which a stop does not refuse."""
+
     stopped: bool
-    available: Optional[bool] = None
     reason: Optional[str] = None
     item_name: Optional[str] = None
     task_name: Optional[str] = None
-    # the task that is running, when it was told to stop another
-    running: Optional[RunningTask] = None
 
 
 @dataclass
@@ -1144,7 +1106,6 @@ class TaskEdit(Edit):
     task_names: Optional[List[str]] = None
     supervise: Optional[bool] = None
     scheduled_at: Optional[str] = None
-    invalid_value: Optional[str] = None
     task_type: Optional[str] = None
     requires: Optional[List[str]] = None
     required: Optional[bool] = None

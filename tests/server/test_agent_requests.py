@@ -431,11 +431,9 @@ def test_a_failed_run_s_action_carries_the_route_s_status(
     assert actions[-1]["status_code"] == 422
 
 
-def test_an_action_answered_200_but_turned_away_fails_with_its_reason(
-    client, app, context
-):
-    """workflow_start answers 200 with ``started: false`` and a reason when it is
-    turned away: that step failed, and says why, rather than reading applied."""
+def test_a_start_turned_away_fails_with_its_reason(client, app, context):
+    """A workflow_start the run turns away is refused with its reason: that
+    step failed, and says why."""
     from fibsem.workflows.runner import refused
 
     context._session.runner.start = lambda experiment, request: refused(
@@ -449,9 +447,9 @@ def test_an_action_answered_200_but_turned_away_fails_with_its_reason(
 
     assert done.status == "failed", done.results
     assert [r["ok"] for r in done.results] == [False]
-    assert done.results[0]["status_code"] == 200
+    assert done.results[0]["status_code"] == 422
     assert done.results[0]["error"] == {
-        "error_type": "not_started",
+        "error_type": "invalid",
         "message": "Grid-01 is not on the stage",
     }
     finished = [p for kind, p, _ in context.recorded if kind == "request_finished"]

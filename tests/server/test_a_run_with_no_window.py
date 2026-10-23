@@ -108,7 +108,7 @@ def test_the_agent_answers_a_supervised_run_with_no_window(agent):
         assert workflow["step"] == f"Waiting: {hold.releases}."
         # What the task acquired is what the agent sees, window or not.
         assert session.images.get(BeamType.ION) is not None
-        assert _ok(agent.get("/app/experiment/images"))["available"]
+        assert _ok(agent.get("/app/experiment/images"))["fib"]
         _ok(
             agent.post(
                 "/app/workflow/decide",

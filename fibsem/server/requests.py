@@ -262,9 +262,9 @@ def _cut_short(answer: Any) -> bool:
 
 
 # The flags a route answers 2xx with to say whether it did what it was asked:
-# workflow_start answers ``started: false`` and a reason when it is turned away,
-# a context edit ``applied: false``, a stop with nothing to stop ``stopped: false``.
-_OUTCOME_FLAGS = ("ok", "started", "applied", "stopped")
+# an edit that changed nothing ``applied: false``, a stop with nothing to stop
+# ``stopped: false``. A refusal is an HTTP error.
+_OUTCOME_FLAGS = ("ok", "applied", "stopped")
 
 
 def turned_away(answer: Any) -> Optional[Dict[str, Any]]:

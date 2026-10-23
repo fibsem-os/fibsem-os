@@ -108,7 +108,11 @@ def task_config_at(experiment, level: str, item_name: str, task_name: str):
         protocol = getattr(experiment, "task_protocol", None)
         config_map = getattr(protocol, "task_config", None)
         if config_map is None:
-            return None, None, {"error": "no protocol is loaded"}
+            return (
+                None,
+                None,
+                {"error": "no protocol is loaded", "error_type": "no_experiment"},
+            )
         config = dict(config_map).get(task_name)
         if config is None:
             return (
