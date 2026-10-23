@@ -211,7 +211,6 @@ from fibsem import utils  # noqa: E402
 from fibsem.drivers.autoscript.connection import AutoScriptConnection  # noqa: E402
 from fibsem.drivers.autoscript.devices import (  # noqa: E402
     AutoscriptCompustage,
-    bind_autoscript_stage,
 )
 from fibsem.structures import (  # noqa: E402
     BeamType,
@@ -458,7 +457,8 @@ def cases():
 
         def new_limits(stage, m):
             LOG.clear()
-            return bind_autoscript_stage(m).position.limits
+            m._build_stage()
+            return m.stage.position.limits
 
         add("limits", old_limits, new_limits)
         add(

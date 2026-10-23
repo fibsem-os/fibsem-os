@@ -22,10 +22,13 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan.connection import TescanConnection
-from fibsem.drivers.tescan.devices import bind_tescan_stage
+from fibsem.drivers.registry import BuildContext
+from fibsem.drivers.tescan.devices import build_tescan_stage
 from fibsem.drivers.tescan.microscope import TescanMicroscope
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures import DeviceEntry, FibsemStagePosition
 from tests.fm import _odemis_stubs as stubs
+
+STAGE_ENTRY = DeviceEntry(name="stage", type="stage")
 
 
 class _TescanStage:
@@ -55,7 +58,9 @@ def _tescan():
     microscope._connection = TescanConnection(
         SimpleNamespace(Stage=stage), "localhost", 8300
     )
-    microscope.stage = bind_tescan_stage(microscope)
+    microscope.stage = build_tescan_stage(
+        STAGE_ENTRY, BuildContext(microscope=microscope)
+    )
     microscope._build_stage_movement()
     return microscope, stage
 
@@ -157,14 +162,16 @@ class _OdemisStage:
 
 def _odemis(cls):
     from fibsem.drivers.odemis.connection import OdemisConnection
-    from fibsem.drivers.odemis.devices import bind_odemis_stage
+    from fibsem.drivers.odemis.devices import build_odemis_stage
 
     microscope = object.__new__(cls)  # skip __init__ (requires odemis)
     microscope.system = utils.load_microscope_configuration(
         os.path.join(cfg.CONFIG_PATH, "odemis-configuration.yaml")
     ).system
     microscope._connection = OdemisConnection(None, _OdemisStage(), None)
-    microscope.stage = bind_odemis_stage(microscope)
+    microscope.stage = build_odemis_stage(
+        STAGE_ENTRY, BuildContext(microscope=microscope)
+    )
     return microscope
 
 

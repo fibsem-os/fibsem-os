@@ -513,10 +513,6 @@ class ThermoMicroscope(FibsemMicroscope):
     # connected; None on a compustage, which does not rotate, or before connect.
     _compucentric_offset: Optional[Tuple[float, float]] = None
 
-    # The port connect_to_microscope used: info.port, or the driver's default.
-    # reconnect uses it again.
-    _port: Optional[int] = None
-
     def __init__(self, system_settings: SystemSettings):
         if not THERMO_API_AVAILABLE:
             raise Exception(autoscript_unavailable_message())
@@ -543,17 +539,6 @@ class ThermoMicroscope(FibsemMicroscope):
     def _new_connection(self) -> AutoScriptConnection:
         """A client, sharing the imaging channel lock with the devices."""
         return AutoScriptConnection(SdbMicroscopeClient(), self._threading_lock)
-
-    def reconnect(self):
-        """Attempt to reconnect to the microscope client."""
-        if self._connection is None:
-            raise ConnectionError("Please connect to the microscope first")
-
-        self.disconnect()
-        if self._port is None:
-            self.connect_to_microscope(self.system.info.ip_address)
-        else:
-            self.connect_to_microscope(self.system.info.ip_address, port=self._port)
 
     def _disconnect(self) -> None:
         """Disconnect from the microscope client."""
@@ -593,7 +578,6 @@ class ThermoMicroscope(FibsemMicroscope):
 
         logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self._connection.connect(host=ip_address, port=port)
-        self._port = port
         logging.info(f"Microscope client connected to [{ip_address}:{port}]")
 
         # system information

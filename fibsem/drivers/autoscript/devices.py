@@ -298,14 +298,6 @@ def autoscript_stage_class(microscope: ThermoMicroscope) -> Type[AutoscriptStage
     return AutoscriptCompustage if compustage else AutoscriptStage
 
 
-def bind_autoscript_stage(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> AutoscriptStage:
-    """Build ``stage`` for a connected Thermo microscope."""
-    stage = autoscript_stage_class(microscope)
-    return stage(microscope, microscope._connection, resources).connect()
-
-
 def _point(value: Any) -> Point:
     """An AutoScript Point as a fibsem Point."""
     return Point(float(value.x), float(value.y))
@@ -873,24 +865,6 @@ _SCAN_MODE_VALUES: Dict[int, ScanMode] = {
 }
 
 
-def bind_autoscript_beams(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> Dict[BeamType, AutoscriptBeam]:
-    """Build ``beams[BeamType]`` for a connected Thermo microscope: one per enabled
-    column, so a disabled one is never touched."""
-    enabled = {
-        BeamType.ELECTRON: microscope.system.electron.enabled,
-        BeamType.ION: microscope.system.ion.enabled,
-    }
-    return {
-        beam_type: AutoscriptBeam(
-            beam_type, microscope, microscope._connection, resources
-        ).connect()
-        for beam_type, on in enabled.items()
-        if on
-    }
-
-
 # -- the chamber and the manipulator --------------------------------------------------
 
 
@@ -1076,13 +1050,6 @@ def _read_compartment(connection: AutoScriptConnection, kind: str) -> CryoCompar
         except Exception:  # noqa: BLE001 - one sensor not answering
             logging.debug(f"Cryo compartment {kind}: sensor {sensor} did not answer.")
     return CryoCompartment(state, dewar_level, temperatures)
-
-
-def bind_autoscript_chamber(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> AutoscriptChamber:
-    """Build ``chamber`` for a connected Thermo microscope."""
-    return AutoscriptChamber(microscope, microscope._connection, resources).connect()
 
 
 class AutoscriptSampleLoader(SampleLoader):
@@ -1439,15 +1406,6 @@ class AutoscriptManipulator(Manipulator):
             }
         )
         return saved_position
-
-
-def bind_autoscript_manipulator(
-    microscope: ThermoMicroscope, resources: Optional[Resources] = None
-) -> AutoscriptManipulator:
-    """Build ``manipulator`` for a connected Thermo microscope that has one."""
-    return AutoscriptManipulator(
-        microscope, microscope._connection, resources
-    ).connect()
 
 
 # -- The gas injector and the sputter coater ----------------------------------------

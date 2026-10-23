@@ -23,7 +23,6 @@ import autoscript_stage_parity as S  # noqa: E402  (installs the fake SDK)
 
 logging.disable(logging.NOTSET)
 
-from fibsem.drivers.autoscript.devices import bind_autoscript_beams  # noqa: E402
 from fibsem.structures import BeamType, FibsemRectangle, Point  # noqa: E402
 
 A, LOG, STRUCTS, Node = S.A, S.LOG, S.STRUCTS, S.Node
@@ -54,6 +53,12 @@ def make(plasma, ion=True):
     microscope.system.ion.plasma_gas = "Xenon" if plasma else None
     fake_beams(microscope._connection.sdk)
     return microscope
+
+
+def _built_beams(microscope):
+    """The beams as connect builds them, from the device entries."""
+    microscope._build_beams()
+    return dict(microscope.beams)
 
 
 def routed(plasma):
@@ -225,7 +230,7 @@ def facts():
     out = {}
     for plasma in (False, True):
         microscope = make(plasma)
-        beams = bind_autoscript_beams(microscope)
+        beams = _built_beams(microscope)
         for beam_type, beam in beams.items():
             out[f"plasma={plasma} {beam_type.name}"] = {
                 "parameters": sorted(beam.parameters),
@@ -270,7 +275,7 @@ def facts():
     out["connect"] = seen
 
     # the new API checks a value; the old one passes it on as it is
-    beam = bind_autoscript_beams(make(plasma=False))[BeamType.ELECTRON]
+    beam = _built_beams(make(plasma=False))[BeamType.ELECTRON]
     LOG.clear()
     try:
         beam.voltage.set_value(1234)
@@ -280,7 +285,7 @@ def facts():
     out["voltage_off_the_list"] = {"refused": refused, "calls": copy.deepcopy(LOG)}
 
     # a relative shift is clipped to the limits xT reports, warning on the axis outside
-    beam = bind_autoscript_beams(make(plasma=False))[BeamType.ELECTRON]
+    beam = _built_beams(make(plasma=False))[BeamType.ELECTRON]
     LOG.clear()
     MESSAGES.records.clear()
     after = beam.shift_by(1e-3, 1e-6)
@@ -332,7 +337,7 @@ def facts():
     # a disabled column is never built, and connect never touches it
     microscope = make(plasma=False, ion=False)
     LOG.clear()
-    beams = bind_autoscript_beams(microscope)
+    beams = _built_beams(microscope)
     out["ion_disabled"] = {
         "beams": sorted(bt.name for bt in beams),
         "calls": copy.deepcopy(LOG),
