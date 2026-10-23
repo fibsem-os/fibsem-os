@@ -6,6 +6,8 @@ open form writing old values back on the operator's next edit.
 
 import os
 
+from tests.fixtures.main_window import close_window
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
@@ -36,12 +38,7 @@ def window(qapp):
     yield win
     if win.microscope is not None:
         win.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        win.close()
-    finally:
-        qapp.quit = original_quit
+    close_window(win)
 
 
 @pytest.fixture

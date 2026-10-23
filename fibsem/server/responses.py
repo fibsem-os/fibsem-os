@@ -22,6 +22,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.workflows.outputs import RunFiles, StackSlice
+from fibsem.workflows.progress_line import ProgressLine
 
 if TYPE_CHECKING:
     from fastapi.responses import JSONResponse
@@ -247,12 +248,32 @@ class Asking:
 
 
 @dataclass
+class RunFailed:
+    """The run's last failed task, or why it stalled: kept until the next run."""
+
+    what: str
+    message: str
+    at: Optional[str] = None
+    # how many of the run's tasks failed
+    count: int = 1
+
+
+@dataclass
 class WorkflowState:
     running: bool
     current_task: Optional[str] = None
     current_item: Optional[str] = None
+    # the task's place in the live queue, 1-based, of queue_total
+    queue_position: Optional[int] = None
     queue_total: Optional[int] = None
     queue_version: Optional[int] = None
+    iteration: Optional[int] = None
+    # what the task or the run is doing now: "Aligning", "Loading grid G2..."
+    step: Optional[str] = None
+    # what releases a held run, and since when
+    waiting_on: Optional[str] = None
+    waiting_since: Optional[str] = None
+    failed: Optional[RunFailed] = None
     asking: List[Asking] = field(default_factory=list)
 
 
@@ -261,6 +282,10 @@ class AppStatus:
     microscope_connected: bool
     experiment: Optional[ExperimentRef]
     workflow: WorkflowState
+    # measurable progress on the microscope: milling, tiles, a spot burn, FM
+    progress: Optional[ProgressLine] = None
+    # who holds the microscope, doing what, when it is not the run
+    in_control: Optional[InControl] = None
 
 
 @dataclass
@@ -386,6 +411,9 @@ class ImagePayload:
     pixelsize: Optional[PixelSize] = None
     preview_pixelsize: Optional[float] = None
     acquired_at: Optional[str] = None
+    # what the bar under the image says, and its scalebar
+    # (`fibsem.server.image_payloads.image_info`); only where an answer adds it
+    info: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -393,6 +421,10 @@ class DisplayImages:
     available: bool
     sem: Optional[ImagePayload] = None
     fib: Optional[ImagePayload] = None
+    # the FM's latest frame, in its channel's colour; fm_available is False on a
+    # microscope without an FM
+    fm: Optional[ImagePayload] = None
+    fm_available: bool = False
 
 
 @dataclass
@@ -755,6 +787,33 @@ class GridPlan:
     steps: List[PlanStep] = field(default_factory=list)
     # seconds of work, and each task's count and seconds
     estimate: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class RunStep:
+    item: str
+    task: str
+
+
+@dataclass
+class RunPlan:
+    """A lamella run's steps in queue order and its estimate, or for an
+    addition to the running queue what it adds and delays; why not when
+    ``valid`` is false."""
+
+    available: bool
+    valid: bool
+    reason: Optional[str] = None
+    add: Optional[bool] = None
+    run_next: Optional[bool] = None
+    task_names: Optional[List[str]] = None
+    item_names: Optional[List[str]] = None
+    steps: List[RunStep] = field(default_factory=list)
+    already_queued: List[str] = field(default_factory=list)
+    # work and hold seconds, expected finish, and each task's count and seconds
+    estimate: Optional[Dict[str, Any]] = None
+    # work and delay seconds, finish before and after, hold seconds
+    addition: Optional[Dict[str, Any]] = None
 
 
 @dataclass

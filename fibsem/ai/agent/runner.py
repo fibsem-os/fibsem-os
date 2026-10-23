@@ -9,6 +9,7 @@ decides what the agent may do, and the runner never sets the level. Needs the
     fibsem-agent
     fibsem-agent --resume <session id>
     fibsem-agent --resume                     # the last session run in the same folder
+    fibsem-agent --session-id <id>            # a new session with this id (a manager's)
     cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
     fibsem-agent --files ~/fibsem-work         # it reads and writes files there, runs nothing
 """
@@ -26,10 +27,12 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.ai.agent import code_mode
+from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.logo import print_fibsem_logo
@@ -46,14 +49,23 @@ SPECIALISTS = (
     "autolamella-investigator",
     "autolamella-auditor",
 )
+# The runner's own tools, in-process: the wake-up timer (`Alarm`).
+RUNNER_SERVER = "fibsem_agent"
+WAKE_TOOL = f"mcp__{RUNNER_SERVER}__wake_after"
+# The longest a wake-up can be set for, in minutes.
+WAKE_MAX_MIN = 240
+# A constraint's time wakes the agent this long before it, and again at it.
+DEADLINE_WARN_S = 30 * 60
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
-ALLOWED_TOOLS = [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"] + [
-    f"Agent({name})" for name in SPECIALISTS
-]
+ALLOWED_TOOLS = (
+    [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
+    + [f"Agent({name})" for name in SPECIALISTS]
+    + [WAKE_TOOL]
+)
 # The only built-in tools the agent has: reading its skills, finding the
-# sidecar's tools when the CLI defers them, and calling a specialist or
-# carrying one on (a lamella's later polishing passes, one Verifier).
+# sidecar's tools when the CLI defers them, calling a specialist or carrying
+# one on (a lamella's later polishing passes, one Verifier).
 BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "SendMessage"]
 # Named as well, so a CLI that adds one back still refuses it: a specialist
 # that lists a tool gets it unless it is denied here. The CLI's own agents
@@ -124,6 +136,16 @@ not be reading. Anything the operator must read now (you have stopped and \
 need them, or you answer their MESSAGE with its reply_to) goes to them with \
 experiment_message_operator; a judgment worth keeping goes on the record with \
 experiment_add_note.
+- Keep the operator's instructions on your checklist with \
+server_set_checklist, which the operator sees on the Agent page: each \
+instruction a MESSAGE gives, in their words, as it arrives. Read it before \
+each step and mark an item done only when it is. A new instruction adds to \
+the list; it never replaces what is there unless the operator says so. Limits \
+the operator sets ("finish by 07:00") go in server_set_constraints: a DEADLINE \
+line wakes you 30 min before such a time and at it.
+- To look again later with nothing to wake you (after a long mill, to check \
+drift, before a deadline), set a wake-up with wake_after: a WAKE line with \
+your reason comes then. One at a time; a new one replaces it.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.
@@ -231,6 +253,123 @@ class Wakes:
             return None
         lines, self._held = self._held, []
         return turn_prompt(lines)
+
+
+class Alarm:
+    """The agent's wake-up timer (the ``wake_after`` tool): one at a time, a
+    new one replacing it. When it rings, a ``WAKE`` line joins the watcher's
+    lines, so it is a turn like any other and is held while the agent is Off."""
+
+    def __init__(self) -> None:
+        self._ring: Optional[Callable[[str], None]] = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._timer: Optional[asyncio.TimerHandle] = None
+        self.reason: Optional[str] = None
+
+    def bind(self, loop: asyncio.AbstractEventLoop, ring: Callable[[str], None]):
+        """Ring through *ring* on *loop* (`Runner.run`)."""
+        self._loop, self._ring = loop, ring
+
+    def set(self, minutes: float, reason: str) -> str:
+        """Wake the agent after *minutes*; 0 cancels. What to tell the agent."""
+        self.cancel()
+        if minutes <= 0:
+            return "No wake-up is set."
+        if self._loop is None:
+            return "The runner can't wake you yet; the watcher's lines still will."
+        minutes = min(float(minutes), WAKE_MAX_MIN)
+        self.reason = reason.strip() or "you asked to be woken"
+        line = f"WAKE {self.reason} (you asked {minutes:g} min ago)"
+        self._timer = self._loop.call_later(minutes * 60, self._rang, line)
+        log.info("Wake-up in %g min: %s", minutes, self.reason)
+        return (
+            f"You will be woken in {minutes:g} min with: {self.reason}. A new "
+            "wake_after replaces it; 0 cancels it."
+        )
+
+    def cancel(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+        self._timer, self.reason = None, None
+
+    def _rang(self, line: str) -> None:
+        self._timer, self.reason = None, None
+        if self._ring is not None:
+            self._ring(line)
+
+
+class Deadlines:
+    """The constraints' times: each wakes the agent `DEADLINE_WARN_S` before it
+    and at it, with a ``DEADLINE`` line, like the watcher's lines. A
+    constraint kept from one report to the next keeps its timers."""
+
+    def __init__(self, warn_s: float = DEADLINE_WARN_S) -> None:
+        self.warn_s = warn_s
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ring: Optional[Callable[[str], None]] = None
+        self._timers: Dict[Tuple[str, str], List[asyncio.TimerHandle]] = {}
+
+    def bind(self, loop: asyncio.AbstractEventLoop, ring: Callable[[str], None]):
+        self._loop, self._ring = loop, ring
+
+    def set(self, constraints: Optional[List[Dict[str, Any]]]) -> None:
+        """The session's constraints as the App Server holds them."""
+        wanted = {
+            (c["text"], c["by"])
+            for c in constraints or []
+            if isinstance(c, dict) and c.get("text") and c.get("by")
+        }
+        for key in set(self._timers) - wanted:
+            for timer in self._timers.pop(key):
+                timer.cancel()
+        if self._loop is None:
+            return
+        now = datetime.now().astimezone()
+        for text, by in wanted - set(self._timers):
+            try:
+                when = datetime.fromisoformat(by)
+            except ValueError:
+                continue
+            at = when.strftime("%H:%M")
+            lines = (
+                (
+                    self.warn_s,
+                    f"DEADLINE in {self.warn_s / 60:g} min: {text} (by {at})",
+                ),
+                (0.0, f"DEADLINE now: {text} (by {at})"),
+            )
+            self._timers[(text, by)] = [
+                self._loop.call_later(delay, self._ring, line)
+                for before, line in lines
+                if (delay := (when - now).total_seconds() - before) > 0
+            ]
+
+    def cancel(self) -> None:
+        self.set(None)
+
+    @property
+    def times(self) -> List[str]:
+        return sorted(by for _, by in self._timers)
+
+
+def wake_server(alarm: Alarm):
+    """The runner's in-process MCP server: the ``wake_after`` tool on *alarm*."""
+    from claude_agent_sdk import create_sdk_mcp_server, tool
+
+    @tool(
+        "wake_after",
+        "Wake yourself after some minutes to look again: after a long mill, to "
+        "check drift, before a deadline. When it rings you get a WAKE line with "
+        f"your reason, like the watcher's lines. One at a time, at most "
+        f"{WAKE_MAX_MIN} min: a new one replaces it and minutes 0 cancels it. "
+        "The watcher still wakes you for anything that happens before then.",
+        {"minutes": float, "reason": str},
+    )
+    async def wake_after(args):
+        said = alarm.set(float(args.get("minutes", 0)), str(args.get("reason", "")))
+        return {"content": [{"type": "text", "text": said}]}
+
+    return create_sdk_mcp_server(RUNNER_SERVER, tools=[wake_after])
 
 
 @dataclass
@@ -410,8 +549,12 @@ class Runner:
         goal: Optional[str] = None,
         budget_usd: Optional[float] = None,
         about: Optional[dict] = None,
+        alarm: Optional[Alarm] = None,
     ) -> None:
         self._agent = agent
+        # The agent's wake-up timer: it rings into the watcher's lines.
+        self._alarm = alarm
+        self._deadlines = Deadlines()
         self._goal = goal
         self._goal_sent = False
         # What it can do (code mode, effort, skills), sent with the first report.
@@ -422,6 +565,8 @@ class Runner:
         self._turns = 0
         self._spent_usd: Optional[float] = None
         self._end_reason = "stopped at fibsem-agent"
+        # False when resuming can't help: the model can't answer.
+        self._resumable = True
         self._connect = connect
         self._resumed = resumed
         self._server_wait_s = server_wait_s
@@ -435,6 +580,15 @@ class Runner:
         self._wakes = Wakes()
         self._code = 0
         self._stop_requested = False
+
+    def outcome(self) -> dict:
+        """How the run ended, for its session's record."""
+        return {
+            "reason": self._end_reason,
+            "spent_usd": self._spent_usd,
+            "turns": self._turns,
+            "resumable": self._resumable,
+        }
 
     def stop(self) -> None:
         """Interrupt the agent's turn and end the run. Safe from a signal
@@ -450,6 +604,13 @@ class Runner:
         self._loop = asyncio.get_running_loop()
         self._stopping = asyncio.Event()
         self._items = asyncio.Queue()
+
+        def ring(line: str) -> None:
+            self._items.put_nowait((self._watcher, line))
+
+        if self._alarm is not None:
+            self._alarm.bind(self._loop, ring)
+        self._deadlines.bind(self._loop, ring)
         if self._stop_requested:
             return 0
         # The kickoff's own actions are news: the watch starts at the tail, so
@@ -467,6 +628,9 @@ class Runner:
                 raise
             log.debug("The agent's process ended as it stopped.", exc_info=True)
         finally:
+            if self._alarm is not None:
+                self._alarm.cancel()
+            self._deadlines.cancel()
             # Before the watcher stops: stopping it closes the client.
             await self._report(ended=True)
             if self._watcher is not None:
@@ -547,6 +711,7 @@ class Runner:
         session = end.session_id or getattr(self._agent, "session_id", None)
         if end.error in FATAL_ERRORS:
             self._end_reason = f"the model can't answer ({end.error})"
+            self._resumable = False
             log.error(
                 "The model can't answer (%s); fibsem-agent stops. Set "
                 "ANTHROPIC_API_KEY to a Claude API key (or configure Bedrock or "
@@ -607,11 +772,18 @@ class Runner:
 
         def post():
             try:
-                client.request("POST", "/app/agent/session", json=body, timeout=10.0)
+                response = client.request(
+                    "POST", "/app/agent/session", json=body, timeout=10.0
+                )
+                if response.status_code == 200:
+                    return response.json().get("session")
             except Exception:
                 log.debug("Reporting the session failed.", exc_info=True)
+            return None
 
-        await asyncio.get_running_loop().run_in_executor(None, post)
+        reported = await asyncio.get_running_loop().run_in_executor(None, post)
+        if isinstance(reported, dict) and not ended:
+            self._deadlines.set(reported.get("constraints"))
         await self._send_transcript()
 
     async def _send_transcript(self) -> None:
@@ -894,6 +1066,11 @@ def step(name: str, arguments: dict, cwd: Optional[Path] = None) -> tuple:
         return "Searched", _clip(arguments.get("pattern", ""), 160)
     if name == "Skill":
         return "Read", f"the {arguments.get('skill', '')} skill"
+    if name == WAKE_TOOL:
+        minutes = arguments.get("minutes", "")
+        return "Set", _clip(
+            f"a wake-up in {minutes} min: {arguments.get('reason', '')}", 200
+        )
     if short == "experiment_fetch_file":
         return "Fetched", _clip(arguments.get("path", ""), 160)
     text = json.dumps(arguments, ensure_ascii=False) if arguments else ""
@@ -926,8 +1103,6 @@ def _show(message, agent: SdkAgent) -> None:
             agent.session_id = data.get("session_id") or agent.session_id
             agent.model = data.get("model") or agent.model
             log.info("Session %s", agent.session_id)
-            if agent.session_id and agent.cwd is not None:
-                keep_session(agent.cwd, agent.session_id)
             tools = data.get("tools") or []
             ours = [tool for tool in tools if tool.startswith(f"mcp__{SERVER}__")]
             others = [tool for tool in tools if tool not in ours]
@@ -1014,6 +1189,7 @@ def build_options(
     work: Optional[Path] = None,
     session_id: Optional[str] = None,
     code: bool = True,
+    alarm: Optional[Alarm] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
@@ -1039,6 +1215,9 @@ def build_options(
         allowed = ALLOWED_TOOLS + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
+    servers = {SERVER: server}
+    if alarm is not None:
+        servers[RUNNER_SERVER] = wake_server(alarm)
     return ClaudeAgentOptions(
         cwd=str(work or checkout),
         # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
@@ -1050,7 +1229,7 @@ def build_options(
         disallowed_tools=list(denied),
         permission_mode=PERMISSION_MODE,
         settings=settings,
-        mcp_servers={SERVER: server},
+        mcp_servers=servers,
         env=env,
         # Only the server above: not a `fibsem` registered in ~/.claude.json.
         strict_mcp_config=True,
@@ -1094,43 +1273,6 @@ def _log_to(path: Path) -> None:
 
 # A bare --resume: the last session run in the same folder.
 LAST = "last"
-
-
-def _sessions_file() -> Path:
-    return Path.home() / ".fibsem" / "agent" / "sessions.json"
-
-
-def _sessions() -> dict:
-    try:
-        sessions = json.loads(_sessions_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return sessions if isinstance(sessions, dict) else {}
-
-
-def last_session(folder: Path) -> Optional[str]:
-    """The last session run in *folder* (the CLI's: the work folder, else the
-    checkout), or None. The CLI keeps a session under its folder, so one run
-    elsewhere can't be resumed here."""
-    session = _sessions().get(str(folder))
-    return session if isinstance(session, str) else None
-
-
-def keep_session(folder: Path, session_id: str) -> None:
-    """Remember *session_id* as the last one run in *folder*."""
-    sessions = _sessions()
-    sessions[str(folder)] = session_id
-    path = _sessions_file()
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(sessions, indent=2), encoding="utf-8")
-    except OSError as error:
-        log.warning("Couldn't keep the session id in %s: %s", path, error)
-
-
-def _default_log() -> Path:
-    stamp = timestamps.now().strftime("%Y-%m-%d-%H-%M-%S")
-    return Path.home() / ".fibsem" / "agent" / f"fibsem-agent-{stamp}.log"
 
 
 def status(
@@ -1210,6 +1352,14 @@ def main(argv=None) -> int:
         "folder (the --code or --files folder, else the checkout)",
     )
     parser.add_argument(
+        "--session-id",
+        default=None,
+        type=_session_id,
+        metavar="SESSION_ID",
+        help="start a new session with this id (a UUID), as a manager does so "
+        "it can find the session's folder",
+    )
+    parser.add_argument(
         "--server-wait",
         type=float,
         default=SERVER_WAIT_S,
@@ -1217,7 +1367,10 @@ def main(argv=None) -> int:
         f"stopping (default {SERVER_WAIT_S:.0f})",
     )
     parser.add_argument(
-        "--log", default=None, help="log file (default ~/.fibsem/agent/...)"
+        "--log",
+        default=None,
+        help="log file (default: in the session's folder, "
+        "~/.fibsem/agent/sessions/<date>-<session id>/)",
     )
     parser.add_argument(
         "--checkout",
@@ -1245,6 +1398,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     if args.code and args.files:
         parser.error("--code already gives the agent its files: use one of them")
+    if args.session_id and args.resume:
+        parser.error("--session-id starts a new session: --resume carries one on")
 
     try:
         import claude_agent_sdk  # noqa: F401
@@ -1275,7 +1430,7 @@ def main(argv=None) -> int:
             print(refused, file=sys.stderr)
             return 1
     if args.resume == LAST:
-        args.resume = last_session(work or checkout)
+        args.resume = sessions.last_session(work or checkout)
         if args.resume is None:
             print(
                 f"No earlier fibsem-agent session in {work or checkout} to "
@@ -1285,11 +1440,14 @@ def main(argv=None) -> int:
             return 1
     # From the environment, so it is not in the process list or shell history.
     token = os.environ.get("FIBSEM_SERVER_TOKEN")
-    log_path = Path(args.log).expanduser() if args.log else _default_log()
+    # A new session's id is chosen here, so the status can name it.
+    session_id = args.resume or args.session_id or str(uuid.uuid4())
+    session = sessions.SessionFolder.open(
+        session_id, _about(args, checkout, work, code)
+    )
+    log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
     _log_to(log_path)
-    # A new session's id is chosen here, so the status can name it.
-    session_id = args.resume or str(uuid.uuid4())
     for line in status(args, checkout, log_path, work, session_id, code):
         log.info(line)
     if work is not None:
@@ -1297,8 +1455,10 @@ def main(argv=None) -> int:
         for line in code_mode.details():
             log.debug(line)
 
+    alarm = Alarm()
     options = build_options(
         checkout,
+        alarm=alarm,
         url=args.url,
         token=token,
         model=args.model,
@@ -1335,17 +1495,47 @@ def main(argv=None) -> int:
         runner.stop()
 
     previous = signal.signal(signal.SIGINT, on_interrupt)
+    # A manager stops it with a file, which works where a signal can't reach.
+    sessions.watch_for_stop(session, runner.stop)
+    outcome = None
     try:
-        return asyncio.run(runner.run())
+        code = asyncio.run(runner.run())
     except KeyboardInterrupt:
-        return 130
+        code = 130
     except Exception as error:
         log.exception("The agent failed: %s", error)
         if agent.session_id:
             log.error("--resume %s carries the session on.", agent.session_id)
-        return 1
+        code, outcome = 1, {"reason": f"the agent failed: {error}"}
     finally:
         signal.signal(signal.SIGINT, previous)
+    session.end(code, **(outcome or runner.outcome()))
+    return code
+
+
+def _session_id(text: str) -> str:
+    try:
+        return str(uuid.UUID(text))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a UUID: {text}") from None
+
+
+def _about(args, checkout: Path, work: Optional[Path], code: bool) -> dict:
+    """What a session runs with, for its record."""
+    from fibsem import __version__
+
+    return {
+        "fibsem": __version__,
+        "cwd": str(work or checkout),
+        "url": args.url,
+        "goal": args.goal,
+        "model": args.model,
+        "effort": args.effort,
+        "max_budget_usd": args.max_budget_usd,
+        "max_turns": args.max_turns,
+        "mode": ("code" if code else "files") if work is not None else "none",
+        "checkout": str(checkout),
+    }
 
 
 if __name__ == "__main__":

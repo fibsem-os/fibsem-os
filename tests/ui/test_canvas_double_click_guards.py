@@ -40,7 +40,6 @@ from test_viewer_less_widgets import (  # noqa: E402
 )
 
 from fibsem.structures import BeamType, Point  # noqa: E402
-from fibsem.ui import notification_service  # noqa: E402
 from fibsem.ui.FibsemMovementWidget import ACQUIRING_IMAGES  # noqa: E402
 from fibsem.ui.widgets.stage_control_widget import (  # noqa: E402
     StageControlWidget,
@@ -76,17 +75,6 @@ def host(qapp):
 def movement(host):
     """The host's stage control panel."""
     return host.movement_widget.control_widget
-
-
-@pytest.fixture
-def toasts(monkeypatch):
-    events = []
-    monkeypatch.setattr(
-        notification_service,
-        "show_toast",
-        lambda msg, notification_type="info": events.append((msg, notification_type)),
-    )
-    return events
 
 
 @pytest.fixture

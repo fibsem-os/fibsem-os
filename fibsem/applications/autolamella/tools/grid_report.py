@@ -34,6 +34,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
+from fibsem.image_format import read_metadata_dict
 from fibsem.structures import BeamType, FibsemImageMetadata, FibsemStagePosition
 from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
@@ -182,8 +183,10 @@ def read_beam_metadata(
         with tff.TiffFile(path) as tiff:
             page = tiff.pages[0]
             shape = (int(page.shape[0]), int(page.shape[1]))
-            description = page.tags["ImageDescription"].value
-        return FibsemImageMetadata.from_dict(json.loads(description)), shape
+            raw = read_metadata_dict(tiff)
+        if raw is None:
+            return None, None
+        return FibsemImageMetadata.from_dict(raw), shape
     except Exception as e:  # noqa: BLE001 - an image with no metadata is still listed
         logger.debug(f"No readable metadata on {path}: {e}")
         return None, None

@@ -7,7 +7,6 @@ The spot burn service's ``run`` is replaced on the instance by one that waits
 for the test, so "still running" is a state the test holds, not a race.
 """
 
-import os
 import threading
 
 import pytest
@@ -17,7 +16,6 @@ pytest.importorskip("httpx")  # TestClient transport
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.acting import OPERATOR  # noqa: E402
 from fibsem.cancellation import OperationCancelledError  # noqa: E402
 from fibsem.client import ServerError  # noqa: E402
@@ -34,18 +32,6 @@ RUN = "/microscope/services/spot_burn/commands/run"
 RUN_STATE = "/microscope/services/spot_burn/run"
 MOVE = "/microscope/services/stage_movement/commands/move_to_orientation"
 SETTINGS = SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=0.01)
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
 
 
 @pytest.fixture(scope="module")

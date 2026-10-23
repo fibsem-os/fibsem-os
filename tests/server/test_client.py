@@ -19,7 +19,6 @@ uvicorn = pytest.importorskip("uvicorn")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.cancellation import NothingToStop  # noqa: E402
 from fibsem.client import (  # noqa: E402
     FibsemClient,
@@ -65,18 +64,6 @@ class InProcess(Transport):
 def in_process(app, token=TOKEN):
     """A client of *app*, in process."""
     return FibsemClient(transport=InProcess(app, token))
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
-    os.environ["FIBSEM_SIM_NO_DELAY"] = "1"
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    yield microscope
-    if previous is None:
-        os.environ.pop("FIBSEM_SIM_NO_DELAY", None)
-    else:
-        os.environ["FIBSEM_SIM_NO_DELAY"] = previous
 
 
 @pytest.fixture(scope="module")

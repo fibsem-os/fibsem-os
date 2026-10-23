@@ -1,5 +1,6 @@
-"""The volume app over the App Server: the /app core and the Items part, with
-each position edit made by the experiment's own method (its refusals, one save).
+"""The volume app over the App Server: the /app core and the Items and Poses
+parts, with each position edit made by the experiment's own method (its
+refusals, one save).
 
 Per-position task configs are refused with why: positions share the protocol's.
 """
@@ -11,13 +12,14 @@ from fibsem.applications.volume.experiment_setup import (
     create_experiment,
     load_for_adoption,
 )
-from fibsem.applications.volume.protocol import PROTOCOL_FOLDER, VolumeProtocol
-from fibsem.server.app_context import (
-    AppContext,
-    content_hash,
-    find_item,
-    item_pose_positions,
+from fibsem.applications.volume.poses import (
+    POSES,
+    move_milling_pose,
+    pose_stage_position,
+    set_pose_now,
 )
+from fibsem.applications.volume.protocol import PROTOCOL_FOLDER, VolumeProtocol
+from fibsem.server.app_context import AppContext
 from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
@@ -25,6 +27,9 @@ from fibsem.server.responses import (
     SummaryRow,
 )
 from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
+from fibsem.util.records import content_hash
+from fibsem.workflows.experiment import find_item
+from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.outputs import item_output_named, saved_file
 
 __all__ = ["VolumeAppContext", "serve"]
@@ -217,6 +222,108 @@ class VolumeAppContext(AppContext):
         if why:
             return {"error_type": "invalid", "error": why}
         return {"applied": True, "item_name": item_name}
+
+    # --- Poses -------------------------------------------------------------------
+
+    def _position_and_microscope(self, item_name: str):
+        """The position and microscope a pose route needs, or a refusal."""
+        experiment = self._experiment
+        if experiment is None:
+            return (
+                None,
+                None,
+                {"error_type": "not_found", "error": "No experiment is loaded."},
+            )
+        refusal = self._no_microscope()
+        if refusal:
+            return None, None, refusal
+        position, refusal = find_item(experiment, item_name)
+        if refusal:
+            return None, None, {"error_type": "not_found", **refusal}
+        return position, self._microscope, None
+
+    def move_to_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
+        """Move the stage to one of a position's poses, as the panel's Move to
+        does, through the safe absolute move. Runs on the caller's thread,
+        which holds control of the microscope."""
+        position, microscope, refusal = self._position_and_microscope(item_name)
+        if refusal:
+            return refusal
+        stage_position, why = pose_stage_position(position, pose_name)
+        if why:
+            return {"error_type": "not_found", "error": why, "pose_names": list(POSES)}
+        microscope.safe_absolute_stage_movement(stage_position)
+        return {
+            "applied": True,
+            "item_name": item_name,
+            "pose": pose_name,
+            "stage_position": microscope.get_stage_position().to_dict(),
+        }
+
+    def set_item_pose(self, item_name: str, pose_name: str) -> Dict[str, Any]:
+        """Set one of a position's poses from the microscope now, as the panel's
+        Update does. The milling pose is kept once a slice is cut. Saved."""
+        position, microscope, refusal = self._position_and_microscope(item_name)
+        if refusal:
+            return refusal
+        refusal = self._busy(self._runner.busy_refusal([item_name], "set its pose"))
+        if refusal:
+            return refusal
+        why = self._agent_call(
+            lambda: set_pose_now(self._experiment, microscope, item_name, pose_name)
+        )
+        if why:
+            return {"error_type": "invalid", "error": why, "pose_names": list(POSES)}
+        return {
+            "applied": True,
+            "item_name": item_name,
+            "pose": pose_name,
+            "item": self.item_detail(item_name),
+        }
+
+    def move_item(
+        self,
+        item_name: str,
+        stage_position: Optional[Dict[str, Any]] = None,
+        overview: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Move a position's milling pose to *stage_position*; the stage doesn't
+        move. Refused once a slice is cut. Saved."""
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "not_found", "error": "No experiment is loaded."}
+        if overview is not None:
+            return _not_served("place positions from an overview")
+        if stage_position is None:
+            return {
+                "error_type": "invalid",
+                "error": "Give stage_position: where to move it to.",
+            }
+        _, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        refusal = self._busy(self._runner.busy_refusal([item_name], "move it"))
+        if refusal:
+            return refusal
+        try:
+            position = FibsemStagePosition.from_dict(stage_position)
+        except (TypeError, ValueError, KeyError, AttributeError) as exc:
+            return {"error_type": "invalid", "error": f"Not a stage position: {exc}"}
+        why = self._agent_call(
+            lambda: move_milling_pose(experiment, item_name, position)
+        )
+        if why:
+            return {"error_type": "invalid", "error": why}
+        return {"applied": True, "item": self.item_detail(item_name)}
+
+    def set_item_objective_position(self, item_name: str) -> Dict[str, Any]:
+        return _not_served("keep an objective position on a position")
+
+    def move_objective_to_item(self, item_name: str) -> Dict[str, Any]:
+        return self.set_item_objective_position(item_name)
+
+    def set_objective_position_on_all(self, item_name: str) -> Dict[str, Any]:
+        return self.set_item_objective_position(item_name)
 
     def apply_item_patch(
         self,

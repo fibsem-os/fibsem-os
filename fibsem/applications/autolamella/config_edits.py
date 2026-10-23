@@ -4,7 +4,7 @@ The App Server's config edits: patch an item's task config, the protocol's,
 or the item's own fields; reorder a milling config's stages; re-copy the
 protocol onto an item. The editors' copy onto other lamellae and global
 edit of the reference imaging are here too, beside the agent's; their task
-config write and its save are ``fibsem.server.task_configs``'. Each agent
+config write and its save are ``fibsem.workflows.task_configs``'. Each agent
 edit runs where the experiment is edited (``session.run_edit``), checks the
 version it was written against beside the apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
 window writes its editors' pending edits before any edit runs (its executor)
@@ -21,9 +21,13 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.app_context import content_hash, find_item, item_pose_positions
-from fibsem.server.config_patch import PatchError, apply_patch, check_patch
-from fibsem.server.task_configs import (
+from fibsem.util.records import content_hash
+from fibsem.workflows.config_patch import PatchError, apply_patch, check_patch
+from fibsem.workflows.edit_recording import PendingEdits
+from fibsem.workflows.experiment import find_item
+from fibsem.workflows.item import item_pose_positions
+from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task_configs import (
     config_version,
     patch_config,
     plain_changes,
@@ -32,8 +36,6 @@ from fibsem.server.task_configs import (
     task_config_at,
     workflow_field_refusal,
 )
-from fibsem.workflows.edit_recording import PendingEdits
-from fibsem.workflows.status import TaskStatus
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)

@@ -957,8 +957,7 @@ class AutoLamellaWindow(AppWindow):
         """Persist defect state change to disk and sync all widgets."""
         if self.experiment is None:
             return
-        self.experiment.sign_verdict(lamella)
-        self.experiment.save()
+        self.experiment.save_verdict(lamella)
         # Sync defect icon across all widgets
         self.panel.experiment_tab.lamella_list.refresh_all()
         self.workflow_tab.lamella_workflow_widget.lamella_list.refresh_lamella(lamella)

@@ -43,7 +43,7 @@ from fibsem.applications.autolamella.config_edits import (
 )
 from fibsem.codec import encode
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
-from fibsem.server.app_context import AppContext, find_item, item_pose_positions
+from fibsem.server.app_context import AppContext
 from fibsem.server.files import jpeg_preview
 from fibsem.server.responses import (
     ExperimentSummary,
@@ -52,10 +52,13 @@ from fibsem.server.responses import (
     SummaryRow,
     TaskOutputs,
 )
-from fibsem.server.task_configs import config_version, workflow_field_refusal
 from fibsem.structures import BeamType
+from fibsem.util.records import content_hash
 from fibsem.workflows.actions import NOTE
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.experiment import find_item
+from fibsem.workflows.grid.edits import keep_grid_note, remove_grid_record
+from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.outputs import (
     all_item_outputs,
     files_by_run,
@@ -63,9 +66,10 @@ from fibsem.workflows.outputs import (
     latest_item_output,
     saved_file,
 )
-from fibsem.workflows.runner import GRIDS, RunRequest
+from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
 from fibsem.workflows.session import CONFIG, GRID_RECORDS
 from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task_configs import config_version, workflow_field_refusal
 
 __all__ = [
     "AutoLamellaAppContext",
@@ -179,8 +183,6 @@ def _grid_file(experiment, grid, filename: str):
 def _grid_task_version(grid_protocol: Any, task_name: str, config: Any) -> str:
     """The version a grid task's patch echoes: its settings and its attention,
     which the patch also sets."""
-    from fibsem.server.app_context import content_hash
-
     attention = grid_protocol.get_attention(task_name).value
     return content_hash([config_version(config), attention])
 
@@ -939,7 +941,7 @@ class AutoLamellaAppContext(AppContext):
             grid.quality.set_defect(
                 description=reason or "", state=state, actor=Actor.agent("remote")
             )
-            experiment.save()
+            experiment.save_verdict(grid)
             self._grids_changed()
 
         self._agent_call(judge)
@@ -961,8 +963,7 @@ class AutoLamellaAppContext(AppContext):
             return refusal
 
         def keep():
-            record = grid.set_note(note, evidence=evidence)
-            experiment.save()
+            record = keep_grid_note(experiment, grid, note, evidence)
             self._grids_changed()
             return record
 
@@ -987,9 +988,7 @@ class AutoLamellaAppContext(AppContext):
             return refusal
 
         def remove():
-            orphaned = [p.name for p in experiment.get_lamellae_for_grid(grid)]
-            experiment.remove_grid(grid_name)
-            experiment.save()
+            orphaned = remove_grid_record(experiment, grid)
             self._grids_changed()
             return orphaned
 
@@ -1298,7 +1297,7 @@ class AutoLamellaAppContext(AppContext):
         runs, checked at filing so the operator never approves one that can only
         fail. None for any other action, or one whose target the route itself
         refuses (no such item or task)."""
-        from fibsem.server.config_patch import PatchError, check_patch
+        from fibsem.workflows.config_patch import PatchError, check_patch
 
         experiment = self._experiment
         patch = arguments.get("patch")
@@ -1581,6 +1580,47 @@ class AutoLamellaAppContext(AppContext):
 
     # --- workflow control -------------------------------------------------------
 
+    def lamella_run_plan(
+        self,
+        task_names: List[str],
+        item_names: Optional[List[str]] = None,
+        run_next: bool = False,
+        add: bool = False,
+    ) -> Dict[str, Any]:
+        """What a lamella run would queue and cost, as the Workflow tab's
+        confirmation shows it, or with *add* what adding it to the running
+        queue would: no hardware, nothing queued (`plan_lamella_run`)."""
+        from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
+
+        experiment = self._experiment
+        if experiment is None or experiment.task_protocol is None:
+            return {
+                "available": False,
+                "valid": False,
+                "reason": "no experiment is loaded",
+            }
+        request = RunRequest(
+            kind=ITEMS,
+            task_names=tuple(task_names),
+            names=tuple(item_names) if item_names is not None else None,
+        )
+        plan = plan_lamella_run(self._runner, experiment, request, run_next, add)
+        answer: Dict[str, Any] = {
+            "available": True,
+            "valid": plan.valid,
+            "add": add,
+            "run_next": plan.run_next,
+        }
+        if not plan.valid:
+            return {**answer, "reason": plan.reason, **plan.details}
+        return {
+            **answer,
+            "steps": [{"item": item, "task": task} for item, task in plan.pairs],
+            "already_queued": list(plan.already_queued),
+            "estimate": _run_estimate(plan.estimate),
+            "addition": _addition_estimate(plan.addition),
+        }
+
     def grid_workflow_plan(
         self,
         task_names: List[str],
@@ -1793,7 +1833,7 @@ class AutoLamellaAppContext(AppContext):
         tab's grid task form does; ``attention`` (automated, supervised) is the
         Grids view's Automated/Supervised chip. Version-guarded like the lamella
         task configs."""
-        from fibsem.server.config_patch import PatchError, apply_patch
+        from fibsem.workflows.config_patch import PatchError, apply_patch
         from fibsem.workflows.events import to_plain
 
         experiment, grid_protocol, refusal = self._grid_protocol_edit("edit grid tasks")
@@ -1931,6 +1971,45 @@ class AutoLamellaAppContext(AppContext):
             ],
             "queue_version": edit.version,
         }
+
+
+def _when(value) -> Optional[str]:
+    return value.isoformat() if value is not None else None
+
+
+def _run_estimate(estimate) -> Optional[Dict[str, Any]]:
+    """A lamella run's estimate as the preflight dialog shows it."""
+    if estimate is None:
+        return None
+    return {
+        "work_seconds": estimate.work_seconds,
+        "hold_seconds": estimate.hold_seconds,
+        "expected_finish": _when(estimate.expected_finish),
+        "tasks": [
+            {
+                "task_name": row.name,
+                "count": row.count,
+                "seconds": row.seconds,
+                "scheduled_at": _when(row.scheduled_at),
+                "hold_seconds": row.hold_seconds,
+            }
+            for row in estimate.tasks
+        ],
+    }
+
+
+def _addition_estimate(addition) -> Optional[Dict[str, Any]]:
+    """What adding to the running queue costs, as its confirmation shows it."""
+    if addition is None:
+        return None
+    return {
+        "work_seconds": addition.work_seconds,
+        "delay_seconds": addition.delay_seconds,
+        "finish_before": _when(addition.finish_before),
+        "finish_after": _when(addition.finish_after),
+        "hold_seconds": addition.hold_seconds,
+        "priced": addition.is_priced,
+    }
 
 
 def _grid_plan_estimate(experiment, task_names, grid_names) -> Optional[Dict[str, Any]]:

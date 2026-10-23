@@ -14,7 +14,6 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -27,13 +26,6 @@ from tests.run_state import run_working_on, stub_session
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture
@@ -1525,6 +1517,35 @@ def test_experiment_files_read_text_and_image_previews(
     absolute = os.path.join(str(host.experiment.path), OVERVIEW)
     served = client.get("/app/experiment/files/" + absolute, headers=AUTH)
     assert served.json()["path"] == os.path.realpath(absolute)
+
+
+def test_an_image_read_is_kept_by_the_browser_until_the_file_changes(
+    client, host, grid_with_overview
+):
+    url = f"/app/experiment/files/{OVERVIEW}"
+    first = client.get(url, params={"width": 64}, headers=AUTH)
+    tag = first.headers["ETag"]
+    assert first.headers["Cache-Control"] == "no-cache"
+
+    again = client.get(
+        url, params={"width": 64}, headers={**AUTH, "If-None-Match": tag}
+    )
+    assert again.status_code == 304
+    other = client.get(
+        url, params={"width": 96}, headers={**AUTH, "If-None-Match": tag}
+    )
+    assert other.status_code == 200 and other.headers["ETag"] != tag
+
+    path = Path(host.experiment.path) / OVERVIEW
+    os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 10**9))
+    changed = client.get(
+        url, params={"width": 64}, headers={**AUTH, "If-None-Match": tag}
+    )
+    assert changed.status_code == 200 and changed.json()["preview"]["image_b64_jpeg"]
+    listing = client.get(
+        "/app/experiment/files/" + os.path.dirname(OVERVIEW), headers=AUTH
+    )
+    assert "ETag" not in listing.headers
 
 
 def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):
