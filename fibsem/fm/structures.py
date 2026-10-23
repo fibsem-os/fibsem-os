@@ -18,7 +18,6 @@ from typing import (
 
 import numpy as np
 import tifffile as tff
-import yaml
 from ome_types import from_tiff, from_xml
 from ome_types.model import (
     OME as OMEMetadata,
@@ -535,12 +534,6 @@ def open_tiff(filename: str) -> "tff.TiffFile":
     return tif
 
 
-# Image data above this many bytes is saved as BigTIFF: a classic TIFF can't hold
-# 4 GB, and the margin leaves room for the OME header. Smaller files stay classic
-# TIFF, which more readers open.
-BIGTIFF_ABOVE = 2**32 - 2**25
-
-
 def mean_z_step(z_positions: Sequence[float]) -> float:
     """The mean spacing of a stack's planes, from where the objective read back at
     each. The first gap alone carries that one move's read-back noise or backlash,
@@ -625,18 +618,17 @@ class FluorescenceImage:
     # so two images of the same data read from different paths are still equal.
     filepath: Optional[str] = field(default=None, compare=False, repr=False)
 
-    def save(self, filename: str, compression: Optional[str] = None) -> str:
+    def save(self, filename: str) -> str:
         """
-        Save a FMImage to a TIFF file with OME metadata.
+        Save a FMImage to a TIFF file with OME metadata, as `fibsem.image_format`
+        writes every image: compressed, a z-stack or a large image with its small
+        copies.
 
         Args:
             filename (str): The filename to save the image to.
-            compression (str, optional): A tifffile compression, e.g. "zlib", for a
-                copy that should not be larger than its source; with a horizontal
-                predictor, which is what makes 16-bit microscopy compress. None, the
-                default, writes uncompressed and contiguous, as acquisitions always
-                have.
         """
+        from fibsem import image_format
+
         # if data is 2D, reshape to 4D (CZYX)
         if self.data.ndim == 2:
             self.data = self.data.reshape(1, 1, *self.data.shape)
@@ -667,24 +659,14 @@ class FluorescenceImage:
             os.makedirs(directory, exist_ok=True)
 
         # TODO: add overwrite protection to prevent overwriting existing files
-        bigtiff = tifffile_image.nbytes > BIGTIFF_ABOVE
-        with tff.TiffWriter(filename, bigtiff=bigtiff) as tif:
-            # Greyscale, said outright: left to guess, tifffile may take a stack
-            # of three or four planes for the samples of an RGB image.
-            if compression:
-                # Compressed pages cannot be contiguous; the per-plane mapping in
-                # the OME says where each is, as it does for any file.
-                tif.write(
-                    data=tifffile_image,
-                    photometric="minisblack",
-                    compression=compression,
-                    predictor=True,
-                )
-            else:
-                tif.write(
-                    data=tifffile_image, contiguous=True, photometric="minisblack"
-                )
-            tif.overwrite_description(ome_xml)
+        image_format.write(
+            filename,
+            tifffile_image,
+            description=ome_xml,
+            levels=image_format.has_levels(
+                tifffile_image.shape, stack=tifffile_image.shape[2] > 1
+            ),
+        )
 
         # set only after a successful write, so a recorded path is always a path that exists
         self.filepath = str(filename)
@@ -692,6 +674,8 @@ class FluorescenceImage:
 
     def get_ome_metadata(self) -> OMEMetadata:
         """Generate OME metadata for the FluorescenceImage."""
+        from fibsem import image_format
+        from fibsem.fm.preview import channel_look
 
         ifd = 0
         planes: List[Plane] = []
@@ -778,7 +762,8 @@ class FluorescenceImage:
                 illumination_type=Channel_IlluminationType.EPIFLUORESCENCE,
                 contrast_method=Channel_ContrastMethod.FLUORESCENCE,
                 light_source_settings=light_source_settings,
-                color=Color(channel.color),
+                # as the apps draw it, so other viewers open the stack in its colours
+                color=Color(channel_look(self.metadata.channels, ch_idx, nc)[1]),
             )
             channels_md.append(ch_md)
 
@@ -880,7 +865,10 @@ class FluorescenceImage:
         # Create structured annotations with full metadata
         metadata_annotation = MapAnnotation(
             id="Annotation:01",
-            value={"FluorescenceImageMetadata": json.dumps(self.metadata.to_dict())},
+            value={
+                "FluorescenceImageMetadata": json.dumps(self.metadata.to_dict()),
+                image_format.FORMAT_KEY: str(image_format.FORMAT_VERSION),
+            },
         )
 
         structured_annotations = StructuredAnnotations(
@@ -1736,49 +1724,3 @@ class FluorescenceConfiguration:
         from fibsem.codec.upgrades.fluorescence import configuration
 
         return decode(cls, configuration(ddict))
-
-    def export(self, filename: str) -> str:
-        """Export FM configuration to YAML file.
-
-        Args:
-            filename: Output YAML filename
-
-        Returns:
-            str: Path to the exported file
-
-        Example:
-            >>> config = FluorescenceConfiguration(channels, z_params, overview_params)
-            >>> config.export("my_config.yaml")
-        """
-        # Convert to dictionary
-        config_dict = self.to_dict()
-
-        # Write to YAML file
-        with open(filename, "w") as f:
-            yaml.dump(
-                config_dict, f, default_flow_style=False, indent=4, sort_keys=False
-            )
-
-        logging.info(f"FM configuration exported to: {filename}")
-        return filename
-
-    @classmethod
-    def load(cls, filename: str) -> "FluorescenceConfiguration":
-        """Load FM configuration from YAML file.
-
-        Args:
-            filename: Path to YAML configuration file
-
-        Returns:
-            FluorescenceConfiguration: Loaded configuration object
-
-        Example:
-            >>> config = FluorescenceConfiguration.load("config.yaml")
-            >>> print(f"Loaded {len(config.channel_settings)} channels")
-        """
-        with open(filename) as f:
-            config_dict = yaml.safe_load(f)
-
-        config = cls.from_dict(config_dict)
-        logging.info(f"FM configuration loaded from: {filename}")
-        return config

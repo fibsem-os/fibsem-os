@@ -45,6 +45,7 @@ from fibsem.structures import (
 )
 from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp_v3
+from fibsem.workflows.config_patch import PatchError, apply_patch
 
 
 @dataclass
@@ -138,7 +139,7 @@ def resolve_stage_names(
     config: "FibsemMillingTaskConfig", patch: Dict[str, Any]
 ) -> Dict[str, Any]:
     """``patch`` with each ``stages.<name>.`` segment as the stage's index, which
-    is what :func:`fibsem.server.config_patch.apply_patch` resolves.
+    is what :func:`fibsem.workflows.config_patch.apply_patch` resolves.
 
     A stage is named by its name or its index. A name no stage has, or more
     than one has, is refused with the names there are."""
@@ -181,8 +182,6 @@ def patch_milling_config(
     itself is not touched. Raises :class:`InvalidMillingEdit` naming what is
     wrong, with nothing changed."""
     from copy import deepcopy
-
-    from fibsem.server.config_patch import PatchError, apply_patch
 
     edited = deepcopy(config)
     patch = resolve_stage_names(edited, fields)

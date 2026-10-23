@@ -51,9 +51,12 @@ from fibsem.server.responses import (
     GridPlan,
     Grids,
     GridTasksQueued,
+    ImageDrawn,
+    ImagePairDrawn,
     ItemDetail,
     ItemEdit,
     ItemHistory,
+    ItemMillingDrawn,
     ItemStack,
     LamellaDefaultsSet,
     LogRead,
@@ -70,6 +73,7 @@ from fibsem.server.responses import (
     RecentExperiments,
     Recorded,
     Requeued,
+    RunPlan,
     RunStarted,
     RunSummary,
     SavedExperiments,
@@ -245,6 +249,30 @@ def _numbers(text: Optional[str]) -> Optional[List[float]]:
                 "message": f"A region is four numbers, x,y,width,height; not {text!r}.",
             },
         )
+
+
+def _run_body(body: Dict[str, Any]) -> Tuple[List[str], Optional[List[str]]]:
+    """A lamella run's task_names and item_names, or the 422 naming them."""
+    task_names = body.get("task_names")
+    item_names = body.get("item_names")
+    if (
+        not isinstance(task_names, list)
+        or not task_names
+        or not all(isinstance(t, str) for t in task_names)
+        or (
+            item_names is not None
+            and not (
+                isinstance(item_names, list)
+                and all(isinstance(i, str) for i in item_names)
+            )
+        )
+    ):
+        raise _missing_field(
+            "Pass task_names (non-empty list of strings); "
+            "item_names (list of strings) is optional — omitted "
+            "means every item."
+        )
+    return task_names, item_names
 
 
 def _answer_or_refusal(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -476,8 +504,10 @@ def build_app_router(context: Any) -> APIRouter:
         responses=_JPEG,
         tags=[GRIDS],
     )
-    def grid_output_image(grid_name: str, filename: str):
-        return _jpeg_or_404(context.grid_output_image(grid_name, filename))
+    def grid_output_image(grid_name: str, filename: str, cells: bool = False):
+        # cells: the overview's named cells drawn on it, listed in the
+        # metadata header.
+        return _jpeg_or_404(context.grid_output_image(grid_name, filename, cells=cells))
 
     # {filename:path}: any saved image's path in the experiment, slashes and all.
     @router.get(
@@ -568,12 +598,32 @@ def build_app_router(context: Any) -> APIRouter:
         y: Optional[float] = None,
         fx: Optional[float] = None,
         fy: Optional[float] = None,
+        crop: Optional[str] = None,
     ):
         # Any saved image in the experiment, beam or FM: a point on it as a
-        # stage position, from the image's own metadata.
+        # stage position, from the image's own metadata. crop: the point is
+        # read off a crop's picture, a cell's name (B3) or "x,y,width,height".
         px = None if x is None or y is None else [x, y]
         fraction = None if fx is None or fy is None else [fx, fy]
-        return _typed(context.image_stage_position(path, px, fraction))
+        if crop is not None and "," in crop:
+            crop = _numbers(crop)
+        return _typed(context.image_stage_position(path, px, fraction, crop))
+
+    def _flags(body: Dict[str, Any], *keys: str) -> Dict[str, bool]:
+        """*body*'s true-or-false *keys* that are given, or the 422."""
+        flags = {}
+        for key in keys:
+            if key in body:
+                if not isinstance(body[key], bool):
+                    raise HTTPException(
+                        status_code=422,
+                        detail={
+                            "error_type": "invalid",
+                            "message": f"{key} is true or false",
+                        },
+                    )
+                flags[key] = body[key]
+        return flags
 
     @router.post(
         "/experiment/images/markers", response_model=MarkersDrawn, tags=[LAMELLAE]
@@ -592,7 +642,68 @@ def build_app_router(context: Any) -> APIRouter:
                 status_code=422,
                 detail={"error_type": "invalid", "message": "grid_name is a string"},
             )
-        return _answer_or_refusal(context.render_markers(path, grid_name))
+        return _answer_or_refusal(
+            context.render_markers(path, grid_name, **_flags(body, "fov", "current"))
+        )
+
+    def _draw_options(body: Dict[str, Any]) -> Dict[str, Any]:
+        options: Dict[str, Any] = _flags(body, "crosshair", "metadata_bar")
+        channels = body.get("channels")
+        if channels is not None:
+            options["channels"] = _names(
+                body, "channels", "the fluorescence channels to show, by name"
+            )
+        return options
+
+    @router.post("/experiment/images/drawn", response_model=ImageDrawn)
+    def draw_image(body: Dict[str, Any]):
+        # A POST because the picture is saved beside the image, as markers are.
+        path = _required_text(body, "path", "a saved image inside the experiment")
+        return _typed(
+            context.draw_image(path, body.get("marks"), **_draw_options(body))
+        )
+
+    @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
+    def draw_pair(body: Dict[str, Any]):
+        before = _required_text(body, "before", "a saved image inside the experiment")
+        after = _required_text(body, "after", "a saved image inside the experiment")
+        options = _draw_options(body)
+        options.pop("crosshair", None)
+        return _typed(context.draw_pair(before, after, body.get("marks"), **options))
+
+    @router.post(
+        "/experiment/items/{item_name}/milling/drawn",
+        response_model=ItemMillingDrawn,
+        tags=[LAMELLAE],
+    )
+    def draw_item_milling(item_name: str, body: Dict[str, Any]):
+        # A POST because the picture is saved beside the image, as markers are.
+        tasks = body.get("task_names")
+        if isinstance(tasks, str):
+            tasks = [tasks]
+        if not isinstance(tasks, list) or not tasks:
+            raise _missing_field(
+                "Pass task_names: the milling tasks to draw, the first in colour."
+            )
+        task_names = _names({"task_names": tasks}, "task_names", "task names")
+        background = body.get("background", "related")
+        if background not in ("related", "none"):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_type": "invalid",
+                    "message": "background is related or none",
+                },
+            )
+        options = _flags(body, "scan_direction", "alignment_area", "metadata_bar")
+        image_path = body.get("image_path")
+        if image_path is not None and not isinstance(image_path, str):
+            raise _missing_field("image_path, when given, is a saved ion image.")
+        return _typed(
+            context.draw_item_milling(
+                item_name, task_names, image_path, background, **options
+            )
+        )
 
     @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
     def image_pixels(body: Dict[str, Any]):
@@ -645,6 +756,7 @@ def build_app_router(context: Any) -> APIRouter:
         width: Optional[int] = None,
         z: Optional[int] = None,
         channels: Optional[str] = None,
+        cells: Optional[str] = None,
         raw: bool = False,
         experiment: Optional[str] = None,
     ):
@@ -666,6 +778,18 @@ def build_app_router(context: Any) -> APIRouter:
         # width: the preview's at most, for a thumbnail or a full-size view.
         # A fluorescence stack: plane z (0 the first; none, the max projection)
         # in channels, comma-separated names (none, all).
+        # cells: "true" draws the image's named cells on the preview; names,
+        # comma-separated ("B3,C4"), crop those cells.
+        show_cells = (cells or "").strip().lower() == "true"
+        crops = None if show_cells or not cells else [c for c in cells.split(",") if c]
+        tag = _files_answer(
+            experiment, files.read_etag, path, box, fraction, width, z, channels, cells
+        )
+        # kept by the browser, but asked about each time: an unchanged file answers 304
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            _record_read(experiment, path, False)
+            return Response(status_code=304, headers=cache)
         answer = _files_answer(
             experiment,
             files.read,
@@ -675,13 +799,25 @@ def build_app_router(context: Any) -> APIRouter:
             max_width=files.preview_width(width),
             z=z,
             channels=[c for c in (channels or "").split(",") if c] or None,
+            cells=show_cells,
+            crops=crops,
         )
         _record_read(experiment, path, False)
-        return answer
+        return JSONResponse(jsonable_encoder(answer), headers=cache)
 
     @router.get("/workflow/proposals", response_model=Proposals)
     def proposals():
         return context.proposals()
+
+    @router.post("/workflow/plan", response_model=RunPlan, tags=[LAMELLAE])
+    def lamella_run_plan(body: Dict[str, Any]):
+        # The Workflow tab's confirmation for a run, or for adding to the
+        # running queue (add): computes, never acts.
+        task_names, item_names = _run_body(body)
+        run_next, add = body.get("run_next", False), body.get("add", False)
+        if not isinstance(run_next, bool) or not isinstance(add, bool):
+            raise _missing_field("run_next and add are booleans.")
+        return context.lamella_run_plan(task_names, item_names, run_next, add)
 
     @router.post("/workflow/grids/plan", response_model=GridPlan, tags=[GRIDS])
     def grid_workflow_plan(body: Dict[str, Any]):
@@ -878,26 +1014,7 @@ def build_app_control_router(context: Any) -> APIRouter:
 
     @router.post("/workflow/start", response_model=RunStarted)
     def start_workflow(body: Dict[str, Any]):
-        task_names = body.get("task_names")
-        item_names = body.get("item_names")
-        if (
-            not isinstance(task_names, list)
-            or not task_names
-            or not all(isinstance(t, str) for t in task_names)
-            or (
-                item_names is not None
-                and not (
-                    isinstance(item_names, list)
-                    and all(isinstance(i, str) for i in item_names)
-                )
-            )
-        ):
-            raise _missing_field(
-                "Pass task_names (non-empty list of strings); "
-                "item_names (list of strings) is optional — omitted "
-                "means every item."
-            )
-        return context.start_workflow(task_names, item_names)
+        return context.start_workflow(*_run_body(body))
 
     @router.post("/workflow/grids/start", response_model=RunStarted, tags=[GRIDS])
     def start_grid_workflow(body: Dict[str, Any]):

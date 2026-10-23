@@ -1,4 +1,4 @@
-"""AutoLamella's workflow buttons, as one component (FIB-1188).
+"""AutoLamella's workflow buttons, as one component.
 
 Attention Required, the supervision chip, and Run or Stop Workflow: the right of the
 status bar, placed there with `FibsemStatusBar.add_action`. They were four buttons

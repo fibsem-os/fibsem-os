@@ -1,17 +1,13 @@
 """What the app puts in front of a workflow: the lamella run, the grid run (and
 Screen Grids' summary of one), and adding to a running queue, from one set of pieces.
 
-The dialog that used to ask "Run workflow for 2 lamella with 7 task(s)?" over two
-columns of bullets. The lists restated the selection the user had just made; what they
-could not answer was the question they were actually holding -- whether to start this
-now, and when to come back.
+It answers the question the user is holding: whether to start this now, and when to
+come back.
 
 Built from :mod:`fibsem.ui.widgets.preflight`'s pieces but not from
 ``OverviewPreflightDialog``: this confirms a different kind of thing, and its rows carry
 chips and a right-aligned duration where ``detail_block`` has one left-aligned value.
-The same call the coincidence milling dialog made, for the same reason.
-
-See FIB-666.
+The coincidence milling dialog does the same, for the same reason.
 """
 
 from __future__ import annotations
@@ -32,7 +28,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.applications.autolamella.workflows.estimate import estimate_lamella_run
+from fibsem.applications.autolamella.workflows.plan import LamellaRunPlan
 from fibsem.structures import BeamType
 from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
@@ -62,7 +58,6 @@ from fibsem.workflows.attendance import (
 from fibsem.workflows.estimate import AdditionEstimate, RunEstimate, TaskEstimate
 from fibsem.workflows.grid.manager import LOAD_ENTRY_NAME, plan_grid_run
 from fibsem.workflows.grid.naming import beam_name, is_default_grid_name
-from fibsem.workflows.runner import RunRequest, item_task_pairs
 
 # The duration column is fixed and right-aligned so the times hold one line down the
 # dialog however many chips a row carries. That column is what gets scanned; a ragged
@@ -279,9 +274,8 @@ class WorkflowPreflightDialog(QDialog):
     def _lamella_disclosure(self) -> QWidget:
         """`▸ 2 lamellae`, expanding to their names.
 
-        The old dialog's left column was the only place the names appeared, and a
-        per-task breakdown replaces them with `×2`. They come back here, once, rather
-        than repeated under every task.
+        The per-task breakdown shows `×2`; the names appear here, once, rather than
+        repeated under every task.
 
         Builds the names label as a side effect and leaves it on the instance; the
         caller places it, because it belongs under the chip row rather than inside it.
@@ -389,18 +383,17 @@ class WorkflowPreflightDialog(QDialog):
 
 def confirm_run_workflow_dialog(
     experiment: Experiment,
-    request: RunRequest,
+    plan: LamellaRunPlan,
     parent=None,
 ) -> bool:
     """Show the pre-flight estimate before starting the workflow.
 
     Returns True if confirmed. Replaces two columns of bullets that restated the
     selection the user had just made; see WorkflowPreflightDialog. The estimate
-    walks the pairs the run will queue, priced from each lamella's task configs.
+    is the plan's (`plan_lamella_run`), as the App Server's plan route gives it.
     """
-    estimate = estimate_lamella_run(experiment, item_task_pairs(request))
-    attendance = run_attendance(experiment.task_protocol, request.task_names)
-    dlg = WorkflowPreflightDialog(estimate, attendance, parent=parent)
+    attendance = run_attendance(experiment.task_protocol, plan.request.task_names)
+    dlg = WorkflowPreflightDialog(plan.estimate, attendance, parent=parent)
     return dlg.exec_() == QDialog.Accepted
 
 

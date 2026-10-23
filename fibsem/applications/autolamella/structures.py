@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import uuid
 from abc import ABC
 from copy import deepcopy
@@ -28,20 +29,10 @@ from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
 
 from fibsem.applications.autolamella import config as cfg
-from fibsem.applications.autolamella.protocol.constants import (
-    FIDUCIAL_KEY,
-    MICROEXPANSION_KEY,
-    MILL_POLISHING_KEY,
-    MILL_ROUGH_KEY,
-    NOTCH_KEY,
-    STRESS_RELIEF_KEY,
-    TRENCH_KEY,
-    UNDERCUT_KEY,
-)
+from fibsem.codec.upgrades import pre_task_protocol
 from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.correlation.config import CorrelationConfig
-from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import (
     DEFAULT_ALIGNMENT_AREA,
     Configurable,
@@ -58,7 +49,6 @@ from fibsem.structures import (
 )
 from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now
-from fibsem.workflows.attention import Attention, attention_from
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.grid.protocol import GridTaskProtocol
@@ -76,7 +66,6 @@ from fibsem.workflows.status import TaskState
 from fibsem.workflows.task_config import (
     RunPlan,
     TaskConfig,
-    TaskPlan,
     TaskProtocol,
     WorkflowOptions,
 )
@@ -93,7 +82,7 @@ if TYPE_CHECKING:
 # not the app, not a script, not a test -- so the bridge was never called and the
 # extra fields never had a reader. Removed rather than left dormant, because half a
 # user model is worse than either answer. fibsem.structures.FibsemUser is the only
-# user model now; see FIB-450 and the ownership rule on FibsemImageMetadata.
+# user model now and the ownership rule on FibsemImageMetadata.
 
 
 @dataclass
@@ -201,7 +190,7 @@ class AutoLamellaTaskProtocol(TaskProtocol):
     version: str = "1.0"
     options: WorkflowOptions = field(default_factory=WorkflowOptions)
     lamella_defaults: LamellaDefaultConfig = field(default_factory=LamellaDefaultConfig)
-    # Experiment-global correlation config (FIB-298): a user-step config, not an
+    # Experiment-global correlation config: a user-step config, not an
     # automated task, so a peer field rather than an entry in task_config.
     correlation: CorrelationConfig = field(default_factory=CorrelationConfig)
     # Grid-level tasks (overviews, and later cleaning and deposition): their own
@@ -262,185 +251,17 @@ class AutoLamellaTaskProtocol(TaskProtocol):
         return protocol
 
     @classmethod
-    def load_from_old_protocol(cls, path: Path) -> "AutoLamellaTaskProtocol":
-        """Convert an AutoLamellaProtocol to an AutoLamellaTaskProtocol.
-        This involves mapping the milling configurations to the new task names.
-        Used to converte old protocols to the new task-based protocol format."""
-
-        from fibsem.applications.autolamella.protocol.legacy import (
-            AutoLamellaMethod,
-            AutoLamellaProtocol,
-            AutoLamellaStage,
-        )
-        from fibsem.applications.autolamella.workflows.tasks.tasks import (
-            MillFiducialTaskConfig,
-            MillPolishingTaskConfig,
-            MillRoughTaskConfig,
-            MillTrenchTaskConfig,
-            MillUndercutTaskConfig,
-            SelectMillingPositionTaskConfig,
-        )
-
-        protocol = AutoLamellaProtocol.load(path)
-
-        # we need to map the milling configurations to the new task names
-        # mill_rough -> Rough Milling / mill_rough
-        # microexpansion -> Rough Milling / stress-relief
-        # notch -> Rough Milling / stress-relief
-        # trench -> Trench Milling / trench
-        # undercut -> Trench Milling / undercut
-        # fiducial -> Setup Lamella / fiducial
-        # mill_polishing -> Polishing
-
-        if protocol.method not in [
-            AutoLamellaMethod.ON_GRID,
-            AutoLamellaMethod.TRENCH,
-            AutoLamellaMethod.WAFFLE,
-        ]:
-            raise ValueError(
-                f"Protocol method {protocol.method} not supported for conversion to task protocol"
-            )
-
-        ROUGH_MILLING_TASK_NAME = "Rough Milling"
-        POLISHING_TASK_NAME = "Polishing"
-        TRENCH_MILLING_TASK_NAME = "Trench Milling"
-        MILL_FIDUCIAL_TASK_NAME = "Mill Fiducial"
-        UNDERCUT_TASK_NAME = "Undercut"
-        SETUP_LAMELLA_POSITION_TASK_NAME = "Setup Lamella Position"
-
-        workflow_config = AutoLamellaWorkflowConfig()
-        task_config = EventedDict({})
-
-        def supervision(stage: AutoLamellaStage) -> Attention:
-            return attention_from(protocol.supervision[stage])
-
-        if protocol.method in [AutoLamellaMethod.ON_GRID, AutoLamellaMethod.WAFFLE]:
-            rough_milling_task = MillRoughTaskConfig(
-                task_name=ROUGH_MILLING_TASK_NAME,
-                milling={
-                    MILL_ROUGH_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[MILL_ROUGH_KEY], name="Rough Milling"
-                    )
-                },
-            )
-
-            if protocol.options.use_microexpansion:
-                rough_milling_task.milling[MILL_ROUGH_KEY].stages.extend(
-                    protocol.milling[MICROEXPANSION_KEY]
-                )
-            if protocol.options.use_notch:
-                rough_milling_task.milling[STRESS_RELIEF_KEY] = (
-                    FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[NOTCH_KEY], name="Notch"
-                    )
-                )
-
-            polishing_milling_task = MillPolishingTaskConfig(
-                task_name=POLISHING_TASK_NAME,
-                milling={
-                    MILL_POLISHING_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[MILL_POLISHING_KEY], name="Polishing"
-                    )
-                },
-            )
-
-            mill_fiducial_task = MillFiducialTaskConfig(
-                task_name=MILL_FIDUCIAL_TASK_NAME,
-                milling={
-                    FIDUCIAL_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[FIDUCIAL_KEY], name="Fiducial"
-                    )
-                },
-            )
-            setup_lamella_task = SelectMillingPositionTaskConfig(
-                task_name=SETUP_LAMELLA_POSITION_TASK_NAME,
-                milling={},
-                milling_angle=protocol.options.milling_angle,
-            )
-
-            task_config[ROUGH_MILLING_TASK_NAME] = rough_milling_task
-            task_config[POLISHING_TASK_NAME] = polishing_milling_task
-            task_config[MILL_FIDUCIAL_TASK_NAME] = mill_fiducial_task
-            task_config[SETUP_LAMELLA_POSITION_TASK_NAME] = setup_lamella_task
-
-            workflow_config.tasks = [
-                TaskPlan(
-                    name=SETUP_LAMELLA_POSITION_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.SetupLamella),
-                ),
-                TaskPlan(
-                    name=MILL_FIDUCIAL_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.SetupLamella),
-                ),
-                TaskPlan(
-                    name=ROUGH_MILLING_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.MillRough),
-                    requires=[MILL_FIDUCIAL_TASK_NAME],
-                ),
-                TaskPlan(
-                    name=POLISHING_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.MillPolishing),
-                    requires=[ROUGH_MILLING_TASK_NAME],
-                ),
-            ]
-
-        if protocol.method in [AutoLamellaMethod.TRENCH, AutoLamellaMethod.WAFFLE]:
-            trench_milling_task = MillTrenchTaskConfig(
-                task_name=TRENCH_MILLING_TASK_NAME,
-                milling={
-                    TRENCH_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[TRENCH_KEY], name="Trench"
-                    ),
-                },
-                orientation="FIB",
-            )
-            task_config[TRENCH_MILLING_TASK_NAME] = trench_milling_task
-            workflow_config.tasks.insert(
-                0,
-                TaskPlan(
-                    name=TRENCH_MILLING_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.MillTrench),
-                ),
-            )
-
-        if protocol.method is AutoLamellaMethod.WAFFLE:
-            undercut_task = MillUndercutTaskConfig(
-                task_name=UNDERCUT_TASK_NAME,
-                milling={
-                    UNDERCUT_KEY: FibsemMillingTaskConfig.from_stages(
-                        protocol.milling[UNDERCUT_KEY], name="Undercut"
-                    )
-                },
-                orientation="SEM",
-            )
-            task_config[UNDERCUT_TASK_NAME] = undercut_task
-            workflow_config.tasks.insert(
-                1,
-                TaskPlan(
-                    name=UNDERCUT_TASK_NAME,
-                    attention=supervision(AutoLamellaStage.MillUndercut),
-                    requires=[TRENCH_MILLING_TASK_NAME],
-                ),
-            )
-
-        options = WorkflowOptions(
-            turn_beams_off=protocol.options.turn_beams_off,
-        )
-
-        workflow_config.name = protocol.name
-        workflow_config.description = (
-            f"auto-converted protocol from {protocol.name} - {protocol.method.name}"
-        )
-
-        task_protocol = AutoLamellaTaskProtocol(
-            name=protocol.name,
-            description=f"auto-converted protocol from {protocol.name} - {protocol.method.name}",
-            task_config=task_config,
-            workflow_config=workflow_config,
-            options=options,
-        )
-
-        return task_protocol
+    def load(cls, filename: str) -> "AutoLamellaTaskProtocol":
+        """Read the protocol file at *filename*. One from before task protocols
+        is saved back as the task protocol it becomes (`pre_task_protocol`),
+        after a copy of it is kept as ``<file>.before-v1``; where it can't be
+        written, it is converted each time it opens."""
+        with open(filename) as file:
+            data = yaml.safe_load(file)
+        protocol = cls.from_dict(data)
+        if pre_task_protocol.is_pre_task(data):
+            _save_converted_protocol(filename, protocol)
+        return protocol
 
     def get_task_config_by_type(
         self, task_type: Type["AutoLamellaTaskConfig"]
@@ -451,6 +272,25 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             if isinstance(v, task_type):
                 task_configs[k] = v
         return task_configs
+
+
+def _save_converted_protocol(path: str, protocol: AutoLamellaTaskProtocol) -> None:
+    """Save *protocol*, converted from the pre-task protocol at *path*, over it,
+    once a copy of the file as it was is kept."""
+    backup = Path(f"{path}.before-v1")
+    try:
+        if not backup.exists():
+            shutil.copy2(path, backup)
+        protocol.save(path)
+    except OSError as e:
+        logging.warning(
+            f"Could not save {path} as a task protocol ({e}); it is converted "
+            "each time it opens."
+        )
+        return
+    logging.info(
+        f"Saved {path} as a task protocol; the file as it was is kept as {backup}."
+    )
 
 
 # The names this type and its enum had before they were one thing. Every reader
@@ -465,7 +305,7 @@ GridQuality = Verdict
 # card at 280 px wide (the hover tooltip is 256). Storing the acquired frame at full
 # resolution meant decoding a 1536x1024, 823 KB PNG per card per refresh for a picture
 # thrown away at a fifth of the size -- 26 ms each, and the card strip re-reads every
-# lamella whenever one is added (FIB-681).
+# lamella whenever one is added.
 #
 # 512 rather than 280: it leaves the largest card headroom on a HiDPI display, still
 # decodes in ~3 ms, and is a tenth of the bytes. Only ever shrinks -- a frame already
@@ -501,7 +341,7 @@ _THUMBNAIL_PLACEHOLDER = None
 class Lamella(SiteItem):
     item_type: ClassVar[str] = "lamella"
     path: Path
-    number: int  # TODO: deprecate, use petname instead
+    number: int
     petname: str
     alignment_area: FibsemRectangle = field(
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
@@ -540,7 +380,7 @@ class Lamella(SiteItem):
         # therefore wrote into whatever machine the experiment came from, at a
         # path the caller never named. Directories are created where a lamella is
         # actually created (``Experiment.add_new_lamella``) and where files are
-        # actually written (``FibsemImage.save``, ``save_thumbnail``). See FIB-420.
+        # actually written (``FibsemImage.save``, ``save_thumbnail``).
         if self.id is None:
             self.id = str(uuid.uuid4())
         self.task_state.item_id = self.id
@@ -564,7 +404,7 @@ class Lamella(SiteItem):
         was *created* at, so a lamella loaded from a moved or copied experiment
         still points at the original machine. Worse, when that directory happens
         to still exist locally, reads silently succeed against the wrong data.
-        ``Experiment.load`` calls this so paths follow the experiment. See FIB-367.
+        ``Experiment.load`` calls this so paths follow the experiment.
         """
         self.path = os.path.join(experiment_path, self.name)
         self._sync_imaging_paths()
@@ -590,7 +430,7 @@ class Lamella(SiteItem):
 
         Whether a failed task blocks dependent work is a separate question,
         answered by completed_tasks -- which filters on task status, so a failed
-        prerequisite does not license the task that requires it. See FIB-490.
+        prerequisite does not license the task that requires it.
         """
         return self.defect.verdict is Verdict.FAILED
 
@@ -678,6 +518,21 @@ class Lamella(SiteItem):
             self.fluorescence_pose is not None
             and self.fluorescence_pose.objective_position is not None
         )
+
+    def related_milling_stages(self, task_name: str) -> list:
+        """The enabled milling stages of this lamella's tasks related to
+        *task_name*'s (its config's ``related_tasks``): what the lamella editor
+        and the agent's milling picture draw behind that task's own."""
+        config = self.task_config.get(task_name)
+        related = tuple(getattr(config, "related_tasks", None) or ())
+        stages = []
+        if not related:
+            return stages
+        for other in self.task_config.values():
+            if isinstance(other, related) and other.milling:
+                for milling in other.milling.values():
+                    stages.extend(milling.enabled_stages)
+        return stages
 
     def update_milling_angle(self, microscope: "FibsemMicroscope") -> None:
         """Recompute milling_angle from the milling-pose stage tilt.
@@ -812,7 +667,7 @@ class Lamella(SiteItem):
             # writes atomically now, so a torn file should no longer be produced -- but one
             # written before that fix is still on disk, and any other corruption lands here
             # too. This is reached from a Qt slot, where an escaping exception aborts the
-            # process under PyQt5 rather than raising (FIB-329).
+            # process under PyQt5 rather than raising.
             logging.warning(f"Could not read the thumbnail at {thumb_path}: {e}")
             if _THUMBNAIL_PLACEHOLDER is None:
                 _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
@@ -823,7 +678,7 @@ class Lamella(SiteItem):
 
         Written to a temporary file and moved into place, so a reader never sees a
         partly-written one. `get_thumbnail` runs from the lamella cards on the GUI
-        thread while saving happens on a worker (FIB-563), so the two do overlap: the
+        thread while saving happens on a worker, so the two do overlap: the
         reported failure was `OSError: image file is truncated` out of `Image.open`,
         with the existence check passing because the file was there, just incomplete.
 
@@ -917,7 +772,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
     positions: EventedList[Lamella] = field(default_factory=EventedList)
     grids: EventedList[GridRecord] = field(default_factory=EventedList)
     landing_positions: List[FibsemStagePosition] = field(default_factory=list)
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older files hold a
+    # Aware, written as ISO 8601 with its offset; older files hold a
     # POSIX float, which reads as this machine's zone.
     created_at: Optional[datetime] = field(default_factory=now)
     task_protocol: "AutoLamellaTaskProtocol" = field(
@@ -1016,6 +871,12 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
             return
         record.actor = str(self.actor())
 
+    def save_verdict(self, item: Union["Lamella", GridRecord]) -> None:
+        """Save *item*'s new verdict, signed (`sign_verdict`): what every
+        window that judges a lamella or a grid, and the App Server, call."""
+        self.sign_verdict(item)
+        self.save()
+
     def get_lamella_by_name(self, name: str) -> Optional["Lamella"]:
         """Return the Lamella with the given name, or None if not found."""
         return next((p for p in self.positions if p.name == name), None)
@@ -1091,7 +952,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
         # lamella paths are stored as-created, so re-point them at wherever the
         # experiment actually is now. otherwise a moved or copied experiment
-        # reads and writes against the original location. (FIB-367)
+        # reads and writes against the original location.
         for lamella in experiment.positions:
             lamella.relocate(experiment.path)
 
@@ -1100,7 +961,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         # so reading an experiment would reach into the calling process's global
         # logging and redirect its output into this experiment's logfile. Callers
         # that want that ask for it: the app does so when it adopts an experiment.
-        # See FIB-421.
 
         # attempt to load task protocol from the same directory
         protocol_path = os.path.join(experiment.path, "protocol.yaml")
@@ -1240,7 +1100,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
     def remove_task(self, task_name: str) -> None:
         """Remove a task from the experiment: from the protocol, from the
-        workflow, and from every lamella's config (FIB-1109).
+        workflow, and from every lamella's config.
 
         All three together, so the workflow never lists a task the protocol no
         longer has, and no lamella runs a stale copy of one. A task that listed
@@ -1307,7 +1167,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
 
         # NOTE: as with load(), creating an experiment does not reconfigure the
         # calling process's logging -- the app does that when it adopts one.
-        # See FIB-421.
 
         # save the experiment
         experiment.save()

@@ -26,7 +26,6 @@ import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
 from PyQt5.QtWidgets import QApplication, QFileDialog  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.poses import build_lamella_poses  # noqa: E402
 from fibsem.applications.autolamella.structures import Experiment, Lamella  # noqa: E402
 from fibsem.applications.autolamella.ui.dialogs import (
@@ -37,19 +36,6 @@ from fibsem.structures import BeamType, FibsemImage, ImageSettings  # noqa: E402
 _app = QApplication.instance() or QApplication(sys.argv)
 
 _WIDE = (256, 768)  # (height, width), 3:1
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    import fibsem.config as fibsem_config
-
-    path = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "microscope-configuration.yaml",
-    )
-    scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    return scope
 
 
 @pytest.fixture

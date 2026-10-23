@@ -112,7 +112,7 @@ class Grids(Protocol):
     def grid_detail(self, grid_name: str) -> Dict[str, Any]: ...
 
     def grid_output_image(
-        self, grid_name: str, filename: str, max_width: int = 768
+        self, grid_name: str, filename: str, max_width: int = 768, cells: bool = False
     ) -> Dict[str, Any]: ...
 
     def grid_markers(self, grid_name: str, filename: str) -> Dict[str, Any]: ...
@@ -188,7 +188,7 @@ class MillingStages(Protocol):
 @runtime_checkable
 class Lamellae(Protocol):
     """Lamella-only routes: thickness, correlation results, lamella
-    defaults."""
+    defaults, the lamella run's plan."""
 
     def measure_thickness(
         self,
@@ -205,7 +205,30 @@ class Lamellae(Protocol):
     def set_lamella_defaults(self, defaults: Dict[str, Any]) -> Dict[str, Any]: ...
 
     def render_markers(
-        self, path: str, grid_name: Optional[str] = None
+        self,
+        path: str,
+        grid_name: Optional[str] = None,
+        fov: bool = False,
+        current: bool = False,
+    ) -> Dict[str, Any]: ...
+
+    def draw_item_milling(
+        self,
+        item_name: str,
+        task_names: List[str],
+        image_path: Optional[str] = None,
+        background: str = "related",
+        scan_direction: bool = False,
+        alignment_area: bool = False,
+        metadata_bar: bool = True,
+    ) -> Any: ...
+
+    def lamella_run_plan(
+        self,
+        task_names: List[str],
+        item_names: Optional[List[str]] = None,
+        run_next: bool = False,
+        add: bool = False,
     ) -> Dict[str, Any]: ...
 
 

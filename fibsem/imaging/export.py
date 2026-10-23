@@ -17,6 +17,7 @@ acquired outside a workflow has no lamella, and a bar that says so is noise.
 from __future__ import annotations
 
 import functools
+import logging
 import math
 import os
 from dataclasses import dataclass, field
@@ -29,7 +30,12 @@ from fibsem.constants import MU_SYMBOL
 from fibsem.fm.composite import FMLayer, auto_clim, composite_fm_layers, tint_rgb
 from fibsem.fm.preview import is_fluorescence_image, projection_layers
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.imaging.drawing import _get_font, draw_crosshair, draw_scalebar
+from fibsem.imaging.drawing import (
+    _get_font,
+    draw_crosshair,
+    draw_scalebar,
+    scalebar_plate,
+)
 from fibsem.structures import BeamType, FibsemImage
 from fibsem.theme import tokens
 from fibsem.util.timestamps import acquisition_datetime_of, format_time
@@ -157,6 +163,11 @@ FIELD_TITLES = {
     "detector": "Detector · mode",
     "objective": "Objective · numerical aperture",
 }
+
+
+def field_title(item: ExportField) -> str:
+    """What a field's label stands for: `Horizontal field width` for `HFW`."""
+    return FIELD_TITLES.get(item.key, item.name)
 
 
 def default_options(image: ExportImage) -> ExportOptions:
@@ -307,6 +318,62 @@ BEAM_FIELD_KEYS = (
     "dwell_time",
 )
 FM_FIELD_KEYS = ("objective", "hfw", "pixel_size", "z")
+
+
+# What a view's bar shows until someone picks (``display.info_bar_fields``). The
+# export's defaults less the pixel size: under a live view, HFW says the same thing
+# more usefully. Plus the working distance: every frame of a live view records it, so
+# the bar follows focusing -- at the vendor's console too, which nothing announces, so
+# a truly live readout would have to poll. Last, the time the image was taken.
+BAR_TIME_KEY = "date"  # the provenance field the bar's time comes from
+BAR_DEFAULT_FIELDS = (
+    "detector",
+    "objective",
+    "hfw",
+    "voltage",
+    "current",
+    "working_distance",
+    "z",
+    BAR_TIME_KEY,
+)
+
+
+def stored_bar_keys(kind: str) -> Optional[Tuple[str, ...]]:
+    """The fields someone chose for *kind*'s bar, or None to take the defaults."""
+    from fibsem import config as cfg
+
+    try:
+        chosen = cfg.load_user_preferences().display.info_bar_fields.get(kind)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "could not read the view bar's fields", exc_info=True
+        )
+        return None
+    return tuple(chosen) if chosen is not None else None
+
+
+def bar_selection(
+    info: ImageFields, keys: Sequence[str]
+) -> Tuple[List[ExportField], List[ExportField], Optional[str]]:
+    """What a bar showing *keys* says of *info*: (header fields, labelled fields,
+    time). The header is the unlabelled fields (detector, objective); at most
+    MAX_FIELDS labelled ones follow, in *keys* order."""
+    by_key = {item.key: item for item in info.fields}
+    header: List[ExportField] = []
+    labelled: List[ExportField] = []
+    for key in keys:
+        item = by_key.get(key)
+        if item is None:
+            continue
+        if item.label:
+            if len(labelled) < MAX_FIELDS:
+                labelled.append(item)
+        else:
+            header.append(item)
+    time = None
+    if BAR_TIME_KEY in keys:
+        time = next((p.value for p in info.provenance if p.key == BAR_TIME_KEY), None)
+    return header, labelled, time
 
 
 def field_keys_for(kind: str) -> Tuple[str, ...]:
@@ -470,15 +537,24 @@ def z_stack(image: FluorescenceImage) -> Optional[Tuple[int, float]]:
     Slices counted from the data, not z_positions: some files list a position per
     channel per slice -- 132 for a 4-channel, 33-slice stack on a real one.
     """
-    shape = np.shape(image.data)
+    return stack_planes(image.metadata, np.shape(image.data))
+
+
+def stack_planes(md, shape: Sequence[int]) -> Optional[Tuple[int, float]]:
+    """`z_stack` from a stack's metadata and shape."""
     slices = shape[-3] if len(shape) >= 4 else 1  # (C, Z, Y, X) or (T, C, Z, Y, X)
-    step = image.metadata.pixel_size_z
+    step = md.pixel_size_z
     return (slices, step) if slices > 1 and step else None
 
 
 def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
     """A fluorescence stack's fields. Z reads as the projection the export draws."""
-    md = image.metadata
+    return fluorescence_fields(image.metadata, np.shape(image.data))
+
+
+def fluorescence_fields(md, shape: Sequence[int]) -> ImageFields:
+    """As `fluorescence_image_fields`, from a stack's metadata and (C, Z, Y, X)
+    shape, for a file read without its planes."""
     fields: List[ExportField] = []
     first = md.channels[0] if md.channels else None
     if first is not None and first.objective_magnification:
@@ -486,12 +562,11 @@ def fluorescence_image_fields(image: FluorescenceImage) -> ImageFields:
         if first.objective_numerical_aperture:
             objective += f" · {first.objective_numerical_aperture:g} NA"
         _add(fields, "objective", objective)
-    shape = np.shape(image.data)
     if md.pixel_size_x:
         hfw = format_si(md.pixel_size_x * shape[-1], "m")
         _add(fields, "hfw", hfw)
         _add(fields, "pixel_size", format_si(md.pixel_size_x, "m"))
-    stack = z_stack(image)
+    stack = stack_planes(md, shape)
     if stack is not None:
         _add(fields, "z", z_value(*stack))
 
@@ -605,8 +680,9 @@ def _draw_text(draw, x: int, cy: int, text: str, font, color: RGB) -> None:
     draw.text((x, cy), text, font=font, fill=color, anchor="lm")
 
 
-def _draw_legend(rgb: np.ndarray, channels: List[ExportChannel], sizes) -> np.ndarray:
-    """Channel swatches and names on a plate in the top-right corner."""
+def _legend_layout(channels: List[ExportChannel], sizes, width: int):
+    """``(plate, pad, swatch, row)``: where the channel legend's plate sits
+    on an image *width* wide, and its spacing."""
     font = _get_font(sizes["font"])
     pad = max(4, sizes["font"] // 2)
     swatch = max(6, round(sizes["font"] * 0.7))
@@ -614,16 +690,22 @@ def _draw_legend(rgb: np.ndarray, channels: List[ExportChannel], sizes) -> np.nd
     text_w = max(_text_width(font, c.name) for c in channels)
     plate_w = pad + swatch + pad + text_w + pad
     plate_h = pad + row * len(channels) + pad // 2
-
-    h, w = rgb.shape[:2]
-    x0 = w - sizes["margin"] - plate_w
+    x0 = width - sizes["margin"] - plate_w
     y0 = sizes["margin"]
+    return (x0, y0, x0 + plate_w, y0 + plate_h), pad, swatch, row
+
+
+def _draw_legend(rgb: np.ndarray, channels: List[ExportChannel], sizes) -> np.ndarray:
+    """Channel swatches and names on a plate in the top-right corner."""
+    font = _get_font(sizes["font"])
+    h, w = rgb.shape[:2]
+    (x0, y0, x1, y1), pad, swatch, row = _legend_layout(channels, sizes, w)
 
     base = Image.fromarray(rgb).convert("RGBA")
     overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     # Square, like the scalebar's plate from fibsem.imaging.drawing.
-    plate = (x0, y0, x0 + plate_w, y0 + plate_h)
+    plate = (x0, y0, x1, y1)
     draw.rectangle(plate, fill=(*PLATE_COLOR, int(PLATE_ALPHA * 255)))
     for i, channel in enumerate(channels):
         cy = y0 + pad + row * i + row // 2
@@ -781,6 +863,32 @@ def render_export(image: ExportImage, options: ExportOptions) -> np.ndarray:
         return rgb
     bar = _draw_bar(image, options, rgb.shape[1], sizes)
     return np.concatenate([rgb, np.array(bar)], axis=0)
+
+
+def overlay_boxes(
+    image: ExportImage, options: ExportOptions, width: int, height: int
+) -> List[Tuple[int, int, int, int]]:
+    """The places ``(x0, y0, x1, y1)`` `render_export` covers on a *width* x
+    *height* rendering of *image* (scale 1): its channel legend and scale bar
+    plates, for what is drawn under them to keep clear of."""
+    sizes = _sizes(width)
+    boxes = []
+    visible = _visible_channels(image, options)
+    if options.legend and visible:
+        boxes.append(_legend_layout(visible, sizes, width)[0])
+    if options.scalebar and image.pixel_size:
+        plate = scalebar_plate(
+            width,
+            height,
+            image.pixel_size,
+            location=options.scalebar_location,
+            margin=sizes["margin"],
+            bar_height=sizes["bar_height"],
+            font_scale=sizes["font"] / 30,
+        )
+        if plate is not None:
+            boxes.append(plate)
+    return boxes
 
 
 def export_shape(image: ExportImage, options: ExportOptions) -> Tuple[int, int]:

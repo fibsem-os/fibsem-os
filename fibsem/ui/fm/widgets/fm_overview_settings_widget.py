@@ -303,7 +303,7 @@ class FMOverviewSettingsWidget(QWidget):
 
         Passed in rather than read: this widget takes no microscope, which is what lets
         it be built and tested on its own, and reading the objective is not free -- on
-        a shared connection it takes the imaging channel (FIB-517).
+        a shared connection it takes the imaging channel.
         """
         self._objective_current = current
         self._objective_focus = focus

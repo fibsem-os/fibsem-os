@@ -712,7 +712,13 @@ def draw_milling_patterns(
         if show_current:
             extra_parts.append(format_value(stage.milling.milling_current, "A"))
         if show_preset:
-            extra_parts.append(stage.milling.preset)
+            # the preset of the driver that mills by one (Tescan)
+            presets = [
+                block.preset
+                for block in stage.milling.driver.values()
+                if hasattr(block, "preset")
+            ]
+            extra_parts.extend(presets[:1])
         if show_depth:
             # Get depth from pattern
             depth_m = getattr(pattern, "depth", None)
@@ -1196,27 +1202,3 @@ def simple_example(stages: List[FibsemMillingStage], image: FibsemImage) -> plt.
     plt.show()
 
     return fig
-
-
-def render_milling_patterns(
-    image: FibsemImage,
-    milling_stages: List[FibsemMillingStage],
-    max_width: int = 1024,
-) -> np.ndarray:
-    """*milling_stages* drawn over *image*, as an RGB array the image's shape
-    (scaled down to *max_width*), so a pixel in it is the same place in the
-    image. Drawn on a figure of its own, not pyplot's, so it is safe off the
-    main thread (an App Server request)."""
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.figure import Figure
-
-    height, width = image.data.shape[:2]
-    scale = min(1.0, max_width / width)
-    dpi = 100
-    fig = Figure(figsize=(width * scale / dpi, height * scale / dpi), dpi=dpi)
-    canvas = FigureCanvasAgg(fig)
-    ax = fig.add_axes((0, 0, 1, 1))
-    draw_milling_patterns(image, milling_stages, title="", ax=ax)
-    ax.set_axis_off()
-    canvas.draw()
-    return np.asarray(canvas.buffer_rgba())[..., :3].copy()

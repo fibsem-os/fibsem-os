@@ -569,9 +569,9 @@ def test_a_stack_too_large_for_a_classic_tiff_saves_as_bigtiff(
     tmp_path, monkeypatch, bigtiff_above, bigtiff
 ):
     """A stack over 4 GB could not be saved at all, and only the log said so."""
-    import fibsem.fm.structures as structures
+    import fibsem.image_format as image_format
 
-    monkeypatch.setattr(structures, "BIGTIFF_ABOVE", bigtiff_above)
+    monkeypatch.setattr(image_format, "BIGTIFF_ABOVE", bigtiff_above)
     channels = [
         FluorescenceChannelMetadata(
             name=name,
@@ -2433,38 +2433,6 @@ def test_fluorescence_configuration_from_dict_missing_orientation():
     del d["default_orientation"]  # simulate an old config file
     restored = FluorescenceConfiguration.from_dict(d)
     assert restored.default_orientation == "FM"
-
-
-def test_fluorescence_configuration_yaml_roundtrip():
-    """Export to YAML and reload preserves default_orientation."""
-    config = _make_minimal_config(default_orientation="SEM")
-    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
-        filename = f.name
-    try:
-        config.export(filename)
-        loaded = FluorescenceConfiguration.load(filename)
-        assert loaded.default_orientation == "SEM"
-    finally:
-        import os
-
-        if os.path.exists(filename):
-            os.unlink(filename)
-
-
-def test_fluorescence_configuration_yaml_roundtrip_fm():
-    """Export to YAML and reload preserves default_orientation 'FM'."""
-    config = _make_minimal_config(default_orientation="FM")
-    with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as f:
-        filename = f.name
-    try:
-        config.export(filename)
-        loaded = FluorescenceConfiguration.load(filename)
-        assert loaded.default_orientation == "FM"
-    finally:
-        import os
-
-        if os.path.exists(filename):
-            os.unlink(filename)
 
 
 # FluorescenceImage.filepath — the file an image is associated with on disk

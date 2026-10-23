@@ -3,7 +3,6 @@
 import datetime
 import logging
 import os
-from pathlib import Path
 from typing import Optional
 
 from PyQt5 import QtCore, QtWidgets
@@ -31,18 +30,18 @@ from fibsem.util.system import DiskSpace, FreeSpaceLevel, disk_space
 from fibsem.utils import format_bytes
 from fibsem.workflows.experiments import default_experiment_directory
 
-# What an experiment costs on disk, per lamella. Measured 2026-09-21 over the four
-# completed lamellae in the real experiments under `tmp/`: 224, 256, 302 and 378 MB.
+# What an experiment costs on disk, per lamella. Measured over four completed
+# lamellae in real experiments: 224, 256, 302 and 378 MB.
 # One of them breaks down as ~32 MB of reference images (20 of them, 1536x1024 uint8
 # plus header), a ~107 MB fluorescence z-stack, ~29 MB of alignment images and ~83 MB
 # of autofocus sweeps.
 #
-# A flat figure rather than one derived from the protocol, which was the first plan.
-# The protocol specifies only the reference images -- 13% of that total -- so a
-# protocol-derived estimate would be exact about the eighth it can see and silent
-# about the rest, reading as authoritative while being wrong by six times. This is the
-# whole number, shown as "about", and re-derived by measuring a few real experiments
-# again. Grid overviews are on top of it and are per-experiment, not per-lamella.
+# A flat figure rather than one derived from the protocol: the protocol specifies only
+# the reference images -- 13% of that total -- so a protocol-derived estimate would be
+# exact about the eighth it can see and silent about the rest, reading as authoritative
+# while being wrong by six times. This is the whole number, shown as "about", and
+# re-derived by measuring a few real experiments again. Grid overviews are on top of it
+# and are per-experiment, not per-lamella.
 BYTES_PER_LAMELLA = 300e6
 
 # The size of experiment the figure is quoted for. Quoting the rate instead ("about
@@ -206,10 +205,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         protocol_layout = QtWidgets.QVBoxLayout(protocol_content)
         protocol_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Select Protocol buttons (will be added to header)
-        self.btn_select_legacy_protocol = QtWidgets.QPushButton("Legacy")
-        self.btn_select_legacy_protocol.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-
+        # Select Protocol button (added to the header)
         self.btn_select_protocol = QtWidgets.QPushButton("Select")
         self.btn_select_protocol.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
 
@@ -253,7 +249,6 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         protocol_group = TitledPanel(
             "Protocol Information", content=protocol_content, collapsible=False
         )
-        protocol_group.add_header_widget(self.btn_select_legacy_protocol)
         protocol_group.add_header_widget(self.btn_select_protocol)
         main_layout.addWidget(protocol_group)
 
@@ -294,7 +289,6 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             self._disk_probe_timer.start
         )
         self.btn_select_protocol.clicked.connect(self._select_protocol)
-        self.btn_select_legacy_protocol.clicked.connect(self._select_legacy_protocol)
         self.lineEdit_experiment_name.textChanged.connect(
             self._validate_experiment_path
         )
@@ -438,45 +432,6 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
                 self,
                 "Invalid Protocol",
                 "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\nPlease select a valid protocol file (*.yaml).",
-            )
-
-    def _select_legacy_protocol(self):
-        """Open dialog to select a legacy protocol file and convert it."""
-        # Open file dialog at the protocol path
-        start_path = cfg.PROTOCOL_PATH
-        if self.protocol_path:
-            start_path = os.path.dirname(self.protocol_path)
-
-        protocol_path = fui.open_existing_file_dialog(
-            msg="Select a legacy protocol file (*.yaml)",
-            path=start_path,
-            parent=self,
-        )
-
-        if not protocol_path or protocol_path == "":
-            return
-
-        # Validate and convert the legacy protocol file
-        try:
-            self.protocol = AutoLamellaTaskProtocol.load_from_old_protocol(
-                Path(protocol_path)
-            )
-            self.protocol_path = protocol_path
-            self._update_protocol_display()
-            logging.info(
-                f"Legacy protocol loaded and converted successfully from {protocol_path}"
-            )
-            QtWidgets.QMessageBox.information(
-                self,
-                "Legacy Protocol Converted",
-                "The legacy protocol has been successfully converted to the new task-based format.",
-            )
-        except Exception as e:
-            logging.error(f"Failed to load legacy protocol: {e}")
-            QtWidgets.QMessageBox.critical(
-                self,
-                "Invalid Legacy Protocol",
-                f"The selected legacy protocol file could not be converted. It may be corrupted, incorrectly formatted, or missing required fields.\n\nError: {e}\n\nPlease select a valid legacy protocol file (*.yaml).",
             )
 
     def _update_protocol_display(self):

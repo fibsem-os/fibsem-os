@@ -1,1 +1,1 @@
-"""Qt / GUI-thread helpers (napari-free)."""
+"""Qt / GUI-thread helpers."""

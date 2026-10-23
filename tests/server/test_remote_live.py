@@ -6,10 +6,11 @@ Skipped when the [server] extra is not installed.
 
 import asyncio
 import os
-import threading
 import time
 
 import pytest
+
+from tests.fixtures.app_server import serving
 
 pytest.importorskip("fastapi")
 uvicorn = pytest.importorskip("uvicorn")
@@ -18,12 +19,10 @@ pytest.importorskip("websockets")
 from websockets.exceptions import InvalidStatus  # noqa: E402
 from websockets.sync.client import connect  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.drivers.remote.devices import connect_remote_beams  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.devices import (  # noqa: E402
-    WS_PROTOCOL,
     DeviceServer,
     demo_devices,
     stream_live,
@@ -80,32 +79,14 @@ def test_a_remote_beam_goes_live_on_a_device_server():
 
 
 @pytest.fixture(scope="module")
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
-
-
-@pytest.fixture(scope="module")
 def auth():
     return AuthConfig.generate(level="drive", token=TOKEN)
 
 
 @pytest.fixture(scope="module")
 def url(microscope, auth):
-    app = build_server(microscope, auth=auth)
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app, host="127.0.0.1", port=0, log_level="warning", ws=WS_PROTOCOL
-        )
-    )
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    while not server.started:
-        assert thread.is_alive(), "App Server failed to start"
-        threading.Event().wait(0.01)
-    yield f"127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
-    server.should_exit = True
-    thread.join(timeout=5)
+    with serving(build_server(microscope, auth=auth)) as url:
+        yield url.removeprefix("http://")
 
 
 @pytest.fixture(scope="module")

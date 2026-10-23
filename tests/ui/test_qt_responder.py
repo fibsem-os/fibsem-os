@@ -12,6 +12,8 @@ thread blocks and the GUI thread answers.
 
 import os
 
+from tests.fixtures.main_window import main_window_fixture
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import threading
@@ -22,43 +24,15 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.structures import BeamType
 from fibsem.workflows import status as workflow_status
 from fibsem.workflows.interaction import ask
 from fibsem.workflows.status import set_images_ui
-from tests.fixtures.main_window import close_window
 from tests.run_state import Stopped
 
-
-@pytest.fixture
-def ui(qapp, monkeypatch):
-    """A real window, connected (Demo), same harness as the payload tests.
-
-    Pinned to the simulated Arctis configuration rather than whatever this
-    machine's default is: `DemoMicroscope` only builds a fluorescence microscope
-    on a compustage config, and the fluorescence test needs `fm_control_widget`
-    to exist. Resolving the default made the test pass on a machine whose
-    default is a compustage and fail on CI, whose default is not.
-    """
-    import fibsem.config as fibsem_config
-
-    arctis_config = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    widget = AutoLamellaWindow()
-    monkeypatch.setattr(
-        widget.system_widget,
-        "load_configuration",
-        lambda configuration_name=None: arctis_config,
-    )
-    widget.system_widget.connect_to_microscope()
-    yield widget
-    if widget.microscope is not None:
-        widget.microscope.disconnect()
-    close_window(widget)
+ui = main_window_fixture(
+    connect=True, config="sim-arctis-configuration.yaml", name="ui"
+)
 
 
 class _Run:

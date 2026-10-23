@@ -46,6 +46,7 @@ import fibsem
 from fibsem.codec import (
     Array,
     AwareTimestamp,
+    Blocks,
     NamedEnum,
     Tagged,
     Timestamp,
@@ -2122,20 +2123,50 @@ class FibsemPolygonSettings(FibsemPatternSettings):
 
 
 @dataclass
+class DriverMillingSettings(Configurable):
+    """A driver's own milling settings: those no other driver means the same by
+    (Tescan's preset and rate). A driver's registry entry names its class
+    (``DriverEntry.milling_settings``), and a recipe keeps them in its ``driver``
+    block under the driver's name. A value outside a field's limits is refused."""
+
+    def __post_init__(self) -> None:
+        for name, spec in field_specs(type(self)).items():
+            value = getattr(self, name)
+            limits = spec.limits
+            if limits is None or not isinstance(value, (int, float)):
+                continue
+            if not limits.min <= value <= limits.max:
+                raise ValueError(
+                    f"{name} {value!r} is outside {limits.min!r} to {limits.max!r}"
+                )
+
+
+def _driver_milling_classes() -> Dict[str, Type[DriverMillingSettings]]:
+    from fibsem.drivers.registry import milling_settings_classes
+
+    return milling_settings_classes()
+
+
+def _driver_name(name: str) -> str:
+    from fibsem.drivers.registry import normalize_name
+
+    return normalize_name(name)
+
+
+# Each driver's own block in a recipe, by driver name.
+_DRIVER_BLOCKS = Blocks(_driver_milling_classes, _driver_name)
+
+
+@dataclass
 class FibsemMillingSettings(Configurable):
-    """
-    This class is used to store and retrieve settings for FIBSEM milling.
+    """A milling recipe, as a stage saves it.
 
-    Attributes:
-    milling_current (float): The current used in the FIBSEM milling process. Default value is 20.0e-12 A.
-    spot_size (float): The size of the beam spot used in the FIBSEM milling process. Default value is 5.0e-8 m.
-    rate (float): The milling rate of the FIBSEM process. Default value is 3.0e-3 m^3/A/s.
-    dwell_time (float): The dwell time of the beam at each point during the FIBSEM milling process. Default value is 1.0e-6 s.
-    hfw (float): The high voltage field width used in the FIBSEM milling process. Default value is 150e-6 m.
-
-    Methods:
-    to_dict(): Converts the object attributes into a dictionary.
-    from_dict(settings: dict) -> "FibsemMillingSettings": Creates a FibsemMillingSettings object from a dictionary of settings.
+    Its fields are the ones fibsem defines once: the channel, the field of view and
+    the settings more than one driver mills with. A driver lists those it uses
+    (``Milling.setting_names``); a driver's own settings are in ``driver``, a block
+    per driver by its registry name (``{"Tescan": {"rate": ...}}``), each read as
+    the class the driver's registry entry names. A recipe saved on one instrument
+    loads, and saves back unchanged, on another.
     """
 
     # The fields bound to a microscope parameter take its unit, limits, choices and
@@ -2155,7 +2186,7 @@ class FibsemMillingSettings(Configurable):
     application_file: str = param(
         "Si",
         device_parameter="beam.application_file",
-        doc="The application file used for milling. Note: this can be changed at runtime depending on the pattern and other parameters.",
+        doc="The application file used for milling, on Thermo Fisher instruments only. Note: this can be changed at runtime depending on the pattern and other parameters.",
         display=Display("Application File", advanced=True),
     )
     patterning_mode: str = param(
@@ -2171,45 +2202,6 @@ class FibsemMillingSettings(Configurable):
         doc="The horizontal field width used for milling. Patterns must fit within this field of view.",
         display=Display("Field of View", hidden=True),
     )
-    preset: str = param(
-        "30 keV; 2nA",
-        device_parameter="beam.preset",
-        doc="The preset used for milling. Presets define the beam settings for different milling conditions.",
-        display=Display("Preset"),
-    )
-    # 1 µm is the value the cryo lamella milling was validated at on hardware
-    # (2026-07-22). Protocols do not set spot_size, so this default is what every
-    # milling stage actually uses -- the `milling:` block in the system config is
-    # not consulted for it (only milling_current is read from there).
-    spot_size: float = param(
-        1.0e-6,
-        unit="m",
-        limits=RangeLimit(1e-9, 1e-4),
-        doc="The spot size for the ion beam during milling.",
-        display=Display("Spot Size", scale=1e6, step=0.01, decimals=3),
-    )
-    rate: float = param(
-        1.3e-8,
-        unit="m³/A/s",
-        doc="Ion etching rate — how much material one amp removes per "
-        "second. Equivalently µm³/nA/s, which is how TESCAN quotes "
-        "it. Default is the cryo lamella value; silicon is 0.3.",
-        display=Display("Rate", scale=1e9, unit="mm³/A/s"),
-    )
-    dwell_time: float = param(
-        1.0e-6,
-        unit="s",
-        doc="The dwell time for the ion beam during milling (µs).",
-        display=Display("Dwell Time", scale=1e6),
-    )
-    spacing: float = param(
-        0.005,
-        limits=RangeLimit(0.0, 100.0),
-        doc="Exposition mesh spacing — how finely the pattern is filled "
-        "with exposure points. Dimensionless; the TESCAN default is "
-        "1.0 and smaller values mill more finely and take longer.",
-        display=Display("Spacing", step=0.001, decimals=4),
-    )
     milling_channel: BeamType = param(
         BeamType.ION,
         choices=[BeamType.ION, BeamType.ELECTRON],
@@ -2221,33 +2213,42 @@ class FibsemMillingSettings(Configurable):
         doc="Whether to acquire images after milling.",
         display=Display("Acquire Images", hidden=True),
     )
+    driver: Annotated[Dict[str, Any], _DRIVER_BLOCKS] = param(
+        default_factory=_DRIVER_BLOCKS.defaults,
+        doc="Each driver's own settings, a block per driver by its name (Tescan). "
+        "An instrument reads its driver's block and keeps the others.",
+        display=Display("Driver Settings", hidden=True),
+    )
 
     def __post_init__(self):
-        assert isinstance(self.milling_current, (float, int)), (
-            f"invalid type for milling_current, must be int or float, currently {type(self.milling_current)}"
-        )
-        assert isinstance(self.spot_size, (float, int)), (
-            f"invalid type for spot_size, must be int or float, currently {type(self.spot_size)}"
-        )
-        assert isinstance(self.rate, (float, int)), (
-            f"invalid type for rate, must be int or float, currently {type(self.rate)}"
-        )
-        assert isinstance(self.dwell_time, (float, int)), (
-            f"invalid type for dwell_time, must be int or float, currently {type(self.dwell_time)}"
-        )
-        assert isinstance(self.hfw, (float, int)), (
-            f"invalid type for hfw, must be int or float, currently {type(self.hfw)}"
-        )
-        assert isinstance(self.patterning_mode, str), (
-            f"invalid type for value for patterning_mode, must be str, currently {type(self.patterning_mode)}"
-        )
-        assert isinstance(self.application_file, (str)), (
-            f"invalid type for value for application_file, must be str, currently {type(self.application_file)}"
-        )
-        assert isinstance(self.spacing, (float, int)), (
-            f"invalid type for value for spacing, must be int or float, currently {type(self.spacing)}"
-        )
-        # assert isinstance(self.preset,(str)), f"invalid type for value for preset, must be str, currently {type(self.preset)}"
+        for name in ("milling_current", "milling_voltage", "hfw"):
+            value = getattr(self, name)
+            if not isinstance(value, (float, int)):
+                raise TypeError(
+                    f"{name} must be a number, currently {type(value).__name__}"
+                )
+        for name in ("patterning_mode", "application_file"):
+            value = getattr(self, name)
+            if not isinstance(value, str):
+                raise TypeError(
+                    f"{name} must be a string, currently {type(value).__name__}"
+                )
+
+    def setting(self, name: str) -> Any:
+        """A field by its name, or a driver's own by its path (``driver.Tescan.preset``,
+        as ``Milling.supported_settings`` names it)."""
+        if name.startswith("driver."):
+            _, block, field_name = name.split(".", 2)
+            return getattr(self.driver[block], field_name)
+        return getattr(self, name)
+
+    def set_setting(self, name: str, value: Any) -> None:
+        """Set a field by its name, or a driver's own by its path."""
+        if name.startswith("driver."):
+            _, block, field_name = name.split(".", 2)
+            self.driver[block] = replace(self.driver[block], **{field_name: value})
+        else:
+            setattr(self, name, value)
 
     def to_dict(self) -> dict:
         return encode(self)
@@ -3057,8 +3058,8 @@ class FluorescenceSystemSettings:
     # The objective's calibration, in metres: where it is in focus, and how far it
     # may be inserted. Measured at this instrument, so it is written under
     # `calibration.objective` by `SystemSettings.to_dict` rather than in this
-    # block. `None` means the configuration does not state one, and the working
-    # state file (`fm-configuration.yaml`) still answers, exactly as before -- so
+    # block. `None` means the configuration does not state one, and the FM
+    # working state (`fm.working` in the session state) answers instead -- so
     # a site that has not pressed "Save as Calibration" sees no change.
     focus_position: Optional[float] = None
     limit_position: Optional[float] = None
@@ -4168,10 +4169,12 @@ class FibsemImageMetadata:
     def read(path: str) -> Optional["FibsemImageMetadata"]:
         """A saved beam image's metadata, without reading its pixels; None for
         a file that records none (an FM stack's OME, a plain TIFF)."""
+        from fibsem.image_format import read_metadata_dict
+
         try:
             with tff.TiffFile(path) as tiff:
-                raw = tiff.pages[0].tags["ImageDescription"].value
-            return FibsemImageMetadata.from_dict(json.loads(raw))
+                raw = read_metadata_dict(tiff)
+            return FibsemImageMetadata.from_dict(raw) if raw is not None else None
         except Exception:
             logging.debug(f"Could not read the metadata of {path}", exc_info=True)
             return None
@@ -4322,18 +4325,14 @@ class FibsemImage:
         Returns:
             FibsemImage: instance of FibsemImage
         """
+        from fibsem.image_format import read_metadata_dict
+
         with tff.TiffFile(tiff_path) as tiff_image:
             data = tiff_image.asarray()
             try:
-                metadata = json.loads(
-                    tiff_image.pages[0].tags["ImageDescription"].value
-                )
-                metadata = FibsemImageMetadata.from_dict(metadata)
-            except Exception as e:
+                metadata = FibsemImageMetadata.from_dict(read_metadata_dict(tiff_image))
+            except Exception:
                 metadata = None
-                # print(f"Error: {e}")
-                # import traceback
-                # traceback.print_exc()
         image = cls(data=data, metadata=metadata)
         image.filepath = str(tiff_path)
         return image
@@ -4378,14 +4377,13 @@ class FibsemImage:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         path = Path(path).with_suffix(".tif")
 
-        if self.metadata is not None:
-            metadata_dict = self.metadata.to_dict()
-        else:
-            metadata_dict = None
-        tff.imwrite(
-            path,
+        from fibsem import image_format
+
+        image_format.write(
+            str(path),
             self.data,
-            metadata=metadata_dict,
+            description=image_format.beam_image_ome(self.data, self.metadata),
+            levels=image_format.has_levels(self.data.shape),
         )
         # set only after a successful write, so a recorded path is always a path that exists
         self.filepath = str(path)

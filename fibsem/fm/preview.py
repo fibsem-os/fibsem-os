@@ -70,7 +70,7 @@ def _layers(
     *channels* names shown (all when None). *plane_of* gives a channel's
     plane, and is asked only for the channels shown; a hidden first layer,
     there for the shape, takes its plane from *shape_of* when given."""
-    looks = [_channel_look(metadata_channels, i, count) for i in range(count)]
+    looks = [channel_look(metadata_channels, i, count) for i in range(count)]
     names = [name for name, _ in looks]
     unknown = [c for c in channels or [] if c not in names]
     if unknown:
@@ -95,7 +95,7 @@ def _czyx(image: FluorescenceImage) -> np.ndarray:
     return data
 
 
-def _channel_look(channels: list, index: int, count: int = 1) -> Tuple[str, str]:
+def channel_look(channels: list, index: int, count: int = 1) -> Tuple[str, str]:
     """A channel's name and colour as the projection draws it. Metadata should
     describe every channel, but never drop a plane when it doesn't: an unnamed
     channel is better than a silently missing one. Gray is the settings'
@@ -151,7 +151,7 @@ def _facts(
     channels = list(metadata.channels)
     facts = []
     for index in range(count):
-        name, color = _channel_look(channels, index, count)
+        name, color = channel_look(channels, index, count)
         known = channels[index] if index < len(channels) else None
         emission = getattr(known, "emission_filter", None)
         facts.append(
@@ -232,7 +232,7 @@ def load_projection(filepath: str) -> Tuple[np.ndarray, float]:
     Returns:
         (H, W, 3) uint8 RGB, and the pixel size in metres.
     """
-    rgb, pixel_size_x, _ = load_stack_preview(filepath)
+    rgb, pixel_size_x, _, _ = load_stack_preview(filepath)
     return rgb, pixel_size_x
 
 
@@ -240,17 +240,21 @@ def load_stack_preview(
     filepath: str,
     z: Optional[int] = None,
     channels: Optional[Sequence[str]] = None,
-) -> Tuple[np.ndarray, float, Dict[str, Any]]:
-    """As :func:`load_projection`, with the stack's :func:`stack_facts`: plane
-    *z* and *channels* as :func:`render_stack` takes them.
+    max_px: Optional[int] = None,
+) -> Tuple[np.ndarray, float, Dict[str, Any], Tuple[int, int]]:
+    """As :func:`load_projection`, with the stack's :func:`stack_facts` and its
+    full (Y, X) size: plane *z* and *channels* as :func:`render_stack` takes them.
 
     Reads the file a plane at a time (`StackFile`): a plane reads one page per
     channel shown, and the projection and the sharpness come from one pass
-    over the stack, kept for the next read of the same file."""
+    over the stack, kept for the next read of the same file. With *max_px*, from
+    the smallest copy the file holds that is still that size on its long side;
+    the pixel size stays the full size's."""
     from fibsem.fm.stack_file import StackFile
 
     with StackFile(filepath) as stack:
-        projection, sharpness = stack_summary(stack)
+        level = stack.level_for(max_px)
+        projection, sharpness = stack_summary(stack, level)
         try:
             _check_plane(z, stack.planes)
             layers = _layers(
@@ -258,7 +262,7 @@ def load_stack_preview(
                 stack.channels,
                 (lambda c: projection[c])
                 if z is None
-                else (lambda c: stack.plane(c, z)),
+                else (lambda c: stack.plane(c, z, level)),
                 channels,
                 shape_of=lambda c: projection[c],
             )
@@ -266,26 +270,29 @@ def load_stack_preview(
             raise ValueError(f"{e}: {filepath}") from e
         facts = _facts(stack.metadata, stack.channels, stack.planes, sharpness)
         pixel_size_x = stack.metadata.pixel_size_x
+        full = tuple(stack.shape[-2:])
     rgb = composite_fm_layers(layers, shape=layers[0].data.shape) if layers else None
     if rgb is None:
         raise ValueError(f"fluorescence image has no displayable channels: {filepath}")
-    return rgb, pixel_size_x, facts
+    return rgb, pixel_size_x, facts, full
 
 
 # Projections and sharpness of the stacks read lately, by path, size and
 # modification time: a viewer steps planes and channels of one stack, and each
 # projection is one pass over gigabytes.
-_SUMMARIES: "OrderedDict[Tuple[str, int, int], Tuple[np.ndarray, Optional[List[List[float]]]]]" = OrderedDict()
+_SUMMARIES: "OrderedDict[Tuple[str, int, int, int], Tuple[np.ndarray, Optional[List[List[float]]]]]" = OrderedDict()
 _SUMMARIES_KEPT = 8
 _SUMMARIES_LOCK = threading.Lock()
 
 
-def stack_summary(stack: "StackFile") -> Tuple[np.ndarray, Optional[List[List[float]]]]:
+def stack_summary(
+    stack: "StackFile", level: int = 0
+) -> Tuple[np.ndarray, Optional[List[List[float]]]]:
     """Each channel's max projection over z, (C, Y, X), and each plane's
     sharpness per channel (None for a single plane), from one pass over the
-    stack a plane at a time; the last few stacks' are kept."""
+    stack a plane at a time at *level*; the last few stacks' are kept."""
     stat = os.stat(stack.path)
-    key = (os.path.realpath(stack.path), stat.st_size, stat.st_mtime_ns)
+    key = (os.path.realpath(stack.path), stat.st_size, stat.st_mtime_ns, level)
     with _SUMMARIES_LOCK:
         if key in _SUMMARIES:
             _SUMMARIES.move_to_end(key)
@@ -295,7 +302,7 @@ def stack_summary(stack: "StackFile") -> Tuple[np.ndarray, Optional[List[List[fl
     for c in range(stack.channels):
         channel_scores = []
         for z in range(stack.planes):
-            plane = stack.plane(c, z)
+            plane = stack.plane(c, z, level)
             if projection is None:
                 projection = np.empty((stack.channels, *plane.shape), plane.dtype)
             if z == 0:

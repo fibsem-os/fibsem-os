@@ -9,7 +9,7 @@ import sys
 from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
-from fibsem.fm.structures import ChannelSettings
+from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 from fibsem.ui.fm.widgets.fm_multi_channel_widget import FluorescenceMultiChannelWidget
 
 
@@ -23,7 +23,7 @@ def main() -> None:
         ChannelSettings(
             name="DAPI",
             excitation_wavelength=365,
-            emission_wavelength=None,
+            emission_filter=REFLECTION,
             power=0.05,
             exposure_time=0.050,
             color="blue",
@@ -32,7 +32,7 @@ def main() -> None:
         ChannelSettings(
             name="GFP",
             excitation_wavelength=450,
-            emission_wavelength="Fluorescence",
+            emission_filter=EmissionFilter("Fluorescence", multi_band=True),
             power=0.10,
             exposure_time=0.100,
             color="cyan",
@@ -41,7 +41,7 @@ def main() -> None:
         ChannelSettings(
             name="mCherry",
             excitation_wavelength=550,
-            emission_wavelength=None,
+            emission_filter=REFLECTION,
             power=0.20,
             exposure_time=0.200,
             color="red",

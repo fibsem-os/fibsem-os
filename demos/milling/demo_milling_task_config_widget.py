@@ -1,7 +1,7 @@
-"""Standalone test script for MillingTaskConfigWidget2.
+"""Standalone test script for MillingTaskConfigWidget.
 
 Run directly:
-    python demos/milling/demo_milling_task_config_widget2.py
+    python demos/milling/demo_milling_task_config_widget.py
 """
 
 import sys
@@ -22,7 +22,7 @@ from fibsem import utils
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
+from fibsem.ui.widgets.milling_task_config_widget import MillingTaskConfigWidget
 
 
 def _load_task_configs(path: str) -> dict:
@@ -52,7 +52,7 @@ def main() -> None:
 
     # ── window ──────────────────────────────────────────────────────────
     win = QWidget()
-    win.setWindowTitle("MillingTaskConfigWidget2 — test")
+    win.setWindowTitle("MillingTaskConfigWidget — test")
     win.setStyleSheet("background: #2b2d31; color: #d1d2d4;")
     win.resize(900, 800)
 
@@ -85,7 +85,7 @@ def main() -> None:
     right_layout.setContentsMargins(0, 0, 0, 0)
     right_layout.setSpacing(8)
 
-    widget = MillingTaskConfigWidget2(
+    widget = MillingTaskConfigWidget(
         microscope=microscope, milling_task_config=initial_config
     )
     right_layout.addWidget(widget)

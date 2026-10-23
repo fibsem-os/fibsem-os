@@ -1,6 +1,6 @@
 """Screen all grids: read the magazine, scan it if it needs one, name the grids, run.
 
-One dialog in front of the run (FIB-1138). It opens on what the autoloader
+One dialog in front of the run. It opens on what the autoloader
 already knows. A magazine that has not been scanned since it was opened reads
 every slot as unknown, so the dialog offers the scan; the scan takes about ten
 minutes, and the operator names the grids by slot while it runs. Nothing is
@@ -136,10 +136,10 @@ class ScreenGridsDialog(QDialog):
         self.task_names = list(task_names)
         self.grid_names: List[str] = []
         self._beams_off = list(beams_off)
-        # How the run ends, from the Grids page's ⚙ (FIB-1133): said, not chosen.
+        # How the run ends, from the Grids page's ⚙: said, not chosen.
         self._ending = run_ending(unload_at_end, report_at_end)
         # Prices a run of these tasks over (grid names, exchanges); asked at the
-        # review, so the quote is for the grids the scan found (FIB-1134).
+        # review, so the quote is for the grids the scan found.
         self._estimate = estimate
         self._priced: Optional[tuple] = None
         self._synchronous = synchronous

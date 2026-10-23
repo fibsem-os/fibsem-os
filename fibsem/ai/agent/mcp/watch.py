@@ -10,28 +10,28 @@ it would block the agent from acting on what it prints.
     fibsem-mcp watch --since 42          # resume after event 42
     python -m fibsem.ai.agent.mcp.sidecar watch   # where fibsem-mcp is not on PATH
 
-The lines: ``PROMPT``, ``ANSWERED``, ``PROMPT WITHDRAWN``, ``PROPOSAL``,
-``PROPOSAL RELEASED``, ``REQUEST`` (the agent's request decided, finished or
-cancelled, FIB-1283), ``COMMAND ENDED`` (unless a caller was waiting for it
+The lines: ``PROPOSAL``, ``PROPOSAL RELEASED``, ``SUGGESTION APPROVED`` and
+``DECLINED``, ``REQUEST`` (the agent's request decided, finished or
+cancelled), ``COMMAND ENDED`` (unless a caller was waiting for it
 with ``service_wait_for_run``, so has the end), ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
 monitor's trigger or error), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
 its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
 ``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
-the agent from its card, FIB-1423; one still unanswered when the watch starts
+the agent from its card; one still unanswered when the watch starts
 is said first), ``NOTE`` (the operator kept a note on a
 grid), ``GAP``, ``RESTARTED``, ``LEVEL`` (the operator
 changed the agent level) and ``AGENT OFF``/``AGENT BACK``.
 
 It follows the whole session, not one workflow: the agent starts and stops
-workflows itself, and between them it still has to hear the app (FIB-1431). A
+workflows itself, and between them it still has to hear the app. A
 workflow's end is a line, not the end of the watch, and so is one that stops
 without an end event: ``WORKFLOW ENDED (stopped without an end event)``, once
 ``/app/workflow/status`` says nothing is running. It exits only when the
 server cannot be watched (1), or when it is stopped. While the operator has the
 agent level at Off the app refuses the agent, but it is still running: the
-watch says so once and waits for the level to come back (FIB-1429).
+watch says so once and waits for the level to come back.
 
 An agent only wakes on a line, so a run that goes quiet for ``--quiet-after``
 minutes gets one ``QUIET`` line to look at it; the next one waits for
@@ -138,16 +138,20 @@ def _error_type(response):
     return detail.get("error_type") if isinstance(detail, dict) else None
 
 
-def _print_events(events, since, out):
+def _print_events(events, since, out, marked=None):
     """Print wake-up lines; returns (new_since, running).
 
     ``running`` is True when the last workflow event among them started one,
-    False when it ended one, and None when there was neither."""
+    False when it ended one, and None when there was neither. *marked* keeps
+    the images the operator marked, by evidence id, for the messages citing
+    them, across calls."""
     running = None
+    marked = {} if marked is None else marked
     for event in events:
         kind = event.get("kind", "")
         data = event.get("payload") or {}
         since = max(since, event.get("seq", since))
+        _keep_marked(event, marked)
         if kind == "proposal_held":
             out(_proposal_line(data.get("item_name"), data.get("task_name")))
         elif kind == "proposal_released":
@@ -195,7 +199,7 @@ def _print_events(events, since, out):
             text = " ".join(str(data.get("text", "")).split())
             out(f"NOTE from the operator on {data.get('item_name')}: {text}")
         elif _is_message(event):
-            out(_message_line(data))
+            out(_message_line(data, marked))
         elif kind == "agent_level_set":
             line = _level_line(data)
             if line:
@@ -224,14 +228,98 @@ def _is_message(event) -> bool:
     )
 
 
-def _message_line(data) -> str:
+def _message_line(data, marked=None) -> str:
     message_id = data.get("id")
     text = " ".join(str(data.get("text", "")).split())
+    marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
     return (
-        f"MESSAGE id={message_id} from the operator: {text} -- answer with "
+        f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"
+        f"{marks} -- answer with "
         f"experiment_message_operator (reply_to={message_id}). It is not an "
         "approval: your level still decides what you may do"
     )
+
+
+# The operator's marks the MESSAGE line writes out; the rest are counted.
+MARKS_WRITTEN = 5
+
+
+# How many of the operator's marked images the watch keeps for their messages.
+MARKED_KEPT = 20
+
+
+def _keep_marked(event, marked) -> None:
+    """Keep *event* in *marked* when it is an image the operator marked: the
+    message citing it follows it on the record."""
+    data = event.get("payload") or {}
+    if (
+        event.get("kind") == "evidence"
+        and event.get("actor") == "operator"
+        and data.get("evidence_id")
+    ):
+        marked[str(data["evidence_id"])] = data
+        while len(marked) > MARKED_KEPT:
+            marked.pop(next(iter(marked)))
+
+
+def _px(x, y) -> str:
+    return f"{x:.0f},{y:.0f} px"
+
+
+def _stage(position) -> str:
+    if not position:
+        return ""
+    return f" = stage x {position['x'] * 1e3:.4f} y {position['y'] * 1e3:.4f} mm"
+
+
+def _named(kind, mark) -> str:
+    label = mark.get("label")
+    return f'{kind} "{label}"' if label else kind
+
+
+def _mark_parts(marks):
+    for point in marks.get("points") or []:
+        kind = "target" if point.get("shape") == "target" else "point"
+        yield (
+            f"{_named(kind, point)} at {_px(point['x'], point['y'])}"
+            f"{_stage(point.get('stage'))}"
+        )
+    for area in marks.get("areas") or []:
+        yield (
+            f"{_named('area', area)} at {_px(area['x'], area['y'])} "
+            f"{area['width']:.0f}x{area['height']:.0f} px, centre"
+            f"{_stage(area.get('stage')) or ' (no stage)'}"
+        )
+    for circle in marks.get("circles") or []:
+        yield (
+            f"{_named('circle', circle)} at {_px(circle['x'], circle['y'])} "
+            f"radius {circle['radius']:.0f} px{_stage(circle.get('stage'))}"
+        )
+    for line in marks.get("lines") or []:
+        kind = "arrow" if line.get("arrow") else "line"
+        yield (
+            f"{_named(kind, line)} from {_px(line['x1'], line['y1'])}"
+            f"{_stage(line.get('stage1'))} to {_px(line['x2'], line['y2'])}"
+            f"{_stage(line.get('stage2'))}"
+        )
+
+
+def _marks_part(evidence) -> str:
+    """The marks of the image the operator sent with a message, written out:
+    where each is in the image's pixels and, when the image says where it was
+    taken, on the stage."""
+    if not evidence:
+        return ""
+    parts = list(_mark_parts(evidence.get("marks") or {}))
+    shown = "; ".join(parts[:MARKS_WRITTEN])
+    if len(parts) > MARKS_WRITTEN:
+        shown += f"; and {len(parts) - MARKS_WRITTEN} more"
+    channels = evidence.get("channels")
+    on = f"{evidence.get('image')}" + (
+        f" (max projection of {', '.join(channels)})" if channels else ""
+    )
+    head = f" -- marks on {on} (evidence {evidence.get('evidence_id')})"
+    return f"{head}: {shown}" if shown else f"{head}, no marks"
 
 
 def _unanswered(events):
@@ -516,7 +604,7 @@ def watch(
         say(line)
 
     # Seed the cursor at the tail: the buffer outlives workflows, so starting at
-    # 0 would replay history -- stale PROMPT lines, and a previous workflow's
+    # 0 would replay history -- stale PROPOSAL lines, and a previous workflow's
     # end reported as news.
     snapshot, failure = _poll(client, since=0, timeout=0.0)
     if failure == AGENT_OFF:
@@ -536,6 +624,7 @@ def watch(
     # Started at the tail, a proposal asked before this watch began is behind
     # the cursor: said below, first, while a run is live.
     held_before = since is None
+    marked = {}
     if since is None:
         since = snapshot.get("latest_seq") or 0
     elif (snapshot.get("latest_seq") or 0) < since:
@@ -552,8 +641,10 @@ def watch(
             out(_proposal_line(item_name, task_name))
     if held_before:
         # Messages sent while no agent was watching, still unanswered.
+        for event in snapshot.get("events", []):
+            _keep_marked(event, marked)
         for data in _unanswered(snapshot.get("events", [])):
-            out(_message_line(data))
+            out(_message_line(data, marked))
     checked_at = clock()
 
     failures = 0
@@ -604,7 +695,7 @@ def watch(
             out(GAP_LINE)
 
         events = payload.get("events", [])
-        since, running = _print_events(events, since, out)
+        since, running = _print_events(events, since, out, marked)
         since = max(since, latest)
         if running is not None:
             workflow_live = running
@@ -619,7 +710,9 @@ def watch(
                 last, failure = _poll(client, since=since, timeout=0.0)
                 running = None
                 if failure is None and last.get("available"):
-                    since, running = _print_events(last.get("events", []), since, out)
+                    since, running = _print_events(
+                        last.get("events", []), since, out, marked
+                    )
                 if running is None:
                     out(NO_END_EVENT_LINE)
                     running = False

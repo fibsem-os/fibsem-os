@@ -1,12 +1,24 @@
 // The answers the pages read, typed by hand until the routes declare response
 // models and the types are generated from openapi.json.
 
+import type { Marks } from "./marks";
+
 export interface Capabilities {
   api_version: string;
   routers: { microscope: boolean; services: boolean; app: boolean };
   app_name?: string;
   level?: string;
   fibsem?: { version: string; path: string };
+}
+
+/** Measurable progress on the microscope, as the Qt status bar says it. */
+export interface ProgressLine {
+  label: string;
+  step: string | null;
+  fraction: number | null;
+  numbers: string | null;
+  outcome: boolean;
+  failed: boolean;
 }
 
 export interface WorkflowStatus {
@@ -16,8 +28,18 @@ export interface WorkflowStatus {
     running: boolean;
     current_task: string | null;
     current_item: string | null;
+    queue_position: number | null;
     queue_total: number | null;
+    iteration: number | null;
+    step: string | null;
+    waiting_on: string | null;
+    waiting_since: string | null;
+    /** The run's last failed task, or why it stalled, until the next run. */
+    failed: { what: string; message: string; at: string | null; count: number } | null;
   };
+  progress: ProgressLine | null;
+  /** Who holds the microscope, when it is not the run. */
+  in_control: { by: string; action: string; since: number } | null;
 }
 
 export interface SystemInfo {
@@ -66,15 +88,21 @@ export interface ImagePayload {
   image_b64_jpeg: string;
   width: number;
   height: number;
+  /** The source image's size in pixels, which the preview is a copy of. */
+  full_width?: number;
+  full_height?: number;
   hfw?: number;
   beam_type?: string;
   acquired_at?: string | null;
+  info?: ImageInfo | null;
 }
 
 export interface DisplayImages {
   available: boolean;
   sem: ImagePayload | null;
   fib: ImagePayload | null;
+  fm?: ImagePayload | null;
+  fm_available?: boolean;
 }
 
 export interface PairedComputer {
@@ -203,12 +231,11 @@ export interface TranscriptLine {
 }
 
 export interface EvidenceAnswer {
-  preview: (ImagePayload & { full_width?: number; full_height?: number }) | null;
-  marks: {
-    points?: { x: number; y: number; label?: string }[];
-    areas?: { x: number; y: number; width: number; height: number; label?: string }[];
-  } | null;
+  preview: ImagePayload | null;
+  marks: Marks | null;
   path: string;
+  by?: "operator" | "agent";
+  channels?: string[] | null;
 }
 
 /** One experiment in /app/experiment/recent. */
@@ -263,7 +290,25 @@ export type FileRead = FileEntry & {
   truncated?: boolean;
   preview?: ImagePayload;
   summary?: { fm?: StackFacts; [key: string]: unknown };
+  info?: ImageInfo | null;
 };
+
+/** One value on an image's bar: `HFW 80 µm`, its *title* said in full on hover. */
+export interface ImageField {
+  key: string;
+  label: string;
+  title: string;
+  value: string;
+}
+
+/** What the bar under an image says (fibsem.server.image_payloads.fields_info). */
+export interface ImageInfo {
+  kind: string;
+  header: ImageField[];
+  fields: ImageField[];
+  time: string | null;
+  scalebar: { length: number; label: string; fraction: number } | null;
+}
 
 /** GET /app/experiment: one row per item. */
 export interface ItemSummary {

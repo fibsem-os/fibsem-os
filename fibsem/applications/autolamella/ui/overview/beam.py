@@ -18,7 +18,7 @@ marker on the far side of the grid.
 Why this exists at all
 ----------------------
 It replaced `FibsemMinimapWidget`, which was the last module under `fibsem/ui/` that
-imported AutoLamella (FIB-560): it reached through `parent_widget.experiment` in nineteen
+imported AutoLamella: it reached through `parent_widget.experiment` in nineteen
 places, typed its parent as `AutoLamellaUI`, and knew about `DefectType`,
 `sync_fluorescence_pose` and milling protocol keys -- while also being the widget the
 generic `FibsemUI` hosted. Splitting it along the line the parent contract already
@@ -75,10 +75,7 @@ class BeamOverviewTab(AutoLamellaOverviewTabBase):
         # building this tab and calling `refresh_microscope` is enough on its own, which
         # is how it is used standalone and in tests.
         #
-        # **Nothing in production sets this any more.** It carried
-        # `features.overview_canvas_tab` while this tab was staged in beside the napari
-        # one; that flag is retired (FIB-780) and the tab ships to everyone, so the only
-        # callers left are the tests below. Kept rather than deleted because it is the
+        # Nothing in production sets this; only the tests below do. Kept because it is the
         # beam-side half of the build-or-drop pair the fluorescence tab answers with
         # `_can_build`, and a modality that can be switched off is a plausible thing to
         # want back -- but it is dead code today and should be read as such.
@@ -362,14 +359,13 @@ class BeamOverviewTab(AutoLamellaOverviewTabBase):
         """Persist a defect set from the list, and re-flag the canvas.
 
         The row writes `lamella.defect` and emits; nothing was listening, so the change
-        lived in memory and was gone on reload (FIB-564). Redrawing as well as saving,
+        lived in memory and was gone on reload. Redrawing as well as saving,
         because the marker's colour is one of the things the defect decides.
         """
         experiment = self.experiment
         if experiment is None:
             return
-        experiment.sign_verdict(lamella)
-        experiment.save()
+        experiment.save_verdict(lamella)
         self.refresh_positions()
 
     # ── turning a request into a lamella ─────────────────────────────────

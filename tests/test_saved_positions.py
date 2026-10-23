@@ -6,14 +6,12 @@ position picked from the list was "not found". Both are imported into
 `saved_positions`, and every reader uses it.
 """
 
-import os
 from pathlib import Path
 
 import pytest
 import yaml
 
 import fibsem.config as cfg
-from fibsem import utils
 from fibsem.saved_positions import (
     get_saved_position,
     load_saved_positions,
@@ -21,8 +19,7 @@ from fibsem.saved_positions import (
 )
 from fibsem.session_state import SessionState, session_state_for
 from fibsem.structures import FibsemStagePosition
-
-SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+from tests.fixtures.microscopes import demo_microscope
 
 
 def _position(name: str, x: float = 0.0) -> dict:
@@ -103,13 +100,7 @@ def _saved_position(microscope, name: str):
     return get_saved_position(name, session_state_for(microscope))
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=SHIPPED, manufacturer="Demo", setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def test_a_lookup_finds_a_position_the_panel_saved(microscope):
@@ -147,3 +138,40 @@ def test_a_lookup_uses_the_microscope_s_configuration(microscope):
     )
 
     assert _saved_position(microscope, "cryo").x == 3e-3
+
+
+# -- the stage movement service keeps them ------------------------------------------
+
+
+@pytest.fixture
+def service(microscope):
+    return microscope.stage_movement
+
+
+def test_the_service_saves_moves_to_renames_and_forgets(service):
+    microscope = service.parent
+
+    service.save_position("cryo")
+    there = FibsemStagePosition(x=1e-4, y=0.0, z=0.0, r=0.0, t=0.0)
+    service.save_position("away", there)
+
+    assert [p.name for p in service.saved_positions()] == ["cryo", "away"]
+    assert [p.name for p in load_saved_positions(session_state_for(microscope))] == [
+        "cryo",
+        "away",
+    ]
+    moved = service.move_to_saved_position("away")
+    assert moved.x == pytest.approx(1e-4)
+    service.save_position("cryo", there)  # replaced where it stands
+    assert [p.name for p in service.saved_positions()] == ["cryo", "away"]
+    assert service.saved_positions()[0].x == pytest.approx(1e-4)
+
+    service.rename_saved_position("away", "far")
+    with pytest.raises(ValueError, match="already saved"):
+        service.rename_saved_position("far", "cryo")
+    service.remove_saved_position("cryo")
+    assert [p.name for p in service.saved_positions()] == ["far"]
+    with pytest.raises(ValueError, match="No saved position named 'cryo'"):
+        service.move_to_saved_position("cryo")
+    with pytest.raises(ValueError, match="needs a name"):
+        service.save_position("  ")

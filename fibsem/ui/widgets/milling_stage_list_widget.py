@@ -37,7 +37,7 @@ from fibsem.ui.widgets.lists import ReorderableListWidget
 
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
-# while the whole row can shrink well below the old ~660px fixed-width floor.
+# while the whole row can shrink well below ~660px.
 # Minimums are what the cell's text needs: "200.0 pA" or "Standard" plus the combo's
 # arrow, "2.0 µm" plus the stacked stepper. Below these a cell clips mid-word.
 _COL_NAME = (80, 3)
@@ -103,7 +103,7 @@ class MillingStageRowWidget(QWidget):
         strategy_names: List[str],
         current_values: Optional[List[float]] = None,
         preset_values: Optional[List[str]] = None,
-        show_preset: bool = False,
+        preset_setting: Optional[str] = None,
         enabled: bool = True,
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -117,7 +117,10 @@ class MillingStageRowWidget(QWidget):
         self._strategy_names = strategy_names
         self._current_values = current_values or []
         self._preset_values = preset_values or []
-        self._show_preset = show_preset
+        # The recipe's preset by its path (``driver.Tescan.preset``), on a backend
+        # that mills by preset; None elsewhere.
+        self._preset_setting = preset_setting
+        self._show_preset = preset_setting is not None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(4, 3, 4, 3)
@@ -159,8 +162,8 @@ class MillingStageRowWidget(QWidget):
         self.current_combo.setToolTip("Milling current")
         _add_flex_column(layout, self.current_combo, _COL_CURRENT)
 
-        _preset_items = (
-            self._preset_values if self._preset_values else [stage.milling.preset]
+        _preset_items = self._preset_values or (
+            [stage.milling.setting(preset_setting)] if self._show_preset else []
         )
         self.preset_combo = ValueComboBox(items=_preset_items)
         self.preset_combo.setToolTip("Milling preset")
@@ -279,7 +282,10 @@ class MillingStageRowWidget(QWidget):
             configure_spinbox(self.depth_spin, spec)
             self.depth_spin.setValue(depth * spec.scale)
         self.current_combo.set_value(self.stage.milling.milling_current)
-        self.preset_combo.set_value(self.stage.milling.preset)
+        if self._show_preset:
+            self.preset_combo.set_value(
+                self.stage.milling.setting(self._preset_setting)
+            )
         self.strategy_combo.set_value(self.stage.strategy.strategy_name)
         # tooltips reflect the current selection so elided (narrow) values stay readable
         self.pattern_combo.setToolTip(f"Pattern: {self.pattern_combo.currentText()}")
@@ -344,9 +350,11 @@ class MillingStageRowWidget(QWidget):
 
     def _on_preset_changed(self) -> None:
         new_preset = self.preset_combo.value()
-        if new_preset is None or new_preset == self.stage.milling.preset:
+        if not self._show_preset or new_preset is None:
             return
-        self.stage.milling.preset = new_preset
+        if new_preset == self.stage.milling.setting(self._preset_setting):
+            return
+        self.stage.milling.set_setting(self._preset_setting, new_preset)
         self.stage_changed.emit(self.stage)
 
     def _on_strategy_changed(self) -> None:
@@ -457,7 +465,7 @@ class MillingStageListWidget(QWidget):
         self,
         current_values: Optional[List[float]] = None,
         preset_values: Optional[List[str]] = None,
-        show_preset: bool = False,
+        preset_setting: Optional[str] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
@@ -469,7 +477,8 @@ class MillingStageListWidget(QWidget):
         self._strategy_names: List[str] = get_strategy_names()
         self._current_values: List[float] = current_values or []
         self._preset_values: List[str] = preset_values or []
-        self._show_preset: bool = show_preset
+        self._preset_setting = preset_setting
+        self._show_preset: bool = preset_setting is not None
         self._show_pattern: bool = False
 
         layout = QVBoxLayout(self)
@@ -551,7 +560,7 @@ class MillingStageListWidget(QWidget):
             strategy_names=self._strategy_names,
             current_values=self._current_values,
             preset_values=self._preset_values,
-            show_preset=self._show_preset,
+            preset_setting=self._preset_setting,
             enabled=enabled,
         )
         row.pattern_combo.setVisible(self._show_pattern)
@@ -617,7 +626,7 @@ class MillingStageListWidget(QWidget):
         box cycles through PartiallyChecked, which the header reports as
         `bool(Qt.PartiallyChecked)`, i.e. True. So the third click ticks every row
         while the header itself stays showing a dash. Syncing after the loop settles
-        it back onto the rows it just changed (FIB-577).
+        it back onto the rows it just changed.
 
         Public for the same reason as the AutoLamella lists: any caller that clears
         the selection programmatically needs the header to follow, and reaching for
@@ -720,7 +729,7 @@ class MillingStageListWidget(QWidget):
                 strategy_names=self._strategy_names,
                 current_values=self._current_values,
                 preset_values=self._preset_values,
-                show_preset=self._show_preset,
+                preset_setting=self._preset_setting,
                 enabled=enabled,
             )
             row.pattern_combo.setVisible(self._show_pattern)

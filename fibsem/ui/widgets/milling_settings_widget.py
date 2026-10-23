@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
@@ -29,8 +29,17 @@ class _Row:
 
 _SPECS = FibsemMillingSettings.params
 
-# Fields hidden from UI — derived from their display (hidden=True), not hardcoded
-_HIDDEN_FIELDS = {name for name, spec in _SPECS.items() if spec.hidden}
+
+def _own_specs(microscope: FibsemMicroscope) -> List[Tuple[str, Parameter]]:
+    """The fields of the milling service's own settings, each by its path in the
+    recipe (``driver.Tescan.preset``)."""
+    milling = microscope.milling
+    if milling is None or milling.settings_class is None:
+        return []
+    prefix = f"driver.{milling.own_name()}."
+    return [
+        (prefix + name, spec) for name, spec in milling.settings_class.params.items()
+    ]
 
 
 def _supported_settings(
@@ -61,6 +70,8 @@ class FibsemMillingSettingsWidget(QWidget):
         # The fields the instrument mills with and their choices, from its milling
         # service; None without one, which shows every field.
         self._supported = _supported_settings(microscope)
+        # Every field a row may show, by its path: the recipe's, then the driver's own.
+        self._specs = list(_SPECS.items()) + _own_specs(microscope)
         self._setup_ui()
         self._connect_signals()
         self._update_visibility()
@@ -74,13 +85,13 @@ class FibsemMillingSettingsWidget(QWidget):
         layout = FormGrid(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        for field_name, spec in _SPECS.items():
+        for field_name, spec in self._specs:
             if spec.hidden:
                 continue
 
             control = build_control(
-                self._instrument_spec(spec),
-                getattr(self._settings, field_name),
+                self._instrument_spec(field_name, spec),
+                self._settings.setting(field_name),
                 resolve_choices=self._instrument_choices,
                 read_only_fallback=False,
             )
@@ -104,10 +115,10 @@ class FibsemMillingSettingsWidget(QWidget):
 
         align_form(layout)
 
-    def _instrument_spec(self, spec: Parameter) -> Parameter:
+    def _instrument_spec(self, field_name: str, spec: Parameter) -> Parameter:
         """The field with the milling service's choices and limits in place of its
         fixed ones, where the service reports them."""
-        reported = (self._supported or {}).get(spec.name)
+        reported = (self._supported or {}).get(field_name)
         if reported is None:
             return spec
         if spec.choices is None:
@@ -120,7 +131,7 @@ class FibsemMillingSettingsWidget(QWidget):
         """The choices of a field the instrument decides: the milling service's for
         the field, else the milling beam's for its parameter."""
         if self._supported is not None:
-            for name, spec in _SPECS.items():
+            for name, spec in self._specs:
                 if spec.bound_name == parameter and name in self._supported:
                     choices = self._supported[name].choices
                     if choices is not None:
@@ -156,22 +167,21 @@ class FibsemMillingSettingsWidget(QWidget):
     # ------------------------------------------------------------------
 
     def get_settings(self) -> FibsemMillingSettings:
-        kwargs: Dict[str, object] = {}
-
-        # Hidden fields have no control, so they pass through untouched rather
-        # than reverting to the dataclass default.
-        for field_name in _HIDDEN_FIELDS:
-            kwargs[field_name] = getattr(self._settings, field_name)
-
+        # Starts from the settings this form was given: hidden fields have no
+        # control, so they pass through rather than reverting to their defaults. The
+        # driver blocks are copied, so setting the driver's own fields leaves the
+        # given settings as they were.
+        kwargs: Dict[str, object] = {
+            name: getattr(self._settings, name) for name in _SPECS
+        }
+        kwargs["driver"] = dict(self._settings.driver)
+        settings = FibsemMillingSettings(**kwargs)
         for row in self._rows:
             value = row.control.read()
-            # A combobox with nothing selected reads None; keep what we had
-            # rather than handing the constructor a hole.
-            kwargs[row.field] = (
-                value if value is not None else getattr(self._settings, row.field)
-            )
-
-        return FibsemMillingSettings(**kwargs)
+            # A combobox with nothing selected reads None; keep what we had.
+            if value is not None:
+                settings.set_setting(row.field, value)
+        return settings
 
     def set_settings(self, settings: FibsemMillingSettings) -> None:
         self._settings = settings
@@ -180,7 +190,7 @@ class FibsemMillingSettingsWidget(QWidget):
             row.control.set_blocked(True)
         try:
             for row in self._rows:
-                row.control.write(getattr(settings, row.field))
+                row.control.write(settings.setting(row.field))
         finally:
             for row in self._rows:
                 row.control.set_blocked(False)

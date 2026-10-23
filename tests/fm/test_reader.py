@@ -380,8 +380,7 @@ def test_building_refuses_what_it_cannot_place(names, pixel_size, message):
         )
 
 
-@pytest.mark.parametrize("compression", [None, "zlib"])
-def test_the_built_image_saves_and_loads_back_as_built(tmp_path, compression):
+def test_the_built_image_saves_and_loads_back_as_built(tmp_path):
     """What goes into the grid folder is our own OME-TIFF: it must come back with
     its pixels, channels, pixel size and placement intact."""
     from fibsem.structures import FibsemHardwareGeometry
@@ -409,12 +408,11 @@ def test_the_built_image_saves_and_loads_back_as_built(tmp_path, compression):
         stage_position=base,
     )
     path = str(tmp_path / "imported.ome.tiff")
-    image.save(path, compression=compression)
+    image.save(path)
     with tifffile.TiffFile(path) as tif:
         page = tif.pages.first
-        assert page.compression.name == ("ADOBE_DEFLATE" if compression else "NONE")
-        predictor = tifffile.PREDICTOR(page.predictor).name
-        assert predictor == ("HORIZONTAL" if compression else "NONE")
+        assert page.compression.name == "ADOBE_DEFLATE"
+        assert tifffile.PREDICTOR(page.predictor).name == "HORIZONTAL"
 
     back = FluorescenceImage.load(path)
 

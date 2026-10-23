@@ -1,7 +1,7 @@
-"""What the agent is doing on the microscope, said in the window (FIB-1375).
+"""What the agent is doing on the microscope, said in the window.
 
 The agent acts through the App Server, and every action it takes holds control of
-the microscope (FIB-1270) under a name an operator reads: "focus sweep", "move
+the microscope under a name an operator reads: "focus sweep", "move
 stage relative". Who is in control is announced on ``microscope.control.changed``,
 and this follows it:
 
@@ -80,7 +80,7 @@ class AgentActivity(QObject):
         self._milling = None
         self._showing_patterns = False
         self._action: Optional[str] = None
-        # The Now line's action and mill, as the chat page follows them.
+        # The Now line's action and mill, as the web app follows them.
         self._following = AgentNow()
         self._now: Optional[str] = None
 

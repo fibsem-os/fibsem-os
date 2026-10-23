@@ -271,22 +271,6 @@ def test_the_header_line_and_the_details_dialog(qapp, experiment):
     }
 
 
-@pytest.fixture
-def main_ui(qapp):
-    from fibsem.applications.autolamella.ui import window as module
-
-    window = module.AutoLamellaWindow()
-    yield window
-    if window.microscope is not None:
-        window.microscope.disconnect()
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
-        window.close()
-    finally:
-        qapp.quit = original_quit
-
-
 class _NoMinimap:
     def set_experiment(self) -> None:
         pass

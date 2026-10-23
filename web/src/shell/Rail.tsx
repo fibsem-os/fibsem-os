@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { FolderOpen, Grid3x3, Layers, MessageSquare, Microscope, Settings as Gear } from "lucide-react";
+import { FolderOpen, Grid3x3, Layers, MessageSquare, Microscope, ScrollText, Settings as Gear } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
 import { useVolume } from "@/lib/experiment";
@@ -88,6 +88,7 @@ export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) 
           </>
         }
       />
+      <Tab on={page === "events"} onClick={() => go("events")} icon={<ScrollText size={22} />} label="Events" />
       <div className="hidden md:block md:flex-1" />
       <Tab onClick={openSettings} icon={<Gear size={22} />} label="Settings" />
     </nav>

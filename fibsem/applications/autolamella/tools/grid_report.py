@@ -1,4 +1,4 @@
-"""What a grid screening report says, read off the experiment (FIB-1057).
+"""What a grid screening report says, read off the experiment.
 
 The report exists so that someone can be handed a screened magazine and asked
 "which of these do you want?" without opening the app. This module is the data
@@ -31,9 +31,11 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
+from fibsem.config import POSITION_FOV_HEIGHT, POSITION_FOV_WIDTH
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
+from fibsem.image_format import read_metadata_dict
 from fibsem.structures import BeamType, FibsemImageMetadata, FibsemStagePosition
 from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
@@ -50,13 +52,6 @@ logger = logging.getLogger(__name__)
 # The output roles a grid task records, and the modality each stands for.
 OVERVIEW_ROLES = ("overview_sem", "overview_fib", "overview_fm")
 _MODALITY = {"overview_sem": "SEM", "overview_fib": "FIB", "overview_fm": "FM"}
-
-# The box drawn around a marked lamella: the field of view a lamella image
-# covers. The same size the Positions view draws
-# (`fibsem.ui.widgets.stored_overview_canvas.POSITION_FOV_*`), restated here so
-# this module stays free of `fibsem.ui`; keep the two in step.
-LAMELLA_BOX_WIDTH = 100e-6
-LAMELLA_BOX_HEIGHT = LAMELLA_BOX_WIDTH * (1024 / 1536)
 
 
 @dataclass
@@ -182,8 +177,10 @@ def read_beam_metadata(
         with tff.TiffFile(path) as tiff:
             page = tiff.pages[0]
             shape = (int(page.shape[0]), int(page.shape[1]))
-            description = page.tags["ImageDescription"].value
-        return FibsemImageMetadata.from_dict(json.loads(description)), shape
+            raw = read_metadata_dict(tiff)
+        if raw is None:
+            return None, None
+        return FibsemImageMetadata.from_dict(raw), shape
     except Exception as e:  # noqa: BLE001 - an image with no metadata is still listed
         logger.debug(f"No readable metadata on {path}: {e}")
         return None, None
@@ -257,8 +254,8 @@ def _mark(
                 name=lamella.name,
                 x=shape[1] / 2 + dx / pixel_size,
                 y=shape[0] / 2 + dy / pixel_size,
-                width=LAMELLA_BOX_WIDTH / pixel_size,
-                height=LAMELLA_BOX_HEIGHT / pixel_size,
+                width=POSITION_FOV_WIDTH / pixel_size,
+                height=POSITION_FOV_HEIGHT / pixel_size,
             )
         )
     return marks, unmarked

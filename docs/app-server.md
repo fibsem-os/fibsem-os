@@ -205,16 +205,18 @@ you. At Drive it may decide it.
 
 ## The event log
 
-**Open Event Log** in Tools → App Server opens a read-only page in your
-browser: what the agent, the operator and the run did, as one filterable
-table that follows the event stream live.
+**Event log** in Tools → App Server, and on the agent card, opens the web
+app's Events page in your browser: what the agent, the operator and the run
+did, as one filterable table that follows the event stream live. The page is
+also under Events in the web app's rail.
 
-The page is served by the App Server itself, so it exists wherever the
+The web app is served by the App Server itself, so it exists wherever the
 server does — on this machine by default. The button hands the page its own
 token in the URL fragment, which stays in the browser (fragments are never
 sent over the network or written to server logs). That token is read-only:
 it reads the session's monitoring routes and nothing else, so the link can't
-be used to act on the session or reach the microscope, and it is never
+be used to act on the session or reach the microscope (the web app's other
+pages open read-only with it), and it is never
 written to the discovery file the agent uses. *Copy link* beside the button
 copies the same link, to open the page in another browser. The agent's
 level doesn't affect it.

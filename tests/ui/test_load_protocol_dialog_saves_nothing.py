@@ -11,7 +11,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QDialog
+from PyQt5.QtWidgets import QDialog
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -20,11 +20,6 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.protocol.load import (
     AutoLamellaLoadTaskProtocolWidget,
 )
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 def test_ok_returns_the_new_protocol_and_writes_nothing(qapp, tmp_path, monkeypatch):

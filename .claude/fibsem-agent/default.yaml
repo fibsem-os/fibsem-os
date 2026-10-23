@@ -1,0 +1,10 @@
+# The profile the gateway and the hub offer first. `fibsem-agent --profile
+# default --show-config` prints what it runs with, and `fibsem-agent
+# --list-hooks` lists when a reminder can fire. Flags on the command line win.
+effort: high
+max_budget_usd: 5
+max_turns: 40
+mode: none
+hooks:
+  - when: hardware_error
+    say: Stop. Don't retry. Message the operator with the error word for word.

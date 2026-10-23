@@ -1,15 +1,15 @@
 """Edits to an experiment's configs and items, with no window.
 
-The App Server's config edits: patch an item's task config, the protocol's,
-or the item's own fields; reorder a milling config's stages; re-copy the
-protocol onto an item. The editors' copy onto other lamellae and global
-edit of the reference imaging are here too, beside the agent's; their task
-config write and its save are ``fibsem.server.task_configs``'. Each agent
-edit runs where the experiment is edited (``session.run_edit``), checks the
-version it was written against beside the apply, saves, and is recorded as the agent's edit (FIB-1034, FIB-1062). A
-window writes its editors' pending edits before any edit runs (its executor)
-and redraws when ``session.changed`` says the edit applied. The versions an
-edit is checked against are here too, for the server's reads to serve.
+The App Server's config edits: patch an item's task config, the protocol's, or the
+item's own fields; reorder a milling config's stages; re-copy the protocol onto an item.
+The editors' copy onto other lamellae and global edit of the reference imaging are here
+too, beside the agent's; their task config write and its save are
+``fibsem.workflows.task_configs``'. Each agent edit runs where the experiment is edited
+(``session.run_edit``), checks the version it was written against beside the apply,
+saves, and is recorded as the agent's edit. A window writes its editors' pending edits
+before any edit runs (its executor) and redraws when ``session.changed`` says the edit
+applied. The versions an edit is checked against are here too, for the server's reads to
+serve.
 
 Each returns a plain dict: the applied changes, or a structured refusal.
 """
@@ -21,9 +21,13 @@ import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.acting import AGENT, acting
-from fibsem.server.app_context import content_hash, find_item, item_pose_positions
-from fibsem.server.config_patch import PatchError, apply_patch, check_patch
-from fibsem.server.task_configs import (
+from fibsem.util.records import content_hash
+from fibsem.workflows.config_patch import PatchError, apply_patch, check_patch
+from fibsem.workflows.edit_recording import PendingEdits
+from fibsem.workflows.experiment import find_item
+from fibsem.workflows.item import item_pose_positions
+from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.task_configs import (
     config_version,
     patch_config,
     plain_changes,
@@ -32,8 +36,6 @@ from fibsem.server.task_configs import (
     task_config_at,
     workflow_field_refusal,
 )
-from fibsem.workflows.edit_recording import PendingEdits
-from fibsem.workflows.status import TaskStatus
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,
 # verdict, notes. Everything else on the object (poses, ids, paths, history)
@@ -48,7 +50,7 @@ def item_fields_version(lamella) -> str:
 
     The item document's version, hashing the ITEM_PATCH_FIELDS and where the
     poses put the stage — so a task re-recording geometry or moving the
-    milling pose rotates it, and a pending patch goes stale (FIB-1420): a POI
+    milling pose rotates it, and a pending patch goes stale: a POI
     is in the milling frame, so one chosen before the pose moved names a
     different place after. History growing does not rotate it.
     """
@@ -449,7 +451,7 @@ def set_reference_imaging(
     """Global edit: set the reference imaging and each milling config's field
     of view on *task_names*, the protocol's and those of each of *lamellae*
     that has the task; saved with the protocol. Only these two settings: a
-    lamella keeps everything else it was tuned to (FIB-1071).
+    lamella keeps everything else it was tuned to.
 
     A lamella's task that is running is left alone: the task holds that config
     object, so an edit would change its settings mid-run. Returns how many of

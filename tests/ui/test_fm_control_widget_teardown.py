@@ -20,7 +20,6 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from PyQt5 import sip
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.fm.progress import (  # noqa: E402
     FluorescenceAcquisitionProgress,
@@ -39,11 +38,6 @@ PROGRESS = FluorescenceAcquisitionProgress(
     zlevel=1,
     total_zlevels=3,
 )
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()

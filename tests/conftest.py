@@ -4,12 +4,18 @@ import os
 
 import pytest
 
+from tests.fixtures.microscopes import demo_microscope
+
 # The Demo microscope and the simulated fluorescence microscope sleep to emulate
 # real hardware timing, which otherwise makes the suite spend most of its
 # wall-clock asleep. Skip those simulated delays for the whole test run; real
 # drivers override the methods and are unaffected (see fibsem._timing.sim_sleep).
 # Use FIBSEM_SIM_NO_DELAY=0 to run with the delays enabled.
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
+
+# The Demo microscope on the default configuration, one per test module. A file
+# that needs another declares its own (tests/fixtures/microscopes.py).
+microscope = demo_microscope()
 
 
 @pytest.fixture(autouse=True)
@@ -84,20 +90,11 @@ def _point_session_state_at(monkeypatch, directory):
 
     monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(directory))
     monkeypatch.setattr(
-        cfg, "FM_CONFIGURATION_PATH", str(directory / "fm-configuration.yaml")
-    )
-    monkeypatch.setattr(
         cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
     )
     # and the two files saved positions are imported from
     monkeypatch.setattr(cfg, "POSITION_PATH", str(directory / "saved-positions.yaml"))
     monkeypatch.setattr(cfg, "LEGACY_POSITIONS_PATH", str(directory / "positions.yaml"))
-    # the coincidence viewer saves its milling config when it closes
-    monkeypatch.setattr(
-        cfg,
-        "COINCIDENCE_MILLING_CONFIG_PATH",
-        str(directory / "coincidence-milling-config.yaml"),
-    )
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -283,3 +280,24 @@ def _isolate_device_server_token(tmp_path_factory):
         mp.setattr(client_pairing, "REMOTE_DIR", directory / "remote")
         mp.setattr(client_pairing, "AGENT_DIR", directory / "agent")
         yield
+
+
+@pytest.fixture(scope="module")
+def odemis_microscope_cls():
+    """Import OdemisThermoMicroscope against stub odemis modules."""
+    import sys
+
+    from tests.fm import _odemis_stubs as stubs
+
+    saved = {}
+    for name in stubs.ODEMIS_MODULE_NAMES + stubs.FIBSEM_ODEMIS_MODULE_NAMES:
+        if name in sys.modules:
+            saved[name] = sys.modules.pop(name)
+
+    stubs.install_odemis_stubs()
+    from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
+
+    yield OdemisThermoMicroscope
+
+    stubs.remove_odemis_stubs()
+    sys.modules.update(saved)

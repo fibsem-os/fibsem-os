@@ -59,7 +59,11 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem import constants
-from fibsem.config import DEFAULT_STANDARD_RESOLUTION_LIST
+from fibsem.config import (
+    DEFAULT_STANDARD_RESOLUTION_LIST,
+    POSITION_FOV_HEIGHT,
+    POSITION_FOV_WIDTH,
+)
 from fibsem.fm.composite import auto_clim
 from fibsem.geometry.projection import BeamStageProjection, lifted, posed_like
 from fibsem.imaging import tiled
@@ -262,16 +266,6 @@ PICK_RADIUS_PX = 12
 # How much ground the working area gives the planned grid, as a multiple of its size:
 # a quarter of the grid spare on each side. See `_declare_working_area`.
 _PLAN_FRAMING = 1.5
-
-# The field of view drawn around each marked position, in metres. A fixed size rather
-# than the current imaging settings: the box says how much sample a lamella occupies,
-# which does not change when somebody adjusts the HFW for the next overview -- and a box
-# that resized itself under a settings change would look like the positions had moved.
-# 100 um at the standard resolution's aspect, so it is the frame a normal image is.
-POSITION_FOV_WIDTH = 100e-6
-POSITION_FOV_HEIGHT = POSITION_FOV_WIDTH * (
-    DEFAULT_STANDARD_RESOLUTION_LIST[1] / DEFAULT_STANDARD_RESOLUTION_LIST[0]
-)
 
 
 # How many pixels the contrast limits are taken from. `auto_clim`'s own cap, and for
@@ -1685,10 +1679,7 @@ class FibsemOverviewWidget(QWidget):
 
     def _write_imported(self, image, name: str) -> str:
         """Save an imported image as our own OME-TIFF: a new file beside, never
-        over, anything already there. Compressed, as the files people bring are:
-        uncompressed, a Zeiss export's copy was six times the size of the export.
-        zlib rather than their LZW: smaller on 16-bit stacks, and readable on an
-        install without imagecodecs."""
+        over, anything already there."""
         import tempfile
 
         folder = self.aligned_image_folder() or os.path.join(
@@ -1704,7 +1695,7 @@ class FibsemOverviewWidget(QWidget):
         while os.path.exists(path):
             count += 1
             path = os.path.join(folder, f"{stem}-{count}.ome.tiff")
-        return image.save(path, compression="zlib")
+        return image.save(path)
 
     def _read_fluorescence_image(self, path: str):
         from fibsem.fm.structures import FluorescenceImage
