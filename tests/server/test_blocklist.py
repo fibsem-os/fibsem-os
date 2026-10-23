@@ -153,26 +153,25 @@ def test_an_image_saves_inside_the_open_experiment_only(client, tmp_path):
     assert path_outside({"image_settings": saving}, lambda: experiment) is None
 
 
-def test_the_agent_turns_a_beam_on_but_never_off(client, microscope):
+def test_the_agent_switches_a_beam_with_its_commands(client, microscope):
     """The ion beam switches itself off when idle (Patrick, 2026-10-23): the
-    agent may switch a beam back on, never off."""
+    agent switches a beam on and off with turn_on and turn_off, not the on
+    write."""
     ion = microscope.devices["ion"]
-    ion.on.write_through(False)
     try:
+        off = client.post("/microscope/devices/ion/commands/turn_off", json={})
+        assert off.status_code == 200, off.text
+        assert ion.on.get_value() is False
         on = client.post("/microscope/devices/ion/commands/turn_on", json={})
         assert on.status_code == 200, on.text
         assert ion.on.get_value() is True
-        for refused in (
-            client.post("/microscope/devices/ion/commands/turn_off", json={}),
-            client.put("/microscope/devices/ion/on", json={"value": False}),
-        ):
-            assert refused.status_code == 403
-            assert _error(refused) == "not_allowed"
-            assert "beam_turn_on" in refused.json()["detail"]["message"]
-        assert ion.on.get_value() is True
+        refused = client.put("/microscope/devices/ion/on", json={"value": False})
+        assert refused.status_code == 403
+        assert _error(refused) == "not_allowed"
+        assert "beam_turn_off" in refused.json()["detail"]["message"]
         commands = client.get("/microscope/devices/ion").json()["commands"]
         assert commands["turn_on"]["agent"] is True
-        assert commands["turn_off"]["agent"] is False
+        assert commands["turn_off"]["agent"] is True
     finally:
         ion.on.write_through(True)
 

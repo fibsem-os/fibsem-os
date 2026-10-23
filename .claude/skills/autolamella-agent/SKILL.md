@@ -309,9 +309,9 @@ haven't used this session (every read here works at Watch):
   software version, the optional hardware fitted).
 - `device_list`: what it has (beams, detectors, stage, an FM).
 - `device_get_parameter` `on` for the electron and ion beams. If one is off,
-  turn it on with `beam_turn_on` (at Assist, ask first) and say so. Never
-  turn a beam off: that is the operator's. Note it if a beam reads
-  `blanked`. Some instruments have no `blanked`.
+  turn it on with `beam_turn_on` (at Assist, ask first) and say so. Turn a
+  beam off (`beam_turn_off`) only when the work is done or the operator asks.
+  Note it if a beam reads `blanked`. Some instruments have no `blanked`.
 - `stage_get_geometry`: the stage's poses, column tilts, pre-tilt, device
   origins and the milling angle; and, for each beam at the pose and scan
   rotation now, the stage move a +1 µm `stage_stable_move` along each image
@@ -339,7 +339,9 @@ haven't used this session (every read here works at Watch):
 itself off after a while idle (30 minutes on some instruments), so a beam on
 at the start of a run can be off an hour later. Read `on` for the beams the
 step uses; if one switched off, turn it back on with `beam_turn_on` and note
-it, then carry on.
+it, then carry on. Switching a beam on or off can take a while (a minute or
+more), so don't switch one unless you are sure it is needed: read `on`
+first, and let a beam you switched on settle before you image.
 
 **Read the microscope before each step, not once.** The operator, a run or a
 script may have moved it since you looked. Before a move, read

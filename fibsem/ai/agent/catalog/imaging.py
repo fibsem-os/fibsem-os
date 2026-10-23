@@ -398,6 +398,10 @@ def _beam_turn_on(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, An
     return {"what": wording.beam_name(a), "change": "Turn it on"}
 
 
+def _beam_turn_off(a: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, Any]:
+    return {"what": wording.beam_name(a), "change": "Turn it off"}
+
+
 def _fm_insert_objective(
     a: Dict[str, Any], ctx: wording.ActionContext
 ) -> Dict[str, Any]:
@@ -643,10 +647,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="beam_turn_on",
         description=(
-            "Switch a beam on (its on parameter reads false). The ion beam "
+            "Switch a beam on, only when you are sure it is off: read its on "
+            "parameter first (false). The ion beam "
             "switches itself off after a while idle (30 minutes on some "
-            "instruments), so check on before imaging or milling. Turning a beam "
-            "off is the operator's."
+            "instruments), so check on before imaging or milling. Switching on "
+            "can take a while (a minute or more): read on again, and let it "
+            "settle before you image."
         ),
         method="POST",
         path="/microscope/devices/{device}/commands/turn_on",
@@ -654,6 +660,22 @@ TOOLS: Tuple[ToolSpec, ...] = (
         hardware=True,
         params={"beam_type": "ELECTRON or ION"},
         line=_beam_turn_on,
+        call=lambda a: ({"device": _beam_device(a)}, kwargs_body()),
+    ),
+    ToolSpec(
+        name="beam_turn_off",
+        description=(
+            "Switch a beam off. Only when you are sure: the work is done or the "
+            "operator asked. Switching off and back on can each take a while, and a source "
+            "switched back on needs time to settle (a plasma source restrikes). "
+            "A run's turn_beams_off option switches both off when the run ends."
+        ),
+        method="POST",
+        path="/microscope/devices/{device}/commands/turn_off",
+        level="drive",
+        hardware=True,
+        params={"beam_type": "ELECTRON or ION"},
+        line=_beam_turn_off,
         call=lambda a: ({"device": _beam_device(a)}, kwargs_body()),
     ),
     ToolSpec(
