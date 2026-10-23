@@ -90,7 +90,7 @@ def main(
     session.serve_microscope = (
         args.serve_microscope
         if args.serve_microscope is not None
-        else fibsem_cfg.load_user_preferences().app_server.microscope
+        else fibsem_cfg.load_user_preferences().install.app_server.microscope
     )
     if window is not None:
         return window(session)
