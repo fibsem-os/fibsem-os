@@ -14,6 +14,7 @@ import base64
 import binascii
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -185,6 +186,31 @@ def _channels(channels: Any) -> Optional[List[str]]:
     return list(channels)
 
 
+def _with_lengths(
+    marks: Optional[Dict[str, List[Dict[str, Any]]]], image_path: str
+) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """*marks* with each measured line labelled with its length, from the
+    image's pixel size, as the ruler reads it; unlabelled when the image
+    doesn't say its pixel size."""
+    measured = [line for line in (marks or {}).get("lines", []) if line["measure"]]
+    if not measured:
+        return marks
+    from fibsem.geometry.saved_images import image_pixel_size
+    from fibsem.imaging.export import format_si
+
+    try:
+        size = image_pixel_size(image_path)
+    except Exception:  # noqa: BLE001 - an image that doesn't read stays unmeasured
+        size = None
+    for line in measured:
+        if size:
+            pixels = math.hypot(line["x2"] - line["x1"], line["y2"] - line["y1"])
+            line["label"] = format_si(pixels * size, "m")
+        else:
+            line["label"] = ""
+    return marks
+
+
 def _with_stage(
     marks: Optional[Dict[str, List[Dict[str, Any]]]], image_path: str
 ) -> Optional[Dict[str, List[Dict[str, Any]]]]:
@@ -338,6 +364,7 @@ def save(
                     "channels is for marks on a fluorescence stack's projection; "
                     f"{image} is not one.",
                 )
+        checked_marks = _with_lengths(checked_marks, os.path.join(root, path))
         checked_marks = _with_stage(checked_marks, os.path.join(root, path))
     record = {
         "evidence_id": evidence_id,

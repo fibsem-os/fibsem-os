@@ -164,7 +164,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
 
     @router.post("/messages", status_code=201, response_model=MessageSent)
     def send_message(body: Dict[str, Any]):
-        text = _text(body, "text")
+        # A message with marks may say nothing more.
+        text = _text(body, "text", required=body.get("evidence") is None)
         if len(text) > MESSAGE_LIMIT:
             raise _refused(
                 422,

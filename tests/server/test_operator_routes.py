@@ -223,6 +223,28 @@ def test_bad_marks_send_nothing(server, marks):
     assert len(_notes(server)) == before
 
 
+def test_marks_may_be_the_whole_message_and_a_measured_line_says_its_length(server):
+    image = _marked_image(server)
+    answer = server.post(
+        "/app/agent/messages",
+        headers=server.operator,
+        json={
+            "text": "",
+            "evidence": {
+                "image": image,
+                "marks": {
+                    "lines": [{"x1": 0, "y1": 0, "x2": 32, "y2": 0, "measure": True}]
+                },
+            },
+        },
+    )
+    assert answer.status_code == 201, answer.text
+    events = server.get("/app/events", headers=server.operator).json()["events"]
+    (kept,) = [e for e in events if e["kind"] == "evidence"]
+    # 128 px across 80 µm: 32 px is 20 µm.
+    assert kept["payload"]["marks"]["lines"][0]["label"] == "20 µm"
+
+
 def test_channels_are_for_a_fluorescence_stack(server):
     answer = server.post(
         "/app/agent/messages",

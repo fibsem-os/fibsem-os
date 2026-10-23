@@ -228,7 +228,8 @@ def _message_line(data, marked=None) -> str:
     text = " ".join(str(data.get("text", "")).split())
     marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
     return (
-        f"MESSAGE id={message_id} from the operator: {text}{marks} -- answer with "
+        f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"
+        f"{marks} -- answer with "
         f"experiment_add_note (reply_to={message_id}). It is not an "
         "approval: your level still decides what you may do"
     )

@@ -1,7 +1,7 @@
 """Stage geometry of a saved image, beam or fluorescence, from its own metadata:
 the same projections the overview canvases use, read from the file."""
 
-from typing import Any, Callable, Dict, List, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 
 def _load(path: str):
@@ -61,6 +61,18 @@ def image_points_to_stage(path: str, points: Sequence[Tuple[float, float]]) -> L
         else None
         for x, y in points
     ]
+
+
+def image_pixel_size(path: str) -> Optional[float]:
+    """The pixel size (metres) of the saved image at *path*, beam or
+    fluorescence; None when its metadata doesn't say."""
+    image = _load(path)
+    metadata = getattr(image, "metadata", None)
+    size = getattr(metadata, "pixel_size", None)
+    size = getattr(size, "x", None) if size is not None else None
+    if size is None:
+        size = getattr(metadata, "pixel_size_x", None)
+    return float(size) if size else None
 
 
 def stage_projector(path: str) -> Tuple[Dict[str, Any], Callable]:
