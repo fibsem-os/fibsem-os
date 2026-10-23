@@ -27,6 +27,7 @@ import numpy as np
 import fibsem.constants as constants
 from fibsem.devices.beam import UNBOUNDED_SHIFT_LIMITS, Beam
 from fibsem.devices.core import ParameterMetadata, Resources
+from fibsem.devices.entries import beam_type_of
 from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
 from fibsem.drivers.tescan import images
 from fibsem.structures import (
@@ -778,9 +779,7 @@ def bind_tescan_stage(
 
 def build_tescan_beam(entry: DeviceEntry, context: BuildContext) -> TescanBeam:
     """The column an ``electron`` or ``ion`` entry names."""
-    if entry.name not in ("electron", "ion"):
-        raise ValueError("a Tescan beam is named 'electron' or 'ion'")
-    beam_type = BeamType.ELECTRON if entry.name == "electron" else BeamType.ION
+    beam_type = beam_type_of(entry)
     microscope = context.microscope
     return TescanBeam(beam_type, microscope, microscope._connection).connect()
 

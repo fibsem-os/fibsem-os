@@ -712,7 +712,13 @@ def draw_milling_patterns(
         if show_current:
             extra_parts.append(format_value(stage.milling.milling_current, "A"))
         if show_preset:
-            extra_parts.append(stage.milling.preset)
+            # the preset of the driver that mills by one (Tescan)
+            presets = [
+                block.preset
+                for block in stage.milling.driver.values()
+                if hasattr(block, "preset")
+            ]
+            extra_parts.extend(presets[:1])
         if show_depth:
             # Get depth from pattern
             depth_m = getattr(pattern, "depth", None)
