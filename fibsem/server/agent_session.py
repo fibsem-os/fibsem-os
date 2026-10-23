@@ -121,7 +121,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
 def _text(item: Any, what: str) -> str:
     text = item.get("text") if isinstance(item, dict) else None
     if not isinstance(text, str) or not text.strip() or len(text) > MAX_ITEM:
-        raise _refused(f"Each {what} has a text of at most {MAX_ITEM} characters.")
+        raise _invalid(f"Each {what} has a text of at most {MAX_ITEM} characters.")
     return text.strip()
 
 
@@ -129,12 +129,12 @@ def _checklist(items: Any) -> List[Dict[str, str]]:
     """Each item {text, state}: open (the default), done, or always for a
     standing rule."""
     if not isinstance(items, list) or len(items) > MAX_CHECKLIST:
-        raise _refused(f"checklist is a list of at most {MAX_CHECKLIST} items.")
+        raise _invalid(f"checklist is a list of at most {MAX_CHECKLIST} items.")
     checked = []
     for item in items:
         state = item.get("state", "open") if isinstance(item, dict) else None
         if state not in CHECK_STATES:
-            raise _refused(f"An item's state is one of {list(CHECK_STATES)}.")
+            raise _invalid(f"An item's state is one of {list(CHECK_STATES)}.")
         checked.append({"text": _text(item, "item"), "state": state})
     return checked
 
@@ -155,7 +155,7 @@ def deadline(by: str, now: Optional[datetime] = None) -> datetime:
 def _constraints(items: Any) -> List[Dict[str, str]]:
     """Each {text, by?}: by, when given, is stored as a time with its offset."""
     if not isinstance(items, list) or len(items) > MAX_CONSTRAINTS:
-        raise _refused(f"constraints is a list of at most {MAX_CONSTRAINTS} items.")
+        raise _invalid(f"constraints is a list of at most {MAX_CONSTRAINTS} items.")
     checked = []
     for item in items:
         constraint = {"text": _text(item, "constraint")}
@@ -164,7 +164,7 @@ def _constraints(items: Any) -> List[Dict[str, str]]:
             try:
                 constraint["by"] = deadline(str(by)).isoformat(timespec="minutes")
             except ValueError:
-                raise _refused(
+                raise _invalid(
                     "by is a time, 07:00, or an ISO date and time, 2026-10-24T07:00."
                 ) from None
         checked.append(constraint)

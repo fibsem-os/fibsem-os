@@ -186,7 +186,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             # The image the operator marked for the agent, kept in the
             # experiment as the agent's own evidence is.
             if not isinstance(marked, dict):
-                raise _refused(422, "invalid", "evidence is {image, marks, channels?}.")
+                raise refusal_error(
+                    422, "invalid", "evidence is {image, marks, channels?}."
+                )
             try:
                 record = evidence.save(
                     agent.experiment_path,
