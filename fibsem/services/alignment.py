@@ -98,7 +98,7 @@ class Alignment(Service):
         """Stop an ``align_to_reference`` after the step it is on."""
         self._stop_requested.set()
 
-    # Coincidence at a target: experimental (2026-10-16), for the agent to try
+    # Coincidence at a target: experimental, for the agent to try
     # against its own by-hand loop. See `fibsem.alignment.coincidence_target`.
 
     @command

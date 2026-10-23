@@ -212,7 +212,7 @@ class FieldOfViewOverlay(PointsOverlay):
     conversion is `metres_to_canvas`, a straight division by the reference pixel size:
     the box is a frame in the plane being *displayed*, not a shape lying on the tilted
     sample, so the surface foreshortening correction must not be applied to it -- doing
-    that to something in this frame is what made an overlay 3.9x too tall (FIB-615).
+    that to something in this frame is what made an overlay 3.9x too tall.
 
     With no extent, or before the canvas has a scale, this draws exactly what
     :class:`PointsOverlay` draws: the crosshair and a label beside it.
@@ -238,7 +238,7 @@ class FieldOfViewOverlay(PointsOverlay):
         A no-op when it is the size already held. Hosts call this from the same
         refresh that redraws the markers, which on the fluorescence tab runs on
         settings changes and stage moves; repainting a canvas to tell it what it
-        already knows is the cost that made the grid drag stutter (FIB-752).
+        already knows is the cost that made the grid drag stutter.
         """
         extent = self._as_extent((width, height))
         if extent == self._extent:

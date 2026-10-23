@@ -42,7 +42,7 @@ def set_supervision(
 
     The workflow reads it at every decision point, so a change takes effect
     at the next one, mid-run included. A supervised proposal goes to the
-    operator and the agent alike, and the first decision wins (FIB-1035).
+    operator and the agent alike, and the first decision wins.
     """
     protocol = experiment.task_protocol
     supervise = bool(supervise)

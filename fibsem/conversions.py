@@ -17,19 +17,12 @@ def get_image_pixel_centre(
     ``subpixel_precision=False`` floors to a whole pixel. That is what the
     movement, milling and detection paths have always done, and it only differs
     from the true centre on an odd image dimension -- by half a pixel.
-
-    Moved here from ``fibsem.ui.napari.patterns`` (FIB-644): it is pure geometry
-    with no UI content, and living in a napari module meant
-    ``milling/patterning/plotting.py`` could not import it without dragging a UI
-    stack in, so it computed the same centre inline instead.
     """
     centre = np.asarray(image_shape)
     centre = centre / 2 if subpixel_precision else centre // 2
     cy, cx = centre  # raises for a shape that is not 2-D
-    # Python scalars, not numpy ones: the floored centre used to be a plain int
-    # and is handed to callers that index, format and serialise it. np.int64
-    # behaves like int almost everywhere -- json.dumps being the notable
-    # exception -- so this keeps the old type rather than relying on that.
+    # Python scalars, not numpy ones: callers index, format and serialise the
+    # centre, and json.dumps refuses np.int64.
     return (float(cy), float(cx)) if subpixel_precision else (int(cy), int(cx))
 
 
@@ -42,7 +35,7 @@ def image_to_microscope_image_coordinates_px(
     The microscope image coordinate system is centered on the image with positive Y-axis pointing upwards,
     so y is mirrored about the centre where x is only shifted. This is the single source of that convention:
     the two metres-returning functions below are this plus a pixel-size multiply, and the correlation module
-    reprojects points through it (FIB-362).
+    reprojects points through it.
 
     ``subpixel_precision`` has no default on purpose. Flooring the centre only differs from the true centre
     on an odd image dimension, and then by half a pixel -- small enough to go unnoticed and large enough to
@@ -137,7 +130,7 @@ def microscope_image_to_image_coordinates(
             Defaults False, matching this function's long-standing behaviour --
             but note the forward conversion is called with True by the
             correlation module, and pairing the two centres round-trips a point
-            half a pixel off on an odd image dimension (FIB-644).
+            half a pixel off on an odd image dimension.
     Returns:
         Point: A Point object representing the corresponding pixel coordinates in the original image.
     """

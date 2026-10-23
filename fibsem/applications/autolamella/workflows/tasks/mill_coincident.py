@@ -5,11 +5,7 @@ objective inserted, using the record ``SetupCoincidenceMillingTask`` left on the
 lamella: the objective height, the FM region to monitor, where the pattern sits,
 which channel, and the drop fraction. Unsupervised, the strategy stops the beam
 when the monitored intensity drops by that fraction; supervised, the drop only
-alerts and the operator stops it (the viewer's monitor mode, FIB-912).
-
-Before this rewrite the task was unregistered, called a method that did not
-exist, and even fixed would only have pushed the milling config to the widget
-and waited for the operator to run the viewer by hand. See FIB-907.
+alerts and the operator stops it (the viewer's monitor mode).
 """
 
 from __future__ import annotations
@@ -297,7 +293,7 @@ class MillCoincidentTask(AutoLamellaTask):
         )
         timestamp = utils.current_timestamp_v3(timeonly=True)
         basename = f"{self.lamella.name}-coincidence-final-{timestamp}.ome.tiff"
-        filename = os.path.join(self.output_dir, basename)  # the run's (FIB-1275)
+        filename = os.path.join(self.output_dir, basename)  # the run's
         image = acquire_image(
             microscope=self.microscope.fm,
             channel_settings=fm_config.channel_settings,

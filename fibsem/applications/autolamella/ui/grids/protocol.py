@@ -372,7 +372,7 @@ class GridProtocolWidget(QWidget):
 
     def _refresh_reach(self) -> None:
         """Say, under the task's title, when its overview reaches past the stage
-        here: the tiles the run would skip (FIB-1152), by the question the task
+        here: the tiles the run would skip, by the question the task
         itself asks. Best effort: a check that cannot be made says nothing, and
         the run still skips what it must."""
         config = self.selected_config()

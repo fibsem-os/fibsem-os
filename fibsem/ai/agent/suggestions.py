@@ -55,7 +55,7 @@ def decision_text(proposal: Proposal) -> str:
         place = values.get("stage_position") if len(values) == 1 else None
         if isinstance(place, dict):
             # A position kept or moved to, not "Continue with stage position
-            # name none, ..., coordinate system RAW" (FIB-1492).
+            # name none, ..., coordinate system RAW".
             kept = values == _encode_values(proposal.values)
             return f"{'Keep the position' if kept else 'Move to'}: {wording.stage_place(place)}"
         text += f" with {wording.values_text(values)}"
@@ -83,7 +83,7 @@ def suggestion_card(
     """The card's suggestion: ``proposal``, ``decision``, ``reason`` and the
     ``evidence`` it cites (its record, or None). The proposal reads by what it
     is, not the task's prompt to the operator ("Press Continue when done"),
-    which is the window's (FIB-1492). With no evidence, ``no_evidence`` says
+    which is the window's. With no evidence, ``no_evidence`` says
     what the picture is instead."""
     card = {
         "proposal": f"{item.name} · {task_name} · {proposal_label(proposal)}",

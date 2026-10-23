@@ -130,7 +130,7 @@ class CameraWidget(QWidget):
         self._write("set the camera transform", self.fm.set_image_transform, transform)
 
     def _write(self, action: str, setter, value) -> None:
-        """Write *value* holding control (FIB-1488). Refused, the controls show
+        """Write *value* holding control. Refused, the controls show
         the camera's values again."""
         if operator_acts(control_of(self.fm), action, setter, value):
             self.settings_changed.emit(self.camera_settings)

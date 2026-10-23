@@ -26,8 +26,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
         self,
         microscope: FibsemMicroscope = None,
         settings: MicroscopeSettings = None,
-        # Unused, retained for call-site compatibility. Untyped: every host now passes
-        # None, so naming napari here would be the module's only reason to know it exists.
+        # Unused, retained for call-site compatibility; every host passes None.
         viewer=None,
         image_widget: Optional["FibsemImageSettingsWidget"] = None,
         parent=None,

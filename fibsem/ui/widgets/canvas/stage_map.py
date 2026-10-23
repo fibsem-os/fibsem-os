@@ -465,8 +465,7 @@ class StageMap(QWidget):
         them, and holders differ in shape. A square rather than the slots' padded
         extent: two slots side by side padded evenly make a thin strip, and a real
         shuttle is a block that runs well past its slots. Placed through
-        `slot_landmark`, as the slots are, so the two cannot disagree. FIB-1198 is a
-        configured outline, with this as the fallback.
+        `slot_landmark`, as the slots are, so the two cannot disagree.
         """
         if not holder_is_calibrated(self._microscope):
             return None

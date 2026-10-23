@@ -135,7 +135,7 @@ _OVERLAY_GAP = 2
 _TOP_CHROME_INSET = _OVERLAY_MARGIN + _OVERLAY_BTN_SIZE + 4
 # The "● LIVE" chip shares the toolbar row, so it takes the buttons' height and corner
 # radius; the green is the badge's own, not a button state.
-# The status chips (FIB-1188): whether the image still matches the stage. Blue while
+# The status chips: whether the image still matches the stage. Blue while
 # something is happening to it, grey once it is stale and nothing is coming.
 _BUSY_CHIP_BG = "#1f5f99"
 _STALE_CHIP_BG = BORDER_COLOR
@@ -191,8 +191,8 @@ _INFO_BAR_STYLE = (
 # ---------------------------------------------------------------------------
 
 
-# Keyboard modifiers mapped to napari-style strings, so handler bodies that
-# branch on ``"Alt" in modifiers`` port across from the napari callbacks verbatim.
+# Keyboard modifiers mapped to strings, so handler bodies branch on
+# ``"Alt" in modifiers``.
 _QT_MODIFIER_MAP = (
     (Qt.AltModifier, "Alt"),
     (Qt.ShiftModifier, "Shift"),
@@ -214,7 +214,7 @@ def _pass_clicks_through(widget) -> None:
 
 
 def _modifiers_from_event(event) -> Tuple[str, ...]:
-    """Active keyboard modifiers as napari-style strings, e.g. ``("Alt",)``.
+    """Active keyboard modifiers as strings, e.g. ``("Alt",)``.
 
     Reads the underlying Qt event (``event.guiEvent``) — the Qt modifier state is
     the reliable source in an embedded canvas, whereas matplotlib's
@@ -242,7 +242,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     Subclass and override :meth:`_content_extent` to supply the drawn content.
     """
 
-    # Trailing ``object`` is a tuple of napari-style modifier strings, e.g. ("Alt",).
+    # Trailing ``object`` is a tuple of modifier strings, e.g. ("Alt",).
     canvas_clicked = pyqtSignal(
         float, float, object
     )  # left single-click (x, y) px, mods
@@ -315,7 +315,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._live_badge = None  # top-right "● LIVE" chip during live acquisition
         self._live_on: bool = False  # remembered so it survives set_image
         # The status chip in the same place, when not live: "MOVING", "ACQUIRING",
-        # "STAGE MOVED" (FIB-1188). Remembered, so it survives set_image.
+        # "STAGE MOVED". Remembered, so it survives set_image.
         self._chip_text: Optional[str] = None
         self._chip_stale = False
         self._chip_while_live = False
@@ -324,9 +324,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         # Shares the top-left status zone with the hint, and outranks it while up.
         self._flash_text: Optional[str] = None
         # Live numbers tracking the pointer (e.g. the stage position under the cursor).
-        # Also the status zone: hosts used to put this in a hand-placed label of their
-        # own, in "the one free corner" -- which stopped being free the moment the zone
-        # arrived, and the two drew on top of each other.
+        # Also the status zone, so hosts do not hand-place a label that would draw on
+        # top of it.
         self._readout_text: Optional[str] = None
         # The status zone itself: one chip mirroring the toolbar at the other end of the
         # row. Qt-laid-out, so nothing converts between logical and device pixels.
@@ -460,9 +459,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     def set_scalebar_visible(self, visible: bool) -> None:
         """Show or hide the scalebar. Mirrors :meth:`set_crosshair_visible`.
 
-        Present because ``ImagePointCanvas`` has it and the correlation tab calls
-        it; the shared canvas previously offered only the toggle, which cannot
-        express "off" without knowing what it is currently set to.
+        The correlation tab calls it; a toggle alone cannot express "off" without
+        knowing what it is currently set to.
         """
         self._scalebar_visible = visible
         self._sync_toggle_button(self.btn_toggle_scalebar, visible, "scalebar")
@@ -530,10 +528,8 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """Figure-fraction y for the canvas's top labels, clear of the toolbar row.
 
         One rule for all three -- hint, title, flash -- so they share a row rather than
-        each picking a height. The hint used to be anchored in `transAxes` at the axes'
-        own top, which put it *above* the flash on a frame that filled its pane and
-        *below* it on a letterboxed one: the two labels swapped vertical order with the
-        image's aspect ratio, and a long hint ran under the toolbar buttons.
+        each picking a height. Anchored in `transAxes` at the axes' own top, the hint
+        would swap vertical order with the flash with the image's aspect ratio.
 
         In figure coordinates, not axes: the toolbar buttons and the LIVE chip are laid
         out in widget pixels, and the figure is edge-to-edge (`subplots_adjust(top=1)`)
@@ -590,7 +586,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         one: it updates on every stage read and every objective move, and an artist
         update ends in `draw_idle`, which repaints every image the canvas holds. That
         was ~1.7 ms per placed image and unbounded — 61.7 ms at 36 — against a flat
-        0.07 ms here (FIB-650). Being a child widget also means `ax.cla()` cannot take
+        0.07 ms here. Being a child widget also means `ax.cla()` cannot take
         it down, so nothing has to remember and restore it across an image change.
         """
         self._info_text = text or None
@@ -652,7 +648,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         edge, which — the axes being ``aspect="equal"`` inside an edge-to-edge figure —
         happens for any frame at least as tall in aspect as its pane. A square FM frame
         in a square pane does it every time; a beam pane dragged taller than 3:2 does it
-        too (FIB-596). Sharing the toolbar's coordinate system and its layout pass makes
+        too. Sharing the toolbar's coordinate system and its layout pass makes
         the overlap impossible rather than tuned around.
 
         Being a widget, it also survives ``set_image`` on its own — no re-applying after
@@ -738,7 +734,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         to be matplotlib text positioned by arithmetic against Qt-laid-out controls, and
         that arithmetic went wrong twice: once by ignoring the toolbar row entirely, and
         once by dividing a logical inset by a device-pixel height, which is only correct
-        on a screen that is not a Retina one (FIB-639). Qt lays out in logical pixels
+        on a screen that is not a Retina one. Qt lays out in logical pixels
         natively, so a `QLabel` has no conversion to get wrong.
 
         Three occupants, in order of how fleeting they are: the flash is a value that
@@ -1119,10 +1115,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._overlays.append(overlay)
         overlay.attach(self._ax, self)
         # Unconditionally, and `_content_rect()` decides whether there is anything to
-        # report. The guard here used to be `self._img_w is not None`, which is a
-        # *single image* canvas's notion of content and is never set by one that places
-        # images in stage space -- so an overlay added to a real-space canvas was never
-        # told what it had been added to. Harmless for an overlay its host redraws by
+        # report. `self._img_w is not None` is a *single image* canvas's notion of
+        # content and is never set by one that places images in stage space -- so a
+        # guard on it would never tell an overlay on a real-space canvas what it had
+        # been added to. Harmless for an overlay its host redraws by
         # hand (a tile grid), and fatal for one that builds its artists on the first
         # content report (a rectangle), which simply never appeared. The guard was
         # redundant even here: the base `_content_rect` already answers `EMPTY_CONTENT`
@@ -1335,7 +1331,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
                     location="lower right",
                     # Unset, this inherits matplotlib's 10pt default, which is large
                     # against the rest of the canvas chrome -- the hint, title, info
-                    # bar and legend are all 10-12px Qt text (FIB-583).
+                    # bar and legend are all 10-12px Qt text.
                     font_properties={"size": 8},
                 )
                 self._ax.add_artist(self._scalebar_artist)
@@ -1445,7 +1441,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         self._pan_start = None
 
     def wheelEvent(self, event):
-        """Rescue the modified wheel event matplotlib declines to deliver (FIB-552).
+        """Rescue the modified wheel event matplotlib declines to deliver.
 
         `FigureCanvasQT.wheelEvent` reads only the *vertical* delta, and emits nothing at
         all when it is zero — not a zero-magnitude scroll, nothing. macOS supplies exactly
@@ -1459,10 +1455,10 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         Trackpads take matplotlib's `pixelDelta` path and are unaffected either way.
 
         Synthesised into a normal `scroll_event` rather than emitting `canvas_scrolled`
-        directly, which is what the retired `ImagePointCanvas` did: going through
+        directly: going through
         `_on_scroll` keeps the in-axes check, the real `xdata`/`ydata`, and
-        modifier-suppresses-zoom, so every consumer is served with no per-widget flag. The
-        old shortcut also fired for Shift+wheel *outside* the image.
+        modifier-suppresses-zoom, so every consumer is served with no per-widget flag, and
+        Shift+wheel outside the image does nothing.
 
         `modifiers=` is deliberately not passed: `_modifiers_from_event` reads the Qt
         event off `guiEvent`, and the kwarg's private backing only exists in newer

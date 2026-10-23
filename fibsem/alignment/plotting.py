@@ -236,7 +236,7 @@ def plot_coincidence_measurement(
     save: bool = True,
     path: Optional[str] = None,
 ):
-    """Diagnostic figure for one coincidence measurement (FIB-868).
+    """Diagnostic figure for one coincidence measurement.
 
     Three panels: the SEM view, the raw FIB view, and an overlay of the SEM
     (green) against the perspective-corrected FIB shifted by the measured

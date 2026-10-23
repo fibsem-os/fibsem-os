@@ -210,21 +210,20 @@ class LamellaCardWidget(QWidget):
         self._apply_layout()
 
         # ── evented connections ──────────────────────────────────────────
-        # The two task_state connections are DISABLED, not deleted -- see FIB-604 for
+        # The two task_state connections are DISABLED, not deleted -- see below for
         # why they cannot simply go, and `lamella_list_widget` for the same block.
         # Written by the workflow's worker thread, so the @ensure_main_thread refresh
         # arrives later, by which point `clear()`'s deleteLater may have taken this card
-        # down. An exception escaping a Qt slot aborts the process under PyQt5 (FIB-329,
-        # no excepthook installed) -- this card is where that was proved on 2026-08-12,
-        # crashing on a thumbnail the worker was still writing, killing the write partway
-        # and leaving a 0-byte file (FIB-602).
+        # down. An exception escaping a Qt slot aborts the process under PyQt5 (no
+        # excepthook installed) -- here, crashing on a thumbnail the worker was still
+        # writing, killing the write partway and leaving a 0-byte file.
         #
         # `_on_workflow_update` refreshes this card by name, so it still follows a run;
         # what is lost is determinism, since that update is emitted before `pre_task`
         # writes the state it should show. Stale beats a lost run while the crash is
-        # fatal. Delete these once FIB-604 lands a trigger that fires after the write.
-        # lamella.task_state.events.name.connect(self.refresh)    # DISABLED: FIB-604
-        # lamella.task_state.events.status.connect(self.refresh)  # DISABLED: FIB-604
+        # fatal. Restore these once a trigger fires after the write.
+        # lamella.task_state.events.name.connect(self.refresh)    # DISABLED
+        # lamella.task_state.events.status.connect(self.refresh)  # DISABLED
         connect_for_lifetime(self, lamella.events.defect, self.refresh)  # type: ignore[union-attr]
         connect_for_lifetime(self, lamella.events.description, self.refresh)  # type: ignore[union-attr]
 
@@ -300,7 +299,7 @@ class LamellaCardWidget(QWidget):
         """Row: thumbnail | name over status | defect | actions.
 
         The strip is one column in a 340px-wide scroll area, so height is what limits
-        how many lamellae are visible at once (FIB-585).
+        how many lamellae are visible at once.
         """
         self._thumb_label.setFixedSize(_THUMB_W, _THUMB_H)
 
@@ -558,7 +557,7 @@ class LamellaCardContainer(QWidget):
         # Lamella ids are stable, and the host clears then re-adds the same set on
         # every rebuild -- so a surviving id would name a card that is drawn
         # unselected while the container thinks it is selected, and the next click on
-        # it would toggle off rather than select (FIB-578).
+        # it would toggle off rather than select.
         self._selected_id = None
 
     def select_lamella(self, name: str) -> None:

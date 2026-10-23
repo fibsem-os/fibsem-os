@@ -123,7 +123,7 @@ class DemoMicroscope(FibsemMicroscope):
     # y through zero, which is what the base class does for a driver that names no
     # centre. Named here so its images record it too. Without it they record the
     # ThermoFisher constant, and the overview draws a position from the other side of
-    # the stage about 1.6 mm from where a move there goes (FIB-1081, FIB-655).
+    # the stage about 1.6 mm from where a move there goes.
     rotation_centre = (0.0, 0.0)
     # The simulated sample loader's magazine is free to read, so the sample handling
     # service reads it when it is built.
@@ -138,7 +138,6 @@ class DemoMicroscope(FibsemMicroscope):
         self._setup_fluorescence()
 
         # user, experiment metadata
-        # TODO: remove once db integrated
         self.user = FibsemUser.from_environment()
         self.experiment = FibsemExperimentRef()
 
@@ -188,7 +187,7 @@ class DemoMicroscope(FibsemMicroscope):
         #
         # Deliberately separate from the fluorescence *geometry*, so that "an FM is
         # present but nothing is configured for it" stays representable -- that is the
-        # state an existing site hits on upgrade, and the one worth testing (FIB-830).
+        # state an existing site hits on upgrade, and the one worth testing.
         #
         # Defaults to `sim.is_compustage`, which is what this branched on before, so
         # every simulator configuration keeps its current behaviour without the key.

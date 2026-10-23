@@ -318,7 +318,7 @@ def _fm_acquire_overview(
     asked = {k: a[k] for k in ("channels", "parameters", "zparams") if a.get(k)}
     estimate = wording.result_of(ctx.get(_IMAGING + "fm_estimate_overview", asked))
     if isinstance(estimate, dict):
-        # its whole run, the stage and objective moves counted (FIB-1492)
+        # its whole run, the stage and objective moves counted
         line["change"] += wording.about(estimate.get("duration"))
     return line
 

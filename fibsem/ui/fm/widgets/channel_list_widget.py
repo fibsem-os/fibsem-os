@@ -109,7 +109,7 @@ class _ChannelList(ReorderableListWidget):
         self._fm = fm
 
     def set_fm(self, fm) -> None:
-        """Point at a different microscope (FIB-525).
+        """Point at a different microscope.
 
         Only used to suppress selection changes during live acquisition, but a
         stale reference here means asking the *previous* microscope whether it is
@@ -708,7 +708,7 @@ class ChannelListWidget(QWidget):
         The excitation/emission choices are read from the microscope once, at
         construction, and handed to every row. On a reconnect that leaves each row
         offering the previous microscope's filters -- or, if the first connection
-        had no FM at all, nothing (FIB-525).
+        had no FM at all, nothing.
 
         Rebuilding the rows is how the new choices reach them: the rows take their
         item lists as constructor arguments, and the channel objects themselves are
@@ -809,7 +809,7 @@ class ChannelListWidget(QWidget):
         Nothing can reach this today: the only connection is the header checkbox,
         which is constructed hidden and never shown. It is written to survive that
         changing, because the cache write and the header sync are exactly what the
-        AutoLamella lists were missing (FIB-577), and the cache one is not cosmetic.
+        AutoLamella lists were missing, and the cache one is not cosmetic.
         `_checkbox_states` is what `_on_reordered` rebuilds rows from, so leaving it
         stale means a drag-and-drop after a clear silently re-ticks every channel --
         and the rebuild emits no `enabled_changed`, so the consumer that just heard

@@ -148,7 +148,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         self._holder = holder
         # A built-in shuttle's holder is the autoloader's one working slot: its name
         # and capacity are not the operator's to change, and its position is where
-        # a loaded grid sits, height included (FIB-1144). Asked of the service that
+        # a loaded grid sits, height included. Asked of the service that
         # built the holder, not read from its name.
         sample_handling = getattr(microscope, "sample_handling", None)
         self._builtin = (

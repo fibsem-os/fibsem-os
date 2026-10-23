@@ -5,7 +5,7 @@ and how much travel is left. None of it depends on what is imaging the sample --
 numbers come from `microscope.sample_handling`, and turning them into canvas coordinates is the
 `StageFrame`'s job, which both overview tabs already have.
 
-They had a copy each, and the copies disagreed (FIB-698). The fluorescence one gated the
+They had a copy each, and the copies disagreed. The fluorescence one gated the
 travel box on `stage_is_compustage` -- one guard answering two questions, since travel
 limits have nothing to do with grids -- sized the grid boundary with `frame.length()` and
 drew it as a circle, and handed raw slot positions to `frame.to_canvas`. Each is fixed
@@ -208,7 +208,7 @@ def canvas_span(frame: StageFrame, length: float) -> Tuple[float, float]:
     *through* a tilted surface rather than along it, and inflates every span by
     `1 / cos(pre_tilt)` -- exactly 1.000 at the pre-tilt of 0 that every Arctis and every
     test has, and 1.221 on a 35 degree shuttle, where a grid boundary came out 22% tall
-    in the two views it must be a circle in (FIB-657). Stage x needs no such care: the
+    in the two views it must be a circle in. Stage x needs no such care: the
     tilt is about x, so stage x lies in the surface and a step along it is a step along
     the surface.
 

@@ -1,5 +1,5 @@
 """Who is acting: the one ``Actor`` every record names, and the mark that says
-who is acting on the microscope right now (FIB-1062).
+who is acting on the microscope right now.
 
 An :class:`Actor` is a kind and a name, written ``kind:name``
 (``operator:patrick``, ``agent:claude``, ``task:Mill Rough``). Proposals,
@@ -133,7 +133,7 @@ def carried(fn: Callable[..., T]) -> Callable[..., T]:
     """*fn*, marked as whoever called this, on whatever thread it later runs.
 
     The mark is read now, not when *fn* runs: hand the result to the other
-    thread (FIB-1276).
+    thread.
     """
     actor = current_actor()
 
