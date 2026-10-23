@@ -830,12 +830,6 @@ class Proposal:
         return d is not None and d.outcome is DecisionOutcome.Withdrawn
 
     @property
-    def unreviewed(self) -> bool:
-        """Used as proposed because nobody was asked."""
-        d = self.current
-        return d is not None and d.outcome is DecisionOutcome.Unreviewed
-
-    @property
     def applied(self) -> Optional[Decision]:
         """The decision whose values were written through: the latest
         Confirmed one that carried values."""

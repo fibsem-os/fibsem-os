@@ -36,7 +36,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.applications.autolamella.structures import DefectState, DefectType, Lamella
+from fibsem.applications.autolamella.structures import Lamella
+from fibsem.workflows.quality import QualityRecord, Verdict
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -75,7 +76,7 @@ class TestTheWidgetNoLongerSavesItself:
         widget = ExperimentTab(session, movement_widget=lambda: None)
         try:
             session.experiment = experiment
-            lamella.defect = DefectState(state=DefectType.FAILURE)
+            lamella.defect = QualityRecord(verdict=Verdict.FAILED)
             widget.lamella_list.defect_changed.emit(lamella)
         finally:
             widget.close()

@@ -128,26 +128,16 @@ def _light_color(channel: Any) -> Optional[str]:
     return "violet"
 
 
-def stack_facts(image: FluorescenceImage) -> Dict[str, Any]:
-    """What a legend says about a stack: each channel as the projection draws
-    it (name, colour, excitation in nm, emission filter, exposure in s, and
-    each plane's sharpness), the number of z planes, their step in metres (None
-    when not recorded), and when it was acquired."""
-    shape = np.shape(image.data)
-    planes = int(shape[-3]) if len(shape) >= 3 else 1
-    count = int(shape[-4]) if len(shape) >= 4 else 1
-    sharpness = (
-        [plane_sharpness(channel) for channel in _czyx(image)] if planes > 1 else None
-    )
-    return _facts(image.metadata, count, planes, sharpness)
-
-
 def _facts(
     metadata: Any,
     count: int,
     planes: int,
     sharpness: Optional[List[List[float]]],
 ) -> Dict[str, Any]:
+    """What a legend says about a stack: each channel as the projection draws
+    it (name, colour, excitation in nm, emission filter, exposure in s, and
+    each plane's sharpness), the number of z planes, their step in metres (None
+    when not recorded), and when it was acquired."""
     channels = list(metadata.channels)
     facts = []
     for index in range(count):
@@ -242,8 +232,8 @@ def load_stack_preview(
     channels: Optional[Sequence[str]] = None,
     max_px: Optional[int] = None,
 ) -> Tuple[np.ndarray, float, Dict[str, Any], Tuple[int, int]]:
-    """As :func:`load_projection`, with the stack's :func:`stack_facts` and its
-    full (Y, X) size: plane *z* and *channels* as :func:`render_stack` takes them.
+    """As :func:`load_projection`, with what a legend says about the stack and
+    its full (Y, X) size: plane *z* and *channels* as :func:`render_stack` takes them.
 
     Reads the file a plane at a time (`StackFile`): a plane reads one page per
     channel shown, and the projection and the sharpness come from one pass

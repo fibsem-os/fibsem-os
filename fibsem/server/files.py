@@ -132,7 +132,7 @@ def load_image(
 ) -> Tuple[np.ndarray, Any, Optional[float], Optional[Dict[str, Any]], Tuple[int, ...]]:
     """A saved image as something viewable: its data (2-D, or RGB), the
     FibsemImage it is when it is a beam image (else None), its pixel size in
-    metres when known, a fluorescence stack's ``stack_facts`` (else None), and
+    metres when known, a fluorescence stack's legend facts (else None), and
     the full image's shape. With *max_px*, the data may be a smaller copy the
     file holds, still that size on its long side; the pixel size and the shape
     stay the full image's.

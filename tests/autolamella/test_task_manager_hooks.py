@@ -9,9 +9,10 @@ from typing import List
 
 import pytest
 
-from fibsem.applications.autolamella.structures import DefectType, Experiment, Lamella
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.hooks import FunctionHook, HookContext, HookEvent, HookManager
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus
 
 ALL_EVENTS = list(HookEvent)
@@ -122,7 +123,7 @@ def test_skipped_task_carries_its_reason(experiment, recorder):
     the hook rather than only the UI status dict."""
     hook_manager, fired = recorder
     lamella = Lamella(path=experiment.path, number=1, petname="lam-1")
-    lamella.defect.state = DefectType.FAILURE
+    lamella.defect.verdict = Verdict.FAILED
     experiment.positions.append(lamella)
     manager = _manager(experiment, hook_manager)
 
@@ -140,7 +141,7 @@ def test_skip_fires_no_task_started_or_completed(experiment, recorder):
     """A skipped task never ran, so it must not look like one that did."""
     hook_manager, fired = recorder
     lamella = Lamella(path=experiment.path, number=1, petname="lam-1")
-    lamella.defect.state = DefectType.FAILURE
+    lamella.defect.verdict = Verdict.FAILED
     experiment.positions.append(lamella)
     manager = _manager(experiment, hook_manager)
 
@@ -173,7 +174,7 @@ def test_a_run_that_skipped_everything_does_not_claim_completion(
 
     hook_manager, _ = recorder
     lamella = Lamella(path=experiment.path, number=1, petname="lam-1")
-    lamella.defect.state = DefectType.FAILURE
+    lamella.defect.verdict = Verdict.FAILED
     experiment.positions.append(lamella)
     manager = _manager(experiment, hook_manager)
     messages = _status_messages(manager)

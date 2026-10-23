@@ -62,7 +62,7 @@ EDITOR_IDS = ["task_config_editor", "lamella_protocol_editor"]
 
 # Resolved from the package, not the cwd: the suite's _isolate_cwd fixture chdirs
 # each test into a tmp_path, so a relative path finds nothing.
-SIM_ARCTIS = os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")
+SIM_ARCTIS = os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 
 
 def _channels():

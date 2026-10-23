@@ -9,8 +9,6 @@ from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    DefectState,
-    DefectType,
     Experiment,
     Lamella,
     LamellaDefaultConfig,
@@ -27,53 +25,54 @@ from fibsem.structures import (
     Point,
     ReferenceImageParameters,
 )
+from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.site_tasks.mill import (
     MillTaskConfig,
 )
 
-# ── DefectState tests ─────────────────────────────────────────────────────────
+# ── QualityRecord tests ─────────────────────────────────────────────────────────
 
 
 def test_defect_state_defaults():
-    d = DefectState()
-    assert d.state == DefectType.NONE
-    assert d.last_completed_task == ""
-    assert d.description == ""
+    d = QualityRecord()
+    assert d.verdict == Verdict.UNASSESSED
+    assert d.at_task == ""
+    assert d.reason == ""
     assert d.updated_at is None
 
 
 def test_defect_state_to_dict_and_from_dict():
-    d = DefectState(
-        state=DefectType.REWORK,
-        last_completed_task="Mill Rough",
-        description="thin spot",
+    d = QualityRecord(
+        verdict=Verdict.REWORK,
+        at_task="Mill Rough",
+        reason="thin spot",
     )
     data = d.to_dict()
     assert data["verdict"] == "REWORK"
     assert data["at_task"] == "Mill Rough"
     assert data["reason"] == "thin spot"
 
-    d2 = DefectState.from_dict(data)
-    assert d2.state == DefectType.REWORK
-    assert d2.last_completed_task == "Mill Rough"
-    assert d2.description == "thin spot"
+    d2 = QualityRecord.from_dict(data)
+    assert d2.verdict == Verdict.REWORK
+    assert d2.at_task == "Mill Rough"
+    assert d2.reason == "thin spot"
 
 
 def test_defect_state_from_dict_all_types():
-    for dt in DefectType:
-        d = DefectState.from_dict({"state": dt.name})
-        assert d.state == dt
+    for dt in Verdict:
+        d = QualityRecord.from_dict({"state": dt.name})
+        assert d.verdict == dt
 
 
 def test_defect_state_from_dict_empty():
-    d = DefectState.from_dict({})
-    assert d.state == DefectType.NONE
-    assert d.last_completed_task == ""
+    d = QualityRecord.from_dict({})
+    assert d.verdict == Verdict.UNASSESSED
+    assert d.at_task == ""
 
 
 def test_defect_state_backwards_compat_no_defect():
     """Old format: has_defect=False → NONE"""
-    d = DefectState.from_dict(
+    d = QualityRecord.from_dict(
         {
             "has_defect": False,
             "requires_rework": False,
@@ -81,12 +80,12 @@ def test_defect_state_backwards_compat_no_defect():
             "updated_at": None,
         }
     )
-    assert d.state == DefectType.NONE
+    assert d.verdict == Verdict.UNASSESSED
 
 
 def test_defect_state_backwards_compat_failure():
     """Old format: has_defect=True, requires_rework=False → FAILURE"""
-    d = DefectState.from_dict(
+    d = QualityRecord.from_dict(
         {
             "has_defect": True,
             "requires_rework": False,
@@ -94,14 +93,14 @@ def test_defect_state_backwards_compat_failure():
             "updated_at": 1.0,
         }
     )
-    assert d.state == DefectType.FAILURE
-    assert d.description == "bad mill"
+    assert d.verdict == Verdict.FAILED
+    assert d.reason == "bad mill"
     assert d.updated_at.timestamp() == 1.0  # an older float, read as a time
 
 
 def test_defect_state_backwards_compat_rework():
     """Old format: has_defect=True, requires_rework=True → REWORK"""
-    d = DefectState.from_dict(
+    d = QualityRecord.from_dict(
         {
             "has_defect": True,
             "requires_rework": True,
@@ -109,38 +108,36 @@ def test_defect_state_backwards_compat_rework():
             "updated_at": None,
         }
     )
-    assert d.state == DefectType.REWORK
+    assert d.verdict == Verdict.REWORK
 
 
 def test_defect_state_backwards_compat_missing_fields():
     """Old format with only has_defect present (requires_rework absent) → FAILURE"""
-    d = DefectState.from_dict({"has_defect": True})
-    assert d.state == DefectType.FAILURE
+    d = QualityRecord.from_dict({"has_defect": True})
+    assert d.verdict == Verdict.FAILED
 
 
 def test_defect_state_clear():
-    d = DefectState(
-        state=DefectType.FAILURE, last_completed_task="Mill Rough", description="oops"
-    )
+    d = QualityRecord(verdict=Verdict.FAILED, at_task="Mill Rough", reason="oops")
     d.clear()
-    assert d.state == DefectType.NONE
-    assert d.last_completed_task == ""
-    assert d.description == ""
+    assert d.verdict == Verdict.UNASSESSED
+    assert d.at_task == ""
+    assert d.reason == ""
     assert d.updated_at is None
 
 
 def test_defect_state_set_defect_default():
-    d = DefectState()
+    d = QualityRecord()
     d.set_defect(description="cracked")
-    assert d.state == DefectType.FAILURE
-    assert d.description == "cracked"
+    assert d.verdict == Verdict.FAILED
+    assert d.reason == "cracked"
     assert d.updated_at is not None
 
 
 def test_defect_state_set_defect_rework():
-    d = DefectState()
-    d.set_defect(description="thin spot", state=DefectType.REWORK)
-    assert d.state == DefectType.REWORK
+    d = QualityRecord()
+    d.set_defect(description="thin spot", state=Verdict.REWORK)
+    assert d.verdict == Verdict.REWORK
 
 
 def test_quality_record_reads_the_defect_state_shape():
@@ -184,30 +181,6 @@ def test_quality_record_round_trips_author_and_decision_id():
     again = QualityRecord.from_dict(q.to_dict())
     assert again == q
     assert again.decision_id == ("lamella-uuid", "Setup Lamella Position")
-    # the old attribute names still read and write the same fields
-    assert again.state is Verdict.FAILED
-    assert again.description == "no usable site"
-    again.state = Verdict.REWORK
-    assert again.verdict is Verdict.REWORK
-
-
-def test_old_enum_names_are_aliases():
-    from fibsem.applications.autolamella.structures import (
-        DefectState,
-        DefectType,
-        GridQuality,
-    )
-    from fibsem.workflows.quality import (
-        QualityRecord,
-        Verdict,
-    )
-
-    assert DefectState is QualityRecord
-    assert DefectType is Verdict and GridQuality is Verdict
-    assert Verdict.NONE is Verdict.UNASSESSED
-    assert Verdict.FAILURE is Verdict.FAILED
-    assert Verdict.POOR is Verdict.FAILED
-    assert [v.name for v in Verdict] == ["UNASSESSED", "GOOD", "REWORK", "FAILED"]
 
 
 def test_lamella_quality_is_the_defect_record():
@@ -226,11 +199,11 @@ def test_lamella_is_failure():
 
     lam = Lamella(path=Path("/tmp/test/lam"), number=1, petname="test-lam")
     assert lam.is_failure is False
-    lam.defect.state = DefectType.FAILURE
+    lam.defect.verdict = Verdict.FAILED
     assert lam.is_failure is True
-    lam.defect.state = DefectType.REWORK
+    lam.defect.verdict = Verdict.REWORK
     assert lam.is_failure is False
-    lam.defect.state = DefectType.NONE
+    lam.defect.verdict = Verdict.UNASSESSED
     assert lam.is_failure is False
 
 

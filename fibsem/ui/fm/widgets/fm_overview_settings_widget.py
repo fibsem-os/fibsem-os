@@ -385,11 +385,6 @@ class FMOverviewSettingsWidget(QWidget):
         self.autofocus_widget.update_channels(list(channels))
 
     @property
-    def autofocus_channel_name(self) -> Optional[str]:
-        channel = self.autofocus_widget.get_selected_channel()
-        return channel.name if channel is not None else None
-
-    @property
     def autofocus_settings(self) -> Optional[AutoFocusSettings]:
         """The sweep to run, or None when autofocus is off.
 

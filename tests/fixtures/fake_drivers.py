@@ -35,7 +35,7 @@ def _no_sdk(monkeypatch) -> None:
 FAKE_DRIVERS: Dict[str, FakeDriver] = {
     "Demo": FakeDriver(cfg.DEFAULT_CONFIGURATION_PATH, _no_sdk),
     "Tescan": FakeDriver(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml"),
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml"),
         tescan_sdk.install,
     ),
 }

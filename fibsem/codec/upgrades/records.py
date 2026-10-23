@@ -3,7 +3,8 @@ the current shape.
 
 - A verdict was a ``DefectState`` (``state``, ``description``,
   ``last_completed_task``) and, before that, ``has_defect`` / ``requires_rework``
-  flags. A grid's verdict that is a bare name reads as unassessed.
+  flags. Its names ``NONE``, ``FAILURE`` and ``POOR`` are ``UNASSESSED`` and
+  ``FAILED``. A grid's verdict that is a bare name reads as unassessed.
 - A task run named its item ``lamella_id``. ``AwaitingDecision`` (0.6 development
   builds) was a run that had finished.
 - An item's proposals were keyed by the task that asked them, and a decision
@@ -15,6 +16,9 @@ Presence, not a version, decides each step. Each step copies what it is given.
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Union
+
+# The verdict names older files wrote.
+_OLD_VERDICTS = {"NONE": "UNASSESSED", "FAILURE": "FAILED", "POOR": "FAILED"}
 
 
 def quality(data: Union[Dict[str, Any], str, None]) -> Dict[str, Any]:
@@ -37,6 +41,9 @@ def quality(data: Union[Dict[str, Any], str, None]) -> Dict[str, Any]:
     ):
         if old in data:
             data.setdefault(new, data.pop(old))
+    verdict = data.get("verdict")
+    if isinstance(verdict, str) and verdict in _OLD_VERDICTS:
+        data["verdict"] = _OLD_VERDICTS[verdict]
     return data
 
 

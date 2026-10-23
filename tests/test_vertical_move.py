@@ -24,7 +24,9 @@ from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
 
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default
-TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+TFS_SHUTTLE_CONFIG = os.path.join(
+    cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+)
 
 HFW = 150e-6
 RESOLUTION = (1536, 1024)

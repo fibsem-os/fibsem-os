@@ -10,17 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    ClassVar,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    Union,
-)
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
 import petname
@@ -75,14 +65,6 @@ if TYPE_CHECKING:
 
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.microscope import FibsemMicroscope
-
-
-# AutoLamellaUser lived here: a richer user identity (role, preferences, is_default)
-# with a to_fibsem_user() bridge into image metadata. Nothing ever constructed one --
-# not the app, not a script, not a test -- so the bridge was never called and the
-# extra fields never had a reader. Removed rather than left dormant, because half a
-# user model is worse than either answer. fibsem.structures.FibsemUser is the only
-# user model now and the ownership rule on FibsemImageMetadata.
 
 
 @dataclass
@@ -263,16 +245,6 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             _save_converted_protocol(filename, protocol)
         return protocol
 
-    def get_task_config_by_type(
-        self, task_type: Type["AutoLamellaTaskConfig"]
-    ) -> EventedDict[str, AutoLamellaTaskConfig]:
-        """Get the task configuration by type."""
-        task_configs = EventedDict()
-        for k, v in self.task_config.items():
-            if isinstance(v, task_type):
-                task_configs[k] = v
-        return task_configs
-
 
 def _save_converted_protocol(path: str, protocol: AutoLamellaTaskProtocol) -> None:
     """Save *protocol*, converted from the pre-task protocol at *path*, over it,
@@ -291,29 +263,6 @@ def _save_converted_protocol(path: str, protocol: AutoLamellaTaskProtocol) -> No
     logging.info(
         f"Saved {path} as a task protocol; the file as it was is kept as {backup}."
     )
-
-
-# The names this type and its enum had before they were one thing. Every reader
-# of ``DefectState`` / ``DefectType`` / ``GridQuality`` keeps working; new code
-# says ``QualityRecord`` / ``Verdict``.
-DefectState = QualityRecord
-DefectType = Verdict
-GridQuality = Verdict
-
-
-# The thumbnail is only ever displayed, and its largest reader is the cozy lamella
-# card at 280 px wide (the hover tooltip is 256). Storing the acquired frame at full
-# resolution meant decoding a 1536x1024, 823 KB PNG per card per refresh for a picture
-# thrown away at a fifth of the size -- 26 ms each, and the card strip re-reads every
-# lamella whenever one is added.
-#
-# 512 rather than 280: it leaves the largest card headroom on a HiDPI display, still
-# decodes in ~3 ms, and is a tenth of the bytes. Only ever shrinks -- a frame already
-# smaller than this is written through untouched.
-# The bound lives with the writer; kept here by name for anything that imports it.
-from fibsem.imaging.thumbnail import (
-    THUMBNAIL_MAX_EDGE as _THUMBNAIL_MAX_EDGE,  # noqa: E402
-)
 
 
 def _make_thumbnail_placeholder():
@@ -353,7 +302,7 @@ class Lamella(SiteItem):
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
     task_state: TaskState = field(default_factory=TaskState)
     task_history: List["TaskState"] = field(default_factory=list)
-    defect: DefectState = field(default_factory=DefectState)
+    defect: QualityRecord = field(default_factory=QualityRecord)
     milling_angle: Optional[float] = None
     poi: Point = field(
         default_factory=lambda: Point(0.0, 0.0)
@@ -487,21 +436,6 @@ class Lamella(SiteItem):
             logging.warning(f"Could not save the thumbnail for {self.name}: {e}")
 
     @property
-    def landing_selected(self) -> bool:
-        return self.landing_pose is not None
-
-    @property
-    def landing_pose(self) -> Optional[MicroscopeState]:
-        return self.poses.get("LANDING", None)
-
-    @landing_pose.setter
-    def landing_pose(self, value: MicroscopeState):
-        """Set the landing pose for the lamella."""
-        if not isinstance(value, MicroscopeState):
-            raise TypeError("Landing pose must be a MicroscopeState instance.")
-        self.poses["LANDING"] = value
-
-    @property
     def fluorescence_pose(self) -> Optional[MicroscopeState]:
         return self.poses.get("FLUORESCENCE", None)
 
@@ -511,13 +445,6 @@ class Lamella(SiteItem):
         if not isinstance(value, MicroscopeState):
             raise TypeError("Fluorescence pose must be a MicroscopeState instance.")
         self.poses["FLUORESCENCE"] = value
-
-    @property
-    def fluorescence_selected(self) -> bool:
-        return (
-            self.fluorescence_pose is not None
-            and self.fluorescence_pose.objective_position is not None
-        )
 
     def related_milling_stages(self, task_name: str) -> list:
         """The enabled milling stages of this lamella's tasks related to
@@ -583,17 +510,6 @@ class Lamella(SiteItem):
     def status_info(self) -> str:
         return f"Lamella {self.petname} [{self.task_state.name}]"
 
-    @property
-    def pretty_fm_name(self) -> str:
-        """Generate a pretty name for the stage position."""
-        obj_pos = (
-            self.fluorescence_pose.objective_position
-            if self.fluorescence_pose is not None
-            else None
-        )
-        objective_str = f"{obj_pos * 1e3:.3f}mm" if obj_pos is not None else "N/A"
-        return f"{self.name} ({self.stage_position.x * 1e6:.1f}μm, {self.stage_position.y * 1e6:.1f}μm, {objective_str})"
-
     @classmethod
     def from_dict(cls, data: dict) -> "Lamella":
         # backwards compatibility
@@ -623,27 +539,13 @@ class Lamella(SiteItem):
             task_history=[
                 TaskState.from_dict(task) for task in data.get("task_history", [])
             ],
-            defect=DefectState.from_dict(data.get("defect", {})),
+            defect=QualityRecord.from_dict(data.get("defect", {})),
             milling_angle=data.get("milling_angle", None),
             poi=Point.from_dict(data.get("poi", {"x": 0, "y": 0})),
             description=data.get("description", ""),
             grid_id=data.get("grid_id"),
             proposals=proposals_from_dict(data.get("proposals")),
         )
-
-    def load_reference_image(self, fname) -> FibsemImage:
-        """Load a specific reference image for this lamella from disk
-        Args:
-            fname: str
-                the filename of the reference image to load
-        Returns:
-            image: FibsemImage
-                the reference image loaded as a FibsemImage
-        """
-
-        image = FibsemImage.load(os.path.join(self.path, f"{fname}.tif"))
-
-        return image
 
     def get_thumbnail(self) -> "np.ndarray":
         """Load the thumbnail image for this lamella if available.
@@ -688,7 +590,7 @@ class Lamella(SiteItem):
         one, never a partial.
 
         Written at display size rather than at the acquired resolution -- see
-        `_THUMBNAIL_MAX_EDGE`. This is a thumbnail, not a copy of the frame; the frame
+        `fibsem.imaging.thumbnail.THUMBNAIL_MAX_EDGE`. This is a thumbnail, not a copy of the frame; the frame
         itself is saved separately by the task that acquired it. A fluorescence
         stack's thumbnail is its projection, as the FM canvas draws it.
         """
@@ -702,14 +604,6 @@ class Lamella(SiteItem):
             else image.filtered_data
         )
         write_thumbnail(data, os.path.join(self.path, "thumbnail.png"))
-
-    # def get_task_config_by_type(self, task_type: Type['AutoLamellaTaskConfig']) -> Dict[str, AutoLamellaTaskConfig]:
-    #     """Get the task configuration by type."""
-    #     task_configs = {}
-    #     for k, v in self.task_config.items():
-    #         if isinstance(v, task_type):
-    #             task_configs[k] = v
-    #     return task_configs
 
     def sync_tasks_to_poi(self, point: Optional[Point] = None) -> list[str]:
         """Sync the milling patterns to point of interest"""
@@ -771,7 +665,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
     path: Path
     positions: EventedList[Lamella] = field(default_factory=EventedList)
     grids: EventedList[GridRecord] = field(default_factory=EventedList)
-    landing_positions: List[FibsemStagePosition] = field(default_factory=list)
     # Aware, written as ISO 8601 with its offset; older files hold a
     # POSIX float, which reads as this machine's zone.
     created_at: Optional[datetime] = field(default_factory=now)
@@ -797,7 +690,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         super().__init__(path=path, name=name, metadata=metadata)
         self.positions: EventedList[Lamella] = EventedList()
         self.grids: EventedList[GridRecord] = EventedList()
-        self.landing_positions: List[FibsemStagePosition] = []
 
         self.task_protocol: AutoLamellaTaskProtocol = None  # must be set externally
 
@@ -812,7 +704,6 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
             **super().to_dict(),
             "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
             "grids": [grid.to_dict() for grid in self.grids],
-            "landing_positions": [pos.to_dict() for pos in self.landing_positions],
         }
 
         if include_protocol:
@@ -840,18 +731,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         for grid_dict in ddict.get("grids", []):
             experiment.grids.append(GridRecord.from_dict(grid_dict))
 
-        # load landing positions
-        for landing_dict in ddict.get("landing_positions", []):
-            stage_position = FibsemStagePosition.from_dict(landing_dict)
-            experiment.landing_positions.append(stage_position)
-
         return experiment
-
-    def get_lamella_by_id(self, lamella_id: str) -> Optional["Lamella"]:
-        for lamella in self.positions:
-            if lamella.id == lamella_id:
-                return lamella
-        return None
 
     def items(self) -> List[Union["Lamella", GridRecord]]:
         """The lamellae and grids: the items a task runs on and a proposal can

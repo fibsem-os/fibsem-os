@@ -1,6 +1,5 @@
 import datetime
 import functools
-import glob
 import json
 import logging
 import math
@@ -11,9 +10,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import yaml
-from PIL import Image
 
 from fibsem import config as cfg
+from fibsem import state_move
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
 from fibsem.structures import (
@@ -23,7 +22,6 @@ from fibsem.structures import (
     STAGE_POSITION_KEYS,
     BeamType,
     DeviceEntry,
-    FibsemImage,
     FibsemStagePosition,
     MicroscopeSettings,
 )
@@ -264,26 +262,6 @@ def format_voltage(volts: Optional[float]) -> str:
     return format_value(volts, "V", precision=2, scale=1e-3)
 
 
-def make_logging_directory(path: Optional[Path] = None, name="run"):
-    """
-    Create a logging directory with the specified name at the specified file path.
-    If no path is given, it creates the directory at the default base path.
-
-    Args:
-        path (Path, optional): The file path to create the logging directory at. If None, default base path is used.
-        name (str, optional): The name of the logging directory to create. Default is "run".
-
-    Returns:
-        str: The file path to the created logging directory.
-    """
-
-    if path is None:
-        path = os.path.join(cfg.BASE_PATH, "log")
-    directory = os.path.join(path, name)
-    os.makedirs(directory, exist_ok=True)
-    return directory
-
-
 def configure_logging(
     path: Path = "",
     log_filename="logfile",
@@ -311,6 +289,7 @@ def configure_logging(
     logging.getLogger("PIL").setLevel(logging.WARNING)
     logging.getLogger("napari").setLevel(logging.WARNING)
 
+    state_move.log_pending()
     return logfile
 
 
@@ -350,28 +329,6 @@ def save_json(path: Union[Path, os.PathLike, str], data: dict) -> None:
     """
     with open(path, "w") as f:
         json.dump(data, f, indent=4)
-
-
-def create_gif(path: Path, search: str, gif_fname: str, loop: int = 0) -> None:
-    """Creates a GIF from a set of images. Images must be in same folder
-
-    Args:
-        path (Path): Path to images folder
-        search (str): search name
-        gif_fname (str): name to save gif file
-        loop (int, optional): _description_. Defaults to 0.
-    """
-    filenames = glob.glob(os.path.join(path, search))
-
-    imgs = [Image.fromarray(FibsemImage.load(fname).data) for fname in filenames]
-
-    print(f"{len(filenames)} images added to gif.")
-    imgs[0].save(
-        os.path.join(path, f"{gif_fname}.gif"),
-        save_all=True,
-        append_images=imgs[1:],
-        loop=loop,
-    )
 
 
 def setup_session(
@@ -979,37 +936,6 @@ def get_params(main_str: str) -> list:
 
         i += 1
     return cats
-
-
-def save_positions(positions: list, path: str = None, overwrite: bool = False) -> None:
-    """Save a list of positions to a YAML file.
-
-    Not where the application keeps its saved positions any more: those are session
-    state (`fibsem.saved_positions`). A file written here is only imported if the
-    configuration's session state has no saved positions yet.
-    """
-
-    from fibsem import config as cfg
-
-    # convert single position to list
-    if not isinstance(positions, list):
-        positions = [positions]
-
-    # default path
-    if path is None:
-        path = cfg.POSITION_PATH
-
-    # get existing positions
-    pdict = []
-    if not overwrite:
-        pdict = load_yaml(fname=path)
-
-    # append new positions
-    for position in positions:
-        pdict.append(position.to_dict())
-
-    # save
-    save_yaml(path, pdict)
 
 
 def _register_metadata(

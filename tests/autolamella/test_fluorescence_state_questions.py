@@ -37,13 +37,13 @@ from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_positio
 from fibsem.fm.structures import ChannelSettings
 from fibsem.structures import FibsemStagePosition
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.proposals import STATE
+from fibsem.workflows.proposals import STATE, DecisionOutcome
 from tests.answering import ANSWERER, answering
 from tests.protocols import planned, task_protocol
 
 SELECT = "Select Fluorescence Position"
 ACQUIRE = "Acquire Fluorescence Image"
-CONFIG = os.path.join(fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml")
+CONFIG = os.path.join(fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 OBJECTIVE = 0.006
 
 
@@ -122,7 +122,7 @@ def test_select_position_headless_the_position_goes_on_the_record_unreviewed(
 
     (question,) = lamella.proposals_from(SELECT)
     assert question.kind == STATE
-    assert question.unreviewed
+    assert question.current.outcome is DecisionOutcome.Unreviewed
     pose = question.values["stage_position"]
     assert isinstance(pose, FibsemStagePosition)
     assert question.current.values["stage_position"] == pose, "used as proposed"
@@ -142,7 +142,9 @@ def test_acquire_headless_the_position_before_autofocus_goes_on_the_record(
     _task(AcquireFluorescenceImageTask, ACQUIRE, microscope, exp).run()
 
     question = lamella.proposal(ACQUIRE, STATE)
-    assert question is not None and question.unreviewed
+    assert (
+        question is not None and question.current.outcome is DecisionOutcome.Unreviewed
+    )
     assert "Run autofocus" in question.provenance["message"]
     assert isinstance(question.values["stage_position"], FibsemStagePosition)
 
@@ -167,8 +169,14 @@ def test_without_a_window_the_questions_wait_for_an_answer(
     select = lamella.proposal(SELECT, STATE)
     acquire = lamella.proposal(ACQUIRE, STATE)
     assert answered == [select, acquire]
-    assert not select.unreviewed and str(select.current.actor) == ANSWERER
-    assert not acquire.unreviewed and str(acquire.current.actor) == ANSWERER
+    assert (
+        select.current.outcome is not DecisionOutcome.Unreviewed
+        and str(select.current.actor) == ANSWERER
+    )
+    assert (
+        acquire.current.outcome is not DecisionOutcome.Unreviewed
+        and str(acquire.current.actor) == ANSWERER
+    )
     assert "Move to fluorescence position" in select.provenance["message"]
     assert "Run autofocus" in acquire.provenance["message"]
     assert stopped, "the live view is taken down after the confirmation"

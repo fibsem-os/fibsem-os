@@ -133,7 +133,7 @@ fibsem-gateway = "fibsem.gateway.main:main"
 include = ["fibsem*"]
 # Stated explicitly because it is load-bearing, not a preference: a dozen
 # directories are PEP 420 namespace packages with no __init__.py, including
-# fibsem/ui/widgets (68 modules) and fibsem/microscopes.
+# fibsem/ui/widgets (68 modules).
 # This defaults to true for pyproject config, but setting it false — or reaching
 # for find_packages semantics — would silently drop all of them from the wheel.
 namespaces = true
@@ -220,7 +220,7 @@ ignore = [
     # Do not autofix blind. Ruff answers "is this name used in this file", which
     # is not "is it safe to delete" -- names re-exported through a module, or
     # reached as `mod.X` after `from pkg import mod`, look unused to it and are
-    # not. One such removal is rated *safe* and breaks scripts/test_installation.
+    # not. Some removals it rates *safe* break a caller elsewhere.
     # Check candidates against the whole repo first, and run the suite.
     # In __init__.py an unused import IS the re-export idiom; ruff already
     # refuses to autofix those, and they want a per-file-ignore at the moment

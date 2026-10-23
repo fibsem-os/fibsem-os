@@ -130,23 +130,6 @@ def covers_event(subscriptions: List[str], event: str) -> bool:
     return False
 
 
-def resolve_events(subscriptions: List[str]) -> List[str]:
-    """Expand groups to the events they currently cover, for display only.
-
-    Never persist this. A configuration that stores the expansion stops covering
-    events added later, which is precisely the drift groups exist to avoid -- the
-    saved form must stay the group name.
-    """
-    resolved: List[str] = []
-    for subscription in subscriptions:
-        name = _event_name(subscription)
-        for event in EVENT_GROUPS.get(name, [name]):
-            event = _event_name(event)
-            if event not in resolved:
-                resolved.append(event)
-    return resolved
-
-
 def unknown_subscriptions(subscriptions: List[str]) -> List[str]:
     """Names that are neither an event nor a group, and so will never match."""
     return [

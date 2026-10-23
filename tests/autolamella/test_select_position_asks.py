@@ -34,6 +34,7 @@ from fibsem.workflows.proposals import (
     DETECTION,
     POINT_OF_INTEREST,
     STATE,
+    DecisionOutcome,
 )
 from tests.answering import answering
 from tests.fixtures.microscopes import demo_microscope
@@ -167,7 +168,11 @@ def test_headless_both_confirmations_go_on_the_record_unreviewed(microscope, tmp
         POINT_OF_INTEREST,
         ALIGNMENT_AREA,
     ], "the tilt, the position, the point, then the alignment area"
-    assert tilt.unreviewed and position.unreviewed and point.unreviewed
+    assert (
+        tilt.current.outcome is DecisionOutcome.Unreviewed
+        and position.current.outcome is DecisionOutcome.Unreviewed
+        and point.current.outcome is DecisionOutcome.Unreviewed
+    )
 
     assert "Tilt to the milling angle (15.0" in tilt.provenance["message"]
     assert "38.0" in tilt.provenance["message"], "says where the stage is"
@@ -215,10 +220,14 @@ def test_a_switched_off_confirmation_is_recorded_and_not_asked(
         _task(microscope, exp).run()
 
     tilt, position = [p for p in lamella.proposals_from(SETUP) if p.kind == STATE]
-    assert tilt.unreviewed and "turned off" in tilt.current.reason
-    assert position in answered and not position.unreviewed, (
-        "asked, and it waited for the answer"
+    assert (
+        tilt.current.outcome is DecisionOutcome.Unreviewed
+        and "turned off" in tilt.current.reason
     )
+    assert (
+        position in answered
+        and position.current.outcome is not DecisionOutcome.Unreviewed
+    ), "asked, and it waited for the answer"
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +249,10 @@ def test_without_a_window_both_confirmations_wait_for_an_answer(
     assert "Tilt to the milling angle" in tilt.provenance["message"]
     assert "Double click the image" in position.provenance["message"]
     assert answered[:2] == [tilt, position], "each waited for its answer"
-    assert not tilt.unreviewed and not position.unreviewed
+    assert (
+        tilt.current.outcome is not DecisionOutcome.Unreviewed
+        and position.current.outcome is not DecisionOutcome.Unreviewed
+    )
     assert microscope.get_current_milling_angle() == pytest.approx(MILLING_ANGLE), (
         "the tilt was confirmed, so the task tilted"
     )
@@ -288,7 +300,7 @@ def test_headless_the_alignment_area_goes_on_the_record_unreviewed(
     _task(microscope, exp).run()
 
     area = lamella.proposal(SETUP, ALIGNMENT_AREA)
-    assert area is not None and area.unreviewed
+    assert area is not None and area.current.outcome is DecisionOutcome.Unreviewed
     assert area.values["alignment_area"] == proposed
     assert area.current.values["alignment_area"] == proposed, "used as proposed"
     assert "alignment area" in area.provenance["message"]
@@ -315,7 +327,10 @@ def test_a_switched_off_alignment_area_is_recorded_and_not_asked(
         _task(microscope, exp).run()
 
     area = lamella.proposal(SETUP, ALIGNMENT_AREA)
-    assert area.unreviewed and "turned off" in area.current.reason
+    assert (
+        area.current.outcome is DecisionOutcome.Unreviewed
+        and "turned off" in area.current.reason
+    )
     assert ALIGNMENT_AREA not in SelectMillingPositionTask.asks_for(
         lamella.task_config[SETUP]
     )
@@ -332,7 +347,9 @@ def test_without_a_window_the_alignment_area_and_the_point_wait(
         _task(microscope, exp).run()
 
     area = lamella.proposal(SETUP, ALIGNMENT_AREA)
-    assert area in answered and not area.unreviewed
+    assert area in answered and area.current.outcome is not DecisionOutcome.Unreviewed
     point = lamella.proposal(SETUP, POINT_OF_INTEREST)
-    assert point in answered and not point.unreviewed, "asked during the task"
+    assert (
+        point in answered and point.current.outcome is not DecisionOutcome.Unreviewed
+    ), "asked during the task"
     assert lamella.latest_run_completed(SETUP), "nothing waits after it ends"

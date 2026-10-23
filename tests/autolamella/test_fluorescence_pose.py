@@ -28,7 +28,7 @@ from fibsem.structures import FibsemStagePosition, MicroscopeState
 from tests.autolamella._on_the_record import manager_for
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(
-    fconfig.CONFIG_PATH, "sim-arctis-configuration.yaml"
+    fconfig.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
 )
 
 CONFIGURED_OBJECTIVE = 0.006  # 6 mm — the user's configured focus position
