@@ -37,11 +37,14 @@ from fibsem.applications.volume.position_milling import (
 from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
 from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.widgets.canvas import LamellaEditorView, MicroscopeViewController
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
     MillingSpec,
     PointsSpec,
+)
+from fibsem.ui.widgets.canvas.quad_view import (
+    LamellaEditorView,
+    MicroscopeViewController,
 )
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 from fibsem.util.timestamps import format_time

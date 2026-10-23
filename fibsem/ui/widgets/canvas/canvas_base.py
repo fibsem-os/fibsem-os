@@ -56,10 +56,10 @@ from fibsem.ui.tokens import (
     WHITE_ICON_COLOR,
 )
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
+from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
-    from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
 
 _logger = logging.getLogger(__name__)
 
@@ -1256,8 +1256,6 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """
         if self.btn_toggle_ruler.isChecked():
             if self._ruler_overlay is None:
-                from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
-
                 self._ruler_overlay = RulerOverlay()
                 self.add_overlay(self._ruler_overlay)
             self._ruler_overlay.set_visible(True)

@@ -30,8 +30,11 @@ from fibsem.structures import BeamType, FibsemImage, FibsemMillingSettings
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import SEMANTIC_WARNING_COLOR
 from fibsem.ui.utils import beam_choices
-from fibsem.ui.widgets.canvas import LamellaEditorView, MicroscopeViewController
 from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
+from fibsem.ui.widgets.canvas.quad_view import (
+    LamellaEditorView,
+    MicroscopeViewController,
+)
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.form_builder import Control, build_control
 

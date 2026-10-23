@@ -30,6 +30,7 @@ from matplotlib.colors import to_rgba
 from matplotlib.image import AxesImage
 
 from fibsem.conversions import microscope_image_to_image_coordinates
+from fibsem.milling.patterning.plotting import bitmap_to_rgba
 from fibsem.milling.patterning.shapes import (
     COLOURS,
     convert_pattern_to_napari_line,
@@ -395,7 +396,6 @@ class MillingPatternOverlay(CanvasOverlay):
         """
         # Imported here, not at module import: it pulls in pyplot + skimage, which
         # the rest of this overlay does not need.
-        from fibsem.milling.patterning.plotting import bitmap_to_rgba
 
         centre = microscope_image_to_image_coordinates(
             Point(x=ps.centre_x, y=ps.centre_y), shape, pixelsize

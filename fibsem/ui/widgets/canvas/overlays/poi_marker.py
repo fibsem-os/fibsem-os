@@ -9,10 +9,12 @@ same point on it (``sync``).
 
 from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 
-from fibsem.structures import BeamType
+from fibsem import conversions
+from fibsem.structures import BeamType, Point
+from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 
 if TYPE_CHECKING:
-    from fibsem.structures import FibsemImage, Point
+    from fibsem.structures import FibsemImage
 
 __all__ = ["PoiMarker", "poi_pixel", "poi_point"]
 
@@ -22,8 +24,6 @@ OVERLAY_ID = "poi"
 def poi_pixel(frame: "FibsemImage", point: "Point") -> Tuple[float, float]:
     """A point of interest (metres from the frame's centre) as *frame*'s
     (col, row) pixel."""
-    from fibsem import conversions
-
     px = conversions.microscope_image_to_image_coordinates(
         point, frame.data.shape, frame.metadata.pixel_size.x
     )
@@ -32,9 +32,6 @@ def poi_pixel(frame: "FibsemImage", point: "Point") -> Tuple[float, float]:
 
 def poi_point(frame: "FibsemImage", pixel: Tuple[float, float]) -> "Point":
     """The inverse of :func:`poi_pixel`."""
-    from fibsem import conversions
-    from fibsem.structures import Point
-
     col, row = pixel
     return conversions.image_to_microscope_image_coordinates(
         Point(x=col, y=row), frame.data, frame.metadata.pixel_size.x
@@ -90,7 +87,6 @@ class PoiMarker:
         image = self.view_frame(fallback)
         if image is None:
             return False
-        from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 
         self.frame = image
         if poi is not None:

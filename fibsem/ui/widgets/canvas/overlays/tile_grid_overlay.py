@@ -25,6 +25,7 @@ from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import TilePosition
+from fibsem.ui.widgets.canvas.canvas_base import _modifiers_from_event
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 logger = logging.getLogger(__name__)
@@ -837,8 +838,6 @@ class TileGridOverlay(QObject, CanvasOverlay):
         Qt directly here -- keeps one answer to "which modifiers are down", which
         matters because the reliable source is the Qt event and not `MouseEvent.key`.
         """
-        from fibsem.ui.widgets.canvas.canvas_base import _modifiers_from_event
-
         return PAINT_MODIFIER in _modifiers_from_event(event)
 
     def _claim(self, event) -> None:
