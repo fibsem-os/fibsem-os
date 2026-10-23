@@ -63,17 +63,6 @@ from fibsem.workflows.queue import (
 )
 
 
-class TaskNotRegisteredError(Exception):
-    """Exception raised when a task is not registered."""
-
-    def __init__(self, task_type: str):
-        super().__init__(f"Task '{task_type}' is not registered.")
-        self.task_type = task_type
-
-    def __str__(self) -> str:
-        return f"TaskNotRegisteredError: {self.task_type}"
-
-
 # Built-in tasks registry
 BUILTIN_TASKS: Dict[str, Type[SiteTask]] = {
     **BUILTIN_SITE_TASKS,
@@ -107,20 +96,6 @@ TASK_PLUGINS: PluginRegistry[Type[AutoLamellaTask]] = PluginRegistry(
 )
 
 
-def register_task(task_cls: Type[AutoLamellaTask]) -> None:
-    """Register a task class at runtime.
-
-    Args:
-        task_cls: The task class to register. Must be a subclass of AutoLamellaTask
-                  with a config_cls ClassVar that has a task_type ClassVar.
-
-    Example:
-        >>> from fibsem.applications.autolamella.workflows.tasks import register_task
-        >>> register_task(CustomTask)
-    """
-    TASK_PLUGINS.register(task_cls.config_cls.task_type, task_cls)
-
-
 def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
     """Get all available tasks.
 
@@ -135,11 +110,6 @@ def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
     return TASK_PLUGINS.all()
 
 
-def get_task_names() -> typing.List[str]:
-    """Get list of all available task type names."""
-    return list(get_tasks().keys())
-
-
 def load_task_config(
     ddict: Dict[str, Any],
 ) -> "EventedDict[str, AutoLamellaTaskConfig]":
@@ -152,9 +122,3 @@ def load_task_config(
     return EventedDict(load_task_configs(TASK_PLUGINS, ddict))
 
 
-def get_task_config(task_type: str) -> Type["AutoLamellaTaskConfig"]:
-    """Get the task configuration by name."""
-    task_registry = get_tasks()
-    if task_type not in task_registry:
-        raise TaskNotRegisteredError(task_type)
-    return task_registry[task_type].config_cls  # type: ignore

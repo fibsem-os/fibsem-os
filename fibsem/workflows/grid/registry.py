@@ -44,16 +44,6 @@ GRID_TASK_PLUGINS: PluginRegistry[Type[GridTask]] = PluginRegistry(
 )
 
 
-def register_grid_task(task_cls: Type[GridTask]) -> Type[GridTask]:
-    """Class decorator: make a task available by its config's `task_type`."""
-    task_type = task_cls.config_cls.task_type
-    registered = GRID_TASK_PLUGINS.registered.get(task_type)
-    if registered is not None and registered is not task_cls:
-        logging.warning(f"Grid task type '{task_type}' registered twice; replacing.")
-    GRID_TASK_PLUGINS.register(task_type, task_cls)
-    return task_cls
-
-
 def get_grid_tasks() -> Dict[str, Type[GridTask]]:
     """Every grid task, by task_type: built-ins, then runtime registrations,
     then plugins."""

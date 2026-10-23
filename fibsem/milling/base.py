@@ -29,7 +29,7 @@ from pydantic import AfterValidator
 from fibsem.codec import NotSaved, Tagged, decode, encode, saved
 from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.monitor_config import MillingMonitorConfig
-from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN
+from fibsem.milling.patterning import DEFAULT_PATTERN
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import (
     Configurable,
@@ -310,7 +310,7 @@ class FibsemMillingStage(Configurable):
     num: int = 0
     enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
-    pattern: BasePattern = field(default_factory=DEFAULT_MILLING_PATTERN)
+    pattern: BasePattern = field(default_factory=DEFAULT_PATTERN)
     patterns: Annotated[Optional[List[BasePattern]], NotSaved] = param(
         None, not_used="a stage mills its one pattern; nothing reads patterns"
     )

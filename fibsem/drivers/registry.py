@@ -440,10 +440,3 @@ def _all_drivers() -> List[Tuple[str, DriverEntry]]:
     return list(seen.items())
 
 
-def get_driver_plugin_records() -> Tuple["PluginRecord", ...]:
-    """Every ``fibsem.drivers`` entry point and what became of it, read once.
-
-    Includes the plugins that failed. One whose manufacturer a built-in or a
-    runtime registration also claims loads, and is not the driver used.
-    """
-    return DRIVER_PLUGINS.plugin_records()

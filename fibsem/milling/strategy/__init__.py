@@ -42,5 +42,3 @@ def get_strategy_names() -> typing.List[str]:
     ]
 
 
-def register_strategy(strategy_cls: typing.Type[MillingStrategy[typing.Any]]) -> None:
-    STRATEGY_PLUGINS.register(strategy_cls.name, strategy_cls)

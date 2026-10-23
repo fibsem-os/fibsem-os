@@ -76,19 +76,6 @@ PATTERN_PLUGINS: PluginRegistry[Type[BasePattern]] = PluginRegistry(
 )
 
 
-def register_pattern(pattern_cls: Type[BasePattern]) -> None:
-    """Register a pattern class at runtime.
-
-    Args:
-        pattern_cls: The pattern class to register
-
-    Example:
-        >>> from fibsem.milling.patterning import register_pattern
-        >>> register_pattern(CustomPattern)
-    """
-    PATTERN_PLUGINS.register(pattern_cls.name, pattern_cls)
-
-
 def get_patterns() -> Dict[str, Type[BasePattern]]:
     """Get all available patterns.
 
@@ -127,10 +114,6 @@ def get_pattern(name: str, config: Optional[Dict[str, Any]] = None) -> BasePatte
         raise NameError(str(error)) from None
     return pattern_cls.from_dict(config or {})
 
-
-# Loading these at import loads the pattern plugins (`fibsem.plugins.loader`).
-MILLING_PATTERNS = get_patterns()
-DEFAULT_MILLING_PATTERN = DEFAULT_PATTERN
 
 # Legacy protocol mapping
 PROTOCOL_MILL_MAP = {

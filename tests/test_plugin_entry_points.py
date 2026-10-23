@@ -123,15 +123,10 @@ def test_unselectable_strategy_is_hidden_from_the_dropdown():
 
 
 def test_task_plugin_resolves_through_the_registry():
-    from fibsem.applications.autolamella.workflows.tasks import (
-        get_task_config,
-        get_task_names,
-        get_tasks,
-    )
+    from fibsem.applications.autolamella.workflows.tasks import get_tasks
 
     assert TASK_TYPE in get_tasks(), sorted(get_tasks())
-    assert TASK_TYPE in get_task_names()
-    assert get_task_config(TASK_TYPE).__name__ == "FixtureTaskConfig"
+    assert get_tasks()[TASK_TYPE].config_cls.__name__ == "FixtureTaskConfig"
 
 
 def test_task_plugin_survives_protocol_load():
@@ -382,9 +377,9 @@ def test_driver_plugin_connects_through_setup_session():
 
 
 def test_driver_plugins_record_what_they_could_not_register():
-    from fibsem.drivers.registry import get_driver, get_driver_plugin_records
+    from fibsem.drivers.registry import DRIVER_PLUGINS, get_driver
 
-    records = {r.entry_point: r for r in get_driver_plugin_records()}
+    records = {r.entry_point: r for r in DRIVER_PLUGINS.plugin_records()}
 
     assert records["fixture_driver"].loaded
     assert records["fixture_driver"].distribution == "fibsem-test-plugin"
@@ -398,13 +393,13 @@ def test_driver_plugins_record_what_they_could_not_register():
 
 def test_a_device_driver_plugin_is_found_and_is_no_manufacturer():
     from fibsem.drivers.registry import (
+        DRIVER_PLUGINS,
         device_setups,
         get_driver,
-        get_driver_plugin_records,
         registered_manufacturers,
     )
 
-    records = {r.entry_point: r for r in get_driver_plugin_records()}
+    records = {r.entry_point: r for r in DRIVER_PLUGINS.plugin_records()}
     assert records["fixture_device_driver"].loaded
     assert set(get_driver(DEVICE_DRIVER).devices) == {"scan_generator"}
     assert DEVICE_DRIVER not in registered_manufacturers()

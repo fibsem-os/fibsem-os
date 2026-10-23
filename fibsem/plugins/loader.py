@@ -23,12 +23,10 @@ disagreement is precisely the fault this data exists to diagnose.
 ``fibsem.plugins.report`` turns these records into the plugin listing shown by
 ``fibsem-cli plugins`` and the Plugins panel.
 
-**This module must not import anything from fibsem.** ``milling/base.py``
-imports ``fibsem.milling.patterning``, whose ``__init__`` ends with a
-module-level ``MILLING_PATTERNS = get_patterns()`` -- so this code runs while
-``fibsem.milling.base`` is only half initialised, and any import reaching back
-into it raises. The base class and the name-extraction callable are therefore
-passed in as arguments rather than imported here.
+**This module must not import anything from fibsem.** The registries import it
+while their own packages are still initialising (``fibsem.milling.patterning``
+while ``fibsem.milling.base`` is), so the base class and the name-extraction
+callable are passed in as arguments rather than imported here.
 
 A group whose plugins are not classes passes ``resolve`` instead: it turns what
 the entry point loaded into the name and object to register, and raises
@@ -285,9 +283,7 @@ def plugin_classes(records: Tuple[PluginRecord, ...]) -> Dict[str, Type[Any]]:
 def clear_cache() -> None:
     """Forget every loaded group, so the next call re-walks the entry points.
 
-    For tests. Calling this in a running application will make the registries
-    disagree with the module-level snapshot taken at import time
-    (``MILLING_PATTERNS``), which is worse than a stale list.
+    For tests.
     """
     _CACHE.clear()
 
