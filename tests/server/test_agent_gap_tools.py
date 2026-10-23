@@ -489,6 +489,41 @@ def test_the_agent_saves_the_objective_focus_position(driving, arctis):  # noqa:
     assert limit.json()["detail"]["error_type"] == "not_allowed"
 
 
+def test_the_agent_inserts_the_objective_at_a_tilt(driving, arctis):  # noqa: F811
+    """Through the stage movement service, as the FM tab's Insert does."""
+    from fibsem.structures import InsertableDeviceState
+
+    arctis.fm.objective.retract()
+    stage = arctis.get_stage_position()
+    stage.t = 0.1
+    arctis.move_stage_absolute(stage)
+
+    _ok(_call(driving, "fm_insert_objective", tilt=0.0))
+
+    assert arctis.get_stage_position().t == pytest.approx(0.0)
+    assert arctis.fm.objective.state is InsertableDeviceState.INSERTED
+    _ok(_call(driving, "fm_retract_objective"))
+    assert arctis.fm.objective.state is InsertableDeviceState.RETRACTED
+
+
+def test_the_agent_saves_and_returns_to_a_position(driving, arctis):  # noqa: F811
+    """Through the stage movement service, as the Saved Positions panel does."""
+    _ok(_call(driving, "stage_save_position", name="cryo"))
+    saved = _ok(_call(driving, "stage_get_saved_positions"))["result"]
+    assert [p["name"] for p in saved] == ["cryo"]
+    stage = arctis.get_stage_position()
+    stage.x += 50e-6
+    arctis.move_stage_absolute(stage)
+
+    _ok(_call(driving, "stage_move_to_saved_position", name="cryo"))
+
+    assert arctis.get_stage_position().x == pytest.approx(saved[0]["x"], abs=1e-9)
+    _ok(_call(driving, "stage_remove_saved_position", name="cryo"))
+    assert _ok(_call(driving, "stage_get_saved_positions"))["result"] == []
+    missing = _call(driving, "stage_move_to_saved_position", name="cryo")
+    assert missing.status_code in (409, 422)
+
+
 def test_a_device_query_answers(driving):
     answer = _ok(
         _call(
@@ -579,6 +614,11 @@ def test_alignment_methods_are_compared_on_saved_images(driving, arctis):  # noq
         ),
         ("microscope_set_state", {"microscope_state": {}}, "the stage moves"),
         ("fm_save_focus_position", {}, "as the focus position"),
+        ("fm_insert_objective", {"tilt": -3.14159265}, "at -180° tilt"),
+        ("fm_insert_objective", {}, "Insert the objective"),
+        ("stage_save_position", {"name": "cryo"}, "as 'cryo'"),
+        ("stage_move_to_saved_position", {"name": "cryo"}, "saved position 'cryo'"),
+        ("stage_remove_saved_position", {"name": "cryo"}, "Forget"),
         ("beam_turn_on", {"beam_type": "ION"}, "Turn it on"),
         ("beam_turn_off", {"beam_type": "ION"}, "Turn it off"),
     ],
