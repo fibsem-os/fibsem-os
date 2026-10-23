@@ -33,6 +33,7 @@ from fibsem.server.parts import (
     LAMELLAE,
     MILLING_STAGES,
     POSES,
+    REPLAY,
     served_parts,
 )
 from fibsem.server.responses import (
@@ -75,6 +76,8 @@ from fibsem.server.responses import (
     QueueEdited,
     RecentExperiments,
     Recorded,
+    ReplayTimeline,
+    ReplayView,
     Requeued,
     RunPlan,
     RunStarted,
@@ -442,6 +445,14 @@ def build_app_router(context: Any) -> APIRouter:
     )
     def item_stack(item_name: str, role: str):
         return _typed(context.item_stack(item_name, role))
+
+    @router.get("/experiment/replay", tags=[REPLAY], response_model=ReplayTimeline)
+    def replay():
+        return _typed(context.replay())
+
+    @router.get("/experiment/replay/{index}", tags=[REPLAY], response_model=ReplayView)
+    def replay_scene(index: int, item: Optional[str] = None):
+        return _typed(context.replay_scene(index, item))
 
     @router.get(
         "/experiment/items/{item_name}",

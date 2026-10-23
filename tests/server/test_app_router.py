@@ -61,7 +61,14 @@ def client(microscope, host, event_buffer):
 def test_capabilities_reports_the_app_router(client):
     body = client.get("/capabilities", headers=AUTH).json()
     assert body["routers"] == {"microscope": True, "services": True, "app": True}
-    assert body["parts"] == ["items", "poses", "grids", "milling_stages", "lamellae"]
+    assert body["parts"] == [
+        "items",
+        "poses",
+        "grids",
+        "milling_stages",
+        "lamellae",
+        "replay",
+    ]
     assert body["app_name"] == "AutoLamella"
 
 
