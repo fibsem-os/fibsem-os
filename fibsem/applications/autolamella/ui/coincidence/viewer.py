@@ -34,15 +34,12 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QAction,
     QApplication,
     QDialog,
-    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMenu,
-    QMenuBar,
     QMessageBox,
     QProgressBar,
     QPushButton,
@@ -607,17 +604,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         outer.setContentsMargins(4, 4, 4, 4)
         outer.setSpacing(4)
 
-        # ── Menu bar: export/load a named coincidence configuration (FM + milling) ──
-        menubar = QMenuBar(self)
-        config_menu = menubar.addMenu("Configuration")
-        act_load = QAction("Load Configuration…", self)
-        act_export = QAction("Export Configuration…", self)
-        act_load.triggered.connect(self._load_configuration)
-        act_export.triggered.connect(self._export_configuration)
-        config_menu.addAction(act_load)
-        config_menu.addAction(act_export)
-        outer.setMenuBar(menubar)
-
         # ── Border frame — wraps splitter content ──
         self.run_border = RunBorder("coincidence_border_frame")
         outer.addWidget(self.run_border, 1)
@@ -807,11 +793,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         DEFAULT_MILLING_TASK_CONFIG.acquisition.acquire_sem = False
         DEFAULT_MILLING_TASK_CONFIG.stages[0].strategy.save_rate_limit = 0.0
 
-        milling_task_config = self._load_milling_config() or DEFAULT_MILLING_TASK_CONFIG
-
         self.milling_viewer_widget = MillingTaskViewerWidget(
             microscope=self.microscope,
-            milling_task_config=milling_task_config,
+            milling_task_config=DEFAULT_MILLING_TASK_CONFIG,
             milling_enabled=False,
             parent=self,
         )
@@ -819,18 +803,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.milling_viewer_widget.set_alignment_visible(False)
         self.milling_viewer_widget.set_acquisition_visible(False)
 
-        # Debounced auto-save of the milling config on any change. The viewer is
-        # usually minimized (not closed) for the session, so the closeEvent save
-        # alone could go unsaved for hours and be lost on a force-kill.
-        # Connected after construction so the initial load doesn't trigger a save.
-        from superqt.utils import qdebounced
-
-        self._autosave_milling_config = qdebounced(
-            self._save_milling_config, timeout=1000
-        )
-        self.milling_viewer_widget.settings_changed.connect(
-            lambda *_: self._autosave_milling_config()
-        )
         # the milling widget no longer scrolls itself; the tab does
         return scrollable(self.milling_viewer_widget)
 
@@ -975,131 +947,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         except Exception as e:
             logging.warning(f"Could not save FM working state: {e}")
 
-    def _load_milling_config(self):
-        """Load the last-used coincidence milling config, or None."""
-        import os
-
-        from fibsem import config as cfg
-        from fibsem.milling.tasks import FibsemMillingTaskConfig
-        from fibsem.utils import load_yaml
-
-        if not os.path.exists(cfg.COINCIDENCE_MILLING_CONFIG_PATH):
-            return None
-        try:
-            return FibsemMillingTaskConfig.from_dict(
-                load_yaml(cfg.COINCIDENCE_MILLING_CONFIG_PATH)
-            )
-        except Exception as e:
-            logging.warning(f"Could not load coincidence milling config: {e}")
-            return None
-
-    def _save_milling_config(self) -> None:
-        """Persist the current coincidence milling config."""
-        if self.milling_viewer_widget is None:
-            return
-        from fibsem import config as cfg
-        from fibsem.utils import save_yaml
-
-        try:
-            save_yaml(
-                cfg.COINCIDENCE_MILLING_CONFIG_PATH,
-                self.milling_viewer_widget.get_config().to_dict(),
-            )
-        except Exception as e:
-            logging.warning(f"Could not save coincidence milling config: {e}")
-
-    # ------------------------------------------------------------------
-    # Export / load a named coincidence configuration (FM + milling)
-    # ------------------------------------------------------------------
-
-    def _default_config_dir(self) -> str:
-        """Default directory for the export/load dialogs (the experiment path)."""
-        if self.experiment is not None and getattr(self.experiment, "path", None):
-            return self.experiment.path
-        return ""
-
-    def _export_configuration(self) -> None:
-        """Export the current FM + milling configuration to a YAML file."""
-        from fibsem.utils import save_yaml
-
-        default_path = os.path.join(
-            self._default_config_dir(), "coincidence-configuration.yaml"
-        )
-        filename, _ = QFileDialog.getSaveFileName(
-            self,
-            "Export Coincidence Configuration",
-            default_path,
-            "YAML files (*.yaml *.yml);;All files (*.*)",
-        )
-        if not filename:
-            return
-
-        data = {}
-        if self.microscope is not None and self.microscope.fm is not None:
-            data["fm"] = self._read_fm_configuration().to_dict()
-        if self.milling_viewer_widget is not None:
-            data["milling"] = self.milling_viewer_widget.get_config().to_dict()
-
-        try:
-            save_yaml(filename, data)
-        except Exception as e:
-            logging.error(f"Failed to export coincidence configuration: {e}")
-            QMessageBox.warning(self, "Export Configuration", f"Failed to export:\n{e}")
-            return
-        QMessageBox.information(
-            self, "Export Configuration", f"Configuration saved to:\n{filename}"
-        )
-
-    def _load_configuration(self) -> None:
-        """Load an FM + milling configuration from a YAML file and apply it."""
-        from fibsem.utils import load_yaml
-
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            "Load Coincidence Configuration",
-            self._default_config_dir(),
-            "YAML files (*.yaml *.yml);;All files (*.*)",
-        )
-        if not filename:
-            return
-
-        # Parse both halves before applying anything, so a malformed file fails
-        # here (UI untouched) rather than leaving a half-applied configuration.
-        try:
-            data = load_yaml(filename)
-            fm_config = None
-            if data.get("fm") is not None:
-                from fibsem.fm.structures import FluorescenceConfiguration
-
-                fm_config = FluorescenceConfiguration.from_dict(data["fm"])
-            milling_config = None
-            if data.get("milling") is not None:
-                from fibsem.milling.tasks import FibsemMillingTaskConfig
-
-                milling_config = FibsemMillingTaskConfig.from_dict(data["milling"])
-        except Exception as e:
-            logging.error(f"Failed to read coincidence configuration: {e}")
-            QMessageBox.warning(self, "Load Configuration", f"Failed to read:\n{e}")
-            return
-
-        try:
-            if (
-                fm_config is not None
-                and self.microscope is not None
-                and self.microscope.fm is not None
-            ):
-                self._apply_fm_configuration(fm_config)
-            if milling_config is not None and self.milling_viewer_widget is not None:
-                self.milling_viewer_widget.set_config(milling_config)
-        except Exception as e:
-            logging.error(f"Failed to apply coincidence configuration: {e}")
-            QMessageBox.warning(self, "Load Configuration", f"Failed to apply:\n{e}")
-
     def closeEvent(self, event):  # noqa: N802 (Qt override)
-        """Persist the FM working state + milling config when the window closes."""
+        """Persist the FM working state when the window closes."""
         if self.microscope is not None and self.microscope.fm is not None:
             self._save_fm_configuration()
-        self._save_milling_config()
         super().closeEvent(event)
 
     # ------------------------------------------------------------------

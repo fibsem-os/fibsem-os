@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import functools
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
@@ -116,6 +116,60 @@ def _ensure_rgb(arr: np.ndarray) -> np.ndarray:
     return arr
 
 
+def _scalebar_layout(w, h, pixel_size_x, location, margin, bar_height, font_scale):
+    """Where `draw_scalebar` puts its plate on a *w* x *h* image, and what is
+    on it; None when no bar fits."""
+    fov_m = pixel_size_x * w
+    bar_length_m = _pick_scalebar_length_m(fov_m)
+    if bar_length_m <= 0:
+        return None
+
+    bar_length_px = int(bar_length_m / pixel_size_x)
+    bar_length_px = min(bar_length_px, w - 2 * margin)
+
+    label = _format_length(bar_length_m)
+
+    # Font and text measurement
+    font_size = max(10, int(font_scale * 30))
+    font = _get_font(font_size)
+    bbox = font.getbbox(label)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+
+    # Background rectangle dimensions
+    pad = 6
+    bg_w = max(bar_length_px, tw) + 2 * pad
+    bg_h = bar_height + th + 3 * pad
+
+    # Position
+    if "left" in location:
+        bg_x = margin
+    else:
+        bg_x = w - margin - bg_w
+    bg_y = h - margin - bg_h
+    return bg_x, bg_y, bg_w, bg_h, bar_length_px, label, font, tw, pad
+
+
+def scalebar_plate(
+    width: int,
+    height: int,
+    pixel_size_x: float,
+    location: str = "lower right",
+    margin: int = 10,
+    bar_height: int = 6,
+    font_scale: float = 0.4,
+) -> Optional[Tuple[int, int, int, int]]:
+    """The ``(x0, y0, x1, y1)`` `draw_scalebar` covers with these arguments on
+    a *width* x *height* image, or None when it draws nothing."""
+    plate = _scalebar_layout(
+        width, height, pixel_size_x, location, margin, bar_height, font_scale
+    )
+    if plate is None:
+        return None
+    x, y, w, h = plate[:4]
+    return x, y, x + w, y + h
+
+
 def draw_scalebar(
     arr: np.ndarray,
     pixel_size_x: float,
@@ -147,35 +201,12 @@ def draw_scalebar(
     """
     rgb = _ensure_rgb(arr)
     h, w = rgb.shape[:2]
-
-    fov_m = pixel_size_x * w
-    bar_length_m = _pick_scalebar_length_m(fov_m)
-    if bar_length_m <= 0:
+    plate = _scalebar_layout(
+        w, h, pixel_size_x, location, margin, bar_height, font_scale
+    )
+    if plate is None:
         return rgb.copy()
-
-    bar_length_px = int(bar_length_m / pixel_size_x)
-    bar_length_px = min(bar_length_px, w - 2 * margin)
-
-    label = _format_length(bar_length_m)
-
-    # Font and text measurement
-    font_size = max(10, int(font_scale * 30))
-    font = _get_font(font_size)
-    bbox = font.getbbox(label)
-    tw = bbox[2] - bbox[0]
-    th = bbox[3] - bbox[1]
-
-    # Background rectangle dimensions
-    pad = 6
-    bg_w = max(bar_length_px, tw) + 2 * pad
-    bg_h = bar_height + th + 3 * pad
-
-    # Position
-    if "left" in location:
-        bg_x = margin
-    else:
-        bg_x = w - margin - bg_w
-    bg_y = h - margin - bg_h
+    bg_x, bg_y, bg_w, bg_h, bar_length_px, label, font, tw, pad = plate
 
     # Single RGBA overlay for all scalebar elements
     base = Image.fromarray(rgb).convert("RGBA")

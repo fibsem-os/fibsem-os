@@ -108,6 +108,19 @@ class ToolSpec:
         return self.read_only or self.method == "PUT"
 
 
+# Marks on an image, as evidence and the draw tools take them
+# (fibsem.workflows.evidence._marks).
+MARKS_PARAM = (
+    "{points: [{x, y, shape?, label?}], areas: [{x, y, width, height, label?}], "
+    "circles: [{x, y, radius, label?}], lines: [{x1, y1, x2, y2, arrow?, measure?, "
+    "label?}]} in the image's full-resolution pixels from its top left: shape is "
+    "cross (default) or target (a ring crosshair); arrow puts a head at x2, y2; "
+    "measure labels the line with its length, as the ruler does. Labels (at most "
+    "32 characters) name what is where; at most 50 marks. Marks read off a crop "
+    "take crop: the cell's name (B3) or the crop's box [x, y, width, height], "
+    "their x, y then as read off that crop's picture"
+)
+
 # The optional argument every acting tool takes (`ToolSpec.takes_evidence`):
 # what the agent judged from, kept in the experiment (fibsem.workflows.evidence).
 EVIDENCE_PARAM = (
@@ -118,8 +131,7 @@ EVIDENCE_PARAM = (
     "on it); or file, an image you made yourself in your working folder (an overlay "
     "your code drew, a plot; PNG or JPEG, at most 4 MB, saved at most 2048 px), "
     "shown as it is, with source, the experiment image it was drawn from; "
-    "marks, {points: [{x, y, label?}], areas: [{x, y, width, height, label?}]} "
-    "in the image's pixels from its top left, labels naming what is where. "
+    f"marks, {MARKS_PARAM}; experiment_draw_image shows them drawn. "
     "Attach it whenever an image decided what you do; without it the operator "
     "sees 'No evidence'"
 )
@@ -161,6 +173,9 @@ _WRITES_AT_WATCH = frozenset(
         "item_measure_thickness",  # saves its result beside the image
         "correlation_correlate",  # saves a run in the lamella's Correlation folder
         "experiment_render_markers",  # saves its picture beside the image
+        "experiment_draw_image",  # saves its picture beside the image
+        "experiment_draw_pair",  # saves its picture beside the first image
+        "item_draw_milling",  # saves its picture beside the image
     }
 )
 

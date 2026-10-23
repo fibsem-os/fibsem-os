@@ -27,6 +27,7 @@ import numpy as np
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QVBoxLayout, QWidget
 
+from fibsem.config import POSITION_FOV_HEIGHT, POSITION_FOV_WIDTH
 from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.geometry.projection import image_stage_geometry
@@ -54,11 +55,6 @@ from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig
 logger = logging.getLogger(__name__)
 
 VIEW_FM = "FM"
-
-# The box drawn around a marked position: the field of view a lamella image
-# covers, the same size the Overview tab draws.
-POSITION_FOV_WIDTH = 100e-6
-POSITION_FOV_HEIGHT = POSITION_FOV_WIDTH * (1024 / 1536)
 
 
 class StoredOverview:

@@ -453,6 +453,21 @@ class Lamella(SiteItem):
             and self.fluorescence_pose.objective_position is not None
         )
 
+    def related_milling_stages(self, task_name: str) -> list:
+        """The enabled milling stages of this lamella's tasks related to
+        *task_name*'s (its config's ``related_tasks``): what the lamella editor
+        and the agent's milling picture draw behind that task's own."""
+        config = self.task_config.get(task_name)
+        related = tuple(getattr(config, "related_tasks", None) or ())
+        stages = []
+        if not related:
+            return stages
+        for other in self.task_config.values():
+            if isinstance(other, related) and other.milling:
+                for milling in other.milling.values():
+                    stages.extend(milling.enabled_stages)
+        return stages
+
     def update_milling_angle(self, microscope: "FibsemMicroscope") -> None:
         """Recompute milling_angle from the milling-pose stage tilt.
 

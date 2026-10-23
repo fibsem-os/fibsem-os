@@ -401,24 +401,6 @@ class MainMenuBar(QObject):
 
         self._dev_menu = dev_menu
 
-        action_load_fm_configuration = QAction(
-            "Load Fluorescence Configuration", self._host
-        )
-        action_load_fm_configuration.triggered.connect(
-            lambda: self._panel().import_fm_configuration()
-        )
-        dev_menu.addAction(action_load_fm_configuration)
-
-        action_save_fm_configuration = QAction(
-            "Save Fluorescence Configuration", self._host
-        )
-        action_save_fm_configuration.triggered.connect(
-            lambda: self._panel().export_fm_configuration()
-        )
-        dev_menu.addAction(action_save_fm_configuration)
-
-        dev_menu.addSeparator()
-
         self.action_export_targeting_ml_data = QAction(
             "Export Targeting ML Data...", self
         )
