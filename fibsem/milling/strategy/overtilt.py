@@ -96,9 +96,6 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         if alignment_path is None:
             alignment_path = fcfg.DATA_CC_PATH
 
-        # TODO: pass in image settings
-        # TODO: attach image_settings to microscope? or get current settings?
-        # TODO: use drift correction structure to re-align? once added to milling stage
         image_settings = ImageSettings(
             hfw=stage.milling.hfw,
             dwell_time=1e-6,
@@ -110,7 +107,6 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
         image_settings.filename = f"ref_{stage.name}_overtilt_alignment"
         ref_image = acquire.acquire_image(microscope, image_settings)
 
-        # TODO: support rr
         try:
             self._mill_overtilted_patterns(
                 microscope=microscope,
@@ -121,9 +117,9 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
                 stop_event=stop_event,
             )
         finally:
-            # Always leave the stage where we found it. A cancel or a failure part-way
-            # through the loop used to exit with the stage still overtilted, patterns
-            # loaded and the beam at milling current.
+            # Always leave the stage where we found it: a cancel or a failure part-way
+            # through the loop must not leave the stage overtilted, patterns loaded
+            # and the beam at milling current.
             try:
                 microscope.finish_milling()
             except Exception as e:
@@ -144,7 +140,6 @@ class OvertiltTrenchMillingStrategy(MillingStrategy[OvertiltTrenchMillingConfig]
     ) -> None:
         """Mill each pattern at an alternating over/under-tilt, realigning at each tilt."""
         for i, pattern in enumerate(stage.define_patterns()):
-            # TODO: validate which direction to tilt, including when combined with scan rotation
             scan_rotation = microscope.get_scan_rotation(stage.milling.milling_channel)
             # overtilt
             if i == 0:

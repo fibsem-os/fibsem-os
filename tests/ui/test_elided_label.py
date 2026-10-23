@@ -15,16 +15,11 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
 LONG = "Overview acquisition failed: the stage refused to move to tile 14 of 25"
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture()

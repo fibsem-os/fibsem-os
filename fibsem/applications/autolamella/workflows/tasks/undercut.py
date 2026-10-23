@@ -67,7 +67,6 @@ class MillUndercutTask(AutoLamellaTask):
             self.lamella.stage_position, self.config.orientation
         )
         self.microscope.safe_absolute_stage_movement(undercut_position)
-        # TODO: support compucentric offset
 
         # align feature coincident
         feature = LamellaCentre()
@@ -85,8 +84,6 @@ class MillUndercutTask(AutoLamellaTask):
         milling_task_config = self.config.milling[UNDERCUT_KEY]
         post_milled_undercut_stages = []
         undercut_milling_angles = self.config.milling_angles  # deg
-
-        # TODO: support multiple undercuts?
 
         if len(milling_task_config.stages) != len(undercut_milling_angles):
             raise ValueError(

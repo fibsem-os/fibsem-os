@@ -5,6 +5,7 @@ Its job is to answer "what am I actually running" well enough to paste into a
 bug report, so every value is selectable and the copy button in the header puts
 the whole thing on the clipboard as plain text.
 """
+
 import logging
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
@@ -87,8 +88,7 @@ def _environment_rows() -> List[Tuple[str, str]]:
 
     The collector reads version and revision metadata, which can fail on an
     unusual install, so the *call* stays guarded and falls back to the bare
-    platform facts. The import no longer needs guarding: bug_report lives in
-    `fibsem.tools` now, not inside the AutoLamella application package.
+    platform facts.
     """
     from fibsem.tools.bug_report import collect_system_context
 
@@ -162,9 +162,7 @@ class AboutDialog(QDialog):
         if branch:
             software.append(("Branch", branch))
         layout.addWidget(
-            self._build_section(
-                "Software", software, mono_keys={"Revision", "Branch"}
-            )
+            self._build_section("Software", software, mono_keys={"Revision", "Branch"})
         )
 
         microscope_rows = self._microscope_rows(microscope)
@@ -277,9 +275,7 @@ class AboutDialog(QDialog):
 
     def _render_update_available(self, latest: str) -> None:
         icon = QLabel()
-        icon.setPixmap(
-            fibsem_icon("mdi:arrow-up-circle", color=_ACCENT).pixmap(13, 13)
-        )
+        icon.setPixmap(fibsem_icon("mdi:arrow-up-circle", color=_ACCENT).pixmap(13, 13))
         note = QLabel(f"{latest} available")
         note.setStyleSheet(f"color: {_ACCENT}; font-size: 12px;")
         note.setToolTip(f"fibsemOS {latest} is available on PyPI")
@@ -335,7 +331,7 @@ class AboutDialog(QDialog):
         """Render the outcome, if the dialog is still around to render it into.
 
         The dialog is modal but closable, so the worker can outlive it. PyQt5
-        calls qFatal on any exception escaping a slot (FIB-329), which makes
+        calls qFatal on any exception escaping a slot, which makes
         touching a deleted C++ object here an process abort rather than a
         traceback — hence both guards.
         """

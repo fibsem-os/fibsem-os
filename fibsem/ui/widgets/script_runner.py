@@ -12,7 +12,7 @@ Knows nothing about experiments, microscopes or AutoLamella. A host supplies:
 
 Data scripts run inline on the GUI thread; scripts that declare ``uses_microscope``
 run on a worker thread, because hardware operations are far too slow to freeze the
-window for. See FIB-338 and FIB-340.
+window for.
 """
 
 import logging
@@ -58,7 +58,7 @@ Confirmer = Callable[[str, str], bool]
 
 
 def _run_in_control(script: DiscoveredScript, context: Any) -> ScriptResult:
-    """Run a microscope script in control of the microscope (FIB-1270), so a
+    """Run a microscope script in control of the microscope, so a
     command from the App Server never moves the stage under it. Refused, it is a
     result like any other failure: it names who is in control."""
     control = getattr(getattr(context, "microscope", None), "control", None)

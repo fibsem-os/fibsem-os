@@ -594,7 +594,7 @@ class ToastManager:
         own transient chrome (toasts, popovers, tooltips) and short-lived dialogs: a
         toast anchored to a dialog would be destroyed with it mid-fade.
 
-        Remembered by weak reference (FIB-992). The manager hears every focus change
+        Remembered by weak reference. The manager hears every focus change
         in the app, so a strong reference made it the owner of whichever window was
         focused last, and replacing that reference here dropped the window's last one
         in the middle of Qt's focus change. Qt then emitted ``activeChanged()`` on the

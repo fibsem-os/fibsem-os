@@ -1,10 +1,10 @@
-"""One window to look at a saved image, on the real canvas at full resolution (FIB-1189).
+"""One window to look at a saved image, on the real canvas at full resolution.
 
 A beam image opens on a :class:`FibsemImageCanvas`, which brings the microscope tab's
 zoom, fit, reset, live scalebar, contrast, ruler and crosshair. A fluorescence stack
 opens on the :class:`FMCanvasWidget`, with its z-slider, max projection and per-channel
-controls; up and down step through the planes. Under either sits the view's bar
-(FIB-1186), so the image says what it is in the same words as the quad view, with the
+controls; up and down step through the planes. Under either sits the view's bar,
+so the image says what it is in the same words as the quad view, with the
 same field choices.
 
 The full-resolution file loads off the GUI thread. Until it arrives the window shows

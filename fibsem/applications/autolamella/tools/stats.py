@@ -675,7 +675,7 @@ with tab_workflow:
 
                         # go to next lamella if added
 
-            fig = tiled.plot_stage_positions_on_image(image, positions[key2], show=True)
+            fig = tiled.plot_stage_positions_on_image(image, positions[key2])
 
             return fig, positions
 

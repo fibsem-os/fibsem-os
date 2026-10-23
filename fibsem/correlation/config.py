@@ -26,8 +26,8 @@ FIT_METHODS = ("None", "Hole", "Gaussian")
 # three; this is the policy floor, not the algebraic one.)
 MIN_FIDUCIAL_PAIRS = 4
 
-# What deleting a FIB or FM fiducial does to its partner on the other side
-# (FIB-1243): ask each time, remove the pair, or remove only that point.
+# What deleting a FIB or FM fiducial does to its partner on the other side:
+# ask each time, remove the pair, or remove only that point.
 DELETE_FIDUCIAL_ASK = "ask"
 DELETE_FIDUCIAL_PAIR = "pair"
 DELETE_FIDUCIAL_ONE = "one"
@@ -65,7 +65,7 @@ class FitSettings:
 class RISettings(Configurable):
     """RI depth-correction ζ inputs + mode. Mirrors ``ZetaParams`` (tilt / depth /
     NA / n2 / wavelength). ``wavelength_um`` and ``na`` may be seeded from channel
-    metadata on FM load (FIB-277).
+    metadata on FM load.
 
     The defaults are the one default set: the RI widget starts from them too.
     They are the configuration Perez et al. use for depth correction throughout:
@@ -74,7 +74,7 @@ class RISettings(Configurable):
     (doi:10.64898/2026.05.11.724418, the source of the lookup table). Only NA and
     n2 move ζ appreciably; it is near-flat in tilt, depth and wavelength. These
     were NA 0.8 / n 1.4 here while the widget used 0.75 / 1.35, so a new protocol
-    showed one set and computed ζ from the other (FIB-1234).
+    showed one set and computed ζ from the other.
     """
 
     # The bounds are the lookup table's: zeta is only known inside them.
@@ -122,29 +122,27 @@ class RISettings(Configurable):
 class CorrelationConfig:
     """Experiment-global correlation config; inherited by every lamella in the run.
 
-    Interpolation is deliberately absent. It was persisted here for the setup
-    pre-dialog, which FIB-302 replaced with the in-window Interpolate action, and
-    a stored preference nothing reads is how ``load_spot_burns`` came to be inert
-    (FIB-319). Unknown keys are ignored, so the leftover ``"interpolation"`` in an
-    existing protocol is not fatal.
+    Interpolation is deliberately absent: it is the in-window Interpolate action,
+    not a stored preference. Unknown keys are ignored, so the leftover
+    ``"interpolation"`` in an existing protocol is not fatal.
     """
 
     fit: FitSettings = field(default_factory=FitSettings)
     ri: RISettings = field(default_factory=RISettings)
     load_spot_burns: bool = True
-    # Run the correlation again when the points settle, rather than on a press
-    # (FIB-1020). Persisted because the alternative is a per-dialog tick: the
+    # Run the correlation again when the points settle, rather than on a press.
+    # Persisted because the alternative is a per-dialog tick: the
     # protocol editor builds a new correlation dialog for every lamella, so a
     # session-only preference is re-set once per lamella and reaches nobody.
     auto_rerun: bool = False
     # Resample an anisotropic FM stack to isotropic as it loads, off the GUI
-    # thread, instead of waiting for the Interpolate action (FIB-1023). The fit
-    # does not need it -- it converts z to xy pixels itself (FIB-881) -- so this
+    # thread, instead of waiting for the Interpolate action. The fit
+    # does not need it -- it converts z to xy pixels itself -- so this
     # is for the display and for anything downstream that assumes isotropic
     # voxels. Off by default: it costs a rewrite of the volume.
     auto_interpolate: bool = False
     # Fiducials pair by their place in the FIB and FM lists, so deleting one
-    # side shifts every later pair (FIB-1243). "ask" until someone ticks "Don't
+    # side shifts every later pair. "ask" until someone ticks "Don't
     # ask again", which stores their choice here; the Method panel sets it back.
     delete_fiducial: DeleteFiducial = DELETE_FIDUCIAL_ASK
 

@@ -119,7 +119,7 @@ def _fm(**kwargs):
     return FmIntensityConfig(**{**defaults, **kwargs}).made_for(FmIntensityMonitor)
 
 
-def test_fm_intensity_ends_the_step_on_a_drop(with_fm, tmp_path):
+def test_fm_intensity_ends_the_step_on_a_drop(with_fm, tmp_path, no_pyplot):
     service, fm = with_fm([100] * 5 + [30] * 5, estimate=50.0)
     status, step = _mill(service, _stage(_fm(on_trigger="end")), tmp_path)
 
@@ -134,6 +134,7 @@ def test_fm_intensity_ends_the_step_on_a_drop(with_fm, tmp_path):
     assert record["facts"]["Peak rolling mean"] == 100.0
     folder = record["files"]
     assert os.path.isfile(os.path.join(folder, "intensity.csv"))
+    assert record["figure"].endswith("intensity.png")
     assert fm.calls[0] == "start" and fm.calls[-1] == "stop"
     assert "view" in fm.calls, "the FM view taken back after the mill started"
 
@@ -237,7 +238,9 @@ def milling_in_real_time(monkeypatch):
     return setup
 
 
-def test_sem_peek_pauses_images_and_resumes_on_the_demo(tmp_path, milling_in_real_time):
+def test_sem_peek_pauses_images_and_resumes_on_the_demo(
+    tmp_path, milling_in_real_time, no_pyplot
+):
     demo = milling_in_real_time()
     peek = SemPeekConfig(interval=0.3, resolution=(96, 64))
     stage = _stage(peek.made_for(SemPeekMonitor))

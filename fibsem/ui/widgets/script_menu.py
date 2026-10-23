@@ -9,7 +9,7 @@ That also settles what the menu should list: nothing. Names alone cannot express
 the folder, a load error, or that a script writes or needs hardware, and the
 dialog shows all of it beside the button that starts it.
 
-Knows nothing about experiments, microscopes or AutoLamella. See FIB-338, FIB-340.
+Knows nothing about experiments, microscopes or AutoLamella.
 """
 
 from pathlib import Path

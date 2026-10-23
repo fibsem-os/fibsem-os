@@ -11,7 +11,7 @@ In memory a time is an aware ``datetime`` that keeps the offset it was written w
 aware datetimes goes by the instant whatever their offsets, so nothing needs them in
 one zone; only a display does, and :func:`format_time` converts to the viewer's zone
 there. Keeping the offset is what lets a time saved again keep the site's clock time,
-and lets a timeline read it on the instrument's clock (FIB-1196).
+and lets a timeline read it on the instrument's clock.
 
 Files written before this carry one of three other forms, and stay readable:
 
@@ -103,7 +103,7 @@ def to_datetime(value) -> Optional[datetime]:
 
 def to_iso(value) -> Optional[str]:
     """:func:`to_datetime` written as ISO 8601, with its offset when it has one: how a
-    stored time is written (FIB-1197). None when it cannot be read."""
+    stored time is written. None when it cannot be read."""
     parsed = to_datetime(value)
     return parsed.isoformat() if parsed is not None else None
 

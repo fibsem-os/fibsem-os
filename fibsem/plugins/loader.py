@@ -1,24 +1,9 @@
 """Load fibsem's entry point groups, and remember what happened.
 
-fibsem's class plugin groups -- ``fibsem.milling.patterns``,
-``fibsem.milling.strategies`` and the task groups -- were each loaded by what used to be
-three near-identical private functions. They returned ``{name: class}`` and
-wrote every failure to a log line, which meant the two questions a user
-actually asks could not be answered:
-
-* *"my plugin isn't in the list"* -- a plugin that failed to import leaves no
-  trace in the returned dict at all.
-* *"why is my plugin being ignored?"* -- a plugin whose name collides with a
-  built-in loads fine, registers fine, and is then overwritten when
-  ``get_patterns()`` merges built-ins last. Nothing downstream can tell it ever
-  existed.
-
-So loading records what it did. ``load_entry_point_group`` returns one
-:class:`PluginRecord` per declared entry point -- successes, failures and
-shadowed-later-on alike -- and the registries derive their dict from those.
-Recording at load time rather than re-walking the entry points separately is
-the point: a second walk can disagree with what actually registered, and a
-disagreement is precisely the fault this data exists to diagnose.
+``load_entry_point_group`` returns one :class:`PluginRecord` per declared entry point
+-- successes, failures and ones a built-in shadows -- and the registries derive their
+dict from those records. Recording at load time, rather than walking the entry points
+again later, means the listing cannot disagree with what actually registered.
 
 ``fibsem.plugins.report`` turns these records into the plugin listing shown by
 ``fibsem-cli plugins`` and the Plugins panel.

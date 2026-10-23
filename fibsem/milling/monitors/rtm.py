@@ -1,5 +1,4 @@
-"""RTM: read what the ion beam reads back from the patterns as they mill
-(FIB-1178).
+"""RTM: read what the ion beam reads back from the patterns as they mill.
 
 A live monitor on the FIB view. Its reader reads RTM at most once per
 ``interval`` while the pattern mills, and once more at the end; each read is

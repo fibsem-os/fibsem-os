@@ -4,7 +4,6 @@ import logging
 import os
 from typing import Optional
 
-import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from PyQt5.QtCore import Qt
@@ -337,10 +336,6 @@ class OverviewImageWidget(QWidget):
             self.canvas_layout.removeWidget(self.canvas)
             self.canvas.deleteLater()
 
-        # Store the new figure
-        if self.figure is not None and self.figure != new_figure:
-            plt.close(self.figure)
-
         self.figure = new_figure
 
         # Apply dark theme to the figure
@@ -660,7 +655,6 @@ class OverviewImageWidget(QWidget):
             # User cancelled
             return
 
-        export_figure = None
         try:
             # Rendered fresh rather than saved from the preview. The preview's figure
             # has been resized to the canvas widget, so its shape is the dialog's, not
@@ -686,9 +680,6 @@ class OverviewImageWidget(QWidget):
 
             traceback.print_exc()
             self.info_label.setText(f"Error saving: {str(e)}")
-        finally:
-            if export_figure is not None:
-                plt.close(export_figure)
 
     @staticmethod
     def _match_view_limits(source: Optional[Figure], target: Figure) -> None:
@@ -732,8 +723,3 @@ def create_overview_image_widget(
     dialog.setLayout(layout)
 
     return dialog
-
-
-# TODO: add more options for customization (scalebar size, font type, etc.)
-# - show only completed lamellae
-# - show defected lamellae in different color

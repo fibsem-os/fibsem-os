@@ -7,7 +7,7 @@ failed and cancelled ones included) and the operation events in ``events.jsonl``
 still going, when there is one, is a row too.
 
 Operations outside any task -- an agent's autofocus or mill between runs, or the
-operator's from the Microscope tab -- have no ``task.id`` (FIB-1375). Each session's
+operator's from the Microscope tab -- have no ``task.id``. Each session's
 are one more row, "Outside a task", placed among the runs by when they started.
 They belong to no item, so every item's History shows them.
 
@@ -37,7 +37,7 @@ from fibsem.workflows.status import TaskState, TaskStatus
 OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
 
 # The event kinds that name a saved image. In a task the run's outputs list its
-# images; outside one, these are how a session's row finds them (FIB-1521).
+# images; outside one, these are how a session's row finds them.
 IMAGE_KINDS = ("image_acquired", "fm_image_acquired")
 # What a History reads from the events file.
 HISTORY_KINDS = OPERATION_KINDS + IMAGE_KINDS
@@ -74,8 +74,8 @@ class HistoryOperation:
     ended_at: Optional[datetime]
     path: Optional[str]  # where its run was saved, when it was
     payload: Dict[str, Any] = field(repr=False, default_factory=dict)
-    # A mill's drift corrections, by the index of the stage they ran in
-    # (FIB-1351): folded under its line rather than lines of their own.
+    # A mill's drift corrections, by the index of the stage they ran in:
+    # folded under its line rather than lines of their own.
     drift: Dict[int, List["HistoryOperation"]] = field(repr=False, default_factory=dict)
 
     @property
@@ -101,14 +101,14 @@ class MillingStageLine:
     name: str
     text: str  # how it ended, how long it took, its current
     drift: List[HistoryOperation]  # the drift corrections it ran
-    # The strategy that milled it and what it said about the run (FIB-1257):
+    # The strategy that milled it and what it said about the run:
     # why it stopped, then its facts. A strategy with only facts says them on
     # the stage's own line (``text``), and these are empty; so are they for a
     # record from before strategies were recorded.
     strategy: str = ""
     said: str = ""
     figure: Optional[str] = None  # a figure the strategy saved, if still there
-    # What each of its monitors said (FIB-1481), a line each under the strategy.
+    # What each of its monitors said, a line each under the strategy.
     monitors: List["MonitorLine"] = field(default_factory=list)
 
 
@@ -135,7 +135,7 @@ class HistoryRun:
     images: List[str]  # final SEM/FIB images, then fluorescence stacks
     operations: List[HistoryOperation]
     # The later run that wrote over images this one recorded, when one did:
-    # reference images are rewritten under the same name (FIB-1275).
+    # reference images are rewritten under the same name.
     images_replaced_by: Optional[str] = None
     # A session's operations outside any task, not a run: it has no status, and
     # its images are the ones it saved in the lamella's folder.
@@ -389,7 +389,7 @@ def shown_images(run: HistoryRun) -> List[str]:
 
 
 def operations_need_a_look(run: HistoryRun) -> bool:
-    """Whether a run's operations should be open without a click (FIB-1361):
+    """Whether a run's operations should be open without a click:
     one did not complete (skipped, failed, stopped), or an alignment -- its
     own, or one a mill's stage ran -- failed or had a step too weak to apply.
     What routinely differs between runs ("methods disagree" on the Demo, a
@@ -487,7 +487,7 @@ def _started(operation: HistoryOperation) -> float:
 
 def _fold_drift(operations: List[HistoryOperation]) -> List[HistoryOperation]:
     """Move each alignment that started inside a mill's stage under that mill:
-    the stage's drift correction (FIB-1351). Stages run one after another on one
+    the stage's drift correction. Stages run one after another on one
     clock, so an alignment's start places it. On a coarse clock (Windows ticks
     every 15.6 ms) one stage's end, the next one's start and that stage's drift
     correction can read the same instant: the later stage takes it, since a

@@ -1,48 +1,26 @@
-"""The beams, the stage and the chamber of a Thermo microscope driven through odemis,
-as devices.
-
-``OdemisBeam``, ``OdemisStage`` and ``OdemisChamber`` are ``OdemisThermoMicroscope``'s
-beam, stage and chamber keys
-moved as they are, so the old call and the device make the same odemis calls in the
-same order and log the same messages. ``OdemisThermoMicroscope`` builds them when it
-is created and routes its keys and moves to them; its old branches are deleted, and
-``tests/fixtures/odemis_device_calls.json`` keeps what they did.
+"""The beams, stage, chamber and FM of a Thermo microscope driven through odemis, as
+devices.
 
 Each device is handed the microscope's `OdemisConnection` (``connection.py``). Its
 odemis client (``connection.sdk``, the ``fibsem`` component) takes the channel on every
 call, so nothing here selects an imaging channel first. The vendor stage is
-``connection.vendor_stage`` (the ``stage-bare`` component); ``microscope.stage`` is the
-stage device. This module imports odemis only through
-``fibsem.drivers.odemis.microscope``, inside the methods, so it loads where odemis
-is not installed.
-
-The FM.
-
-The METEOR's FM through odemis, as devices.
-
-``OdemisFMCamera``, ``OdemisFMLightSource``, ``OdemisFMFilterSet``,
-``OdemisFMObjective`` and the ``OdemisFM`` group are the old
-``OdemisFluorescenceMicroscope``'s parts moved onto the FM devices: each read, write
-and command makes the odemis calls the old property or method made, in the same order,
-on the same components and the same ``FluoStream``
-(``tests/fixtures/odemis/old_fm_pins.json`` holds those calls). ``OdemisThermoMicroscope.fm`` is the FM API over
-them (``OdemisFluorescenceMicroscope``, below), and the device server serves them from the
+``connection.vendor_stage`` (the ``stage-bare`` component).
+``tests/fixtures/odemis_device_calls.json`` and ``tests/fixtures/odemis/old_fm_pins.json``
+pin the odemis calls and their order. The device server serves the FM devices from the
 METEOR PC.
 
-The stream stays. Excitation, emission and power are the stream's settings, which odemis
+The FM's excitation, emission and power are the ``FluoStream``'s settings, which odemis
 applies to the light and the filter wheel only while the stream runs, so they are
 "settings for the next exposure" (see ``FilterSet``). Driving the components directly
 waits until the METEOR works.
 
-Live view keeps what the old live view does, with each frame pulled rather than pushed:
-`OdemisFM.start_live` activates the stream (light on, filters set, the camera
-streaming), each ``acquire_frame`` while live is the camera's next frame
-(``data.get(asap=False)``, as ``acquire_image`` takes it while the stream runs), and
-stopping deactivates the stream (light off).
+Live view pulls frames: `OdemisFM.start_live` activates the stream (light on, filters
+set, the camera streaming), each ``acquire_frame`` while live is the camera's next frame
+(``data.get(asap=False)``), and stopping deactivates the stream (light off).
 
-The FM parts import odemis in the method that uses it, so the module still loads where
-odemis is not installed; loading it puts an installed odemis on the path
-(``add_odemis_path``).
+odemis is imported through ``fibsem.drivers.odemis.microscope`` or in the method that
+uses it, so the module loads where odemis is not installed; loading it puts an
+installed odemis on the path (``add_odemis_path``).
 """
 
 from __future__ import annotations
@@ -109,19 +87,14 @@ ODEMIS_CHANNELS: Dict[BeamType, str] = {
 class OdemisBeam(Beam):
     """A column of a Thermo microscope driven through odemis.
 
-    Each parameter is the matching branch of the old ``OdemisThermoMicroscope._get``/
-    ``_set`` (now removed) moved as it is; the choices are what its old
-    ``get_available_values`` answered. The detector writes check as the old branches
-    did, against the same choices.
+    The detector writes check against the choices.
 
-    The scan commands are the old ``spot_mode`` and ``full_frame`` keys, and
-    ``reduced_area`` is the client call ``acquire_image`` and ``autocontrast`` make;
-    the old branches had no ``reduced_area`` key, so that set warned and did nothing.
-    The client has no read of the scan mode, so ``scanning_mode`` is absent and the
-    commands read nothing back.
+    The scan commands are ``spot_mode``, ``full_frame`` and ``reduced_area`` (the client
+    call ``acquire_image`` and ``autocontrast`` make). The client has no read of the
+    scan mode, so ``scanning_mode`` is absent and the commands read nothing back.
 
-    Not here, so absent (a read is None, a write does nothing): ``plasma_gas`` (the
-    old branch raised on a plasma column) and ``preset`` (there is none).
+    Not here, so absent (a read is None, a write does nothing): ``plasma_gas`` and
+    ``preset`` (there is none).
     """
 
     def __init__(
@@ -259,7 +232,7 @@ class OdemisBeam(Beam):
         self._set_log("stigmation", value, "")
 
     def read_resolution(self) -> List[int]:
-        # a list, as the old get returns it
+        # a list
         width, height = self._client.get_resolution(self.channel)
         return [width, height]
 
@@ -267,7 +240,7 @@ class OdemisBeam(Beam):
         self._client.set_resolution(value, self.channel)
 
     # The detector. A type or mode not in the choices warns and is not set, and a
-    # brightness or contrast outside (0, 1] likewise, as the old branches did.
+    # brightness or contrast outside (0, 1] likewise.
 
     def _detector_choices(self, what: str) -> List[str]:
         return getattr(self._client, f"detector_{what}_info")(self.channel)["choices"]
@@ -443,20 +416,10 @@ STAGE_LIMITS = {
 class OdemisStage(Stage):
     """The stage of a Thermo microscope driven through odemis.
 
-    Each method is what the matching part of ``OdemisThermoMicroscope`` does today:
-
-    - ``read_position``: the ``stage_position`` branch of ``_get``, the ``stage-bare``
-      component's position;
-    - ``read_homed`` / ``read_linked``: the ``stage_homed`` / ``stage_linked``
-      branches, which ask the client;
-    - ``metadata_position``: ``STAGE_LIMITS``, the fixed table the base class used to
-      give, in degrees for r and t, converted so limits and positions share one unit;
-    - ``_move_absolute`` / ``_move_relative``: ``move_stage_absolute`` /
-      ``move_stage_relative``, each waiting on the move's future;
-    - ``_home`` / ``_link``: the ``stage_home`` / ``stage_link`` branches of ``_set``.
-
-    The old moves end by reading the position back; ``Stage.move_absolute`` and
-    ``move_relative`` do the same read.
+    The position is the ``stage-bare`` component's; homed and linked ask the client.
+    ``metadata_position`` is ``STAGE_LIMITS``, a fixed table in degrees for r and t,
+    converted so limits and positions share one unit. A move waits on its future, and
+    ``Stage.move_absolute`` and ``move_relative`` read the position back after it.
     """
 
     def __init__(
@@ -615,7 +578,7 @@ def _frame_metadata_from_data(data) -> Optional[dict]:
         frame_metadata["pixel_size"] = tuple(pixel_size)
     acquisition_date = md.get(model.MD_ACQ_DATE)
     if acquisition_date is not None:
-        # POSIX, so the instant is known: written with the offset (FIB-1190).
+        # POSIX, so the instant is known: written with the offset.
         frame_metadata["acquisition_date"] = iso_from_posix(acquisition_date)
     exposure_time = md.get(model.MD_EXP_TIME)
     if exposure_time is not None:
@@ -687,7 +650,7 @@ class OdemisFMCamera(Camera):
         return self._camera.binning.value[0]
 
     def write_binning(self, value: int) -> None:
-        # Checked against the camera's binnings as they are now, as the old setter.
+        # Checked against the camera's binnings as they are now.
         if value not in self._binnings():
             raise ValueError(f"Binning must be one of {self._binnings()}, got {value}")
         self._camera.binning.value = (value, value)
@@ -713,7 +676,7 @@ class OdemisFMCamera(Camera):
 
     # Gain is a fraction of the camera's maximum, as power is of the light's. A camera
     # without a gain control, or whose gain gives no range or choices to scale by, has
-    # no gain parameter; the old class reads it as None and ignores a write.
+    # no gain parameter.
     def available_gain(self) -> bool:
         from odemis import model
 
@@ -748,7 +711,7 @@ class OdemisFMCamera(Camera):
         )
 
     def read_offset(self) -> float:
-        """The camera's MD_BASELINE, read at connect. Read-only, as on the old class."""
+        """The camera's MD_BASELINE, read at connect. Read-only."""
         return self._offset
 
     def read_pixel_size(self) -> tuple:
@@ -872,8 +835,8 @@ class OdemisFMFilterSet(FilterSet):
         return ParameterMetadata(choices=[f for f, _ in self._emission_choices()])
 
     def select_fluorescence(self) -> None:
-        """The band odemis matches to the current excitation: what the old class does
-        for a channel that names its emission "Fluorescence" (TFS-style)."""
+        """The band odemis matches to the current excitation, for a channel that
+        names its emission "Fluorescence" (TFS-style)."""
         from odemis import model
         from odemis.util import fluo
 
@@ -899,7 +862,7 @@ class OdemisFMObjective(Objective):
     """The objective: the ``focus`` actuator and the ``lens`` component.
 
     The favourite (inserted and retracted) positions are read from the focuser's
-    metadata at connect and kept, as the old class caches them.
+    metadata at connect and kept.
     """
 
     def __init__(
@@ -1077,7 +1040,7 @@ class OdemisFM(FM):
         return None
 
     def _apply_channel(self, channel: Optional[Dict[str, Any]]) -> None:
-        """The old ``set_channel``: excitation, emission, power, exposure, gain."""
+        """Set a channel: excitation, emission, power, exposure, gain."""
         if channel is None:
             return
         settings = ChannelSettings.from_dict(channel)
@@ -1123,9 +1086,8 @@ class OdemisFM(FM):
 
 
 class OdemisObjectiveLens(fm_api.ObjectiveLens):
-    """The FM API's objective over the Odemis objective device, focusing where the old
-    objective does: odemis's favourite inserted position (the device's saved focus
-    position)."""
+    """The FM API's objective over the Odemis objective device, focusing at odemis's
+    favourite inserted position (the device's saved focus position)."""
 
 
 def _is_fluorescence(emission: EmissionFilter) -> bool:
@@ -1137,7 +1099,7 @@ def _is_fluorescence(emission: EmissionFilter) -> bool:
 class OdemisFilterSet(fm_api.FilterSet):
     """The FM API's filter set over the Odemis filter set device. A "Fluorescence"
     emission (TFS-style channel settings) is the band odemis matches to the current
-    excitation, as on the old filter set."""
+    excitation."""
 
     @property
     def emission_bands(self) -> Dict[float, Tuple[Tuple[float, float], ...]]:
@@ -1159,8 +1121,7 @@ class OdemisFilterSet(fm_api.FilterSet):
 
 
 class OdemisFluorescenceMicroscope(fm_api.FluorescenceMicroscope):
-    """The FM API over the Odemis FM devices, as a METEOR runs it: what the old
-    ``OdemisFluorescenceMicroscope`` did, through its devices. Live view is the
+    """The FM API over the Odemis FM devices, as a METEOR runs it. Live view is the
     stream running, with each frame pulled."""
 
     objective: OdemisObjectiveLens
@@ -1178,9 +1139,8 @@ def bind_odemis_fm(
     config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Device]:
     """The METEOR's FM parts and group, by device name, from the odemis backend on
-    this computer: its components by role, and one ``FluoStream`` over them, as
-    the old ``OdemisFluorescenceMicroscope`` built it. *config* is the fm entry's own
-    keys (``mount_transform``)."""
+    this computer: its components by role, and one ``FluoStream`` over them. *config* is
+    the fm entry's own keys (``mount_transform``)."""
     from odemis import model
     from odemis.acq.stream import FluoStream
 
@@ -1223,8 +1183,7 @@ def bind_odemis_fm(
 def build_odemis_fm(
     entry: DeviceEntry, context: BuildContext
 ) -> OdemisFluorescenceMicroscope:
-    """The FM API over the Odemis FM devices, which make the odemis calls the old
-    ``OdemisFluorescenceMicroscope`` made, on the same components and stream.
+    """The FM API over the Odemis FM devices.
 
     The FM API's own live view pulls every frame, so nothing needs to stop it when no
     frame is asked for."""

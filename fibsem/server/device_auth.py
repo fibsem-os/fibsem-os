@@ -1,4 +1,4 @@
-"""Who may reach a Device Server (FIB-1264): every request carries a token.
+"""Who may reach a Device Server: every request carries a token.
 
 The token is this install's, kept in ``~/.fibsem/device-server-token.json``
 (``0600``) and made on first start, so a client on the same computer reads it

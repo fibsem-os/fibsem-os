@@ -9,15 +9,12 @@ This is the surface for saying which. Deliberately small and deliberately not a 
 feature: what may be toggled is whatever its owner happens to draw, and the canvas does
 not know -- overlays are supplied to it, so the list belongs to whoever supplied them.
 
-Shared rather than written per tab. Three consumers want the same control (the FIB/SEM
-overview, the fluorescence overview, and the napari minimap, which has the pattern in
-hand-rolled form), and every new overlay after this one -- the current field of view
-(FIB-524), a scale label (FIB-523) -- wants somewhere to hang rather than another
-always-on annotation. Only the FIB/SEM overview uses it today; the other two are a
-straight substitution when someone gets to them (FIB-572).
+Shared rather than written per tab, so every new overlay -- the current field of view,
+a scale label -- has somewhere to hang rather than being another always-on annotation.
+The FIB/SEM overview uses it.
 
 Not layer controls. Colour and contrast for the image *data* are resolved upstream of
-the canvas by whatever composites it, and are FIB-415. These are annotations on top.
+the canvas by whatever composites it. These are annotations on top.
 """
 
 from __future__ import annotations

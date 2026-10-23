@@ -1,14 +1,12 @@
 """Quad-view microscope display — reusable 2x2 grid of FibsemImageCanvas.
 
-Replaces the single napari viewer in the main microscope tab. Four cells:
+The main microscope tab's display. Four cells:
 
     SEM (electron) | FIB (ion)
     FM (fluorescence) | a cell of pages: the chamber view, ...
 
 ``MicroscopeViewController`` wraps the widget and is the object handed to the
-control widgets in place of the napari ``Viewer``. Its surface is intentionally
-small in Phase 0 (image routing only) and grows in later phases (overlays,
-per-beam click signals).
+control widgets: image routing, overlays and per-beam click signals.
 """
 
 from __future__ import annotations
@@ -107,7 +105,7 @@ def _panel(inner: QWidget, bar: Optional[ViewInfoBar] = None) -> QFrame:
     """Wrap *inner* in a selectable panel frame, with *bar* under it.
 
     The bar names the view and says what its image is, so the panel has no title row
-    above (FIB-1186). Under the whole of *inner*: on FM that is below the z row, so every
+    above. Under the whole of *inner*: on FM that is below the z row, so every
     bar sits on its panel's bottom edge and a row of views lines up.
     """
     frame = QFrame()
@@ -142,7 +140,7 @@ class PageCell(QWidget):
     beside them, and the operator picks which from :attr:`cycler` -- the same
     arrangement as a multi-viewport tool, where the spare pane is a slot rather than a
     fixed thing. Pages are added by key. The cycler starts the cell's bar, where the
-    other cells have their view's name (FIB-1186).
+    other cells have their view's name.
 
     A page with controls of its own (which grid, which view) hands them over as its
     header, shown in :attr:`header` above the page and switching with it. A page
@@ -460,8 +458,7 @@ class LamellaEditorView(QWidget):
     """Task-driven stacked view backing the lamella protocol editor.
 
     Unlike :class:`QuadViewWidget` (a static 2x2 grid), this shows *one* page at a
-    time, chosen by the selected task type — mirroring the old editor's per-task
-    napari layer-visibility toggle:
+    time, chosen by the selected task type:
 
         * "beams"        — the FIB canvas, with the SEM canvas beside it (hidden
                            unless toggled on). Milling / POI / alignment / spot-burn
@@ -515,7 +512,7 @@ class LamellaEditorView(QWidget):
 
 
 class MicroscopeViewController(QObject):
-    """Seam object that replaces the napari ``Viewer`` in the main microscope tab.
+    """The display the main microscope tab's control widgets are handed.
 
     Holds the :class:`QuadViewWidget`, owns a declarative :class:`SceneModel`
     (image + overlays + info per canvas), and renders it onto the per-beam canvases
@@ -549,7 +546,7 @@ class MicroscopeViewController(QObject):
     stage_updated = pyqtSignal(object)
 
     # What the instrument is doing, in words ("Moving to the SEM orientation…"), or
-    # None once it is over. For the host's status-bar slot (FIB-1188): the views say
+    # None once it is over. For the host's status-bar slot: the views say
     # what a move did to them with their chips; the words go where there is room.
     activity_changed = pyqtSignal(object)
 
@@ -594,7 +591,7 @@ class MicroscopeViewController(QObject):
             canvas: None for canvas in self._states
         }
         self._dirty: Set[FibsemImageCanvas] = set()
-        # Views whose image is from before the last stage move (FIB-1188): a frame
+        # Views whose image is from before the last stage move: a frame
         # that never comes leaves these stale, and the others as they were.
         self._moved: Set[FibsemImageCanvas] = set()
         self._activity: Optional[str] = None
@@ -611,7 +608,7 @@ class MicroscopeViewController(QObject):
         # the poll this replaced.
         self._objective_seeded = False
 
-        # The bar under each view (FIB-1186): the displayed image's metadata, never the
+        # The bar under each view: the displayed image's metadata, never the
         # microscope's live state. Optional, so a view without bars still drives.
         self._bars: Dict[BeamType, Optional[ViewInfoBar]] = {
             BeamType.ELECTRON: getattr(self._widget, "sem_bar", None),
@@ -664,8 +661,8 @@ class MicroscopeViewController(QObject):
         *key* is a view key, not a beam: the quad view keeps the FM under ``"fm"``
         alongside the two ``BeamType``s and has since it was built. The annotation said
         ``BeamType``, which is the whole reason the FM panel never showed that it was
-        streaming while the beam panels did -- the plumbing was there and looked closed
-        (FIB-596). Prefer :meth:`set_fm_live` over passing the string."""
+        streaming while the beam panels did -- the plumbing was there and looked closed.
+        Prefer :meth:`set_fm_live` over passing the string."""
         fn = getattr(self._widget, "set_live", None)
         if callable(fn):
             fn(key, live)
@@ -937,7 +934,7 @@ class MicroscopeViewController(QObject):
         pts = getattr(spec, "points", None)
         return list(pts) if pts else []
 
-    # ── stage moves: does each view still match the stage? (FIB-1188) ──────
+    # ── stage moves: does each view still match the stage? ──────
     MOVING, ACQUIRING, STAGE_MOVED = "MOVING", "ACQUIRING", "STAGE MOVED"
 
     def _views_with_images(self) -> Dict[object, FibsemImageCanvas]:
@@ -1088,9 +1085,8 @@ class MicroscopeViewController(QObject):
                 # Remembered rather than read. This runs on every stage-position update
                 # (`FibsemMovementWidget._update_position_readout`, which passes no
                 # objective position), and on a TFS system reading the objective takes
-                # the shared imaging channel -- so a stage move was pointing the
-                # microscope at the FM and back to label a canvas. That is FIB-517's
-                # failure mode in a text field (FIB-576).
+                # the shared imaging channel -- so a read would point the microscope
+                # at the FM and back on every stage move, to label a canvas.
                 #
                 # Whoever moves the objective says so: `ObjectiveControlWidget` passes it
                 # here after every move, and follows `position_changed` for the ones it
@@ -1102,10 +1098,8 @@ class MicroscopeViewController(QObject):
                 elif self._objective_position is None and not self._objective_seeded:
                     # One starting read, because nothing pushes a position at
                     # construction: `ObjectiveControlWidget` reads one for its spinbox
-                    # and keeps it to itself. Without this the field is simply absent
-                    # until the first move, where it used to appear on the first stage
-                    # update -- a working readout removed in the name of not polling.
-                    # Once per controller is not a poll.
+                    # and keeps it to itself. Without this the field is absent until
+                    # the first move. Once per controller is not a poll.
                     self._objective_seeded = True
                     objective = microscope.fm.objective
                     with microscope.fm.active_channel():
@@ -1130,7 +1124,7 @@ class MicroscopeViewController(QObject):
         """
         bar = self._stage_bar
         bar.set_live_field("orientation", "", orientation or None, "Stage orientation")
-        # `current_grid` says "NONE" when no grid is loaded, as the old text did.
+        # `current_grid` says "NONE" when no grid is loaded.
         has_grid = grid and str(grid) != "NONE"
         bar.set_live_field("grid", "", str(grid) if has_grid else None, "Grid")
         mm, deg = constants.METRE_TO_MILLIMETRE, constants.RADIANS_TO_DEGREES
@@ -1149,7 +1143,7 @@ class MicroscopeViewController(QObject):
         bar.set_live_field("milling_angle", "MA", ma, "Milling angle")
 
     def _show_objective(self, position: float) -> None:
-        """The objective's position on the FM bar: `OBJ 200.0 µm` (FIB-1186).
+        """The objective's position on the FM bar: `OBJ 200.0 µm`.
 
         `OBJ` and µm, as the canvas flashes it while focusing, so the same value reads
         the same in both places.
@@ -1338,6 +1332,7 @@ class MicroscopeViewController(QObject):
                 dashed=spec.dashed,
                 legend_loc=spec.legend_loc,
                 stage_styles=spec.stage_styles,
+                stage_colours=spec.stage_colours,
             )
         elif isinstance(spec, AlignmentSpec):
             if spec.rect is not None:

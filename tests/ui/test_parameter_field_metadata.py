@@ -12,7 +12,6 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from PyQt5.QtWidgets import QApplication, QDoubleSpinBox
 
-from fibsem import utils
 from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.beam import Beam
 from fibsem.structures import BeamType, ImageSettings, RangeLimit
@@ -28,12 +27,6 @@ from fibsem.ui.widgets.form_builder import (
 _app = QApplication.instance() or QApplication([])
 
 E = BeamType.ELECTRON
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 def _report(microscope, name, **metadata):

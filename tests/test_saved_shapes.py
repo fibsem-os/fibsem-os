@@ -807,10 +807,8 @@ def test_a_v2_experiment_reads_as_the_current_one():
     assert _posix(loaded.to_dict()) == _posix(_experiment().to_dict())
 
 
-@pytest.mark.parametrize(
-    "case, build",
-    [("grid-protocol", _grid_protocol), ("volume-protocol", _volume_protocol)],
-)
+# Volume is not here: no volume was saved before its milling went one piece.
+@pytest.mark.parametrize("case, build", [("grid-protocol", _grid_protocol)])
 def test_a_v2_engine_protocol_reads_as_the_current_one(case, build):
     protocol = build()
     loaded = type(protocol).from_dict(_v2(case))

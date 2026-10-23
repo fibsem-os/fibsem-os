@@ -4,24 +4,15 @@ import os
 
 import pytest
 
+from tests.fixtures.microscopes import demo_microscope
+
 pytest.importorskip("PyQt5")
 
-import fibsem.config as cfg  # noqa: E402
-from fibsem import utils  # noqa: E402
 from fibsem.saved_positions import load_saved_positions  # noqa: E402
 from fibsem.session_state import session_state_for  # noqa: E402
 from fibsem.structures import FibsemStagePosition  # noqa: E402
 
-SHIPPED = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
-
-
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=SHIPPED, manufacturer="Demo", setup_logging=False
-    )
-    yield microscope
-    microscope.disconnect()
+microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 
 
 def _panel(microscope=None):

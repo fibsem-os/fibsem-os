@@ -243,7 +243,7 @@ class ObjectiveControlWidget(QWidget):
 
         # Moves this widget did not make -- an autofocus sweep, a z-stack, the overview
         # runner -- left the spinbox showing the position from before them. It only ever
-        # refreshed after its own actions (FIB-576).
+        # refreshed after its own actions.
         #
         # A plain bound method, never a Qt signal's `emit`: psygnal holds bound methods
         # weakly and matches them at disconnect, and PyQt rebuilds `emit` on every access
@@ -253,7 +253,7 @@ class ObjectiveControlWidget(QWidget):
         #
         # This is the widget's only psygnal, and it is why `closeEvent` now exists: the
         # signal outlives the widget, and an emit into one Qt has torn down on the C++
-        # side is a segfault rather than an exception (FIB-550).
+        # side is a segfault rather than an exception.
         self.fm.objective.position_changed.connect(self._on_objective_moved)
         # A focus position saved elsewhere (the agent) shows here too.
         self.fm.objective.focus_position_changed.connect(self._on_focus_position_saved)
@@ -278,8 +278,8 @@ class ObjectiveControlWidget(QWidget):
         self._wheel_target_um: float = 0.0
         self._wheel_worker: Optional[FunctionWorker] = None
         # The threaded insert / retract, tracked for the same reason: it drives the
-        # objective, so everything else must be able to see that it is doing so
-        # (FIB-628). Cleared in the completion slots, which run on the GUI thread.
+        # objective, so everything else must be able to see that it is doing so.
+        # Cleared in the completion slots, which run on the GUI thread.
         self._action_worker: Optional[FunctionWorker] = None
         self._wheel_moving_to_um: Optional[float] = None
         self._execute_wheel_move = qdebounced(
@@ -300,7 +300,7 @@ class ObjectiveControlWidget(QWidget):
         self.pushButton_retract_objective.setEnabled(enabled)
 
     def _flash_focus_target(self, new_pos_um: float, step_um: float) -> None:
-        """Flash where the objective is going, on the canvas being scrolled (FIB-635).
+        """Flash where the objective is going, on the canvas being scrolled.
 
         The beam canvases have done this for the working distance since the quad view
         shipped -- `WD 16.575 mm  +1 µm` -- and the FM, the one you focus by
@@ -309,7 +309,7 @@ class ObjectiveControlWidget(QWidget):
         Not a duplicate of the `OBJECTIVE` field in the info bar, which reports where the
         objective *is*: persistent, device-truthful, and deliberately behind during a
         burst, because `_wheel_is_driving` suppresses the intermediates rather than let
-        the number snap backwards past your own scrolling (FIB-625). This is the
+        the number snap backwards past your own scrolling. This is the
         *command* -- where the next move is headed -- so a target is the right thing to
         show, and transient is the right lifetime.
 
@@ -321,7 +321,7 @@ class ObjectiveControlWidget(QWidget):
         canvas = self.sender()
         if canvas is None or not hasattr(canvas, "flash_message"):
             return
-        # In the bar's words and units (FIB-1188): the bar shows `OBJ 200.5 µm`.
+        # In the bar's words and units: the bar shows `OBJ 200.5 µm`.
         canvas.flash_message(f"OBJ {new_pos_um:.1f} µm  {step_um:+.1f} µm")
 
     def _objective_busy_reason(self) -> Optional[str]:
@@ -333,25 +333,23 @@ class ObjectiveControlWidget(QWidget):
         * **Another acquisition.** A tileset, z-stack or autofocus sweep steps the
           objective itself, and a second hand on it corrupts the run. The microscope
           answers this and only the microscope can: asking whether *this widget* was
-          busy is what let another tab's tileset through (FIB-513). A live stream is
+          busy is what let another tab's tileset through. A live stream is
           deliberately not busy — focusing while watching is what this panel is for.
-        * **A focus adjustment.** The wheel move runs on a worker now (FIB-625), so
+        * **A focus adjustment.** The wheel move runs on a worker now, so
           everything here stays clickable while it is on its way.
         * **An insert or retract.** Also threaded, and always was — so a scroll during a
-          retraction has always gone through (FIB-628). This is the collision-relevant
+          retraction has always gone through. This is the collision-relevant
           one: `insert_objective` moves the *stage* before inserting.
 
         A guard on the action, not on the button. The buttons are not this widget's to
         drive — `FMControlWidget._update_acquisition_button_states` owns them and
         re-derives them from `may_start` — so disabling them here and re-enabling on
-        completion overwrote its answer, and scrolling during a live stream left Insert
-        and Retract clickable when the stream forbids them. That is the shape FIB-513
-        closed one layer up (FIB-515).
+        completion would overwrite its answer, and leave Insert and Retract clickable
+        during a live stream that forbids them.
 
         What it cannot see is another `ObjectiveControlWidget` — the coincidence viewer
         holds a second one, with its own workers. Closing that means the objective
-        marking itself busy rather than the widget doing it, which is the FIB-441 shape
-        and a driver-level change; recorded on FIB-628 rather than assumed here.
+        marking itself busy rather than the widget doing it, a driver-level change.
         """
         if not self.fm.is_interactive:
             return self.fm.acquiring_reason or "another acquisition"
@@ -497,11 +495,7 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.blockSignals(False)  # Unblock signals
 
         if self.parent_widget is not None:
-            # quad-view info bar (OBJECTIVE on the FM canvas), via the controller. The
-            # napari text-overlay branch that used to sit here was reachable only
-            # through a host with a `viewer`, and no host has had one since the
-            # quad view; its import was the last thing pulling napari into the FM
-            # widgets.
+            # quad-view info bar (OBJECTIVE on the FM canvas), via the controller.
             controller = None
             try:
                 controller = self.parent_widget._view_controller()
@@ -531,7 +525,7 @@ class ObjectiveControlWidget(QWidget):
 
         `state` drives no buttons: those are decided by guards that read the device
         deliberately, and a stale "Retracted" there is what moves the stage with the
-        objective still in the chamber (FIB-534). It is passed on only to the quad
+        objective still in the chamber. It is passed on only to the quad
         view's chamber drawing, which draws the objective in or out by it.
 
         Stands aside while the wheel is driving: every emit then comes from the wheel's
@@ -547,7 +541,7 @@ class ObjectiveControlWidget(QWidget):
 
         It belongs to the microscope and outlives this widget, and it holds a bound
         method of an object whose C++ half `close` has already destroyed -- so the next
-        emit writes into freed memory. A segfault, not an exception (FIB-550).
+        emit writes into freed memory. A segfault, not an exception.
         """
         for signal, slot in (
             (self.fm.objective.position_changed, self._on_objective_moved),
@@ -575,7 +569,7 @@ class ObjectiveControlWidget(QWidget):
         # putting the spinbox back, and that would raise `valueChanged` again and re-enter
         # here. `update_objective_position_labels` blocks the spinbox's signals around
         # `setValue`, which is what makes the put-back safe -- the same reason the
-        # large-move cancel below already routes through it (FIB-515).
+        # large-move cancel below already routes through it.
         if self._refuse_if_objective_busy("Objective move"):
             self.update_objective_position_labels()
             return
@@ -694,8 +688,7 @@ class ObjectiveControlWidget(QWidget):
         """Set the focus position to the current objective position."""
         # Records rather than moves, so it looked exempt -- but the number it records is
         # a fresh device read, and mid-move that is wherever the objective happens to be
-        # passing. Saving a focus of "halfway there" is the failure. FIB-515 left this
-        # one to be decided rather than assumed; this is the reason to guard it.
+        # passing, and saving a focus of "halfway there" is the failure.
         if self._refuse_if_objective_busy("Set focus position"):
             return
         current_position_um = self.fm.objective.position * METRE_TO_MICRON
@@ -800,9 +793,9 @@ class ObjectiveControlWidget(QWidget):
             return
 
         # Prevent objective movement while something is driving the objective itself:
-        # another acquisition, or this widget's own threaded insert / retract (FIB-628).
+        # another acquisition, or this widget's own threaded insert / retract.
         # Asked of the microscope, not the parent widget: `is_acquisition_active` is only
-        # the parent's own work, so another tab's tileset let this through (FIB-513).
+        # the parent's own work, so another tab's tileset let this through.
         # Still allowed during a live stream -- shift-scrolling to focus while watching
         # is what this handler is for.
         #
@@ -852,9 +845,9 @@ class ObjectiveControlWidget(QWidget):
         if self.parent_widget is None:
             return
         # The microscope's answer, not the parent's: `is_acquisition_active` is only that
-        # widget's own work, so another tab's tileset went straight through here
-        # (FIB-513), and neither of them notices this widget's threaded insert or retract
-        # (FIB-628). Logged rather than toasted -- see `_on_mouse_wheel`.
+        # widget's own work, so another tab's tileset went straight through here,
+        # and neither of them notices this widget's threaded insert or retract.
+        # Logged rather than toasted -- see `_on_mouse_wheel`.
         reason = self._objective_busy_reason()
         if reason is not None:
             logging.info(f"Objective movement disabled: {reason}")
@@ -884,7 +877,7 @@ class ObjectiveControlWidget(QWidget):
         `qdebounced` fires on a QTimer in the GUI thread, so running the move here --
         as this did -- blocked every repaint for its duration, and the live FM canvas
         stopped updating while you focused. Frames kept arriving throughout: the stream
-        has its own thread, they simply could not be drawn (FIB-625).
+        has its own thread, they simply could not be drawn.
 
         A move already on its way is not joined by a second one. It re-reads the target
         when it lands, so a nudge arriving mid-move *replaces* where the objective is
@@ -957,7 +950,7 @@ class ObjectiveControlWidget(QWidget):
         self._wheel_moving_to_um = (
             None  # the burst is over; the device owns the readout
         )
-        # Kept even though `position_changed` now drives the same labels (FIB-576):
+        # Kept even though `position_changed` now drives the same labels:
         # that signal is skipped when the read behind it fails, by design, and this is
         # the path that always reports. Two label updates cost ~0.4 ms together.
         self.update_objective_position_labels(objective_position=position_m)
@@ -969,7 +962,7 @@ class ObjectiveControlWidget(QWidget):
         blocking this change exists to remove — teardown would be the one place still
         doing it. What must not survive is the callback: these slots touch widgets, and
         an emit into one Qt has already destroyed on the C++ side is a segfault rather
-        than an exception (FIB-550). Cutting the connections leaves the worker to finish
+        than an exception. Cutting the connections leaves the worker to finish
         into nothing, which is what we want.
         """
         worker = self._wheel_worker
@@ -1004,7 +997,7 @@ class ObjectiveControlWidget(QWidget):
 
         Call on widget teardown: the callback binds this widget onto a viewer that
         outlives it, so without this a scroll after a microscope reconnect drives a dead
-        widget — and PyQt turns an exception in a callback into qFatal (FIB-329)."""
+        widget — and PyQt turns an exception in a callback into qFatal."""
         try:
             self._execute_wheel_move.cancel()
         except Exception:

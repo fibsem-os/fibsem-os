@@ -2,8 +2,8 @@
 
 The beam tab had nothing: pressing Run started driving the stage. That mattered less
 when a run was always centred under the stage and always acquired every tile, and it
-stopped being true twice — the grid can be dragged somewhere else (FIB-617) and tiles
-can be masked off (FIB-618). Both are set on the canvas, silently, and both survive a
+stopped being true twice — the grid can be dragged somewhere else and tiles
+can be masked off. Both are set on the canvas, silently, and both survive a
 tab switch. This is the last place either announces itself.
 
 Same house style as the fluorescence and coincidence dialogs, from the same module, so
@@ -97,7 +97,7 @@ class OverviewConfirmationDialog(OverviewPreflightDialog):
         as the grid travels along it, and the run drives the stage through that climb.
         Measured at 0.7 µm of z per micron of y at a 35° pre-tilt, so a half-millimetre
         drag carries most of that again in z -- a focus change nothing else here would
-        mention. Zero on a compustage, which has no pre-tilt (FIB-1007).
+        mention. Zero on a compustage, which has no pre-tilt.
         """
         if self.offset is None:
             return "the stage position"
