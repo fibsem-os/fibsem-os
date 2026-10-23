@@ -1535,16 +1535,24 @@ def test_an_image_read_is_kept_by_the_browser_until_the_file_changes(
     tag = first.headers["ETag"]
     assert first.headers["Cache-Control"] == "no-cache"
 
-    again = client.get(url, params={"width": 64}, headers={**AUTH, "If-None-Match": tag})
+    again = client.get(
+        url, params={"width": 64}, headers={**AUTH, "If-None-Match": tag}
+    )
     assert again.status_code == 304
-    other = client.get(url, params={"width": 96}, headers={**AUTH, "If-None-Match": tag})
+    other = client.get(
+        url, params={"width": 96}, headers={**AUTH, "If-None-Match": tag}
+    )
     assert other.status_code == 200 and other.headers["ETag"] != tag
 
     path = Path(host.experiment.path) / OVERVIEW
     os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 10**9))
-    changed = client.get(url, params={"width": 64}, headers={**AUTH, "If-None-Match": tag})
+    changed = client.get(
+        url, params={"width": 64}, headers={**AUTH, "If-None-Match": tag}
+    )
     assert changed.status_code == 200 and changed.json()["preview"]["image_b64_jpeg"]
-    listing = client.get("/app/experiment/files/" + os.path.dirname(OVERVIEW), headers=AUTH)
+    listing = client.get(
+        "/app/experiment/files/" + os.path.dirname(OVERVIEW), headers=AUTH
+    )
     assert "ETag" not in listing.headers
 
 

@@ -46,7 +46,11 @@ def _save_before_0_60(image: FluorescenceImage, path: str) -> None:
 
     nc, nz, ny, nx = image.data.shape
     with tifffile.TiffWriter(path) as tif:
-        tif.write(image.data.reshape(1, nc, nz, ny, nx), contiguous=True, photometric="minisblack")
+        tif.write(
+            image.data.reshape(1, nc, nz, ny, nx),
+            contiguous=True,
+            photometric="minisblack",
+        )
         tif.overwrite_description(image.get_ome_metadata().to_xml())
 
 
@@ -156,8 +160,17 @@ def test_a_saved_stack_reads_each_plane_at_its_small_sizes(tmp_path):
 
     with StackFile(path) as stack:
         assert stack.levels == 3
-        assert [stack.level_for(n) for n in (None, 96, 48, 24, 12, 5)] == [0, 0, 0, 1, 2, 2]
-        np.testing.assert_array_equal(stack.plane(1, 2, 1), reduce_by(image.data[1, 2], 4))
+        assert [stack.level_for(n) for n in (None, 96, 48, 24, 12, 5)] == [
+            0,
+            0,
+            0,
+            1,
+            2,
+            2,
+        ]
+        np.testing.assert_array_equal(
+            stack.plane(1, 2, 1), reduce_by(image.data[1, 2], 4)
+        )
         assert stack.plane(1, 2, 2).shape == (8, 12)
 
 
