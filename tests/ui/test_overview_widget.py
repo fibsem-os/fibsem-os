@@ -4259,9 +4259,7 @@ class TestTwoRunsCannotLandOnEachOther:
         from fibsem.imaging import tiled as module
 
         times = iter(["14-23-05", "14-31-40"])
-        monkeypatch.setattr(
-            module, "current_timestamp_v3", lambda timeonly=True: next(times)
-        )
+        monkeypatch.setattr(module, "current_timestamp", lambda fmt=None: next(times))
         first = self._capture(widget, monkeypatch, tmp_path)
         widget._set_running(False)
         second = self._capture(widget, monkeypatch, tmp_path)

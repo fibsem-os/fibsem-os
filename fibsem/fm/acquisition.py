@@ -10,6 +10,7 @@ import numpy as np
 
 from fibsem import utils
 from fibsem.cancellation import OperationCancelledError, raise_if_cancelled
+from fibsem.constants import TIME_FILE
 from fibsem.fm.calibration import run_coarse_fine_autofocus
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.progress import (
@@ -397,7 +398,7 @@ class OverviewDestination:
         Raises:
             OSError: if the directory cannot be made, or no free name was found.
         """
-        stem = basename or f"overview-{utils.current_timestamp_v3(timeonly=True)}"
+        stem = basename or f"overview-{utils.current_timestamp(TIME_FILE)}"
         # The timestamp is only good to the second, and two runs can start inside one --
         # a single-tile overview at a short exposure takes far less. Reusing the name
         # would let the second run overwrite the first tile for tile, silently, which is

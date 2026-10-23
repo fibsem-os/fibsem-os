@@ -100,26 +100,6 @@ except OSError as e:
     ) from e
 
 
-def load_yaml(fname):
-    """
-    Load a YAML file and return its contents as a dictionary.
-
-    Args:
-        fname (str): The path to the YAML file to be loaded.
-
-    Returns:
-        dict: A dictionary containing the contents of the YAML file.
-
-    Raises:
-        IOError: If the file cannot be opened or read.
-        yaml.YAMLError: If the file is not valid YAML.
-    """
-    with open(fname) as f:
-        config = yaml.safe_load(f)
-
-    return config
-
-
 DEFAULT_IP_ADDRESS = "192.168.0.1"
 
 
@@ -129,7 +109,8 @@ DEFAULT_USER_CONFIGURATION_YAML: dict = {
 }
 USER_CONFIGURATIONS_PATH = os.path.join(CONFIG_PATH, "user-configurations.yaml")
 if os.path.exists(USER_CONFIGURATIONS_PATH):
-    USER_CONFIGURATIONS_YAML = load_yaml(USER_CONFIGURATIONS_PATH)
+    with open(USER_CONFIGURATIONS_PATH) as f:
+        USER_CONFIGURATIONS_YAML = yaml.safe_load(f)
 else:
     USER_CONFIGURATIONS_YAML = DEFAULT_USER_CONFIGURATION_YAML
 USER_CONFIGURATIONS = USER_CONFIGURATIONS_YAML["configurations"]

@@ -5,7 +5,6 @@ import logging
 import math
 import os
 import sys
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple, Union
 
@@ -14,7 +13,7 @@ import yaml
 from fibsem import config as cfg
 from fibsem import state_move
 from fibsem.codec.upgrades.configuration import upgrade
-from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL, TIME_FILE
+from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL
 from fibsem.structures import (
     CONFIGURATION_VERSION,
     CONFIGURED_DEVICES,
@@ -29,32 +28,10 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 
-def current_timestamp():
-    """Returns current time in a specific string format
-
-    Returns:
-        String: Current time
-    """
-    return datetime.datetime.fromtimestamp(time.time()).strftime(
-        DATETIME_LOG
-    )  # PM/AM doesnt work?
-
-
-def current_timestamp_v2():
-    """Returns current time in a specific string format
-
-    Returns:
-        String: Current time
-    """
-    return str(time.time()).replace(".", "_")
-
-
-def current_timestamp_v3(timeonly: bool = True) -> str:
-    """Return the current time in a specific string formats: HH-MM-SS or YYYY-MM-DD-HH-MM-SSAM/PM"""
-    now = datetime.datetime.now()
-    if timeonly:
-        return now.strftime(TIME_FILE)
-    return now.strftime(DATETIME_LOG)
+def current_timestamp(fmt: str = DATETIME_LOG) -> str:
+    """Now on the local clock in *fmt* (one of the ``fibsem.constants`` formats),
+    for a file or session name."""
+    return datetime.datetime.now().strftime(fmt)
 
 
 # `MU_SYMBOL` rather than a literal, and specifically U+00B5 MICRO SIGN rather than
