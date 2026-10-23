@@ -2,22 +2,26 @@ import { useSyncExternalStore } from "react";
 
 /** This browser's choices for being told when the agent needs an answer. */
 export interface NoticePrefs {
+  /** Toasts in the page; the tab title counts either way. */
+  toasts: boolean;
+  /** A failed action is a notice too, not only what needs an answer. */
+  errors: boolean;
   /** A system notification while the tab is in the background. */
   system: boolean;
   sound: boolean;
 }
 
 const KEY = "fibsem-notices";
-const OFF: NoticePrefs = { system: false, sound: false };
+const DEFAULTS: NoticePrefs = { toasts: true, errors: true, system: false, sound: false };
 const listeners = new Set<() => void>();
 let cached: NoticePrefs | null = null;
 
 function read(): NoticePrefs {
   if (cached) return cached;
   try {
-    cached = { ...OFF, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
+    cached = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? "{}") };
   } catch {
-    cached = OFF;
+    cached = DEFAULTS;
   }
   return cached!;
 }

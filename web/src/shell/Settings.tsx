@@ -162,6 +162,29 @@ function Notifications() {
         <input
           type="checkbox"
           className="mt-0.5 accent-primary"
+          checked={prefs.toasts}
+          onChange={(e) => setNoticePrefs({ toasts: e.target.checked })}
+        />
+        <span className="flex flex-col gap-0.5">
+          Show toasts when the agent needs an answer
+          <span className="text-muted-foreground">
+            On every page but the Agent page. The tab title counts them either way.
+          </span>
+        </span>
+      </label>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={prefs.errors}
+          onChange={(e) => setNoticePrefs({ errors: e.target.checked })}
+        />
+        Also for an action of the agent's that failed
+      </label>
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-0.5 accent-primary"
           disabled={!can}
           checked={can && prefs.system && permission === "granted"}
           onChange={async (e) => {

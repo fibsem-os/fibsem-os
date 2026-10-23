@@ -93,13 +93,15 @@ export function Notices({ page, go }: { page: Page; go: Go }) {
   const close = (ids: string[]) => setClosed((was) => new Set([...was, ...ids]));
 
   const rows = before.current ? (recent.data?.rows ?? []).filter((r) => !before.current!.has(rowId(r))) : [];
-  const news = rows.map(rowNotice).filter((n): n is Notice => !!n && !closed.has(n.id));
+  const news = rows
+    .map(rowNotice)
+    .filter((n): n is Notice => !!n && !closed.has(n.id) && (prefs.errors || n.kind !== "error"));
   const asks = askNotices(agent.data).filter((n) => !closed.has(n.id));
   const onAgentPage = page === "agent";
   useEffect(() => {
     if (onAgentPage && news.length) close(news.map((n) => n.id));
   });
-  const shown = onAgentPage ? [] : [...news, ...asks];
+  const shown = onAgentPage || !prefs.toasts ? [] : [...news, ...asks];
   const waiting = [...asks, ...(onAgentPage ? [] : news)];
 
   useEffect(() => {
