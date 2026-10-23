@@ -27,8 +27,9 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.ai.agent import code_mode
 from fibsem.ai.agent import manager as sessions
@@ -48,26 +49,24 @@ SPECIALISTS = (
     "autolamella-investigator",
     "autolamella-auditor",
 )
-# The agent's own todo list: TodoWrite, or the Task* tools in newer CLIs. They
-# touch nothing outside the session.
-TODO_TOOLS = ["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]
 # The runner's own tools, in-process: the wake-up timer (`Alarm`).
 RUNNER_SERVER = "fibsem_agent"
 WAKE_TOOL = f"mcp__{RUNNER_SERVER}__wake_after"
 # The longest a wake-up can be set for, in minutes.
 WAKE_MAX_MIN = 240
+# A constraint's time wakes the agent this long before it, and again at it.
+DEADLINE_WARN_S = 30 * 60
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
 ALLOWED_TOOLS = (
     [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
     + [f"Agent({name})" for name in SPECIALISTS]
-    + TODO_TOOLS
     + [WAKE_TOOL]
 )
 # The only built-in tools the agent has: reading its skills, finding the
 # sidecar's tools when the CLI defers them, calling a specialist or carrying
-# one on (a lamella's later polishing passes, one Verifier), and its todo list.
-BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "SendMessage"] + TODO_TOOLS
+# one on (a lamella's later polishing passes, one Verifier).
+BUILT_IN_TOOLS = ["Skill", "ToolSearch", "Agent", "SendMessage"]
 # Named as well, so a CLI that adds one back still refuses it: a specialist
 # that lists a tool gets it unless it is denied here. The CLI's own agents
 # would carry every fibsem tool, without a specialist's limits.
@@ -137,11 +136,13 @@ not be reading. Anything the operator must read now (you have stopped and \
 need them, or you answer their MESSAGE with its reply_to) goes to them with \
 experiment_message_operator; a judgment worth keeping goes on the record with \
 experiment_add_note.
-- Keep the operator's instructions on your todo list (TodoWrite, or \
-TaskCreate and TaskUpdate): the goal and each instruction a MESSAGE gives, in \
-their words, as it arrives. Read the list before each step and tick an item \
-only when it is done. A new instruction adds to the list; it never replaces \
-what is there unless the operator says so.
+- Keep the operator's instructions on your checklist with \
+server_set_checklist, which the operator sees on the Agent page: each \
+instruction a MESSAGE gives, in their words, as it arrives. Read it before \
+each step and mark an item done only when it is. A new instruction adds to \
+the list; it never replaces what is there unless the operator says so. Limits \
+the operator sets ("finish by 07:00") go in server_set_constraints: a DEADLINE \
+line wakes you 30 min before such a time and at it.
 - To look again later with nothing to wake you (after a long mill, to check \
 drift, before a deadline), set a wake-up with wake_after: a WAKE line with \
 your reason comes then. One at a time; a new one replaces it.
@@ -295,6 +296,60 @@ class Alarm:
         self._timer, self.reason = None, None
         if self._ring is not None:
             self._ring(line)
+
+
+class Deadlines:
+    """The constraints' times: each wakes the agent `DEADLINE_WARN_S` before it
+    and at it, with a ``DEADLINE`` line, like the watcher's lines. A
+    constraint kept from one report to the next keeps its timers."""
+
+    def __init__(self, warn_s: float = DEADLINE_WARN_S) -> None:
+        self.warn_s = warn_s
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._ring: Optional[Callable[[str], None]] = None
+        self._timers: Dict[Tuple[str, str], List[asyncio.TimerHandle]] = {}
+
+    def bind(self, loop: asyncio.AbstractEventLoop, ring: Callable[[str], None]):
+        self._loop, self._ring = loop, ring
+
+    def set(self, constraints: Optional[List[Dict[str, Any]]]) -> None:
+        """The session's constraints as the App Server holds them."""
+        wanted = {
+            (c["text"], c["by"])
+            for c in constraints or []
+            if isinstance(c, dict) and c.get("text") and c.get("by")
+        }
+        for key in set(self._timers) - wanted:
+            for timer in self._timers.pop(key):
+                timer.cancel()
+        if self._loop is None:
+            return
+        now = datetime.now().astimezone()
+        for text, by in wanted - set(self._timers):
+            try:
+                when = datetime.fromisoformat(by)
+            except ValueError:
+                continue
+            at = when.strftime("%H:%M")
+            lines = (
+                (
+                    self.warn_s,
+                    f"DEADLINE in {self.warn_s / 60:g} min: {text} (by {at})",
+                ),
+                (0.0, f"DEADLINE now: {text} (by {at})"),
+            )
+            self._timers[(text, by)] = [
+                self._loop.call_later(delay, self._ring, line)
+                for before, line in lines
+                if (delay := (when - now).total_seconds() - before) > 0
+            ]
+
+    def cancel(self) -> None:
+        self.set(None)
+
+    @property
+    def times(self) -> List[str]:
+        return sorted(by for _, by in self._timers)
 
 
 def wake_server(alarm: Alarm):
@@ -499,6 +554,7 @@ class Runner:
         self._agent = agent
         # The agent's wake-up timer: it rings into the watcher's lines.
         self._alarm = alarm
+        self._deadlines = Deadlines()
         self._goal = goal
         self._goal_sent = False
         # What it can do (code mode, effort, skills), sent with the first report.
@@ -548,10 +604,13 @@ class Runner:
         self._loop = asyncio.get_running_loop()
         self._stopping = asyncio.Event()
         self._items = asyncio.Queue()
+
+        def ring(line: str) -> None:
+            self._items.put_nowait((self._watcher, line))
+
         if self._alarm is not None:
-            self._alarm.bind(
-                self._loop, lambda line: self._items.put_nowait((self._watcher, line))
-            )
+            self._alarm.bind(self._loop, ring)
+        self._deadlines.bind(self._loop, ring)
         if self._stop_requested:
             return 0
         # The kickoff's own actions are news: the watch starts at the tail, so
@@ -571,6 +630,7 @@ class Runner:
         finally:
             if self._alarm is not None:
                 self._alarm.cancel()
+            self._deadlines.cancel()
             # Before the watcher stops: stopping it closes the client.
             await self._report(ended=True)
             if self._watcher is not None:
@@ -712,11 +772,18 @@ class Runner:
 
         def post():
             try:
-                client.request("POST", "/app/agent/session", json=body, timeout=10.0)
+                response = client.request(
+                    "POST", "/app/agent/session", json=body, timeout=10.0
+                )
+                if response.status_code == 200:
+                    return response.json().get("session")
             except Exception:
                 log.debug("Reporting the session failed.", exc_info=True)
+            return None
 
-        await asyncio.get_running_loop().run_in_executor(None, post)
+        reported = await asyncio.get_running_loop().run_in_executor(None, post)
+        if isinstance(reported, dict) and not ended:
+            self._deadlines.set(reported.get("constraints"))
         await self._send_transcript()
 
     async def _send_transcript(self) -> None:

@@ -22,6 +22,8 @@ import os
 import sys
 from types import SimpleNamespace
 
+from tests.fixtures.microscopes import demo_microscope
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import numpy as np
@@ -31,7 +33,6 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures import (  # noqa: E402
     BeamType,
@@ -44,17 +45,7 @@ from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget  # noqa: E402
 _app = QApplication.instance() or QApplication(sys.argv)
 
 
-@pytest.fixture(scope="module")
-def microscope():
-    import fibsem.config as fibsem_config
-
-    path = os.path.join(
-        os.path.dirname(fibsem_config.__file__),
-        "config",
-        "sim-arctis-configuration.yaml",
-    )
-    scope, _ = utils.setup_session(manufacturer="Demo", config_path=path)
-    return scope
+microscope = demo_microscope("sim-arctis-configuration.yaml")
 
 
 def _at(base, dx=0.0, dy=0.0, name=None):

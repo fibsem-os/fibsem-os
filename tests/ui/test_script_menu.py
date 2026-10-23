@@ -21,13 +21,6 @@ from fibsem.ui.widgets.script_menu import (  # noqa: E402
 )
 
 
-@pytest.fixture
-def qapp():
-    from PyQt5.QtWidgets import QApplication
-
-    yield QApplication.instance() or QApplication([])
-
-
 class FakeContext:
     def save(self):
         pass

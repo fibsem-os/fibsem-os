@@ -480,7 +480,7 @@ def test_the_chat_is_the_web_app_s_agent_page(server):
 
 def test_the_web_app_is_served(server):
     # Every page path gets index.html; assets are served with their type.
-    for path in ("/ui", "/ui/", "/ui/microscope"):
+    for path in ("/ui", "/ui/", "/ui/microscope", "/ui/events"):
         answer = server.get(path)
         assert answer.status_code == 200
         assert "/ui/assets/index.js" in answer.text
