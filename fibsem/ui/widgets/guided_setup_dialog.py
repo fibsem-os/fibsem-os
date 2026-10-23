@@ -1632,8 +1632,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
 
         self._experiment_dir = QDirectoryLineEdit()
         self._experiment_dir.setText(
-            preferences.experiment.default_experiment_directory
-            or os.path.expanduser("~")
+            preferences.shared.default_experiment_directory or os.path.expanduser("~")
         )
         column.addLayout(
             self._directory_row(
@@ -1645,7 +1644,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         )
 
         self._protocol_file = QFileLineEdit()
-        self._protocol_file.setText(preferences.experiment.default_protocol_path)
+        self._protocol_file.setText(preferences.shared.default_protocol_path)
         column.addLayout(
             self._directory_row(
                 "Default protocol",

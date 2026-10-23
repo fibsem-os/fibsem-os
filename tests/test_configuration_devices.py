@@ -6,7 +6,6 @@ device the file does not name is built as before. Version 1 files, with a block 
 device, load unchanged, and are converted the first time anything saves them.
 """
 
-import copy
 import logging
 import os
 
@@ -361,7 +360,7 @@ def test_a_key_on_a_beam_without_a_driver_is_still_reported():
 # Where the stage travels for a device is on that device's entry
 # ---------------------------------------------------------------------------
 
-OFFSET_FM = os.path.join(cfg.CONFIG_PATH, "sim-iflm-configuration.yaml")
+OFFSET_FM = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 
 
 def _offset_fm_entry(**keys) -> dict:
@@ -461,7 +460,7 @@ def test_the_demo_microscope_hands_the_fm_entry_to_its_fm(tmp_path):
     from fibsem.structures import CameraImageTransform
 
     config = utils.load_yaml(
-        os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     )
     config = upgrade(config)
     utils.configuration_device(config, "fm", create=True)["mount_transform"] = "flip-xy"

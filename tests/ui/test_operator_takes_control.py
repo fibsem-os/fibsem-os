@@ -169,7 +169,7 @@ def _arctis():
 
     from fibsem import config as fcfg
 
-    path = Path(fcfg.CONFIG_PATH) / "sim-arctis-configuration.yaml"
+    path = Path(fcfg.SHIPPED_CONFIG_PATH) / "sim-arctis-configuration.yaml"
     microscope, _ = utils.setup_session(
         config_path=str(path), manufacturer="Demo", setup_logging=False
     )

@@ -31,6 +31,7 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     COINCIDENCE_SETUP_REFERENCE_FILENAME,
     SetupCoincidenceMillingTaskConfig,
 )
+from fibsem.constants import TIME_FILE
 from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.milling.base import FibsemMillingSettings
@@ -291,7 +292,7 @@ class MillCoincidentTask(AutoLamellaTask):
         self.log_status_message(
             "ACQUIRE_FLUORESCENCE_IMAGE", "Acquiring Fluorescence Image..."
         )
-        timestamp = utils.current_timestamp_v3(timeonly=True)
+        timestamp = utils.current_timestamp(TIME_FILE)
         basename = f"{self.lamella.name}-coincidence-final-{timestamp}.ome.tiff"
         filename = os.path.join(self.output_dir, basename)  # the run's
         image = acquire_image(

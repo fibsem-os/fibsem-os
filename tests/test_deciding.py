@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, List
 
 from fibsem.acting import Actor
 from fibsem.workflows.deciding import ProposalDecisions

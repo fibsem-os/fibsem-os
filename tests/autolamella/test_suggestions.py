@@ -178,7 +178,7 @@ def test_the_suggestion_and_its_credit_are_saved(experiment):
 
 def test_a_record_from_before_suggestions_loads_with_none():
     doc = Proposal(kind=STATE, provenance={"task_id": "run-1"}).to_dict()
-    assert "suggestion" not in doc
+    del doc["suggestion"]
 
     assert Proposal.from_dict(doc).suggestion is None
 

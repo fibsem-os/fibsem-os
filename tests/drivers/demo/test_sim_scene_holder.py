@@ -13,7 +13,9 @@ from fibsem import utils
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
 from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, SampleGrid
 
-TFS_SHUTTLE_CONFIG = os.path.join(cfg.CONFIG_PATH, "microscope-configuration.yaml")
+TFS_SHUTTLE_CONFIG = os.path.join(
+    cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
+)
 SLOT_X = 3e-3  # m, slots either side of the boot position
 
 
@@ -144,7 +146,7 @@ def test_the_rim_rings_each_grid(microscope):
 # The Arctis working slot (FIB-1144): the autoloader puts a grid off the origin
 # ---------------------------------------------------------------------------
 
-ARCTIS_CONFIG = os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml")
+ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 GRID_POSITION = (200e-6, 100e-6, 0.0)  # m: where the loader puts a grid
 
 

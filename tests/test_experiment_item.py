@@ -6,7 +6,7 @@ same fields, so these run against a plain item with nothing else on it.
 
 from dataclasses import dataclass, field
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any, List
 
 from fibsem.workflows.item import ExperimentItem
 from fibsem.workflows.status import TaskStatus

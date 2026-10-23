@@ -7,10 +7,8 @@ import pytest
 from fibsem import acquire, alignment, utils
 from fibsem.alignment import (
     AlignmentDifferential,
-    AlignmentIteration,
     AlignmentMethod,
     AlignmentResult,
-    AlignmentSubsystem,
     compare_alignment_methods,
     crosscorrelation_cv2,
     multi_step_alignment_v2,
@@ -487,7 +485,6 @@ def test_consensus_shift_present():
 
 def test_consensus_shift_within_method_range():
     """consensus_shift lies between the per-method estimates (not outside the spread)."""
-    from fibsem.structures import Point as Pt
 
     shift_x, shift_y = 20, 10
     ref_image, new_image, pixel_size = _make_shifted_images(shift_x, shift_y)

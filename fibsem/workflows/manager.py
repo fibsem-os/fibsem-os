@@ -6,7 +6,6 @@ lamella and grid managers are two.
 """
 
 import logging
-import threading
 import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional, Protocol, Set, Tuple
@@ -24,7 +23,6 @@ from fibsem.control import MicroscopeBusy
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType
-from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.event_recording import run_recorder
 from fibsem.workflows.interaction import Responder
 from fibsem.workflows.queue import TaskQueue, WorkItem

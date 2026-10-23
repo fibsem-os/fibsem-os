@@ -76,7 +76,9 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
 
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
-        config_path=os.path.join(cfg.CONFIG_PATH, "sim-arctis-configuration.yaml"),
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
     )
     try:
         marked = microscope.get_stage_position()

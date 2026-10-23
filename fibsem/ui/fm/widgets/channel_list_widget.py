@@ -1,10 +1,6 @@
 """ChannelListWidget — compact list-style channel settings widget.
 
-Replaces the stacked-form ChannelSettingsWidget with an inline-row design
-following the MillingStageListWidget pattern. All controls are visible per row.
-
-Exposes the same public interface as ChannelSettingsWidget so it can be swapped
-in without changes to callers.
+One inline row per channel, following the MillingStageListWidget pattern.
 """
 
 from __future__ import annotations
@@ -63,6 +59,7 @@ from fibsem.ui.tokens import (
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox
 from fibsem.ui.widgets.lists import ReorderableListWidget
+from fibsem.ui.widgets.milling_stage_list_widget import unique_name
 
 _NAME_MIN_WIDTH = 130
 _EXCITATION_FIXED_WIDTH = 90
@@ -84,15 +81,6 @@ def _make_color_icon(color_name: str, size: int = 16) -> QIcon:
     px = QPixmap(size, size)
     px.fill(QColor(color_name))
     return QIcon(px)
-
-
-def _unique_name(name: str, existing: set) -> str:
-    if name not in existing:
-        return name
-    n = 2
-    while f"{name} ({n})" in existing:
-        n += 1
-    return f"{name} ({n})"
 
 
 # ---------------------------------------------------------------------------
@@ -301,11 +289,6 @@ class ChannelRowWidget(QWidget):
             self.power_spin,
         ):
             w.blockSignals(block)
-
-    def set_detail_controls_visible(self, visible: bool) -> None:
-        """Show or hide the exposure/gain/power spinboxes (hidden by default)."""
-        for w in (self.exposure_spin, self.gain_spin, self.power_spin):
-            w.setVisible(visible)
 
     def _emission_index(self, value: EmissionFilter) -> int:
         """Return the combo index for the given emission filter."""
@@ -532,7 +515,6 @@ class _RecentChannelRow(_MenuRow):
 
 
 class _ChannelListHeader(QWidget):
-    select_all_changed = pyqtSignal(bool)
     add_clicked = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -543,19 +525,11 @@ class _ChannelListHeader(QWidget):
         layout.setContentsMargins(6, 4, 6, 4)
         layout.setSpacing(4)
 
-        self.checkbox_all = QCheckBox("Channel")
-        self.checkbox_all.setChecked(True)
-        self.checkbox_all.setStyleSheet("font-weight: bold; background: transparent;")
-        self.checkbox_all.setMinimumWidth(24 + 8 + _NAME_MIN_WIDTH)
-        self.checkbox_all.setVisible(False)
-        layout.addWidget(self.checkbox_all, 1)
-
         lbl_channel = QLabel("Channel")
         lbl_channel.setStyleSheet("font-weight: bold; background: transparent;")
         lbl_channel.setMinimumWidth(_NAME_MIN_WIDTH)
         layout.addWidget(lbl_channel, 1)
 
-        self._detail_labels = []
         for label_text, fixed_width, is_detail in [
             ("Excitation", _EXCITATION_FIXED_WIDTH, False),
             ("Emission", _EMISSION_FIXED_WIDTH, False),
@@ -567,9 +541,7 @@ class _ChannelListHeader(QWidget):
             lbl.setStyleSheet("font-weight: bold; background: transparent;")
             lbl.setFixedWidth(fixed_width)
             layout.addWidget(lbl)
-            if is_detail:
-                lbl.setVisible(False)
-                self._detail_labels.append(lbl)
+            lbl.setVisible(not is_detail)
 
         # spacer covers color btn; btn_add aligns with remove btn
         spacer = QWidget()
@@ -582,15 +554,7 @@ class _ChannelListHeader(QWidget):
         )
         layout.addWidget(self.btn_add)
 
-        self.checkbox_all.stateChanged.connect(
-            lambda s: self.select_all_changed.emit(bool(s))
-        )
         self.btn_add.clicked.connect(self.add_clicked)
-
-    def set_detail_columns_visible(self, visible: bool) -> None:
-        """Show or hide the Exposure/Gain/Power column headers (hidden by default)."""
-        for lbl in self._detail_labels:
-            lbl.setVisible(visible)
 
 
 # ---------------------------------------------------------------------------
@@ -599,11 +563,7 @@ class _ChannelListHeader(QWidget):
 
 
 class ChannelListWidget(QWidget):
-    """Compact list-style channel settings widget.
-
-    Drop-in replacement for ChannelSettingsWidget with inline-row controls
-    following the MillingStageListWidget pattern.
-    """
+    """Compact list-style channel settings widget, one inline row per channel."""
 
     settings_changed = pyqtSignal(list)  # List[ChannelSettings]
     channel_selected = pyqtSignal(object)  # ChannelSettings (selection changed)
@@ -686,7 +646,6 @@ class ChannelListWidget(QWidget):
         self._status_timer.setSingleShot(True)
         self._status_timer.timeout.connect(lambda: self._status_label.setVisible(False))
 
-        self._header.select_all_changed.connect(self.set_all_selected)
         self._header.add_clicked.connect(self._on_add_channel)
         self._list.reordered.connect(self._on_reordered)
 
@@ -695,7 +654,7 @@ class ChannelListWidget(QWidget):
         self._update_empty_state()
 
     # ------------------------------------------------------------------
-    # Public interface (matches ChannelSettingsWidget)
+    # Public interface
     # ------------------------------------------------------------------
 
     @property
@@ -769,7 +728,7 @@ class ChannelListWidget(QWidget):
                     else REFLECTION,
                 )
             existing = {self._row(i).channel.name for i in range(self._list.count())}
-            channel.name = _unique_name(f"Channel-{count + 1:02d}", existing)
+            channel.name = unique_name(f"Channel-{count + 1:02d}", existing)
         row = self._add_row(channel, enabled=True)
         self._set_selected(channel)
         self.channel_added.emit(channel)
@@ -789,87 +748,10 @@ class ChannelListWidget(QWidget):
         if self._selected_channel is channel:
             self._selected_channel = None
         self._checkbox_states.pop(id(channel), None)
-        self._sync_select_all()
         self._update_empty_state()
         self._update_add_button()
         self.channel_removed.emit(channel)
         self._emit_settings_changed()
-
-    def remove_selected_channel(self) -> None:
-        if self._selected_channel is None:
-            return
-        for i in range(self._list.count()):
-            if self._row(i).channel is self._selected_channel:
-                self.remove_channel_by_index(i)
-                return
-
-    def set_all_selected(self, checked: bool) -> None:
-        """Enable or disable every channel, and bring the header and cache with them.
-
-        Nothing can reach this today: the only connection is the header checkbox,
-        which is constructed hidden and never shown. It is written to survive that
-        changing, because the cache write and the header sync are exactly what the
-        AutoLamella lists were missing, and the cache one is not cosmetic.
-        `_checkbox_states` is what `_on_reordered` rebuilds rows from, so leaving it
-        stale means a drag-and-drop after a clear silently re-ticks every channel --
-        and the rebuild emits no `enabled_changed`, so the consumer that just heard
-        "nothing enabled" would go on believing it while the list shows otherwise.
-        """
-        for i in range(self._list.count()):
-            row = self._row(i)
-            row.checkbox.blockSignals(True)
-            row.checkbox.setChecked(checked)
-            row.checkbox.blockSignals(False)
-            self._checkbox_states[id(row.channel)] = checked
-        self._sync_select_all()
-        self.enabled_changed.emit(
-            [self._row(i).channel for i in range(self._list.count())] if checked else []
-        )
-
-    def set_live_acquisition_controls(self, enabled: bool) -> None:
-        """Stub for ChannelSettingsWidget compatibility — no separate live list."""
-        pass
-
-    # Backward-compat input properties (delegate to selected row widget)
-
-    def _get_selected_row(self) -> Optional[ChannelRowWidget]:
-        ch = self.selected_channel
-        if ch is None:
-            return None
-        for i in range(self._list.count()):
-            if self._row(i).channel is ch:
-                return self._row(i)
-        return None
-
-    @property
-    def channel_name_input(self):
-        r = self._get_selected_row()
-        return r.name_edit if r else None
-
-    @property
-    def excitation_wavelength_input(self):
-        r = self._get_selected_row()
-        return r.excitation_combo if r else None
-
-    @property
-    def emission_filter_input(self):
-        r = self._get_selected_row()
-        return r.emission_combo if r else None
-
-    @property
-    def exposure_time_input(self):
-        r = self._get_selected_row()
-        return r.exposure_spin if r else None
-
-    @property
-    def gain_input(self):
-        r = self._get_selected_row()
-        return r.gain_spin if r else None
-
-    @property
-    def color_input(self):
-        r = self._get_selected_row()
-        return r.btn_color if r else None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -904,7 +786,6 @@ class ChannelListWidget(QWidget):
         self._list.addItem(item)
         self._list.setItemWidget(item, row)
         self._connect_row(row)
-        self._sync_select_all()
         return row
 
     def _connect_row(self, row: ChannelRowWidget) -> None:
@@ -1018,7 +899,7 @@ class ChannelListWidget(QWidget):
         menu.close()
         channel = deepcopy(channel)
         existing = {self._row(i).channel.name for i in range(self._list.count())}
-        channel.name = _unique_name(channel.name, existing)
+        channel.name = unique_name(channel.name, existing)
         self.add_channel(channel)
 
     def _on_recent_removed(
@@ -1096,7 +977,6 @@ class ChannelListWidget(QWidget):
 
     def _on_enabled_changed(self, channel: ChannelSettings, enabled: bool) -> None:
         self._checkbox_states[id(channel)] = enabled
-        self._sync_select_all()
         self.enabled_changed.emit(
             [
                 self._row(i).channel
@@ -1104,22 +984,6 @@ class ChannelListWidget(QWidget):
                 if self._row(i).checkbox.isChecked()
             ]
         )
-
-    def _sync_select_all(self) -> None:
-        count = self._list.count()
-        if count == 0:
-            return
-        n_checked = sum(self._row(i).checkbox.isChecked() for i in range(count))
-        cb = self._header.checkbox_all
-        cb.blockSignals(True)
-        if n_checked == 0:
-            cb.setCheckState(Qt.Unchecked)
-        elif n_checked == count:
-            cb.setCheckState(Qt.Checked)
-        else:
-            cb.setTristate(True)
-            cb.setCheckState(Qt.PartiallyChecked)
-        cb.blockSignals(False)
 
     def _on_reordered(self, channels: List[ChannelSettings]) -> None:
         """Rebuild row widgets after drag-and-drop (Qt clears itemWidget on move)."""
@@ -1140,5 +1004,4 @@ class ChannelListWidget(QWidget):
             item.setSizeHint(self._row_item_size())
             self._list.setItemWidget(item, row)
             self._connect_row(row)
-        self._sync_select_all()
         self.order_changed.emit(channels)

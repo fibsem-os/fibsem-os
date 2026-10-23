@@ -26,7 +26,7 @@ installed odemis on the path (``add_odemis_path``).
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 
@@ -384,24 +384,6 @@ class OdemisBeam(Beam):
         self._client.set_full_frame_scan_mode(self.channel)
 
 
-def bind_odemis_beams(
-    microscope: OdemisThermoMicroscope, resources: Optional[Resources] = None
-) -> Dict[BeamType, OdemisBeam]:
-    """Build ``beams[BeamType]`` for an Odemis microscope: one per enabled column, so
-    a disabled one is never touched."""
-    enabled = {
-        BeamType.ELECTRON: microscope.system.electron.enabled,
-        BeamType.ION: microscope.system.ion.enabled,
-    }
-    return {
-        beam_type: OdemisBeam(
-            beam_type, microscope, microscope._connection, resources
-        ).connect()
-        for beam_type, on in enabled.items()
-        if on
-    }
-
-
 #: The stage limits, r and t in degrees. Not read from odemis: this is the fixed table
 #: the base microscope class gave every backend that didn't ask its hardware.
 STAGE_LIMITS = {
@@ -469,13 +451,6 @@ class OdemisStage(Stage):
         logging.info("Stage linked.")
 
 
-def bind_odemis_stage(
-    microscope: OdemisThermoMicroscope, resources: Optional[Resources] = None
-) -> OdemisStage:
-    """Build ``stage`` for an Odemis microscope."""
-    return OdemisStage(microscope, microscope._connection, resources).connect()
-
-
 class OdemisChamber(Chamber):
     """The vacuum of a Thermo microscope driven through odemis.
 
@@ -519,13 +494,6 @@ class OdemisChamber(Chamber):
         logging.info("Venting chamber...")
         self._client.vent()
         logging.info("Chamber vented.")
-
-
-def bind_odemis_chamber(
-    microscope: OdemisThermoMicroscope, resources: Optional[Resources] = None
-) -> OdemisChamber:
-    """Build ``chamber`` for an Odemis microscope."""
-    return OdemisChamber(microscope, microscope._connection, resources).connect()
 
 
 # The builders the Odemis driver record names, one per device type: how

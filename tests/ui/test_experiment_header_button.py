@@ -22,9 +22,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QPushButton  # noqa: E402
 
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    DefectType,
     Experiment,
     Lamella,
 )
@@ -34,6 +33,7 @@ from fibsem.applications.autolamella.ui.header import (  # noqa: E402
     experiment_tooltip,
     set_button_icon,
 )
+from fibsem.workflows.quality import Verdict
 from tests.fixtures.experiment_header import HeaderHost  # noqa: E402
 
 
@@ -50,17 +50,14 @@ def experiment(tmp_path):
 
 
 def test_buttons_wait_for_a_microscope(host):
-    """They used to be shown and greyed out here.
-
-    Neither can do anything without a microscope, and once the header carries a
-    Connect chip a greyed-out pair beside it is the same spent chrome this file
-    removed from the loaded state. Only true with that chip present, which is why
-    the host sets its flag; `test_connection_chip.py` covers the other branch.
-    """
+    """Shown but greyed out: neither can do anything without a microscope, and the
+    Connection tab is where one connects."""
     host.update_experiment_header()
 
-    assert host.btn_create_experiment.isHidden()
-    assert host.btn_load_experiment.isHidden()
+    assert not host.btn_create_experiment.isHidden()
+    assert not host.btn_load_experiment.isHidden()
+    assert not host.btn_create_experiment.isEnabled()
+    assert not host.btn_load_experiment.isEnabled()
     # Nothing to name yet either, so the name button stays out of the way.
     assert host.btn_experiment_menu.isHidden()
 
@@ -166,7 +163,7 @@ class TestExperimentTooltip:
         # test, and the path is one of the rows.
         assert "defective</span>" not in experiment_tooltip(experiment)
 
-        experiment.positions[0].defect.state = DefectType.FAILURE
+        experiment.positions[0].defect.verdict = Verdict.FAILED
 
         tip = experiment_tooltip(experiment)
         # "defective", not "failed": is_failure is a human's judgement about the

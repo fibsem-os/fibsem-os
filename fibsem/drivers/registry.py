@@ -55,7 +55,6 @@ if TYPE_CHECKING:
     from fibsem.devices.core import Device
     from fibsem.drivers.setup import DriverSetup, SetupDevice
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.plugins.loader import PluginRecord
     from fibsem.structures import DeviceEntry, SystemSettings
 
 
@@ -438,12 +437,3 @@ def _all_drivers() -> List[Tuple[str, DriverEntry]]:
         for name, entry in drivers.items():
             seen.setdefault(name, entry)
     return list(seen.items())
-
-
-def get_driver_plugin_records() -> Tuple["PluginRecord", ...]:
-    """Every ``fibsem.drivers`` entry point and what became of it, read once.
-
-    Includes the plugins that failed. One whose manufacturer a built-in or a
-    runtime registration also claims loads, and is not the driver used.
-    """
-    return DRIVER_PLUGINS.plugin_records()

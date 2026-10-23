@@ -16,16 +16,16 @@ from __future__ import annotations
 import logging
 import uuid
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime
+from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 from psygnal import evented
 
+from fibsem.codec import NamedEnum, Timestamp, decode, encode
+from fibsem.codec.upgrades import records as upgrade
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.structures import BeamType, FibsemImage
-from fibsem.util.durations import format_duration_precise
 from fibsem.util.timestamps import format_time, now, to_datetime
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from fibsem.workflows.queue import WorkItem
 
 
-class TaskStatus(Enum):
+class TaskStatus(NamedEnum, Enum):
     NotStarted = auto()
     InProgress = auto()
     Completed = auto()
@@ -66,8 +66,8 @@ class TaskState:
     # When the run started and ended: aware datetimes, written as ISO 8601 with
     # their offset. Files written before that hold POSIX floats, which
     # read as this machine's zone -- the clock time they always displayed.
-    start_timestamp: Optional[datetime] = field(default_factory=now)
-    end_timestamp: Optional[datetime] = None
+    start_timestamp: Optional[Timestamp] = field(default_factory=now)
+    end_timestamp: Optional[Timestamp] = None
     status: TaskStatus = TaskStatus.NotStarted
     status_message: str = ""
     # files this run produced, keyed by role, as paths relative to the item's path.
@@ -105,42 +105,13 @@ class TaskState:
             return 0
         return (end - start).total_seconds()
 
-    @property
-    def duration_str(self) -> str:
-        return format_duration_precise(self.duration)
-
     def to_dict(self) -> dict:
-        """Convert the task state to a dictionary."""
-        ddict = asdict(self)
-        ddict["status"] = self.status.name
-        for key in ("start_timestamp", "end_timestamp"):
-            when = to_datetime(ddict[key])
-            ddict[key] = when.isoformat() if when is not None else None
-        return ddict
+        return encode(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "TaskState":
-        """Create a task state from a dictionary."""
-        if data is None:
-            return cls()
-        data = data.copy()
-        # written as lamella_id before the item was any item
-        if "lamella_id" in data:
-            data.setdefault("item_id", data.pop("lamella_id"))
-        status = data.get("status", "NotStarted")
-        # Written while a supervised result waited on a decision after the
-        # task ended (0.6 development builds): the task had finished.
-        data["status"] = TaskStatus[
-            "Completed" if status == "AwaitingDecision" else status
-        ]
-        # Either form: ISO with offset, or the POSIX float of older files.
-        for key in ("start_timestamp", "end_timestamp"):
-            if key in data:
-                data[key] = to_datetime(data[key])
-        # drop keys this build doesn't know about: an experiment written by a newer
-        # version must still load in an older one rather than raising TypeError.
-        known = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in data.items() if k in known})
+    def from_dict(cls, data: Optional[dict]) -> "TaskState":
+        """Read a run saved by any version (`fibsem.codec.upgrades.records`)."""
+        return decode(cls, upgrade.task_state(data))
 
 
 @dataclass(frozen=True, eq=False)

@@ -8,10 +8,21 @@ from fibsem.ui.FibsemSpotBurnWidget import FibsemSpotBurnWidget
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
+__all__ = [
+    "FibsemImageSettingsWidget",
+    "FibsemManipulatorWidget",
+    "FibsemMovementWidget",
+    "FibsemSpotBurnWidget",
+    "FibsemSystemSetupWidget",
+    "MillingTaskViewerWidget",
+    "DETECTION_AVAILABLE",
+]
+
 try:
     from fibsem.ui.FibsemEmbeddedDetectionWidget import FibsemEmbeddedDetectionUI
 
     DETECTION_AVAILABLE = True
+    __all__ += ["FibsemEmbeddedDetectionUI"]
 except ImportError:
     DETECTION_AVAILABLE = False
     import logging

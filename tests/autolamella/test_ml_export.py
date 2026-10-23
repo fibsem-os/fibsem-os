@@ -16,7 +16,6 @@ from psygnal.containers import EventedDict
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
-    DefectType,
     Experiment,
 )
 from fibsem.applications.autolamella.tools import ml_export
@@ -37,6 +36,7 @@ from fibsem.structures import (
     MicroscopeState,
     Point,
 )
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
@@ -289,7 +289,7 @@ def test_collect_sample_records_shape_pixelsize_hfw(tmp_path):
 def test_collect_sample_carries_provenance(tmp_path):
     exp = _make_experiment(tmp_path)
     lamella = exp.positions[0]
-    lamella.defect.state = DefectType.FAILURE
+    lamella.defect.verdict = Verdict.FAILED
     lamella.milling_angle = 0.3
     _save_reference_image(lamella)
 
