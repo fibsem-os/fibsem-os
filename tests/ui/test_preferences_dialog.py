@@ -93,21 +93,22 @@ def test_the_app_server_is_not_in_preferences(qapp):
     saved values back untouched."""
     prefs = UserPreferences()
     prefs.app_server.enabled = True
-    prefs.app_server.microscope = True
+    prefs.app_server.microscope = False
     dialog = PreferencesDialog(prefs)
     pages = [dialog._sidebar.item(i).text() for i in range(dialog._sidebar.count())]
     assert "App Server" not in pages
     rebuilt = dialog.get_preferences()
-    assert rebuilt.app_server.enabled and rebuilt.app_server.microscope
+    assert rebuilt.app_server.enabled and not rebuilt.app_server.microscope
     dialog.deleteLater()
 
 
 def test_the_app_server_fails_closed():
     # Absent section, empty section and the retired flag all read as off (FIB-1035):
-    # `agent_server_enabled` was never in a release, so it is not migrated.
+    # `agent_server_enabled` was never in a release, so it is not migrated. The
+    # microscope is served once the server runs; the agent's level gates it.
     assert UserPreferences.from_dict({"features": {}}).app_server.enabled is False
     assert UserPreferences.from_dict({"app_server": {}}).app_server.enabled is False
-    assert UserPreferences.from_dict({"app_server": {}}).app_server.microscope is False
+    assert UserPreferences.from_dict({"app_server": {}}).app_server.microscope is True
     retired = {"features": {"agent_server_enabled": True}}
     assert UserPreferences.from_dict(retired).app_server.enabled is False
 
@@ -165,7 +166,7 @@ def _every_field_changed() -> UserPreferences:
     prefs.reporting.update_check_enabled = True
 
     prefs.app_server.enabled = True
-    prefs.app_server.microscope = True
+    prefs.app_server.microscope = False
     prefs.app_server.allow_local_agents = True
 
     prefs.hooks = [{"type": "notification", "name": "custom"}]
