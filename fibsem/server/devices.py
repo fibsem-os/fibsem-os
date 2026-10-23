@@ -117,7 +117,7 @@ from fibsem.devices.wire import (
 )
 from fibsem.schema import arguments_schema
 from fibsem.server import device_auth
-from fibsem.server.auth import require_operator
+from fibsem.server.auth import refusal_error, require_operator
 from fibsem.server.device_auth import DeviceAuth, read_device_token
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
@@ -185,7 +185,7 @@ def refusal(error: Exception, what: str) -> HTTPException:
     if isinstance(error, ResourceBusy):
         detail.update(resource=error.resource, holder=error.holder)
     logging.info(f"{what}: {status} {detail['error_type']}: {error}")
-    return HTTPException(status, detail)
+    return refusal_error(status, **detail)
 
 
 def unexpected(error: Exception, what: str) -> HTTPException:
@@ -193,8 +193,7 @@ def unexpected(error: Exception, what: str) -> HTTPException:
     client reads every failure one way. The traceback goes to the server's log,
     not the answer."""
     logging.error(f"{what}: {type(error).__name__}: {error}", exc_info=error)
-    detail = {"error_type": type(error).__name__, "message": str(error)}
-    return HTTPException(500, detail)
+    return refusal_error(500, type(error).__name__, str(error))
 
 
 def answer_for_error(error: Exception, what: str) -> HTTPException:
@@ -230,9 +229,7 @@ Refuse = Callable[[Device, str, str, Mapping[str, Any]], Optional[str]]
 
 
 def not_allowed(message: str) -> HTTPException:
-    return HTTPException(
-        status_code=403, detail={"error_type": "not_allowed", "message": message}
-    )
+    return refusal_error(403, "not_allowed", message)
 
 
 def never_allowed(device: Device, kind: str, name: str, why: str) -> str:
@@ -586,12 +583,14 @@ def build_device_router(
         try:
             return devices()[name]
         except KeyError:
-            raise HTTPException(404, f"no {noun} '{name}'") from None
+            raise refusal_error(404, "not_found", f"no {noun} '{name}'") from None
 
     def parameter_of(device: str, name: str) -> Any:
         d = lookup(device)
         if name not in d.declared_parameters():
-            raise HTTPException(404, f"'{device}' declares no parameter '{name}'")
+            raise refusal_error(
+                404, "not_found", f"'{device}' declares no parameter '{name}'"
+            )
         return getattr(d, name)  # ParameterUnavailable when this backend lacks it
 
     def check(d: Device, kind: str, name: str, kwargs: Mapping[str, Any]) -> None:
@@ -646,12 +645,8 @@ def build_device_router(
             runs = lookup(device).runs
             found = runs.wait(run_id, min(max(wait, 0.0), RUN_WAIT_CAP_S))
             if found is None:
-                raise HTTPException(
-                    404,
-                    detail={
-                        "error_type": "not_found",
-                        "message": f"{noun} {device} has run no long command",
-                    },
+                raise refusal_error(
+                    404, "not_found", f"{noun} {device} has run no long command"
                 )
             return answer(RunEnvelope(run_answer(device, found)))
 
@@ -746,7 +741,9 @@ def build_device_router(
     ) -> Any:
         d = lookup(device)
         if command not in d.commands:
-            raise HTTPException(404, f"'{device}' has no command '{command}'")
+            raise refusal_error(
+                404, "not_found", f"'{device}' has no command '{command}'"
+            )
         method = getattr(d, command)
         what = f"{noun} {device}.{command}"
         kwargs = run(lambda: command_kwargs(method, body), what)
@@ -836,7 +833,7 @@ def build_device_router(
     def ask(device: str, query: str, body: Dict[str, Any] = _NO_BODY) -> Response:
         d = lookup(device)
         if query not in getattr(d, "queries", {}):
-            raise HTTPException(404, f"'{device}' has no query '{query}'")
+            raise refusal_error(404, "not_found", f"'{device}' has no query '{query}'")
         method = getattr(d, query)
         what = f"{noun} {device}.{query}"
         kwargs = run(lambda: decode_kwargs(method, body.get("kwargs", {})), what)
@@ -864,7 +861,7 @@ def live_source(devices: Mapping[str, Device], name: str) -> Any:
     """The device *name* names, if it has a live view; else 404."""
     device = devices.get(name)
     if device is None or not hasattr(device, "live_frame"):
-        raise HTTPException(404, f"no beam '{name}' with a live view")
+        raise refusal_error(404, "not_found", f"no beam '{name}' with a live view")
     return device
 
 

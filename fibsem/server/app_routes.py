@@ -26,7 +26,7 @@ from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import exports, files, planes
-from fibsem.server.auth import refuse_dashboard, take_control
+from fibsem.server.auth import refusal_error, refuse_dashboard, take_control
 from fibsem.server.parts import (
     GRIDS,
     ITEMS,
@@ -166,15 +166,15 @@ def _jpeg(result: Any) -> Response:
 
 def _refusal_error(refusal: Refusal) -> HTTPException:
     """*refusal* as the HTTP error a route answers it with."""
-    return HTTPException(status_code=refusal.status, detail=refusal.detail)
+    return refusal_error(
+        refusal.status, refusal.error_type, refusal.message, **refusal.names
+    )
 
 
 def _missing_field(message: str) -> HTTPException:
     """The 422 for a request missing what a route needs, *message* saying what
     to pass."""
-    return HTTPException(
-        status_code=422, detail={"error_type": "missing_field", "message": message}
-    )
+    return refusal_error(422, "missing_field", message)
 
 
 def _note_body(body: Dict[str, Any], *optional: str) -> Tuple[str, Optional[str]]:
@@ -221,12 +221,8 @@ def _numbers(text: Optional[str]) -> Optional[List[float]]:
     try:
         return [float(part) for part in text.split(",")]
     except ValueError:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_type": "invalid",
-                "message": f"A region is four numbers, x,y,width,height; not {text!r}.",
-            },
+        raise refusal_error(
+            422, "invalid", f"A region is four numbers, x,y,width,height; not {text!r}."
         )
 
 
@@ -265,14 +261,17 @@ def _answer_or_refusal(result: Any) -> Any:
     error_type = result.get("error_type")
     if error_type is None:
         return result
-    detail = {
-        "error_type": error_type,
-        "message": result.get("error", result.get("message", "")),
+    names = {
+        key: value
+        for key, value in result.items()
+        if key.endswith(("_names", "_paths")) or key == "filenames"
     }
-    for key, value in result.items():
-        if key.endswith(("_names", "_paths")) or key == "filenames":
-            detail[key] = value
-    raise HTTPException(status_code=REFUSAL_STATUS.get(error_type, 422), detail=detail)
+    raise refusal_error(
+        REFUSAL_STATUS.get(error_type, 422),
+        error_type,
+        result.get("error", result.get("message", "")),
+        **names,
+    )
 
 
 def _typed(result: Any) -> Response:
@@ -587,12 +586,8 @@ def build_app_router(context: Any) -> APIRouter:
             if value is not None:
                 bounds[name] = to_datetime(value)
                 if bounds[name] is None:
-                    raise HTTPException(
-                        status_code=422,
-                        detail={
-                            "error_type": "invalid",
-                            "error": f"{name} is an ISO date or time, not {value!r}.",
-                        },
+                    raise refusal_error(
+                        422, "invalid", f"{name} is an ISO date or time, not {value!r}."
                     )
         return context.saved_experiments(
             instrument=instrument, operator=operator, **bounds
@@ -630,13 +625,7 @@ def build_app_router(context: Any) -> APIRouter:
         for key in keys:
             if key in body:
                 if not isinstance(body[key], bool):
-                    raise HTTPException(
-                        status_code=422,
-                        detail={
-                            "error_type": "invalid",
-                            "message": f"{key} is true or false",
-                        },
-                    )
+                    raise refusal_error(422, "invalid", f"{key} is true or false")
                 flags[key] = body[key]
         return flags
 
@@ -648,15 +637,9 @@ def build_app_router(context: Any) -> APIRouter:
         # result is.
         path, grid_name = body.get("path"), body.get("grid_name")
         if not isinstance(path, str) or not path:
-            raise HTTPException(
-                status_code=422,
-                detail={"error_type": "missing_field", "message": "path is required"},
-            )
+            raise refusal_error(422, "missing_field", "path is required")
         if grid_name is not None and not isinstance(grid_name, str):
-            raise HTTPException(
-                status_code=422,
-                detail={"error_type": "invalid", "message": "grid_name is a string"},
-            )
+            raise refusal_error(422, "invalid", "grid_name is a string")
         return _answer_or_refusal(
             context.render_markers(path, grid_name, **_flags(body, "fov", "current"))
         )
@@ -703,13 +686,7 @@ def build_app_router(context: Any) -> APIRouter:
         task_names = _names({"task_names": tasks}, "task_names", "task names")
         background = body.get("background", "related")
         if background not in ("related", "none"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid",
-                    "message": "background is related or none",
-                },
-            )
+            raise refusal_error(422, "invalid", "background is related or none")
         options = _flags(body, "scan_direction", "alignment_area", "metadata_bar")
         image_path = body.get("image_path")
         if image_path is not None and not isinstance(image_path, str):
@@ -1040,31 +1017,23 @@ def build_app_control_router(context: Any) -> APIRouter:
             )
         values = body.get("values")
         if values is not None and not isinstance(values, dict):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": "values, when given, must be a JSON object keyed by "
-                    "value name, e.g. {'poi': {'x': ..., 'y': ...}} in metres.",
-                },
+            raise refusal_error(
+                422,
+                "invalid_value",
+                "values, when given, must be a JSON object keyed by "
+                "value name, e.g. {'poi': {'x': ..., 'y': ...}} in metres.",
             )
         patch = body.get("patch")
         if patch is not None and not isinstance(patch, dict):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": 'patch, when given, is {"<dotted path>": value}.',
-                },
+            raise refusal_error(
+                422, "invalid_value", 'patch, when given, is {"<dotted path>": value}.'
             )
         action = body.get("action") or ""
         if not isinstance(action, str):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_value",
-                    "message": "action, when given, is one of the proposal's actions.",
-                },
+            raise refusal_error(
+                422,
+                "invalid_value",
+                "action, when given, is one of the proposal's actions.",
             )
         if outcome == "Rejected" and not str(body.get("reason", "")).strip():
             raise _missing_field("A reject needs a reason; it is recorded on the item.")
@@ -1171,12 +1140,10 @@ def build_app_suggest_router(context: Any) -> APIRouter:
         ):
             given = body.get(name)
             if given is not None and not isinstance(given, dict):
-                raise HTTPException(
-                    status_code=422,
-                    detail={
-                        "error_type": "invalid_value",
-                        "message": f"{name}, when given, is a JSON object {shape}.",
-                    },
+                raise refusal_error(
+                    422,
+                    "invalid_value",
+                    f"{name}, when given, is a JSON object {shape}.",
                 )
         cited = cited_evidence(context)
         result = context.suggest(
@@ -1544,12 +1511,8 @@ def build_app_config_router(context: Any) -> APIRouter:
         stage_position = body.get("stage_position")
         overview = body.get("overview")
         if stage_position is not None and overview is not None:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid",
-                    "message": "Give stage_position or overview, not both.",
-                },
+            raise refusal_error(
+                422, "invalid", "Give stage_position or overview, not both."
             )
         return _answer_or_refusal(
             context.add_item(
@@ -1655,44 +1618,30 @@ def build_app_config_router(context: Any) -> APIRouter:
     def _refused_or(result: Any):
         result = _answer_or_refusal(result)
         if result.get("stale"):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "stale_config",
-                    "message": "The config changed since your read; re-read "
-                    "it and write the patch against the current version.",
-                },
+            raise refusal_error(
+                409,
+                "stale_config",
+                "The config changed since your read; re-read "
+                "it and write the patch against the current version.",
             )
         if result.get("error_type") == "task_running":
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "task_running",
-                    "message": result.get("error", "That task is running."),
-                },
+            raise refusal_error(
+                409, "task_running", result.get("error", "That task is running.")
             )
         if result.get("invalid_patch"):
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error_type": "invalid_patch",
-                    "message": result["invalid_patch"],
-                    "path": result.get("path"),
-                },
+            raise refusal_error(
+                422, "invalid_patch", result["invalid_patch"], path=result.get("path")
             )
         if not result.get("applied") and result.get("error"):
             # a refusal says what it is (volume's "not served" is invalid); a
             # bare error is a name that is not there
             error_type = result.get("error_type") or "not_found"
-            detail: Dict[str, Any] = {
-                "error_type": error_type,
-                "message": result["error"],
-            }
-            for key in ("item_names", "task_names"):
-                if key in result:
-                    detail[key] = result[key]
-            raise HTTPException(
-                status_code=REFUSAL_STATUS.get(error_type, 404), detail=detail
+            names = {k: result[k] for k in ("item_names", "task_names") if k in result}
+            raise refusal_error(
+                REFUSAL_STATUS.get(error_type, 404),
+                error_type,
+                result["error"],
+                **names,
             )
         return result
 
