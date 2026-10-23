@@ -44,6 +44,8 @@ function PositionCard({
     queryFn: () => imageUrl(`${itemPath(name)}/outputs/${encodeURIComponent(newest!.filename)}?width=640`),
     enabled: !!newest,
     staleTime: Infinity,
+    // The last slice stays up while the next one loads.
+    placeholderData: (previous, last) => (last?.queryKey[1] === name ? previous : undefined),
   });
   const ref = useRef<HTMLButtonElement>(null);
   useEffect(() => {
