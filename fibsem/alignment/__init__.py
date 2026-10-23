@@ -27,8 +27,12 @@ if TYPE_CHECKING:
 
 
 from fibsem.alignment.methods import (
-    crosscorrelation_cv2,
-    crosscorrelation_v2,
+    crosscorrelation_cv2 as crosscorrelation_cv2,
+)
+from fibsem.alignment.methods import (
+    crosscorrelation_v2 as crosscorrelation_v2,
+)
+from fibsem.alignment.methods import (
     shift_from_crosscorrelation,
     shift_from_crosscorrelation_v2,
     shift_from_skimage_phase_correlation,

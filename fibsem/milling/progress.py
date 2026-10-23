@@ -39,8 +39,8 @@ identical collision between `TILES_ACQUIRED` and `FINISHED`.
 
 The tiled signal dropped its message because its producers are a closed set of two, both
 internal, so each consumer could own its wording. That argument does not hold here: the
-producer set is **open**. Milling strategies are plugin-loadable (`register_strategy`
-plus entry points in `fibsem/milling/strategy/__init__.py`), a strategy implements its
+producer set is **open**. Milling strategies are plugin-loadable (entry points in
+`fibsem/milling/strategy/__init__.py`), a strategy implements its
 own execution loop, and users have specifically asked to customise the text a strategy
 shows while it runs.
 
@@ -231,8 +231,8 @@ class MillingProgress:
 
         Every in-tree producer emits a `MillingProgress`, so this is a no-op for all of
         them, and on that basis it could be deleted. It is kept because the producer set
-        is **open**. Milling strategies are plugin-loadable (`register_strategy` plus
-        entry points in `fibsem/milling/strategy/__init__.py`) and a strategy drives its
+        is **open**. Milling strategies are plugin-loadable (entry points in
+        `fibsem/milling/strategy/__init__.py`) and a strategy drives its
         own execution loop, so one built against the older contract still emits the
         nested `{"msg", "progress": {...}}` dict. `psygnal` does not validate emissions:
         a `Signal(MillingProgress)` hands a dict to the slot unchanged, and the first

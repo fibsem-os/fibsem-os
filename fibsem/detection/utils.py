@@ -12,7 +12,6 @@ from fibsem import config as cfg
 from fibsem import utils
 from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.detection.detection import DetectedFeatures, Feature
-from fibsem.structures import FibsemImageMetadata
 
 
 def decode_segmap(image, nc=3):

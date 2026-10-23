@@ -34,7 +34,6 @@ from fibsem.workflows.task_configs import (
     save_edits,
     save_experiment,
     task_config_at,
-    workflow_field_refusal,
 )
 
 # The item-document fields an agent may patch: what a lamella IS — geometry,

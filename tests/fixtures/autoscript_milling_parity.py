@@ -140,15 +140,18 @@ def _drawn(microscope):
 def _calls():
     calls = [
         ("setup", lambda m: m.setup_milling(RECIPE)),
-        ("clear", lambda m: m.clear_patterns()),
-        ("state idle", lambda m: m.get_milling_state().name),
+        ("clear", lambda m: m.milling.clear()),
+        ("state idle", lambda m: m.milling.state.get_value().name),
         ("start", lambda m: m.start_milling()),
         ("start while running", lambda m: (_state(m, "Running"), m.start_milling())),
         ("pause", lambda m: (_state(m, "Running"), m.pause_milling())),
         ("resume", lambda m: (_state(m, "Paused"), m.resume_milling())),
         ("stop", lambda m: (_state(m, "Running"), m.stop_milling())),
         ("stop when idle", lambda m: m.stop_milling()),
-        ("state running", lambda m: (_state(m, "Running"), m.get_milling_state().name)),
+        (
+            "state running",
+            lambda m: (_state(m, "Running"), m.milling.state.get_value().name),
+        ),
     ]
     for name, pattern in PATTERNS:
         calls.append(
@@ -212,7 +215,7 @@ def facts():
     traced.draw_pattern(PATTERNS[0][1])
     traced.start_milling()
     traced.estimate_milling_time()
-    traced.clear_patterns()
+    traced.milling.clear()
 
     from milling_reads import fields_setup_reads
 

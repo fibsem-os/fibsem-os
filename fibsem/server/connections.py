@@ -14,7 +14,7 @@ agent's sidecar and its ``fibsem-mcp watch`` are one card), and all of them get
 the token an Allow mints.
 
 With **Always allow agents logged in to this PC** on
-(``app_server.allow_local_agents``), an ask that reaches the server from this
+(``install.app_server.allow_local_agents``), an ask that reaches the server from this
 PC's loopback address is allowed at once, as if the operator had clicked Allow:
 anyone who can log in to the PC, over SSH too. The ask's ``origin`` ("this PC",
 "<address> over SSH") is what the client says, shown on the card only.

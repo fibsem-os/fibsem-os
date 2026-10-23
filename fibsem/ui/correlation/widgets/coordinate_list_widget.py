@@ -37,7 +37,6 @@ from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
     drag_handle_pixmap,
-    fibsem_icon,
 )
 from fibsem.ui.tokens import (
     CAPTION_STYLE,

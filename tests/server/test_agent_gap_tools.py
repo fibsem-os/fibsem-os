@@ -71,7 +71,7 @@ def test_the_agent_judges_notes_and_removes_a_grid(driving):
     )
     assert judged["quality"]["verdict"] == "REWORK"
     quality = experiment.get_grid_by_name("G1").quality
-    assert quality.state.name == "REWORK" and quality.description == "cracked"
+    assert quality.verdict.name == "REWORK" and quality.reason == "cracked"
 
     _ok(_call(driving, "grid_set_note", grid_name="G1", note="thin ice in the centre"))
     assert experiment.get_grid_by_name("G1").description == "thin ice in the centre"

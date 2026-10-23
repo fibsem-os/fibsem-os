@@ -123,15 +123,10 @@ def test_unselectable_strategy_is_hidden_from_the_dropdown():
 
 
 def test_task_plugin_resolves_through_the_registry():
-    from fibsem.applications.autolamella.workflows.tasks import (
-        get_task_config,
-        get_task_names,
-        get_tasks,
-    )
+    from fibsem.applications.autolamella.workflows.tasks import get_tasks
 
     assert TASK_TYPE in get_tasks(), sorted(get_tasks())
-    assert TASK_TYPE in get_task_names()
-    assert get_task_config(TASK_TYPE).__name__ == "FixtureTaskConfig"
+    assert get_tasks()[TASK_TYPE].config_cls.__name__ == "FixtureTaskConfig"
 
 
 def test_task_plugin_survives_protocol_load():
@@ -240,12 +235,9 @@ def test_shadowed_plugin_is_not_silently_reported_as_the_builtin():
 
 def test_load_records_report_the_failures_the_registry_drops():
     """Both failure shapes are reported, with the declared target intact."""
-    from fibsem.applications.autolamella.workflows.tasks import (
-        get_task_plugin_records,
-        get_tasks,
-    )
+    from fibsem.applications.autolamella.workflows.tasks import TASK_PLUGINS, get_tasks
 
-    failures = {r.entry_point: r for r in get_task_plugin_records() if not r.loaded}
+    failures = {r.entry_point: r for r in TASK_PLUGINS.plugin_records() if not r.loaded}
     assert set(failures) == set(FAILING_ENTRY_POINTS), sorted(failures)
 
     wrong_base = failures["wrong_base_class"]
@@ -263,10 +255,10 @@ def test_load_records_report_the_failures_the_registry_drops():
 
 def test_load_records_carry_the_providing_distribution():
     """Which install a plugin came from, for a machine with several envs."""
-    from fibsem.applications.autolamella.workflows.tasks import get_task_plugin_records
+    from fibsem.applications.autolamella.workflows.tasks import TASK_PLUGINS
 
     record = next(
-        r for r in get_task_plugin_records() if r.entry_point == "fixture_task"
+        r for r in TASK_PLUGINS.plugin_records() if r.entry_point == "fixture_task"
     )
     assert record.distribution == "fibsem-test-plugin"
     assert record.version == "0.0.0"
@@ -385,9 +377,9 @@ def test_driver_plugin_connects_through_setup_session():
 
 
 def test_driver_plugins_record_what_they_could_not_register():
-    from fibsem.drivers.registry import get_driver, get_driver_plugin_records
+    from fibsem.drivers.registry import DRIVER_PLUGINS, get_driver
 
-    records = {r.entry_point: r for r in get_driver_plugin_records()}
+    records = {r.entry_point: r for r in DRIVER_PLUGINS.plugin_records()}
 
     assert records["fixture_driver"].loaded
     assert records["fixture_driver"].distribution == "fibsem-test-plugin"
@@ -401,13 +393,13 @@ def test_driver_plugins_record_what_they_could_not_register():
 
 def test_a_device_driver_plugin_is_found_and_is_no_manufacturer():
     from fibsem.drivers.registry import (
+        DRIVER_PLUGINS,
         device_setups,
         get_driver,
-        get_driver_plugin_records,
         registered_manufacturers,
     )
 
-    records = {r.entry_point: r for r in get_driver_plugin_records()}
+    records = {r.entry_point: r for r in DRIVER_PLUGINS.plugin_records()}
     assert records["fixture_device_driver"].loaded
     assert set(get_driver(DEVICE_DRIVER).devices) == {"scan_generator"}
     assert DEVICE_DRIVER not in registered_manufacturers()

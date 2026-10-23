@@ -5,7 +5,7 @@ import os
 import threading
 from copy import deepcopy
 from dataclasses import replace
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 

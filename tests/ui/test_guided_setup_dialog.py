@@ -34,23 +34,8 @@ from fibsem.utils import configuration_device
 
 @pytest.fixture
 def isolated_state(tmp_path, monkeypatch):
-    """A private configuration directory, so no test can write into the checkout.
-
-    The shipped files are copied in rather than the directory merely redirected:
-    ``cfg.CONFIG_PATH`` is both where model configurations are *read from* and where
-    new ones are *written to*, so pointing it somewhere empty makes every model
-    unreadable -- and the wizard's save then fails into a modal error box that a
-    headless test cannot dismiss.
-    """
-    import shutil
-
-    # Named files, not `*.yaml`. A glob also copies whatever `user-*.yaml` the
-    # developer's own runs have left in the config directory, and those are exactly
-    # the files these tests are about -- the fixture would then inherit a machine that
-    # has already been set up, and every first-run assertion would fail on a working
-    # tree and pass on a clean one.
-    for model in wizard.microscope_models():
-        shutil.copy(model.path, tmp_path)
+    """A private configuration directory, so no test writes where a real install
+    keeps its configurations. The models are read from the package, untouched."""
     monkeypatch.setattr(cfg, "CONFIG_PATH", str(tmp_path))
 
     configurations = {
@@ -861,7 +846,7 @@ def test_writing_preferences_does_not_suppress_the_offer(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
     preferences = cfg.load_user_preferences()
-    preferences.display.sound_enabled = True
+    preferences.qt.sound_enabled = True
     cfg.save_user_preferences(preferences)
     assert os.path.exists(cfg.USER_PREFERENCES_PATH)
 

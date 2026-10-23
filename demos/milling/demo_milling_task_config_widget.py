@@ -6,14 +6,12 @@ Run directly:
 
 import sys
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QPushButton,
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )

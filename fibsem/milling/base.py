@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import threading
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from functools import cached_property
@@ -17,7 +16,6 @@ from typing import (
     ClassVar,
     Dict,
     Generic,
-    Iterator,
     List,
     Optional,
     Tuple,
@@ -31,7 +29,7 @@ from pydantic import AfterValidator
 from fibsem.codec import NotSaved, Tagged, decode, encode, saved
 from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.monitor_config import MillingMonitorConfig
-from fibsem.milling.patterning import DEFAULT_MILLING_PATTERN
+from fibsem.milling.patterning import DEFAULT_PATTERN
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures import (
     Configurable,
@@ -41,8 +39,6 @@ from fibsem.structures import (
     FibsemPatternSettings,
     ImageSettings,
     MillingAlignment,
-    Parameter,
-    field_specs,
     flagged_fields,
     param,
 )
@@ -312,7 +308,7 @@ class FibsemMillingStage(Configurable):
     num: int = 0
     enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
-    pattern: BasePattern = field(default_factory=DEFAULT_MILLING_PATTERN)
+    pattern: BasePattern = field(default_factory=DEFAULT_PATTERN)
     patterns: Annotated[Optional[List[BasePattern]], NotSaved] = param(
         None, not_used="a stage mills its one pattern; nothing reads patterns"
     )
@@ -517,19 +513,6 @@ def set_milling_time_estimator(estimator: Optional[MillingTimeEstimator]) -> Non
     _milling_time_estimator = estimator
 
 
-@contextmanager
-def using_milling_time_estimator(
-    estimator: Optional[MillingTimeEstimator],
-) -> Iterator[None]:
-    """Install `estimator` for the duration of the block, then restore the previous one."""
-    previous = _milling_time_estimator
-    set_milling_time_estimator(estimator)
-    try:
-        yield
-    finally:
-        set_milling_time_estimator(previous)
-
-
 def estimate_stage_milling_time(stage: "FibsemMillingStage") -> float:
     """Estimated milling time for one stage.
 
@@ -585,10 +568,3 @@ def estimate_volume_time(volume: float, milling_current: float) -> float:
 
     time = (volume * 1e6**3) / sputter_rate
     return time * 0.75
-
-
-def estimate_total_milling_time(stages: List[FibsemMillingStage]) -> float:
-    """Estimate the total milling time for a list of milling stages"""
-    if not isinstance(stages, list):
-        stages = [stages]
-    return sum([estimate_stage_milling_time(stage) for stage in stages])

@@ -25,8 +25,8 @@ import pytest
 pytest.importorskip("PyQt5")
 
 
-from fibsem.applications.autolamella.structures import DefectState, DefectType
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
+from fibsem.workflows.quality import QualityRecord, Verdict
 
 
 @pytest.fixture()
@@ -60,7 +60,7 @@ def test_row_redraws_when_the_defect_changes_elsewhere(row, lamella):
     assert row.btn_defect.toolTip() == "Not assessed"
 
     # Somebody else's widget sets it. Nothing calls into this row.
-    lamella.defect = DefectState(state=DefectType.REWORK)
+    lamella.defect = QualityRecord(verdict=Verdict.REWORK)
 
     assert row.btn_defect.toolTip() == "Rework", (
         "row did not redraw on lamella.events.defect -- it was subscribed to "

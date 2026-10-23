@@ -1099,7 +1099,7 @@ class GridEdit(Edit):
     was: Optional[str] = None
     added: Optional[List[str]] = None
     grid_names: Optional[List[str]] = None
-    # the verdict and its reason (`GridQuality.to_dict`)
+    # the verdict and its reason (`QualityRecord.to_dict`)
     quality: Optional[Dict[str, Any]] = None
     note: Optional[str] = None
     items_without_grid: Optional[List[str]] = None
@@ -1175,9 +1175,6 @@ class AgentRequestView:
     cancel_reason: str = ""
     # one per action run: tool, status_code, ok, and the route's answer
     results: List[Dict[str, Any]] = field(default_factory=list)
-    expires_at: Optional[float] = None
-    # what lapsing does, while it can lapse
-    on_expiry: Optional[str] = None
     # the beam image the card draws the actions' values on
     image: Optional[str] = None
     # what the agent judged from (`fibsem.workflows.evidence`, its record)

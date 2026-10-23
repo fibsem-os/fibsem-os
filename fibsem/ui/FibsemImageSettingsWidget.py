@@ -566,27 +566,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         """Set the image settings to the UI components."""
         self.image_settings_widget.update_from_settings(image_settings)
 
-    def _set_beam_settings_to_ui(self, beam_settings: BeamSettings) -> None:
-        """Set the beam settings to the ui components"""
-        beam_widget = (
-            self.dual_beam_widget.sem_widget
-            if beam_settings.beam_type is BeamType.ELECTRON
-            else self.dual_beam_widget.fib_widget
-        )
-        beam_widget.beam_settings_widget.update_from_settings(beam_settings)
-
-    def _set_detector_settings_to_ui(
-        self, detector_settings: FibsemDetectorSettings
-    ) -> None:
-        """Set the detector settings to the UI components."""
-        beam_type = self.dual_beam_widget.beam_type
-        beam_widget = (
-            self.dual_beam_widget.sem_widget
-            if beam_type is BeamType.ELECTRON
-            else self.dual_beam_widget.fib_widget
-        )
-        beam_widget.detector_settings_widget.update_from_settings(detector_settings)
-
     def update_ui_saving_settings(self) -> None:
         """Toggle the visibility / state of the image saving settings"""
         # If save_with_selected_lamella is checked, ensure save_image is also checked

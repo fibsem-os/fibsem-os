@@ -42,7 +42,6 @@ from fibsem.structures import (
     Parameter,
     Resolution,
     TileOrderStrategy,
-    field_specs,
 )
 from fibsem.ui import stylesheets
 from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
@@ -252,7 +251,6 @@ class FibsemOverviewSettingsWidget(QWidget):
             (QLabel("Drift correction"), self.check_drift_correction),
             (QLabel("Align tiles"), self.check_register_tiles),
         ]
-        self._advanced_fields = [field for _, field in self._advanced_rows]
         self._advanced_labels = [label for label, _ in self._advanced_rows]
         self._imaging_form = form
         self._advanced_shown = False
