@@ -25,8 +25,7 @@ from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import TilePosition
-from fibsem.ui.widgets.canvas.canvas_base import _modifiers_from_event
-from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
+from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay, _modifiers_from_event
 
 logger = logging.getLogger(__name__)
 
