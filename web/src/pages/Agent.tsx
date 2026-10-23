@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, ListFilter } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
-import { api, getToken } from "@/lib/api";
+import { api } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import type { AgentState, RecentRow, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -304,14 +304,6 @@ export function AgentPage() {
   return (
     <div className="mx-auto flex h-full w-full max-w-[880px] flex-col px-4 md:px-5">
       <div className="flex items-center justify-end gap-3 pt-2.5">
-        <a
-          className="text-[12px] text-link no-underline hover:underline"
-          href={`/dashboard/log#token=${encodeURIComponent(getToken() ?? "")}`}
-          target="_blank"
-          rel="noopener"
-        >
-          Event log
-        </a>
         <Popup
           label="Show"
           align="right"

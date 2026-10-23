@@ -191,7 +191,7 @@ def test_no_server_disables_the_event_log(qapp):
 def test_the_event_log_link_carries_the_dashboard_token(qapp, host):
     url = event_log_url(host)
     assert url == (
-        f"http://127.0.0.1:8001/dashboard/log#token={host.auth.dashboard_token}"
+        f"http://127.0.0.1:8001/ui/events#token={host.auth.dashboard_token}"
     )
 
 
