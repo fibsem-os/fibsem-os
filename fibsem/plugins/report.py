@@ -19,7 +19,7 @@ and friends cannot return:
 Unlike ``loader``, this module imports every registry, so it must only be
 imported well after startup -- from the CLI or the UI, never from a registry.
 
-Script-loaded tasks (FIB-339) are modelled here but not yet produced: nothing
+Script-loaded tasks are modelled here but not yet produced: nothing
 loads a scripts folder today. When that lands it only has to emit
 :class:`Extension` rows with ``source=ExtensionSource.SCRIPT`` and a ``path``;
 the renderers and the panel already handle them.
@@ -388,7 +388,7 @@ def installed_plugin_versions() -> Dict[str, str]:
     script-loaded extension carries a path instead. What is left is what somebody
     installed, which is the question an experiment's session record needs to answer --
     a plugin developer debugging a remote site otherwise has no way to know which
-    build of their own code ran (FIB-451).
+    build of their own code ran.
 
     Includes a distribution whose entry point failed to load. It was installed and
     it shaped the run by being absent from the registry, so leaving it out would

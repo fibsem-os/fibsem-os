@@ -686,6 +686,69 @@ class SavedExperiments:
 
 
 @dataclass
+class ExportFieldRow:
+    """One value an export's bar can show (`fibsem.imaging.export.ExportField`)."""
+
+    key: str
+    name: str
+    # printed before the value; empty for one that reads as itself
+    label: str
+    value: str
+    # what the label stands for
+    title: str
+
+
+@dataclass
+class ExportChannel:
+    name: str
+    color: str  # #rrggbb
+
+
+@dataclass
+class ImageExportForm:
+    """What the image export offers for one image: its starting options
+    (`ExportOptions`) and every value its bar can show."""
+
+    path: str
+    kind: str
+    width: int
+    height: int
+    pixel_size: Optional[float]
+    adjustable: bool
+    auto_contrast: List[float]
+    options: Dict[str, Any]
+    default_provenance: List[str]
+    fields: List[ExportFieldRow]
+    provenance: List[ExportFieldRow]
+    channels: List[ExportChannel]
+    scalebar_locations: List[str]
+    formats: List[str]
+
+
+@dataclass
+class AnimationFrameRow:
+    """One frame of an item's animation: a task, the beams it can draw, its
+    files in the experiment."""
+
+    index: int
+    title: str
+    beams: List[str]
+    paths: List[str]
+    fluorescence: List[str]
+
+
+@dataclass
+class AnimationFrames:
+    item_name: str
+    frames: List[AnimationFrameRow]
+    # `AnimationOptions` as a new animation starts
+    options: Dict[str, Any]
+    beams: List[str]
+    magnifications: List[str]
+    formats: List[str]
+
+
+@dataclass
 class FileRead:
     """One file of an experiment as its kind reads: a folder as its listing,
     text as text, an image as a preview, anything else as its entry."""

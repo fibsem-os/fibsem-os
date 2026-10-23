@@ -72,10 +72,16 @@ def test_a_position_is_set_up_once_and_then_sliced(
     folder = experiment.position_path(aspen)
     assert (folder / FIB_REFERENCE).exists() and (folder / SEM_REFERENCE).exists()
     assert {MILLING_POSE, SEM_POSE} <= set(aspen.poses)
-    # trench, fiducial and face, then a slice each, on both positions
-    assert len(milled) == 2 * (3 + 2)
-    face = milled[2].stages[0].pattern.point
-    assert (face.x, face.y) == (aspen.poi.x, aspen.poi.y)
+    # trench, lanes, fiducial and start slice, then a slice each, on both positions
+    assert len(milled) == 2 * (4 + 2)
+    assert [m.name for m in milled[:4]] == [
+        "Clearing trench",
+        "Redeposition lane",
+        "Fiducial",
+        "Start slice",
+    ]
+    start = milled[3].stages[0].pattern.point
+    assert (start.x, start.y) == (aspen.poi.x, aspen.poi.y)
     kinds = {p.kind for p in aspen.proposals}
     assert kinds == {STATE, MILLING, POINT_OF_INTEREST, ALIGNMENT_AREA}
     assert all(p.current.outcome is DecisionOutcome.Unreviewed for p in aspen.proposals)

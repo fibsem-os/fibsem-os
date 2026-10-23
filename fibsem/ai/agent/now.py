@@ -1,5 +1,5 @@
 """What the agent is doing on the microscope now, in a line, without Qt: the
-agent card's Now line and the chat page's (FIB-1413).
+agent card's Now line and the web app's.
 
 The action it holds control for ("focus sweep"), or while it mills, which mill,
 how far and how long is left ("Milling 'trench' · stage 2 of 6 · about 15s

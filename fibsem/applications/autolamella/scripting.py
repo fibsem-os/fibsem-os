@@ -4,7 +4,7 @@ The discovery and execution machinery is application-agnostic and lives in
 ``fibsem.scripting``. This module supplies the two things that are specific to
 AutoLamella: where the scripts live, and what a script is handed when it runs.
 
-See SCRIPTING.md for the headless equivalent, and FIB-338 for the design.
+See SCRIPTING.md for the headless equivalent.
 """
 
 import logging
@@ -30,8 +30,9 @@ if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
     from fibsem.microscope import FibsemMicroscope
 
-# Under the state root, which is visible in Explorer: a leading dot does not set
-# the hidden attribute on Windows.
+# Not `%APPDATA%` (hidden in Explorer, and users must browse here to drop files in), and
+# not Documents (OneDrive-synced on most institutional machines). A leading dot does not
+# set the hidden attribute on Windows, so this is visible there too.
 SCRIPTS_DIR_ENV_VAR = "AUTOLAMELLA_SCRIPTS_DIR"
 DEFAULT_SCRIPTS_DIR = paths.state_root() / "autolamella" / "scripts"
 

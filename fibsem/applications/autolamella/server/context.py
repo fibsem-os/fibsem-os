@@ -252,6 +252,26 @@ class AutoLamellaAppContext(AppContext):
     def history_images(self, experiment, item):
         return _task_outputs.history_images(item)
 
+    def animation_steps(self, item_name: str) -> Dict[str, Any]:
+        """A lamella's workflow animation, as the History tab's button makes it:
+        a step per task, with its final images and fluorescence stacks."""
+        from fibsem.imaging.animation import AnimationStep
+
+        experiment = self._experiment
+        if experiment is None:
+            return {"error_type": "no_experiment", "error": "No experiment is open."}
+        item, refusal = find_item(experiment, item_name)
+        if refusal:
+            return {"error_type": "not_found", **refusal}
+        return {
+            "item_name": item.name,
+            "root": str(experiment.path),
+            "steps": [
+                AnimationStep(title=name, paths=finals, fluorescence=stacks)
+                for name, finals, stacks in _task_outputs.images_by_task(item)
+            ],
+        }
+
     def output_image(
         self, item_name: str, filename: str, max_width: int = 768
     ) -> Dict[str, Any]:
@@ -363,7 +383,7 @@ class AutoLamellaAppContext(AppContext):
             "plot": {"image_b64_jpeg": base64.b64encode(result.plot_jpeg()).decode()},
         }
 
-    # --- grids: the screening read model (FIB-876) ----------------------------
+    # --- grids: the screening read model ----------------------------
 
     def grids(self) -> Dict[str, Any]:
         """Every grid the experiment knows, with its latest recorded overviews.
@@ -1335,7 +1355,7 @@ class AutoLamellaAppContext(AppContext):
     def item_version(self, item) -> str:
         return item_fields_version(item)
 
-    # --- task configs (FIB-864, read side) --------------------------------------
+    # --- task configs (read side) --------------------------------------
 
     def item_task_config(self, item_name: str, task_name: str) -> Dict[str, Any]:
         """One item's own copy of a task config — what its run executes."""
@@ -1370,8 +1390,8 @@ class AutoLamellaAppContext(AppContext):
     def describe_action(
         self, tool: str, arguments: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
-        """A config edit in an agent's request, as the config's form names it
-        (FIB-1403): each setting in display units, old -> new. None for any
+        """A config edit in an agent's request, as the config's form names it:
+        each setting in display units, old -> new. None for any
         other action, or a config this experiment doesn't have."""
         from fibsem.util.wording import describe_patch
 
@@ -1527,7 +1547,7 @@ class AutoLamellaAppContext(AppContext):
             applied["run_path"] = run_path
         return applied
 
-    # --- proposals and decisions (FIB-950) ------------------------------------
+    # --- proposals and decisions ------------------------------------
 
     def reorder_milling_stages(
         self,

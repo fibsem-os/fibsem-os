@@ -150,7 +150,7 @@ class ExperimentHeader(QWidget):
 
         # Which instrument this session is attached to, and the way back to the
         # connection dialog -- see update_connection_chip. Behind a flag while the
-        # Connection tab is still how people connect (FIB-775); the dialog itself is
+        # Connection tab is still how people connect; the dialog itself is
         # not gated, so File -> Connect to Microscope reaches it either way.
         self.btn_connection = QPushButton()
         self.btn_connection.setMaximumWidth(CONNECTION_CHIP_MAX_WIDTH)
@@ -217,7 +217,7 @@ class ExperimentHeader(QWidget):
         """Name the instrument this session attached to, or offer to attach one.
 
         Identity, not liveness. Nothing watches the link -- `connected_signal` is
-        emitted off `bool(self.microscope)`, a Python reference (FIB-777) -- so a
+        emitted off `bool(self.microscope)`, a Python reference -- so a
         chip claiming "Connected" would keep claiming it through a pulled cable.
         What it connected to is a fact established once, and it does not decay.
         """
@@ -270,7 +270,7 @@ class ExperimentHeader(QWidget):
         # a greyed-out pair beside a Connect chip is the same spent chrome the
         # loaded state used to carry. Without it there is nothing else in the header
         # to connect from, so they stay visible-but-disabled as they were. Both
-        # branches go when the flag does (FIB-775).
+        # branches go when the flag does.
         show = experiment is None and (is_connected or not self._chip_enabled)
         for button in (self.btn_create_experiment, self.btn_load_experiment):
             button.setVisible(show)

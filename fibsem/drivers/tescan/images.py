@@ -150,7 +150,7 @@ def fromTescanImage(
         microscope_state=ms,
         pixel_size=pixelsize,
         # The header's date and time, the instrument's clock, read as this machine's
-        # local time when the state was built (FIB-1190).
+        # local time when the state was built.
         acquisition_datetime=from_posix(ms.timestamp),
     )
 

@@ -8,7 +8,7 @@ of the seam.
 thread through a queued signal, dispatches on its type, and completes the future:
 ``set_result`` with the acknowledgement, ``set_exception`` if acting on it failed.
 The failure re-raises on the workflow thread inside ``wait_for`` rather than
-escaping a queued slot and aborting the process (FIB-329). An unhandled type
+escaping a queued slot and aborting the process. An unhandled type
 completes the future with a ``TypeError`` rather than leaving the caller to its
 timeout.
 """

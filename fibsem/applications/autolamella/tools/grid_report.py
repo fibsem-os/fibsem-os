@@ -1,4 +1,4 @@
-"""What a grid screening report says, read off the experiment (FIB-1057).
+"""What a grid screening report says, read off the experiment.
 
 The report exists so that someone can be handed a screened magazine and asked
 "which of these do you want?" without opening the app. This module is the data

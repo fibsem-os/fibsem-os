@@ -30,12 +30,8 @@ def _make_config() -> FluorescenceConfiguration:
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch) -> SessionState:
-    """A writable store in a temp directory; the old working-state file points at a
-    temp path, so nothing is imported from the real one."""
-    monkeypatch.setattr(
-        fibsem_cfg, "FM_CONFIGURATION_PATH", str(tmp_path / "fm-configuration.yaml")
-    )
+def store(tmp_path) -> SessionState:
+    """A writable store in a temp directory."""
     return SessionState("site.yaml", writable=True, directory=str(tmp_path / "session"))
 
 
@@ -76,26 +72,6 @@ def test_the_working_state_and_recent_channels_do_not_overwrite_each_other(store
     assert load_fm_configuration(store) is not None
 
 
-def test_the_old_working_file_is_imported_once_and_kept(store, tmp_path):
-    old = tmp_path / "fm-configuration.yaml"
-    _make_config().export(str(old))
-
-    loaded = load_fm_configuration(store)
-
-    assert loaded.channel_settings[0].name == "GFP"
-    assert old.exists(), "the old file is never deleted"
-    assert "working" in yaml.safe_load(store.path.read_text())["fm"]
-
-
-def test_an_old_working_file_that_is_not_a_configuration_is_not_imported(
-    store, tmp_path
-):
-    (tmp_path / "fm-configuration.yaml").write_text("channel_settings: nonsense\n")
-
-    assert load_fm_configuration(store) is None
-    assert not store.path.exists()
-
-
 def test_a_script_reads_the_working_state_but_never_writes_it(store, tmp_path):
     save_fm_configuration(_make_config(), store)
     before = store.path.read_text()
@@ -122,9 +98,6 @@ def test_loading_a_configuration_loads_its_fm_working_state(tmp_path, monkeypatc
 
     session = tmp_path / "session"
     monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(session))
-    monkeypatch.setattr(
-        fibsem_cfg, "FM_CONFIGURATION_PATH", str(tmp_path / "no-old-file.yaml")
-    )
     config = tmp_path / "bench.yaml"
     config.write_text(
         (

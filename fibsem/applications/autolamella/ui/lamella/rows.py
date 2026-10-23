@@ -234,7 +234,7 @@ class LamellaRow(QWidget):
         # window, and by agent edits through the session). `task_state.name`/`.status` are deliberately not subscribed:
         # they are written from the workflow's worker thread, the marshalled
         # refresh arrives after `clear()` may have destroyed this row, and an
-        # exception escaping a Qt slot aborts the process (FIB-604, FIB-329).
+        # exception escaping a Qt slot aborts the process.
         # `_on_workflow_update` refreshes this row by name instead.
         connect_for_lifetime(self, lamella.events.defect, self.refresh)  # type: ignore[union-attr]
         connect_for_lifetime(self, lamella.events.description, self.refresh)  # type: ignore[union-attr]
@@ -324,7 +324,7 @@ FILTER_NO_GRID = "none"
 
 
 class _GridFilterButton(QToolButton):
-    """A filter icon whose menu narrows the list to one grid's lamellae (FIB-667).
+    """A filter icon whose menu narrows the list to one grid's lamellae.
 
     Shown only when the experiment has more than one grid: with one there is
     nothing to choose between. "All grids" is the resting state; "No grid"
@@ -472,7 +472,7 @@ class LamellaListWidget(QWidget):
         self._refresh_grid_filter()
 
     # ------------------------------------------------------------------
-    # Filtering by grid (FIB-667)
+    # Filtering by grid
     # ------------------------------------------------------------------
 
     def _refresh_grid_filter(self) -> None:
@@ -562,8 +562,8 @@ class LamellaListWidget(QWidget):
 
         The host rebuilds on every insert or removal in the experiment, and the
         ticked rows are its run selection. Rebuilding them unticked emptied that
-        selection, and silently disabled Run, every time a position was added
-        (FIB-966). Ticks are matched by lamella id, so a lamella that is gone is
+        selection, and silently disabled Run, every time a position was added.
+        Ticks are matched by lamella id, so a lamella that is gone is
         simply not re-ticked.
         """
         checked = {lamella.id for lamella in self.get_selected()}
@@ -581,9 +581,9 @@ class LamellaListWidget(QWidget):
         """Tick or untick every row, and bring the header checkbox with them.
 
         Public because the header is not the only thing that clears the selection --
-        starting a run and adding to the queue both do. Those callers used to invoke
-        the header's slot directly, which left the box reading "Select All" over a
-        list where nothing was ticked (FIB-577).
+        starting a run and adding to the queue both do. Calling the header's slot
+        directly would leave the box reading "Select All" over a list where nothing
+        was ticked.
         """
         for row in self._visible_rows():
             row.checkbox.blockSignals(True)

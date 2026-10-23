@@ -459,7 +459,7 @@ def fibsem_image_fields(image: FibsemImage) -> ImageFields:
         _add(fields, "detector", " · ".join(parts))
     if pixel_size:
         # From the pixel size, not image_settings.hfw: that is what was asked for,
-        # this is what the image is (FIB-482).
+        # this is what the image is.
         width = np.shape(image.data)[1]
         _add(fields, "hfw", format_si(pixel_size * width, "m"))
         _add(fields, "pixel_size", format_si(pixel_size, "m"))

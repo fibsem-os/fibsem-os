@@ -154,7 +154,7 @@ def sync_fiducial_to_alignment_area(
 def follow_alignment_area(lamella: "Lamella") -> List[str]:
     """After an edit to the alignment area (the editor, an agent's
     ``item_update``), move the fiducials not milled yet to its new centre, as
-    Setup does when it chooses the area (FIB-1430); returns the tasks moved.
+    Setup does when it chooses the area; returns the tasks moved.
 
     The frame is the alignment reference Setup took in the area, at the field
     of view it chose the area on. Before Setup there is none, and nothing

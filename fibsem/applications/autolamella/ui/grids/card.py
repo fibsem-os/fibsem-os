@@ -579,7 +579,7 @@ class GridCardContainer(QWidget):
         self._cards.clear()
         # Ids are stable and the host clears then re-adds the same set, so a
         # surviving id would name a card drawn unselected while this thinks it is
-        # selected (the lamella strip's FIB-578).
+        # selected.
         self._selected_id = None
 
     def select_grid(self, grid: Optional[GridRecord]) -> None:

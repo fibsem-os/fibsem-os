@@ -74,7 +74,7 @@ class RunView(QObject):
         self._after_supervision = after_supervision
         self._reset_panel = reset_panel
 
-        # This run's failures, for the line it leaves when it ends (FIB-1188).
+        # This run's failures, for the line it leaves when it ends.
         self._run_active = False
         self._run_failures: List[Tuple[str, str]] = []
         self._run_total = 0
@@ -146,7 +146,7 @@ class RunView(QObject):
         else:
             self._border.set_state(self._running_border_state(request.task_names[0]))
         # The run writes the experiment from its own thread. Land any edit still
-        # waiting in the editors first, so there is only ever one writer (FIB-683).
+        # waiting in the editors first, so there is only ever one writer.
         self._flush_editors()
         # Show the Stop button immediately so the run is cancellable even while
         # waiting for a scheduled first task (before any task status arrives).
@@ -327,7 +327,7 @@ class RunView(QObject):
 
         The toast always comes, with a Show summary link, and stays in the
         notification bell, so any run's summary is a click away after it
-        fades. The dialog opens without blocking the window (FIB-1376): as a
+        fades. The dialog opens without blocking the window: as a
         modal it held the window at the end of every run, which an agent
         starting many short runs, or a run ending overnight, left standing
         over the app. That is also when to turn it off.

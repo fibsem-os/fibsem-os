@@ -49,7 +49,7 @@ class PointXYZ:
 
 
 class PointStatus:
-    """What has been established about a coordinate's position (FIB-956).
+    """What has been established about a coordinate's position.
 
     Plain strings on ``Coordinate.status``; a point from a file written before
     there was a status reads back as "". Three things are kept
@@ -95,7 +95,7 @@ class Coordinate:
     point: PointXYZ = field(default_factory=PointXYZ)
     point_type: PointType = field(default=PointType.FIB)
     fitted: bool = False  # True when this position came from an accepted auto-fit
-    # Per-point state (FIB-956): see PointStatus / PointProvenance. Provenance,
+    # Per-point state: see PointStatus / PointProvenance. Provenance,
     # not position -- `matches_inputs` ignores both, as it ignores `fitted`.
     status: str = ""
     provenance: str = ""
@@ -135,12 +135,12 @@ def _loaded_filename(image) -> Optional[str]:
     *acquirer* asked for, which is a stem -- ``save`` appends the suffix itself --
     and goes stale the moment a file is renamed or copied. ``filepath`` is set by
     both ``load()`` and ``save()`` on either image class, including for a plain
-    TIFF whose metadata failed to parse at all (FIB-509).
+    TIFF whose metadata failed to parse at all.
 
     Deliberately no fallback to the requested name: an image that was never
     written has no file, and naming one it does not have sends whoever reads the
     record looking for it. None is the honest answer, and this is read by
-    ``to_dict`` -- the only persistence path -- so it must not raise (FIB-316).
+    ``to_dict`` -- the only persistence path -- so it must not raise.
     """
     filepath = getattr(image, "filepath", None)
     return os.path.basename(filepath) if filepath else None
@@ -168,7 +168,7 @@ class CorrelationInputData:
     # depth_um, na, n2, wavelength_um), and whether the factor is ζ of them
     # ("computed") or was typed, reset or restored instead.
     # The factor alone could not be traced back to its settings, so a reopened
-    # run could not say why it used the depth correction it did (FIB-1234).
+    # run could not say why it used the depth correction it did.
     ri_pre_correction_params: Optional[dict] = None
     method: str = "multi-point"
     # Fallbacks restored from serialized files, so a result loaded from JSON
@@ -178,14 +178,14 @@ class CorrelationInputData:
     stored_fib_image_shape: Optional[tuple] = None
     stored_fib_image_pixel_size: Optional[float] = None
     # FM z-step, likewise restored from JSON: lets a seed's FM z be rescaled to a
-    # re-acquired volume with a different z-sampling (FIB-299).
+    # re-acquired volume with a different z-sampling.
     stored_fm_pixel_size_z: Optional[float] = None
     # The image names as the file recorded them. A run's fiducials are pixels in
     # a specific image, so the names are part of the record -- and a lamella
     # holds a reference per task and stage, so guessing picks the wrong one and
     # silently shifts every coordinate. Kept here because the images are not in
     # the file: reading a run and writing it back had no live image to name and
-    # wrote null over what was there (FIB-1019).
+    # wrote null over what was there.
     stored_fib_image_filename: Optional[str] = None
     stored_fm_image_filename: Optional[str] = None
 
@@ -217,7 +217,7 @@ class CorrelationInputData:
         A plain (non-OME) TIFF loads with ``metadata = None``, and this property is
         read by ``to_dict`` — i.e. by every auto-save. Dereferencing it blindly
         turned "the user browsed to a bare TIFF" into "nothing is ever saved this
-        session", because the auto-save swallows exceptions (FIB-316).
+        session", because the auto-save swallows exceptions.
         """
         if self.fib_image is None:
             return self.stored_fib_image_pixel_size
@@ -254,7 +254,7 @@ class CorrelationInputData:
         The loaded image first -- it is the image in hand -- then the name the
         file recorded. Without the fallback, opening a run and saving it again
         erased the name, because a re-save has no live image to ask when the
-        images were never part of the file (FIB-1019).
+        images were never part of the file.
         """
         return _loaded_filename(self.fib_image) or self.stored_fib_image_filename
 
@@ -269,9 +269,9 @@ class CorrelationInputData:
         A file records its points in the planes of the stack they were picked
         on, and that stack's z step. Runs saved from an interpolated stack, or
         seeded from another acquisition, have a different step from the stack
-        now loaded; multiplying by the ratio keeps every point at its depth
-        (FIB-1239). For points moved there by the old interpolation, which kept
-        depth too, this returns them exactly to where they were picked.
+        now loaded; multiplying by the ratio keeps every point at its depth.
+        For points moved by an interpolation that kept depth, this returns
+        them exactly to where they were picked.
 
         No-op when either step is unknown or the two are equal. Returns the
         factor applied.
@@ -444,11 +444,11 @@ class CorrelationResult:
     # "post": factor applied to the correlated POI in FIB image space
     # "pre":  factor applied to the input POI z (FM space) before correlation
     refractive_index_correction_mode: Optional[str] = None
-    # Aware, written as ISO 8601 with its offset (FIB-1197); older results hold a
+    # Aware, written as ISO 8601 with its offset; older results hold a
     # POSIX float, which reads as this machine's zone.
     updated_at: Optional[datetime] = field(default_factory=now)
 
-    # Geometry seeding (FIB-881). `fm_z_scale` is the factor the FM z (slices) was
+    # Geometry seeding. `fm_z_scale` is the factor the FM z (slices) was
     # multiplied by for the fit -- the slice thickness in xy pixels -- so the
     # rotation is over isotropic units; 1.0 when the stack did not say. `seed` is
     # the nominal transform the fit started from (None when unseeded) and
@@ -457,16 +457,16 @@ class CorrelationResult:
     fm_z_scale: float = 1.0
     seed: Optional[dict] = None
     branch_check: Optional[dict] = None
-    # The fit verdict's evidence (FIB-956): fibsem.correlation.verdict
+    # The fit verdict's evidence: fibsem.correlation.verdict
     # FitEvidence.to_dict(), computed after the fit when it was seeded.
     diagnostics: Optional[dict] = None
     # Where the fiducials put FM pixel (0, 0) minus where the stage metadata
     # put it, in microns in the FIB image's frame (x, y). The next lamella's
-    # first projection adds it to its own metadata translation (FIB-979).
+    # first projection adds it to its own metadata translation.
     placement_offset: Optional[list] = None
 
     def __post_init__(self) -> None:
-        # a caller that still passes a POSIX float gets it read as one (FIB-1197)
+        # a caller that still passes a POSIX float gets it read as one
         self.updated_at = to_datetime(self.updated_at)
 
     @property
@@ -599,7 +599,7 @@ class CorrelationResult:
         # the experiment, so correcting only image_px moved the marker on screen
         # and recorded factor + mode while the committed number stayed
         # uncorrected — a wrong result presented as a corrected one, flagged only
-        # by a log warning (FIB-321). Both properties fall back to the values
+        # by a log warning. Both properties fall back to the values
         # restored from JSON, so this is reachable only for a result that was
         # never associated with an image at all.
         if fib_shape is None or pixel_size is None:
@@ -715,7 +715,7 @@ class CorrelationResult:
         but a loaded result arrives beside whatever images are already open: a
         run opened with the wrong reference, or another lamella's file loaded
         into this one's dialog, matched on points alone and armed Continue
-        against images it was never computed on (FIB-1237).
+        against images it was never computed on.
 
         A result with no snapshot can't be shown to match, so it reports False.
         """
@@ -731,7 +731,7 @@ class CorrelationResult:
         Compares what each side records: the image names (as :func:`image_stem`)
         and the FIB pixel size and FM z step. A side that records nothing is not
         evidence either way -- a result loaded from JSON carries no images, and
-        runs before FIB-1019 recorded no names -- so only a value present on
+        older runs recorded no names -- so only a value present on
         both sides and different counts.
         """
         from fibsem.correlation.history import image_stem, recorded_image_basename
@@ -772,13 +772,13 @@ class CorrelationResult:
 
 @dataclass
 class CorrelationState:
-    """The whole correlation state for a project directory, in one file (FIB-264).
+    """The whole correlation state for a project directory, in one file.
 
     Supersedes the split ``correlation_data.json`` (a bare
     :class:`CorrelationInputData`) + ``correlation_result.json`` (a bare
     :class:`CorrelationResult`). Those two sat side by side with near-identical
-    names and could silently disagree — see :meth:`CorrelationResult.matches_inputs`
-    and the FIB-295 fix. This carries both, with ``input_data`` as the single
+    names and could silently disagree (see :meth:`CorrelationResult.matches_inputs`).
+    This carries both, with ``input_data`` as the single
     source of truth for the current points and ``result`` optional (``None``
     until the first run).
     """
@@ -823,7 +823,7 @@ def load_correlation_file(filename: str) -> CorrelationState:
 
     The caller never has to know which a file is: :func:`upgrade` brings each to
     the current container. A result file carries its own snapshot, which becomes
-    the project's current points — the same behaviour the old result loader had.
+    the project's current points.
     The file itself is only read; it takes the current format when next saved.
     """
     with open(filename) as f:

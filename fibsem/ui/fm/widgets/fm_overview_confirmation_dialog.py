@@ -68,7 +68,7 @@ class FMOverviewConfirmationDialog(OverviewPreflightDialog):
         self.objective_focus = objective_focus
         # Both passed in rather than read: this dialog takes no microscope, which is what
         # lets it be built and tested on its own, and the camera resolution is a hardware
-        # read on a shared connection (FIB-517).
+        # read on a shared connection.
         self.tile_resolution = tile_resolution
         self.save_directory = save_directory
         self._init_ui()

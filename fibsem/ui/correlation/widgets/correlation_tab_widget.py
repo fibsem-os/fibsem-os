@@ -192,12 +192,12 @@ _DELETE_FIDUCIAL_LABELS = {
     DELETE_FIDUCIAL_ONE: "Only that point",
 }
 
-# How long the points must be still before an automatic run (FIB-1020). Long
+# How long the points must be still before an automatic run. Long
 # enough that a drag is one run rather than fifty, short enough to feel like a
 # response to the drop.
 AUTO_RERUN_DELAY_MS = 400
 
-# Auto-interpolation (FIB-1023). The ratio below which a stack is already
+# Auto-interpolation. The ratio below which a stack is already
 # isotropic enough to leave alone -- the same 5% the pixel-size caption uses to
 # decide whether to mention anisotropy at all.
 _ISOTROPIC_TOLERANCE = 0.05
@@ -248,7 +248,7 @@ _TABLE_MAX_ROWS = 12
 
 
 def _fit_table_height(table: "QTableWidget", n_rows: int) -> None:
-    """Show every row up to ``_TABLE_MAX_ROWS``, then scroll (FIB-978).
+    """Show every row up to ``_TABLE_MAX_ROWS``, then scroll.
 
     Measured from the table's own row and header heights rather than a guessed
     28 px, which under-sized an eight-row table by a row.
@@ -377,8 +377,8 @@ class _ProgressRelay(QObject):
 # Said when the stack does not record how thick its slices are. The fit needs
 # all three axes in one unit, so it converts z (slices) to xy pixels; with no
 # slice thickness that conversion silently becomes 1, the depth column of the
-# fitted map comes out wrong, and the refractive-index correction rides on it
-# (FIB-1017). Anisotropy itself is NOT worth saying -- it is the normal case on
+# fitted map comes out wrong, and the refractive-index correction rides on it.
+# Anisotropy itself is NOT worth saying -- it is the normal case on
 # both systems and the fit handles it.
 _NO_SLICE_THICKNESS = "slice thickness not recorded — depth cannot be trusted"
 
@@ -478,7 +478,7 @@ class _ImagePicker(QWidget):
         paths, so a direct lookup never matches and ``show_path`` would add the
         bare name as a new entry — listing the same file twice, and leaving an
         item that fails to load when picked, since nothing resolves a bare name
-        against a directory (FIB-321). The list holds paths; never put anything
+        against a directory. The list holds paths; never put anything
         else in it.
 
         Returns "" and changes nothing when the file isn't one of the known ones.
@@ -504,7 +504,7 @@ class _ImagePicker(QWidget):
         the rest of the session. ``restore`` is empty when nothing has loaded
         yet, and that case is why this exists: ``show_path("")`` returns
         immediately, leaving the failed file on display as though it were the
-        current image while there was in fact no image at all (FIB-321).
+        current image while there was in fact no image at all.
         """
         index = self.combo.findData(bad_path)
         if index >= 0:
@@ -639,7 +639,7 @@ class _ImagesTab(QWidget):
         layout.addStretch(1)
 
     # ------------------------------------------------------------------
-    # Lamella setup (installed only from the autolamella editor — FIB-302)
+    # Lamella setup (installed only from the autolamella editor)
     # ------------------------------------------------------------------
 
     def set_image_options(self, kind: str, paths: List[str], current: str = "") -> None:
@@ -700,7 +700,7 @@ class _ImagesTab(QWidget):
         return p if p else None
 
     def _allow_image_change(self) -> bool:
-        """Whether a user-driven image load may proceed (FIB-317).
+        """Whether a user-driven image load may proceed.
 
         Only the picker paths ask. Programmatic ``set_fib_image`` /
         ``set_fm_image`` — how the lamella's images arrive on open — must never
@@ -756,11 +756,11 @@ class _ImagesTab(QWidget):
     def _show_preloaded(self, picker: "_ImagePicker", image) -> str:
         """Select the file a preloaded image came from; return the path shown.
 
-        Known files (the lamella's, offered by the editor) resolve by name
-        (FIB-509). A file outside that list -- the standalone launcher's, a
+        Known files (the lamella's, offered by the editor) resolve by name.
+        A file outside that list -- the standalone launcher's, a
         browsed one -- is shown by its own path, so the tab says what is on
-        the canvas instead of an empty picker (FIB-978). A bare name is never
-        shown: it could not be loaded again (FIB-321).
+        the canvas instead of an empty picker. A bare name is never
+        shown: it could not be loaded again.
         """
         filepath = getattr(image, "filepath", None) or ""
         resolved = picker.select_file(filepath)
@@ -780,7 +780,7 @@ class _ImagesTab(QWidget):
         # From `filepath`, not `image_settings.filename`: the latter is the name
         # the acquirer asked for, a stem with no extension, so matching it against
         # a real path never succeeded and a pre-loaded image left the combo
-        # showing nothing selected (FIB-509).
+        # showing nothing selected.
         resolved = self._show_preloaded(self._fib_picker, image)
         if resolved:
             self._fib_loaded_path = resolved
@@ -789,7 +789,7 @@ class _ImagesTab(QWidget):
     def set_fm_image(self, image: FluorescenceImage) -> None:
         self._fm_image = image
         # Same as the FIB side: the file it was loaded from, not the name it was
-        # acquired under (FIB-509).
+        # acquired under.
         resolved = self._show_preloaded(self._fm_picker, image)
         if resolved:
             self._fm_loaded_path = resolved
@@ -807,7 +807,7 @@ class _ImagesTab(QWidget):
         names = [ch.name or f"CH {i}" for i, ch in enumerate(meta_channels)]
         n_ch = len(names) or c
         # the count on the line, the names in the tooltip: four channel names
-        # wrapped to three lines and said less than "4" (FIB-978)
+        # wrapped to three lines and said less than "4"
         self._lbl_fm_px.setText(
             f"{n_ch} channel{'s' if n_ch != 1 else ''} · {z} slice"
             f"{'s' if z != 1 else ''} · {h} × {w} · "
@@ -868,7 +868,7 @@ def _count_sentence(coords: List[Coordinate]) -> str:
 class _CoordinatesTab(QWidget):
     """Coordinate list widgets + fit settings + load/save."""
 
-    # Predicted fiducials (FIB-956): the parent projects and accepts
+    # Predicted fiducials: the parent projects and accepts
     project_requested = pyqtSignal()
     accept_predictions_requested = pyqtSignal()
     projection_link_activated = pyqtSignal(str)  # "ignore" | "use"
@@ -886,7 +886,7 @@ class _CoordinatesTab(QWidget):
         store: Optional[PointStore] = None,
     ) -> None:
         super().__init__(parent)
-        # one store for the five lists, shared with the canvases (FIB-973)
+        # one store for the five lists, shared with the canvases
         self._store = store if store is not None else PointStore(self)
         self._setup_ui()
 
@@ -921,8 +921,8 @@ class _CoordinatesTab(QWidget):
         self._fib_panel.add_header_widget(self._fib_count_label)
         layout.addWidget(self._fib_panel)
 
-        # FM fiducials, with the projection's action row under the list
-        # (FIB-956): the FIB fiducials projected into the FM through the
+        # FM fiducials, with the projection's action row under the list:
+        # the FIB fiducials projected into the FM through the
         # transform, as hollow markers the user drags onto the burns. One
         # button does both the first projection and every re-projection after
         # pairs are placed. The row belongs to this list -- it is what it
@@ -1024,7 +1024,7 @@ class _CoordinatesTab(QWidget):
 
         # Where the projection comes from, one line; the numbers live in the
         # tooltip. The link ignores (or restores) a previous run's placement
-        # offset for this lamella (FIB-979).
+        # offset for this lamella.
         self._lbl_projection = QLabel("")
         self._lbl_projection.setWordWrap(True)
         self._lbl_projection.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -1053,7 +1053,7 @@ class _CoordinatesTab(QWidget):
         fit_form.addRow(form_label("FM POI channel"), self._fm_poi_ch_combo)
 
         # FIB and FM fiducials pair by their place in the lists, so deleting one
-        # side shifts every later pair (FIB-1243). Asked on delete until "Don't
+        # side shifts every later pair. Asked on delete until "Don't
         # ask again" stores a choice here, where it can be set back.
         self._delete_fiducial_combo = ValueComboBox(
             list(DELETE_FIDUCIAL_CHOICES),
@@ -1070,8 +1070,8 @@ class _CoordinatesTab(QWidget):
         # A checkbox carries its own label: the two share one row.
         self._show_diag_check = QCheckBox("Show diagnostic")
 
-        # Opt-in: apply fits without the confirm dialog. Off by default (the
-        # confirm-first behaviour of FIB-252). Errors and far-off "surprising"
+        # Opt-in: apply fits without the confirm dialog. Off by default
+        # (confirm first). Errors and far-off "surprising"
         # fits still surface the dialog — see _on_refit_requested.
         self._auto_accept_check = QCheckBox("Auto-accept fits")
 
@@ -1080,7 +1080,7 @@ class _CoordinatesTab(QWidget):
         # instead of waiting for a press. Off by default, and carried in the
         # experiment's correlation config rather than the session -- this dialog
         # is rebuilt per lamella, so a session-only tick would have to be redone
-        # for every one of them (FIB-1020).
+        # for every one of them.
         self._auto_rerun_check = QCheckBox("Re-run on change")
 
         # Match the 11-12px labels these sit beside (see form_label).
@@ -1136,7 +1136,7 @@ class _CoordinatesTab(QWidget):
         # The panel is built here because its controls are read by name from
         # this tab, but it is shown on the Setup/Images tab beside the other
         # experiment-level settings: at the bottom of this scrolling tab it was
-        # off screen exactly when a user was fitting (FIB-978 \u00a78).
+        # off screen exactly when a user was fitting.
         self._fit_panel = TitledPanel("Method", collapsible=True)
         self._fit_panel.set_content(fit_body)
 
@@ -1234,8 +1234,8 @@ class _ResultsTab(QWidget):
         summary_form = QFormLayout(summary_body)
         summary_form.setContentsMargins(8, 4, 8, 4)
         summary_form.setSpacing(4)
-        # The verdict's numbers (FIB-956), in the user's units. Euler angles
-        # and a raw translation said nothing to anyone (FIB-978).
+        # The verdict's numbers, in the user's units. Euler angles
+        # and a raw translation said nothing to anyone.
         self._lbl_agree = self._val("—")
         self._lbl_worst = self._val("—")
         self._lbl_depth = self._val("—")
@@ -1255,7 +1255,7 @@ class _ResultsTab(QWidget):
         # The transform itself. The review took the Euler angles off this tab
         # because they said nothing to anyone; the answer the correlation
         # produced still has to be visible, so it is here in quantities a
-        # person can check against the instrument (FIB-1021).
+        # person can check against the instrument.
         tform_body = QWidget()
         tform_layout = QVBoxLayout(tform_body)
         tform_layout.setContentsMargins(8, 4, 8, 6)
@@ -1316,7 +1316,7 @@ class _ResultsTab(QWidget):
         layout.addWidget(TitledPanel("Transform", content=tform_body))
 
         # Per-marker error table. Two error columns whose difference is the
-        # whole point, so the panel says which one to judge by (FIB-1022).
+        # whole point, so the panel says which one to judge by.
         table_body = QWidget()
         table_layout = QVBoxLayout(table_body)
         table_layout.setContentsMargins(8, 4, 8, 6)
@@ -1601,7 +1601,7 @@ class _RITab(QWidget):
         self._poi: List[CorrelationPointOfInterest] = []
         # The input snapshot this tab describes, held whole. Everything it needs
         # from the inputs is a property below rather than a field copied here,
-        # so there is no set of parallel values to keep in step (FIB-645).
+        # so there is no set of parallel values to keep in step.
         # Safe to hold: the parent's `data` property builds a fresh
         # CorrelationInputData per access, so this is never a live object
         # someone else mutates.
@@ -1694,7 +1694,7 @@ class _RITab(QWidget):
             "Corrected POI Positions", content=self._table
         )
         # An empty table box is a third of the tab saying nothing; it appears
-        # with its first row (FIB-978).
+        # with its first row.
         self._panel_corrected.setVisible(False)
         self._table.model().rowsInserted.connect(self._sync_table_panel)
         self._table.model().rowsRemoved.connect(self._sync_table_panel)
@@ -1713,8 +1713,8 @@ class _RITab(QWidget):
         # Last, not beside the widget it listens to: the slot writes to
         # _lbl_warning, which is built further down this method. The factor can
         # move with no data change behind it — a parameter edit recomputes it —
-        # and until Apply is pressed that value is not the one a run would use
-        # (FIB-591).
+        # and until Apply is pressed that value is not the one a run would use.
+        #
         self._ri_widget.factor_changed.connect(lambda _f: self._refresh_warning())
 
         # set_result maintains this from here on, but it is not called until the
@@ -1790,7 +1790,7 @@ class _RITab(QWidget):
             # Deliberately not "applied during the run": placing the point arms
             # a factor only when one can be computed, and a banner promising the
             # run does it regardless is what made a never-armed correction read
-            # as a broken feature (FIB-590). The warning line below carries which
+            # as a broken feature. The warning line below carries which
             # of the two it is; this only names the control that decides.
             self._lbl_mode.setText(
                 "FM surface mode: corrects the z of every input POI before "
@@ -1876,7 +1876,7 @@ class _RITab(QWidget):
 
         Split out of :meth:`set_result` because the correction factor moves
         without any data change — a parameter edit recomputes it — and a value
-        on screen that no run would use has to say so (FIB-591).
+        on screen that no run would use has to say so.
         """
         mode = self.mode
         result_factor = (
@@ -1889,7 +1889,7 @@ class _RITab(QWidget):
         # An FM surface point on its own corrects nothing: the engine needs a
         # factor too, and only Apply stores one. Nothing else on screen asks for
         # that press, which is how placing the point and running read as a
-        # feature that does nothing (FIB-590).
+        # feature that does nothing.
         if mode == "pre" and self._input_pre_factor is None and self._input_poi:
             self._set_warning(
                 "FM surface placed — press Apply to arm the correction.",
@@ -1899,7 +1899,7 @@ class _RITab(QWidget):
 
         # A factor typed or recomputed since the last Apply is not the one a run
         # would use. Name both numbers: the disagreement is the whole point, and
-        # silently running the older one is what this replaces (FIB-591).
+        # silently running the older one is what this replaces.
         shown = self._ri_widget.get_factor()
         if (
             mode == "pre"
@@ -1916,9 +1916,9 @@ class _RITab(QWidget):
         # "Armed" means the stored factor is not what produced the POI on screen.
         # Matching factors are not enough — a result corrected in *post* mode was
         # corrected in a different space, so its POI is not the one this pre-mode
-        # factor describes. Comparing factors alone let a post-corrected result at
-        # the same ζ read as "Correction applied (post)" while the pre factor was
-        # only armed and the displayed POI was the old post-corrected one (FIB-321).
+        # factor describes. Comparing factors alone would let a post-corrected result
+        # at the same ζ read as "Correction applied (post)" while the pre factor was
+        # only armed.
         armed = (
             mode == "pre"
             and self._input_pre_factor is not None
@@ -2067,7 +2067,7 @@ def _has_coordinates(data: Optional[CorrelationInputData]) -> bool:
 
     A run folder can hold a state with no coordinates — an empty run, or a legacy
     result file whose ``input_data`` is null. Seeding from one replaced the live
-    coordinates with nothing (FIB-321).
+    coordinates with nothing.
     """
     if data is None:
         return False
@@ -2083,7 +2083,7 @@ def _has_coordinates(data: Optional[CorrelationInputData]) -> bool:
 class _CanvasAdapter:
     """Which canvas a point type is drawn on, and the z a new point gets there.
 
-    The canvases draw from the point store themselves (FIB-973), so nothing is
+    The canvases draw from the point store themselves, so nothing is
     pushed to them through this any more.
     """
 
@@ -2174,13 +2174,13 @@ class CorrelationTabWidget(QWidget):
         self._interp_relay: Optional[_ProgressRelay] = None
         # Planes of the displayed FM volume per plane of the loaded stack: 1.0
         # unless an interpolated view is shown. Points, fits and the saved file
-        # stay in the loaded stack's planes; only the canvas is resampled
-        # (FIB-1248).
+        # stay in the loaded stack's planes; only the canvas is resampled.
+        #
         self._fm_view_scale = 1.0
         # Installed only when a lamella opens this window (add_lamella_setup).
         self._setup_section = None
         # Field width (m) of the image the spot burns were placed on, when the
-        # protocol says; seeding refuses a FIB image at another width (FIB-1233).
+        # protocol says; seeding refuses a FIB image at another width.
         self._spot_burn_field_width: Optional[float] = None
 
         self._setup_ui()
@@ -2215,7 +2215,7 @@ class CorrelationTabWidget(QWidget):
         splitter = QSplitter(Qt.Orientation.Horizontal)
         layout.addWidget(splitter, stretch=1)
         # The points and the selection, held once: the five lists and both
-        # canvases draw from it and write their gestures to it (FIB-973).
+        # canvases draw from it and write their gestures to it.
         self._point_store = PointStore(self, points=self._session.points)
         self._session_hold.uninstall_policy = self._point_store.set_removal_policy(
             self._pair_removal
@@ -2252,7 +2252,7 @@ class CorrelationTabWidget(QWidget):
 
         splitter.addWidget(right_pane)
         # The side pane must hold its four tabs and a full coordinate row without
-        # clipping; at 350 px the last tab scrolled off (FIB-978). The two image
+        # clipping; at 350 px the last tab scrolled off. The two image
         # panes are re-split from the images' aspect ratios once both are loaded
         # (_fit_split_to_images), unless the user has dragged the handle.
         splitter.setSizes([480, 480, 440])
@@ -2269,7 +2269,7 @@ class CorrelationTabWidget(QWidget):
         """Give each image pane the width its image's aspect ratio wants.
 
         Side by side at equal widths, a 3:2 FIB image and a square FM stack
-        left two thirds of the canvas area black (FIB-978). With both loaded,
+        left two thirds of the canvas area black. With both loaded,
         the panes share the width left beside the side pane in proportion to
         each image's width-for-height, so the taller image gets the narrower
         pane. Only until the user drags the handle; after that the split is
@@ -2307,9 +2307,8 @@ class CorrelationTabWidget(QWidget):
 
         self._action_load_fib = QAction("Load FIB Image", self)
         self._action_load_fm = QAction("Load Fluorescence Image", self)
-        # One action for coordinates + result: the file dispatches on its shape
-        # (FIB-264), so there is no wrong choice to make — removing the FIB-263
-        # misclick by construction rather than guarding against it.
+        # One action for coordinates + result: the file dispatches on its shape,
+        # so there is no wrong choice to make.
         self._action_load = QAction("Load Correlation…", self)
         self._action_save = QAction("Save Correlation…", self)
 
@@ -2364,10 +2363,8 @@ class CorrelationTabWidget(QWidget):
         )
         fib_layout.addWidget(self._fib_canvas, stretch=1)
 
-        # Middle: FM image display, in a pane matching the FIB one. The filename
-        # header used to live inside FMImageDisplayWidget; the shared FM canvas
-        # has no such thing, and putting it here makes the two panes the same
-        # shape rather than one carrying its own header and one not.
+        # Middle: FM image display, in a pane matching the FIB one, filename header
+        # included, so the two panes are the same shape.
         fm_pane = QWidget()
         fm_layout = QVBoxLayout(fm_pane)
         fm_layout.setContentsMargins(0, 0, 0, 0)
@@ -2498,7 +2495,7 @@ class CorrelationTabWidget(QWidget):
         self._images_tab.fm_image_changed.connect(self._on_fm_image_changed)
         self._images_tab.project_dir_changed.connect(self._on_project_dir_changed)
 
-        # Auto-save — one file, rewritten whole on either signal (FIB-264)
+        # Auto-save — one file, rewritten whole on either signal
         self.data_changed.connect(self._auto_save_state)
         self.result_changed.connect(self._auto_save_state)
 
@@ -2509,7 +2506,7 @@ class CorrelationTabWidget(QWidget):
         self._ri_tab.pre_correction_requested.connect(self._on_pre_correction_requested)
 
         # The lists and the canvases draw from the point store and write their
-        # gestures to it (FIB-973), so nothing is relayed between them. What is
+        # gestures to it, so nothing is relayed between them. What is
         # left here is what an edit means to the rest of the widget.
         self._point_store.structure_changed.connect(self._on_store_changed)
         self._point_store.points_changed.connect(self._on_store_changed)
@@ -2543,7 +2540,7 @@ class CorrelationTabWidget(QWidget):
         self._action_show_labels.toggled.connect(self._on_labels_toggled)
         self._action_save_plot.triggered.connect(lambda _: self._on_save_plot_clicked())
 
-        # Predicted fiducials (FIB-956)
+        # Predicted fiducials
         self._coords_tab.project_requested.connect(self.project_fm_from_fib)
         self._coords_tab.accept_predictions_requested.connect(
             self.accept_all_predictions
@@ -2557,8 +2554,8 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.connect(self._on_data_changed)
 
         # Debounce for the opt-in auto re-run. A drag emits data_changed on
-        # every mouse move, so the run waits for the points to stop moving
-        # (FIB-1020).
+        # every mouse move, so the run waits for the points to stop moving.
+        #
         self._auto_rerun_timer = QTimer(self)
         self._auto_rerun_timer.setSingleShot(True)
         self._auto_rerun_timer.setInterval(AUTO_RERUN_DELAY_MS)
@@ -2616,7 +2613,7 @@ class CorrelationTabWidget(QWidget):
 
         The canvas may show an interpolated view; a point placed on it is stored
         where that plane sits in the stack, so its z means the same thing to the
-        fits, the saved file and the next session (FIB-1248).
+        fits, the saved file and the next session.
         """
         return self._fm_display.current_z / self._fm_view_scale
 
@@ -2644,7 +2641,7 @@ class CorrelationTabWidget(QWidget):
         # The image is an input to the fit, so swapping it invalidates the result
         # and re-opens the readiness question. data_changed drives both (via
         # _on_data_changed and _update_run_button) — without it, Continue stayed
-        # armed and committed a POI scaled by the *previous* image (FIB-317).
+        # armed and committed a POI scaled by the *previous* image.
         self._fit_split_to_images()
         self.data_changed.emit(self.data)
 
@@ -2658,11 +2655,9 @@ class CorrelationTabWidget(QWidget):
 
         The file it came from, so the label matches what the picker above it
         shows and the tooltip gives the full path. An image that was never
-        written gets no label rather than the name it would have had (FIB-509).
+        written gets no label rather than the name it would have had.
 
-        One implementation for both panes: the FM header used to be
-        FMImageDisplayWidget's own, with its own copy of this, and the two could
-        have drifted.
+        One implementation for both panes.
         """
         path = getattr(image, "filepath", None) or ""
         base = os.path.basename(path)
@@ -2692,7 +2687,7 @@ class CorrelationTabWidget(QWidget):
         # earlier, before any channels exist), so the config supplies it here. On
         # a later image the user's current choice is the one to keep: re-applying
         # the config would discard it silently, which is what made a plain
-        # z-interpolation reset the fit settings (FIB-636).
+        # z-interpolation reset the fit settings.
         #
         # Only the channel combos are rebuilt. The method combos are populated
         # from FIT_METHODS at construction and are untouched by an image change,
@@ -2707,13 +2702,13 @@ class CorrelationTabWidget(QWidget):
         self._seed_ri_from_fm_metadata(fm_image)
         self._images_tab.set_fm_image(fm_image)
         # As for the FIB image: a new volume invalidates the result and changes
-        # what "ready to run" means (FIB-317).
+        # what "ready to run" means.
         self._fit_split_to_images()
         self.data_changed.emit(self.data)
         self._maybe_auto_interpolate()
 
     def _maybe_auto_interpolate(self) -> None:
-        """Resample this stack to isotropic, if that was asked for (FIB-1023).
+        """Resample this stack to isotropic, if that was asked for.
 
         Only what the Interpolate dialog would do by default, started for you.
         Skipped unless the stack is worth resampling and cheap enough to: the
@@ -2783,7 +2778,7 @@ class CorrelationTabWidget(QWidget):
         """Set where this correlation would be saved.
 
         A destination, not a promise: the directory is created on the first write
-        worth making, not here. See :func:`ensure_dir_for` (FIB-320).
+        worth making, not here. See :func:`ensure_dir_for`.
         """
         self._session.set_project_dir(path)
         self._images_tab._proj_path.setText(path)
@@ -2813,8 +2808,8 @@ class CorrelationTabWidget(QWidget):
         """Show a state the session has just adopted; ``shown`` is whether a
         result was on screen before it."""
         # The session dropped its result *before* this emit: data_changed drives
-        # the auto-save, so clearing afterwards still wrote the new inputs paired
-        # with the old result — the very thing FIB-318 is about.
+        # the auto-save, so clearing afterwards would write the new inputs paired
+        # with the old result.
         if state.result is None and shown:
             self._clear_result_views()
         self.data_changed.emit(self.data)
@@ -2832,7 +2827,7 @@ class CorrelationTabWidget(QWidget):
         drifted or been milled — so the existing points no longer mark anything.
         Keeping them produced off-image points, a coordinate list that displayed
         clamped values while the data said otherwise, and a result that looked
-        current at the wrong scale (FIB-317).
+        current at the wrong scale.
 
         Rescaling is deliberately not offered: scaling by the shape ratio is only
         correct if the field of view is unchanged, and nothing in the files says
@@ -2872,10 +2867,10 @@ class CorrelationTabWidget(QWidget):
         survives: its markers stay drawn over the new points, the Results tab
         keeps its numbers, CSV export writes it, and — because the auto-save
         pairs current inputs with the session's result — it gets re-saved against
-        coordinates it was never computed from (FIB-318).
+        coordinates it was never computed from.
 
         A run still in flight is superseded too: it was started on the points
-        being cleared, so what it delivers is dropped (FIB-1242).
+        being cleared, so what it delivers is dropped.
         """
         if self._session.discard_result():
             self._clear_result_views()
@@ -2890,7 +2885,7 @@ class CorrelationTabWidget(QWidget):
         )
 
     def seed_coordinates(self, source: CorrelationInputData) -> None:
-        """Load a previous run's coordinates as starting points (FIB-299).
+        """Load a previous run's coordinates as starting points.
 
         Coordinates only — the previous result is from different images, so it is
         not carried in. FM z is brought into the loaded stack's planes when the
@@ -2905,7 +2900,7 @@ class CorrelationTabWidget(QWidget):
         self.data_changed.emit(self.data)
 
     # ------------------------------------------------------------------
-    # Predicted fiducials (FIB-956)
+    # Predicted fiducials
     # ------------------------------------------------------------------
 
     def project_fm_from_fib(self) -> None:
@@ -3061,7 +3056,7 @@ class CorrelationTabWidget(QWidget):
         cl.update_headers()
 
     def seed_fib_fiducials_from_spot_burns(self, coordinates: List[Point]) -> None:
-        """Seed FIB fiducials from spot-burn coordinates for a first correlation (FIB-259).
+        """Seed FIB fiducials from spot-burn coordinates for a first correlation.
 
         Spot burns are stored normalised (0-1) to the FIB image they were placed
         on — the same image this correlation opens on — so multiply by that image's
@@ -3104,7 +3099,7 @@ class CorrelationTabWidget(QWidget):
         fm_options: Optional[List[str]] = None,
         fm_current: str = "",
     ) -> "CorrelationSetupSection":
-        """Install the lamella setup section into the Images tab (FIB-302).
+        """Install the lamella setup section into the Images tab.
 
         Called only by the autolamella protocol editor, so the generic widget
         stays lamella-agnostic. The section drives the live canvas: changing the
@@ -3136,7 +3131,7 @@ class CorrelationTabWidget(QWidget):
         return section
 
     def _allow_reseed(self, source: str, payload) -> bool:
-        """Veto for the setup section, consulted before it emits (FIB-319).
+        """Veto for the setup section, consulted before it emits.
 
         Reasons to refuse, impossible sources first, so the user is never asked to
         sacrifice their points for a seed that was never going to be applied:
@@ -3146,7 +3141,7 @@ class CorrelationTabWidget(QWidget):
            call would return early leaving the radio reading as applied.
         2. A previous run holding no coordinates — an empty run, or a legacy file
            with a null ``input_data``. Seeding from one replaced the live points
-           with nothing (FIB-321).
+           with nothing.
         3. Points that differ from what was last seeded.
 
         The section restores its controls when this returns False, so the choice
@@ -3189,7 +3184,7 @@ class CorrelationTabWidget(QWidget):
         # Only the None branch clears. A source that cannot be applied leaves the
         # canvas alone rather than emptying it under someone else's banner —
         # falling through to the clear is how an empty previous run wiped every
-        # coordinate while the radio read "Previous correlation" (FIB-321).
+        # coordinate while the radio read "Previous correlation".
         if source == SEED_PREVIOUS:
             if _has_coordinates(payload):
                 self.seed_coordinates(copy.deepcopy(payload))
@@ -3244,7 +3239,7 @@ class CorrelationTabWidget(QWidget):
         return self._session.result
 
     # ------------------------------------------------------------------
-    # Correlation config (FIB-298) — passed in on open, read back on close
+    # Correlation config — passed in on open, read back on close
     # ------------------------------------------------------------------
 
     def set_correlation_config(self, config: CorrelationConfig) -> None:
@@ -3257,7 +3252,7 @@ class CorrelationTabWidget(QWidget):
         self._ri_tab._ri_widget.set_params(zeta_params_from_settings(config.ri))
 
     def _seed_ri_from_fm_metadata(self, fm_image: FluorescenceImage) -> None:
-        """Seed RI λ / NA from the POI channel's metadata (FIB-277); λ is
+        """Seed RI λ / NA from the POI channel's metadata; λ is
         channel-specific, so read from the selected POI channel."""
         channels = list(getattr(fm_image.metadata, "channels", None) or [])
         if not channels:
@@ -3339,7 +3334,7 @@ class CorrelationTabWidget(QWidget):
         payload is ignored, the session's data and result are the source of
         truth. A failure is sticky on the status line, because the line is
         rewritten on every data change — a one-shot message would be gone
-        before it was read (FIB-316).
+        before it was read.
         """
         had_error = self._session.save_error is not None
         saved = self._session.auto_save()
@@ -3354,7 +3349,7 @@ class CorrelationTabWidget(QWidget):
         self._btn_run.setEnabled(self._session.can_run(data))
         if self._session.save_error is not None:
             # Outranks the readiness text: "Ready." while nothing is being saved
-            # is the most misleading thing this label could say (FIB-316).
+            # is the most misleading thing this label could say.
             self._lbl_status.setText(
                 "Auto-save is failing — work is NOT being saved "
                 f"({self._session.save_error})"
@@ -3385,7 +3380,7 @@ class CorrelationTabWidget(QWidget):
         A run already in flight is waited for rather than interrupted: killing
         a solve mid-flight is not worth it for something that takes well under
         a second, and the result it delivers is checked against the current
-        points anyway (``matches_inputs``, FIB-315).
+        points anyway (``matches_inputs``).
         """
         if not self._coords_tab._auto_rerun_check.isChecked():
             return
@@ -3432,8 +3427,8 @@ class CorrelationTabWidget(QWidget):
     ) -> None:
         """The camera transform to assume for an FM stack that recorded none.
 
-        Stacks written before 2026-08-04, and stacks written by odemis, carry no
-        geometry. The library refuses to guess (FIB-881); the host may assume,
+        Older stacks, and stacks written by odemis, carry no
+        geometry. The library refuses to guess; the host may assume,
         from the FM configuration in force, and the assumption is shown in the
         prediction panel so it is never silent. ``None`` withdraws it.
         """
@@ -3552,7 +3547,7 @@ class CorrelationTabWidget(QWidget):
 
         Seeded: how far the fit sits from the geometry's rotation and how much
         worse the mirror branch is. Unseeded: whether the mirror branch fits as
-        well, which is the coin flip a coplanar pick set produces (FIB-880).
+        well, which is the coin flip a coplanar pick set produces.
         """
         check = result.branch_check
         if not check:
@@ -3585,11 +3580,11 @@ class CorrelationTabWidget(QWidget):
         for the worker but leaves the canvases editable, so a fiducial dragged
         while the run was in flight makes the delivered result describe points
         that no longer exist. Marking it live regardless armed Continue on a
-        result whose ``matches_inputs`` was already False (FIB-321).
+        result whose ``matches_inputs`` was already False.
 
         A run whose result was cleared or replaced while it ran (a new image,
         a seed, a loaded file) delivers nothing: on the new image it would be
-        drawn, auto-saved and offered as the answer (FIB-1242).
+        drawn, auto-saved and offered as the answer.
         """
         outcome = self._session.finish_run(result)
         if outcome is RunOutcome.SUPERSEDED:
@@ -3599,7 +3594,7 @@ class CorrelationTabWidget(QWidget):
 
     def _on_result_ready(self, result: CorrelationResult, live: bool = True) -> None:
         """Adopt a result. ``live`` is False for a result that no longer describes
-        the current points (FIB-295)."""
+        the current points."""
         self._session.set_result(result)
         self._results_tab.set_result(result, self._session.fib_pixel_size)
         self._ri_tab.set_result(
@@ -3673,7 +3668,7 @@ class CorrelationTabWidget(QWidget):
         # Last, so it survives whichever line above was chosen. Without a slice
         # thickness the fit could not convert z to the units its other two axes
         # use, so the depth it found is not a measurement -- and the depth
-        # correction is computed from it (FIB-1017).
+        # correction is computed from it.
         if (
             live
             and self._session.fm_image is not None
@@ -3686,7 +3681,7 @@ class CorrelationTabWidget(QWidget):
         self.result_changed.emit(result)
 
     # ------------------------------------------------------------------
-    # The fit verdict (FIB-956)
+    # The fit verdict
     # ------------------------------------------------------------------
 
     def _show_verdict(self, result: CorrelationResult) -> None:
@@ -3732,7 +3727,7 @@ class CorrelationTabWidget(QWidget):
     @staticmethod
     def _poor_fit_warning(result: CorrelationResult) -> Optional[str]:
         """The verdict's case against a poor fit, for the Continue confirmation;
-        None unless the verdict is poor. The user may still take it (FIB-1172)."""
+        None unless the verdict is poor. The user may still take it."""
         if not result.diagnostics:
             return None
         from fibsem.correlation.verdict import FitEvidence, verdict
@@ -3862,8 +3857,8 @@ class CorrelationTabWidget(QWidget):
             factor, ri.get_params(), ri.factor_is_computed()
         )
         self.data_changed.emit(self.data)  # auto-save + RI tab refresh
-        # Apply is reachable before the points can support a correlation now the
-        # RI tab is no longer gated on a finished run, and _run does not check --
+        # Apply is reachable before the points can support a correlation (the RI
+        # tab is not gated on a finished run), and _run does not check --
         # it would start a worker whose only outcome is an error on the status line.
         if rerun and self._session.can_run():
             self._run()
@@ -3874,7 +3869,7 @@ class CorrelationTabWidget(QWidget):
 
     def _auto_arm_pre_correction(self) -> Optional[float]:
         """Arm the factor on screen as the FM surface point lands, so a plain Run
-        applies the correction (FIB-590). Returns what was armed, or None.
+        applies the correction. Returns what was armed, or None.
 
         The spinbox value as-is, not a fresh ζ: it is already what the optical
         parameters produced unless someone typed over it, and recomputing is a
@@ -3884,9 +3879,9 @@ class CorrelationTabWidget(QWidget):
         if self._session.ri_pre_correction_factor is not None:
             return None  # a factor already chosen outranks arming a fresh one
         ri = self._ri_tab._ri_widget
-        # Pre-correction acts along the optical axis, so the tilt is 0; the RI
-        # tab locks it when it next refreshes, which used to be after this read,
-        # so the armed factor was the 15° one under a box reading 0° (FIB-1234).
+        # Pre-correction acts along the optical axis, so the tilt is 0. Locked
+        # here, before the read, not at the RI tab's next refresh, or the armed
+        # factor would be the 15° one under a box reading 0°.
         ri.set_tilt_locked(True)
         factor = ri.get_factor()
         self._session.arm_pre_correction(
@@ -3908,7 +3903,7 @@ class CorrelationTabWidget(QWidget):
         # Reprojected FM fiducials: a hollow ring in the FM colour on each FIB
         # point, unlabeled. A second label on every burn ("FIB 6" + "E6") made
         # the canvas unreadable after a run; the residual is on the row and the
-        # Results tab (FIB-978).
+        # Results tab.
         error_pts = [(r.x, r.y) for r in result.reprojected_3d]
         if error_pts:
             self._fib_canvas.add_overlay_points(
@@ -3968,8 +3963,8 @@ class CorrelationTabWidget(QWidget):
 
         FIB and FM fiducials pair by their place in the lists, so removing FIB 3
         alone re-pairs FM 4 with FIB 3 and so on down: on a real run the RMS
-        rose 31 -> 42 px and the target moved ~25 px, with nothing said
-        (FIB-1243). So deleting one with a partner asks -- the pair, that point
+        rose 31 -> 42 px and the target moved ~25 px, with nothing said.
+        So deleting one with a partner asks -- the pair, that point
         only, or cancel -- unless "Don't ask again" stored an answer.
         """
         if len(coords) != 1:
@@ -4039,7 +4034,7 @@ class CorrelationTabWidget(QWidget):
         spec = self._point_specs[pt]
         coord = Coordinate(PointXYZ(x, y, spec.adapter.current_z()), pt)
         if side_of(pt) == "fm" and self._fm_display.max_projection:
-            # A projection has no plane to give the point (FIB-1241).
+            # A projection has no plane to give the point.
             notification_service.show_toast(
                 "Placed at z = 0: the max projection has no plane. "
                 "Set the point's z, or turn off max projection and place it again.",
@@ -4108,7 +4103,7 @@ class CorrelationTabWidget(QWidget):
     def _on_continue_pressed(self) -> None:
         if self._session.result is None:
             return
-        # A poor fit no longer disables Continue; the warning is in front of the
+        # A poor fit does not disable Continue; the warning is in front of the
         # user when they decide, and the recorded event carries the verdict.
         warning = self._poor_fit_warning(self._session.result)
         reply = QMessageBox.question(
@@ -4188,7 +4183,7 @@ class CorrelationTabWidget(QWidget):
             path = os.path.join(self._session.project_dir, f"correlation_plot_{ts}.png")
         # Whichever branch supplied it: the Save Plot dialog offers a default
         # inside the run folder, so an explicit path lands in the same
-        # not-yet-created directory the derived one would (FIB-320).
+        # not-yet-created directory the derived one would.
         path = ensure_dir_for(path)
 
         self._fib_canvas.reset_view()
@@ -4221,8 +4216,8 @@ class CorrelationTabWidget(QWidget):
         if not path:
             return
         # One entry point for every correlation JSON; load_correlation dispatches
-        # on shape, so a wrong pick is no longer possible — only a genuinely
-        # unreadable/foreign file reaches this warning (FIB-264).
+        # on shape, so there is no wrong pick — only a genuinely
+        # unreadable/foreign file reaches this warning.
         try:
             self.load_correlation(path)
         except Exception as exc:
@@ -4250,7 +4245,7 @@ class CorrelationTabWidget(QWidget):
             )
 
     # ------------------------------------------------------------------
-    # FM z-stack interpolation (FIB-253)
+    # FM z-stack interpolation
     # ------------------------------------------------------------------
 
     def _fm_side_lists(self) -> List["CoordinateListWidget"]:
@@ -4307,7 +4302,7 @@ class CorrelationTabWidget(QWidget):
             _finish()
             if self._session.fm_image is not src:
                 # Another stack was loaded while this one was resampled; its
-                # planes are not this view's (FIB-1242).
+                # planes are not this view's.
                 logging.info("Interpolated view discarded: the FM stack changed")
                 return
             self._adopt_interpolated_volume(new_image, old_nz)
@@ -4331,8 +4326,8 @@ class CorrelationTabWidget(QWidget):
         are in. Swapping the stack moved every point into the resampled planes,
         so each consumer had to translate them back, and each did it its own way
         or not at all: the hole fit searched a tenth of the depth, a reopened run
-        put its points at the wrong depth, and a prior read the wrong z scale
-        (FIB-1248). Picking on the view converts its plane back to the stack's
+        put its points at the wrong depth, and a prior read the wrong z scale.
+        Picking on the view converts its plane back to the stack's
         (:meth:`_fm_plane_in_stack`).
         """
         from fibsem.fm.interpolation import z_resample_scale
@@ -4588,7 +4583,7 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
         logging.warning("  no FM image (*.ome.tiff) found in %s", directory)
 
     # The consolidated file is authoritative when present — it carries both the
-    # points and the result, staleness self-described (FIB-264/FIB-295).
+    # points and the result, staleness self-described.
     if found["correlation"]:
         try:
             widget.load_correlation(found["correlation"])
@@ -4602,8 +4597,8 @@ def load_project(widget: "CorrelationTabWidget", directory: str) -> None:
 
     # Legacy fallback. Coordinates first: correlation_data.json is rewritten on
     # every edit, so it is the freshest record of the points; the result's
-    # embedded snapshot is from its last run and must not overwrite later edits
-    # (FIB-295).
+    # embedded snapshot is from its last run and must not overwrite later edits.
+    #
     loaded_data = False
     if found["data"]:
         try:

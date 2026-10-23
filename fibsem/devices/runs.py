@@ -14,7 +14,7 @@ a run already going on the same thread of control (a spot burn's mill, a task's
 stage) is part of that run, and has no run of its own.
 
 There is no job table. A run holds control of the microscope, and control is
-one at a time (FIB-1270), so each service has at most one run going; the last
+one at a time, so each service has at most one run going; the last
 one is kept, for its answer, until the next.
 """
 
@@ -104,8 +104,8 @@ class Run:
 def ended_as(result: Any) -> str:
     """The state a run that returned *result* ended in. A stopped command
     answers ``cancelled`` (the milling service's string, the spot burn
-    service's status, a milling task's ``status``) rather than raising
-    (FIB-1377), and a milling task that failed answers ``failed``."""
+    service's status, a milling task's ``status``) rather than raising,
+    and a milling task that failed answers ``failed``."""
     if isinstance(result, dict):
         result = result.get("status")
     status = str(getattr(result, "value", result)).lower()

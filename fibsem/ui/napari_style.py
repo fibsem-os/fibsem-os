@@ -26,13 +26,11 @@ from fibsem.ui.tokens import (
 # rather than imported so this module does not depend on that one.
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
-# Napari-style dark theme stylesheet
+# The app's dark theme stylesheet.
 #
-# TODO: no token -- #4a5168 (the pressed/selected lift on controls), and the two
-# :hover rules still on #2d313b. That value now has a name -- DISABLED_BG_COLOR
-# -- but hover is not disabled, and ROW_ALT_COLOR is the token that means hover;
-# they differ by 4 units of RGB, so reconciling them is a real colour change and
-# wants a decision rather than a silent swap.
+# #4a5168 (the pressed/selected lift on controls) has no token, and the two :hover
+# rules stay on #2d313b: ROW_ALT_COLOR, the hover token, differs by 4 units of RGB,
+# so reconciling them is a real colour change.
 NAPARI_STYLE = f"""
 QWidget {{
     background-color: {SURFACE_COLOR};

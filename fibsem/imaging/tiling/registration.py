@@ -50,7 +50,7 @@ PRIOR_WEIGHT = 0.01
 MAX_RESIDUAL = 0.02
 
 # The largest move, in metres, a tile may get from its planned place for the aligned
-# mosaic to be used (Patrick, 2026-10-16). A point picked on an aligned mosaic is off
+# mosaic to be used. A point picked on an aligned mosaic is off
 # by about as far as its tile moved, so beyond this the plan is kept and the run warns.
 # The Arctis's 104 % x 107 % y steps moved the corners of a 3 x 3 of 150 um tiles
 # about 9 um.

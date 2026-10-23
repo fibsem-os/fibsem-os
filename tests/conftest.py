@@ -97,20 +97,11 @@ def _point_session_state_at(monkeypatch, directory):
 
     monkeypatch.setattr(session_state, "SESSION_STATE_DIRECTORY", str(directory))
     monkeypatch.setattr(
-        cfg, "FM_CONFIGURATION_PATH", str(directory / "fm-configuration.yaml")
-    )
-    monkeypatch.setattr(
         cfg, "FM_RECENT_CHANNELS_PATH", str(directory / "fm-recent-channels.yaml")
     )
     # and the two files saved positions are imported from
     monkeypatch.setattr(cfg, "POSITION_PATH", str(directory / "saved-positions.yaml"))
     monkeypatch.setattr(cfg, "LEGACY_POSITIONS_PATH", str(directory / "positions.yaml"))
-    # the coincidence viewer saves its milling config when it closes
-    monkeypatch.setattr(
-        cfg,
-        "COINCIDENCE_MILLING_CONFIG_PATH",
-        str(directory / "coincidence-milling-config.yaml"),
-    )
 
 
 @pytest.fixture(autouse=True, scope="session")
