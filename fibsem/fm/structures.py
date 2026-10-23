@@ -676,6 +676,7 @@ class FluorescenceImage:
     def get_ome_metadata(self) -> OMEMetadata:
         """Generate OME metadata for the FluorescenceImage."""
         from fibsem import image_format
+        from fibsem.fm.preview import channel_look
 
         ifd = 0
         planes: List[Plane] = []
@@ -762,7 +763,8 @@ class FluorescenceImage:
                 illumination_type=Channel_IlluminationType.EPIFLUORESCENCE,
                 contrast_method=Channel_ContrastMethod.FLUORESCENCE,
                 light_source_settings=light_source_settings,
-                color=Color(channel.color),
+                # as the apps draw it, so other viewers open the stack in its colours
+                color=Color(channel_look(self.metadata.channels, ch_idx, nc)[1]),
             )
             channels_md.append(ch_md)
 

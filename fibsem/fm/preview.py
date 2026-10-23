@@ -70,7 +70,7 @@ def _layers(
     *channels* names shown (all when None). *plane_of* gives a channel's
     plane, and is asked only for the channels shown; a hidden first layer,
     there for the shape, takes its plane from *shape_of* when given."""
-    looks = [_channel_look(metadata_channels, i, count) for i in range(count)]
+    looks = [channel_look(metadata_channels, i, count) for i in range(count)]
     names = [name for name, _ in looks]
     unknown = [c for c in channels or [] if c not in names]
     if unknown:
@@ -95,7 +95,7 @@ def _czyx(image: FluorescenceImage) -> np.ndarray:
     return data
 
 
-def _channel_look(channels: list, index: int, count: int = 1) -> Tuple[str, str]:
+def channel_look(channels: list, index: int, count: int = 1) -> Tuple[str, str]:
     """A channel's name and colour as the projection draws it. Metadata should
     describe every channel, but never drop a plane when it doesn't: an unnamed
     channel is better than a silently missing one. Gray is the settings'
@@ -151,7 +151,7 @@ def _facts(
     channels = list(metadata.channels)
     facts = []
     for index in range(count):
-        name, color = _channel_look(channels, index, count)
+        name, color = channel_look(channels, index, count)
         known = channels[index] if index < len(channels) else None
         emission = getattr(known, "emission_filter", None)
         facts.append(

@@ -183,3 +183,15 @@ def test_a_single_small_fm_image_has_no_copies(tmp_path):
 )
 def test_a_description_with_no_beam_metadata_reads_as_none(description):
     assert image_format.metadata_dict(description) is None
+
+
+def test_an_fm_stack_records_its_channels_in_the_colours_the_apps_draw(tmp_path):
+    image = FluorescenceImage.load(str(V0 / "fm_v0_stack.ome.tiff"))
+    assert [c.color for c in image.metadata.channels] == ["gray", "gray"]
+
+    path = image.save(str(tmp_path / "stack.ome.tiff"))
+
+    with tifffile.TiffFile(path) as tif:
+        channels = from_xml(tif.pages.first.description).images[0].pixels.channels
+    assert [c.color.as_rgb_tuple()[:3] for c in channels] == [(128, 128, 128), (0, 128, 0)]
+    assert [c.color for c in FluorescenceImage.load(path).metadata.channels] == ["gray", "gray"]
