@@ -29,14 +29,6 @@ from fibsem.applications.autolamella.config_edits import (
     item_fields_version,
     poi_patch,
 )
-from fibsem.applications.autolamella.image_positions import (
-    ImagePosition,
-    PositionComparison,
-    PositionMatch,
-    compare_positions,
-    latest_image_at,
-    read_image_position,
-)
 from fibsem.applications.autolamella.reference_images import (
     fm_stack_label,
     reference_image_label,
@@ -92,6 +84,14 @@ from fibsem.ui.widgets.spot_burn_coordinates_widget import (
     SpotBurnCoordinatesWidget,
 )
 from fibsem.utils import format_value
+from fibsem.workflows.image_positions import (
+    ImagePosition,
+    PositionComparison,
+    PositionMatch,
+    compare_positions,
+    latest_image_at,
+    read_image_position,
+)
 
 if TYPE_CHECKING:
     from fibsem.correlation.structures import CorrelationResult
