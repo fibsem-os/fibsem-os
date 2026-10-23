@@ -26,12 +26,12 @@ from fibsem.applications.autolamella.task_outputs import (
     fluorescence_images,
 )
 from fibsem.applications.autolamella.ui.lamella.history import LamellaTaskImageWidget
-from fibsem.config import AUTOLAMELLA_LOG_PATH
+from fibsem.config import DEFAULT_EXPERIMENTS_PATH
 from fibsem.ui.stylesheets import NAPARI_STYLE
 
 # The app's own experiment folder. It used to be worked out from this file's
 # location, which pointed one level too high and found nothing.
-LOG_DIR = str(AUTOLAMELLA_LOG_PATH)
+LOG_DIR = str(DEFAULT_EXPERIMENTS_PATH)
 
 
 def _experiments_with_history() -> List[str]:

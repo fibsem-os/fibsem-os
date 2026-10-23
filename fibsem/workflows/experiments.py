@@ -46,7 +46,7 @@ DEFAULT_MAX_DEPTH = 3
 
 def default_experiment_directory() -> str:
     """Where a new experiment goes: the preference when it names a folder that
-    exists, else the AutoLamella log folder (the Create dialog's default)."""
+    exists, else ``DEFAULT_EXPERIMENTS_PATH`` (the Create dialog's default)."""
     preferred = load_user_preferences().experiment.default_experiment_directory
     if preferred and os.path.isdir(preferred):
         return str(preferred)
@@ -54,7 +54,7 @@ def default_experiment_directory() -> str:
         logging.warning(
             f"Preference default_experiment_directory '{preferred}' does not exist; using default."
         )
-    return str(fibsem_cfg.AUTOLAMELLA_LOG_PATH)
+    return str(fibsem_cfg.DEFAULT_EXPERIMENTS_PATH)
 
 
 def discover_experiments(

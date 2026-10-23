@@ -19,8 +19,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import utils
+from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui.widgets.milling_task_config_widget2 import MillingTaskConfigWidget2
 
@@ -47,7 +47,7 @@ def main() -> None:
 
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
 
-    task_configs = _load_task_configs(AUTOLAMELLA_TASK_PROTOCOL_PATH)
+    task_configs = _load_task_configs(TASK_PROTOCOL_PATH)
     initial_config = next(iter(task_configs.values()), FibsemMillingTaskConfig())
 
     # ── window ──────────────────────────────────────────────────────────

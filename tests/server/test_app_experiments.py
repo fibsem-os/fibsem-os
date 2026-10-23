@@ -35,7 +35,7 @@ def places(tmp_path, monkeypatch):
     )
     experiments = tmp_path / "experiments"
     experiments.mkdir()
-    monkeypatch.setattr(fibsem_cfg, "AUTOLAMELLA_LOG_PATH", str(experiments))
+    monkeypatch.setattr(fibsem_cfg, "DEFAULT_EXPERIMENTS_PATH", str(experiments))
     protocols = tmp_path / "protocols"
     protocols.mkdir()
     shutil.copy(SHIPPED_PROTOCOL, protocols / "standard.yaml")

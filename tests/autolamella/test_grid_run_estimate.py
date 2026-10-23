@@ -15,6 +15,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import timing, utils
+from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -283,9 +284,7 @@ def test_the_estimate_is_not_shorter_than_the_arctis_bench_run():
 
 
 def test_the_shipped_grid_tasks_have_an_estimate():
-    grid_tasks = AutoLamellaTaskProtocol.load(
-        cfg.AUTOLAMELLA_TASK_PROTOCOL_PATH
-    ).grid_tasks
+    grid_tasks = AutoLamellaTaskProtocol.load(TASK_PROTOCOL_PATH).grid_tasks
     for name in grid_tasks.ordered_task_names:
         config = deepcopy(grid_tasks.task_config[name])
         assert config.estimated_duration > 60, name

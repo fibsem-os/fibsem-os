@@ -697,18 +697,9 @@ def get_last_experiment_file() -> Optional[str]:
     return None
 
 
-### AUTOLAMELLA APPLICATION PATHS
-AUTOLAMELLA_BASE_PATH: Path = os.path.join(
-    os.path.dirname(__file__), "applications", "autolamella"
+# Where a new experiment goes when the preference names no folder.
+DEFAULT_EXPERIMENTS_PATH: Path = os.path.join(
+    os.path.dirname(__file__), "applications", "autolamella", "log"
 )
-AUTOLAMELLA_LOG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH, "log")
-AUTOLAMELLA_CONFIG_PATH: Path = os.path.join(AUTOLAMELLA_BASE_PATH)
-AUTOLAMELLA_PROTOCOL_PATH: Path = os.path.join(
-    AUTOLAMELLA_BASE_PATH, "protocol", "legacy", "protocol-on-grid.yaml"
-)
-AUTOLAMELLA_TASK_PROTOCOL_PATH: Path = os.path.join(
-    AUTOLAMELLA_BASE_PATH, "protocol", "task-protocol.yaml"
-)
-AUTOLAMELLA_EXPERIMENT_NAME = "AutoLamella"
 
-os.makedirs(AUTOLAMELLA_LOG_PATH, exist_ok=True)
+os.makedirs(DEFAULT_EXPERIMENTS_PATH, exist_ok=True)
