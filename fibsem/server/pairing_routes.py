@@ -4,16 +4,19 @@ operator opens pairing, sees the paired computers and unpairs one
 (``/pairing``). See `fibsem.server.pairing` and `fibsem.server.connections`."""
 
 from ipaddress import ip_address
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.server.auth import AuthConfig, client_from_user_agent, require_operator
 from fibsem.server.connections import ASK_WAIT_S
-from fibsem.server.pairing import ROLES, Pairing, PairingRefused
+from fibsem.server.pairing import SWITCH_MODES, Pairing, PairingRefused
 
 __all__ = ["build_pairing_router"]
+
+# What a paired computer may be granted beyond its role.
+GRANTS = (SWITCH_MODES,)
 
 
 def _refused(status_code: int, error_type: str, message: str) -> HTTPException:
@@ -48,6 +51,13 @@ def _pairing(auth: AuthConfig) -> Pairing:
     return auth.pairing
 
 
+def _grants(body: Dict[str, Any]) -> Tuple[str, ...]:
+    grants = body.get("grants", [])
+    if not isinstance(grants, list) or not all(g in GRANTS for g in grants):
+        raise _refused(422, "bad_grants", f"Grants are from {list(GRANTS)}.")
+    return tuple(dict.fromkeys(grants))
+
+
 def build_pairing_router(auth: AuthConfig) -> APIRouter:
     router = APIRouter()
 
@@ -78,6 +88,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
             "id": computer.id,
             "name": computer.name,
             "role": computer.role,
+            "grants": list(computer.grants),
         }
 
     @router.post("/pair/request", dependencies=[Depends(_same_origin)])
@@ -139,12 +150,16 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
     @operator.post("")
     def open_pairing(body: Optional[Dict[str, Any]] = None):
         """Open pairing with a new code: for the operator's app, or with
-        ``{"role": "agent"}`` for an agent."""
+        ``{"role": "agent"}`` for an agent (``"hub"`` on a gateway, with
+        ``"grants"``)."""
         pairing = _pairing(auth)
-        role = (body or {}).get("role", "operator")
-        if role not in ROLES:
-            raise _refused(422, "bad_role", f"Pairing is for one of {list(ROLES)}.")
-        pairing.open(role)
+        body = body or {}
+        role = body.get("role", "operator")
+        if role not in pairing.roles:
+            raise _refused(
+                422, "bad_role", f"Pairing is for one of {list(pairing.roles)}."
+            )
+        pairing.open(role, _grants(body))
         return _listing(pairing)
 
     @operator.delete("")
@@ -161,6 +176,14 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
             raise _refused(404, "connect_off", "This server doesn't take asks.")
         auth.connections.set_always_allow(bool(body.get("on")))
         return _listing(_pairing(auth))
+
+    @operator.patch("/computers/{computer_id}")
+    def set_grants(computer_id: str, body: Dict[str, Any]):
+        """Replace one paired computer's grants: ``{"grants": [...]}``."""
+        pairing = _pairing(auth)
+        if pairing.tokens.set_grants(computer_id, _grants(body)) is None:
+            raise _refused(404, "not_found", "No paired computer has that id.")
+        return _listing(pairing)
 
     @operator.delete("/computers/{computer_id}")
     def unpair(computer_id: str):

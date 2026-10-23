@@ -158,6 +158,8 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
     from fibsem.structures import GridSlot, SampleHolder, SlotCalibration
 
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
+    # where the grid lands is pinned here, so the stage goes exactly where it is sent
+    microscope.stage.sim_error = None
     microscope.devices["sample_loader"].sim_grid_position = tuple(grid_position)
     microscope.system.sim = dict(microscope.system.sim, coincidence_projection=True)
     stage_settings = microscope.system.stage

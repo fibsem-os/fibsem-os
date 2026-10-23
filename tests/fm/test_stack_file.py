@@ -40,15 +40,29 @@ def _image(shape) -> FluorescenceImage:
     return FluorescenceImage(data=data, metadata=metadata)
 
 
-@pytest.fixture(params=[None, "zlib"], ids=["contiguous", "compressed"])
+def _save_before_0_60(image: FluorescenceImage, path: str) -> None:
+    """As `FluorescenceImage.save` wrote a stack before 0.60: contiguous, no small copies."""
+    import tifffile
+
+    nc, nz, ny, nx = image.data.shape
+    with tifffile.TiffWriter(path) as tif:
+        tif.write(
+            image.data.reshape(1, nc, nz, ny, nx),
+            contiguous=True,
+            photometric="minisblack",
+        )
+        tif.overwrite_description(image.get_ome_metadata().to_xml())
+
+
+@pytest.fixture(params=["0.60", "before 0.60"])
 def saved(request, tmp_path):
     def _save(shape):
         image = _image(shape)
         path = str(tmp_path / f"stack-{'x'.join(map(str, shape))}.ome.tiff")
-        if request.param:
-            image.save(path, compression=request.param)
-        else:
+        if request.param == "0.60":
             image.save(path)
+        else:
+            _save_before_0_60(image, path)
         return path, image
 
     return _save
@@ -77,7 +91,7 @@ def test_the_preview_is_the_render_of_the_whole_stack(saved):
         (None, ["Channel-01"]),
         (4, ["Channel-00", "Channel-02"]),
     ]:
-        rgb, _, _ = load_stack_preview(path, z=z, channels=channels)
+        rgb, _, _, _ = load_stack_preview(path, z=z, channels=channels)
         np.testing.assert_array_equal(rgb, render_stack(whole, z=z, channels=channels))
 
 
@@ -85,9 +99,9 @@ def _counting_reads(monkeypatch):
     reads = []
     real = StackFile.plane
 
-    def plane(self, channel, z):
+    def plane(self, channel, z, level=0):
         reads.append((channel, z))
-        return real(self, channel, z)
+        return real(self, channel, z, level)
 
     monkeypatch.setattr(StackFile, "plane", plane)
     return reads
@@ -116,7 +130,7 @@ def test_a_changed_file_is_summarised_again(saved, monkeypatch):
     os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
     reads.clear()
 
-    rgb, _, _ = load_stack_preview(path)
+    rgb, _, _, _ = load_stack_preview(path)
 
     assert len(reads) == 6
     assert rgb.max() == 0
@@ -136,3 +150,45 @@ def test_only_the_last_few_stacks_are_kept(saved, monkeypatch):
     for planes in (2, 3, 4):
         load_stack_preview(saved((1, planes, 8, 8))[0])
     assert len(preview._SUMMARIES) == 2
+
+
+def test_a_saved_stack_reads_each_plane_at_its_small_sizes(tmp_path):
+    from fibsem.imaging.reduce import reduce_by
+
+    image = _image((2, 3, 64, 96))
+    path = image.save(str(tmp_path / "stack.ome.tiff"))
+
+    with StackFile(path) as stack:
+        assert stack.levels == 3
+        assert [stack.level_for(n) for n in (None, 96, 48, 24, 12, 5)] == [
+            0,
+            0,
+            0,
+            1,
+            2,
+            2,
+        ]
+        np.testing.assert_array_equal(
+            stack.plane(1, 2, 1), reduce_by(image.data[1, 2], 4)
+        )
+        assert stack.plane(1, 2, 2).shape == (8, 12)
+
+
+def test_a_stack_saved_before_0_60_has_one_size(tmp_path):
+    path = str(tmp_path / "old.ome.tiff")
+    _save_before_0_60(_image((1, 3, 16, 20)), path)
+
+    with StackFile(path) as stack:
+        assert stack.levels == 1
+        assert stack.level_for(4) == 0
+
+
+def test_a_preview_of_a_saved_stack_comes_from_its_small_copy(tmp_path):
+    image = _image((2, 3, 64, 96))
+    path = image.save(str(tmp_path / "stack.ome.tiff"))
+
+    rgb, pixel_size, _, full = load_stack_preview(path, max_px=20)
+
+    assert rgb.shape[:2] == (16, 24)
+    assert full == (64, 96)
+    assert pixel_size == image.metadata.pixel_size_x

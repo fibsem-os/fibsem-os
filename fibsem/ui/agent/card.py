@@ -1,71 +1,36 @@
-"""The agent card: what the agent asks of the operator, and its controls (FIB-1404).
+"""The agent card: the agent's controls in the window (FIB-1404).
 
-The chip in the status bar opens it. It holds, top to bottom:
+The chip in the status bar opens it. It holds what waits for the operator, in
+one line with the way to the web Agent page, where it is answered; what the
+agent is doing on the microscope now; the level, a menu of the four with what
+each allows (FIB-1418), and Stop agent; links to the Agent page and the event
+log; and who the agent is, when it was last heard and its session.
 
-* what the agent is doing on the microscope now, at every level (FIB-1414);
-* what is waiting for the operator: the agent's request, its actions one plain
-  line each as the server wrote them (FIB-1403), "Show details" for every value,
-  the agent's reason, under it the image the reason's values were measured on
-  with them drawn on it (FIB-1411), and Reject… and Approve; while an approved
-  request runs, each action's progress. Or the agent's suggestion on the
-  pending proposal, with Decline… and Approve;
-* what the agent did lately, Recent: open at first at Drive, where it acts
-  without asking, folded to its last line below it (FIB-1414); the event log
-  at its right. Open, it is one timeline, oldest first like a chat: the
-  conversation (the operator's messages, the agent's replies and notes, whole,
-  in Markdown) and the agent's actions (one line, how each ended in a word),
-  either or both shown;
-* a box to message the agent, once one has been heard from, which it hears
-  from its watch and answers with a note (FIB-1423); it grows with the text;
-* the controls: the level, drawn as the chip draws it, a menu of the four with
-  what each allows (FIB-1418); Stop agent, drawn the same way; who the agent is
-  and when it was last heard from.
-
-It is wide: the actions on the left, the reason and the decision on the right.
-Narrower than `STACK_BELOW` px it stacks them, so the same card floats as a
-window the operator sizes (the button at its top right floats it, and puts it
-back on the chip; its pin keeps it on top of every window).
-
-Like the chip, it only shows what it is told and says what was clicked. What a
-click does is the window's.
+The operator answers, messages and reads the agent on the web Agent page, not
+here. Like the chip, the card only shows what it is told and says what was
+clicked. What a click does is the window's.
 """
 
 from __future__ import annotations
 
-import os
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional
 
-from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import (
-    QFontMetrics,
-    QImage,
-    QKeyEvent,
-    QMouseEvent,
-    QPixmap,
-)
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QMouseEvent
 from PyQt5.QtWidgets import (
     QAction,
     QActionGroup,
-    QBoxLayout,
-    QDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
-    QLayout,
-    QLineEdit,
     QMenu,
-    QPlainTextEdit,
     QPushButton,
-    QScrollArea,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
     QWidgetAction,
 )
 
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.ai.agent.session import MESSAGE_LIMIT
 from fibsem.ui.agent.style import (
     LEVEL_MENU,
     LEVEL_NAMES,
@@ -75,18 +40,11 @@ from fibsem.ui.agent.style import (
     STOP_CHIP,
 )
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import (
-    PRIMARY_BUTTON_STYLESHEET,
-    SECONDARY_BUTTON_STYLESHEET,
-)
 from fibsem.ui.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
-    OK_COLOR,
-    PANEL_COLOR,
     PURPLE_COLOR,
     RED_COLOR,
-    ROW_ALT_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
@@ -95,73 +53,15 @@ from fibsem.ui.tokens import (
     WARN_COLOR,
 )
 
-# The agent's reason, before "more".
-WHY_LINES = 3
-# When wide, the steps and the reason sit left and the image the agent's values
-# were measured on, drawn on it (FIB-1411), right: at least `PICTURE_MIN` wide,
-# and any width past the steps' `STEPS_MIN`, up to the image's own width. With
-# details open, or narrow, they stack and the image takes the card's width.
-PICTURE_MIN = 420
-STEPS_MIN = 300
-# The image, clicked: at most this wide.
-ENLARGED_WIDTH = 1024
-
-# How a Recent row ended (agent_recent's tones), as a colour.
-_TONES = {
-    "waiting": WAITING_COLOR,
-    "running": ACCENT_COLOR,
-    "ok": OK_COLOR,
-    "error": RED_COLOR,
-    "muted": TEXT_MUTED_COLOR,
-}
-
-# Narrower than this, the reason and the decision go under the actions.
-STACK_BELOW = 600
-# The narrowest the stacked card goes.
-NARROWEST = 360
-# The message box grows to this many lines, then scrolls.
-MESSAGE_LINES = 6
-# A message longer than this many lines, or characters, folds, with "more".
-FOLD_LINES = 12
-FOLD_CHARS = 600
-# Recent's height on the chip; floating, it takes the window's spare height.
-RECENT_HEIGHT = 360
-# Recent's two halves, as its toggles name them.
-CONVERSATION, ACTIONS = "Conversation", "Actions"
-
 _CARD = f"""
     #agentCard {{ background: {SURFACE_COLOR}; }}
     #agentCard QLabel {{ background: transparent; }}
-    #agentActions {{ border: 1px solid {BORDER_COLOR}; border-radius: 3px; }}
-    #agentDetails, #agentDetailsTable {{
-        background: {PANEL_COLOR}; border-radius: 3px;
-    }}
     #agentRule {{ background: {BORDER_COLOR}; }}
-    #agentCard QLineEdit, #agentCard QPlainTextEdit {{
-        background: {PANEL_COLOR}; border: 1px solid {BORDER_COLOR}; border-radius: 3px;
-        padding: 4px 6px;
-        color: {TEXT_STRONG_COLOR};
-    }}
     #agentLink {{
         background: transparent; color: {ACCENT_COLOR}; border: none;
         padding: 0px; text-align: left;
     }}
     #agentLink:hover {{ color: #7bc0ff; }}
-    #agentRecent {{ color: {TEXT_COLOR}; padding: 1px 0px; }}
-    #agentRecent:hover {{ color: {TEXT_STRONG_COLOR}; }}
-    #agentRecentRows {{ background: {PANEL_COLOR}; border-radius: 3px; }}
-    #agentRecentScroll {{ background: transparent; border: none; }}
-    #agentYou {{ background: {ROW_ALT_COLOR}; }}
-    #agentMessage {{ background: transparent; }}
-    #agentRowRule {{ background: {BORDER_COLOR}; }}
-    #agentToggle {{
-        background: transparent; color: {TEXT_MUTED_COLOR}; border: none;
-        padding: 0px 0px 1px 0px;
-    }}
-    #agentToggle:checked {{
-        color: {TEXT_STRONG_COLOR}; font-weight: bold;
-        border-bottom: 1px solid {TEXT_STRONG_COLOR};
-    }}
 """
 
 
@@ -184,7 +84,7 @@ def _label(
 
 class _ElidedLabel(QLabel):
     """One line that ends "…" where the card cuts it, never mid-word with no
-    sign it goes on (sim session 2026-10-16: "Stage · Stable move in the")."""
+    sign it goes on."""
 
     def __init__(self, color: str) -> None:
         super().__init__()
@@ -215,117 +115,6 @@ class _ElidedLabel(QLabel):
         super().setText(shown)
 
 
-class _RecentLine(QLabel):
-    """One Recent action: wraps rather than being cut by the card, and opens
-    the event log when clicked."""
-
-    clicked = pyqtSignal()
-
-    def __init__(self, text: str) -> None:
-        super().__init__(text)
-        self.setObjectName("agentRecent")
-        self.setWordWrap(True)
-        self.setAlignment(Qt.AlignLeft | Qt.AlignTop)  # type: ignore
-        self.setCursor(Qt.PointingHandCursor)  # type: ignore
-
-    def resizeEvent(self, event) -> None:
-        # The card is sized from its hints, which ignore wrapping: hold the
-        # height the wrapped text needs at this width, and no more, or a row
-        # keeps a blank line from a narrower pass (sim session 2026-10-16).
-        super().resizeEvent(event)
-        height = self.heightForWidth(self.width())
-        if height > 0 and height != self.height():
-            self.setFixedHeight(height)
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.LeftButton:  # type: ignore
-            self.click()
-        super().mouseReleaseEvent(event)
-
-    def click(self) -> None:
-        self.clicked.emit()
-
-
-class _MessageBox(QPlainTextEdit):
-    """The message to the agent: grows with its text up to `MESSAGE_LINES`
-    lines, then scrolls. Enter sends; Shift+Enter starts a new line."""
-
-    send = pyqtSignal()
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.setTabChangesFocus(True)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-        self.document().setDocumentMargin(2)
-        self.textChanged.connect(self._changed)
-        self._fit()
-
-    def text(self) -> str:
-        return self.toPlainText()
-
-    def setText(self, text: str) -> None:  # noqa: N802 - QLineEdit's name
-        self.setPlainText(text)
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - Qt's name
-        enter = event.key() in (Qt.Key_Return, Qt.Key_Enter)  # type: ignore
-        if enter and not event.modifiers() & Qt.ShiftModifier:  # type: ignore
-            self.send.emit()
-            return
-        super().keyPressEvent(event)
-
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt's name
-        super().resizeEvent(event)
-        self._fit()
-
-    def _changed(self) -> None:
-        text = self.toPlainText()
-        if len(text) > MESSAGE_LIMIT:
-            self.blockSignals(True)
-            self.setPlainText(text[:MESSAGE_LIMIT])
-            self.moveCursor(self.textCursor().End)
-            self.blockSignals(False)
-        self._fit()
-
-    def _fit(self) -> None:
-        # The document counts wrapped lines once laid out at this width.
-        lines = max(1, min(MESSAGE_LINES, int(self.document().size().height())))
-        self.setVerticalScrollBarPolicy(
-            Qt.ScrollBarAsNeeded if lines == MESSAGE_LINES else Qt.ScrollBarAlwaysOff  # type: ignore
-        )
-        margins = self.contentsMargins()
-        height = (
-            lines * self.fontMetrics().lineSpacing()
-            + 2 * self.document().documentMargin()
-            + margins.top()
-            + margins.bottom()
-            + 10  # the stylesheet's padding
-        )
-        self.setFixedHeight(int(height))
-
-
-def _folded(text: str) -> Optional[str]:
-    """A long message cut at a line or a word, "…" at its end; None when it
-    is short enough to show whole."""
-    lines = text.splitlines()
-    if len(lines) <= FOLD_LINES and len(text) <= FOLD_CHARS:
-        return None
-    cut = "\n".join(lines[:FOLD_LINES])
-    if len(cut) > FOLD_CHARS:
-        cut = cut[:FOLD_CHARS].rsplit(" ", 1)[0]
-    return cut.rstrip() + " …"
-
-
-def _rule() -> QFrame:
-    rule = QFrame()
-    rule.setObjectName("agentRowRule")
-    rule.setFixedHeight(1)
-    return rule
-
-
-def _section(text: str) -> QLabel:
-    return _label(text.upper(), TEXT_MUTED_COLOR, small=True, bold=True)
-
-
 def _link(text: str) -> QPushButton:
     button = QPushButton(text)
     button.setObjectName("agentLink")
@@ -334,25 +123,6 @@ def _link(text: str) -> QPushButton:
     font.setPointSizeF(font.pointSizeF() - 1)
     button.setFont(font)
     return button
-
-
-def _button(text: str, primary: bool = False) -> QPushButton:
-    button = QPushButton(text)
-    button.setStyleSheet(
-        PRIMARY_BUTTON_STYLESHEET if primary else SECONDARY_BUTTON_STYLESHEET
-    )
-    return button
-
-
-def _clear(layout) -> None:
-    while layout.count():
-        item = layout.takeAt(0)
-        widget = item.widget()
-        if widget is not None:
-            widget.hide()
-            widget.deleteLater()
-        elif item.layout() is not None:
-            _clear(item.layout())
 
 
 def last_heard_text(seconds: Optional[float], client: Optional[str] = None) -> str:
@@ -364,6 +134,29 @@ def last_heard_text(seconds: Optional[float], client: Optional[str] = None) -> s
     if seconds < 60:
         return f"{who} · last heard {int(seconds)} s ago"
     return f"{who} · last heard {int(seconds // 60)} min ago"
+
+
+def waiting_text(
+    request: Optional[Dict[str, Any]],
+    suggestion: Optional[Dict[str, Any]],
+    asking: Optional[Dict[str, Any]],
+) -> Optional[tuple]:
+    """``(word, what)`` for what waits for the operator, in the order the chip
+    shows them, or None. A request being applied waits for no one."""
+    if asking is not None:
+        who = str(asking.get("client") or "An agent").split("/", 1)[0]
+        return "Connect", f"{who} asks to connect"
+    if request is not None and request.get("status") == "pending":
+        actions = request.get("actions") or []
+        first = (
+            (actions[0].get("change") or actions[0].get("tool", "")) if actions else ""
+        )
+        first = str(first).split("\n", 1)[0]
+        more = f", and {len(actions) - 1} more" if len(actions) > 1 else ""
+        return "Asks", f"{first}{more}"
+    if suggestion is not None:
+        return "Suggests", str(suggestion.get("decision") or suggestion.get("proposal"))
+    return None
 
 
 class _LevelRow(QWidget):
@@ -464,121 +257,13 @@ class LevelMenu(QPushButton):
             self.level_chosen.emit(level)
 
 
-class _Details(QScrollArea):
-    """An action's every value: the table the server wrote.
-
-    One line per row, never wrapped: a wrapped cell's height depends on its
-    width, which the card's layout does not ask, so rows were squeezed into
-    each other in the floating window (FIB-1413). A tall or wide table
-    scrolls inside the card instead.
-    """
-
-    # Rows shown before the table scrolls.
-    ROWS_SHOWN = 8
-
-    def __init__(self, details: Dict[str, Any]) -> None:
-        super().__init__()
-        self.setObjectName("agentDetails")
-        self.setFrameShape(QFrame.NoFrame)
-        self.setWidgetResizable(True)
-        table = QWidget()
-        table.setObjectName("agentDetailsTable")
-        grid = QGridLayout(table)
-        grid.setContentsMargins(8, 6, 8, 6)
-        grid.setHorizontalSpacing(16)
-        grid.setVerticalSpacing(3)
-        columns = list(details.get("columns") or [])
-        for column, name in enumerate(columns):
-            grid.addWidget(_label(name, TEXT_MUTED_COLOR, small=True), 0, column)
-        rows = list(details.get("rows") or [])
-        for row, values in enumerate(rows, start=1):
-            for column, value in enumerate(values):
-                cell = _label(str(value), TEXT_COLOR, small=True)
-                cell.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
-                grid.addWidget(cell, row, column)
-        if columns:
-            grid.setColumnStretch(len(columns) - 1, 1)
-        self.setWidget(table)
-        # Every row at full height, up to ROWS_SHOWN; then it scrolls.
-        full = table.sizeHint().height()
-        shown = min(len(rows), self.ROWS_SHOWN) + 1  # and the header
-        per_row = full / max(len(rows) + 1, 1)
-        height = full if len(rows) <= self.ROWS_SHOWN else round(per_row * shown)
-        self.setFixedHeight(height + self.horizontalScrollBar().sizeHint().height())
-
-
-def drawn_picture(image: QImage, width: int) -> QPixmap:
-    """*image* *width* wide."""
-    pixmap = QPixmap.fromImage(image)
-    if pixmap.width() != width:
-        pixmap = pixmap.scaledToWidth(width, Qt.SmoothTransformation)  # type: ignore
-    return pixmap
-
-
-class _Picture(QLabel):
-    """An image scaled to its column; a click shows it
-    at full size."""
-
-    def __init__(self, image: QImage, width: int, caption: str) -> None:
-        super().__init__()
-        self.setObjectName("agentImage")
-        self._image = image
-        self._caption = caption
-        self.set_width(width)
-        self.setCursor(Qt.PointingHandCursor)  # type: ignore
-        # What it is ("FIB · 07:41"): here, and the enlarged window's title.
-        self.setToolTip(
-            f"{caption} · click to enlarge" if caption else "Click to enlarge"
-        )
-        self.window_: Optional[QDialog] = None
-
-    def set_width(self, width: int) -> None:
-        """Shown *width* wide, at most the image's own width."""
-        width = max(1, min(int(width), self._image.width()))
-        if self.pixmap() is not None and self.pixmap().width() == width:
-            return
-        pixmap = self._drawn(width)
-        self.setPixmap(pixmap)
-        # All of it: squeezed, the label would show its middle.
-        self.setFixedHeight(pixmap.height())
-
-    def _drawn(self, width: int) -> QPixmap:
-        return drawn_picture(self._image, width)
-
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if event.button() == Qt.LeftButton:  # type: ignore
-            self.enlarge()
-
-    def enlarge(self) -> None:
-        dialog = QDialog(self.window())
-        dialog.setWindowTitle(self._caption or "Agent")
-        dialog.setAttribute(Qt.WA_DeleteOnClose)  # type: ignore
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(0, 0, 0, 0)
-        full = QLabel()
-        full.setPixmap(self._drawn(min(self._image.width(), ENLARGED_WIDTH)))
-        layout.addWidget(full)
-        dialog.show()
-        self.window_ = dialog
-
-
 class AgentCard(QFrame):
-    """What the agent asks, and its controls."""
+    """What waits, what the agent is doing, and its controls."""
 
     level_chosen = pyqtSignal(object)  # AgentLevel
     stop_clicked = pyqtSignal()
     event_log_clicked = pyqtSignal()
     chat_clicked = pyqtSignal()
-    connect_clicked = pyqtSignal()
-    approve_clicked = pyqtSignal(str)  # request id
-    reject_clicked = pyqtSignal(str, str)  # request id, the operator's reason
-    allow_clicked = pyqtSignal(str)  # the ask to connect's id
-    deny_clicked = pyqtSignal(str, str)  # its id, the operator's reason
-    suggestion_approved = pyqtSignal()  # the suggestion shown
-    suggestion_declined = pyqtSignal(str)  # the suggestion shown, the operator's why
-    float_clicked = pyqtSignal()  # float the card, or put it back on the chip
-    keep_on_top_toggled = pyqtSignal(bool)  # the floating card over every window
-    message_sent = pyqtSignal(str)  # the operator's message to the agent
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -586,74 +271,34 @@ class AgentCard(QFrame):
         self.setAttribute(Qt.WA_StyledBackground)  # type: ignore
         self.setStyleSheet(_CARD)
         self._request: Optional[Dict[str, Any]] = None
-        self._suggestion: Optional[Dict[str, str]] = None
-        # An agent on this PC asking to connect: shown before anything else.
+        self._suggestion: Optional[Dict[str, Any]] = None
         self._asking: Optional[Dict[str, Any]] = None
-        self.allow_button: Optional[QPushButton] = None
-        self.deny_button: Optional[QPushButton] = None
-        self.approve_suggestion_button: Optional[QPushButton] = None
-        self.decline_button: Optional[QPushButton] = None
         self._now: Optional[str] = None
-        # The images under Why, with their captions: the request's, the
-        # suggestion's.
-        self._images: Dict[str, Tuple[QImage, str, Tuple]] = {}
-        # Why there is no image, in its place: "No FIB image of 05 yet".
-        self._notes: Dict[str, str] = {}
-        self.image_label: Optional[_Picture] = None
-        self._picture_holder: Optional[QWidget] = None
-        self._details_open = False
-        self._rejecting = False
-        self._why_open = False
-        self._wide = True
-        self._level = AgentLevel.WATCH
-        self._recent: List[Any] = []
-        # Recent's halves shown, and the long messages opened past "more".
-        self._halves = {CONVERSATION: True, ACTIONS: True}
-        self._unfolded: set = set()
-        self._floating = False
-        # The operator's choice to show Recent, per level, for the session.
-        self._recent_choice: Dict[AgentLevel, bool] = {}
-        # The agent's evidence images by id, as drawn (`previews`).
-        self._evidence_images: Dict[Any, Optional[QImage]] = {}
-        self.evidence_label: Optional[QLabel] = None
-        self.evidence_window: Optional[QDialog] = None
-        self.recent_evidence: List[QPushButton] = []
-        # The pictures in the conversation, following the card's width.
-        self.recent_pictures: List[_Picture] = []
 
         layout = QVBoxLayout(self)
-        # The wide layout's minimum must not stop the card narrowing to stack:
-        # minimumSizeHint says how small it may go.
-        layout.setSizeConstraint(QLayout.SetNoConstraint)
         layout.setContentsMargins(14, 10, 14, 12)
         layout.setSpacing(8)
 
-        head = QHBoxLayout()
-        head.setSpacing(8)
-        self._dot = _label("●", PURPLE_COLOR)
-        self._title = _label("Agent", TEXT_STRONG_COLOR, bold=True)
-        head.addWidget(self._dot)
-        head.addWidget(self._title, 1)
-        self.pin_button = QPushButton()
-        self.pin_button.setObjectName("agentLink")
-        self.pin_button.setCheckable(True)
-        self.pin_button.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self.pin_button.toggled.connect(self.keep_on_top_toggled)
-        head.addWidget(self.pin_button)
-        self.float_button = QPushButton()
-        self.float_button.setObjectName("agentLink")
-        self.float_button.setCursor(Qt.PointingHandCursor)  # type: ignore
-        self.float_button.clicked.connect(self.float_clicked)
-        head.addWidget(self.float_button)
-        self.head = head
-        layout.addLayout(head)
-        # The agent's session as it reported it: model, goal, spend.
-        self.session_label = _ElidedLabel(TEXT_MUTED_COLOR)
-        self.session_label.hide()
-        layout.addWidget(self.session_label)
+        # What waits for the operator, answered on the Agent page.
+        self.waiting_row = QWidget()
+        waiting = QVBoxLayout(self.waiting_row)
+        waiting.setContentsMargins(0, 0, 0, 0)
+        waiting.setSpacing(2)
+        line = QHBoxLayout()
+        line.setSpacing(8)
+        self.waiting_word = _label("", WAITING_COLOR, bold=True)
+        self.waiting_word.setAlignment(Qt.AlignTop)  # type: ignore
+        line.addWidget(self.waiting_word)
+        self.waiting_label = _label("", TEXT_STRONG_COLOR, wrap=True)
+        line.addWidget(self.waiting_label, 1)
+        waiting.addLayout(line)
+        self.answer_link = _link("Open in Agent page")
+        self.answer_link.setToolTip("Answer the agent in your browser.")
+        self.answer_link.clicked.connect(self.chat_clicked)
+        waiting.addWidget(self.answer_link, 0, Qt.AlignLeft)  # type: ignore
+        layout.addWidget(self.waiting_row)
 
-        # What the agent is doing on the microscope, at every level (FIB-1414):
-        # under the title, beside whatever waits.
+        # What the agent is doing on the microscope, at every level (FIB-1414).
         self.now_row = QWidget()
         now = QHBoxLayout(self.now_row)
         now.setContentsMargins(0, 0, 0, 0)
@@ -663,102 +308,12 @@ class AgentCard(QFrame):
         now.addWidget(self.now_label, 1)
         layout.addWidget(self.now_row)
 
-        # What is waiting: rebuilt whole on each change, a handful of rows.
-        self._body = QBoxLayout(QBoxLayout.LeftToRight)
-        self._body.setSpacing(16)
-        layout.addLayout(self._body)
+        # Under what waits and Now; with neither, the controls lead.
+        self.rule = QFrame()
+        self.rule.setObjectName("agentRule")
+        self.rule.setFixedHeight(1)
+        layout.addWidget(self.rule)
 
-        # What the agent did lately (FIB-1414), folded to its last line or open,
-        # per level; the event log, the whole record, at its right.
-        recent = QHBoxLayout()
-        recent.setSpacing(8)
-        self.recent_link = _link("")
-        self.recent_link.setToolTip("The agent's last few actions and how each ended")
-        self.recent_link.clicked.connect(self._toggle_recent)
-        recent.addWidget(self.recent_link)
-        self.recent_last = _ElidedLabel(TEXT_MUTED_COLOR)
-        self.recent_last.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        recent.addWidget(self.recent_last, 1)
-        # Open: which halves show, either or both (the last one on stays on).
-        self.recent_filter = QWidget()
-        toggles = QHBoxLayout(self.recent_filter)
-        toggles.setContentsMargins(0, 0, 0, 0)
-        toggles.setSpacing(6)
-        self.recent_toggles: Dict[str, QPushButton] = {}
-        for word in (CONVERSATION, ACTIONS):
-            if self.recent_toggles:
-                toggles.addWidget(_label("·", TEXT_MUTED_COLOR, small=True))
-            toggle = _link(word)
-            toggle.setObjectName("agentToggle")
-            # As wide as the word in bold, which it is while on.
-            bold = toggle.font()
-            bold.setBold(True)
-            toggle.setMinimumWidth(QFontMetrics(bold).horizontalAdvance(word) + 2)
-            toggle.setCheckable(True)
-            toggle.setChecked(True)
-            toggle.toggled.connect(lambda on, w=word: self._toggle_half(w, on))
-            toggles.addWidget(toggle)
-            self.recent_toggles[word] = toggle
-        toggles.addStretch(1)
-        recent.addWidget(self.recent_filter, 1)
-        self.event_log_link = _link("Event log")
-        self.event_log_link.setToolTip(
-            "What the agent, the operator and the run did, in your browser."
-        )
-        self.event_log_link.clicked.connect(self.event_log_clicked)
-        self.chat_link = _link("Chat")
-        self.chat_link.setToolTip("Talk to the agent in your browser.")
-        self.chat_link.clicked.connect(self.chat_clicked)
-        recent.addWidget(self.chat_link)
-        recent.addWidget(self.event_log_link)
-        layout.addLayout(recent)
-        # The timeline: rebuilt whole on each change, at most `recent.SIZE` rows.
-        self.recent_scroll = QScrollArea()
-        self.recent_scroll.setObjectName("agentRecentScroll")
-        self.recent_scroll.setWidgetResizable(True)
-        self.recent_scroll.setFrameShape(QFrame.NoFrame)
-        self.recent_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
-        # Kept at the newest row unless the operator scrolled up to read, and
-        # then where they were, across rebuilds.
-        self._recent_at_end = True
-        self._recent_kept = 0
-        bar = self.recent_scroll.verticalScrollBar()
-        bar.rangeChanged.connect(self._recent_range_changed)
-        bar.sliderMoved.connect(self._recent_scrolled)
-        # A wheel, arrow or page step: read where it landed once it has moved.
-        bar.actionTriggered.connect(
-            lambda _: QTimer.singleShot(0, lambda: self._recent_scrolled(bar.value()))
-        )
-        layout.addWidget(self.recent_scroll)
-
-        # A message to the agent (FIB-1423): it hears it from its watch and
-        # answers with a note. It is not an approval: the level still decides.
-        # Shown once an agent has been heard from: until then no one listens.
-        self.message_row = QWidget()
-        message = QHBoxLayout(self.message_row)
-        message.setContentsMargins(0, 0, 0, 0)
-        message.setSpacing(8)
-        self.message_edit = _MessageBox()
-        self.message_edit.setPlaceholderText(
-            "Message the agent (Shift+Enter for a new line)"
-        )
-        self.message_edit.setToolTip(
-            "The agent reads it and answers with a note. It is not an approval: "
-            "what the agent may do still depends on its level."
-        )
-        self.message_edit.send.connect(self._send_message)
-        message.addWidget(self.message_edit, 1)
-        self.send_button = _button("Send")
-        self.send_button.clicked.connect(self._send_message)
-        message.addWidget(self.send_button, 0, Qt.AlignBottom)  # type: ignore
-        layout.addWidget(self.message_row)
-
-        rule = QFrame()
-        rule.setObjectName("agentRule")
-        rule.setFixedHeight(1)
-        layout.addWidget(rule)
-
-        # The controls, always.
         controls = QHBoxLayout()
         controls.setSpacing(10)
         self.level_menu = LevelMenu()
@@ -774,28 +329,32 @@ class AgentCard(QFrame):
             "keeps running; its own Stop is beside the chip."
         )
         self.stop_button.clicked.connect(self.stop_clicked)
+        self.stop_button.ensurePolished()
+        self.stop_button.setMinimumWidth(self.stop_button.sizeHint().width())
         controls.addWidget(self.stop_button)
         controls.addStretch(1)
-        self._controls = controls
+        self.chat_link = _link("Agent page")
+        self.chat_link.setToolTip(
+            "Answer, message and follow the agent in your browser."
+        )
+        self.chat_link.clicked.connect(self.chat_clicked)
+        controls.addWidget(self.chat_link)
+        self.event_log_link = _link("Event log")
+        self.event_log_link.setToolTip(
+            "What the agent, the operator and the run did, in your browser."
+        )
+        self.event_log_link.clicked.connect(self.event_log_clicked)
+        controls.addWidget(self.event_log_link)
         layout.addLayout(controls)
 
-        # Who the agent is, and the way to the record: under the controls when
-        # narrow, at their end when wide.
+        # Who the agent is, and its session as it reported it.
         self.heard_label = _label(last_heard_text(None), TEXT_MUTED_COLOR, small=True)
-        self.connect_link = _link("Connect an agent…")
-        self.connect_link.clicked.connect(self.connect_clicked)
-        self._about = QHBoxLayout()
-        self._about.setSpacing(10)
-        layout.addLayout(self._about)
-        # A tall floating window keeps the rows packed at the top (FIB-1427),
-        # unless Recent is open: then the timeline takes the height.
-        layout.addStretch(1)
+        layout.addWidget(self.heard_label)
+        self.session_label = _ElidedLabel(TEXT_MUTED_COLOR)
+        self.session_label.hide()
+        layout.addWidget(self.session_label)
 
-        self.set_floating(False)
         self.set_level(AgentLevel.WATCH)
-        self.set_last_heard(None)
-        self.set_keep_on_top(False)
-        self._place_about()
         self._render()
 
     # --- told by the window ---------------------------------------------------
@@ -806,144 +365,36 @@ class AgentCard(QFrame):
 
     def set_level(self, level: AgentLevel) -> None:
         level = AgentLevel(level)
-        self._level = level
         self.level_menu.set_level(level)
         self.stop_button.setVisible(level in (AgentLevel.ASSIST, AgentLevel.DRIVE))
-        self._render_recent()
-
-    @property
-    def recent_shown(self) -> bool:
-        """Whether Recent shows: the operator's choice at this level, else on at
-        Drive, where the agent acts without asking, and off below it."""
-        return self._recent_choice.get(self._level, self._level is AgentLevel.DRIVE)
-
-    def set_recent(self, rows: List[Any]) -> None:
-        """What the agent did lately, oldest first (`recent.RecentRow`)."""
-        rows = list(rows)
-        if rows == self._recent:
-            return
-        self._recent = rows
-        self._render_recent()
-
-    def set_keep_on_top(self, on: bool) -> None:
-        """Whether the floating card stays over every window, not only the app's."""
-        self.pin_button.blockSignals(True)
-        self.pin_button.setChecked(on)
-        self.pin_button.blockSignals(False)
-        self.pin_button.setIcon(
-            fibsem_icon(
-                "mdi:pin" if on else "mdi:pin-outline",
-                color=PURPLE_COLOR if on else TEXT_MUTED_COLOR,
-            )
-        )
-        self.pin_button.setToolTip(
-            "Kept on top of every window: click to keep it over the app only"
-            if on
-            else "Keep on top of every window, not only the app"
-        )
 
     def set_request(self, request: Optional[Dict[str, Any]]) -> None:
         """The agent's request waiting or being applied (the server's
         ``to_dict``), or None for none."""
-        request = dict(request) if request is not None else None
-        if (request or {}).get("request_id") != (self._request or {}).get("request_id"):
-            self._rejecting = False
-            self._details_open = False
-            self._why_open = False
-        if request == self._request:
-            return
-        self._request = request
+        self._request = dict(request) if request is not None else None
         self._render()
-
-    @property
-    def asking(self) -> Optional[Dict[str, Any]]:
-        return self._asking
 
     def set_asking(self, asking: Optional[Dict[str, Any]]) -> None:
         """An agent on this PC asking to connect (``AgentSession.asking``),
         or None for none."""
-        asking = dict(asking) if asking is not None else None
-        if asking == self._asking:
-            return
-        if (asking or {}).get("id") != (self._asking or {}).get("id"):
-            self._rejecting = False
-        self._asking = asking
+        self._asking = dict(asking) if asking is not None else None
         self._render()
-
-    @property
-    def suggestion(self) -> Optional[Dict[str, str]]:
-        return self._suggestion
 
     def set_suggestion(self, suggestion: Optional[Dict[str, Any]]) -> None:
-        """The agent's suggestion on the pending proposal -- ``proposal`` (what
-        the task asks), ``decision`` (what approving it decides) and
-        ``reason`` -- or None for none. A request, when one waits, shows first."""
-        suggestion = dict(suggestion) if suggestion is not None else None
-        if suggestion == self._suggestion:
-            return
-        if suggestion is None or suggestion.get("proposal") != (
-            self._suggestion or {}
-        ).get("proposal"):
-            self._rejecting = False
-        if (suggestion or {}).get("reason") != (self._suggestion or {}).get("reason"):
-            self._why_open = False
-        self._suggestion = suggestion
-        self._render()
-
-    def set_image(
-        self,
-        image: Optional[QImage],
-        caption: str = "",
-        suggestion: bool = False,
-    ) -> None:
-        """The image the waiting request's (or, *suggestion*, the suggestion's)
-        values were measured on, drawn on it with its legend, and what it is
-        ("FIB · 07:41"); None for none, *caption* then why there is none."""
-        key = "suggestion" if suggestion else "request"
-        if image is None or image.isNull():
-            had = self._images.pop(key, None) is not None
-            note = self._notes.pop(key, "")
-            if caption:
-                self._notes[key] = caption
-            if not had and note == caption:
-                return
-        else:
-            self._notes.pop(key, None)
-            self._images[key] = (image, caption)
+        """The agent's suggestion on the pending proposal (``proposal`` and the
+        ``decision`` approving it makes), or None for none."""
+        self._suggestion = dict(suggestion) if suggestion is not None else None
         self._render()
 
     def set_now(self, action: Optional[str]) -> None:
         """What the agent is doing on the microscope, or None."""
-        if action == self._now:
-            return
         self._now = action
-        self._paint_now()
+        self.now_label.setText(action or "")
+        self.now_row.setVisible(bool(action))
+        self.rule.setVisible(bool(action) or not self.waiting_row.isHidden())
 
-    def set_floating(self, floating: bool) -> None:
-        """Whether the card is in its own window: its button then puts it back,
-        the pin keeps it on top of every window, and Recent takes the window's
-        spare height."""
-        self._floating = floating
-        self._place_recent()
-        self.pin_button.setVisible(floating)
-        self.float_button.setIcon(
-            fibsem_icon(
-                "mdi:dock-bottom" if floating else "mdi:open-in-new",
-                color=TEXT_MUTED_COLOR,
-            )
-        )
-        self.float_button.setToolTip(
-            "Put the card back on the chip"
-            if floating
-            else "Keep the card open in its own window, above the app"
-        )
-
-    def set_last_heard(self, text: Optional[str], heard: bool = False) -> None:
-        """Who the agent is and when it was last heard; not heard from yet, the
-        card offers to connect one instead."""
+    def set_last_heard(self, text: Optional[str]) -> None:
         self.heard_label.setText(text or last_heard_text(None))
-        self.connect_link.setVisible(not heard)
-        self.message_row.setVisible(heard)
 
     def set_session(self, text: Optional[str], low: bool = False) -> None:
         """The agent's session in one line, or none shown; in the warning
@@ -954,701 +405,11 @@ class AgentCard(QFrame):
         )
         self.session_label.setVisible(bool(text))
 
-    # --- layout ---------------------------------------------------------------
-
-    @property
-    def wide(self) -> bool:
-        return self._wide
-
-    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt's name
-        hint = self.layout().minimumSize()
-        margins = self.layout().contentsMargins()
-        controls = self._controls
-        # Stacked, the controls row holds only the level and Stop agent.
-        narrow = (
-            margins.left()
-            + margins.right()
-            + sum(
-                controls.itemAt(i).widget().sizeHint().width()
-                for i in range(2)  # the level, Stop agent
-            )
-            + 2 * controls.spacing()
-        )
-        return QSize(min(hint.width(), max(narrow, NARROWEST)), hint.height())
-
-    def resizeEvent(self, event) -> None:  # noqa: N802 - Qt's name
-        super().resizeEvent(event)
-        wide = event.size().width() >= STACK_BELOW
-        if wide != self._wide:
-            self._wide = wide
-            self._place_about()
-            self._render()
-        elif self.image_label is not None:
-            # The image follows the card's width.
-            if self._picture_holder is not None:
-                self._picture_holder.setFixedWidth(self._picture_width())
-            self.image_label.set_width(self._picture_width())
-        for picture in self.recent_pictures:
-            picture.set_width(self._message_width())
-
-    def _place_about(self) -> None:
-        about = (self.heard_label, self.connect_link)
-        for widget in about:
-            self._controls.removeWidget(widget)
-            self._about.removeWidget(widget)
-        while self._about.count():
-            self._about.takeAt(0)
-        if self._wide:
-            for widget in about:
-                self._controls.addWidget(widget)
-        else:
-            self._about.addWidget(self.heard_label)
-            self._about.addWidget(self.connect_link)
-            self._about.addStretch(1)
-
-    # --- what is shown --------------------------------------------------------
-
     def _render(self) -> None:
-        _clear(self._body)
-        self._body.setDirection(
-            QBoxLayout.TopToBottom if self._stacked() else QBoxLayout.LeftToRight
-        )
-        # The body's widgets are gone: so is the picture (else a resize touches it).
-        self._picture_holder = self.image_label = None
-        request = self._request
-        self.approve_suggestion_button = self.details_link = self.why_link = None
-        self.decline_button = None
-        self.approve_button = self.reject_button = None
-        self.confirm_reject_button = self.back_button = None
-        self.reason_edit = None
-        self.allow_button = self.deny_button = None
-        if self._asking is not None:
-            self._dot.setStyleSheet(f"color: {WAITING_COLOR};")
-            self._paint_now()
-            self._title.setText("Agent wants to connect")
-            left, right = self._asking_columns(self._asking)
-            self._body.addLayout(left, 1)
-            self._body.addLayout(right)
-            self.updateGeometry()
-            return
-        if request is None and self._suggestion is None:
-            self._dot.setStyleSheet(f"color: {PURPLE_COLOR};")
-            self._title.setText("Agent")
-            self._paint_now()
-            self.updateGeometry()
-            return
-        self._dot.setStyleSheet(f"color: {WAITING_COLOR};")
-        self._paint_now()
-        if request is None:
-            self._title.setText("Agent suggests")
-            left, right = self._suggestion_columns(self._suggestion)
-        else:
-            applying = request.get("status") == "applying"
-            self._title.setText(
-                "Agent is doing what you approved" if applying else "Agent wants to"
-            )
-            left, right = self._request_columns(request, applying)
-        self._body.addLayout(left, 1)
-        holder = QWidget()
-        holder.setLayout(right)
-        if not self._stacked():
-            holder.setFixedWidth(self._picture_width())
-            self._picture_holder = holder
-        self._body.addWidget(holder)
-        self.updateGeometry()
-
-    def _paint_now(self) -> None:
-        """The Now line: what the agent is doing, shown only while it does
-        something (FIB-1426)."""
-        self.now_label.setText(self._now or "")
-        self.now_row.setVisible(bool(self._now))
-
-    def _request_columns(self, request: Dict[str, Any], applying: bool):
-        actions: List[Dict[str, Any]] = request.get("actions", [])
-        results = request.get("results", [])
-
-        left = QVBoxLayout()
-        left.setSpacing(6)
-        box = QFrame()
-        box.setObjectName("agentActions")
-        rows = QVBoxLayout(box)
-        rows.setContentsMargins(10, 8, 10, 8)
-        rows.setSpacing(8)
-        self.details_link = None
-        if any(action.get("details") for action in actions):
-            self.details_link = _link(
-                "Hide details" if self._details_open else "Show details"
-            )
-            self.details_link.clicked.connect(self._toggle_details)
-        for index, action in enumerate(actions):
-            row = QHBoxLayout()
-            row.setSpacing(8)
-            if applying:
-                if index < len(results):
-                    ok = results[index].get("ok")
-                    mark = _label("✓" if ok else "✕", OK_COLOR if ok else RED_COLOR)
-                elif index == len(results):
-                    mark = _label("…", TEXT_STRONG_COLOR)
-                else:
-                    mark = _label("○", TEXT_MUTED_COLOR)
-            else:
-                mark = _label(str(index + 1), TEXT_MUTED_COLOR)
-            mark.setFixedWidth(16)
-            mark.setAlignment(Qt.AlignTop)  # type: ignore
-            row.addWidget(mark)
-            text = QVBoxLayout()
-            text.setSpacing(1)
-            # Wraps: a long one ("01-meet-ghoul · Setup Lamella Position")
-            # would widen the steps past STEPS_MIN, pushing Approve off the card.
-            what = _label(
-                action.get("what") or action.get("tool", ""),
-                TEXT_MUTED_COLOR,
-                small=True,
-                wrap=True,
-            )
-            if index == 0 and self.details_link is not None:
-                # Top right of the list.
-                head = QHBoxLayout()
-                head.addWidget(what, 1)
-                head.addWidget(self.details_link, 0, Qt.AlignTop)  # type: ignore
-                text.addLayout(head)
-            else:
-                text.addWidget(what)
-            change = _label(action.get("change") or "", TEXT_STRONG_COLOR, wrap=True)
-            change.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-            text.addWidget(change)
-            if self._details_open and action.get("details"):
-                text.addSpacing(4)
-                text.addWidget(_Details(action["details"]))
-            row.addLayout(text, 1)
-            rows.addLayout(row)
-        left.addWidget(box)
-        left.addSpacing(4)
-        self._add_reason(left, request.get("reason", ""))
-        self._add_evidence(left, request.get("evidence"))
-        left.addStretch(1)
-
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(8)
-        self._add_picture(right, "request")
-        right.addStretch(1)
-        self.approve_button = self.reject_button = None
-        self.confirm_reject_button = self.back_button = None
-        self.reason_edit = None
-        n = len(actions)
-        if applying:
-            right.addWidget(
-                _label(
-                    f"Approved by you. Running {min(len(results) + 1, n)} of {n}…",
-                    TEXT_MUTED_COLOR,
-                    small=True,
-                    wrap=True,
-                )
-            )
-            return left, right
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        request_id = request.get("request_id", "")
-        if self._rejecting:
-            self.reason_edit = QLineEdit()
-            self.reason_edit.setPlaceholderText("Tell the agent why (optional)")
-            right.addWidget(self.reason_edit)
-            self.back_button = _button("Back")
-            self.back_button.clicked.connect(lambda: self._set_rejecting(False))
-            self.confirm_reject_button = _button("Reject", primary=True)
-            self.confirm_reject_button.clicked.connect(
-                lambda: self.reject_clicked.emit(
-                    request_id, self.reason_edit.text() if self.reason_edit else ""
-                )
-            )
-            buttons.addWidget(self.back_button)
-            buttons.addWidget(self.confirm_reject_button)
-        else:
-            self.reject_button = _button("Reject…")
-            self.reject_button.clicked.connect(lambda: self._set_rejecting(True))
-            self.approve_button = _button("Approve", primary=True)
-            self.approve_button.clicked.connect(
-                lambda: self.approve_clicked.emit(request_id)
-            )
-            buttons.addWidget(self.reject_button)
-            buttons.addWidget(self.approve_button)
-        right.addLayout(buttons)
-        return left, right
-
-    def _suggestion_columns(self, suggestion: Dict[str, str]):
-        left = QVBoxLayout()
-        left.setSpacing(6)
-        box = QFrame()
-        box.setObjectName("agentActions")
-        rows = QVBoxLayout(box)
-        rows.setContentsMargins(10, 8, 10, 8)
-        rows.setSpacing(1)
-        if suggestion.get("proposal"):
-            rows.addWidget(
-                _label(suggestion["proposal"], TEXT_MUTED_COLOR, small=True, wrap=True)
-            )
-        answer = _label(suggestion.get("decision", ""), TEXT_STRONG_COLOR, wrap=True)
-        answer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        rows.addWidget(answer)
-        left.addWidget(box)
-        left.addSpacing(4)
-        self._add_reason(left, suggestion.get("reason", ""))
-        self._add_evidence(
-            left, suggestion.get("evidence"), suggestion.get("no_evidence")
-        )
-        left.addStretch(1)
-
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(8)
-        self._add_picture(right, "suggestion")
-        right.addStretch(1)
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        self.back_button = self.confirm_reject_button = self.reason_edit = None
-        if self._rejecting and self._request is None:
-            # Decline, with why if the operator likes: recorded for the agent
-            # (FIB-1424). The proposal stays up.
-            self.reason_edit = QLineEdit()
-            self.reason_edit.setPlaceholderText("Tell the agent why (optional)")
-            right.addWidget(self.reason_edit)
-            self.back_button = _button("Back")
-            self.back_button.clicked.connect(lambda: self._set_rejecting(False))
-            self.decline_button = _button("Decline", primary=True)
-            self.decline_button.clicked.connect(
-                lambda: self.suggestion_declined.emit(
-                    self.reason_edit.text() if self.reason_edit else ""
-                )
-            )
-            buttons.addWidget(self.back_button)
-            buttons.addWidget(self.decline_button)
-            right.addLayout(buttons)
-            return left, right
-        self.decline_button = _button("Decline…")
-        self.decline_button.setToolTip(
-            "Decline the suggestion and tell the agent why. The proposal stays "
-            "up for you to decide."
-        )
-        self.decline_button.clicked.connect(lambda: self._set_rejecting(True))
-        self.approve_suggestion_button = _button("Approve", primary=True)
-        self.approve_suggestion_button.setToolTip(
-            "Decide the proposal as suggested, as your decision. The record names "
-            "the agent as the one who suggested it."
-        )
-        self.approve_suggestion_button.clicked.connect(self.suggestion_approved)
-        buttons.addWidget(self.decline_button)
-        buttons.addWidget(self.approve_suggestion_button)
-        right.addLayout(buttons)
-        return left, right
-
-    def _asking_columns(self, asking: Dict[str, Any]):
-        """Who asks to connect, what allowing it means, and Deny… / Allow."""
-        left = QVBoxLayout()
-        left.setSpacing(6)
-        box = QFrame()
-        box.setObjectName("agentActions")
-        rows = QVBoxLayout(box)
-        rows.setContentsMargins(10, 8, 10, 8)
-        rows.setSpacing(2)
-        for heading, value in (
-            ("Agent", f"{asking.get('client', '')}, as it names itself"),
-            ("From", asking.get("origin", "")),
-            ("Runs as", asking.get("user", "")),
-        ):
-            if heading != "Agent":
-                rows.addSpacing(6)
-            rows.addWidget(_label(heading, TEXT_MUTED_COLOR, small=True))
-            rows.addWidget(_label(value, TEXT_STRONG_COLOR))
-        left.addWidget(box)
-        left.addWidget(_label("If you allow it", TEXT_MUTED_COLOR, small=True))
-        left.addWidget(_label(asking.get("if_allowed", ""), TEXT_COLOR, wrap=True))
-
-        right = QVBoxLayout()
-        right.setContentsMargins(0, 0, 0, 0)
-        right.setSpacing(8)
-        right.addStretch(1)
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        ask_id = asking.get("id", "")
-        if self._rejecting:
-            self.reason_edit = QLineEdit()
-            self.reason_edit.setPlaceholderText("Tell the agent why (optional)")
-            right.addWidget(self.reason_edit)
-            self.back_button = _button("Back")
-            self.back_button.clicked.connect(lambda: self._set_rejecting(False))
-            self.deny_button = _button("Deny", primary=True)
-            self.deny_button.clicked.connect(
-                lambda: self.deny_clicked.emit(
-                    ask_id, self.reason_edit.text() if self.reason_edit else ""
-                )
-            )
-            buttons.addWidget(self.back_button)
-            buttons.addWidget(self.deny_button)
-        else:
-            self.deny_button = _button("Deny…")
-            self.deny_button.setToolTip(
-                "Refuse it, and tell it why if you like. It can ask again in a minute."
-            )
-            self.deny_button.clicked.connect(lambda: self._set_rejecting(True))
-            self.allow_button = _button("Allow", primary=True)
-            self.allow_button.setToolTip(
-                "Give it a token of its own, listed in Connect an agent with Unpair."
-            )
-            self.allow_button.clicked.connect(lambda: self.allow_clicked.emit(ask_id))
-            buttons.addWidget(self.deny_button)
-            buttons.addWidget(self.allow_button)
-        right.addLayout(buttons)
-        return left, right
-
-    def _stacked(self) -> bool:
-        """The picture under the steps and the reason, not beside them: narrow,
-        or with details open, so their table has the card's width. With no
-        picture, the buttons go under them too: an empty column beside them
-        would squeeze the steps for nothing."""
-        return (
-            not self._wide
-            or (self._details_open and self._request is not None)
-            or not self._showing_picture()
-        )
-
-    def _showing_picture(self) -> bool:
-        """Whether what waits has a picture. A note in its place ("No FIB image
-        of 05 yet") is a line under the steps, not a column of its own (sim
-        session 2026-10-16: it took the picture's 650 px)."""
-        key = "suggestion" if self._request is None else "request"
-        return key in self._images
-
-    def _inner_width(self) -> int:
-        margins = self.layout().contentsMargins()
-        return max(self.width() - margins.left() - margins.right(), 200)
-
-    def _picture_width(self) -> int:
-        """The picture's column: the card's width stacked, else `PICTURE_MIN`
-        and whatever the steps' `STEPS_MIN` leaves."""
-        inner = self._inner_width()
-        if self._stacked():
-            return inner
-        return max(PICTURE_MIN, inner - STEPS_MIN - self._body.spacing())
-
-    def _why_width(self) -> int:
-        """The reason's width: the steps' column."""
-        if self._stacked():
-            return self._inner_width()
-        return max(
-            self._inner_width() - self._picture_width() - self._body.spacing(), 200
-        )
-
-    def _add_picture(self, column: QVBoxLayout, image: str) -> None:
-        """The *image* the values were measured on (FIB-1411)."""
-        if image not in self._images:
-            if self._notes.get(image):
-                column.addWidget(
-                    _label(self._notes[image], TEXT_MUTED_COLOR, small=True, wrap=True)
-                )
-            return
-        picture, caption = self._images[image]
-        label = _Picture(picture, self._picture_width(), caption)
-        self.image_label = label
-        column.addWidget(label)
-
-    def _add_reason(self, column: QVBoxLayout, reason: str) -> None:
-        """The agent's reason: always shown, as it is what makes an approval
-        mean something, but clamped to `WHY_LINES` lines with "more" (FIB-1412)."""
-        column.addWidget(_label("Why", TEXT_MUTED_COLOR, small=True))
-        why = _label(reason, TEXT_COLOR, wrap=True)
-        why.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
-        column.addWidget(why)
-        self.why_label, self.why_link = why, None
-        metrics = why.fontMetrics()
-        width = self._why_width()
-        lines = metrics.boundingRect(
-            0,
-            0,
-            width,
-            10_000,
-            Qt.TextWordWrap,
-            reason,  # type: ignore
-        ).height() / max(metrics.lineSpacing(), 1)
-        if lines <= WHY_LINES + 0.5:
-            return
-        if not self._why_open:
-            why.setMaximumHeight(metrics.lineSpacing() * WHY_LINES)
-        self.why_link = _link("less" if self._why_open else "more")
-        self.why_link.clicked.connect(self._toggle_why)
-        column.addWidget(self.why_link, 0, Qt.AlignLeft)  # type: ignore
-
-    def _add_evidence(
-        self,
-        column: QVBoxLayout,
-        evidence: Optional[Dict[str, Any]],
-        none: Optional[str] = None,
-    ) -> None:
-        """ "No evidence" (or *none*) under Why when the agent gave none; its
-        image, when it gave one, is the card's picture."""
-        self.evidence_label = None
-        if evidence:
-            return
-        self.evidence_label = _label(
-            none or "No evidence", TEXT_MUTED_COLOR, small=True
-        )
-        column.addWidget(self.evidence_label)
-
-    def _evidence_image(self, evidence: Dict[str, Any]) -> Optional[QImage]:
-        """*evidence*'s image with its marks, read once per piece of evidence."""
-        from fibsem.ai.agent.drawing import evidence_png
-
-        key = evidence.get("evidence_id")
-        if key not in self._evidence_images:
-            png = evidence_png(evidence)
-            self._evidence_images[key] = QImage.fromData(png, "PNG") if png else None
-        return self._evidence_images[key]
-
-    def open_evidence(self, evidence: Dict[str, Any], caption: str = "") -> QDialog:
-        """*evidence*'s image, its marks on it, in a window of its own, under
-        *caption* (the row that cites it)."""
-        dialog = QDialog(self.window())
-        dialog.setWindowTitle("Agent's evidence")
-        dialog.setAttribute(Qt.WA_DeleteOnClose)  # type: ignore
-        layout = QVBoxLayout(dialog)
-        image = self._evidence_image(evidence)
-        if image is not None:
-            full = QLabel()
-            pixmap = QPixmap.fromImage(image)
-            if pixmap.width() > ENLARGED_WIDTH:
-                pixmap = pixmap.scaledToWidth(ENLARGED_WIDTH, Qt.SmoothTransformation)  # type: ignore
-            full.setPixmap(pixmap)
-            layout.addWidget(full)
-        if caption:
-            layout.addWidget(_label(caption, TEXT_COLOR, wrap=True))
-        dialog.show()
-        self.evidence_window = dialog
-        return dialog
-
-    def _toggle_why(self) -> None:
-        self._why_open = not self._why_open
-        self._render()
-
-    def _toggle_recent(self) -> None:
-        self._recent_choice[self._level] = not self.recent_shown
-        self._render_recent()
-
-    def _render_recent(self) -> None:
-        """Recent, under what waits: folded, its newest line beside the link;
-        open, one timeline, oldest first: the conversation as blocks, yours a
-        shade lighter, the actions one line each with how they ended, a click
-        away from the event log. Both shown, the actions sit quieter between
-        the messages."""
-        shown = self.recent_shown
-        self.recent_link.setText("Recent ▾" if shown else "Recent ▸")
-        self.recent_last.setVisible(not shown)
-        self.recent_filter.setVisible(shown)
-        self.recent_scroll.setVisible(shown)
-        newest = self._recent[-1] if self._recent else None
-        last = ""
-        if newest is not None and not shown:
-            if newest.conversation:
-                head = {"you": "You", "message": "Agent"}.get(newest.kind, "Note")
-                last = f"{head}: {newest.text.split(chr(10), 1)[0]}"
-            else:
-                last = ", ".join(t for t in (newest.text, newest.outcome) if t)
-            last = f"last: {last}"
-        self.recent_last.setText(last)
-        self.recent_buttons = []
-        self.recent_messages = []
-        self.recent_evidence = []
-        self.recent_pictures = []
-        self._place_recent()
-        if not shown:
-            self.updateGeometry()
-            return
-        box = QFrame()
-        box.setObjectName("agentRecentRows")
-        rows = QVBoxLayout(box)
-        rows.setContentsMargins(0, 0, 0, 0)
-        rows.setSpacing(0)
-        both = all(self._halves.values())
-        picked = [
-            row
-            for row in self._recent
-            if self._halves[CONVERSATION if row.conversation else ACTIONS]
-        ]
-        if not picked:
-            empty = _label("Nothing yet.", TEXT_MUTED_COLOR, small=True)
-            empty.setContentsMargins(10, 6, 10, 6)
-            rows.addWidget(empty)
-        for index, row in enumerate(picked):
-            if index:
-                rows.addWidget(_rule())
-            if row.conversation:
-                rows.addWidget(self._message_block(row))
-            else:
-                rows.addWidget(self._action_line(row, quiet=both))
-        rows.addStretch(1)
-        self.recent_scroll.setWidget(box)
-        self.updateGeometry()
-
-    def _evidence_link(self, row: Any) -> Optional[QPushButton]:
-        evidence = getattr(row, "evidence", None)
-        if not evidence:
-            return None
-        link = _link("evidence")
-        link.setToolTip("Open the image the agent judged from")
-        link.clicked.connect(
-            lambda _=False, e=evidence, t=row.text: self.open_evidence(e, t)
-        )
-        self.recent_evidence.append(link)
-        return link
-
-    def _message_block(self, row: Any) -> QWidget:
-        """One message: who and when, then the text, the agent's in Markdown;
-        a long one folds to `FOLD_LINES` lines, with "more"."""
-        block = QFrame()
-        block.setObjectName("agentYou" if row.kind == "you" else "agentMessage")
-        column = QVBoxLayout(block)
-        column.setContentsMargins(10, 7, 10, 8)
-        column.setSpacing(3)
-        head = QHBoxLayout()
-        head.setSpacing(6)
-        who = {"you": "You", "message": "Agent"}.get(row.kind, "Agent · note")
-        head.addWidget(_label(who, TEXT_STRONG_COLOR, small=True, bold=True))
-        head.addWidget(_label(row.when, TEXT_MUTED_COLOR, small=True))
-        head.addStretch(1)
-        evidence = getattr(row, "evidence", None)
-        image = self._evidence_image(evidence) if evidence else None
-        link = self._evidence_link(row) if image is None else None
-        if link is not None:
-            head.addWidget(link)
-        column.addLayout(head)
-        key = (row.when, row.kind, row.text)
-        folded = _folded(row.text)
-        unfolded = key in self._unfolded
-        body = QLabel(row.text if folded is None or unfolded else folded)
-        body.setTextFormat(
-            Qt.PlainText if row.kind == "you" else Qt.MarkdownText  # type: ignore
-        )
-        body.setWordWrap(True)
-        body.setOpenExternalLinks(False)
-        body.setTextInteractionFlags(Qt.TextSelectableByMouse)  # type: ignore
-        body.setStyleSheet(f"color: {TEXT_COLOR};")
-        column.addWidget(body)
-        self.recent_messages.append(body)
-        if folded is not None:
-            more = _link("less" if unfolded else "more")
-            more.clicked.connect(lambda _=False, k=key: self._unfold(k))
-            column.addWidget(more, 0, Qt.AlignLeft)  # type: ignore
-        if image is not None:
-            # What it shows: the image it was drawn from, else its own file.
-            name = os.path.basename(
-                str(evidence.get("source") or evidence.get("image") or "")
-            )
-            picture = _Picture(image, self._message_width(), name)
-            column.addWidget(picture)
-            self.recent_pictures.append(picture)
-            if name:
-                column.addWidget(_label(name, TEXT_MUTED_COLOR, small=True))
-        return block
-
-    def _message_width(self) -> int:
-        """A message block's text width: the timeline's, less its margins."""
-        return max(self.recent_scroll.viewport().width() - 20, 120)
-
-    def _action_line(self, row: Any, quiet: bool) -> QWidget:
-        """One action: when, what (a click opens the event log), how it ended
-        in a word, and on a muted line under it why it failed or was refused.
-        The level and why it ended otherwise are the word's tooltip. Between
-        messages it is smaller and muted."""
-        holder = QWidget()
-        line = QHBoxLayout(holder)
-        margin = 4 if quiet else 6
-        line.setContentsMargins(10, margin, 10, margin)
-        line.setSpacing(12)
-        top = Qt.AlignTop  # type: ignore
-        when = _label(row.when, TEXT_MUTED_COLOR, small=True)
-        when.setFixedWidth(when.fontMetrics().horizontalAdvance("00:00") + 2)
-        line.addWidget(when, 0, top)
-        text = QVBoxLayout()
-        text.setSpacing(1)
-        # A long line wraps under itself, not allowed to widen the card.
-        button = _RecentLine(row.text)
-        button.setToolTip("Open the event log")
-        button.clicked.connect(self.event_log_clicked)
-        if quiet:
-            font = button.font()
-            font.setPointSizeF(font.pointSizeF() - 1)
-            button.setFont(font)
-            button.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
-        text.addWidget(button)
-        why = str(getattr(row, "why", "") or "")
-        if why and row.tone == "error":
-            text.addWidget(_label(why, TEXT_MUTED_COLOR, small=True, wrap=True))
-        line.addLayout(text, 1)
-        link = self._evidence_link(row)
-        if link is not None:
-            line.addWidget(link, 0, top)
-        word = _label(row.outcome, _TONES.get(row.tone, TEXT_MUTED_COLOR), small=True)
-        word.setObjectName("agentOutcome")
-        # At which level it was done (FIB-1426): Assist's were approved.
-        level = str(getattr(row, "level", "") or "")
-        tip = [f"{row.outcome}: {why}" if why else row.outcome]
-        tip.append(
-            " · ".join(
-                t for t in (f"at {level.title()}" if level else "", row.when) if t
-            )
-        )
-        word.setToolTip("\n".join(t for t in tip if t))
-        line.addWidget(word, 0, top)
-        self.recent_buttons.append(button)
-        return holder
-
-    def _toggle_half(self, half: str, on: bool) -> None:
-        """Show or hide one half of Recent; the last one shown stays."""
-        if not on and not any(v for k, v in self._halves.items() if k != half):
-            toggle = self.recent_toggles[half]
-            toggle.blockSignals(True)
-            toggle.setChecked(True)
-            toggle.blockSignals(False)
-            return
-        self._halves[half] = on
-        self._render_recent()
-
-    def _unfold(self, key: Any) -> None:
-        self._unfolded ^= {key}
-        self._render_recent()
-
-    def _recent_scrolled(self, value: int) -> None:
-        """The operator moved the timeline: follow the newest row only while
-        they are at it."""
-        bar = self.recent_scroll.verticalScrollBar()
-        self._recent_at_end = value >= bar.maximum() - 4
-        self._recent_kept = value
-
-    def _recent_range_changed(self, _low: int, high: int) -> None:
-        bar = self.recent_scroll.verticalScrollBar()
-        bar.setValue(high if self._recent_at_end else min(self._recent_kept, high))
-
-    def _place_recent(self) -> None:
-        """Floating with Recent open, the timeline takes the window's spare
-        height; on the chip, it scrolls past `RECENT_HEIGHT`."""
-        layout = self.layout()
-        grow = self._floating and self.recent_shown
-        layout.setStretchFactor(self.recent_scroll, 1 if grow else 0)
-        layout.setStretch(layout.count() - 1, 0 if grow else 1)
-        self.recent_scroll.setMaximumHeight(16777215 if grow else RECENT_HEIGHT)
-
-    def _send_message(self) -> None:
-        text = self.message_edit.text().strip()
-        if not text:
-            return
-        self.message_edit.clear()
-        self.message_sent.emit(text)
-
-    def _toggle_details(self) -> None:
-        self._details_open = not self._details_open
-        self._render()
-
-    def _set_rejecting(self, rejecting: bool) -> None:
-        self._rejecting = rejecting
-        self._render()
-        if rejecting and self.reason_edit is not None:
-            self.reason_edit.setFocus()
+        waiting = waiting_text(self._request, self._suggestion, self._asking)
+        self.waiting_row.setVisible(waiting is not None)
+        if waiting is not None:
+            self.waiting_word.setText(waiting[0])
+            self.waiting_label.setText(waiting[1])
+        self.set_now(self._now)
+        self.adjustSize()

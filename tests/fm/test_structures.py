@@ -569,9 +569,9 @@ def test_a_stack_too_large_for_a_classic_tiff_saves_as_bigtiff(
     tmp_path, monkeypatch, bigtiff_above, bigtiff
 ):
     """A stack over 4 GB could not be saved at all, and only the log said so."""
-    import fibsem.fm.structures as structures
+    import fibsem.image_format as image_format
 
-    monkeypatch.setattr(structures, "BIGTIFF_ABOVE", bigtiff_above)
+    monkeypatch.setattr(image_format, "BIGTIFF_ABOVE", bigtiff_above)
     channels = [
         FluorescenceChannelMetadata(
             name=name,

@@ -54,7 +54,10 @@ class _StackInMemory:
         self.shape = image.data.shape
         self.channels, self.planes = self.shape[:2]
 
-    def plane(self, channel: int, z: int) -> np.ndarray:
+    def level_for(self, max_px):
+        return 0
+
+    def plane(self, channel: int, z: int, level: int = 0) -> np.ndarray:
         return self._data[channel, z]
 
     def __enter__(self):
@@ -158,7 +161,7 @@ def test_a_stack_says_its_channels_planes_and_step_for_its_legend(stack_on_disk)
     image = _stack(data, ["green"])  # metadata describes one of two channels
     image.metadata.z_positions = [0.0, 2e-7, 4e-7, 6e-7, 8e-7]
 
-    _, _, facts = load_stack_preview(stack_on_disk(image))
+    _, _, facts, _ = load_stack_preview(stack_on_disk(image))
 
     assert facts["z_planes"] == 5
     assert facts["z_step"] == pytest.approx(2e-7)

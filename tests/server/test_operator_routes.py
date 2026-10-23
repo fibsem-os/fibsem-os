@@ -574,3 +574,47 @@ def test_the_operator_reads_the_agents_session_in_the_cards_words(server):
     answer = server.get("/app/agent", headers=server.operator).json()
     assert answer["session"] == "$4.10 of $5, 82% used · claude-opus · Mill 01"
     assert answer["budget_low"] is True
+
+
+def _asked(server):
+    from fibsem.structures import Point
+    from fibsem.workflows.proposals import POINT_OF_INTEREST, Proposal
+    from fibsem.workflows.status import TaskStatus
+
+    lamella = server.session.experiment.positions[0]
+    lamella.task_state.name = SETUP
+    lamella.task_state.task_id = "run-1"
+    lamella.task_state.status = TaskStatus.InProgress
+    proposal = Proposal(
+        kind=POINT_OF_INTEREST,
+        values={"poi": Point(0.0, 0.0)},
+        provenance={"task_id": "run-1"},
+    )
+    assert server.session.experiment.ask_proposal(lamella.id, SETUP, proposal)
+    return lamella, proposal
+
+
+@pytest.mark.parametrize("who", ["operator", "agent"])
+def test_a_decision_is_recorded_as_whoever_decided(server, who):
+    from fibsem.acting import Actor
+
+    lamella, proposal = _asked(server)
+    server.config.level = AgentLevel.DRIVE
+    answer = server.post(
+        "/app/workflow/decide",
+        headers=getattr(server, who),
+        json={
+            "item_id": lamella.id,
+            "task_name": SETUP,
+            "proposal_id": proposal.id,
+            "outcome": "Confirmed",
+            "actor": "claude",
+        },
+    )
+    assert answer.status_code == 200, answer.text
+    expected = (
+        server.session.experiment.actor()
+        if who == "operator"
+        else Actor.agent("claude")
+    )
+    assert proposal.current.actor == expected

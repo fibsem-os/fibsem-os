@@ -757,6 +757,14 @@ def build_app_router(context: Any) -> APIRouter:
         # comma-separated ("B3,C4"), crop those cells.
         show_cells = (cells or "").strip().lower() == "true"
         crops = None if show_cells or not cells else [c for c in cells.split(",") if c]
+        tag = _files_answer(
+            experiment, files.read_etag, path, box, fraction, width, z, channels, cells
+        )
+        # kept by the browser, but asked about each time: an unchanged file answers 304
+        cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
+        if tag is not None and request.headers.get("if-none-match") == tag:
+            _record_read(experiment, path, False)
+            return Response(status_code=304, headers=cache)
         answer = _files_answer(
             experiment,
             files.read,
@@ -770,7 +778,7 @@ def build_app_router(context: Any) -> APIRouter:
             crops=crops,
         )
         _record_read(experiment, path, False)
-        return answer
+        return JSONResponse(jsonable_encoder(answer), headers=cache)
 
     @router.get("/workflow/proposals", response_model=Proposals)
     def proposals():
@@ -800,8 +808,8 @@ def build_app_router(context: Any) -> APIRouter:
 
     @router.post("/experiment/messages", response_model=Recorded)
     def add_message(body: Dict[str, Any]):
-        # The agent's message to the operator, on the record as a note to them;
-        # the window tells them. Like a note, it changes nothing.
+        # The agent's message to the operator, on the record as a note to them.
+        # Like a note, it changes nothing.
         text, item_name = _note_body(body, "reply_to")
         reply_to = body.get("reply_to")
         cited = cited_evidence(context)
