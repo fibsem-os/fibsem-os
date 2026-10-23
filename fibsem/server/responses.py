@@ -833,6 +833,8 @@ class Recorded:
     marks: Optional[Any] = None
     item_name: Optional[str] = None
     created_at: Optional[str] = None
+    by: Optional[str] = None
+    channels: Optional[List[str]] = None
 
 
 # --- Edits to the experiment and the run ---
@@ -1199,11 +1201,17 @@ class EvidenceView:
     preview: Optional[Dict[str, Any]]
     marks: Optional[Any]
     path: str
+    # Who marked it: agent or operator.
+    by: str = "agent"
+    # The fluorescence channels shown, for marks on a stack's projection.
+    channels: Optional[List[str]] = None
 
 
 @dataclass
 class MessageSent:
     id: str
+    # The image the operator marked, kept as evidence, when the message has one.
+    evidence_id: Optional[str] = None
 
 
 @dataclass
