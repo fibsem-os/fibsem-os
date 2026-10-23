@@ -272,6 +272,7 @@ LamellaTaskConfigs = Annotated[
     PlainValidator(_load_task_configs, json_schema_input_type=Dict[str, Any]),
     PlainSerializer(
         lambda configs: {name: c.to_dict() for name, c in configs.items()},
+        return_type=Dict[str, Any],
         when_used="json",
     ),
 ]
