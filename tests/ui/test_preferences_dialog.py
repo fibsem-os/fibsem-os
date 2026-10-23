@@ -76,8 +76,7 @@ def test_the_app_server_is_not_in_preferences(qapp):
     assert "App Server" not in pages
     rebuilt = dialog.get_preferences()
     assert (
-        rebuilt.install.app_server.enabled
-        and not rebuilt.install.app_server.microscope
+        rebuilt.install.app_server.enabled and not rebuilt.install.app_server.microscope
     )
     dialog.deleteLater()
 
