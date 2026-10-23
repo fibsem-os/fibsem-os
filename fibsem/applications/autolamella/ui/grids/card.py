@@ -9,7 +9,7 @@ arrives on every refresh and is only drawn.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QImage, QPixmap
@@ -26,12 +26,23 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
+from fibsem.applications.autolamella.ui.common.cards import (
+    BTN_SIZE,
+    CARD_BUTTON_STYLE,
+    COZY_THUMB_H,
+    COZY_THUMB_W,
+    THUMB_H,
+    THUMB_PADDING,
+    THUMB_W,
+    CardContainer,
+    RecordCard,
+)
 from fibsem.applications.autolamella.ui.common.lamella_display import (
     VERDICT_LOOK,
     add_verdict_actions,
     mark_current_verdict,
 )
-from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY
+from fibsem.config import MODE_COMPACT, MODE_COZY
 from fibsem.structures import GridInventoryEntry, GridSlotState
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
@@ -42,8 +53,6 @@ from fibsem.theme.tokens import (
     NEUTRAL_700,
     NEUTRAL_900,
     OK_COLOR,
-    PRIMARY_COLOR,
-    SURFACE_COLOR,
 )
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.thumbnails import cached_thumbnail
@@ -61,14 +70,6 @@ from fibsem.workflows.outputs import latest_item_output
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus
 
-_CARD_WIDTH = 300
-_THUMB_PADDING = 6
-# The lamella card's sizes, so the two strips line up: a small thumbnail beside
-# the name in the standard row, a big one above it in the cozy tile.
-_THUMB_W, _THUMB_H = 66, 44
-_COZY_THUMB_W = _CARD_WIDTH - 8 - _THUMB_PADDING * 2
-_COZY_THUMB_H = 170
-_BTN_SIZE = 24
 # Which overview a card shows, in order of preference.
 _THUMBNAIL_ROLES = (
     "overview_sem_thumbnail",
@@ -76,31 +77,6 @@ _THUMBNAIL_ROLES = (
     "overview_fm_thumbnail",
 )
 
-_CARD_STYLE = f"""
-QFrame#GridCard {{
-    background: {SURFACE_COLOR};
-    border: 1px solid #3a3d42;
-    border-radius: 8px;
-}}
-"""
-_CARD_SELECTED_STYLE = f"""
-QFrame#GridCard {{
-    background: {SURFACE_COLOR};
-    border: 2px solid {PRIMARY_COLOR};
-    border-radius: 8px;
-}}
-"""
-_BTN_STYLE = """
-QToolButton {
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    padding: 1px;
-}
-QToolButton:hover { background: rgba(255, 255, 255, 30); }
-QToolButton:pressed { background: rgba(255, 255, 255, 15); }
-QToolButton::menu-indicator { image: none; }
-"""
 
 
 def grid_headline(grid: GridRecord) -> Tuple[str, str]:
@@ -150,10 +126,9 @@ def grid_thumbnail_path(experiment: Experiment, grid: GridRecord) -> Optional[st
     return None
 
 
-class GridCardWidget(QWidget):
+class GridCardWidget(RecordCard):
     """One grid record: thumbnail | name over status, chips | quality | actions."""
 
-    clicked = pyqtSignal(object)  # GridRecord
     quality_changed = pyqtSignal(object)  # GridRecord
     load_requested = pyqtSignal(object)  # GridRecord
     unload_requested = pyqtSignal(object)  # GridRecord
@@ -169,29 +144,13 @@ class GridCardWidget(QWidget):
         mode: str = MODE_COZY,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(grid, "GridCard", mode, parent)
         self.grid = grid
         self.experiment = experiment
-        self._mode = mode if mode in CARD_MODES else MODE_COZY
         self._entry: Optional[GridInventoryEntry] = None
         self._has_loader = False
         self._controls_enabled = True
         self._edits_enabled = True
-        self.setFixedWidth(_CARD_WIDTH)
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 4, 4, 4)
-        outer.setSpacing(0)
-        self._card = QFrame()
-        self._card.setObjectName("GridCard")
-        self._card.setStyleSheet(_CARD_STYLE)
-        self._card.setFixedWidth(_CARD_WIDTH - 8)
-        # One content widget the arrangement swaps; the children below are built
-        # once and re-parented, so signals and menus survive a mode switch.
-        self._frame_layout = QVBoxLayout(self._card)
-        self._frame_layout.setContentsMargins(0, 0, 0, 0)
-        self._frame_layout.setSpacing(0)
-        self._content: Optional[QWidget] = None
 
         self._thumb_label = QLabel()
         self._thumb_label.setAlignment(Qt.AlignCenter)
@@ -205,13 +164,13 @@ class GridCardWidget(QWidget):
         self._chip_widgets: List[QLabel] = []
 
         self._btn_quality = QToolButton()
-        self._btn_quality.setFixedSize(_BTN_SIZE, _BTN_SIZE)
-        self._btn_quality.setStyleSheet(_BTN_STYLE)
+        self._btn_quality.setFixedSize(BTN_SIZE, BTN_SIZE)
+        self._btn_quality.setStyleSheet(CARD_BUTTON_STYLE)
         self._btn_quality.clicked.connect(self._on_quality_clicked)
 
         self._btn_actions = QToolButton()
-        self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
-        self._btn_actions.setStyleSheet(_BTN_STYLE)
+        self._btn_actions.setFixedSize(BTN_SIZE, BTN_SIZE)
+        self._btn_actions.setStyleSheet(CARD_BUTTON_STYLE)
         self._btn_actions.setIcon(
             fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
@@ -247,23 +206,10 @@ class GridCardWidget(QWidget):
         self._action_remove.triggered.connect(self._on_remove)
         self._btn_actions.setMenu(menu)
 
-        outer.addWidget(self._card)
         self._apply_layout()
         self.refresh()
 
     # -- arrangement -----------------------------------------------------------
-
-    def set_mode(self, mode: str) -> None:
-        """Cozy tile (big thumbnail), standard row, or compact line."""
-        if mode not in CARD_MODES or mode == self._mode:
-            return
-        self._mode = mode
-        self._apply_layout()
-        self.refresh()
-
-    @property
-    def mode(self) -> str:
-        return self._mode
 
     def _info_block(self) -> QWidget:
         """Name over status and chips; the same block in every arrangement."""
@@ -290,10 +236,10 @@ class GridCardWidget(QWidget):
         if self._mode == MODE_COZY:
             # The lamella card's cozy tile, measure for measure: the thumbnail,
             # a rule, then a name row with the buttons and the status under it.
-            self._thumb_label.setFixedSize(_COZY_THUMB_W, _COZY_THUMB_H)
+            self._thumb_label.setFixedSize(COZY_THUMB_W, COZY_THUMB_H)
             content = QWidget()
             layout = QVBoxLayout(content)
-            layout.setContentsMargins(_THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, 0)
+            layout.setContentsMargins(THUMB_PADDING, THUMB_PADDING, THUMB_PADDING, 0)
             layout.setSpacing(0)
             layout.addWidget(self._thumb_label)
             sep = QFrame()
@@ -318,12 +264,12 @@ class GridCardWidget(QWidget):
             info_layout.addLayout(status_row)
             layout.addWidget(info)
         else:
-            self._thumb_label.setFixedSize(_THUMB_W, _THUMB_H)
+            self._thumb_label.setFixedSize(THUMB_W, THUMB_H)
             self._thumb_label.setVisible(self._mode != MODE_COMPACT)
             content = QWidget()
             row = QHBoxLayout(content)
             row.setContentsMargins(
-                _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING
+                THUMB_PADDING, THUMB_PADDING, THUMB_PADDING, THUMB_PADDING
             )
             row.setSpacing(6)
             row.addWidget(self._thumb_label)
@@ -442,14 +388,7 @@ class GridCardWidget(QWidget):
     def status_text(self) -> str:
         return self._status_label.text()
 
-    def set_selected(self, selected: bool) -> None:
-        self._card.setStyleSheet(_CARD_SELECTED_STYLE if selected else _CARD_STYLE)
-
     # -- events ----------------------------------------------------------------
-
-    def mousePressEvent(self, event) -> None:
-        self.clicked.emit(self.grid)
-        super().mousePressEvent(event)
 
     def _on_quality_clicked(self) -> None:
         menu = QMenu(self)
@@ -503,7 +442,7 @@ class GridCardWidget(QWidget):
             self.remove_requested.emit(self.grid)
 
 
-class GridCardContainer(QWidget):
+class GridCardContainer(CardContainer):
     """A one-column strip of grid cards, in the order the records were added."""
 
     grid_selected = pyqtSignal(object)  # GridRecord | None
@@ -516,10 +455,7 @@ class GridCardContainer(QWidget):
     remove_requested = pyqtSignal(object)  # GridRecord
 
     def __init__(self, parent: Optional[QWidget] = None, mode: str = MODE_COZY) -> None:
-        super().__init__(parent)
-        self._cards: Dict[str, GridCardWidget] = {}  # grid.id -> card
-        self._selected_id: Optional[str] = None
-        self._mode = mode if mode in CARD_MODES else MODE_COZY
+        super().__init__(parent, mode)
         self._layout = QVBoxLayout(self)
         self._layout.setSpacing(12)
         self._layout.setContentsMargins(8, 8, 8, 8)
@@ -539,18 +475,6 @@ class GridCardContainer(QWidget):
         self._cards[grid.id] = card
         self._layout.addWidget(card)
         return card
-
-    def set_mode(self, mode: str) -> None:
-        """Switch every card, and any added later."""
-        if mode not in CARD_MODES:
-            return
-        self._mode = mode
-        for card in self._cards.values():
-            card.set_mode(mode)
-
-    @property
-    def mode(self) -> str:
-        return self._mode
 
     def remove_grid(self, grid: GridRecord) -> None:
         card = self._cards.pop(grid.id, None)
@@ -572,16 +496,6 @@ class GridCardContainer(QWidget):
         card = self._cards.get(self._selected_id) if self._selected_id else None
         return card.grid if card is not None else None
 
-    def clear(self) -> None:
-        for card in self._cards.values():
-            self._layout.removeWidget(card)
-            card.deleteLater()
-        self._cards.clear()
-        # Ids are stable and the host clears then re-adds the same set, so a
-        # surviving id would name a card drawn unselected while this thinks it is
-        # selected.
-        self._selected_id = None
-
     def select_grid(self, grid: Optional[GridRecord]) -> None:
         """Select programmatically. Does not emit grid_selected."""
         if self._selected_id and self._selected_id in self._cards:
@@ -590,10 +504,6 @@ class GridCardContainer(QWidget):
         if grid is not None and grid.id in self._cards:
             self._selected_id = grid.id
             self._cards[grid.id].set_selected(True)
-
-    def refresh_all(self) -> None:
-        for card in self._cards.values():
-            card.refresh()
 
     def set_controls_enabled(self, enabled: bool) -> None:
         for card in self._cards.values():
