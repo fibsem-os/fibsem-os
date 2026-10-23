@@ -3,8 +3,6 @@ ones where the beam reports none."""
 
 from __future__ import annotations
 
-import math
-
 import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
@@ -23,7 +21,6 @@ from fibsem.structures import (  # noqa: E402
     ImageSettings,
     Parameter,
     RangeLimit,
-    field_specs,
 )
 from fibsem.ui.utils import beam_spec  # noqa: E402
 from fibsem.ui.widgets.beam_settings_widget import (

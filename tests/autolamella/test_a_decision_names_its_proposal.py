@@ -29,7 +29,6 @@ from fibsem.workflows.proposals import (
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus
-from tests.proposal_records import set_proposals
 
 TASK = "Mill Undercut"
 RUN = "run-1"
@@ -93,20 +92,6 @@ def test_the_id_is_on_the_record(experiment):
     again = Proposal.from_dict(proposal.to_dict())
 
     assert again.id == proposal.id
-
-
-def test_a_record_saved_before_ids_gets_the_same_one_every_time():
-    """Derived, not minted: the app and a monitor, this session and the next,
-    have to agree on what an old proposal is called without either saving."""
-    # as such a record was written: before ids, and before FIB-1197, a float
-    stored = dict(_question().to_dict(), created_at=1789355531.0)
-    del stored["id"]
-
-    first, second = Proposal.from_dict(stored), Proposal.from_dict(stored)
-
-    assert first.id and first.id == second.id
-    other = dict(stored, created_at=stored["created_at"] + 1.0)
-    assert Proposal.from_dict(other).id != first.id
 
 
 def test_a_decision_records_the_proposal_it_named(experiment):

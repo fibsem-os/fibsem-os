@@ -48,7 +48,7 @@ def main():
     widget.update_requested.connect(lambda lam: print(f"Update: {lam.name}"))
     widget.remove_requested.connect(lambda lam: print(f"Remove: {lam.name}"))
     widget.defect_changed.connect(
-        lambda lam: print(f"Defect changed: {lam.name} -> {lam.defect.state}")
+        lambda lam: print(f"Defect changed: {lam.name} -> {lam.defect.verdict}")
     )
 
     layout.addWidget(widget)

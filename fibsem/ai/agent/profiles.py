@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from fibsem import paths
+
 PROFILE_DIR = Path(".claude") / "fibsem-agent"
 MODES = ("none", "files", "code")
 FIELDS = (
@@ -43,7 +45,7 @@ FIELDS = (
 
 
 def machine_dir() -> Path:
-    return Path.home() / ".fibsem" / "agent" / "profiles"
+    return paths.user_dir() / "agent" / "profiles"
 
 
 @dataclass(frozen=True)

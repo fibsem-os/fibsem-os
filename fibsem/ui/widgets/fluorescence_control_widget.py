@@ -1,12 +1,11 @@
 import logging
 import os
 import threading
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
-from PyQt5.QtCore import QEvent, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import QEvent, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
-    QComboBox,
     QGridLayout,
     QLabel,
     QMessageBox,
@@ -18,8 +17,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
-from fibsem import conversions, utils
-from fibsem.fm.calibration import run_autofocus
+from fibsem import conversions
 from fibsem.fm.config import record_recent_channels
 from fibsem.fm.structures import (
     AutoFocusSettings,
@@ -36,7 +34,6 @@ from fibsem.ui import notification_service
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.fm.widgets import (
     CameraWidget,
-    HistogramWidget,
     ObjectiveControlWidget,
 )
 from fibsem.ui.fm.widgets.acquisition_settings import FMAcquisitionSettingsWidget
@@ -88,7 +85,6 @@ class FMControlWidget(QWidget):
             )
         self.fm = self.microscope.fm
 
-        self.fm_resolution = self.fm.camera.resolution
         self.field_of_view = self.fm.camera.field_of_view
 
         # default settings
@@ -150,13 +146,6 @@ class FMControlWidget(QWidget):
             parent=self,
         )
 
-        # image histogram
-        self.histogramWidget = HistogramWidget(parent=self)
-        self.histogramPanel = TitledPanel(
-            "Image Histogram", content=self.histogramWidget, collapsible=True
-        )
-        self.histogramPanel.setVisible(False)  # Hide histogram by default
-
         self.pushButton_toggle_acquisition = QPushButton("Start Acquisition", self)
         self.pushButton_acquire_single_image = QPushButton("Acquire Image", self)
         self.pushButton_acquire_zstack = QPushButton("Acquire Z-Stack", self)
@@ -211,7 +200,6 @@ class FMControlWidget(QWidget):
         scroll_layout.addWidget(self.objectivePanel)
         scroll_layout.addWidget(self.cameraPanel)
         scroll_layout.addWidget(self.acquisitionSettingsWidget)
-        scroll_layout.addWidget(self.histogramPanel)
         scroll_layout.addStretch()
 
         scroll_area = QScrollArea()

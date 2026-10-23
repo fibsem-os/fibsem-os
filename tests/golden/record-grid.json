@@ -1,0 +1,324 @@
+{
+  "_id": "grid-1",
+  "created_at": "2026-10-20T09:00:00+10:00",
+  "description": "cryo",
+  "name": "grid-01",
+  "overlays": [
+    {
+      "bar_width": 9.999999747378752e-06,
+      "created_at": "2026-10-20T09:00:00+10:00",
+      "display": {
+        "opacity": 0.5
+      },
+      "dx": 1e-06,
+      "dy": 2e-06,
+      "fit": {
+        "pairs": [
+          [
+            1,
+            2
+          ],
+          [
+            3,
+            4
+          ]
+        ],
+        "residual": 0.5
+      },
+      "id": "overlay-1",
+      "kind": "gridbar",
+      "mirrored": true,
+      "pitch": 6e-05,
+      "reference": "overview.tif",
+      "rotation": 3.0,
+      "scale": 1.5,
+      "source": null,
+      "view": "SEM"
+    }
+  ],
+  "proposals": [
+    {
+      "asked_by": "task:Mill Rough",
+      "created_at": "2026-10-20T09:00:00+10:00",
+      "decisions": [
+        {
+          "action": "run",
+          "actor": "operator:operator",
+          "evidence": "evidence-1",
+          "outcome": "Confirmed",
+          "proposal_id": "proposal-1",
+          "reason": "",
+          "suggestion_id": "suggestion-1",
+          "task_id": "task-1",
+          "timestamp": "2026-10-20T09:05:30+10:00",
+          "values": {
+            "poi": {
+              "name": null,
+              "x": 2e-06,
+              "y": -2e-06
+            }
+          },
+          "via": "workflow"
+        },
+        {
+          "action": "",
+          "actor": "agent:model",
+          "evidence": "",
+          "outcome": "Rejected",
+          "proposal_id": "",
+          "reason": "off the lamella",
+          "suggestion_id": "",
+          "task_id": "",
+          "timestamp": "2026-10-20T09:05:30+10:00",
+          "values": {},
+          "via": ""
+        }
+      ],
+      "id": "proposal-1",
+      "kind": "milling",
+      "provenance": {
+        "image": "ref_image.tif",
+        "task_id": "task-1"
+      },
+      "suggestion": {
+        "action": "edit",
+        "actor": "agent:model",
+        "declined": true,
+        "declined_reason": "no",
+        "evidence": "evidence-2",
+        "id": "suggestion-1",
+        "image": "ref_image.tif",
+        "outcome": "Confirmed",
+        "patch": {
+          "depth": 1e-06
+        },
+        "reason": "closer to the centre",
+        "timestamp": "2026-10-20T09:05:30+10:00",
+        "values": {
+          "poi": {
+            "name": null,
+            "x": 3e-06,
+            "y": 0.0
+          }
+        }
+      },
+      "values": {
+        "alignment_area": {
+          "height": 0.4,
+          "left": 0.1,
+          "top": 0.2,
+          "width": 0.3
+        },
+        "features": [
+          {
+            "name": "LamellaCentre",
+            "px": {
+              "name": null,
+              "x": 10.0,
+              "y": 20.0
+            }
+          }
+        ],
+        "milling_config": {
+          "acquisition": {
+            "acquire_fib": false,
+            "acquire_final_image": true,
+            "acquire_sem": false,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            }
+          },
+          "alignment": {
+            "enabled": true,
+            "full_frame_below": 0.0,
+            "imaging": {
+              "autocontrast": false,
+              "beam_type": "ELECTRON",
+              "drift_correction": false,
+              "dwell_time": 1e-06,
+              "filename": "default_image",
+              "frame_integration": null,
+              "hfw": 0.00015,
+              "line_integration": null,
+              "path": null,
+              "reduced_area": null,
+              "resolution": [
+                1536,
+                1024
+              ],
+              "save": false,
+              "scan_interlacing": null
+            },
+            "interval": 30,
+            "interval_enabled": false,
+            "rect": {
+              "height": 0.4,
+              "left": 0.7,
+              "top": 0.3,
+              "width": 0.25
+            },
+            "steps": 3,
+            "use_autocontrast": true,
+            "use_autofocus": false
+          },
+          "channel": "ION",
+          "field_of_view": 0.00015,
+          "name": "Milling Task",
+          "stages": [
+            {
+              "enabled": true,
+              "milling": {
+                "application_file": "Si",
+                "driver": {},
+                "hfw": 8e-05,
+                "milling_channel": "ION",
+                "milling_current": 2e-09,
+                "milling_voltage": 30000.0,
+                "patterning_mode": "Serial"
+              },
+              "monitors": [
+                {
+                  "config": {
+                    "bbox": null,
+                    "consecutive_triggers": 10,
+                    "drop_fraction": 0.3,
+                    "max_pause": 60.0,
+                    "on_trigger": "suggest",
+                    "rolling_window": 10,
+                    "save_interval": 2.0,
+                    "warmup_duration": 30.0
+                  },
+                  "name": "FM Intensity"
+                },
+                {
+                  "config": {
+                    "autocontrast": true,
+                    "dwell_time": 1e-06,
+                    "hfw": 8e-05,
+                    "interval": 30.0,
+                    "max_pause": 60.0,
+                    "resolution": [
+                      1536,
+                      1024
+                    ]
+                  },
+                  "name": "SEM Peek"
+                }
+              ],
+              "name": "Rough Mill",
+              "pattern": {
+                "cross_section": "Rectangle",
+                "depth": 2e-06,
+                "fillet": 0.0,
+                "lower_trench_height": 5e-06,
+                "name": "Trench",
+                "passes": 0,
+                "point": {
+                  "name": null,
+                  "x": 0.0,
+                  "y": 0.0
+                },
+                "spacing": 5e-06,
+                "time": 0.0,
+                "upper_trench_height": 5e-06,
+                "width": 1.2e-05
+              },
+              "strategy": {
+                "config": {
+                  "acquire_fib_image": true,
+                  "bbox": null,
+                  "consecutive_triggers": 10,
+                  "intensity_drop_fraction": 0.4,
+                  "rolling_window": 10,
+                  "save_fm_images": true,
+                  "save_rate_limit": 2,
+                  "supervised": true,
+                  "timeout": 120,
+                  "warmup_duration": 30.0
+                },
+                "name": "CoincidenceMilling"
+              }
+            }
+          ]
+        },
+        "note": "kept as it is",
+        "poi": {
+          "name": null,
+          "x": 1e-06,
+          "y": -2e-06
+        },
+        "spot_burn": {
+          "coordinates": [
+            {
+              "name": null,
+              "x": 0.5,
+              "y": 0.5
+            }
+          ],
+          "exposure_time": 10.0,
+          "milling_current": 1e-10
+        },
+        "stage_position": {
+          "coordinate_system": null,
+          "name": "pos",
+          "r": 0.5,
+          "t": 0.6,
+          "x": 0.001,
+          "y": 0.002,
+          "z": 0.003
+        }
+      }
+    }
+  ],
+  "quality": {
+    "actor": "operator:op",
+    "at_task": "",
+    "decision_id": null,
+    "reason": "",
+    "updated_at": null,
+    "verdict": "GOOD"
+  },
+  "task_history": [
+    {
+      "end_timestamp": "2026-10-20T09:05:30+10:00",
+      "item_id": "",
+      "iteration": null,
+      "name": "SEM Overview",
+      "outputs": {},
+      "start_timestamp": "2026-10-20T09:00:00+10:00",
+      "status": "Completed",
+      "status_message": "",
+      "step": "",
+      "task_id": "task-9",
+      "task_type": ""
+    }
+  ],
+  "task_state": {
+    "end_timestamp": null,
+    "item_id": "grid-1",
+    "iteration": null,
+    "name": "",
+    "outputs": {},
+    "start_timestamp": "2026-10-20T09:00:00+10:00",
+    "status": "NotStarted",
+    "status_message": "",
+    "step": "",
+    "task_id": "task-10",
+    "task_type": ""
+  }
+}

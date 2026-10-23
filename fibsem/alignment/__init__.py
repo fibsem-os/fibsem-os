@@ -11,6 +11,7 @@ import numpy as np
 
 from fibsem import acquire, utils
 from fibsem.cancellation import CANCELLED, COMPLETED, ended_by
+from fibsem.constants import TIME_FILE
 from fibsem.structures import (
     BeamType,
     FibsemImage,
@@ -26,8 +27,12 @@ if TYPE_CHECKING:
 
 
 from fibsem.alignment.methods import (
-    crosscorrelation_cv2,
-    crosscorrelation_v2,
+    crosscorrelation_cv2 as crosscorrelation_cv2,
+)
+from fibsem.alignment.methods import (
+    crosscorrelation_v2 as crosscorrelation_v2,
+)
+from fibsem.alignment.methods import (
     shift_from_crosscorrelation,
     shift_from_crosscorrelation_v2,
     shift_from_skimage_phase_correlation,
@@ -578,7 +583,7 @@ def _multi_step_alignment(
                     f"{validation.max_disagreement_px:.2f}px across methods."
                 )
 
-    ts = utils.current_timestamp_v3(timeonly=True)
+    ts = utils.current_timestamp(TIME_FILE)
     run = AlignmentResult(
         name=f"{run_name}-{ts}",
         reference_image=ref_image,

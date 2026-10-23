@@ -686,6 +686,69 @@ class SavedExperiments:
 
 
 @dataclass
+class ExportFieldRow:
+    """One value an export's bar can show (`fibsem.imaging.export.ExportField`)."""
+
+    key: str
+    name: str
+    # printed before the value; empty for one that reads as itself
+    label: str
+    value: str
+    # what the label stands for
+    title: str
+
+
+@dataclass
+class ExportChannel:
+    name: str
+    color: str  # #rrggbb
+
+
+@dataclass
+class ImageExportForm:
+    """What the image export offers for one image: its starting options
+    (`ExportOptions`) and every value its bar can show."""
+
+    path: str
+    kind: str
+    width: int
+    height: int
+    pixel_size: Optional[float]
+    adjustable: bool
+    auto_contrast: List[float]
+    options: Dict[str, Any]
+    default_provenance: List[str]
+    fields: List[ExportFieldRow]
+    provenance: List[ExportFieldRow]
+    channels: List[ExportChannel]
+    scalebar_locations: List[str]
+    formats: List[str]
+
+
+@dataclass
+class AnimationFrameRow:
+    """One frame of an item's animation: a task, the beams it can draw, its
+    files in the experiment."""
+
+    index: int
+    title: str
+    beams: List[str]
+    paths: List[str]
+    fluorescence: List[str]
+
+
+@dataclass
+class AnimationFrames:
+    item_name: str
+    frames: List[AnimationFrameRow]
+    # `AnimationOptions` as a new animation starts
+    options: Dict[str, Any]
+    beams: List[str]
+    magnifications: List[str]
+    formats: List[str]
+
+
+@dataclass
 class FileRead:
     """One file of an experiment as its kind reads: a folder as its listing,
     text as text, an image as a preview, anything else as its entry."""
@@ -1036,7 +1099,7 @@ class GridEdit(Edit):
     was: Optional[str] = None
     added: Optional[List[str]] = None
     grid_names: Optional[List[str]] = None
-    # the verdict and its reason (`GridQuality.to_dict`)
+    # the verdict and its reason (`QualityRecord.to_dict`)
     quality: Optional[Dict[str, Any]] = None
     note: Optional[str] = None
     items_without_grid: Optional[List[str]] = None
@@ -1112,9 +1175,6 @@ class AgentRequestView:
     cancel_reason: str = ""
     # one per action run: tool, status_code, ok, and the route's answer
     results: List[Dict[str, Any]] = field(default_factory=list)
-    expires_at: Optional[float] = None
-    # what lapsing does, while it can lapse
-    on_expiry: Optional[str] = None
     # the beam image the card draws the actions' values on
     image: Optional[str] = None
     # what the agent judged from (`fibsem.workflows.evidence`, its record)

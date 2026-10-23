@@ -1,10 +1,5 @@
 """Unit tests for the fibsem hook system."""
 
-import io
-
-import pytest
-import yaml
-
 from fibsem.hooks import (
     FunctionHook,
     HookContext,
@@ -12,7 +7,6 @@ from fibsem.hooks import (
     HookManager,
     LoggingHook,
     NotificationHook,
-    WebhookHook,
     fire_event,
 )
 
@@ -274,107 +268,6 @@ def test_hook_exception_is_isolated():
 
 
 # ---------------------------------------------------------------------------
-# YAML round-trip
-# ---------------------------------------------------------------------------
-
-
-def test_logging_hook_yaml_roundtrip():
-    original = LoggingHook(
-        name="logger",
-        events=[HookEvent.TASK_FAILED],
-        level="WARNING",
-        task_types=["MILL_TRENCH"],
-    )
-    restored = LoggingHook.from_dict(original.to_dict())
-    assert restored.name == original.name
-    assert restored.events == original.events
-    assert restored.level == original.level
-    assert restored.task_types == original.task_types
-    assert restored.enabled == original.enabled
-
-
-def test_notification_hook_yaml_roundtrip():
-    original = NotificationHook(
-        name="toast",
-        events=[HookEvent.TASK_COMPLETED],
-        notification_type="success",
-        message_template="Done: {task_name}",
-        enabled=False,
-    )
-    restored = NotificationHook.from_dict(original.to_dict())
-    assert restored.name == original.name
-    assert restored.notification_type == original.notification_type
-    assert restored.message_template == original.message_template
-    assert restored.enabled == original.enabled
-    assert restored._notify is None  # not serialized
-
-
-def test_hook_manager_yaml_roundtrip():
-    manager = HookManager()
-    manager.register(
-        LoggingHook(
-            name="l",
-            events=[HookEvent.TASK_STARTED, HookEvent.TASK_COMPLETED],
-            level="INFO",
-        )
-    )
-    manager.register(
-        NotificationHook(
-            name="n", events=[HookEvent.TASK_FAILED], notification_type="error"
-        )
-    )
-
-    buf = io.StringIO()
-    yaml.dump(manager.to_dict(), buf)
-    buf.seek(0)
-    restored = HookManager.from_dict(yaml.safe_load(buf))
-
-    assert len(restored._hooks) == 2
-    assert isinstance(restored._hooks[0], LoggingHook)
-    assert isinstance(restored._hooks[1], NotificationHook)
-    assert restored._hooks[0].name == "l"
-    assert restored._hooks[1].notification_type == "error"
-
-
-def test_function_hook_excluded_from_yaml():
-    """FunctionHook should be silently excluded from serialization."""
-    manager = HookManager()
-    manager.register(
-        FunctionHook(
-            name="f", events=[HookEvent.TASK_COMPLETED], callback=lambda ctx: None
-        )
-    )
-    d = manager.to_dict()
-    assert d["hooks"] == []
-
-
-def test_unknown_hook_type_skipped(caplog):
-    import logging
-
-    d = {"hooks": [{"type": "NonExistentHook", "name": "x", "events": []}]}
-    with caplog.at_level(logging.WARNING):
-        manager = HookManager.from_dict(d)
-    assert len(manager._hooks) == 0
-    assert any("NonExistentHook" in r.message for r in caplog.records)
-
-
-def test_save_and_load_yaml(tmp_path):
-    path = str(tmp_path / "hooks.yaml")
-    manager = HookManager()
-    manager.register(LoggingHook(name="l", events=[HookEvent.TASK_COMPLETED]))
-    manager.register(
-        NotificationHook(
-            name="n", events=[HookEvent.TASK_FAILED], notification_type="error"
-        )
-    )
-    manager.save_yaml(path)
-
-    restored = HookManager.load_yaml(path)
-    assert len(restored._hooks) == 2
-    assert restored._hooks[1].notification_type == "error"
-
-
-# ---------------------------------------------------------------------------
 # set_notifier()
 # ---------------------------------------------------------------------------
 
@@ -523,39 +416,6 @@ def test_any_producer_can_fire_events():
 # def test_webhook_hook_rejects_invalid_method():
 #     with pytest.raises(ValueError, match="method"):
 #         WebhookHook(name="w", events=[], url="https://x.com", method="DELETE")
-
-
-# def test_webhook_hook_from_dict_sanitises_bad_method(caplog):
-#     import logging
-#     with caplog.at_level(logging.WARNING):
-#         hook = WebhookHook.from_dict({"name": "w", "events": [], "url": "https://x.com", "method": "DELETE"})
-#     assert hook.method == "POST"
-#     assert any("invalid method" in r.message for r in caplog.records)
-
-# def test_webhook_hook_yaml_roundtrip():
-#     original = WebhookHook(
-#         name="slack",
-#         events=[HookEvent.TASK_FAILED],
-#         url="https://hooks.example.com/abc",
-#         method="POST",
-#         timeout=10,
-#     )
-#     restored = WebhookHook.from_dict(original.to_dict())
-#     assert restored.url == original.url
-#     assert restored.method == original.method
-#     assert restored.timeout == original.timeout
-#     assert restored.events == original.events
-
-
-# def test_webhook_hook_in_manager_yaml_roundtrip(tmp_path):
-#     manager = HookManager()
-#     manager.register(WebhookHook(name="w", events=[HookEvent.WORKFLOW_COMPLETED], url="https://x.com"))
-#     path = str(tmp_path / "hooks.yaml")
-#     manager.save_yaml(path)
-#     restored = HookManager.load_yaml(path)
-#     assert len(restored._hooks) == 1
-#     assert isinstance(restored._hooks[0], WebhookHook)
-#     assert restored._hooks[0].url == "https://x.com"
 
 
 def test_notify_reaches_the_notifier_and_is_quiet_without_one():

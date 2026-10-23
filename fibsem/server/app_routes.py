@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
-from fibsem.server import files
+from fibsem.server import exports, files
 from fibsem.server.auth import refuse_dashboard, take_control
 from fibsem.server.parts import (
     GRIDS,
@@ -35,6 +35,7 @@ from fibsem.server.parts import (
     served_parts,
 )
 from fibsem.server.responses import (
+    AnimationFrames,
     AppStatus,
     ConfigEdit,
     Decided,
@@ -52,6 +53,7 @@ from fibsem.server.responses import (
     Grids,
     GridTasksQueued,
     ImageDrawn,
+    ImageExportForm,
     ImagePairDrawn,
     ItemDetail,
     ItemEdit,
@@ -332,6 +334,33 @@ def _app_type(context: Any, base: type) -> type:
 _JPEG = {200: {"content": {"image/jpeg": {}}, "description": "A JPEG image."}}
 # A file read raw (``raw=true``) answers the file as it is.
 _RAW_FILE = {200: {"content": {"application/octet-stream": {}}}}
+# An export answers the file it makes, to download.
+_EXPORT = {
+    200: {
+        "content": {exports.MEDIA_TYPES[ext]: {} for ext in exports.MEDIA_TYPES},
+        "description": "The exported file.",
+    }
+}
+
+
+def _download(content: bytes, name: str) -> Response:
+    """*content* as the file *name*, for a browser to save."""
+    return Response(
+        content,
+        media_type=exports.MEDIA_TYPES[os.path.splitext(name)[1]],
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"},
+    )
+
+
+def _export_body(body: Dict[str, Any], default_format: str):
+    """An export's options (None: the dialog's defaults) and format."""
+    options = body.get("options")
+    if options is not None and not isinstance(options, dict):
+        raise _missing_field("options, when given, is an object.")
+    fmt = body.get("format", default_format)
+    if not isinstance(fmt, str):
+        raise _missing_field("format, when given, is a string.")
+    return options, fmt
 
 
 def build_app_router(context: Any) -> APIRouter:
@@ -804,6 +833,50 @@ def build_app_router(context: Any) -> APIRouter:
         )
         _record_read(experiment, path, False)
         return JSONResponse(jsonable_encoder(answer), headers=cache)
+
+    # -- exports: the Qt export dialogs' files, for a person to download ---------
+    # Each renders, so a POST computes and changes nothing; FastAPI runs these
+    # plain functions in its threadpool, off the event loop.
+
+    @router.get("/experiment/export/image/options", response_model=ImageExportForm)
+    def image_export_form(path: str, experiment: Optional[str] = None):
+        return answer(_files_answer(experiment, exports.image_form, path))
+
+    @router.post("/experiment/export/image", responses=_EXPORT)
+    def export_image(body: Dict[str, Any], experiment: Optional[str] = None):
+        path = _required_text(body, "path", "an image inside the experiment")
+        options, fmt = _export_body(body, "png")
+        content, name = _files_answer(
+            experiment, exports.image_file, path, options, fmt
+        )
+        return _download(content, name)
+
+    def _animation_steps(item_name: str) -> Dict[str, Any]:
+        return _answer_or_refusal(context.animation_steps(item_name))
+
+    @router.get(
+        "/experiment/export/animation/frames",
+        response_model=AnimationFrames,
+        tags=[LAMELLAE],
+    )
+    def animation_frames(item_name: str):
+        found = _animation_steps(item_name)
+        return answer(
+            exports.animation_frames(found["root"], found["item_name"], found["steps"])
+        )
+
+    @router.post("/experiment/export/animation", responses=_EXPORT, tags=[LAMELLAE])
+    def export_animation(body: Dict[str, Any]):
+        item_name = _required_text(body, "item_name", "the lamella to animate")
+        options, fmt = _export_body(body, "gif")
+        found = _animation_steps(item_name)
+        try:
+            content, name = exports.animation_file(
+                found["item_name"], found["steps"], options, fmt
+            )
+        except files.FileRefusal as refusal:
+            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
+        return _download(content, name)
 
     @router.get("/workflow/proposals", response_model=Proposals)
     def proposals():

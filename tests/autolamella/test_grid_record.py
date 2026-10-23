@@ -8,14 +8,11 @@ or leaves the magazine. Experiments written before records existed load with non
 import yaml
 
 from fibsem import utils
-from fibsem.applications.autolamella.structures import (
-    Experiment,
-    GridQuality,
-    Lamella,
-)
+from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import SampleGrid
 from fibsem.workflows.grids import GridRecord
+from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
 from tests.fixtures.demo_stage import demo_grid_loader
 
@@ -37,26 +34,26 @@ class TestGridRecord:
     def test_defaults(self):
         grid = GridRecord(name="grid-aspen")
         assert grid.id
-        assert grid.quality.verdict is GridQuality.UNASSESSED
+        assert grid.quality.verdict is Verdict.UNASSESSED
         assert grid.task_history == []
         assert not grid.is_failure
 
     def test_round_trip(self):
         grid = GridRecord(name="grid-aspen", description="HeLa, batch B")
-        grid.quality.verdict = GridQuality.GOOD
+        grid.quality.verdict = Verdict.GOOD
         done = TaskState(name="overview_sem", status=TaskStatus.Completed)
         grid.task_history.append(done)
         again = GridRecord.from_dict(yaml.safe_load(yaml.safe_dump(grid.to_dict())))
         assert again.id == grid.id
         assert again.name == "grid-aspen"
         assert again.description == "HeLa, batch B"
-        assert again.quality.verdict is GridQuality.GOOD
+        assert again.quality.verdict is Verdict.GOOD
         assert again.has_completed_task("overview_sem")
         assert again.created_at == grid.created_at
 
     def test_unknown_quality_reads_as_unassessed(self):
         again = GridRecord.from_dict({"name": "g", "quality": "SPLENDID"})
-        assert again.quality.verdict is GridQuality.UNASSESSED
+        assert again.quality.verdict is Verdict.UNASSESSED
 
     def test_missing_id_gets_one(self):
         again = GridRecord.from_dict({"name": "g"})
@@ -99,11 +96,11 @@ class TestExperimentGrids:
     def test_persists_and_old_files_load_with_none(self, tmp_path):
         exp = _experiment(tmp_path)
         grid = exp.add_grid(GridRecord(name="grid-aspen"))
-        grid.quality.verdict = GridQuality.POOR
+        grid.quality.verdict = Verdict.FAILED
         data = exp.to_dict()
         again = Experiment.from_dict(yaml.safe_load(yaml.safe_dump(data)))
         assert [g.name for g in again.grids] == ["grid-aspen"]
-        assert again.grids[0].quality.verdict is GridQuality.POOR
+        assert again.grids[0].quality.verdict is Verdict.FAILED
         assert again.grids[0].id == grid.id
 
         del data["grids"]  # an experiment written before grid records existed
@@ -179,9 +176,9 @@ class TestSyncFromInventory:
         microscope = self._compustage()
         exp = _experiment(tmp_path)
         exp.sync_grids_from_inventory(microscope.sample_handling)
-        exp.get_grid_by_name("Grid-01").quality.verdict = GridQuality.GOOD
+        exp.get_grid_by_name("Grid-01").quality.verdict = Verdict.GOOD
         assert exp.sync_grids_from_inventory(microscope.sample_handling) == []
-        assert exp.get_grid_by_name("Grid-01").quality.verdict is GridQuality.GOOD
+        assert exp.get_grid_by_name("Grid-01").quality.verdict is Verdict.GOOD
 
     def test_a_record_exists_before_its_grid_is_in_the_beam(self, tmp_path):
         microscope = self._compustage()

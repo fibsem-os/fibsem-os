@@ -62,7 +62,7 @@ def _microscope(configuration: str):
     slow, and neither of these tests mutates the stage."""
     if configuration not in _sessions:
         _sessions[configuration] = utils.setup_session(
-            config_path=os.path.join(cfg.CONFIG_PATH, configuration),
+            config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, configuration),
             setup_logging=False,
         )[0]
     return _sessions[configuration]

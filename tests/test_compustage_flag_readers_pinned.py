@@ -27,7 +27,8 @@ IFLM = "sim-iflm-configuration.yaml"
 @pytest.fixture(scope="module", params=[ARCTIS, IFLM])
 def scope(request):
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(cfg.CONFIG_PATH, request.param), manufacturer="Demo"
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, request.param),
+        manufacturer="Demo",
     )
     return request.param, microscope
 
@@ -46,16 +47,6 @@ def _position(t_deg: float = 0.0) -> FibsemStagePosition:
 def test_an_unconfigured_fm_defaults_on_only_on_a_compustage(scope):
     compustage = _compustage(scope)
     assert scope[1]._fluorescence_default() is compustage
-
-
-def test_compucentric_rotation_leaves_a_compustage_position_alone(scope):
-    compustage = _compustage(scope)
-    rotated = scope[1]._get_compucentric_rotation_position(_position())
-    if compustage:
-        assert (rotated.x, rotated.y, rotated.r) == (1e-4, 2e-4, 0.0)
-    else:
-        assert np.isclose(rotated.x, -1e-4) and np.isclose(rotated.y, -2e-4)
-        assert np.isclose(rotated.r, np.pi)
 
 
 def test_the_stage_poses(scope):

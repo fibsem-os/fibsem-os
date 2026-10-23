@@ -339,8 +339,8 @@ def _prefs(monkeypatch, sem: bool, fib: bool):
     from fibsem import config as cfg
 
     prefs = cfg.UserPreferences()
-    prefs.movement.acquire_sem_after_stage_movement = sem
-    prefs.movement.acquire_fib_after_stage_movement = fib
+    prefs.qt.acquire_sem_after_stage_movement = sem
+    prefs.qt.acquire_fib_after_stage_movement = fib
     monkeypatch.setattr(cfg, "load_user_preferences", lambda: prefs)
 
 

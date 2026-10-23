@@ -25,7 +25,6 @@ Arctis (compustage, scan rotation pi, FLIP_XY) and METEOR (Aquilos2 offset mount
 from __future__ import annotations
 
 import dataclasses
-import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, Tuple
 

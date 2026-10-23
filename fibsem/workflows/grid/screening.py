@@ -12,10 +12,9 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from typing import TYPE_CHECKING, Dict, List, Mapping, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Mapping
 
 from fibsem.structures import GridInventoryEntry
-from fibsem.workflows.grid.manager import plan_grid_run
 from fibsem.workflows.grid.naming import grid_rename_refusal, name_slot_grid
 
 if TYPE_CHECKING:
@@ -126,15 +125,3 @@ def name_and_record_grids(
         logging.info(f"Recorded {len(added)} grid(s): {[g.name for g in added]}")
     experiment.save()
     return [final[e.slot_name] for e in inventory if e.slot_name in final]
-
-
-def screening_plan(
-    microscope: "FibsemMicroscope",
-    experiment: "GridExperiment",
-    task_names: Optional[List[str]] = None,
-) -> List[Tuple[str, str]]:
-    """What "Screen all grids" would run, for a confirmation: the load and task
-    steps per present grid. Refreshes the inventory to answer."""
-    if task_names is None:
-        task_names = experiment.grid_protocol.ordered_task_names
-    return plan_grid_run(task_names, present_grids(microscope, experiment))

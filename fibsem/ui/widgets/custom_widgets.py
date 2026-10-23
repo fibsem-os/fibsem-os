@@ -400,12 +400,6 @@ class ContextMenuConfig:
         )
         return self
 
-    def add_separator(self) -> "ContextMenuConfig":
-        """Mark the previous action to have a separator after it."""
-        if self.actions:
-            self.actions[-1].separator_after = True
-        return self
-
 
 class ContextMenu(QMenu):
     """A reusable context menu widget.
@@ -459,28 +453,6 @@ class ContextMenu(QMenu):
             If the action has a callback, it will be executed automatically.
         """
         selected_action = self.exec_(QCursor.pos())
-
-        if selected_action is None:
-            return None
-
-        menu_action = self._action_map.get(selected_action)
-        if menu_action:
-            self.actionTriggered.emit(menu_action)
-            if menu_action.callback:
-                self._invoke_action_callback(menu_action)
-
-        return menu_action
-
-    def show_at_position(self, pos) -> Optional[ContextMenuAction]:
-        """Show the menu at a specific position.
-
-        Args:
-            pos: QPoint position to show the menu at.
-
-        Returns:
-            The selected ContextMenuAction, or None if cancelled.
-        """
-        selected_action = self.exec_(pos)
 
         if selected_action is None:
             return None
