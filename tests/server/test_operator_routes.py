@@ -266,6 +266,7 @@ def test_the_operator_sets_the_level_and_stops_the_agent(server):
     assert server.config.level is AgentLevel.DRIVE
     state = server.get("/app/agent", headers=server.operator).json()
     assert state["level"] == "drive" and not state["stopped"]
+    assert state["chip"] == "Agent: Driving"
 
     answer = server.post("/app/agent/stop", headers=server.operator)
     assert answer.status_code == 200, answer.text
@@ -304,8 +305,9 @@ def test_the_agent_cannot_approve_its_own_request(server):
         f"/app/agent/requests/{request_id}/approve", headers=server.agent
     )
     assert answer.status_code == 403
-    waiting = server.get("/app/agent", headers=server.operator).json()["request"]
-    assert waiting["request_id"] == request_id
+    state = server.get("/app/agent", headers=server.operator).json()
+    assert state["request"]["request_id"] == request_id
+    assert state["chip"] == "Agent asks"
 
 
 def test_the_operator_approves_a_request(server):
