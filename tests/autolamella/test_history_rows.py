@@ -557,7 +557,7 @@ def test_decided_by_keeps_the_runs_whose_proposals_they_decided(tmp_path):
     assert HistoryFilter(decided_by="agent").active
 
 
-def test_a_saved_filter_round_trips_and_anything_unknown_shows_everything():
+def test_a_saved_filter_round_trips_and_refuses_what_it_does_not_have():
     flt = HistoryFilter(
         show="operations",
         status="failed",
@@ -567,14 +567,8 @@ def test_a_saved_filter_round_trips_and_anything_unknown_shows_everything():
     )
 
     assert HistoryFilter.from_dict(flt.to_dict()) == flt and flt.active
-    unknown = {
-        "show": "pictures",
-        "status": 3,
-        "task": "",
-        "decided_by": "cat",
-        "order": 1,
-    }
-    assert HistoryFilter.from_dict(unknown) == HistoryFilter()
+    with pytest.raises(ValueError):
+        HistoryFilter.from_dict({"show": "pictures"})
     assert HistoryFilter.from_dict(None) == HistoryFilter()
     assert not HistoryFilter().active
 
