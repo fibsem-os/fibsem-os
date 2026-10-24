@@ -33,7 +33,9 @@
   },
   "id": "pinned-protocol-id",
   "lamella_defaults": {
+    "alignment_area": null,
     "name_prefix": "",
+    "poi": null,
     "use_petname": true
   },
   "name": "autolamella-flat-on-grid",
