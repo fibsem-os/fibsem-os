@@ -65,9 +65,6 @@ class AppWindow(QMainWindow):
         # The microscope, the open experiment and the connection's event
         # stream are the session's; this window is one client of it.
         self.session = AppSession()
-        # Before the app's own slots: its views are built for the microscope
-        # by the time it hears one.
-        self._session_changed.connect(self._follow_connection)
         self.setWindowTitle(f"{title} v{get_version_string()} ")
         self.resize(1600, 1000)
 
@@ -133,8 +130,14 @@ class AppWindow(QMainWindow):
         """Call `_on_session_changed` on the GUI thread for each of the
         session's changes, until the window closes."""
         self._stop_following_session = connect_on_gui_thread(
-            self, self.session.changed, self._on_session_changed
+            self, self.session.changed, self._hear_session
         )
+
+    def _hear_session(self, what: str, detail: Any = None) -> None:
+        # The connection first: the app's views are built for the microscope
+        # by the time it hears one.
+        self._follow_connection(what, detail)
+        self._on_session_changed(what, detail)
 
     def _on_session_changed(self, what: str, detail: Any = None) -> None:
         """The session's microscope, experiment or protocol changed."""
