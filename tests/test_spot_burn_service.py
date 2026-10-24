@@ -17,20 +17,18 @@ from fibsem.drivers.demo.services import DemoSpotBurn
 from fibsem.imaging.spot import SpotBurnSettings, SpotBurnStatus, run_spot_burn
 from fibsem.services import Service
 from fibsem.structures import BeamType, Point, ScanMode
+from tests.fixtures.microscopes import demo_microscope
 
 IMAGING_CURRENT = 2e-11
 BURN_CURRENT = 9e-11
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=cfg.DEFAULT_CONFIGURATION_PATH,
-        manufacturer="Demo",
-        setup_logging=False,
-    )
+microscope = demo_microscope(scope="function")
+
+
+@pytest.fixture(autouse=True)
+def _imaging_current(microscope):
     microscope.set_beam_current(IMAGING_CURRENT, BeamType.ION)
-    return microscope
 
 
 @pytest.fixture

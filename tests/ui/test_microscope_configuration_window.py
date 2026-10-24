@@ -282,21 +282,6 @@ def test_the_session_tab_shows_this_configuration_s_file(qapp, microscope):
 
 
 @pytest.fixture
-def toasts(monkeypatch):
-    from fibsem.ui import notification_service
-
-    shown = []
-    monkeypatch.setattr(
-        notification_service,
-        "show_toast",
-        lambda message, notification_type="info": shown.append(
-            (notification_type, message)
-        ),
-    )
-    return shown
-
-
-@pytest.fixture
 def site(tmp_path):
     """A copy of a shipped configuration, so Save writes somewhere disposable."""
     import shutil

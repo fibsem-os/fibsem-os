@@ -11,9 +11,7 @@ import numpy as np
 import pytest
 
 from fibsem.fm.structures import (
-    FluorescenceChannelMetadata,
     FluorescenceImage,
-    FluorescenceImageMetadata,
 )
 from fibsem.imaging.export import (
     CROSSHAIR_COLOR,
@@ -41,6 +39,7 @@ from fibsem.structures import (
     FibsemImage,
     MicroscopeState,
 )
+from tests.fixtures.fm_images import fm_image, gfp
 
 
 def _sem_image(voltage=2e3, current=50e-12, experiment=None) -> FibsemImage:
@@ -65,28 +64,21 @@ def _fm_image() -> FluorescenceImage:
     data[0, :, 100:120, 100:120] = 40000
     data[1, :, 10:20, 10:20] = 40000
     channels = [
-        FluorescenceChannelMetadata(
+        gfp(
             name=name,
             excitation_wavelength=wavelength,
-            power=0.5,
-            exposure_time=0.1,
-            gain=1.0,
-            offset=0.0,
             color=color,
             objective_magnification=100,
             objective_numerical_aperture=0.85,
         )
         for name, wavelength, color in [("DAPI", 365, "cyan"), ("GFP", 470, "green")]
     ]
-    return FluorescenceImage(
-        data=data,
-        metadata=FluorescenceImageMetadata(
-            acquisition_datetime="2026-10-02T14:48:00",
-            pixel_size_x=65e-9,
-            pixel_size_y=65e-9,
-            channels=channels,
-            z_positions=[0.0, 0.5e-6, 1.0e-6],
-        ),
+    return fm_image(
+        data,
+        channels,
+        pixel_size=65e-9,
+        acquired="2026-10-02T14:48:00",
+        z_positions=[0.0, 0.5e-6, 1.0e-6],
     )
 
 

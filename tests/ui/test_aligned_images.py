@@ -20,11 +20,6 @@ pytest.importorskip("PyQt5")
 
 import fibsem.config as fibsem_config
 from fibsem import utils
-from fibsem.fm.structures import (
-    FluorescenceChannelMetadata,
-    FluorescenceImage,
-    FluorescenceImageMetadata,
-)
 from fibsem.imaging.overview_session import OverviewSession
 from fibsem.structures import (
     BeamType,
@@ -35,6 +30,7 @@ from fibsem.structures import (
 )
 from fibsem.ui.widgets.canvas.aligned_images import decompose
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
+from tests.fixtures.fm_images import fm_image, gfp, noise
 
 
 @pytest.fixture(scope="module")
@@ -78,27 +74,12 @@ def _beam_image(scope, orientation, beam_type):
 
 
 def _fm_image(scope, position, size=64, pixel_size=1e-6):
-    image = FluorescenceImage(
-        data=(np.random.default_rng(2).random((1, 1, size, size)) * 4000).astype(
-            np.uint16
-        ),
-        metadata=FluorescenceImageMetadata(
-            acquisition_datetime="2026-09-23T10:00:00",
-            pixel_size_x=pixel_size,
-            pixel_size_y=pixel_size,
-            stage_position=position,
-            channels=[
-                FluorescenceChannelMetadata(
-                    name="GFP",
-                    excitation_wavelength=488.0,
-                    power=0.5,
-                    exposure_time=0.1,
-                    gain=1.0,
-                    offset=0.0,
-                    color="cyan",
-                )
-            ],
-        ),
+    image = fm_image(
+        noise(size, seed=2),
+        [gfp(color="cyan")],
+        pixel_size=pixel_size,
+        acquired="2026-09-23T10:00:00",
+        stage_position=position,
     )
     image.metadata.geometry = scope.fm_image_geometry()
     return image

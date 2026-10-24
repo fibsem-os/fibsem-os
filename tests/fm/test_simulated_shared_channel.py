@@ -21,17 +21,13 @@ import pytest
 
 from fibsem.drivers.demo.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
 from fibsem.structures import BeamType, ImageSettings
+from tests.fixtures.microscopes import demo_microscope
 
 STOLEN = "Imaging channel changed"
 
 
-@pytest.fixture
-def microscope():
-    from fibsem import utils
-
-    scope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    assert scope.fm is not None, "the simulated compustage system should have an FM"
-    return scope
+# The default configuration is the simulated compustage system, which has an FM.
+microscope = demo_microscope(scope="function")
 
 
 @pytest.fixture

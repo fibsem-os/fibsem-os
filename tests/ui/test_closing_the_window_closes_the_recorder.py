@@ -12,6 +12,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from tests.fixtures.main_window import quit_stubbed
+
 pytest.importorskip("PyQt5")
 
 from psygnal.containers import EventedDict  # noqa: E402
@@ -40,14 +42,10 @@ def window(qapp):
     win = module.AutoLamellaWindow()
     win.system_widget.connect_to_microscope()
     microscope = win.microscope
-    original_quit = qapp.quit
-    qapp.quit = lambda: None
-    try:
+    with quit_stubbed(qapp):
         yield win
-    finally:
-        qapp.quit = original_quit
-        win.session.stop_recording()  # if the test did not get to close
-        microscope.disconnect()
+    win.session.stop_recording()  # if the test did not get to close
+    microscope.disconnect()
 
 
 def test_closing_the_window_writes_the_last_edit_and_stops_the_writer(window, tmp_path):
