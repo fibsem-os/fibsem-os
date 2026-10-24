@@ -16,7 +16,7 @@ from PyQt5.QtCore import QRectF
 from fibsem import utils
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.geometry.stage_places import HOLDER_PAD_M
-from fibsem.structures import FibsemStagePosition, SlotCalibration
+from fibsem.structures.settings import FibsemStagePosition, SlotCalibration
 from fibsem.ui.widgets.canvas.chamber_view import MAP, SIDE
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import GRID_BOUNDARY_RADIUS_M
 from fibsem.ui.widgets.canvas.overlays.stage_context import holder_slots

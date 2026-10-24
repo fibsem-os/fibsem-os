@@ -8,14 +8,15 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 
-from fibsem.structures import BeamType, FibsemRectangle
+from fibsem.codec import decode, encode
+from fibsem.structures.settings import BeamType, FibsemRectangle
 
 if TYPE_CHECKING:
-    from fibsem.structures import FibsemImage, ImageStats
+    from fibsem.structures.image import FibsemImage, ImageStats
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +40,15 @@ class AutoContrastBrightnessSettings:
     mean_tolerance: float = 0.05
     saturation_limit: float = 0.005
     min_range_utilisation: float = 0.6
-    probe_resolution: tuple = (512, 384)
+    probe_resolution: Tuple[int, int] = (512, 384)
     probe_dwell_time: float = 0.2e-6
 
     def to_dict(self) -> dict:
-        return dataclasses.asdict(self)
+        return encode(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AutoContrastBrightnessSettings":
-        return cls(**d)
+        return decode(cls, d)
 
 
 @dataclass
@@ -70,7 +71,7 @@ class AutoContrastBrightnessIteration:
 
     @classmethod
     def from_dict(cls, d: dict, result_dir: Path) -> "AutoContrastBrightnessIteration":
-        from fibsem.structures import FibsemImage, ImageStats
+        from fibsem.structures.image import FibsemImage, ImageStats
 
         return cls(
             brightness=d["brightness"],
@@ -157,7 +158,7 @@ class AutoContrastBrightnessResult:
             for it_data in data["iterations"]
         ]
 
-        from fibsem.structures import FibsemImage, ImageStats
+        from fibsem.structures.image import FibsemImage, ImageStats
 
         final_image = FibsemImage.load(str(result_dir / "final.tif"))
         final_stats = ImageStats(**data["final_stats"])
@@ -199,7 +200,7 @@ def run_auto_contrast_brightness(
         ``AutoContrastBrightnessResult`` with the final probe image, stats, convergence
         flag, and the full per-iteration history.
     """
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     if settings is None:
         settings = AutoContrastBrightnessSettings()

@@ -5,7 +5,7 @@ import pytest
 from fibsem.milling.properties import distance_param
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategyConfig
 from fibsem.milling.strategy.overtilt import OvertiltTrenchMillingConfig
-from fibsem.structures import RangeLimit
+from fibsem.structures.params import RangeLimit
 
 
 def test_a_distance_is_metres_shown_in_microns():

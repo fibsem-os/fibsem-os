@@ -101,23 +101,21 @@ from fibsem.devices.wire import (
     to_wire,
 )
 from fibsem.drivers.registry import DeviceBuilder, get_driver
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.params import Limits, RangeLimit
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
-    Limits,
     Point,
-    RangeLimit,
 )
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import BuildContext
     from fibsem.fm.remote import RemoteFluorescenceMicroscope
-    from fibsem.structures import DeviceEntry
+    from fibsem.structures.system import DeviceEntry
 
 READ_TIMEOUT = 5.0
 # Commands that stop something, which carry a reason (fibsem.server.server).

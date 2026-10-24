@@ -118,7 +118,7 @@ def test_loading_a_configuration_loads_its_fm_working_state(tmp_path, monkeypatc
 def test_reading_a_configuration_dict_does_not_read_the_disk(monkeypatch):
     """`MicroscopeSettings.from_dict` is a function of the dict it is given."""
     from fibsem import fm
-    from fibsem.structures import MicroscopeSettings
+    from fibsem.structures.system import MicroscopeSettings
 
     def refuse(*args, **kwargs):
         raise AssertionError("from_dict read session state")

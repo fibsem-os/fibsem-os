@@ -51,12 +51,12 @@ from fibsem.devices.core import (
     plain,
     query,
 )
-from fibsem.structures import (
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import (
     BEAMS_STAGE_DEVICE,
     KNOWN_ORIENTATIONS,
     STAGE_FRAME_FIBSEM,
-    FibsemStagePosition,
-    RangeLimit,
 )
 
 STAGE_RESOURCE = "stage"

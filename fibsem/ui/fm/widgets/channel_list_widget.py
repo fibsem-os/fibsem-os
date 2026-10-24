@@ -38,6 +38,12 @@ from fibsem.fm.structures import (
     EmissionFilter,
     is_same_filter,
 )
+from fibsem.theme.tokens import (
+    BORDER_COLOR,
+    CANVAS_BG,
+    NEUTRAL_700,
+    ORANGE_COLOR,
+)
 from fibsem.ui import stylesheets
 from fibsem.ui.fm.widgets.emission_filter_combo import EmissionFilterComboBox
 from fibsem.ui.fm.widgets.fm_limits import (
@@ -51,12 +57,6 @@ from fibsem.ui.fm.widgets.fm_limits import (
     stored_channel_value,
 )
 from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
-from fibsem.ui.tokens import (
-    BORDER_COLOR,
-    CANVAS_BG,
-    NEUTRAL_700,
-    ORANGE_COLOR,
-)
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox
 from fibsem.ui.widgets.lists import ReorderableListWidget
 from fibsem.ui.widgets.milling_stage_list_widget import unique_name

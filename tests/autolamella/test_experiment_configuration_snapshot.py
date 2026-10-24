@@ -13,7 +13,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.structures import CONFIGURATION_VERSION, SystemSettings
+from fibsem.structures.system import CONFIGURATION_VERSION, SystemSettings
 from tests.fixtures.microscopes import demo_microscope
 
 microscope = demo_microscope(scope="function")

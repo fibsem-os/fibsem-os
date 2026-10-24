@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from fibsem.detection.detection import DetectedFeatures
     from fibsem.fm.structures import ChannelSettings
     from fibsem.milling.tasks import FibsemMillingTaskConfig
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 __all__ = [
     "Request",

@@ -14,7 +14,8 @@ from fibsem.geometry.projection import (
     reproject_pixel,
     stage_to_pixel,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 
 SHAPE = (1024, 1536)
 

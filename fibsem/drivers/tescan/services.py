@@ -41,11 +41,10 @@ from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.services.stage_movement import StageMovement
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     CrossSectionPattern,
     FibsemCircleSettings,
-    FibsemHardwareGeometry,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemRectangleSettings,
@@ -53,6 +52,7 @@ from fibsem.structures import (
     MillingState,
     Point,
 )
+from fibsem.structures.system import FibsemHardwareGeometry
 
 if TYPE_CHECKING:
     import threading

@@ -12,7 +12,7 @@ from ome_types import from_xml
 
 from fibsem import image_format
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import FibsemImage, FibsemImageMetadata
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
 from fibsem.workflows.image_positions import read_image_position
 
 V0 = Path(__file__).parent / "fixtures" / "image_files_v0"

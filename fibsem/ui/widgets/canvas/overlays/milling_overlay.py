@@ -37,17 +37,17 @@ from fibsem.milling.patterning.shapes import (
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemImage,
     FibsemLineSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     Point,
 )
 from fibsem.theme.plots import DARK
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CANVAS_BG,
 )
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay

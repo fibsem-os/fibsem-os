@@ -33,7 +33,7 @@ from fibsem.applications.autolamella.ui.lamella.selected import (
     SelectedLamellaWidget,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.ui import notification_service
 from fibsem.ui.run.run_refusal import refused_during_run
 
@@ -67,6 +67,8 @@ class ExperimentTab(QWidget):
         self.lamella_list.enable_move_to_action(True)
         self.lamella_list.enable_update_action(True)
         self.lamella_list.enable_remove_button(True)
+        # what the Image and Fluorescence tabs save with
+        self.item_selection = self.lamella_list
 
         self.selected_lamella_widget = SelectedLamellaWidget()
 

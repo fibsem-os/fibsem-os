@@ -15,7 +15,8 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import BeamType, FibsemImage, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings
 
 microscope, settings = utils.setup_session(manufacturer="Demo", ip_address="localhost")
 rng = np.random.default_rng(60)

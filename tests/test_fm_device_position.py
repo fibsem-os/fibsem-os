@@ -23,9 +23,9 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscope import DeviceImagingState
-from fibsem.structures import (
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import (
     DEFAULT_STAGE_DEVICES,
-    FibsemStagePosition,
     InsertableDeviceState,
     StageDeviceSettings,
 )

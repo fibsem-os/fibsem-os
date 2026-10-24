@@ -16,7 +16,8 @@ pytest.importorskip("PyQt5")
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import DeviceImagingState, FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import DeviceImagingState
 from fibsem.ui.widgets.canvas.overlays.stage_context import (
     at_device,
     slot_landmark,

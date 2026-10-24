@@ -38,7 +38,7 @@ from test_viewer_less_widgets import (  # noqa: E402
     _session,
 )
 
-from fibsem.structures import BeamType, Point  # noqa: E402
+from fibsem.structures.settings import BeamType, Point  # noqa: E402
 from fibsem.ui.FibsemMovementWidget import ACQUIRING_IMAGES  # noqa: E402
 from fibsem.ui.widgets.stage_control_widget import (  # noqa: E402
     StageControlWidget,

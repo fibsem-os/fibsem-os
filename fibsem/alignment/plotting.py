@@ -7,14 +7,14 @@ import numpy as np
 
 from fibsem import utils
 from fibsem.constants import DATETIME_DISPLAY, DATETIME_FILE_NANO
-from fibsem.structures import ImageSettings
+from fibsem.structures.settings import ImageSettings
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
     from fibsem.alignment import AlignmentDifferential, AlignmentIteration
     from fibsem.alignment.coincidence import CoincidenceAlignment
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 
 def _plot_image_with_crosshair(

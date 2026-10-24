@@ -17,7 +17,7 @@ from fibsem.drivers.demo import devices as demo  # noqa: E402
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import ChannelSettings  # noqa: E402
-from fibsem.structures import RangeLimit  # noqa: E402
+from fibsem.structures.params import RangeLimit  # noqa: E402
 from fibsem.ui.fm.widgets import fm_limits  # noqa: E402
 
 CHANNEL = ChannelSettings(name="green", excitation_wavelength=488, exposure_time=0.1)

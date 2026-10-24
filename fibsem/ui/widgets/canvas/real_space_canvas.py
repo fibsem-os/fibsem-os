@@ -33,7 +33,7 @@ import numpy as np
 from PyQt5.QtCore import QTimer
 
 from fibsem.imaging.reduce import downsample
-from fibsem.ui.stylesheets import GRAY_CANVAS_COLOR
+from fibsem.theme.tokens import GRAY_CANVAS_COLOR
 from fibsem.ui.widgets.canvas.canvas_base import (
     EMPTY_CONTENT,
     ContentRect,

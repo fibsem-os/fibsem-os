@@ -15,11 +15,11 @@ from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
 from fibsem.control import InControl
 from fibsem.geometry.stage_places import StageMapPlaces
-from fibsem.structures import (
-    FibsemImageMetadata,
+from fibsem.structures.image import FibsemImageMetadata
+from fibsem.structures.params import Limits
+from fibsem.structures.settings import (
     FibsemRectangle,
     FibsemStagePosition,
-    Limits,
     MicroscopeState,
     Point,
 )

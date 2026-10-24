@@ -78,13 +78,8 @@ def _render(tmp_path, resolution):
     """
     import numpy as np
 
-    from fibsem.structures import (
-        FibsemImage,
-        FibsemImageMetadata,
-        ImageSettings,
-        MicroscopeState,
-        Point,
-    )
+    from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+    from fibsem.structures.settings import ImageSettings, MicroscopeState, Point
     from fibsem.ui.thumbnails import load_and_resize
 
     width, height = resolution
@@ -158,7 +153,7 @@ def _sem_file(tmp_path) -> str:
     sys.path.insert(0, os.path.dirname(__file__))
     from test_view_info_bar import _beam_image
 
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     image = _beam_image(BeamType.ION, voltage=30e3)
     return image.save(str(tmp_path / "ref_final_ib.tif"))

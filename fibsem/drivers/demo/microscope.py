@@ -58,14 +58,11 @@ from fibsem.drivers.demo.simulator import (
 )
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamSettings,
-    BeamType,
+from fibsem.structures.settings import BeamSettings, BeamType, FibsemRectangle, Point
+from fibsem.structures.system import (
     DeviceEntry,
     FibsemExperimentRef,
-    FibsemRectangle,
     FibsemUser,
-    Point,
     SystemSettings,
 )
 

@@ -31,9 +31,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.theme.tokens import TEXT_MUTED_COLOR
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import CANVAS_PANEL_STYLE
-from fibsem.ui.tokens import TEXT_MUTED_COLOR
 
 # (key, label, shown by default)
 OverlayEntry = Tuple[str, str, bool]

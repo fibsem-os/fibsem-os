@@ -4,7 +4,7 @@ why, changing nothing, or is made and saved."""
 import pytest
 
 from fibsem.applications.volume.experiment import VolumeExperiment
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,

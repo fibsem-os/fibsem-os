@@ -47,7 +47,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     OK_COLOR,
     SURFACE_COLOR,

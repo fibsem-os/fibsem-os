@@ -18,7 +18,7 @@ from fibsem.saved_positions import (
     save_saved_positions,
 )
 from fibsem.session_state import SessionState, session_state_for
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from tests.fixtures.microscopes import demo_microscope
 
 

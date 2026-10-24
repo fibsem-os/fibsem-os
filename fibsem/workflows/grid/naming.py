@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import Any, Callable, Dict, List
 
-from fibsem.structures import BeamType, SampleGrid
+from fibsem.structures.settings import BeamType, SampleGrid
 from fibsem.workflows.grid.manager import EXCHANGE_ENTRY_NAMES
 from fibsem.workflows.grids import GridRecord
 

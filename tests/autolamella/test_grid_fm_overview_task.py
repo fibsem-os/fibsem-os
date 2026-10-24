@@ -19,7 +19,8 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.fm.acquisition import OverviewDestination, acquire_fm_tiled_overview
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
-from fibsem.structures import InsertableDeviceState, SampleGrid
+from fibsem.structures.settings import SampleGrid
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.grid import (
     FluorescenceOverviewGridTask,
     FluorescenceOverviewGridTaskConfig,

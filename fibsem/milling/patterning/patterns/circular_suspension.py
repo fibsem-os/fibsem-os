@@ -11,11 +11,11 @@ from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     distance_param,
 )
-from fibsem.structures import (
+from fibsem.structures.params import param
+from fibsem.structures.settings import (
     FibsemCircleSettings,
     FibsemRectangleSettings,
     Point,
-    param,
 )
 
 

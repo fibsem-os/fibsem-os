@@ -35,11 +35,16 @@ from test_viewer_less_widgets import (  # noqa: E402
     _movement_widget,
 )
 
-from fibsem.structures import BeamType, FibsemStagePosition, Point  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
+    BeamType,
+    FibsemStagePosition,
+    Point,
+)
 from fibsem.ui.FibsemMovementWidget import (  # noqa: E402
     ACQUIRING_IMAGES,
     INSTRUCTIONS_TEXT,
 )
+from tests.fixtures.info_bar import visible_fields  # noqa: E402
 
 TARGET = FibsemStagePosition(x=1e-6, y=1e-6, z=1e-6, r=0.0, t=0.0)
 
@@ -144,7 +149,7 @@ def _stage_readout(widget) -> list:
     canvas text, since FIB-1186 shows it once under the chamber cell."""
     bar = widget._view_controller().widget.stage_bar
     bar.resize(2000, bar.height())
-    return [(f.label, f.value) for f in bar.visible_fields()]
+    return [(f.label, f.value) for f in visible_fields(bar)]
 
 
 def test_it_does_not_disturb_the_stage_readout(movement):

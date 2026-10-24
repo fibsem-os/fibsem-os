@@ -20,7 +20,7 @@ its own sample count and spread below.
 
 from typing import TYPE_CHECKING, Iterable, Optional
 
-from fibsem.structures import (
+from fibsem.structures.settings import (
     AutoContrastMode,
     AutoFocusMode,
     ImageSettings,

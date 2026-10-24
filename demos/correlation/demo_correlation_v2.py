@@ -25,7 +25,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 DEV_FIB_IMAGE = "ref_ReferenceImage-Spot-Burn-Fiducial-10-36-30_res_02_ib.tif"
 DEV_FM_IMAGE = "zstack-Feature-1-Active-002.ome.tiff"

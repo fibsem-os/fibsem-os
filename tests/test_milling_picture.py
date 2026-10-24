@@ -6,7 +6,8 @@ from PIL import Image
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.picture import milling_picture
 from fibsem.milling.patterning.plotting import COLOURS
-from fibsem.structures import FibsemImage, FibsemRectangle
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemRectangle
 
 
 def _rgb(colour):

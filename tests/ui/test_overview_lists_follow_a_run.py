@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.status import TaskStatus, WorkflowStatusUpdate
 
 main_ui = main_window_fixture(connect=True, config="sim-arctis-configuration.yaml")

@@ -33,7 +33,7 @@ from fibsem.services.sample_handling import (
     SlotCalibration,
     bind_sample_handling,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState
 from tests.fixtures.demo_stage import demo_grid_loader

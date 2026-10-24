@@ -429,7 +429,7 @@ def _connect_with_scanner(tmp_path, **keys):
 
 
 def test_an_entry_naming_a_device_driver_plugin_builds_and_binds_the_beam(tmp_path):
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     microscope = _connect_with_scanner(tmp_path, address="10.0.0.2")
     try:

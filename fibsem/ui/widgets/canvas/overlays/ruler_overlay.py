@@ -5,8 +5,8 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from fibsem.ui.stylesheets import CANVAS_BG as _BG
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import CANVAS_BG as _BG
+from fibsem.theme.tokens import (
     WHITE_ICON_COLOR,
 )
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay

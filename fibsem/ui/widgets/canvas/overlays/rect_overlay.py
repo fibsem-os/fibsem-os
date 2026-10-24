@@ -320,7 +320,10 @@ class RectOverlay(QObject):
             return
         # Clamp against the content bounds, which need not start at the origin.
         left, top, right, bottom = (
-            self._rect.x0, self._rect.y0, self._rect.x1, self._rect.y1
+            self._rect.x0,
+            self._rect.y0,
+            self._rect.x1,
+            self._rect.y1,
         )
 
         if self._drag_mode == "move":

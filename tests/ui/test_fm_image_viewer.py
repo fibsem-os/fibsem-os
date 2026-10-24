@@ -32,6 +32,7 @@ from fibsem.fm.structures import (
     FluorescenceImageMetadata,
 )
 from fibsem.ui.fm.widgets.fm_image_viewer_widget import FMImageViewerWidget
+from tests.fixtures.info_bar import visible_fields
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -199,7 +200,7 @@ def test_the_bar_says_what_the_image_is():
     widget.add_image(_image())  # 96 px wide at 100 nm, 4 planes at 500 nm
     bar = widget.image_viewer.fm_bar
     bar.resize(2000, bar.height())
-    shown = {f.key: f.value for f in bar.visible_fields()}
+    shown = {f.key: f.value for f in visible_fields(bar)}
     assert shown["hfw"] == "9.6 µm"
     assert shown["z"] == "MIP · 4 × 500 nm"
     assert bar.time_label.text(), "the acquisition time is shown"

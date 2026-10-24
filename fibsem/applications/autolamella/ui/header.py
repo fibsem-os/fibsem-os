@@ -18,13 +18,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
+from fibsem.theme.tokens import ACCENT_COLOR, ERROR_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     ACCENT_CHIP_BUTTON_STYLESHEET,
     MENU_BUTTON_STYLESHEET,
     PRIMARY_BUTTON_STYLESHEET,
 )
-from fibsem.ui.tokens import ACCENT_COLOR, ERROR_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 from fibsem.util.timestamps import format_time
 

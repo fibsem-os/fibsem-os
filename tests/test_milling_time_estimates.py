@@ -32,7 +32,7 @@ from fibsem.milling.base import (
 )
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.services.milling import Milling
-from fibsem.structures import CrossSectionPattern, FibsemMillingSettings
+from fibsem.structures.settings import CrossSectionPattern, FibsemMillingSettings
 
 RATE = 1.3e-8  # m3/A/s (the cryo-lamella default)
 PRESET_100PA = "30 keV; 100 pA"

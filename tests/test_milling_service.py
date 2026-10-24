@@ -12,7 +12,7 @@ from fibsem.devices.core import Device
 from fibsem.drivers.demo.services import DemoMilling
 from fibsem.services import Service
 from fibsem.services.milling import DRAW_HOOKS, Milling, UnsupportedPattern
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemCircleSettings,
     FibsemLineSettings,

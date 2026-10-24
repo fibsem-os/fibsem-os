@@ -29,7 +29,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from fibsem.workflows import evidence  # noqa: E402
 from fibsem.workflows.actions import ACTION, NOTE  # noqa: E402
 from fibsem.workflows.proposals import (  # noqa: E402

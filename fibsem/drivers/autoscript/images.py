@@ -7,17 +7,18 @@ only one.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Optional
+from typing import Any, Optional
 
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import (
+    BeamSettings,
+    BeamType,
+    FibsemStagePosition,
+    ImageSettings,
+    MicroscopeState,
+    Point,
+)
 from fibsem.util.timestamps import to_datetime
-
-if TYPE_CHECKING:
-    from fibsem.structures import (
-        BeamType,
-        FibsemImage,
-        ImageSettings,
-        MicroscopeState,
-    )
 
 
 def image_settings_from_adorned_image(
@@ -43,7 +44,6 @@ def image_settings_from_adorned_image(
             "AutoScript libraries not available. Cannot convert from AdornedImage."
         )
 
-    from fibsem.structures import BeamType, ImageSettings
     from fibsem.utils import current_timestamp
 
     if beam_type is None:
@@ -88,16 +88,6 @@ def fibsem_image_from_adorned_image(
         raise ImportError(
             "AutoScript libraries not available. Cannot convert from AdornedImage."
         )
-
-    from fibsem.structures import (
-        BeamSettings,
-        BeamType,
-        FibsemImage,
-        FibsemImageMetadata,
-        FibsemStagePosition,
-        MicroscopeState,
-        Point,
-    )
 
     if beam_type is None:
         beam_type = BeamType.ELECTRON

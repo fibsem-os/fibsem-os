@@ -20,7 +20,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.core import ParameterMetadata
 from fibsem.drivers.tescan.microscope import TescanMicroscope
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget

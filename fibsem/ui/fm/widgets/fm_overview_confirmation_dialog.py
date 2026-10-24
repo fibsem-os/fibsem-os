@@ -25,7 +25,7 @@ from fibsem.fm.structures import (
     ZParameters,
 )
 from fibsem.fm.timing import estimate_tileset_acquisition_time
-from fibsem.structures import TileOrderStrategy
+from fibsem.structures.settings import TileOrderStrategy
 from fibsem.ui.widgets.preflight import (
     OverviewPreflightDialog,
     PathValue,

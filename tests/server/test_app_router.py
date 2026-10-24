@@ -20,7 +20,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from tests.protocols import add_planned, planned  # noqa: E402
 from tests.run_state import run_working_on, stub_session
 
@@ -142,6 +142,8 @@ def test_an_items_history_comes_through_the_tabs_filter(client, host):
     failed = client.get(url, headers=AUTH, params={"status": "failed"}).json()
     assert [r["status"] for r in failed["runs"]] == ["Failed"]
     assert failed["total"] == 2
+    unknown = client.get(url, headers=AUTH, params={"show": "pictures"})
+    assert unknown.status_code == 422
 
 
 def test_the_sidecars_history_tool_sends_its_filter(client, host):
@@ -677,7 +679,7 @@ def test_agent_notes_need_only_the_read_scope(client):
 def grid_with_overview(host, microscope):
     """A grid whose history recorded a real Demo SEM overview, one lamella
     linked to it posed at the overview's centre and one posed far outside."""
-    from fibsem.structures import (
+    from fibsem.structures.settings import (
         BeamType,
         FibsemStagePosition,
         ImageSettings,
@@ -908,7 +910,7 @@ def test_grid_markers_take_a_saved_image_by_its_path(client, host, grid_with_ove
 
 
 def test_grid_markers_report_unplaceable_items(client, host, grid_with_overview):
-    from fibsem.structures import MicroscopeState
+    from fibsem.structures.settings import MicroscopeState
 
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict())
     poseless = host.experiment.positions[-1]
@@ -1002,7 +1004,7 @@ def test_render_markers_draws_the_items_on_any_beam_image(
     import os
     import shutil
 
-    from fibsem.structures import MicroscopeState
+    from fibsem.structures.settings import MicroscopeState
 
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict())
     poseless = host.experiment.positions[-1]
@@ -1098,7 +1100,7 @@ def test_draw_pair_puts_two_images_side_by_side_at_one_scale(
 ):
     from PIL import Image
 
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
     # Half the field of the overview: drawn half as wide.
@@ -1145,7 +1147,7 @@ def _milling_item(host):
 def test_item_draw_milling_draws_a_task_with_its_related_tasks_behind(
     client, host, microscope
 ):
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     item = _milling_item(host)
     url = f"/app/experiment/items/{item.name}/milling/drawn"
@@ -1226,7 +1228,8 @@ def test_fm_overview_previews_in_colour_and_places_markers(
         FluorescenceImage,
         FluorescenceImageMetadata,
     )
-    from fibsem.structures import FibsemHardwareGeometry, FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
+    from fibsem.structures.system import FibsemHardwareGeometry
     from fibsem.workflows.status import TaskState, TaskStatus
 
     experiment = host.experiment
@@ -1373,7 +1376,7 @@ def driver(microscope, host, event_buffer):
 
 
 def test_an_item_is_added_where_the_stage_is(driver, host, microscope):
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope.move_stage_absolute(FibsemStagePosition(x=1e-4, y=-2e-4))
     before = len(host.experiment.positions)
@@ -1479,7 +1482,7 @@ def test_an_item_is_added_under_an_overview_point(driver, host, grid_with_overvi
 
 
 def test_a_pose_is_set_from_the_stage_and_moved_back_to(driver, host, microscope):
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     name = host.experiment.positions[0].name
     microscope.move_stage_absolute(FibsemStagePosition(x=3e-4, y=1e-4))
@@ -1510,7 +1513,7 @@ def test_a_pose_is_set_from_the_stage_and_moved_back_to(driver, host, microscope
 def test_an_item_is_moved_to_a_point_and_the_stage_stays(driver, host, microscope):
     """Moving a lamella on an overview: its poses move, the stage doesn't."""
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     name = host.experiment.positions[0].name
     microscope.move_stage_absolute(FibsemStagePosition(x=0.0, y=0.0))
@@ -1542,7 +1545,7 @@ def test_an_item_is_moved_to_a_point_and_the_stage_stays(driver, host, microscop
 def test_an_item_s_objective_position_is_applied_to_all(driver, host):
     """Apply to All Lamella: one lamella's stored objective position on every
     lamella with a fluorescence pose."""
-    from fibsem.structures import MicroscopeState
+    from fibsem.structures.settings import MicroscopeState
 
     host.experiment.add_new_lamella(MicroscopeState(), EventedDict(), name="second")
     positions = host.experiment.positions
@@ -1721,7 +1724,7 @@ def test_an_image_read_is_kept_by_the_browser_until_the_file_changes(
 def test_an_images_raw_planes_for_the_web_viewer(client, host, grid_with_overview):
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     url = f"/app/experiment/planes/{OVERVIEW}"
     answer = client.get(url, headers=AUTH)
@@ -1926,7 +1929,7 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     result's plot."""
     pytest.importorskip("mcp")
     from fibsem.ai.agent.mcp.sidecar import build_sidecar
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
     from fibsem.workflows.status import TaskState
     from tests.test_lamella_thickness import band_image
 

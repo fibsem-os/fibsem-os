@@ -12,7 +12,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
-from fibsem.structures import GridInventoryEntry, GridSlotState  # noqa: E402
+from fibsem.structures.settings import GridInventoryEntry, GridSlotState  # noqa: E402
 from fibsem.workflows.grid.naming import GRIDS_CHANGED  # noqa: E402
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 

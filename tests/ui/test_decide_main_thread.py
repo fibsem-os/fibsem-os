@@ -25,7 +25,11 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.select_position import (  # noqa: E402
     SelectMillingPositionTaskConfig,
 )
-from fibsem.structures import FibsemStagePosition, MicroscopeState, Point  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
+    FibsemStagePosition,
+    MicroscopeState,
+    Point,
+)
 from fibsem.workflows.proposals import (  # noqa: E402
     POINT_OF_INTEREST,  # noqa: E402
     Decision,

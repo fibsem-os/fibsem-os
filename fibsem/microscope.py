@@ -26,30 +26,32 @@ from typing import (
 from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.structures import (
-    DEFAULT_STAGE_DEVICES,
-    DEVICE_AXES,
-    STAGE_FRAME_FIBSEM,
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamSettings,
-    BeamSystemSettings,
     BeamType,
-    CameraImageTransform,
-    ChamberState,
-    DeviceEntry,
-    DeviceImagingState,
     FibsemDetectorSettings,
-    FibsemExperimentRef,
-    FibsemHardwareGeometry,
-    FibsemImage,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
     FibsemPatternSettings,
     FibsemRectangle,
     FibsemStagePosition,
-    FibsemUser,
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.structures.system import (
+    DEFAULT_STAGE_DEVICES,
+    DEVICE_AXES,
+    STAGE_FRAME_FIBSEM,
+    BeamSystemSettings,
+    CameraImageTransform,
+    ChamberState,
+    DeviceEntry,
+    DeviceImagingState,
+    FibsemExperimentRef,
+    FibsemHardwareGeometry,
+    FibsemUser,
     StageDeviceSettings,
     SystemSettings,
 )
@@ -872,7 +874,7 @@ class FibsemMicroscope(ABC):
             build_device_entries,
             resolve_system_devices,
         )
-        from fibsem.structures import DeviceEntry
+        from fibsem.structures.system import DeviceEntry
 
         if not self._fluorescence_is_configured():
             logging.info(

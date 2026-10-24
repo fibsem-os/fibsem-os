@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from fibsem.structures.settings import BeamType, ImageSettings
+
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import ImageSettings
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,6 @@ def auto_charge_neutralisation(
         n_iterations: Number of discharge images to acquire.
     """
     from fibsem import acquire
-    from fibsem.structures import BeamType, ImageSettings
 
     if discharge_settings is None:
         discharge_settings = ImageSettings(

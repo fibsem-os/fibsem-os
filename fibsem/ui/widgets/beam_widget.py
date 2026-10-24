@@ -5,8 +5,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
-from fibsem.ui import stylesheets
+from fibsem.structures.settings import BeamSettings, BeamType, FibsemDetectorSettings
+from fibsem.theme import tokens
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 from fibsem.ui.widgets.detector_settings_widget import FibsemDetectorSettingsWidget
@@ -56,7 +56,7 @@ class FibsemBeamWidget(QWidget):
         self._btn_advanced_beam = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
@@ -74,7 +74,7 @@ class FibsemBeamWidget(QWidget):
         self._btn_advanced_detector = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )

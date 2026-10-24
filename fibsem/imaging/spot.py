@@ -6,14 +6,8 @@ from typing import TYPE_CHECKING, List, Optional
 
 from fibsem.codec import decode, encode
 from fibsem.progress import ProgressStatus, ends
-from fibsem.structures import (
-    BeamType,
-    Configurable,
-    Display,
-    Point,
-    RangeLimit,
-    param,
-)
+from fibsem.structures.params import Configurable, Display, RangeLimit, param
+from fibsem.structures.settings import BeamType, Point
 
 if TYPE_CHECKING:
     # Type-checking only. `fibsem/imaging/__init__.py` star-imports this module, so a

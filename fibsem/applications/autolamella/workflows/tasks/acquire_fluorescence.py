@@ -19,7 +19,8 @@ from fibsem.fm.acquisition import acquire_image
 from fibsem.fm.calibration import AutoFocusResult, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
-from fibsem.structures import Display, InsertableDeviceState, param
+from fibsem.structures.params import Display, param
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.proposals import STATE
 
 

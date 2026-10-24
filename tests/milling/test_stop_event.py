@@ -207,7 +207,7 @@ def test_task_aborts_and_restores_conditions(tmp_path):
 def test_milling_cleanup_restores_captured_imaging_current(tmp_path):
     """Cleanup puts the beam back as it was before milling (not a config default),
     even when the task is cancelled."""
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     stage = FibsemMillingStage(name="s")

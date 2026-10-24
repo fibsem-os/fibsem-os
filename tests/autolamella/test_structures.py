@@ -14,7 +14,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import (
+from fibsem.structures.settings import (
     DEFAULT_ALIGNMENT_AREA,
     FibsemMillingSettings,
     FibsemRectangle,
@@ -220,8 +220,8 @@ def test_lamella_defaults_to_dict_minimal():
     d = LamellaDefaultConfig().to_dict()
     assert d["use_petname"] is True
     assert d["name_prefix"] == ""
-    assert "alignment_area" not in d
-    assert "poi" not in d
+    assert d["alignment_area"] is None
+    assert d["poi"] is None
 
 
 def test_lamella_defaults_to_dict_full():
@@ -736,7 +736,7 @@ def test_save_thumbnail_creates_the_lamella_directory(tmp_path):
     makes its own directory now that construction does not."""
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     lamella = Lamella(path=tmp_path / "lam", number=1, petname="lam")
 

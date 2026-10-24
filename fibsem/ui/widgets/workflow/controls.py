@@ -18,6 +18,7 @@ from typing import Optional
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import (
     AGENT_ATTENTION_BUTTON_STYLESHEET,
@@ -27,7 +28,6 @@ from fibsem.ui.stylesheets import (
     SUPERVISION_STATUS_SUPERVISED_STYLESHEET,
     USER_ATTENTION_BUTTON_STYLESHEET,
 )
-from fibsem.ui.tokens import GRAY_ICON_COLOR
 
 # The chip's two modes: its icon, its word, its colours, and what it says over the
 # current task.

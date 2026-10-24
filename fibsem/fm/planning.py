@@ -37,7 +37,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional, Sequence, Tuple
 
 from fibsem.imaging.tiling.geometry import PlaneRegion, plan_grid_over_regions
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.geometry.projection import StageProjection

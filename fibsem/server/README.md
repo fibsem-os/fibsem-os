@@ -141,7 +141,7 @@ client change. Values and results come back as the types the server declares.
 
 ```python
 from fibsem.client import FibsemClient
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 # With no url and token, the App Server on this machine (~/.fibsem/app-server.json),
 # else FIBSEM_SERVER_URL and FIBSEM_SERVER_TOKEN.

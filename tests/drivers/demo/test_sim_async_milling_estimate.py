@@ -6,7 +6,7 @@ override inside the coincidence milling strategy, which is timed by the estimate
 """
 
 from fibsem.drivers.demo import simulator
-from fibsem.structures import MillingState
+from fibsem.structures.settings import MillingState
 from tests.fixtures.microscopes import demo_microscope
 
 microscope = demo_microscope(scope="function")

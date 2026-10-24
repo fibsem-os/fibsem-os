@@ -25,11 +25,8 @@ import autoscript_stage_parity as S  # noqa: E402  (installs the fake SDK)
 logging.disable(logging.NOTSET)
 
 from fibsem.microscope import _chamber_state_name  # noqa: E402
-from fibsem.structures import (  # noqa: E402
-    BeamType,
-    FibsemManipulatorPosition,
-    InsertableDeviceState,
-)
+from fibsem.structures.settings import BeamType, FibsemManipulatorPosition  # noqa: E402
+from fibsem.structures.system import InsertableDeviceState  # noqa: E402
 
 LOG, STRUCTS, Node = S.LOG, S.STRUCTS, S.Node
 
@@ -246,7 +243,7 @@ def facts():
 
     # hardware.devices entries: one switched off, and an added device no driver builds
     from fibsem.devices.entries import DeviceBuildError
-    from fibsem.structures import DeviceEntry
+    from fibsem.structures.system import DeviceEntry
 
     def configured(*entries):
         microscope = make(False)

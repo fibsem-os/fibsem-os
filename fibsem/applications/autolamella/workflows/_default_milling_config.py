@@ -17,11 +17,7 @@ from fibsem.milling.patterning.patterns import (
     TrenchPattern,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import (
-    CrossSectionPattern,
-    FibsemMillingSettings,
-    Point,
-)
+from fibsem.structures.settings import CrossSectionPattern, FibsemMillingSettings, Point
 
 DEFAULT_MILLING_CONFIG: Dict[str, FibsemMillingTaskConfig] = {}
 DEFAULT_MILLING_CONFIG[TRENCH_KEY] = FibsemMillingTaskConfig(

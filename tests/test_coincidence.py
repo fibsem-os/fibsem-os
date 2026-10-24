@@ -21,7 +21,7 @@ from fibsem.alignment.coincidence import (
 )
 
 if TYPE_CHECKING:
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 PIXEL_SIZE = 65e-9  # ~100 um hfw at 1536 px, typical reference imaging
 # arbitrary test geometry: the synthetic FIB view is built with the same
@@ -164,17 +164,16 @@ def test_measurement_dataclass_defaults():
 def _image_with_metadata(
     data: np.ndarray, pixel_size: float, beam_type=None
 ) -> "FibsemImage":
-    from fibsem.structures import (
+    from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+    from fibsem.structures.settings import (
         BeamSettings,
         BeamType,
-        FibsemHardwareGeometry,
-        FibsemImage,
-        FibsemImageMetadata,
         FibsemStagePosition,
         ImageSettings,
         MicroscopeState,
         Point,
     )
+    from fibsem.structures.system import FibsemHardwareGeometry
 
     beam_type = beam_type or BeamType.ELECTRON
     # stage tilt for a 15 deg milling angle with 35 deg pretilt, 52 deg column:
@@ -201,7 +200,7 @@ def _image_with_metadata(
 
 
 def _image_pair(sem_data: np.ndarray, fib_data: np.ndarray):
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     return (
         _image_with_metadata(sem_data, PIXEL_SIZE, BeamType.ELECTRON),

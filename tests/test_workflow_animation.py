@@ -35,14 +35,14 @@ from fibsem.imaging.animation import (
     save_animation,
     webp_supported,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
-    FibsemExperimentRef,
-    FibsemImage,
     ImageSettings,
     MicroscopeState,
 )
+from fibsem.structures.system import FibsemExperimentRef
 from fibsem.workflows.status import TaskState
 
 

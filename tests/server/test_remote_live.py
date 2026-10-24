@@ -27,7 +27,8 @@ from fibsem.server.devices import (  # noqa: E402
     demo_devices,
     stream_live,
 )
-from fibsem.structures import BeamType, FibsemImage, ImageSettings  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import BeamType, ImageSettings  # noqa: E402
 
 TOKEN = "test-token"
 

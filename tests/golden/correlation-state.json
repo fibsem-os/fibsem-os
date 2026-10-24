@@ -1,0 +1,272 @@
+{
+  "input_data": {
+    "fib_coordinates": [
+      {
+        "fitted": false,
+        "point": {
+          "x": 10.0,
+          "y": 20.0,
+          "z": 0.0
+        },
+        "point_type": "FIB",
+        "provenance": "user",
+        "status": "placed"
+      },
+      {
+        "fitted": false,
+        "point": {
+          "x": 30.5,
+          "y": 40.25,
+          "z": 0.0
+        },
+        "point_type": "FIB",
+        "provenance": "",
+        "status": "fitted"
+      }
+    ],
+    "fm_coordinates": [
+      {
+        "fitted": false,
+        "point": {
+          "x": 1.0,
+          "y": 2.0,
+          "z": 3.0
+        },
+        "point_type": "FM",
+        "provenance": "projected",
+        "status": "predicted"
+      },
+      {
+        "fitted": false,
+        "point": {
+          "x": 4.0,
+          "y": 5.0,
+          "z": 6.5
+        },
+        "point_type": "FM",
+        "provenance": "",
+        "status": ""
+      }
+    ],
+    "fm_surface_coordinate": {
+      "fitted": false,
+      "point": {
+        "x": 0.5,
+        "y": 0.5,
+        "z": 2.0
+      },
+      "point_type": "SURFACE_FM",
+      "provenance": "",
+      "status": ""
+    },
+    "method": "multi-point",
+    "poi_coordinates": [
+      {
+        "fitted": false,
+        "point": {
+          "x": 7.0,
+          "y": 8.0,
+          "z": 9.0
+        },
+        "point_type": "POI",
+        "provenance": "",
+        "status": ""
+      }
+    ],
+    "ri_pre_correction_factor": 1.5,
+    "ri_pre_correction_params": {
+      "source": "computed",
+      "tilt_deg": 15.0
+    },
+    "stored_fib_image_filename": "ref_fib.tif",
+    "stored_fib_image_pixel_size": 5e-09,
+    "stored_fib_image_shape": [
+      512,
+      768
+    ],
+    "stored_fm_image_filename": "fm_stack.ome.tiff",
+    "stored_fm_pixel_size_z": 2e-07,
+    "surface_coordinate": null
+  },
+  "result": {
+    "branch_check": {
+      "ratio": 3.0
+    },
+    "delta_2d": [
+      {
+        "name": null,
+        "x": 0.1,
+        "y": -0.2
+      }
+    ],
+    "diagnostics": {
+      "rms_um": 0.1
+    },
+    "fm_z_scale": 2.5,
+    "input_data": {
+      "fib_coordinates": [
+        {
+          "fitted": false,
+          "point": {
+            "x": 10.0,
+            "y": 20.0,
+            "z": 0.0
+          },
+          "point_type": "FIB",
+          "provenance": "user",
+          "status": "placed"
+        },
+        {
+          "fitted": false,
+          "point": {
+            "x": 30.5,
+            "y": 40.25,
+            "z": 0.0
+          },
+          "point_type": "FIB",
+          "provenance": "",
+          "status": "fitted"
+        }
+      ],
+      "fm_coordinates": [
+        {
+          "fitted": false,
+          "point": {
+            "x": 1.0,
+            "y": 2.0,
+            "z": 3.0
+          },
+          "point_type": "FM",
+          "provenance": "projected",
+          "status": "predicted"
+        },
+        {
+          "fitted": false,
+          "point": {
+            "x": 4.0,
+            "y": 5.0,
+            "z": 6.5
+          },
+          "point_type": "FM",
+          "provenance": "",
+          "status": ""
+        }
+      ],
+      "fm_surface_coordinate": {
+        "fitted": false,
+        "point": {
+          "x": 0.5,
+          "y": 0.5,
+          "z": 2.0
+        },
+        "point_type": "SURFACE_FM",
+        "provenance": "",
+        "status": ""
+      },
+      "method": "multi-point",
+      "poi_coordinates": [
+        {
+          "fitted": false,
+          "point": {
+            "x": 7.0,
+            "y": 8.0,
+            "z": 9.0
+          },
+          "point_type": "POI",
+          "provenance": "",
+          "status": ""
+        }
+      ],
+      "ri_pre_correction_factor": 1.5,
+      "ri_pre_correction_params": {
+        "source": "computed",
+        "tilt_deg": 15.0
+      },
+      "stored_fib_image_filename": "ref_fib.tif",
+      "stored_fib_image_pixel_size": 5e-09,
+      "stored_fib_image_shape": [
+        512,
+        768
+      ],
+      "stored_fm_image_filename": "fm_stack.ome.tiff",
+      "stored_fm_pixel_size_z": 2e-07,
+      "surface_coordinate": null
+    },
+    "mean_absolute_error": [
+      0.25,
+      0.75
+    ],
+    "placement_offset": [
+      0.5,
+      -0.5
+    ],
+    "poi": [
+      {
+        "image_px": {
+          "name": null,
+          "x": 100.0,
+          "y": 200.0
+        },
+        "px": {
+          "name": null,
+          "x": -284.0,
+          "y": 56.0
+        },
+        "px_m": {
+          "name": null,
+          "x": -1.42e-06,
+          "y": 2.8e-07
+        }
+      }
+    ],
+    "poi_uncorrected": [],
+    "refractive_index_correction_factor": 1.5,
+    "refractive_index_correction_mode": "pre",
+    "reprojected_3d": [
+      {
+        "x": 1.0,
+        "y": 2.0,
+        "z": 0.0
+      }
+    ],
+    "rms_error": 0.5,
+    "rotation_eulers": [
+      10.0,
+      20.0,
+      30.0
+    ],
+    "rotation_matrix": [
+      [
+        1.0,
+        0.0,
+        0.0
+      ],
+      [
+        0.0,
+        1.0,
+        0.0
+      ],
+      [
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "scale": 1.25,
+    "seed": {
+      "source": "metadata"
+    },
+    "translation": [
+      1.0,
+      2.0,
+      3.0
+    ],
+    "translation_custom": [
+      4.0,
+      5.0,
+      6.0
+    ],
+    "updated_at": "2026-10-20T10:30:00+00:00"
+  },
+  "version": 2
+}

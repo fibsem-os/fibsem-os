@@ -14,13 +14,13 @@ from fibsem import config as cfg
 from fibsem import state_move
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL
-from fibsem.structures import (
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import (
     CONFIGURATION_VERSION,
     CONFIGURED_DEVICES,
     DEVICES_KEEPING_DRIVER_KEYS,
     STAGE_POSITION_KEYS,
     DeviceEntry,
-    FibsemStagePosition,
     MicroscopeSettings,
 )
 
@@ -934,7 +934,7 @@ def _register_metadata(
     made two fields tautologically equal -- and ``info.fibsem_revision`` already
     pins the exact commit doing the work.
     """
-    from fibsem.structures import FibsemExperimentRef, FibsemUser
+    from fibsem.structures.system import FibsemExperimentRef, FibsemUser
 
     microscope.user = FibsemUser.from_environment()
     microscope.experiment = FibsemExperimentRef(

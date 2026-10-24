@@ -38,7 +38,7 @@ from fibsem.geometry.projection import (  # noqa: F401
     plane_point_to_stage,
     surface_foreshortening,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas

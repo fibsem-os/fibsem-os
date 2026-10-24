@@ -25,7 +25,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.requests import RequestRefused, route_call  # noqa: E402
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from tests.run_state import stub_session
 
 AGENT = {"Authorization": "Bearer agent"}
@@ -637,7 +637,10 @@ def test_a_config_edit_reads_as_its_form_names_it_in_display_units(client, conte
 
 def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
     from fibsem.ai.agent.catalog.describe import describe_actions
-    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+    from fibsem.structures.settings import (
+        FibsemMillingSettings,
+        FibsemRectangleSettings,
+    )
 
     def rectangle(x):
         pattern = FibsemRectangleSettings(
@@ -679,7 +682,10 @@ def test_a_mill_reads_as_its_patterns_and_its_run_as_how_long():
 def test_a_mill_past_the_field_says_so_on_its_line():
     """Sim session 2026-10-16: the warning lived only in the picture's legend."""
     from fibsem.ai.agent.catalog.describe import describe_action
-    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+    from fibsem.structures.settings import (
+        FibsemMillingSettings,
+        FibsemRectangleSettings,
+    )
 
     def rectangle(x):
         pattern = FibsemRectangleSettings(
@@ -1127,7 +1133,7 @@ def test_a_waiting_request_is_described_again_with_the_values_now(
     """FIB-1412: the old value is read when the operator looks, not only when
     the request was filed. An edit against a version keeps the line it was
     filed with: it applies only to what it was read against (FIB-1491)."""
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     item = context._session.experiment.positions[0]
     item.description = "first pass"
@@ -1278,7 +1284,7 @@ def test_a_filed_request_and_a_beam_switched_off_read_as_words():
 
 def test_a_protocol_s_re_alignment_reads_as_the_milling_panel_says_it():
     """Sim session 2026-10-16: "Interval enabled off → on / Interval 30 → 60"."""
-    from fibsem.structures import MillingAlignment
+    from fibsem.structures.settings import MillingAlignment
     from fibsem.util.wording import describe_patch
 
     line = describe_patch(

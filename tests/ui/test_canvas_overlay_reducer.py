@@ -22,7 +22,8 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle, Point
 from fibsem.ui.widgets.canvas.canvas_state import MaskSpec, MillingSpec, PointsSpec
 from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
 from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay
@@ -154,7 +155,7 @@ def test_alignment_edit_shows_editable_and_arms():
     assert isinstance(ov, AlignmentAreaOverlay)
     assert ov in fib._overlays
     assert ov._area_visible is True and ov._interactive is True
-    assert fib.active_overlay is ov, "editing should arm the overlay"
+    assert fib._active_overlay is ov, "editing should arm the overlay"
     assert ctl.alignment_area(BeamType.ION) is r
     print("ok: set_alignment_edit -> editable + armed + visible")
 
@@ -170,7 +171,7 @@ def test_alignment_display_shows_readonly_not_armed():
 
     ov = ctl._overlay_objs[fib]["alignment"]
     assert ov._area_visible is True and ov._interactive is False
-    assert fib.active_overlay is None, "read-only display must not arm"
+    assert fib._active_overlay is None, "read-only display must not arm"
     assert ctl.alignment_area(BeamType.ION) is r
     print("ok: set_alignment_display -> read-only, not armed")
 
@@ -186,7 +187,7 @@ def test_edit_overrides_display_then_falls_back():
     )  # image widget: edit wins
     _flush(app)
     ov = ctl._overlay_objs[fib]["alignment"]
-    assert ov._interactive is True and fib.active_overlay is ov
+    assert ov._interactive is True and fib._active_overlay is ov
 
     ctl.set_alignment_edit(
         BeamType.ION, None, editing=False
@@ -195,7 +196,7 @@ def test_edit_overrides_display_then_falls_back():
     assert ov._area_visible is True and ov._interactive is False, (
         "should fall back to read-only"
     )
-    assert fib.active_overlay is None
+    assert fib._active_overlay is None
 
     ctl.set_alignment_display(BeamType.ION, None, show=False)  # milling stops
     _flush(app)
@@ -258,7 +259,7 @@ def test_true_clear_removes_alignment():
     assert "alignment" not in ctl._overlay_objs[fib]
     assert ov not in fib._overlays
     assert ctl.alignment_area(BeamType.ION) is None
-    assert fib.active_overlay is None
+    assert fib._active_overlay is None
     print("ok: remove_overlay (true clear) drops the overlay + value + disarms")
 
 
@@ -284,7 +285,7 @@ def test_points_create_arm_and_set():
     ov = ctl._overlay_objs[fib]["poi"]
     assert isinstance(ov, PointOverlay)
     assert ov in fib._overlays
-    assert fib.active_overlay is ov, "POI should own input"
+    assert fib._active_overlay is ov, "POI should own input"
     assert ctl.overlay_points(BeamType.ION, "poi") == [(10.0, 12.0)]
     print("ok: points overlay creates + arms + sets points")
 
@@ -323,7 +324,7 @@ def test_points_remove_disarms():
     assert "poi" not in ctl._overlay_objs[fib]
     assert ov not in fib._overlays
     assert ctl.overlay_points(BeamType.ION, "poi") == []
-    assert fib.active_overlay is None
+    assert fib._active_overlay is None
     print("ok: remove points overlay drops it + disarms")
 
 
@@ -566,7 +567,7 @@ def test_detection_features_colors_labels_and_move():
     _flush(app)
     ov = ctl._overlay_objs[fib]["detection"]
     assert ov in fib._overlays
-    assert fib.active_overlay is ov
+    assert fib._active_overlay is ov
     assert ctl.overlay_points(BeamType.ION, "detection") == [(10.0, 10.0), (20.0, 20.0)]
 
     # dragging a feature round-trips into the model (features re-read from the points)

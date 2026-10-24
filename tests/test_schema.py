@@ -10,14 +10,8 @@ from enum import Enum
 from typing import List, Optional, Tuple
 
 from fibsem.schema import arguments_schema, parameter_schema, value_schema
-from fibsem.structures import (
-    Display,
-    FibsemMillingSettings,
-    Parameter,
-    Point,
-    RangeLimit,
-    param,
-)
+from fibsem.structures.params import Display, Parameter, RangeLimit, param
+from fibsem.structures.settings import FibsemMillingSettings, Point
 
 
 class Mode(Enum):
@@ -50,31 +44,50 @@ class Probe:
 
 
 def test_a_field_carries_its_unit_limits_doc_and_display():
-    defs = {}
-    ref = value_schema(Recipe, defs)
-    assert ref == {"$ref": "#/$defs/Recipe"}
+    recipe = value_schema(Recipe, {})
 
-    width = defs["Recipe"]["properties"]["width"]
+    width = recipe["properties"]["width"]
     assert width == {
         "type": "number",
+        "default": 10e-6,
         "description": "The width.",
         "unit": "m",
         "minimum": 1e-6,
         "maximum": 1e-3,
         "display": {"label": "Width", "scale": 1e6},
     }
-    assert defs["Recipe"]["description"] == "A probe recipe."
+    assert recipe["description"] == "A probe recipe."
 
 
 def test_enums_optionals_and_nested_dataclasses():
     defs = {}
-    value_schema(Recipe, defs)
-    properties = defs["Recipe"]["properties"]
+    properties = value_schema(Recipe, defs)["properties"]
 
-    assert properties["mode"]["enum"] == ["fast", "slow"]
-    assert properties["repeats"] == {"anyOf": [{"type": "integer"}, {"type": "null"}]}
-    assert properties["centre"] == {"$ref": "#/$defs/Point"}
-    assert set(defs["Point"]["properties"]) >= {"x", "y"}
+    assert properties["mode"] == {"$ref": "#/$defs/Mode", "default": "fast"}
+    assert defs["Mode"]["enum"] == ["fast", "slow"]
+    assert properties["repeats"] == {
+        "anyOf": [{"type": "integer"}, {"type": "null"}],
+        "default": None,
+    }
+    assert set(properties["centre"]["properties"]) >= {"x", "y"}
+
+
+def test_the_schema_is_what_the_codec_reads():
+    """Saved keys, tagged classes and fields never read, as `fibsem.codec` has them."""
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.structures.image import FibsemImageMetadata
+
+    defs = {}
+    stage = value_schema(FibsemMillingStage, defs)
+    assert "reference_image" not in stage["properties"], "never read, so not sent"
+    variants = defs["BasePattern"]["oneOf"]
+    rectangle = next(
+        v for v in variants if v["properties"]["name"] == {"const": "Rectangle"}
+    )
+    assert "width" in rectangle["properties"], "each pattern its own fields"
+    metadata = value_schema(FibsemImageMetadata, {})
+    assert "image" in metadata["properties"], "saved under its key"
+    assert "image_settings" not in metadata["properties"]
 
 
 def test_a_command_lists_its_arguments_with_their_defs():
@@ -87,8 +100,8 @@ def test_a_command_lists_its_arguments_with_their_defs():
         "type": "array",
         "items": {"type": "string"},
     }
-    assert schema["properties"]["recipe"] == {"$ref": "#/$defs/Recipe"}
-    assert "Recipe" in schema["$defs"]
+    assert schema["properties"]["recipe"]["title"] == "Recipe"
+    assert "Mode" in schema["$defs"]
 
 
 def test_a_fixed_tuple_is_an_array_of_that_length():
@@ -101,9 +114,8 @@ def test_a_bound_field_names_the_device_parameter_for_its_live_limits():
     """The milling current's limits are the instrument's, so the schema points at
     the beam parameter (list_devices has its live limits) rather than inventing
     any; its unit comes from the beam."""
-    defs = {}
-    value_schema(FibsemMillingSettings, defs)
-    current = defs["FibsemMillingSettings"]["properties"]["milling_current"]
+    settings = value_schema(FibsemMillingSettings, {})
+    current = settings["properties"]["milling_current"]
 
     assert current["device_parameter"] == "beam.current"
     assert current["unit"] == "A"
@@ -124,10 +136,8 @@ def test_a_parameter_with_choices_is_an_enum():
 
 
 def test_a_field_nothing_reads_says_so():
-    from fibsem.structures import MillingAlignment
+    from fibsem.structures.settings import MillingAlignment
 
-    defs = {}
-    value_schema(MillingAlignment, defs)
-    properties = defs["MillingAlignment"]["properties"]
+    properties = value_schema(MillingAlignment, {})["properties"]
     assert properties["interval"]["not_used"]
     assert "not_used" not in properties["enabled"]

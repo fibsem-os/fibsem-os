@@ -18,7 +18,7 @@ from typing import List, Optional, Sequence, Tuple
 from PyQt5.QtWidgets import QWidget
 
 from fibsem import constants
-from fibsem.structures import OverviewAcquisitionSettings
+from fibsem.structures.settings import OverviewAcquisitionSettings
 from fibsem.ui.widgets.preflight import (
     OverviewPreflightDialog,
     PathValue,

@@ -1,138 +1,87 @@
 """JSON schemas from what a value declares: its type and its ``Parameter``.
 
 One description serves the forms and the agent. A dataclass field's ``Parameter``
-(``fibsem.structures.field_specs``, a class's ``.params``) and a device parameter carry the same SI unit,
+(``fibsem.structures.params.field_specs``, a class's ``.params``) and a device parameter carry the same SI unit,
 SI limits, choices, doc and ``Display``; this module writes them as JSON Schema, so a
 client with no copy of the classes (an agent) knows what a command's arguments are.
 
-A dataclass becomes a ``$defs`` entry, referenced by name, with one property per
-field. A schema leaves nothing out that the server would refuse, but is not a
-contract it checks: values are decoded by their declared types
-(``fibsem.devices.wire.decode_kwargs``), and the device's own checks refuse the rest.
-Units and displays are carried as ``unit`` and ``display`` beside the standard
-keywords, so a client can show and convert the value as the GUI does.
+The schema is the codec's (``fibsem.codec``): what ``decode`` reads, with saved keys,
+tagged classes and enums by name as the codec has them, and fields it never reads
+left out. A dataclass used in more than one place is a ``$defs`` entry, referenced
+by name. Each field adds
+its ``Parameter``: units and displays are carried as ``unit`` and ``display`` beside
+the standard keywords, so a client can show and convert the value as the GUI does.
+A schema is not a contract the server checks: values are decoded by their declared
+types (``fibsem.devices.wire.decode_kwargs``), and the device's own checks refuse
+the rest.
 """
 
 from __future__ import annotations
 
-import dataclasses
 import inspect
 import math
-import typing
-from enum import Enum
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict
 
-from fibsem.structures import Parameter, RangeLimit, display_to_dict, field_specs
+from pydantic import PydanticSchemaGenerationError, TypeAdapter
+from pydantic.json_schema import GenerateJsonSchema
+
+from fibsem.structures.params import Parameter, RangeLimit, display_to_dict, field_specs
 
 Schema = Dict[str, Any]
 
-_SCALARS = {bool: "boolean", int: "integer", float: "number", str: "string"}
+_REF = "#/$defs/{model}"
+
+
+class _Described(GenerateJsonSchema):
+    """The codec's schema, with each dataclass field's ``Parameter`` on its property
+    and the class's own docstring as its description."""
+
+    def dataclass_schema(self, schema: Any) -> Schema:
+        written = super().dataclass_schema(schema)
+        cls = schema["cls"]
+        written.pop("description", None)
+        doc = inspect.getdoc(cls)
+        if doc and not doc.startswith(f"{cls.__name__}("):  # not the generated one
+            written["description"] = doc
+        specs = field_specs(cls)
+        for name, prop in written.get("properties", {}).items():
+            if name in specs:
+                _describe(prop, specs[name])
+        return written
+
+    def field_title_should_be_set(self, schema: Any) -> bool:
+        return False
+
+    def field_is_present(self, field: Any) -> bool:
+        # a field never written belongs to the running object: nothing to send
+        return not field.get("serialization_exclude") and super().field_is_present(
+            field
+        )
 
 
 def value_schema(hint: Any, defs: Dict[str, Schema]) -> Schema:
-    """A type as JSON Schema: a scalar, an enum (as the wire writes it), a list or tuple, a mapping,
-    ``Optional`` (or null), or a dataclass (a ``$ref`` into ``defs``, which it fills).
-    Anything else is ``{}``: any value."""
-    if hint is None or hint is type(None):
-        return {"type": "null"}
-    if hint in _SCALARS:
-        return {"type": _SCALARS[hint]}
-    if isinstance(hint, type) and issubclass(hint, Enum):
-        return {"enum": [_plain(member) for member in hint], "title": hint.__name__}
-    if isinstance(hint, type) and dataclasses.is_dataclass(hint):
-        return dataclass_schema(hint, defs)
-    origin = typing.get_origin(hint)
-    args = typing.get_args(hint)
-    if origin is Union:
-        options = [value_schema(arg, defs) for arg in args]
-        if {} in options:  # one option takes any value, so the union does
-            return {}
-        return options[0] if len(options) == 1 else {"anyOf": options}
-    if origin is typing.Literal:
-        return {"enum": [_plain(arg) for arg in args]}
-    if origin in (list, tuple, set, frozenset) or _is_sequence(origin):
-        if origin is tuple and args and args[-1] is not Ellipsis:
-            return {
-                "type": "array",
-                "prefixItems": [value_schema(arg, defs) for arg in args],
-                "minItems": len(args),
-                "maxItems": len(args),
-            }
-        schema: Schema = {"type": "array"}
-        if args:
-            schema["items"] = value_schema(args[0], defs)
-        return schema
-    if origin is dict or _is_mapping(origin):
-        schema = {"type": "object"}
-        if len(args) == 2:
-            schema["additionalProperties"] = value_schema(args[1], defs)
-        return schema
-    if isinstance(hint, type) and issubclass(hint, tuple) and hasattr(hint, "_fields"):
-        hints = typing.get_type_hints(hint)
-        return {
-            "type": "array",
-            "title": hint.__name__,
-            "prefixItems": [value_schema(hints.get(f), defs) for f in hint._fields],
-        }
-    return {}
+    """A type as JSON Schema, as ``fibsem.codec.decode`` reads it. A dataclass used
+    in more than one place is a ``$ref`` into ``defs``, which it fills. A type with no codec
+    form (an in-process stop event) is ``{}``: any value."""
+    if hint is None:
+        hint = type(None)
+    try:
+        schema = TypeAdapter(hint).json_schema(
+            schema_generator=_Described, ref_template=_REF
+        )
+    except PydanticSchemaGenerationError:
+        return {}
+    defs.update(schema.pop("$defs", {}))
+    return schema
 
 
 def parameter_schema(parameter: Parameter, defs: Dict[str, Schema]) -> Schema:
     """A ``Parameter`` as JSON Schema: its type's, with its doc, unit, SI limits and
     choices, and how to show it. A composite's limits are per field (a stage
     position), so they go on its properties."""
-    schema = dict(value_schema(parameter.type, defs))
-    if parameter.doc:
-        schema["description"] = parameter.doc
-    if parameter.unit:
-        schema["unit"] = parameter.unit
-    limits = parameter.limits
-    if isinstance(limits, RangeLimit):
-        if math.isfinite(limits.min):
-            schema["minimum"] = limits.min
-        if math.isfinite(limits.max):
-            schema["maximum"] = limits.max
-    if parameter.choices is not None:
-        schema["enum"] = [_plain(choice) for choice in parameter.choices]
-    if parameter.not_used:
-        schema["not_used"] = parameter.not_used
-    if parameter.device_parameter:
-        # its live limits and choices are that device parameter's (list_devices)
-        schema["device_parameter"] = parameter.device_parameter
-    display = display_to_dict(parameter.display)
-    if display:
-        schema["display"] = display
+    schema = value_schema(parameter.type, defs) if parameter.type is not None else {}
+    _describe(schema, parameter)
     return schema
-
-
-def dataclass_schema(cls: type, defs: Dict[str, Schema]) -> Schema:
-    """A ``$ref`` to ``cls`` in ``defs``, adding it (and the dataclasses its fields
-    hold) the first time: an object with one property per field, each from the
-    field's ``Parameter``. A field with no default is required."""
-    ref = {"$ref": f"#/$defs/{cls.__name__}"}
-    if cls.__name__ in defs:
-        return ref
-    defs[cls.__name__] = {}  # claimed first, so a field of its own type refers back
-    specs = field_specs(cls)
-    properties: Dict[str, Schema] = {}
-    required = []
-    for f in dataclasses.fields(cls):
-        if not f.init:
-            continue
-        properties[f.name] = parameter_schema(specs[f.name], defs)
-        if (
-            f.default is dataclasses.MISSING
-            and f.default_factory is dataclasses.MISSING
-        ):
-            required.append(f.name)
-    schema: Schema = {"type": "object", "title": cls.__name__, "properties": properties}
-    doc = inspect.getdoc(cls)
-    if doc and not doc.startswith(f"{cls.__name__}("):  # not the generated one
-        schema["description"] = doc
-    if required:
-        schema["required"] = required
-    defs[cls.__name__] = schema
-    return ref
 
 
 def arguments_schema(func: Callable[..., Any]) -> Schema:
@@ -164,6 +113,30 @@ def arguments_schema(func: Callable[..., Any]) -> Schema:
     return schema
 
 
+def _describe(schema: Schema, parameter: Parameter) -> None:
+    """Add ``parameter``'s doc, unit, SI limits, choices and display to ``schema``."""
+    if parameter.doc:
+        schema["description"] = parameter.doc
+    if parameter.unit:
+        schema["unit"] = parameter.unit
+    limits = parameter.limits
+    if isinstance(limits, RangeLimit):
+        if math.isfinite(limits.min):
+            schema["minimum"] = limits.min
+        if math.isfinite(limits.max):
+            schema["maximum"] = limits.max
+    if parameter.choices is not None:
+        schema["enum"] = [_plain(choice) for choice in parameter.choices]
+    if parameter.not_used:
+        schema["not_used"] = parameter.not_used
+    if parameter.device_parameter:
+        # its live limits and choices are that device parameter's (list_devices)
+        schema["device_parameter"] = parameter.device_parameter
+    display = display_to_dict(parameter.display)
+    if display:
+        schema["display"] = display
+
+
 _NO_DEFAULT = object()
 
 
@@ -181,15 +154,3 @@ def _plain(value: Any) -> Any:
     from fibsem.devices.wire import to_wire
 
     return to_wire(value)
-
-
-def _is_sequence(origin: Optional[type]) -> bool:
-    import collections.abc as abc
-
-    return origin in (abc.Sequence, abc.MutableSequence, abc.Set, abc.Iterable)
-
-
-def _is_mapping(origin: Optional[type]) -> bool:
-    import collections.abc as abc
-
-    return origin in (abc.Mapping, abc.MutableMapping)

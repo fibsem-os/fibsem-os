@@ -23,7 +23,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusSweepPass
 from fibsem.drivers.autoscript.devices import AutoscriptSampleLoader
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
-from fibsem.structures import (
+from fibsem.structures.settings import (
     AutoContrastMode,
     AutoFocusMode,
     BeamType,
@@ -300,7 +300,7 @@ def test_the_exchanges_are_the_grids_not_on_the_stage():
         exchanges_for,
         loaded_grid_names,
     )
-    from fibsem.structures import GridInventoryEntry, GridSlotState
+    from fibsem.structures.settings import GridInventoryEntry, GridSlotState
 
     def entry(name, state):
         return GridInventoryEntry(

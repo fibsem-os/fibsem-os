@@ -241,7 +241,7 @@ _calling: "ContextVar[Optional[Tuple[str, dict]]]" = ContextVar(
 # it (`_with_evidence`).
 _citing: "ContextVar[Optional[str]]" = ContextVar("fibsem_mcp_citing", default=None)
 
-# fibsem.structures.MillingState by value, without importing it: the sidecar
+# fibsem.structures.settings.MillingState by value, without importing it: the sidecar
 # stays light. tests/server/test_sidecar.py pins the two in step.
 _MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
 

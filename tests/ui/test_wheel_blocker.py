@@ -10,6 +10,7 @@ Guards two contracts:
 
 Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -76,7 +77,9 @@ def _spin(**kwargs):
 def test_unguarded_spinbox_reproduces_the_bug(qapp):
     """Baseline: a plain QDoubleSpinBox eats the scroll AND changes its value."""
     area, widgets = _scroll_area(
-        lambda: (lambda w: (w.setRange(0, 1000), w.setValue(50), w)[-1])(QDoubleSpinBox())
+        lambda: (lambda w: (w.setRange(0, 1000), w.setValue(50), w)[-1])(
+            QDoubleSpinBox()
+        )
     )
     w = widgets[0]
     before = w.value()
@@ -84,7 +87,9 @@ def test_unguarded_spinbox_reproduces_the_bug(qapp):
     QApplication.processEvents()
 
     assert w.value() != before, "expected the unguarded bug: value changes on scroll"
-    assert area.verticalScrollBar().value() == 0, "unguarded widget also swallows the scroll"
+    assert area.verticalScrollBar().value() == 0, (
+        "unguarded widget also swallows the scroll"
+    )
     area.close()
 
 
@@ -135,7 +140,9 @@ def test_guarding_is_idempotent(qapp):
 @pytest.mark.parametrize(
     "factory",
     [
-        lambda: (lambda w: (w.setValue(50), w)[-1])(IntegerValueSpinBox(minimum=0, maximum=1000)),
+        lambda: (lambda w: (w.setValue(50), w)[-1])(
+            IntegerValueSpinBox(minimum=0, maximum=1000)
+        ),
         lambda: ValueComboBox(items=[1, 2, 3, 4, 5], value=3),
     ],
     ids=["IntegerValueSpinBox", "ValueComboBox"],
@@ -161,7 +168,9 @@ def test_recursive_guard_protects_raw_widgets(qapp):
     so the consuming widget calls install_wheel_blocker_recursive() after setupUi().
     """
     area, widgets = _scroll_area(
-        lambda: (lambda w: (w.setRange(0, 1000), w.setValue(50), w)[-1])(QDoubleSpinBox())
+        lambda: (lambda w: (w.setRange(0, 1000), w.setValue(50), w)[-1])(
+            QDoubleSpinBox()
+        )
     )
     install_wheel_blocker_recursive(area)
 
@@ -210,7 +219,9 @@ class TestValueComboBoxPopulation:
         assert combo.value() == 60e-12
 
         combo.set_values([1e-12, 60e-12, 1e-9, 5e-9])
-        assert combo.value() == 60e-12, "repopulating must not silently change selection"
+        assert combo.value() == 60e-12, (
+            "repopulating must not silently change selection"
+        )
         assert combo.count() == 4
 
     def test_set_values_falls_back_when_selection_gone(self, qapp):

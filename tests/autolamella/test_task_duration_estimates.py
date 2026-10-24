@@ -21,7 +21,7 @@ from fibsem.fm.structures import (
     FocusSweepPass,
 )
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )

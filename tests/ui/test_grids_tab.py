@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
 from fibsem.applications.autolamella.ui.grids.tab import GridsTabWidget
 from fibsem.services.sample_handling import bind_sample_handling
-from fibsem.structures import SampleGrid
+from fibsem.structures.settings import SampleGrid
 from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
 )
@@ -302,7 +302,7 @@ class TestCards:
         assert not card._thumb_label.pixmap().isNull()
         assert card.status_text.startswith("overview_sem (")
         # cozy by default: the big thumbnail; the standard row keeps the small one
-        assert card.mode == "cozy" and card._thumb_label.height() == 170
+        assert card.mode() == "cozy" and card._thumb_label.height() == 170
         tab.cards.set_mode("standard")
         assert (
             card._thumb_label.height() == 44 and not card._thumb_label.pixmap().isNull()

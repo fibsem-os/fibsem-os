@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING, Iterable, List, Optional, Tuple
 from matplotlib.figure import Figure
 
 from fibsem.imaging.tiling.plotting import plot_minimap
-from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemStagePosition
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Lamella

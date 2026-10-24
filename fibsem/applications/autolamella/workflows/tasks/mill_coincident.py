@@ -41,12 +41,9 @@ from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategyConfig,
 )
 from fibsem.milling.tasks import FibsemMillingStage, FibsemMillingTaskConfig
-from fibsem.structures import (
-    CrossSectionPattern,
-    Display,
-    InsertableDeviceState,
-    param,
-)
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import CrossSectionPattern
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.proposals import MILLING
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 

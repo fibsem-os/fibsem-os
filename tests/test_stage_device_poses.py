@@ -77,7 +77,7 @@ def test_without_a_stage_device_there_are_no_orientations():
 
 def _classifier(poses_deg):
     """A Demo microscope classifying against hand-written poses, in degrees."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     microscope.orientations = {
@@ -88,7 +88,7 @@ def _classifier(poses_deg):
 
 
 def _at(r, t):
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     return FibsemStagePosition(r=math.radians(r), t=math.radians(t))
 

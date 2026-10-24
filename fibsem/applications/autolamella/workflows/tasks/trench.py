@@ -13,7 +13,8 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
 )
 from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
-from fibsem.structures import BeamType, param
+from fibsem.structures.params import param
+from fibsem.structures.settings import BeamType
 from fibsem.workflows.proposals import MILLING
 
 

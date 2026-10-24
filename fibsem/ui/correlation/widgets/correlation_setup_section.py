@@ -38,8 +38,8 @@ from PyQt5.QtWidgets import (
 from fibsem import constants
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
-from fibsem.structures import Point
-from fibsem.ui.tokens import CAPTION_STYLE, CONTROL_STYLE
+from fibsem.structures.settings import Point
+from fibsem.theme.tokens import CAPTION_STYLE, CONTROL_STYLE
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox
 
 # Starting-coordinates sources (mutually exclusive; see the design doc).

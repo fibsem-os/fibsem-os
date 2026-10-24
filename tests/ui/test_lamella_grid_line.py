@@ -37,8 +37,8 @@ from fibsem.applications.autolamella.ui.lamella.rows import (
     LamellaListWidget,
     LamellaNameListWidget,
 )
-from fibsem.structures import FibsemStagePosition, MicroscopeState
-from fibsem.ui.tokens import ACCENT_COLOR, NEUTRAL_550
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
+from fibsem.theme.tokens import ACCENT_COLOR, NEUTRAL_550
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.quality import QualityRecord, Verdict
 
@@ -171,9 +171,12 @@ class TestTheCard:
         assert card._btn_defect.isVisibleTo(card)
         assert card._btn_defect.toolTip().startswith("Rework")
         # Set back from the actions menu's Verdict submenu.
-        none = next(
-            a for a in card._defect_menu.actions() if a.text() == "Not assessed"
+        verdict = next(
+            a.menu()
+            for a in card._btn_actions.menu().actions()
+            if a.text() == "Verdict"
         )
+        none = next(a for a in verdict.actions() if a.text() == "Not assessed")
         none.trigger()
         assert lamellae["on-oak"].defect.verdict is Verdict.UNASSESSED
         assert not card._btn_defect.isVisibleTo(card)

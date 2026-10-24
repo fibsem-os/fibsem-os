@@ -9,7 +9,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
-from fibsem.structures import FibsemImage  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)

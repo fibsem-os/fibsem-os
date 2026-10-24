@@ -22,7 +22,7 @@ from PyQt5.QtCore import Qt
 
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning import get_pattern
-from fibsem.structures import FibsemMillingSettings
+from fibsem.structures.settings import FibsemMillingSettings
 from fibsem.ui.widgets.milling_stage_list_widget import MillingStageListWidget
 
 

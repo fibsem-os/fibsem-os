@@ -20,7 +20,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem import utils
-from fibsem.structures import FibsemManipulatorPosition, InsertableDeviceState
+from fibsem.structures.settings import FibsemManipulatorPosition
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget
 
 

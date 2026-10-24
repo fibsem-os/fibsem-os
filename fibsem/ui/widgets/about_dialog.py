@@ -23,18 +23,18 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     OK_COLOR,
     PANEL_COLOR,
-    SECONDARY_BUTTON_STYLESHEET,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.custom_widgets import IconToolButton, _SpinnerLabel
 from fibsem.versioning import get_branch, get_revision
 

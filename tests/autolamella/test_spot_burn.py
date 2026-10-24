@@ -19,7 +19,7 @@ from fibsem.imaging.spot import (
     SpotBurnStatus,
     run_spot_burn,
 )
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )

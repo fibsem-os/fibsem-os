@@ -19,7 +19,8 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
     connect_remote_beams,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import BeamType, FibsemImage  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import BeamType  # noqa: E402
 
 TOKEN = "test-token"
 

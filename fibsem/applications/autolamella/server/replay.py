@@ -29,7 +29,7 @@ from fibsem.server.responses import (
 )
 
 NOTHING_TO_REPLAY = "This experiment has no events.jsonl or log to replay."
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.event_recording import EVENTS_FILENAME
 
 logger = logging.getLogger(__name__)

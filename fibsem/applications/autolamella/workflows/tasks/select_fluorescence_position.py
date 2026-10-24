@@ -9,7 +9,7 @@ from typing import (
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.proposals import STATE
 
 

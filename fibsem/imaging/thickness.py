@@ -18,7 +18,8 @@ import numpy as np
 from scipy.ndimage import uniform_filter1d
 
 from fibsem.conversions import microscope_image_to_image_coordinates
-from fibsem.structures import FibsemImage, FibsemRectangle, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemRectangle, Point
 
 # Under this many pixels across, the FWHM is too coarse to trust (on an Arctis run,
 # at 39 nm per pixel a 200 nm band was 5 px). The suggested field of view puts
@@ -264,7 +265,7 @@ class LamellaThicknessResult:
         import json
         from pathlib import Path
 
-        from fibsem.structures import save_tiff
+        from fibsem.structures.image import save_tiff
 
         folder = Path(path) / name
         folder.mkdir(parents=True, exist_ok=True)
@@ -295,7 +296,7 @@ class LamellaThicknessResult:
         import json
         from pathlib import Path
 
-        from fibsem.structures import load_tiff
+        from fibsem.structures.image import load_tiff
 
         folder = Path(folder)
         with open(folder / "data.json") as f:

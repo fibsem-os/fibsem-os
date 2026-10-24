@@ -30,8 +30,7 @@ from PyQt5.QtWidgets import (
 from superqt import QRangeSlider
 
 from fibsem.imaging.reduce import downsample
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     DISABLED_TEXT_COLOR,
@@ -46,6 +45,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
 from fibsem.ui.widgets.canvas.fm_composite import (
     AVAILABLE_COLORS,

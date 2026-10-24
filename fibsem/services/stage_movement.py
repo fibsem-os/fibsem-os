@@ -54,13 +54,12 @@ from fibsem.geometry.orientations import (
     repose,
 )
 from fibsem.services.core import Service
-from fibsem.structures import (
+from fibsem.structures.settings import BeamType, FibsemStagePosition
+from fibsem.structures.system import (
     BEAMS_STAGE_DEVICE,
     DEVICE_AXES,
-    BeamType,
     CameraImageTransform,
     DeviceImagingState,
-    FibsemStagePosition,
     InsertableDeviceState,
     StageDeviceSettings,
 )

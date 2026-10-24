@@ -23,13 +23,9 @@ from fibsem.milling.patterning.utils import (
     get_patterns_bounding_box,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import (
-    Display,
-    FibsemImage,
-    FibsemRectangle,
-    Point,
-    param,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import FibsemRectangle, Point
 from fibsem.workflows.proposals import ALIGNMENT_AREA, MILLING
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
@@ -202,7 +198,7 @@ class MillFiducialTask(AutoLamellaTask):
         """Run the task to setup the lamella for milling."""
 
         # bookkeeping
-        from fibsem.structures import ImageSettings
+        from fibsem.structures.settings import ImageSettings
 
         image_settings: ImageSettings = self.config.imaging
 

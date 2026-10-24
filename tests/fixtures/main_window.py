@@ -65,12 +65,8 @@ def main_window(
         ui.disconnect_from_microscope()
         if microscope is not None:
             microscope.disconnect()
-        original_quit = qapp.quit
-        qapp.quit = lambda: None
-        try:
+        with quit_stubbed(qapp):
             win.close()
-        finally:
-            qapp.quit = original_quit
         from PyQt5.QtCore import QCoreApplication, QEvent
 
         win.deleteLater()
@@ -78,19 +74,25 @@ def main_window(
         qapp.processEvents()
 
 
-def close_window(win) -> None:
-    """Close the window as a test ends. Its closeEvent ends in app.quit(), which on
-    the shared test QApplication latches an interrupt every later
-    QEventLoop.exec_() returns from, so quit is stubbed for the close."""
-    from PyQt5.QtWidgets import QApplication
-
-    app = QApplication.instance()
+@contextmanager
+def quit_stubbed(app) -> Iterator[None]:
+    """``app.quit()`` does nothing inside the block. A window's closeEvent ends in
+    app.quit(), which on the shared test QApplication latches an interrupt every
+    later QEventLoop.exec_() returns from."""
     original_quit = app.quit
     app.quit = lambda: None
     try:
-        win.close()
+        yield
     finally:
         app.quit = original_quit
+
+
+def close_window(win) -> None:
+    """Close the window as a test ends, with quit stubbed for the close."""
+    from PyQt5.QtWidgets import QApplication
+
+    with quit_stubbed(QApplication.instance()):
+        win.close()
 
 
 def main_window_fixture(

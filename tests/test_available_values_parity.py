@@ -27,7 +27,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 FIXTURES = Path(__file__).parent / "fixtures"
 PINS = FIXTURES / "available_values_pins.json"

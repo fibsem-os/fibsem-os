@@ -25,7 +25,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.services.milling import parse_patterns
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from fibsem.theme.tokens import ERROR_COLOR, ORANGE_COLOR, WHITE_ICON_COLOR
 from fibsem.workflows.evidence import frame_path
 
@@ -198,7 +198,7 @@ def request_outside_field(
     place of the request's own run_stage and run_task stages."""
     from fibsem.milling.base import FibsemMillingStage
     from fibsem.milling.patterning.utils import outside_field, stage_outside_field
-    from fibsem.structures import FibsemMillingSettings
+    from fibsem.structures.settings import FibsemMillingSettings
 
     outside = []
     for command, kwargs in _milling_commands(request):
@@ -280,7 +280,7 @@ def _overview_pixel(image, overview: Dict[str, Any]) -> Optional[Tuple[float, fl
 
 def _stage_position(value: Dict[str, Any]):
     """``{x, y, z, r, t}`` as the stage tools give it, as a stage position."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     try:
         return FibsemStagePosition.from_dict({"coordinate_system": "RAW", **value})
@@ -289,7 +289,7 @@ def _stage_position(value: Dict[str, Any]):
 
 
 def _load_beam_image(path: str):
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     return FibsemImage.load(path)
 

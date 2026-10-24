@@ -23,17 +23,17 @@ from fibsem.milling.base import FibsemMillingStage, get_strategy_config
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.structures import Parameter
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
-from fibsem.ui.tokens import (
+from fibsem.structures.params import Parameter
+from fibsem.theme.tokens import (
     CANVAS_BG,
     NEUTRAL_700,
     ORANGE_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import DRAG_HANDLE_HEIGHT, DRAG_HANDLE_WIDTH, drag_handle_pixmap
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.form_builder import configure_spinbox
-from fibsem.ui.widgets.lists import ReorderableListWidget
+from fibsem.ui.widgets.lists import ReorderableListWidget, sync_select_all
 
 # Columns are flexible: each is (minimum_width, stretch). The header and every row
 # consume the SAME spec so their column boundaries stay aligned as the panel resizes,
@@ -767,13 +767,4 @@ class MillingStageListWidget(QWidget):
         if count == 0:
             return
         n_checked = sum(self._row(i).checkbox.isChecked() for i in range(count))
-        cb = self._header.checkbox_all
-        cb.blockSignals(True)
-        if n_checked == 0:
-            cb.setCheckState(Qt.Unchecked)
-        elif n_checked == count:
-            cb.setCheckState(Qt.Checked)
-        else:
-            cb.setTristate(True)
-            cb.setCheckState(Qt.PartiallyChecked)
-        cb.blockSignals(False)
+        sync_select_all(self._header.checkbox_all, n_checked, count)

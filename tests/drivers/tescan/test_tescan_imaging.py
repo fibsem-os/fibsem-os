@@ -21,13 +21,8 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan import connection as tescan_connection
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemRectangle,
-    ImageSettings,
-    Point,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle, ImageSettings, Point
 from tests.fixtures.demoted_messages import as_logged_now
 from tests.fixtures.tescan_sdk import connect
 

@@ -952,7 +952,7 @@ def _thermo_microscope_fm():
     import fibsem.drivers.autoscript.microscope as A
     from fibsem.drivers.autoscript.devices import build_autoscript_fm
     from fibsem.drivers.registry import BuildContext
-    from fibsem.structures import (
+    from fibsem.structures.system import (
         CameraImageTransform,
         DeviceEntry,
         FluorescenceSystemSettings,

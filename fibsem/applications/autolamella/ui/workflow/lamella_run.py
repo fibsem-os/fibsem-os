@@ -22,8 +22,7 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaListWidget
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     GRAY_ICON_COLOR,
     NEUTRAL_500,
@@ -32,6 +31,7 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     ValueComboBox,

@@ -18,6 +18,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.codec import NamedEnum
 from fibsem.workflows.grid import (
     GridTask,
     GridTaskConfig,
@@ -35,7 +36,7 @@ from tests.fixtures.microscopes import demo_microscope
 # ---------------------------------------------------------------------------
 
 
-class Flavour(Enum):
+class Flavour(NamedEnum, Enum):
     PLAIN = "plain"
     SPICY = "spicy"
 
@@ -321,7 +322,7 @@ class TestLifecycle:
             run_grid_task(microscope, "nope", experiment, _grid(experiment))
 
     def test_slot_is_resolved_live_from_the_holder(self, microscope, experiment):
-        from fibsem.structures import SampleGrid
+        from fibsem.structures.settings import SampleGrid
 
         grid = _grid(experiment, "grid-cedar")
         task = EchoTask(microscope, EchoConfig(task_name="echo"), grid, experiment)

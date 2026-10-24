@@ -23,7 +23,7 @@ from fibsem.fm.structures import (  # noqa: E402
     FluorescenceImageMetadata,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import BeamType, ImageSettings  # noqa: E402
+from fibsem.structures.settings import BeamType, ImageSettings  # noqa: E402
 
 TOKEN = "test-token"
 CORRELATION = "/services/correlation"
