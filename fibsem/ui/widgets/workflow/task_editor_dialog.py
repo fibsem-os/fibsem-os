@@ -8,7 +8,7 @@ from typing import List, Optional
 from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QWidget
 
-from fibsem.ui.tokens import SURFACE_COLOR, TEXT_COLOR
+from fibsem.theme.tokens import SURFACE_COLOR, TEXT_COLOR
 from fibsem.ui.widgets.workflow.task_editor import WorkflowTaskEditorWidget
 from fibsem.workflows.task_config import TaskPlan
 

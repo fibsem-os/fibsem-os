@@ -16,6 +16,7 @@ from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.theme import tokens
 from fibsem.ui import stylesheets
 from fibsem.ui.utils import beam_spec
 from fibsem.ui.widgets.custom_widgets import (
@@ -48,7 +49,7 @@ def _set_state_chip(chip, on: bool) -> None:
     set_header_chip(
         chip,
         "on" if on else "off",
-        stylesheets.ACCENT_COLOR if on else stylesheets.TEXT_MUTED_COLOR,
+        tokens.ACCENT_COLOR if on else tokens.TEXT_MUTED_COLOR,
     )
 
 
@@ -140,11 +141,11 @@ class MillingTaskConfigWidget(QWidget):
         # Whether alignment runs, readable with the panel collapsed. A chip that
         # mirrors the body's switch rather than a second switch in the header:
         # two controls for one setting was one too many.
-        self._alignment_state_chip = header_chip("on", stylesheets.ACCENT_COLOR)
+        self._alignment_state_chip = header_chip("on", tokens.ACCENT_COLOR)
         self._btn_advanced_alignment = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
@@ -162,11 +163,11 @@ class MillingTaskConfigWidget(QWidget):
         self.acquisition_widget.image_settings_widget.set_show_advanced_button(False)
 
         # "on" when either beam acquires.
-        self._acquisition_state_chip = header_chip("on", stylesheets.ACCENT_COLOR)
+        self._acquisition_state_chip = header_chip("on", tokens.ACCENT_COLOR)
         self._btn_advanced_acquisition = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
@@ -186,7 +187,7 @@ class MillingTaskConfigWidget(QWidget):
         # How many stages are enabled, readable with the panel collapsed. Text
         # rather than a digit-in-a-box icon, which looks like a disabled button
         # and stops at 9.
-        self._stage_count_chip = header_chip("0 stages", stylesheets.ACCENT_COLOR)
+        self._stage_count_chip = header_chip("0 stages", tokens.ACCENT_COLOR)
 
         milling_panel = TitledPanel(
             "Milling Stages", content=self.milling_stages_widget
@@ -197,7 +198,7 @@ class MillingTaskConfigWidget(QWidget):
         self._btn_advanced_stages = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced stage settings",
             checked_tooltip="Hide advanced stage settings",
         )

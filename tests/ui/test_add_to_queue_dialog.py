@@ -202,7 +202,7 @@ def test_the_duplicate_notice_carries_no_accent_colour(show):
     """A consequence to notice, not an alarm. The bold count is enough to catch and
     Cancel is right there; three lines of body text beat three orange ones out-shouting
     the two figures that lead the dialog."""
-    from fibsem.ui.tokens import DEFECT_ORANGE_COLOR
+    from fibsem.theme.tokens import DEFECT_ORANGE_COLOR
 
     dialog = show(None, already=["Polishing for 01-lamella"])
     warning = next(

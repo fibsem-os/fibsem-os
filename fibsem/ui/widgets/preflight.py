@@ -31,16 +31,17 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.constants import DATETIME_DISPLAY_AMPM, TIME_DISPLAY_AMPM_SHORT
-from fibsem.ui import stylesheets, tokens
+from fibsem.theme import tokens
+from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.utils import format_bytes as utils_format_bytes
 
-BACKGROUND = stylesheets.SURFACE_COLOR
-PANEL = stylesheets.PANEL_COLOR
-BORDER = stylesheets.BORDER_COLOR
-TEXT = stylesheets.TEXT_COLOR
-TEXT_STRONG = stylesheets.TEXT_STRONG_COLOR
-TEXT_MUTED = stylesheets.TEXT_MUTED_COLOR
+BACKGROUND = tokens.SURFACE_COLOR
+PANEL = tokens.PANEL_COLOR
+BORDER = tokens.BORDER_COLOR
+TEXT = tokens.TEXT_COLOR
+TEXT_STRONG = tokens.TEXT_STRONG_COLOR
+TEXT_MUTED = tokens.TEXT_MUTED_COLOR
 WARNING = tokens.SEMANTIC_WARNING_COLOR
 
 

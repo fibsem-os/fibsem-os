@@ -51,15 +51,15 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
-    CorrelationFMCanvasWidget,
-)
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     OK_COLOR,
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+)
+from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
+    CorrelationFMCanvasWidget,
 )
 
 # The types _POINT_TYPE_SIDES assigns to the FM side, so the add menu matches production.

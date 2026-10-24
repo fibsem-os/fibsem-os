@@ -77,11 +77,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     OverviewAcquisitionSettings,
 )
-from fibsem.ui import notification_service, stylesheets
-from fibsem.ui import utils as ui_utils
-from fibsem.ui.control import control_of
-from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     CURRENT_POSITION_COLOUR,
@@ -96,6 +92,10 @@ from fibsem.ui.tokens import (
     SELECTED_POSITION_COLOUR,
     SEMANTIC_WARNING_COLOR,
 )
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui import utils as ui_utils
+from fibsem.ui.control import control_of
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.aligned_image_panel import AlignedImagePanel
 from fibsem.ui.widgets.canvas.aligned_images import AlignedImages
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl

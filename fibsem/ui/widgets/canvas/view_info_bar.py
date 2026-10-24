@@ -54,8 +54,7 @@ from fibsem.imaging.export import (
     stored_bar_keys,
     z_value,
 )
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     CAPTION_STYLE,
@@ -66,6 +65,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 
 _logger = logging.getLogger(__name__)
 

@@ -32,16 +32,7 @@ from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.imaging.export import ImageFields, image_caption, image_summary
 from fibsem.session_state import user_state
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.thumbnails import (
-    PLACEHOLDER_HEIGHT,
-    TARGET_WIDTH,
-    ClickableLabel,
-    file_stamp,
-    load_and_resize,
-)
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     GRAY_ICON_COLOR,
     NEUTRAL_200,
@@ -51,6 +42,15 @@ from fibsem.ui.tokens import (
     NUMBER_FONT,
     PANEL_COLOR,
     SURFACE_COLOR,
+)
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.thumbnails import (
+    PLACEHOLDER_HEIGHT,
+    TARGET_WIDTH,
+    ClickableLabel,
+    file_stamp,
+    load_and_resize,
 )
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel

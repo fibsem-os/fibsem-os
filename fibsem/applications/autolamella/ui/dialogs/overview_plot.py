@@ -26,7 +26,7 @@ from fibsem.applications.autolamella.overview_figure import overview_figure
 from fibsem.applications.autolamella.structures import Experiment, find_overviews
 from fibsem.structures import FibsemImage
 from fibsem.theme.plots import LIGHT
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     NEUTRAL_400,
     NEUTRAL_750,
     NEUTRAL_800,

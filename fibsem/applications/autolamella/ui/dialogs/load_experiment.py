@@ -12,22 +12,25 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.applications.autolamella.ui.protocol.picker import (
+    ProtocolSummary,
+    pick_protocol,
+)
 from fibsem.config import get_last_experiment_file, get_recent_experiments
-from fibsem.ui import utils as fui
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.stylesheets import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     DISABLED_TEXT_COLOR,
     PANEL_COLOR,
-    PRIMARY_BUTTON_STYLESHEET,
     PRIMARY_COLOR_PRESSED,
     ROW_ALT_COLOR,
-    SECONDARY_BUTTON_STYLESHEET,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
 )
-from fibsem.ui.widgets.custom_widgets import TitledPanel
+from fibsem.ui import utils as fui
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import FunctionWorker
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.widgets.custom_widgets import ElidedLabel, TitledPanel
 from fibsem.util.system import directory_size
 from fibsem.util.timestamps import format_time
 from fibsem.utils import format_bytes
@@ -55,12 +58,6 @@ ERROR_NO_EXPERIMENT_MSG = (
 ERROR_NO_PROTOCOL_TITLE = "No Protocol"
 ERROR_NO_PROTOCOL_MSG = "The experiment does not have a valid protocol file."
 
-ERROR_INVALID_PROTOCOL_TITLE = "Invalid Protocol"
-ERROR_INVALID_PROTOCOL_MSG = (
-    "The selected protocol file is not valid. It may be corrupted, incorrectly formatted, or missing required fields.\n\n"
-    "Error: {error}\n\n"
-    "Please select a valid protocol file (*.yaml)."
-)
 
 # Width of the recent-experiments quick-select column
 RECENT_COLUMN_WIDTH = 260
@@ -86,40 +83,6 @@ RECENT_NAME_COLOR = TEXT_COLOR
 # same disabled grey the control sheets use, so an unreadable row reads as
 # disabled rather than as its own shade.
 RECENT_UNAVAILABLE_COLOR = DISABLED_TEXT_COLOR
-
-
-class _ElidedLabel(QtWidgets.QLabel):
-    """A QLabel that elides (…) its text on the right when too narrow.
-
-    Reports a zero minimum width so it can shrink inside a layout instead of
-    forcing the row wider than the list viewport.
-    """
-
-    def __init__(self, text: str, color: str, parent=None):
-        super().__init__(text, parent)
-        self._full_text = text
-        self._color = QtGui.QColor(color)
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred
-        )
-
-    def minimumSizeHint(self) -> QtCore.QSize:
-        return QtCore.QSize(0, QtGui.QFontMetrics(self.font()).height())
-
-    def sizeHint(self) -> QtCore.QSize:
-        return QtCore.QSize(0, QtGui.QFontMetrics(self.font()).height())
-
-    def paintEvent(self, event):
-        painter = QtGui.QPainter(self)
-        painter.setPen(self._color)
-        painter.setFont(self.font())
-        metrics = QtGui.QFontMetrics(self.font())
-        elided = metrics.elidedText(
-            self._full_text, QtCore.Qt.ElideMiddle, self.width()
-        )
-        painter.drawText(
-            self.rect(), QtCore.Qt.AlignVCenter | QtCore.Qt.AlignLeft, elided
-        )
 
 
 RECENT_LIST_STYLESHEET = f"""
@@ -268,32 +231,8 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         protocol_layout.addLayout(self.protocol_button_layout)
 
-        # Protocol form fields (all read-only)
-        protocol_form_layout = QtWidgets.QFormLayout()
-
-        self.lineEdit_protocol_name = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_name.setEnabled(False)
-        self.lineEdit_protocol_name.setPlaceholderText("No protocol loaded")
-
-        self.lineEdit_protocol_description = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_description.setEnabled(False)
-        self.lineEdit_protocol_description.setPlaceholderText("No protocol loaded")
-
-        self.lineEdit_protocol_path = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_path.setEnabled(False)
-        self.lineEdit_protocol_path.setPlaceholderText("No protocol loaded")
-        self.lineEdit_protocol_path.setCursorPosition(0)
-
-        self.lineEdit_protocol_tasks = QtWidgets.QLineEdit()
-        self.lineEdit_protocol_tasks.setEnabled(False)
-        self.lineEdit_protocol_tasks.setPlaceholderText("0")
-
-        protocol_form_layout.addRow("Name", self.lineEdit_protocol_name)
-        protocol_form_layout.addRow("Description", self.lineEdit_protocol_description)
-        protocol_form_layout.addRow("Path", self.lineEdit_protocol_path)
-        protocol_form_layout.addRow("Tasks", self.lineEdit_protocol_tasks)
-
-        protocol_layout.addLayout(protocol_form_layout)
+        self.protocol_summary = ProtocolSummary()
+        protocol_layout.addWidget(self.protocol_summary)
 
         # Protocol tooltip/info label
         protocol_info_label = QtWidgets.QLabel(
@@ -581,26 +520,8 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
     def _update_protocol_display(self):
         """Update the protocol information display."""
-        if self.experiment is None or self.experiment.task_protocol is None:
-            self.lineEdit_protocol_name.setText("")
-            self.lineEdit_protocol_name.setPlaceholderText("No protocol loaded")
-            self.lineEdit_protocol_description.setText("")
-            self.lineEdit_protocol_description.setPlaceholderText("No protocol loaded")
-            self.lineEdit_protocol_path.setText("")
-            self.lineEdit_protocol_path.setPlaceholderText("No protocol loaded")
-            self.lineEdit_protocol_tasks.setText("")
-            self.lineEdit_protocol_tasks.setPlaceholderText("0")
-            return
-
-        self.lineEdit_protocol_name.setText(self.experiment.task_protocol.name or "")
-        self.lineEdit_protocol_description.setText(
-            self.experiment.task_protocol.description or ""
-        )
-        self.lineEdit_protocol_path.setText(self.protocol_path or "")
-        self.lineEdit_protocol_path.setCursorPosition(0)
-        self.lineEdit_protocol_tasks.setText(
-            str(len(self.experiment.task_protocol.task_config))
-        )
+        protocol = self.experiment.task_protocol if self.experiment else None
+        self.protocol_summary.show_protocol(protocol, self.protocol_path or "")
 
     def _clear_display(self):
         """Clear all display fields and disable OK button."""
@@ -693,7 +614,8 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(5)
 
-        name_label = _ElidedLabel(info.name, name_color)
+        name_label = ElidedLabel(info.name, mode=QtCore.Qt.ElideMiddle)
+        name_label.setStyleSheet(f"color: {name_color}; background: transparent;")
         name_font = name_label.font()
         name_font.setPixelSize(13)
         name_font.setWeight(QtGui.QFont.DemiBold)
@@ -784,33 +706,15 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
     def _select_protocol(self):
         """Let the user pick a protocol file after experiment load."""
-
-        protocol_path = fui.open_existing_file_dialog(
-            msg="Select a task protocol file (*.yaml)",
-            path=str(cfg.USER_PROTOCOL_PATH),
-            parent=self,
-        )
-
-        if not protocol_path:
+        picked = pick_protocol(self, str(cfg.USER_PROTOCOL_PATH))
+        if picked is None:
             return
-
-        try:
-            protocol = AutoLamellaTaskProtocol.load(protocol_path)
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self,
-                ERROR_INVALID_PROTOCOL_TITLE,
-                ERROR_INVALID_PROTOCOL_MSG.format(error=e),
-            )
-            return
-
-        self.protocol_path = protocol_path
+        self.protocol_path, protocol = picked
         if self.experiment is not None:
             self.experiment.task_protocol = protocol
         self._update_protocol_display()
         self.btn_ok.setEnabled(True)
         self._set_protocol_buttons_visible(False)
-        logging.info(f"Protocol loaded manually from {protocol_path}")
 
     def _set_protocol_buttons_visible(self, visible: bool) -> None:
         """Show or hide the protocol selection button."""

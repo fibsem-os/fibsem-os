@@ -32,7 +32,7 @@ from fibsem.geometry.stage_places import (
     slot_landmark,
 )
 from fibsem.structures import FibsemStagePosition
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     GRID_BOUNDARY_COLOUR,
     SLOT_COLOUR,
     STAGE_LIMITS_COLOUR,

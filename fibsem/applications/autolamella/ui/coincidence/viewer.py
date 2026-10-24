@@ -94,6 +94,15 @@ from fibsem.structures import (
     FibsemRectangleSettings,
     Point,
 )
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
+    BORDER_COLOR,
+    CANVAS_BG,
+    DISABLED_BG_COLOR,
+    DISABLED_TEXT_COLOR,
+    SURFACE_COLOR,
+    TEXT_COLOR,
+)
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.fm.widgets import (
@@ -104,14 +113,6 @@ from fibsem.ui.fm.widgets import (
 )
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.stylesheets import CANVAS_BG, SURFACE_COLOR
-from fibsem.ui.tokens import (
-    BORDER_COLOR,
-    DISABLED_BG_COLOR,
-    DISABLED_TEXT_COLOR,
-    SURFACE_COLOR,
-    TEXT_COLOR,
-)
 from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
@@ -755,14 +756,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         auto_row.setSpacing(4)
         self.btn_autocontrast_fib = QPushButton("AutoContrast")
         self.btn_autocontrast_fib.setIcon(
-            fibsem_icon("mdi:contrast-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:contrast-circle", color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_autocontrast_fib.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.btn_autofocus_fib = QPushButton("AutoFocus")
         self.btn_autofocus_fib.setIcon(
-            fibsem_icon(
-                "mdi:image-filter-center-focus", color=stylesheets.GRAY_ICON_COLOR
-            )
+            fibsem_icon("mdi:image-filter-center-focus", color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_autofocus_fib.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         auto_row.addWidget(self.btn_autocontrast_fib)
@@ -979,7 +978,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         self.btn_milling = QPushButton("Start Milling")
         self.btn_milling.setIcon(
-            fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:play-circle", color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_milling.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
 
@@ -991,9 +990,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._milling_paused = False
         self.btn_pause = QToolButton()
         self.btn_pause.setText("Pause")
-        self.btn_pause.setIcon(
-            fibsem_icon("mdi:pause", color=stylesheets.GRAY_ICON_COLOR)
-        )
+        self.btn_pause.setIcon(fibsem_icon("mdi:pause", color=tokens.GRAY_ICON_COLOR))
         self.btn_pause.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)  # type: ignore[attr-defined]
         self.btn_pause.setPopupMode(QToolButton.InstantPopup)
         # SECONDARY_BUTTON_STYLESHEET targets QPushButton; a QToolButton needs its
@@ -1016,7 +1013,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # intensity-drop chip: neutral while monitoring, attention style on a drop
         self.label_threshold_chip = QPushButton("Intensity Drop: 0%")
         self.label_threshold_chip.setIcon(
-            fibsem_icon("mdi:alert-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:alert-circle", color=tokens.GRAY_ICON_COLOR)
         )
         self.label_threshold_chip.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.label_threshold_chip.setVisible(False)
@@ -1817,7 +1814,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self.progressBar_stages.setVisible(True)
             self.btn_milling.setText("Stop Milling")
             self.btn_milling.setIcon(
-                fibsem_icon("mdi:stop-circle", color=stylesheets.GRAY_ICON_COLOR)
+                fibsem_icon("mdi:stop-circle", color=tokens.GRAY_ICON_COLOR)
             )
             self.btn_milling.setStyleSheet(stylesheets.DANGER_BUTTON_STYLESHEET)
             # reveal the run-time controls (hidden until milling starts)
@@ -1867,7 +1864,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.progressBar_stages.setVisible(False)
         self.btn_milling.setText("Start Milling")
         self.btn_milling.setIcon(
-            fibsem_icon("mdi:play-circle", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:play-circle", color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_milling.setStyleSheet(stylesheets.CONFIRM_BUTTON_STYLESHEET)
         # hide the run-time-only controls again
@@ -2032,8 +2029,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             "QFrame#fm_canvas_frame, QFrame#fib_canvas_frame"
             " { border: 1px solid transparent; }"
         )
-        _fm = f"QFrame#fm_canvas_frame  {{ border: 1px solid {stylesheets.PRIMARY_COLOR}; }}"
-        _fib = f"QFrame#fib_canvas_frame {{ border: 1px solid {stylesheets.PRIMARY_COLOR}; }}"
+        _fm = f"QFrame#fm_canvas_frame  {{ border: 1px solid {tokens.PRIMARY_COLOR}; }}"
+        _fib = (
+            f"QFrame#fib_canvas_frame {{ border: 1px solid {tokens.PRIMARY_COLOR}; }}"
+        )
         self._fm_frame.setStyleSheet(_fm if index == 0 else _sel)
         self._fib_frame.setStyleSheet(_fib if index == 1 else _sel)
 

@@ -43,8 +43,8 @@ from fibsem.structures import (
     Resolution,
     TileOrderStrategy,
 )
-from fibsem.ui import stylesheets
-from fibsem.ui.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
+from fibsem.theme import tokens
+from fibsem.theme.tokens import NEUTRAL_400, TEXT_MUTED_COLOR
 from fibsem.ui.utils import beam_spec, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
@@ -217,7 +217,7 @@ class FibsemOverviewSettingsWidget(QWidget):
             icon="mdi:tune",
             color=NEUTRAL_400,
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
             checkable=True,

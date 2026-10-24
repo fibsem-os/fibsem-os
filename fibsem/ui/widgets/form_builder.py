@@ -45,7 +45,7 @@ from typing import (
     get_origin,
 )
 
-from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QWidget
+from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QLabel, QWidget
 
 from fibsem.devices.core import BoundParameter
 from fibsem.structures import (
@@ -132,6 +132,40 @@ class Control:
         """Block or unblock the inputs, so a programmatic write is not echoed back."""
         for widget in self.inputs:
             widget.blockSignals(blocked)
+
+
+@dataclass
+class Row:
+    """One built form row: the label, the control, and whether it is advanced."""
+
+    label: QLabel
+    control: Control
+    field: str
+    advanced: bool
+
+
+class AdvancedRows:
+    """The show-advanced toggle every parameter form shares: the form keeps its
+    built rows in ``_rows`` and hides the advanced ones until asked."""
+
+    _rows: List[Row]
+    _advanced_visible: bool = False
+
+    def _row_shown(self, row: Row) -> bool:
+        """Whether *row* is shown at all, advanced or not."""
+        return True
+
+    def _update_visibility(self) -> None:
+        for row in self._rows:
+            visible = self._row_shown(row) and (
+                not row.advanced or self._advanced_visible
+            )
+            row.label.setVisible(visible)
+            row.control.widget.setVisible(visible)
+
+    def set_advanced_visible(self, show: bool) -> None:
+        self._advanced_visible = show
+        self._update_visibility()
 
 
 def _default_label(name: str) -> str:

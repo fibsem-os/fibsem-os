@@ -663,7 +663,7 @@ def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
     assert "helped produce" in rt._table.horizontalHeaderItem(1).toolTip()
     assert "without this fiducial" in rt._table.horizontalHeaderItem(2).toolTip()
     # the flagged pair is marked in the table, as it is on the rows
-    from fibsem.ui.tokens import WARN_COLOR
+    from fibsem.theme.tokens import WARN_COLOR
 
     assert rt._table.item(6, 2).foreground().color().name() == WARN_COLOR
     assert rt._table.item(0, 2).foreground().color().name() != WARN_COLOR

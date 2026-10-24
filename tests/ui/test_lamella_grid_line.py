@@ -38,7 +38,7 @@ from fibsem.applications.autolamella.ui.lamella.rows import (
     LamellaNameListWidget,
 )
 from fibsem.structures import FibsemStagePosition, MicroscopeState
-from fibsem.ui.tokens import ACCENT_COLOR, NEUTRAL_550
+from fibsem.theme.tokens import ACCENT_COLOR, NEUTRAL_550
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.quality import QualityRecord, Verdict
 

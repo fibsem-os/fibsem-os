@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Optional
+from typing import Optional
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap
@@ -19,6 +19,17 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import Lamella
+from fibsem.applications.autolamella.ui.common.cards import (
+    BTN_SIZE,
+    CARD_BUTTON_STYLE,
+    COZY_THUMB_H,
+    COZY_THUMB_W,
+    THUMB_H,
+    THUMB_PADDING,
+    THUMB_W,
+    CardContainer,
+    RecordCard,
+)
 from fibsem.applications.autolamella.ui.common.lamella_display import (
     DETAIL_FONT_PX,
     NAME_FONT_PX,
@@ -33,67 +44,23 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     short_status,
     status_look,
 )
-from fibsem.config import CARD_MODES, MODE_COMPACT, MODE_COZY, MODE_STANDARD
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
-from fibsem.ui.qt.connections import connect_for_lifetime
-from fibsem.ui.thumbnails import cached_thumbnail
-from fibsem.ui.tokens import (
+from fibsem.config import MODE_COMPACT, MODE_COZY, MODE_STANDARD
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     NEUTRAL_200,
     NEUTRAL_550,
     NEUTRAL_900,
-    PRIMARY_COLOR,
-    SURFACE_COLOR,
 )
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
+from fibsem.ui.qt.connections import connect_for_lifetime
+from fibsem.ui.thumbnails import cached_thumbnail
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
-_CARD_WIDTH = 300
-_THUMB_PADDING = 6  # inset from card edges so rounded corners stay visible
-# 3:2, matching the 1536x1024 frames the microscope acquires, so the thumbnail
-# scales rather than crops -- cached_thumbnail expands to fill. Kept small: at this
-# size it is a scanning cue ("which of these looks milled"), and every pixel of
-# width it takes comes off the status line, which is the part carrying detail.
-_THUMB_W = 66
-_THUMB_H = 44
-# The cozy arrangement's thumbnail: the full card width less its padding, at the
-# height the card carried before the denser layouts existed.
-_COZY_THUMB_W = _CARD_WIDTH - 8 - _THUMB_PADDING * 2
-_COZY_THUMB_H = 170
-_BTN_SIZE = 24
 
-_CARD_STYLE = f"""
-QFrame#LamellaCard {{
-    background: {SURFACE_COLOR};
-    border: 1px solid #3a3d42;
-    border-radius: 8px;
-}}
-"""
-
-_CARD_SELECTED_STYLE = f"""
-QFrame#LamellaCard {{
-    background: {SURFACE_COLOR};
-    border: 2px solid {PRIMARY_COLOR};
-    border-radius: 8px;
-}}
-"""
-
-_BTN_STYLE = """
-QToolButton {
-    background: transparent;
-    border: none;
-    border-radius: 4px;
-    padding: 1px;
-}
-QToolButton:hover { background: rgba(255, 255, 255, 30); }
-QToolButton:pressed { background: rgba(255, 255, 255, 15); }
-"""
-
-
-class LamellaCardWidget(QWidget):
+class LamellaCardWidget(RecordCard):
     """Modern card-style widget for a single Lamella."""
 
-    clicked = pyqtSignal(object)  # Lamella
     defect_changed = pyqtSignal(object)  # Lamella
     move_to_requested = pyqtSignal(object)  # Lamella
     update_position_requested = pyqtSignal(object)  # Lamella
@@ -105,30 +72,9 @@ class LamellaCardWidget(QWidget):
         mode: str = MODE_COZY,
         parent: Optional[QWidget] = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(lamella, "LamellaCard", mode, parent)
         self.lamella = lamella
         self._grid_context: Optional[GridContext] = None
-        self._mode = mode if mode in CARD_MODES else MODE_COZY
-        self.setFixedWidth(_CARD_WIDTH)
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 4, 4, 4)
-        outer.setSpacing(0)
-
-        # ── card frame ──────────────────────────────────────────────────
-        self._card = QFrame()
-        self._card.setObjectName("LamellaCard")
-        self._card.setStyleSheet(_CARD_STYLE)
-        self._card.setFixedWidth(_CARD_WIDTH - 8)
-
-        # The frame holds one content widget, which `_apply_layout` swaps. The three
-        # arrangements differ in geometry only -- same children, same signals, same
-        # refresh() -- so nothing below this line knows which one is showing, and
-        # there is no second display path to keep correct.
-        self._frame_layout = QVBoxLayout(self._card)
-        self._frame_layout.setContentsMargins(0, 0, 0, 0)
-        self._frame_layout.setSpacing(0)
-        self._content: Optional[QWidget] = None
 
         # ── thumbnail ───────────────────────────────────────────────────
         self._thumb_label = QLabel()
@@ -148,26 +94,24 @@ class LamellaCardWidget(QWidget):
         self._grid_label.setVisible(False)
 
         self._btn_actions = QToolButton()
-        self._btn_actions.setFixedSize(_BTN_SIZE, _BTN_SIZE)
-        self._btn_actions.setStyleSheet(
-            _BTN_STYLE + " QToolButton::menu-indicator { image: none; }"
-        )
+        self._btn_actions.setFixedSize(BTN_SIZE, BTN_SIZE)
+        self._btn_actions.setStyleSheet(CARD_BUTTON_STYLE)
         self._btn_actions.setIcon(
-            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self._btn_actions.setToolTip("Actions")
         self._btn_actions.setPopupMode(QToolButton.InstantPopup)
         _actions_menu = QMenu(self)
         self._action_move = _actions_menu.addAction(
-            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=tokens.GRAY_ICON_COLOR),
             "Move to Position",
         )
         self._action_update = _actions_menu.addAction(
-            fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon(ICON_UPDATE_POSITION, color=tokens.GRAY_ICON_COLOR),
             "Update Position",
         )
         self._action_remove = _actions_menu.addAction(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon("mdi:trash-can-outline", color=tokens.GRAY_ICON_COLOR),
             "Remove",
         )
         # The defect is set from here; its icon only shows once there is one.
@@ -182,10 +126,8 @@ class LamellaCardWidget(QWidget):
         self._action_remove.triggered.connect(self._on_remove_clicked)
 
         self._btn_defect = QToolButton()
-        self._btn_defect.setFixedSize(_BTN_SIZE, _BTN_SIZE)
-        self._btn_defect.setStyleSheet(
-            _BTN_STYLE + " QToolButton::menu-indicator { image: none; }"
-        )
+        self._btn_defect.setFixedSize(BTN_SIZE, BTN_SIZE)
+        self._btn_defect.setStyleSheet(CARD_BUTTON_STYLE)
         self._defect_icon_menu = QMenu(self)
         add_defect_menu(self._defect_icon_menu, lamella, self._on_defect_written)
         self._btn_defect.clicked.connect(
@@ -204,7 +146,6 @@ class LamellaCardWidget(QWidget):
             f"font-size: {DETAIL_FONT_PX}px; color: {NEUTRAL_550}; background: transparent;"
         )
 
-        outer.addWidget(self._card)
         self._apply_layout()
 
         # ── evented connections ──────────────────────────────────────────
@@ -228,22 +169,6 @@ class LamellaCardWidget(QWidget):
         self.refresh()
 
     # ------------------------------------------------------------------
-
-    def set_mode(self, mode: str) -> None:
-        """Switch arrangement: cozy tile, standard row, or compact one-liner.
-
-        Cheap enough to call on every card at once: it rebuilds one container widget
-        and re-parents the existing children into it. Nothing is recreated, so the
-        menus, connections and selection state all survive the switch.
-        """
-        if mode not in CARD_MODES or mode == self._mode:
-            return
-        self._mode = mode
-        self._apply_layout()
-        self.refresh()  # the thumbnail is drawn at the new size
-
-    def mode(self) -> str:
-        return self._mode
 
     def _apply_layout(self) -> None:
         """(Re)build the card's content in the current arrangement."""
@@ -299,12 +224,12 @@ class LamellaCardWidget(QWidget):
         The strip is one column in a 340px-wide scroll area, so height is what limits
         how many lamellae are visible at once.
         """
-        self._thumb_label.setFixedSize(_THUMB_W, _THUMB_H)
+        self._thumb_label.setFixedSize(THUMB_W, THUMB_H)
 
         content = QWidget()
         row = QHBoxLayout(content)
         row.setContentsMargins(
-            _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING
+            THUMB_PADDING, THUMB_PADDING, THUMB_PADDING, THUMB_PADDING
         )
         row.setSpacing(6)
         row.addWidget(self._thumb_label)
@@ -334,7 +259,7 @@ class LamellaCardWidget(QWidget):
         """
         content = QWidget()
         row = QHBoxLayout(content)
-        row.setContentsMargins(10, 2, _THUMB_PADDING, 2)
+        row.setContentsMargins(10, 2, THUMB_PADDING, 2)
         row.setSpacing(8)
         row.addWidget(self._name_label)
         row.addLayout(self._status_row(), 1)
@@ -344,11 +269,11 @@ class LamellaCardWidget(QWidget):
 
     def _build_cozy(self) -> QWidget:
         """Cozy: large thumbnail over a name row and status — the original card."""
-        self._thumb_label.setFixedSize(_COZY_THUMB_W, _COZY_THUMB_H)
+        self._thumb_label.setFixedSize(COZY_THUMB_W, COZY_THUMB_H)
 
         content = QWidget()
         column = QVBoxLayout(content)
-        column.setContentsMargins(_THUMB_PADDING, _THUMB_PADDING, _THUMB_PADDING, 0)
+        column.setContentsMargins(THUMB_PADDING, THUMB_PADDING, THUMB_PADDING, 0)
         column.setSpacing(0)
         column.addWidget(self._thumb_label)
 
@@ -444,13 +369,6 @@ class LamellaCardWidget(QWidget):
             )
             self._thumb_label.setPixmap(QPixmap.fromImage(image))
 
-    def mousePressEvent(self, event) -> None:
-        self.clicked.emit(self.lamella)
-        super().mousePressEvent(event)
-
-    def set_selected(self, selected: bool) -> None:
-        self._card.setStyleSheet(_CARD_SELECTED_STYLE if selected else _CARD_STYLE)
-
     def _on_remove_clicked(self) -> None:
         reply = QMessageBox.question(
             self,
@@ -470,7 +388,7 @@ class LamellaCardWidget(QWidget):
 _N_COLS = 4
 
 
-class LamellaCardContainer(QWidget):
+class LamellaCardContainer(CardContainer):
     """Grid container that displays LamellaCardWidget in 4 columns."""
 
     lamella_selected = pyqtSignal(object)  # Lamella | None
@@ -485,11 +403,8 @@ class LamellaCardContainer(QWidget):
         parent: Optional[QWidget] = None,
         mode: str = MODE_COZY,
     ) -> None:
-        super().__init__(parent)
-        self._cards: Dict[str, LamellaCardWidget] = {}  # lamella.id → card
-        self._selected_id: Optional[str] = None
+        super().__init__(parent, mode)
         self._n_cols: int = max(1, columns)
-        self._mode: str = mode if mode in CARD_MODES else MODE_COZY
 
         self._grid = QGridLayout(self)
         self._grid.setSpacing(12)
@@ -499,17 +414,6 @@ class LamellaCardContainer(QWidget):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
-
-    def set_mode(self, mode: str) -> None:
-        """Switch every card, and any added later, to one of the CARD_MODES."""
-        if mode not in CARD_MODES:
-            return
-        self._mode = mode
-        for card in self._cards.values():
-            card.set_mode(mode)
-
-    def mode(self) -> str:
-        return self._mode
 
     def set_grid_context(self, context: Optional[GridContext]) -> None:
         """Which grid each lamella is on and whether it is on the stage; the
@@ -543,20 +447,6 @@ class LamellaCardContainer(QWidget):
         card = self._cards.get(lamella.id)
         if card is not None:
             card.refresh()
-
-    def refresh_all(self) -> None:
-        for card in self._cards.values():
-            card.refresh()
-
-    def clear(self) -> None:
-        for card in self._cards.values():
-            card.deleteLater()
-        self._cards.clear()
-        # Lamella ids are stable, and the host clears then re-adds the same set on
-        # every rebuild -- so a surviving id would name a card that is drawn
-        # unselected while the container thinks it is selected, and the next click on
-        # it would toggle off rather than select.
-        self._selected_id = None
 
     def select_lamella(self, name: str) -> None:
         """Programmatically select the card matching name. Does NOT emit lamella_selected."""

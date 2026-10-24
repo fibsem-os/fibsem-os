@@ -49,10 +49,7 @@ from fibsem.guided_setup import (
     microscope_models,
 )
 from fibsem.structures import SampleHolder, StageSystemSettings
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,
     PANEL_COLOR,
@@ -62,6 +59,9 @@ from fibsem.ui.tokens import (
     TEXT_STRONG_COLOR,
     WARN_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import install_wheel_blocker_recursive
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 from fibsem.ui.widgets.form_builder import configure_spinbox

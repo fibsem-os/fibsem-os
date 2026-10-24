@@ -47,7 +47,7 @@ from fibsem.structures import (
     Point,
 )
 from fibsem.theme.plots import DARK
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CANVAS_BG,
 )
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay

@@ -29,15 +29,16 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.structures import FibsemStagePosition, GridSlot, SampleGrid, SampleHolder
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import ICON_MOVE_TO_POSITION, fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     NEUTRAL_700,
     OK_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, fibsem_icon
 from fibsem.ui.widgets.custom_widgets import TitledPanel, style_with_tooltip
 from fibsem.util.timestamps import to_datetime
 
@@ -178,7 +179,7 @@ class _SlotRow(QWidget):
         self.btn_move.setIconSize(QSize(18, 18))
         self.btn_move.setStyleSheet(_ICON_BTN_STYLE)
         self.btn_move.setIcon(
-            fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon(ICON_MOVE_TO_POSITION, color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_move.clicked.connect(lambda: self.move_clicked.emit(self.slot))
         layout.addWidget(self.btn_move)
@@ -288,7 +289,7 @@ class SampleHolderWidget(QWidget):
         self.btn_calibrate.setIconSize(QSize(18, 18))
         self.btn_calibrate.setStyleSheet(_ICON_BTN_STYLE)
         self.btn_calibrate.setIcon(
-            fibsem_icon(ICON_CALIBRATE, color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon(ICON_CALIBRATE, color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_calibrate.setToolTip(
             "Edit the holder: name, slot count, and calibrate each slot's position"

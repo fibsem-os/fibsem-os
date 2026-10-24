@@ -9,15 +9,16 @@ from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import ImageSettings, MicroscopeSettings
-from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,
     PANEL_COLOR,
     PRIMARY_COLOR,
     WHITE_ICON_COLOR,
 )
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
@@ -583,9 +584,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
             info = self.microscope.system.info
             self._label_status_icon.setPixmap(
-                fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR).pixmap(
-                    20, 20
-                )
+                fibsem_icon("mdi:check-circle", color=tokens.GREEN_COLOR).pixmap(20, 20)
             )
             self._label_status_title.setText("Microscope Connected")
             self._label_status_subtitle.setText(

@@ -15,11 +15,12 @@ from PyQt5.QtWidgets import (
 
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures import BeamType, Point
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import CANVAS_BG, GRAY_ICON_COLOR
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
+    CANVAS_BG,
+    GRAY_ICON_COLOR,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 

@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.theme import tokens
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.queue import WorkItem
@@ -62,7 +63,7 @@ class AnimatedDemo(QWidget):
         super().__init__()
         self.setWindowTitle("Workflow Progress — Two-Level Demo")
         self.resize(380, 620)
-        self.setStyleSheet(f"background: {stylesheets.GRAY_BACKGROUND_COLOR};")
+        self.setStyleSheet(f"background: {tokens.GRAY_BACKGROUND_COLOR};")
 
         # Build flat list of (lamella, task) pairs matching run_tasks loop order
         self._outer_items: List[WorkItem] = [
@@ -80,14 +81,14 @@ class AnimatedDemo(QWidget):
 
         # ── Top bar: status label + buttons ───────────────────────────────
         top_bar = QWidget()
-        top_bar.setStyleSheet(f"background: {stylesheets.GRAY_BACKGROUND_COLOR};")
+        top_bar.setStyleSheet(f"background: {tokens.GRAY_BACKGROUND_COLOR};")
         top_layout = QHBoxLayout(top_bar)
         top_layout.setContentsMargins(8, 4, 8, 4)
         top_layout.setSpacing(6)
 
         self._status_label = QLabel("Starting…")
         self._status_label.setStyleSheet(
-            f"color: {stylesheets.GRAY_SECONDARY_COLOR}; font-size: 11px;"
+            f"color: {tokens.GRAY_SECONDARY_COLOR}; font-size: 11px;"
         )
         top_layout.addWidget(self._status_label, 1)
 

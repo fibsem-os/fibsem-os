@@ -34,7 +34,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     TileOrderStrategy,
 )
-from fibsem.ui.tokens import GRID_BOUNDARY_COLOUR
+from fibsem.theme.tokens import GRID_BOUNDARY_COLOUR
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.overlays import stage_context
 from fibsem.ui.widgets.canvas.overlays.minimap_overlays import (

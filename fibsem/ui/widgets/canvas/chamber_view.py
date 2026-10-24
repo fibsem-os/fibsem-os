@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import QLabel, QStackedWidget, QToolButton, QVBoxLayout, QW
 
 from fibsem.geometry.stage_places import is_half_turn
 from fibsem.structures import FibsemStagePosition
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     FIB_BEAM_MUTED_COLOUR,

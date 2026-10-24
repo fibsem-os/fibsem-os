@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     NEUTRAL_200,
     NEUTRAL_850,
     NEUTRAL_900,

@@ -41,7 +41,7 @@ from fibsem.geometry.projection import BeamStageProjection
 from fibsem.imaging.tiling.geometry import PlaneRegion
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import FibsemImage, FibsemStagePosition
-from fibsem.ui.tokens import WHITE_ICON_COLOR
+from fibsem.theme.tokens import WHITE_ICON_COLOR
 from fibsem.ui.widgets.canvas.overlays.rect_overlay import RectOverlay
 from fibsem.ui.widgets.canvas.overlays.tile_grid_overlay import ENABLED_EDGE
 from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas

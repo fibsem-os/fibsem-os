@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
 
 from PyQt5.QtCore import pyqtSignal
@@ -14,18 +14,7 @@ from fibsem.microscope import FibsemMicroscope
 from fibsem.structures import BeamType, FibsemMillingSettings, Parameter
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
-from fibsem.ui.widgets.form_builder import Control, build_control
-
-
-@dataclass
-class _Row:
-    """One built form row."""
-
-    label: QLabel
-    control: Control
-    field: str
-    advanced: bool
-
+from fibsem.ui.widgets.form_builder import AdvancedRows, Row, build_control
 
 _SPECS = FibsemMillingSettings.params
 
@@ -53,7 +42,7 @@ def _supported_settings(
     return milling.supported_settings(BeamType.ION)
 
 
-class FibsemMillingSettingsWidget(QWidget):
+class FibsemMillingSettingsWidget(AdvancedRows, QWidget):
     settings_changed = pyqtSignal(object)  # FibsemMillingSettings
 
     def __init__(
@@ -66,7 +55,7 @@ class FibsemMillingSettingsWidget(QWidget):
         self.microscope = microscope
         self._settings = settings
         self._advanced_visible = False
-        self._rows: List[_Row] = []
+        self._rows: List[Row] = []
         # The fields the instrument mills with and their choices, from its milling
         # service; None without one, which shows every field.
         self._supported = _supported_settings(microscope)
@@ -105,7 +94,7 @@ class FibsemMillingSettingsWidget(QWidget):
 
             layout.addRow(label, control.widget)
             self._rows.append(
-                _Row(
+                Row(
                     label=label,
                     control=control,
                     field=field_name,
@@ -149,18 +138,10 @@ class FibsemMillingSettingsWidget(QWidget):
     # Visibility
     # ------------------------------------------------------------------
 
-    def _update_visibility(self) -> None:
+    def _row_shown(self, row: Row) -> bool:
         # The milling service says which fields this instrument mills with; with no
         # service (no ion beam) nothing mills, so no field is shown.
-        for row in self._rows:
-            used = self._supported is not None and row.field in self._supported
-            adv_ok = (not row.advanced) or self._advanced_visible
-            row.label.setVisible(used and adv_ok)
-            row.control.widget.setVisible(used and adv_ok)
-
-    def set_advanced_visible(self, visible: bool) -> None:
-        self._advanced_visible = visible
-        self._update_visibility()
+        return self._supported is not None and row.field in self._supported
 
     # ------------------------------------------------------------------
     # Public API

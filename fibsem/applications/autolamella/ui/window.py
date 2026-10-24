@@ -50,6 +50,7 @@ from fibsem.applications.autolamella.ui.protocol.protocol_tab import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.applications.autolamella.ui.workflow.tab import WorkflowTab
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.ui import notification_service
 from fibsem.ui import utils as fui
 from fibsem.ui.app_window import AppWindow
@@ -58,7 +59,6 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.run.attention import AttentionRouter
 from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
-from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.microscope_panel import MicroscopePanel
 from fibsem.workflows.grid.naming import (
