@@ -41,17 +41,45 @@ def stack_layers(
     image: FluorescenceImage,
     z: Optional[int] = None,
     channels: Optional[Sequence[str]] = None,
+    projection: str = "max",
+    first: Optional[int] = None,
+    last: Optional[int] = None,
 ) -> List[FMLayer]:
     """One layer per channel, named and coloured: plane *z* (0 is the first
-    plane), or the max projection over z when *z* is None. *channels* names
-    the channels shown; the rest are hidden. ValueError names what is wrong:
-    a plane outside the stack, or a channel it doesn't have."""
+    plane), or when *z* is None the *projection* ("max", "mean" or "min") over
+    planes *first* to *last*, the whole stack when None. *channels* names the
+    channels shown; the rest are hidden. ValueError names what is wrong: a
+    plane or range outside the stack, a projection, or a channel it doesn't have."""
     data = _czyx(image)
     _check_plane(z, data.shape[1])
-    shown = data.max(axis=1) if z is None else data[:, z]  # (C, Y, X)
+    if z is not None:
+        shown = data[:, z]  # (C, Y, X)
+    else:
+        shown = _projection(data, projection, first, last)
     return _layers(
         list(image.metadata.channels), len(shown), shown.__getitem__, channels
     )
+
+
+def _projection(
+    data: np.ndarray, projection: str, first: Optional[int], last: Optional[int]
+) -> np.ndarray:
+    """(C, Y, X): each channel of (C, Z, Y, X) *data* projected over *first* to *last*."""
+    planes = data.shape[1]
+    lo = 0 if first is None else first
+    hi = planes - 1 if last is None else last
+    if not 0 <= lo <= hi < planes:
+        raise ValueError(
+            f"planes {lo} to {hi} are not within the stack's 0 to {planes - 1}"
+        )
+    picked = data[:, lo : hi + 1]
+    if projection == "max":
+        return picked.max(axis=1)
+    if projection == "min":
+        return picked.min(axis=1)
+    if projection == "mean":
+        return picked.mean(axis=1, dtype=np.float32)
+    raise ValueError(f"projection is max, mean or min, not {projection}")
 
 
 def _check_plane(z: Optional[int], planes: int) -> None:

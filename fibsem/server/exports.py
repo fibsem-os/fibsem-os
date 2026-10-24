@@ -141,6 +141,7 @@ def image_file(
         default_export_name,
         default_options,
         render_export,
+        restacked,
         save_export,
     )
 
@@ -153,6 +154,15 @@ def image_file(
         raise _invalid("contrast_min and contrast_max are 0 to 1, min below max.")
     if chosen.gamma <= 0:
         raise _invalid("gamma is above 0.")
+    for look in chosen.looks:
+        if look.clim is not None and not look.clim[0] < look.clim[1]:
+            raise _invalid("a look's clim is (low, high), low below high.")
+        if look.gamma <= 0 or not 0.0 <= look.opacity <= 1.0:
+            raise _invalid("a look's gamma is above 0 and its opacity 0 to 1.")
+    try:
+        image = restacked(image, chosen)
+    except ValueError as exc:
+        raise _invalid(str(exc)) from exc
     name = os.path.basename(default_export_name(image, IMAGE_FORMATS[format]))
     return _file(render_export(image, chosen), name, save_export), name
 

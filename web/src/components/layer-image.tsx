@@ -4,10 +4,11 @@ import { ImageInfoBar } from "@/components/image-info";
 import { LayersPanel, type PanelLayer } from "@/components/layers-panel";
 import { LayerView, type Snapshot, type Tools, type View, fitView, roundLength, zoomed } from "@/components/layer-view";
 import { PROJECTIONS, type StackShown, ZRow } from "@/components/z-row";
-import { type DrawLayer, LayerRenderer } from "@/lib/gl-layers";
+import { download } from "@/lib/api";
+import type { DrawLayer } from "@/lib/gl-layers";
 import * as fmt from "@/lib/format";
 import { type Look, autoClim, cssColor, storeLook, storedLook, tint } from "@/lib/layers";
-import { type Planes, type PlanesAsk, type Values, planeOf, project, readPlanes, usePlanes } from "@/lib/planes";
+import { type Planes, type PlanesAsk, type Values, planeOf, project, usePlanes } from "@/lib/planes";
 import type { FileRead, ImageInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -78,12 +79,11 @@ function Tool({
   );
 }
 
-/** The image as a PNG: the part in view as drawn, or the whole image at full size,
- * with the scalebar and the bar's text when asked. */
+/** The part of the image in view as drawn, as a PNG, with the scalebar and the
+ * bar's text when asked. */
 async function exportPng({
   name,
   snapshot,
-  full,
   draw,
   pixelSize,
   info,
@@ -92,8 +92,7 @@ async function exportPng({
   bar,
 }: {
   name: string;
-  snapshot: Snapshot | null;
-  full: (() => Promise<HTMLCanvasElement>) | null;
+  snapshot: Snapshot;
   draw: [number, number];
   pixelSize: number | null | undefined;
   info: ImageInfo | null | undefined;
@@ -101,31 +100,19 @@ async function exportPng({
   scalebar: boolean;
   bar: boolean;
 }) {
-  let source: CanvasImageSource;
-  let sx = 0;
-  let sy = 0;
-  let w: number;
-  let h: number;
-  let metresPerPx = pixelSize ?? null;
-  if (full) {
-    source = await full();
-    [w, h] = [source.width, source.height];
-  } else {
-    const s = snapshot!;
-    source = s.canvas;
-    sx = Math.max(0, s.x);
-    sy = Math.max(0, s.y);
-    w = Math.round(Math.min(s.canvas.width, s.x + s.width) - sx);
-    h = Math.round(Math.min(s.canvas.height, s.y + s.height) - sy);
-    if (metresPerPx) metresPerPx = (metresPerPx * draw[1]) / s.width;
-  }
+  const s = snapshot;
+  const sx = Math.max(0, s.x);
+  const sy = Math.max(0, s.y);
+  const w = Math.round(Math.min(s.canvas.width, s.x + s.width) - sx);
+  const h = Math.round(Math.min(s.canvas.height, s.y + s.height) - sy);
+  const metresPerPx = pixelSize ? (pixelSize * draw[1]) / s.width : null;
   const barHeight = bar && info ? Math.max(18, Math.round(h * 0.04)) : 0;
   const out = document.createElement("canvas");
   out.width = w;
   out.height = h + barHeight;
   const g = out.getContext("2d")!;
   g.imageSmoothingEnabled = false;
-  g.drawImage(source, sx, sy, w, h, 0, 0, w, h);
+  g.drawImage(s.canvas, sx, sy, w, h, 0, 0, w, h);
   if (scalebar && metresPerPx) {
     const length = roundLength((metresPerPx * w) / 5);
     const px = length / metresPerPx;
@@ -171,6 +158,7 @@ function ExportMenu({
   const [bar, setBar] = useState(true);
   const [full, setFull] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
     <div
       className="absolute top-8 right-2 z-20 flex w-[240px] flex-col gap-[7px] rounded-lg border bg-card px-3 pt-2.5 pb-3 text-[12px] shadow-[0_6px_24px_rgba(0,0,0,0.45)]"
@@ -215,14 +203,18 @@ function ExportMenu({
         />
         Full resolution, whole image
       </label>
+      {error && <span className="text-[11px] text-destructive">{error}</span>}
       <button
         className="mt-1 cursor-pointer rounded-md border-0 bg-primary p-1.5 text-[12px] text-white hover:bg-primary-hover disabled:opacity-50"
         disabled={saving}
         onClick={async () => {
           setSaving(true);
+          setError(null);
           try {
             await save({ scalebar, bar, full });
             close();
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
           } finally {
             setSaving(false);
           }
@@ -403,37 +395,35 @@ export function LayerImage({
     ) : null;
 
   const save = async (o: { scalebar: boolean; bar: boolean; full: boolean }) => {
-    const whole = async () => {
-      const planes = await readPlanes(path, askFor(drawn, 1));
-      const canvas = document.createElement("canvas");
-      canvas.width = planes.shape[3];
-      canvas.height = planes.shape[2];
-      const renderer = LayerRenderer.create(canvas);
-      if (!renderer) throw new Error("WebGL2 is not available");
-      const w = planes.shape[3];
-      renderer.draw(
-        drawLayers(
-          channels.map((_, c) => planeOf(planes, c)),
-          w,
-        ),
-        { x: 0, y: 0, scale: 1 },
-        canvas.width,
-        canvas.height,
-        true,
-      );
-      return canvas;
-    };
-    await exportPng({
-      name: path.split("/").pop() ?? "image",
-      snapshot: snapshot.current?.() ?? null,
-      full: o.full ? whole : null,
-      draw: full,
-      pixelSize,
-      info,
-      values,
-      scalebar: o.scalebar,
-      bar: o.bar,
-    });
+    const name = path.split("/").pop() ?? "image";
+    if (o.full) {
+      // the whole image at full size, drawn by the server's export as Qt's dialog
+      // draws it, with the planes, contrast and colours on screen
+      const sent = channels.map((_, c) => {
+        const { color, gamma, opacity } = looks[c];
+        const clim = climOf(c);
+        return { clim, color, gamma, opacity };
+      });
+      const options: Record<string, unknown> = {
+        scalebar: o.scalebar,
+        crosshair: tools.crosshair,
+        hidden_channels: channels.flatMap((_, c) => (visible[c] ? [] : [c])),
+        looks: sent,
+      };
+      if (!o.bar) Object.assign(options, { fields: [], provenance: [] });
+      if (stack)
+        Object.assign(
+          options,
+          drawn.projection
+            ? { projection: drawn.projection, first: drawn.first, last: drawn.last }
+            : { plane: drawn.z },
+        );
+      await download("/app/experiment/export/image", { path, options }, `${name}_export.png`);
+      return;
+    }
+    const s = snapshot.current?.();
+    if (!s) return;
+    await exportPng({ name, snapshot: s, draw: full, pixelSize, info, values, scalebar: o.scalebar, bar: o.bar });
   };
 
   const toggleTool = (key: keyof Tools) => setTools({ ...tools, [key]: !tools[key] });
