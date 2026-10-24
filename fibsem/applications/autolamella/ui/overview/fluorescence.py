@@ -22,8 +22,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from PyQt5.QtWidgets import QWidget
-
 from fibsem.applications.autolamella.poses import (
     FLUORESCENCE_ORIENTATION,
     fluorescence_move,
@@ -35,6 +33,7 @@ from fibsem.structures import InsertableDeviceState
 from fibsem.ui import notification_service
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.utils import message_box_ui
+from fibsem.ui.widgets.overview_base import OverviewWidgetBase
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.structures import FibsemStagePosition
@@ -50,7 +49,7 @@ class FluorescenceOverviewTab(AutoLamellaOverviewTabBase):
 
     # ── what makes this the fluorescence side ────────────────────────────
 
-    def _build_overview(self, microscope) -> QWidget:
+    def _build_overview(self, microscope) -> OverviewWidgetBase:
         return FMOverviewWidget(self.session.overview(FLUORESCENCE))
 
     def _can_build(self, microscope) -> bool:

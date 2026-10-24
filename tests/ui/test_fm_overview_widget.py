@@ -1457,10 +1457,11 @@ def test_a_canvas_point_resolves_to_the_position_it_was_drawn_from(interactive_w
 def test_double_clicking_moves_the_stage_to_that_point(
     qapp, interactive_widget, monkeypatch
 ):
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     frame = widget._frame()
     before = widget._current_stage_position()
     point = frame.to_canvas(before)
@@ -1481,10 +1482,11 @@ def test_the_marker_follows_the_stage_after_a_double_click(
 ):
     """The move is confirmed by re-reading the stage rather than assumed, so the marker
     shows where the instrument went rather than where it was asked to go."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     before = list(widget.current_position_overlay._points)
 
     widget._on_canvas_double_clicked(1500.0, 900.0, None)
@@ -1496,10 +1498,11 @@ def test_the_marker_follows_the_stage_after_a_double_click(
 def test_the_stage_cannot_be_driven_during_an_acquisition(
     qapp, interactive_widget, monkeypatch
 ):
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     before = widget.microscope.get_stage_position()
 
     class _Running:
@@ -1522,10 +1525,11 @@ def test_a_point_outside_the_stage_limits_is_refused(
 ):
     """A click can land anywhere on a real-space canvas, including well past where the
     stage can physically go. Asking for it is how a stage ends up against its stop."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     before = widget.microscope.get_stage_position()
     limits = widget.microscope.stage.position.limits
     if not limits:
@@ -1580,10 +1584,11 @@ def test_the_planned_grid_is_centred_where_the_run_will_be(qapp, interactive_wid
 def test_an_untargeted_grid_follows_the_stage(qapp, interactive_widget, monkeypatch):
     """It used to be pinned to the canvas origin -- where the stage was the first time
     anything was drawn. Correct until the stage moved, and then quietly not."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     before = widget.tile_grid_overlay._anchor()
 
     widget._on_canvas_double_clicked(before[0] + 1500.0, before[1], None)
@@ -1597,10 +1602,11 @@ def test_an_untargeted_grid_follows_the_stage(qapp, interactive_widget, monkeypa
 def test_a_targeted_grid_stays_put_when_the_stage_moves(
     qapp, interactive_widget, monkeypatch
 ):
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     anchor = widget.tile_grid_overlay._anchor()
     widget._on_grid_move(anchor[0] + 800.0, anchor[1])
     qapp.processEvents()
@@ -3154,10 +3160,11 @@ def test_the_position_offered_is_the_one_a_double_click_would_move_to(
     """Both gestures resolve a canvas point through the same code, so marking somewhere
     and driving there cannot drift apart -- which they would, eventually, being the same
     arithmetic written twice."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     frame = widget._frame()
     point = frame.to_canvas(widget._current_stage_position())
     x, y = point[0] + 1500.0, point[1] + 900.0
@@ -3968,10 +3975,11 @@ def test_move_to_drives_the_stage_to_the_fluorescence_pose(qapp, tmp_path, monke
     """Not `stage_position`, which is the milling pose. This tab looks at the sample from
     the fluorescence side, and moving to the milling pose would swing the stage 180
     degrees away from the view you asked to centre."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     tab = _tab_with(qapp, tmp_path)
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     microscope = tab.microscope
     lamella = _lamella_with_poses("Lamella-01", microscope, tmp_path, 300e-6, -150e-6)
     tab.experiment.positions.append(lamella)
@@ -3993,10 +4001,11 @@ def test_move_to_drives_the_stage_to_the_fluorescence_pose(qapp, tmp_path, monke
 def test_move_to_a_lamella_with_no_fluorescence_pose_is_refused(
     qapp, tmp_path, monkeypatch
 ):
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     tab = _tab_with(qapp, tmp_path)
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     microscope = tab.microscope
     lamella = _lamella_with_poses("Lamella-01", microscope, tmp_path, 300e-6, -150e-6)
     del lamella.poses["FLUORESCENCE"]
@@ -5224,7 +5233,7 @@ class TestTheCameraTransformReachesTheProjection:
         """
         import inspect
 
-        source = inspect.getsource(FMOverviewWidget.closeEvent)
+        source = inspect.getsource(FMOverviewWidget._subscriptions)
         assert "transform_changed" in source, (
             "the transform subscription is not in closeEvent's teardown list"
         )
