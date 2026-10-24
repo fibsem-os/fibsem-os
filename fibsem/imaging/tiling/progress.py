@@ -20,18 +20,10 @@ stage-limits rejection naming every offending tile -- never a label.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional, Tuple, Union
+from typing import Annotated, Any, Optional, Tuple
 
+from fibsem.codec import NotSaved
 from fibsem.progress import ProgressStatus, ends
-
-if TYPE_CHECKING:
-    # Annotation-only, so this module stays free of a runtime dependency on either image
-    # type. `fibsem.services.imaging` imports it to type the signal, and it is
-    # imported in turn by both producers -- a runtime import here would put
-    # `fibsem.fm.structures` in the path of every one of them for a name that is
-    # never called.
-    from fibsem.fm.structures import FluorescenceImage
-    from fibsem.structures.image import FibsemImage
 
 # The beam tiler: SEM or FIB, since no consumer distinguishes them -- both draw into the
 # same overview.
@@ -120,7 +112,9 @@ class TiledProgress:
     # Decimated, and the decimation is already in the metadata's pixel size. Coarser
     # pixels over a smaller count cover the same ground, so a real-space display needs
     # nothing else to put it in the right place at the right size.
-    preview: Optional[Union["FibsemImage", "FluorescenceImage"]] = None
+    #
+    # A `FibsemImage` or a `FluorescenceImage`. Pixels, so never in an event.
+    preview: Annotated[Optional[Any], NotSaved] = None
     row_index: Optional[int] = None
     column_index: Optional[int] = None
     rows: Optional[int] = None

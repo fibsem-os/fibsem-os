@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict
 from pydantic import PydanticSchemaGenerationError, TypeAdapter
 from pydantic.json_schema import GenerateJsonSchema
 
+from fibsem.devices.wire import to_wire
 from fibsem.structures.params import Parameter, RangeLimit, display_to_dict, field_specs
 
 Schema = Dict[str, Any]
@@ -126,7 +127,7 @@ def _describe(schema: Schema, parameter: Parameter) -> None:
         if math.isfinite(limits.max):
             schema["maximum"] = limits.max
     if parameter.choices is not None:
-        schema["enum"] = [_plain(choice) for choice in parameter.choices]
+        schema["enum"] = [to_wire(choice) for choice in parameter.choices]
     if parameter.not_used:
         schema["not_used"] = parameter.not_used
     if parameter.device_parameter:
@@ -142,15 +143,9 @@ _NO_DEFAULT = object()
 
 def _default(value: Any) -> Any:
     """A default as JSON, or ``_NO_DEFAULT`` for one that isn't plain data."""
-    plain = _plain(value)
+    plain = to_wire(value)
     if plain is None or isinstance(plain, (bool, int, float, str)):
         if isinstance(plain, float) and not math.isfinite(plain):
             return _NO_DEFAULT
         return plain
     return _NO_DEFAULT
-
-
-def _plain(value: Any) -> Any:
-    from fibsem.devices.wire import to_wire
-
-    return to_wire(value)

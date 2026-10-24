@@ -29,6 +29,7 @@ import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
+from fibsem.codec import encode
 from fibsem.server.pairing import AGENT, PairedComputer, PairedTokens
 
 __all__ = ["ASK_WAIT_S", "LOCAL", "ConnectAsk", "Connections"]
@@ -70,14 +71,7 @@ class ConnectAsk:
         return f"{who} on {self.origin}"
 
     def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "client": self.client,
-            "origin": self.origin,
-            "user": self.user,
-            "asked_at": self.asked_at,
-            "name": self.name,
-        }
+        return {**encode(self), "name": self.name}
 
 
 @dataclass(frozen=True)

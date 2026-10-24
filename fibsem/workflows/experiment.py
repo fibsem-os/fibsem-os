@@ -25,6 +25,7 @@ import yaml
 from psygnal import Signal
 
 from fibsem.acting import Actor
+from fibsem.codec import encode
 from fibsem.structures.system import FibsemUser, SessionInfo
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
@@ -335,11 +336,11 @@ class BaseExperiment:
         Never fails registration: a copy that could not be written is logged.
         """
         from fibsem.structures.system import CONFIGURATION_VERSION
-        from fibsem.utils import _plain, _write_configuration_file, load_yaml
+        from fibsem.utils import _write_configuration_file, load_yaml
 
         path = os.path.join(self.path, self.CONFIGURATION_FILENAME)
         try:
-            snapshot = _plain(
+            snapshot = encode(
                 {"version": CONFIGURATION_VERSION, **microscope.system.to_dict()}
             )
             if os.path.exists(path):
