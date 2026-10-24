@@ -1,8 +1,8 @@
 """The coating tools. Their actions are said by the coating service's commands (`fibsem.services.coating`)."""
 
-from typing import Tuple
+from typing import List, Tuple
 
-from fibsem.ai.agent.catalog.spec import ToolSpec, kwargs_body
+from fibsem.ai.agent.catalog.spec import ToolSpec, arg, kwargs_body
 
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
@@ -20,9 +20,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/coating/commands/deposit",
+        result_key="run",
         level="drive",
         hardware=True,
-        params={"seconds": "how long the valve stays open, seconds"},
+        params={"seconds": arg("how long the valve stays open, seconds", float)},
         call=lambda a: ({}, kwargs_body(seconds=float(a["seconds"]))),
     ),
     ToolSpec(
@@ -39,12 +40,15 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/coating/commands/sputter",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
-            "seconds": "how long to sputter, seconds",
-            "current": "sputter current in amperes",
-            "grids": "the grid numbers to coat, where the coater takes them",
+            "seconds": arg("how long to sputter, seconds", float),
+            "current": arg("sputter current in amperes", float),
+            "grids": arg(
+                "the grid numbers to coat, where the coater takes them", List[int]
+            ),
         },
         optional=("current", "grids"),
         call=lambda a: (

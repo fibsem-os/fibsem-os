@@ -90,8 +90,38 @@ def test_each_argument_carries_its_catalog_description():
     }
     for spec in CATALOG:
         properties = schemas[spec.name].get("properties", {})
-        for name, text in spec.params.items():
-            assert properties[name].get("description") == text, (spec.name, name)
+        for name, argument in spec.arguments.items():
+            assert properties[name].get("description") == argument.doc, (
+                spec.name,
+                name,
+            )
+
+
+def test_each_tool_takes_the_types_and_defaults_its_catalog_entry_declares():
+    """The catalog declares each argument's type and default once
+    (`ToolSpec.signature`): a tool the sidecar writes by hand takes exactly
+    those, as one made from its entry does."""
+    from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+
+    client = _make_client("drive")
+    listed = asyncio.run(build_sidecar(client, None).list_tools())
+    schemas = {
+        t.name: getattr(t, "input_schema", None) or t.inputSchema
+        for t in getattr(listed, "tools", listed)
+    }
+    for spec in CATALOG:
+        properties = dict(schemas[spec.name]["properties"])
+        properties.pop("evidence", None)
+
+        def declared():
+            pass
+
+        declared.__name__ = spec.name
+        declared.__signature__ = spec.signature
+        expected = func_metadata(declared).arg_model.model_json_schema()
+        for name, schema in properties.items():
+            schema = {k: v for k, v in schema.items() if k != "description"}
+            assert schema == expected["properties"][name], (spec.name, name)
 
 
 def test_hardware_tools_are_offered_at_watch():
