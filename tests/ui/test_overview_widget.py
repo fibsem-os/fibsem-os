@@ -40,10 +40,10 @@ from fibsem.imaging import tiled  # noqa: E402
 from fibsem.imaging.overview_session import OverviewSession  # noqa: E402
 from fibsem.imaging.tiling.progress import TiledStatus
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME  # noqa: E402
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     AutoContrastMode,
     BeamType,
-    FibsemImage,
     FibsemStagePosition,
     ImageSettings,
 )
@@ -1026,14 +1026,17 @@ class TestTheOverviewDefaults:
         """Pinned twice on purpose. The literal is the decision; the comparison with
         `ImageSettings()` is where the number came from. `hfw` is the horizontal
         field, so a square tile of the same field covers different ground."""
-        from fibsem.structures import ImageSettings, OverviewAcquisitionSettings
+        from fibsem.structures.settings import (
+            ImageSettings,
+            OverviewAcquisitionSettings,
+        )
 
         resolution = tuple(OverviewAcquisitionSettings().image_settings.resolution)
         assert resolution == (1536, 1024)
         assert resolution == tuple(ImageSettings().resolution)
 
     def test_each_one_has_its_own_settings(self):
-        from fibsem.structures import OverviewAcquisitionSettings
+        from fibsem.structures.settings import OverviewAcquisitionSettings
 
         first = OverviewAcquisitionSettings()
         first.image_settings.path = "/experiments/one"
@@ -1046,7 +1049,10 @@ class TestTheOverviewDefaults:
         assert second.nrows == 3
 
     def test_a_file_without_image_settings_takes_the_overview_defaults(self):
-        from fibsem.structures import AutoContrastMode, OverviewAcquisitionSettings
+        from fibsem.structures.settings import (
+            AutoContrastMode,
+            OverviewAcquisitionSettings,
+        )
 
         loaded = OverviewAcquisitionSettings.from_dict({"nrows": 2})
         assert loaded.image_settings == OverviewAcquisitionSettings().image_settings
@@ -1598,7 +1604,7 @@ class TestTheHolderIsDrawnOnEveryStage:
 
     @staticmethod
     def _slot(name, x, y=0.0):
-        from fibsem.structures import GridSlot
+        from fibsem.structures.settings import GridSlot
 
         return GridSlot(
             name=name,
@@ -1760,7 +1766,7 @@ class TestTheHolderIsDrawnOnEveryStage:
 
         Calibrated slots, as the wizard leaves them: uncalibrated ones would flip the
         defaults to off, and the redraw would correctly hide them."""
-        from fibsem.structures import SlotCalibration
+        from fibsem.structures.settings import SlotCalibration
 
         def calibrated(name, x):
             slot = self._slot(name, x)
@@ -2996,7 +3002,7 @@ class TestTheFramingFindsThePlan:
     ):
         """A shuttle with grids at +/-5 mm: the one the stage is on is framed whole, the
         other is left a pan away rather than shrinking the plan into a 12 mm view."""
-        from fibsem.structures import GridSlot
+        from fibsem.structures.settings import GridSlot
 
         holder = widget.microscope.sample_handling.holder
         monkeypatch.setattr(
@@ -4430,7 +4436,7 @@ class TestFocusAndFocusStackAreTwoQuestions:
     def test_the_mode_is_independent_of_the_stack(self, widget):
         """The pairing that used to be impossible to express in one panel: focus every
         tile, but do not stack."""
-        from fibsem.structures import AutoFocusMode
+        from fibsem.structures.settings import AutoFocusMode
 
         settings = widget.settings_widget
         settings.combo_autofocus.set_value(AutoFocusMode.EACH_TILE)
@@ -4464,7 +4470,7 @@ class TestTheSpiralPromotionIsVisible:
         widget.settings_widget._refresh_derived()
 
     def test_the_combination_says_what_will_happen(self, widget):
-        from fibsem.structures import AutoFocusMode, TileOrderStrategy
+        from fibsem.structures.settings import AutoFocusMode, TileOrderStrategy
 
         self._set(widget, AutoFocusMode.EACH_ROW, TileOrderStrategy.SPIRAL)
         note = widget.settings_widget.label_focus_note
@@ -4474,7 +4480,7 @@ class TestTheSpiralPromotionIsVisible:
     def test_it_is_quiet_otherwise(self, widget):
         """A note that is always there stops being read. Both halves have to hold: the
         same mode with another order, and the same order with another mode."""
-        from fibsem.structures import AutoFocusMode, TileOrderStrategy
+        from fibsem.structures.settings import AutoFocusMode, TileOrderStrategy
 
         note = widget.settings_widget.label_focus_note
         self._set(widget, AutoFocusMode.EACH_ROW, TileOrderStrategy.TYPEWRITER)
@@ -5108,7 +5114,7 @@ def test_grid_boundaries_and_slots_come_on_with_a_calibrated_holder(qapp):
     A slot calibrated mid-session turns them on in the tab already built, and a
     holder change that leaves calibration as it was leaves the switches alone."""
     from fibsem.services.sample_handling import bind_sample_handling
-    from fibsem.structures import FibsemStagePosition, SlotCalibration
+    from fibsem.structures.settings import FibsemStagePosition, SlotCalibration
     from fibsem.ui.widgets.canvas.overlays import stage_context
 
     microscope, _ = utils.setup_session(manufacturer="Demo")

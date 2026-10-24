@@ -90,21 +90,20 @@ from fibsem.fm.structures import (
     emission_filter_for,
     matching_emission_filter,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
-    ChamberState,
     FibsemDetectorSettings,
-    FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
-    InsertableDeviceState,
     Point,
-    RangeLimit,
     ScanMode,
 )
+from fibsem.structures.system import ChamberState, InsertableDeviceState
 from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
@@ -114,7 +113,7 @@ if TYPE_CHECKING:
     )
     from fibsem.drivers.demo.simulator import DemoParts, DemoSimulator
     from fibsem.drivers.registry import BuildContext
-    from fibsem.structures import DeviceEntry
+    from fibsem.structures.system import DeviceEntry
 
 
 # The ranges the simulated beams take: wide enough for any real column's values.

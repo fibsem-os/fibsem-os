@@ -17,7 +17,7 @@ from fibsem.milling.progress import (
     MillingProgressStatus,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import MillingState
+from fibsem.structures.settings import MillingState
 from fibsem.ui import stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker

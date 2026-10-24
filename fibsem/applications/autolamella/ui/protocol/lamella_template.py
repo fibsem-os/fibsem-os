@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import LamellaDefaultConfig
-from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
+from fibsem.structures.settings import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
 from fibsem.theme.tokens import (
     NEUTRAL_500,
     NEUTRAL_750,

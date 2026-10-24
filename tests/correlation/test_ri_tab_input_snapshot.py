@@ -27,7 +27,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 
 @pytest.fixture

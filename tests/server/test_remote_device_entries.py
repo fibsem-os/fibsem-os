@@ -35,7 +35,8 @@ from fibsem.server.devices import (  # noqa: E402
     demo_devices,
     demo_fm_devices,
 )
-from fibsem.structures import BeamType, DeviceEntry  # noqa: E402
+from fibsem.structures.settings import BeamType  # noqa: E402
+from fibsem.structures.system import DeviceEntry  # noqa: E402
 
 
 @pytest.fixture

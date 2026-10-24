@@ -10,10 +10,8 @@ from fibsem import config as fcfg
 from fibsem.cancellation import raise_if_cancelled
 from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.milling import FibsemMillingStage
-from fibsem.structures import (
-    FibsemImage,
-    ImageSettings,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import ImageSettings
 from fibsem.utils import current_timestamp
 
 if TYPE_CHECKING:

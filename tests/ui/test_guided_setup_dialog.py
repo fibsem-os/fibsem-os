@@ -466,7 +466,7 @@ def test_reading_the_stage_fills_in_the_reference_rotation(dialog, demo_microsco
     """
     import numpy as np
 
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     demo_microscope.move_stage_absolute(
         FibsemStagePosition(r=np.radians(250.0), t=np.radians(17.0))
@@ -512,7 +512,7 @@ def test_the_diagram_follows_the_number_that_was_entered(dialog):
 def test_the_diagram_stays_flat_until_a_stage_is_read(dialog, demo_microscope):
     import numpy as np
 
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     dialog._select_model("tfs-other")
     dialog._show_step(STEP_STAGE)

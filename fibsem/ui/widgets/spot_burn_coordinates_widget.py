@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.imaging.spot import SpotBurnSettings
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from fibsem.theme.tokens import (
     CANVAS_BG,
     GRAY_ICON_COLOR,

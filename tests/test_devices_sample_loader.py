@@ -25,7 +25,8 @@ from fibsem.drivers.demo.devices import DemoSampleLoader as DemoSampleLoaderDevi
 from fibsem.drivers.demo.devices import build_demo_sample_loader
 from fibsem.drivers.registry import BuildContext
 from fibsem.services.sample_handling import DeviceGridMagazine, bind_sample_handling
-from fibsem.structures import DeviceEntry, SampleGrid
+from fibsem.structures.settings import SampleGrid
+from fibsem.structures.system import DeviceEntry
 
 
 def _device(**kwargs) -> DemoSampleLoaderDevice:

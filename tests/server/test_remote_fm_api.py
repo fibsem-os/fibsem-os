@@ -6,7 +6,7 @@ import time
 import numpy as np
 import pytest
 
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 from tests.server.test_remote_fm import _unreachable  # noqa: E402
 
 pytest.importorskip("fastapi")

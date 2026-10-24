@@ -27,7 +27,7 @@ import autoscript_beam_parity as B  # noqa: E402  (installs the fake SDK)
 import numpy as np  # noqa: E402
 
 import fibsem.utils  # noqa: E402
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
     FibsemRectangle,
     ImageSettings,

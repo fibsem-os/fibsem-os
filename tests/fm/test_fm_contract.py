@@ -16,7 +16,7 @@ import pytest
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.drivers.demo.simulator import BINNING_VALUES, SIM_CAMERA_EXPOSURE_LIMITS
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 
 @pytest.fixture()

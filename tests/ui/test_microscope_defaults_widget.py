@@ -14,7 +14,7 @@ import fibsem.config as cfg  # noqa: E402
 import fibsem.ui.widgets.microscope_defaults_widget as defaults_widget  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.codec.upgrades.configuration import upgrade  # noqa: E402
-from fibsem.structures import MicroscopeSettings  # noqa: E402
+from fibsem.structures.system import MicroscopeSettings  # noqa: E402
 from fibsem.ui.widgets.microscope_defaults_widget import (  # noqa: E402
     MicroscopeDefaultsWidget,
 )
@@ -231,7 +231,7 @@ def imaging_widget(qapp, microscope):
 
 
 def _acquire_tab_settings():
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     return ImageSettings(
         beam_type=BeamType.ION,
@@ -252,7 +252,7 @@ def test_the_imaging_form_shows_the_configured_defaults(imaging_widget):
 
 def test_the_imaging_form_offers_the_beams_resolutions(qapp, microscope, monkeypatch):
     """The resolutions come from the instrument's beam, not a fixed list."""
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     listed = [(1024, 768), (1536, 1024), (2048, 1536)]
     monkeypatch.setattr(
@@ -367,7 +367,7 @@ def test_scan_rotation_is_shown_in_degrees_and_saved_in_radians(widget, microsco
 def test_reading_a_beam_takes_its_scan_rotation(widget, microscope):
     import math
 
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     microscope.set_scan_rotation(math.pi, BeamType.ION)
 
@@ -386,7 +386,7 @@ PRESETS = ["30 keV; 20 pA", "30 keV; 150 pA", "30 keV; 1 nA"]
 @pytest.fixture()
 def preset_widget(qapp, microscope, monkeypatch):
     """The ion column declared preset-driven, with the instrument's preset list."""
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     monkeypatch.setattr(
         microscope,
@@ -445,7 +445,7 @@ def test_a_configured_preset_the_instrument_does_not_list_is_kept(
     qapp, microscope, monkeypatch
 ):
     """A file's value is never snapped to a neighbour."""
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     monkeypatch.setattr(
         microscope, "beam_uses_presets", lambda beam_type: beam_type is BeamType.ION

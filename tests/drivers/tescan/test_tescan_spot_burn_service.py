@@ -18,7 +18,7 @@ from fibsem.drivers.tescan import sdk
 from fibsem.drivers.tescan.services import TescanSpotBurn
 from fibsem.imaging.spot import SpotBurnSettings, SpotBurnStatus
 from fibsem.services import Service
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from tests.drivers.tescan.test_tescan_milling_service import (  # noqa: F401  (fixtures)
     IMAGING_PRESET,
     DBStatus,
@@ -199,7 +199,7 @@ def test_a_burn_reports_spot_burn_progress_not_milling(tescan):
 
 def test_milling_reports_again_after_a_burn(tescan):
     from fibsem.services.milling import progress_update
-    from fibsem.structures import MillingState
+    from fibsem.structures.settings import MillingState
 
     microscope, _ = tescan()
     microscope.run_spot_burn(_settings(*TWO))

@@ -9,7 +9,7 @@ import pytest
 from fibsem.applications.volume.manager import VolumeTaskManager
 from fibsem.applications.volume.tasks import VolumeTask
 from fibsem.applications.volume.tasks.milling import slice_milling
-from fibsem.structures import FibsemRectangle, Point
+from fibsem.structures.settings import FibsemRectangle, Point
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,
     MILLING,

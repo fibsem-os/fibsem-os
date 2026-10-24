@@ -15,7 +15,7 @@ from fibsem.drivers.demo.services import DemoMilling
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services import milling as milling_module
 from fibsem.services.milling import Milling, progress_update
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemMillingSettings,
     FibsemRectangleSettings,

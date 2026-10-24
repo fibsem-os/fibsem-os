@@ -1,8 +1,6 @@
 from fibsem import acquire, utils
-from fibsem.structures import (
-    FibsemImage,
-    FibsemRectangle,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemRectangle
 
 
 def test_reduced_area_acquisition():

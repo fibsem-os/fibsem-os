@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.services.sample_handling import GridMagazine
-from fibsem.structures import GridSlot, SampleGrid
+from fibsem.structures.settings import GridSlot, SampleGrid
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     ERROR_COLOR,

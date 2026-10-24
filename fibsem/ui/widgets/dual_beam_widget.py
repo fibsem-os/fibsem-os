@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
+from fibsem.structures.settings import BeamSettings, BeamType, FibsemDetectorSettings
 from fibsem.theme import tokens
 from fibsem.ui import stylesheets
 from fibsem.ui.control import control_of, operator_acts

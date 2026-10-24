@@ -10,11 +10,11 @@ same point on it (``sync``).
 from typing import TYPE_CHECKING, Any, Callable, Optional, Tuple
 
 from fibsem import conversions
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from fibsem.ui.widgets.canvas.canvas_state import PointsSpec
 
 if TYPE_CHECKING:
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 __all__ = ["PoiMarker", "poi_pixel", "poi_point"]
 

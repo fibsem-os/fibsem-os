@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from fibsem.devices.core import Device
     from fibsem.drivers.setup import DriverSetup, SetupDevice
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import DeviceEntry, SystemSettings
+    from fibsem.structures.system import DeviceEntry, SystemSettings
 
 
 @dataclass(frozen=True)
@@ -115,7 +115,7 @@ class DriverEntry:
 
     milling_settings: Optional[str] = None
     """The driver's own milling settings class, as ``"module:Class"`` naming a
-    ``fibsem.structures.DriverMillingSettings``: the settings no other driver means
+    ``fibsem.structures.settings.DriverMillingSettings``: the settings no other driver means
     the same by (Tescan's preset and rate). A milling recipe keeps them in its
     ``driver`` block under this driver's name, so the module must import nothing
     heavier than ``fibsem.structures``: every PC reads the block. ``None`` for a

@@ -15,7 +15,7 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import BeamType, ImageSettings  # noqa: E402
+from fibsem.structures.settings import BeamType, ImageSettings  # noqa: E402
 
 TOKEN = "test-token"
 ALIGNMENT = "/microscope/services/alignment"

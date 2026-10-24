@@ -16,7 +16,7 @@ from fibsem.devices.core import Device
 from fibsem.drivers.demo.services import DemoSpotBurn
 from fibsem.imaging.spot import SpotBurnSettings, SpotBurnStatus, run_spot_burn
 from fibsem.services import Service
-from fibsem.structures import BeamType, Point, ScanMode
+from fibsem.structures.settings import BeamType, Point, ScanMode
 from tests.fixtures.microscopes import demo_microscope
 
 IMAGING_CURRENT = 2e-11

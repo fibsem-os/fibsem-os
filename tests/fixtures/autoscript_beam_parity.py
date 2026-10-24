@@ -23,7 +23,7 @@ import autoscript_stage_parity as S  # noqa: E402  (installs the fake SDK)
 
 logging.disable(logging.NOTSET)
 
-from fibsem.structures import BeamType, FibsemRectangle, Point  # noqa: E402
+from fibsem.structures.settings import BeamType, FibsemRectangle, Point  # noqa: E402
 
 A, LOG, STRUCTS, Node = S.A, S.LOG, S.STRUCTS, S.Node
 _preset, fake_beams = S._preset, S.fake_beams

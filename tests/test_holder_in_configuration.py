@@ -20,15 +20,14 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.services import sample_handling as stage_module
 from fibsem.services.sample_handling import _resolve_configured_holder
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemStagePosition,
     GridSlot,
     SampleHolder,
     SlotCalibration,
-    StageSystemSettings,
-    SystemSettings,
     default_sample_holder,
 )
+from fibsem.structures.system import StageSystemSettings, SystemSettings
 
 
 def _calibrated_holder(name: str = "Pre-Tilted 35deg Shuttle") -> SampleHolder:
@@ -91,7 +90,7 @@ def test_the_grids_in_the_slots_are_not_written_into_the_configuration():
     grid, and make a saved configuration claim a grid is loaded that was taken out
     weeks ago.
     """
-    from fibsem.structures import SampleGrid
+    from fibsem.structures.settings import SampleGrid
 
     holder = _calibrated_holder()
     holder.slots["Slot-01"].loaded_grid = SampleGrid(name="grid-A")

@@ -20,7 +20,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.alignment.coincidence import measure_coincidence_from_images
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
 
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default

@@ -2,7 +2,7 @@
 declaration: the beam overview's must say the same."""
 
 from fibsem.fm.structures import OverviewParameters
-from fibsem.structures import OverviewAcquisitionSettings
+from fibsem.structures.settings import OverviewAcquisitionSettings
 
 
 def test_the_beam_and_fm_overviews_declare_the_same_grid():

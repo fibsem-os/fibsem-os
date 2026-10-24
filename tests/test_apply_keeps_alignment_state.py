@@ -7,7 +7,7 @@ import yaml
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import (
+from fibsem.structures.system import (
     NOT_BEAM_DEFAULTS,
     NOT_IMAGING_DEFAULTS,
     MicroscopeSettings,

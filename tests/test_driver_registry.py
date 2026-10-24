@@ -12,7 +12,8 @@ from fibsem import config as cfg
 from fibsem import utils
 from fibsem.drivers import registry
 from fibsem.drivers.registry import DriverEntry, get_driver, register_driver
-from fibsem.structures import BeamType, DeviceEntry
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import DeviceEntry
 
 # What the old chain in setup_session did, per manufacturer.
 BUILT_IN = {
@@ -349,7 +350,7 @@ def test_a_broken_plugin_is_recorded_and_registers_nothing(
 
 def test_an_unset_port_is_saved_as_null():
     """Unset, and saved as null, is the driver's registered port."""
-    from fibsem.structures import SystemInfo
+    from fibsem.structures.system import SystemInfo
 
     assert SystemInfo.from_dict({}).to_dict()["port"] is None
     assert SystemInfo.from_dict({"port": 4321}).to_dict()["port"] == 4321
@@ -568,7 +569,7 @@ def test_a_class_without_a_driver_name_does_not_claim_one():
     ],
 )
 def test_system_info_normalises_the_manufacturer_on_read(stored, expected):
-    from fibsem.structures import SystemInfo
+    from fibsem.structures.system import SystemInfo
 
     info = SystemInfo.from_dict({"manufacturer": stored})
     assert info.manufacturer == expected
@@ -576,7 +577,7 @@ def test_system_info_normalises_the_manufacturer_on_read(stored, expected):
 
 
 def test_system_info_without_a_manufacturer_reads_unknown():
-    from fibsem.structures import SystemInfo
+    from fibsem.structures.system import SystemInfo
 
     assert SystemInfo.from_dict({}).manufacturer == "Unknown"
 

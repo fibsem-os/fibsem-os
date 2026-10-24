@@ -13,7 +13,8 @@ import sys
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 

@@ -18,7 +18,7 @@ from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 from fibsem.drivers.demo.simulator import DemoMicroscope
 from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from tests.fixtures.microscopes import demo_microscope
 
 microscope = demo_microscope("microscope-configuration.yaml", scope="function")

@@ -122,7 +122,9 @@ def test_check_button_offered_when_no_result_yet(qapp, wheel_install, monkeypatc
     assert len(_slot_buttons(dialog)) == 1
 
 
-def test_background_result_shown_instead_of_the_button(qapp, wheel_install, monkeypatch):
+def test_background_result_shown_instead_of_the_button(
+    qapp, wheel_install, monkeypatch
+):
     monkeypatch.setattr("fibsem.update_check.get_available_update", lambda: "0.5.3")
 
     dialog = AboutDialog(application="fibsemOS")

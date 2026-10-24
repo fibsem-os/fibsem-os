@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import autoscript_beam_parity as B  # noqa: E402  (installs the fake SDK)
 
 from fibsem.imaging.spot import SpotBurnSettings  # noqa: E402
-from fibsem.structures import Point  # noqa: E402
+from fibsem.structures.settings import Point  # noqa: E402
 
 # The exposure countdown: nothing here needs to wait.
 time.sleep = lambda seconds: None

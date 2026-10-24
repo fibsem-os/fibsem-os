@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.structures.settings import BeamType  # noqa: E402
 from fibsem.ui.widgets.detector_settings_widget import (  # noqa: E402
     FibsemDetectorSettingsWidget,
 )

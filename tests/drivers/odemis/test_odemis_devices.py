@@ -22,17 +22,17 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscope import _chamber_state_name
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
-    DeviceEntry,
     FibsemDetectorSettings,
-    FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
     Point,
 )
+from fibsem.structures.system import DeviceEntry
 from tests.fixtures.demoted_messages import as_logged_now
 from tests.fm import _odemis_stubs as stubs
 
@@ -629,7 +629,7 @@ def test_the_odemis_driver_has_builders_for_its_devices():
 
 
 def _with(odemis_cls, *entries, stage=True):
-    from fibsem.structures import DeviceEntry
+    from fibsem.structures.system import DeviceEntry
 
     system = _system()
     system.stage.enabled = stage

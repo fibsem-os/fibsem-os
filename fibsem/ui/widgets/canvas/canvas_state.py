@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 if TYPE_CHECKING:
     import numpy as np
 
-    from fibsem.structures import FibsemImage, FibsemRectangle
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import FibsemRectangle
 
 
 @dataclass

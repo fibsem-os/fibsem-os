@@ -26,7 +26,8 @@ from fibsem.correlation.structures import CorrelationInputData
 from fibsem.fm.structures import (
     EmissionFilter,
 )
-from fibsem.structures import FibsemImage, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import ImageSettings
 from tests.fixtures.fm_images import fm_image, gfp
 
 # What a lamella folder actually holds, and what the acquirer asked to call it.

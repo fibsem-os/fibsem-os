@@ -15,7 +15,7 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
     ImageSettings,
     OverviewAcquisitionSettings,

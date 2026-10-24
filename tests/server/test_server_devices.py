@@ -12,10 +12,7 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import (  # noqa: E402
-    BeamType,
-    FibsemStagePosition,
-)
+from fibsem.structures.settings import BeamType, FibsemStagePosition  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

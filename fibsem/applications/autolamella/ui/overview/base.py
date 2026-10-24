@@ -54,7 +54,7 @@ from fibsem.ui.widgets.overview_base import OverviewWidgetBase
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.applications.autolamella.structures import Lamella
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
     from fibsem.workflows.session import AppSession
 
 logger = logging.getLogger(__name__)

@@ -20,17 +20,12 @@ from fibsem.cancellation import (
     raise_if_cancelled,
 )
 from fibsem.codec import NamedEnum, decode, encode
-from fibsem.structures import (
-    BeamType,
-    Configurable,
-    Display,
-    FibsemRectangle,
-    param,
-)
+from fibsem.structures.params import Configurable, Display, param
+from fibsem.structures.settings import BeamType, FibsemRectangle
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
 logger = logging.getLogger(__name__)
 
@@ -192,7 +187,7 @@ class AutoFocusIteration:
 
     @classmethod
     def from_dict(cls, d: dict, result_dir: Path) -> "AutoFocusIteration":
-        from fibsem.structures import load_tiff
+        from fibsem.structures.image import load_tiff
 
         return cls(
             pass_index=d.get("pass_index", 0),
@@ -292,7 +287,7 @@ class AutoFocusResult:
         with open(result_dir / "data.json", "w") as f:
             json.dump(data, f, indent=2)
 
-        from fibsem.structures import save_tiff
+        from fibsem.structures.image import save_tiff
 
         for i, it in enumerate(self.iterations):
             save_tiff(it.image, result_dir / f"iter_{i:02d}.tif")
@@ -308,7 +303,7 @@ class AutoFocusResult:
     @classmethod
     def load(cls, result_dir: str) -> "AutoFocusResult":
         """Load a result previously saved with :meth:`save`."""
-        from fibsem.structures import load_tiff
+        from fibsem.structures.image import load_tiff
 
         result_dir = Path(result_dir)
 
@@ -495,7 +490,7 @@ def _auto_focus(
         OperationCancelledError: if ``stop_event`` is set during the sweep.
     """
     from fibsem.autofunctions.metrics import get_focus_measure_function
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     # Skip rather than fake success: on backends where the working-distance write is
     # a best-effort no-op (TESCAN ION), the sweep would run to completion, score

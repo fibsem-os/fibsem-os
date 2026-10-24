@@ -7,14 +7,8 @@ import numpy as np
 
 from fibsem.detection.decided import detection_image_file
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
-    ImageSettings,
-    MicroscopeState,
-    Point,
-)
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import BeamType, ImageSettings, MicroscopeState, Point
 
 
 def _detection(save_to=None) -> DetectedFeatures:

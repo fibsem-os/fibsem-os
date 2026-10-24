@@ -33,18 +33,16 @@ from fibsem.codec import decode, encode, saved
 from fibsem.codec.upgrades import pre_task_protocol
 from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.correlation.config import CorrelationConfig
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import Configurable, Display, param
+from fibsem.structures.settings import (
     DEFAULT_ALIGNMENT_AREA,
-    Configurable,
-    Display,
-    FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,
     Point,
-    SessionInfo,
-    param,
 )
+from fibsem.structures.system import SessionInfo
 from fibsem.util.timestamps import now
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment

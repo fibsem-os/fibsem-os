@@ -104,21 +104,20 @@ from fibsem.milling.steps import (
     MillingStepEnd,
 )
 from fibsem.services.core import Service, save_beam_conditions
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import Parameter, field_specs
+from fibsem.structures.settings import (
     ACTIVE_MILLING_STATES,
     BeamType,
     DriverMillingSettings,
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemImage,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
-    Parameter,
-    field_specs,
 )
 from fibsem.util import wording
 from fibsem.util.timestamps import now_iso

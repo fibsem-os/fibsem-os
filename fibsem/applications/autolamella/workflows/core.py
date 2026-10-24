@@ -9,10 +9,7 @@ from fibsem.detection.detection import (
     LamellaCentre,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamType,
-    ImageSettings,
-)
+from fibsem.structures.settings import BeamType, ImageSettings
 from fibsem.workflows.status import set_images_ui, update_status_ui
 
 if TYPE_CHECKING:

@@ -31,7 +31,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.ui.correlation.widgets.correlation_tab_widget import CorrelationTabWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)

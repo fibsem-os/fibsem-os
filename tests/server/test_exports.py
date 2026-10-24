@@ -25,7 +25,11 @@ from fibsem.imaging.export import (  # noqa: E402
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.responses import AnimationFrames, ImageExportForm  # noqa: E402
-from fibsem.structures import BeamType, ImageSettings, MicroscopeState  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
+    BeamType,
+    ImageSettings,
+    MicroscopeState,
+)
 from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
 from tests.run_state import stub_session  # noqa: E402
 

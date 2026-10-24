@@ -31,7 +31,8 @@ from fibsem.alignment import (
     shift_from_crosscorrelation,
     shift_from_crosscorrelation_v2,
 )
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 
 
 def load_images(ref_path: str, image_paths: list[str]) -> tuple:

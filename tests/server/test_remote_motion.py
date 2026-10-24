@@ -35,11 +35,13 @@ from fibsem.server.devices import (  # noqa: E402
     demo_devices,
     describe_device,
 )
-from fibsem.structures import (  # noqa: E402
-    ChamberState,
-    DeviceEntry,
+from fibsem.structures.settings import (  # noqa: E402
     FibsemManipulatorPosition,
     FibsemStagePosition,
+)
+from fibsem.structures.system import (  # noqa: E402
+    ChamberState,
+    DeviceEntry,
     InsertableDeviceState,
 )
 from tests.fixtures.demo_stage import demo_session  # noqa: E402

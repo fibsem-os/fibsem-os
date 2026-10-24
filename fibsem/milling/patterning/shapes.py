@@ -18,18 +18,19 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 from skimage.transform import resize
 
+from fibsem import conversions
 from fibsem.conversions import microscope_image_to_image_coordinates
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.patterning.patterns import FiducialPattern
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemImage,
     FibsemLineSettings,
     FibsemPolygonSettings,
+    FibsemRectangle,
     FibsemRectangleSettings,
     Point,
-    calculate_fiducial_area_v2,
 )
 
 # colour wheel
@@ -346,3 +347,42 @@ def is_pattern_placement_valid(pattern: BasePattern, image: FibsemImage) -> bool
             return False
 
     return True
+
+
+def calculate_fiducial_area_v2(
+    image: FibsemImage, fiducial_centre: Point, fiducial_length: float
+) -> Tuple[FibsemRectangle, bool]:
+
+    if image.metadata is None or image.metadata.pixel_size is None:
+        raise ValueError("Image metadata or pixel size is not set.")
+
+    pixelsize = image.metadata.pixel_size.x
+
+    fiducial_centre.y = -fiducial_centre.y
+    fiducial_centre_px = conversions.convert_point_from_metres_to_pixel(
+        fiducial_centre, pixelsize
+    )
+
+    rcx = fiducial_centre_px.x / image.metadata.image_settings.resolution[0] + 0.5
+    rcy = fiducial_centre_px.y / image.metadata.image_settings.resolution[1] + 0.5
+
+    fiducial_length_px = (
+        conversions.convert_metres_to_pixels(fiducial_length, pixelsize)
+        * 1.5  # SCALE_FACTOR
+    )
+    h_offset = fiducial_length_px / image.metadata.image_settings.resolution[0] / 2
+    v_offset = fiducial_length_px / image.metadata.image_settings.resolution[1] / 2
+
+    left = rcx - h_offset
+    top = rcy - v_offset
+    width = 2 * h_offset
+    height = 2 * v_offset
+
+    if left < 0 or (left + width) > 1 or top < 0 or (top + height) > 1:
+        flag = True
+    else:
+        flag = False
+
+    alignment_area = FibsemRectangle(left, top, width, height)
+
+    return alignment_area, flag

@@ -20,7 +20,7 @@ from fibsem.devices.core import ParameterMetadata
 from fibsem.drivers.autoscript import microscope as autoscript
 from fibsem.drivers.autoscript.microscope import TFS_SCAN_DIRECTIONS
 from fibsem.services.milling import BeamMilling, bind_milling
-from fibsem.structures import (
+from fibsem.structures.settings import (
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,

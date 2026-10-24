@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import autoscript_beam_parity as P  # noqa: E402  (installs the fake SDK)
 
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.structures.settings import BeamType  # noqa: E402
 
 KEYS = json.loads(sys.argv[2])
 

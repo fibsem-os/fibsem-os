@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
-from fibsem.structures import InsertableDeviceState  # noqa: E402
+from fibsem.structures.system import InsertableDeviceState  # noqa: E402
 from fibsem.ui.fm.widgets import objective_control_widget as module  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)

@@ -48,15 +48,15 @@ from typing import (
 from psygnal import Signal
 
 from fibsem.devices.runs import Runs
-from fibsem.structures import (
+from fibsem.structures.params import (
     DisplayHint,
-    FibsemAxesPosition,
     Limits,
     Parameter,
     ParameterMetadata,
     RangeLimit,
     display_to_dict,
 )
+from fibsem.structures.settings import FibsemAxesPosition
 
 IMAGING_CHANNEL = "imaging_channel"
 _SHARED = "shared"
@@ -95,7 +95,7 @@ class RoleUnfilled(AttributeError):
 class DeviceParameter(Parameter):
     """A parameter a device class may have. Declared on the class, bound per instance.
 
-    It is a ``fibsem.structures.Parameter`` (type, unit, limits, choices, doc,
+    It is a ``fibsem.structures.params.Parameter`` (type, unit, limits, choices, doc,
     display), so a form or a description reads it as it reads a dataclass field; this
     class adds what binds it to the hardware.
 
@@ -129,7 +129,7 @@ class DeviceParameter(Parameter):
     the parameter is read back, so its cache and its ``changed`` signal carry what the
     hardware applied rather than what was asked for.
 
-    ``display`` says how to show it (a ``fibsem.structures.Display``, or one per field for
+    ``display`` says how to show it (a ``fibsem.structures.params.Display``, or one per field for
     a composite value). Like the type and unit it means the same on every backend: a
     subclass that redeclares the parameter keeps it, and can't give another.
     """

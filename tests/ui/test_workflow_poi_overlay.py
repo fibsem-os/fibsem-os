@@ -22,14 +22,8 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
-    ImageSettings,
-    MicroscopeState,
-    Point,
-)
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import BeamType, ImageSettings, MicroscopeState, Point
 from fibsem.ui.widgets.canvas.overlays.poi_marker import PoiMarker
 
 # What the protocol editor asks for (protocol/lamella_editor.py), and what

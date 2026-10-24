@@ -139,7 +139,9 @@ from fibsem.correlation.verdict import (
     MIRROR_RATIO_AMBIGUOUS,
 )
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import CameraImageTransform, FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
+from fibsem.structures.system import CameraImageTransform
 from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BODY_MUTED_STYLE,

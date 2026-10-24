@@ -418,7 +418,7 @@ STAGE_POSITION = "/app/experiment/images/stage_position"
 
 
 def _saved_image(driving, arctis, name="sem.tif"):  # noqa: F811
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     image = arctis.acquire_image(ImageSettings(beam_type=BeamType.ELECTRON, hfw=150e-6))
     path = os.path.join(str(driving.host.experiment.path), name)
@@ -480,7 +480,7 @@ def test_the_agent_saves_the_objective_focus_position(driving, arctis):  # noqa:
 
 def test_the_agent_inserts_the_objective_at_a_tilt(driving, arctis):  # noqa: F811
     """Through the stage movement service, as the FM tab's Insert does."""
-    from fibsem.structures import InsertableDeviceState
+    from fibsem.structures.system import InsertableDeviceState
 
     arctis.fm.objective.retract()
     stage = arctis.get_stage_position()

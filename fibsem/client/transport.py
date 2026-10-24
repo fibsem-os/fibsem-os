@@ -35,7 +35,7 @@ from fibsem.server.discovery import read_discovery_file
 from fibsem.server.images import TIFF_MEDIA_TYPE
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.operator_token import read_operator_token
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 TIMEOUT = httpx.Timeout(120.0, connect=5.0)  # moves and acquisitions are slow
 

@@ -21,13 +21,9 @@ pytest.importorskip("PyQt5")
 import fibsem.config as fibsem_config
 from fibsem import utils
 from fibsem.imaging.overview_session import OverviewSession
-from fibsem.structures import (
-    BeamType,
-    CameraImageTransform,
-    FibsemImage,
-    FibsemStagePosition,
-    ImageSettings,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.system import CameraImageTransform
 from fibsem.ui.widgets.canvas.aligned_images import decompose
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from tests.fixtures.fm_images import fm_image, gfp, noise

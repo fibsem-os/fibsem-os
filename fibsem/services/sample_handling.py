@@ -46,7 +46,7 @@ from fibsem.devices.sample_loader import (
 from fibsem.devices.stage import Stage
 from fibsem.services.core import Service
 from fibsem.session_state import SessionState, session_state_for
-from fibsem.structures import (
+from fibsem.structures.settings import (
     GRID_RADIUS,
     FibsemStagePosition,
     GridInventoryEntry,

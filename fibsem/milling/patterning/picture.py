@@ -26,12 +26,8 @@ from fibsem.milling.patterning.plotting import (
     _rect_pattern_to_image_pixels,
     add_shape_mpl,
 )
-from fibsem.structures import (
-    FibsemImage,
-    FibsemRectangle,
-    FibsemRectangleSettings,
-    Point,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemRectangle, FibsemRectangleSettings, Point
 
 # The milling view's fill, and its colour for stages drawn behind.
 _FILL = 0.3

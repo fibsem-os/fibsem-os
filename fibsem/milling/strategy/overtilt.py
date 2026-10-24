@@ -19,13 +19,8 @@ from fibsem.milling.base import (
 )
 from fibsem.milling.patterning.patterns import TrenchPattern
 from fibsem.milling.properties import angle_param, image_resolution_param
-from fibsem.structures import (
-    Display,
-    FibsemStagePosition,
-    ImageSettings,
-    RangeLimit,
-    param,
-)
+from fibsem.structures.params import Display, RangeLimit, param
+from fibsem.structures.settings import FibsemStagePosition, ImageSettings
 
 
 @dataclass

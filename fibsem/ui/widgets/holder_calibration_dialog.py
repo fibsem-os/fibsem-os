@@ -30,7 +30,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from fibsem import utils
-from fibsem.structures import (
+from fibsem.structures.settings import (
     GRID_RADIUS,
     FibsemStagePosition,
     SampleHolder,

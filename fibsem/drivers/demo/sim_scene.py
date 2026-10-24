@@ -47,7 +47,7 @@ from fibsem.geometry.projection import (
     FMStageProjection,
     surface_foreshortening,
 )
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 # Keep the render well-defined at any pose: below this foreshortening the
 # view is a degenerate grazing projection (features smear to infinity).

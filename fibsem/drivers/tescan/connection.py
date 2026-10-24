@@ -21,7 +21,7 @@ import threading
 import time
 from typing import Any, Optional
 
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 TESCAN_BEAM_READY_TIMEOUT = 60  # Max time in seconds to wait for the beam to become ready (busy-wait when using Tescanautomation API)
 # Seconds to wait before an ion image that directly follows an electron image. The

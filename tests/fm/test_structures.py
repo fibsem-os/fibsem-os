@@ -28,7 +28,7 @@ from fibsem.fm.timing import (
     estimate_acquisition_time,
     estimate_tileset_acquisition_time,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 
 def test_channel_settings():

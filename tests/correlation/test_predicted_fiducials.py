@@ -31,16 +31,17 @@ from fibsem.fm.structures import (  # noqa: E402
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
-    CameraImageTransform,
-    FibsemHardwareGeometry,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.structures.system import (  # noqa: E402
+    CameraImageTransform,
+    FibsemHardwareGeometry,
 )
 from fibsem.ui.correlation.widgets.correlation_tab_widget import (  # noqa: E402
     CorrelationTabWidget,

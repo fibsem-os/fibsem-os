@@ -26,7 +26,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.structures.settings import MicroscopeState, Point  # noqa: E402
 from fibsem.workflows.proposals import (
     POINT_OF_INTEREST,  # noqa: E402
     Proposal,  # noqa: E402

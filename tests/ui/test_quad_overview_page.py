@@ -24,7 +24,7 @@ from fibsem.applications.autolamella.ui.grids.overview import (
     QuadOverviewPage,
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,

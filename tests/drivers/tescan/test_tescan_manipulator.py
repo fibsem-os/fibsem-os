@@ -14,7 +14,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import FibsemManipulatorPosition
+from fibsem.structures.settings import FibsemManipulatorPosition
 from tests.fixtures.tescan_sdk import connect
 
 

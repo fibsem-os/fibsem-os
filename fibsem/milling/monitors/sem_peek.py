@@ -18,7 +18,8 @@ from fibsem.milling.monitors.base import (
     MillingPeriodicMonitor,
     MillingPeriodicMonitorConfig,
 )
-from fibsem.structures import BeamType, ImageSettings, param
+from fibsem.structures.params import param
+from fibsem.structures.settings import BeamType, ImageSettings
 
 
 @dataclass

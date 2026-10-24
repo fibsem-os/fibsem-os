@@ -34,7 +34,8 @@ from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.overview.beam import (
     BeamOverviewTab,  # noqa: E402
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import BeamType, FibsemStagePosition  # noqa: E402
 from fibsem.workflows.grids import OverlayRecord  # noqa: E402
 from fibsem.workflows.quality import Verdict
 from tests.fixtures.overview_host import OverviewHost, tab_args  # noqa: E402
@@ -579,7 +580,7 @@ class TestOneOverviewDoesNotDriveTheStageWhileTheOtherAcquires:
 
 class TestALamellaMarkedOnAGridOverviewBelongsToThatGrid:
     def _grid_overview(self, microscope, grid):
-        from fibsem.structures import ImageSettings
+        from fibsem.structures.settings import ImageSettings
 
         image = FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6)
         state = microscope.get_microscope_state(beam_type=BeamType.ELECTRON)
@@ -854,7 +855,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
         return path
 
     def _show(self, tab, microscope):
-        from fibsem.structures import ImageSettings
+        from fibsem.structures.settings import ImageSettings
 
         image = FibsemImage.generate_blank_image(resolution=(64, 64), hfw=100e-6)
         state = microscope.get_microscope_state(beam_type=BeamType.ELECTRON)

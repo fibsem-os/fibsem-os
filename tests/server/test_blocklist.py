@@ -116,7 +116,7 @@ def test_a_path_is_refused_outside_the_open_experiment(client, tmp_path):
 
 
 def test_an_image_saves_inside_the_open_experiment_only(client, tmp_path):
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     refused = client.post(
         "/microscope/services/imaging/commands/acquire_image",

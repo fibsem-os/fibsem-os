@@ -17,7 +17,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import DeviceImagingState, FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import DeviceImagingState
 
 IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")

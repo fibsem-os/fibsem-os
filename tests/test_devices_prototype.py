@@ -24,7 +24,9 @@ from fibsem.devices import (
 )
 from fibsem.devices.beam import DEFAULT_WORKING_DISTANCE_LIMITS, UNBOUNDED_SHIFT_LIMITS
 from fibsem.drivers.demo.simulator import SIMULATOR_BEAM_CURRENTS
-from fibsem.structures import BeamType, FibsemImage, RangeLimit
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import BeamType
 from tests.fixtures.microscopes import demo_microscope, demo_session
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)

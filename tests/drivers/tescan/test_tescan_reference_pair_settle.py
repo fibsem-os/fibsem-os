@@ -13,7 +13,7 @@ import pytest
 
 from fibsem.drivers.tescan import connection as tescan
 from fibsem.drivers.tescan.connection import TescanConnection
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 
 @pytest.fixture()

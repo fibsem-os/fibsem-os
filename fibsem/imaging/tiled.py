@@ -58,12 +58,11 @@ from fibsem.imaging.tiling.reprojection import (  # noqa: E402,F401
 )
 from fibsem.imaging.tiling.result import OverviewResult
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import (
     AutoContrastMode,
     AutoFocusMode,
     BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemRectangle,
     FibsemStagePosition,
     OverviewAcquisitionSettings,

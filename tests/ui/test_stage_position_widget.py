@@ -37,7 +37,7 @@ from PyQt5.QtGui import QWheelEvent  # noqa: E402
 from fibsem import config as cfg  # noqa: E402
 from fibsem import constants, utils  # noqa: E402
 from fibsem.devices.stage import axis_limits_to_degrees
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 from fibsem.ui.widgets.stage_position_widget import StagePositionWidget  # noqa: E402
 
 FLAT_STAGE = "microscope-configuration.yaml"

@@ -11,7 +11,8 @@ from fibsem import utils
 from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.imaging import masks
 from fibsem.imaging import utils as image_utils
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 
 if TYPE_CHECKING:
     from fibsem.alignment import AlignmentIteration

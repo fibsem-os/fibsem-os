@@ -26,20 +26,22 @@ from fibsem.microscope import (
     FibsemMicroscope,
     RequiredDeviceUnavailable,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
     BeamType,
-    DeviceEntry,
     FibsemDetectorSettings,
-    FibsemExperimentRef,
-    FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
-    FibsemUser,
     GridSlot,
     MicroscopeState,
-    RangeLimit,
     SampleGrid,
+)
+from fibsem.structures.system import (
+    DeviceEntry,
+    FibsemExperimentRef,
+    FibsemUser,
     SystemSettings,
 )
 from fibsem.util.timestamps import to_datetime
@@ -314,7 +316,7 @@ def stage_position_from_autoscript(
             "AutoScript libraries not available. Cannot convert from AutoScript position."
         )
 
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     if isinstance(position, CompustagePosition):
         return FibsemStagePosition(
@@ -390,7 +392,7 @@ def manipulator_position_from_autoscript(
             "AutoScript libraries not available. Cannot convert from AutoScript position."
         )
 
-    from fibsem.structures import FibsemManipulatorPosition
+    from fibsem.structures.settings import FibsemManipulatorPosition
 
     return FibsemManipulatorPosition(
         x=position.x,

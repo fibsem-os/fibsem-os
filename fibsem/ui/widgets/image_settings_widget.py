@@ -17,12 +17,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamType,
-    ImageSettings,
-    Parameter,
-    Resolution,
-)
+from fibsem.structures.params import Parameter
+from fibsem.structures.settings import BeamType, ImageSettings, Resolution
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     NEUTRAL_400,

@@ -28,7 +28,7 @@ import tifffile as tff
 
 from fibsem.geometry.angles import wrap_angle
 from fibsem.image_format import read_metadata_dict
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.util.timestamps import to_datetime
 
 # Far enough apart to be a different place. Images taken at a lamella's milling pose sit

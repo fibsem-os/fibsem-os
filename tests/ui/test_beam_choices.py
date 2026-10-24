@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.structures.settings import BeamType  # noqa: E402
 from fibsem.ui.utils import beam_choices  # noqa: E402
 from tests.test_microscope_contract import _connect, _plasma_configuration  # noqa: E402
 

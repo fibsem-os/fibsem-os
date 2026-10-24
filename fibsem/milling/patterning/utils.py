@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING, Any, List, Optional, Tuple
 
 import numpy as np
 
-from fibsem.structures import FibsemRectangle
+from fibsem.structures.settings import FibsemRectangle
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from fibsem.milling.patterning.base import BasePattern
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 
 def create_pattern_mask(
@@ -254,7 +254,7 @@ def pattern_extent(pattern) -> Optional[Tuple[float, float, float, float]]:
     """``(x_min, x_max, y_min, y_max)`` a pattern's settings reach, in metres
     from the field's centre, from its numbers alone: no image needed.
     None for a kind this does not know."""
-    from fibsem.structures import (
+    from fibsem.structures.settings import (
         FibsemBitmapSettings,
         FibsemCircleSettings,
         FibsemLineSettings,
@@ -296,7 +296,7 @@ def pattern_outline(pattern) -> List[List[Tuple[float, float]]]:
     (y up): a closed ring of points for an area, two points for a line. For a
     kind this does not know, the box `pattern_extent` gives; none at all, [].
     For drawing it on an image without the milling view."""
-    from fibsem.structures import (
+    from fibsem.structures.settings import (
         FibsemBitmapSettings,
         FibsemCircleSettings,
         FibsemLineSettings,

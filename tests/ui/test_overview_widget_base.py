@@ -13,7 +13,7 @@ pytest.importorskip("PyQt5")
 from fibsem import config as fibsem_config
 from fibsem import utils
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 
 def _beam(qapp):

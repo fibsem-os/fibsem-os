@@ -8,7 +8,8 @@ another thread gets one image or the other, not half of each.
 
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 
 
 class LatestImages:

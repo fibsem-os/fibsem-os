@@ -6,15 +6,14 @@ from dataclasses import dataclass
 
 import pytest
 
-from fibsem.structures import (
+from fibsem.structures.params import (
     Configurable,
-    ImageSettings,
-    Point,
     RangeLimit,
     distance_param,
     field_specs,
     param,
 )
+from fibsem.structures.settings import ImageSettings, Point
 
 
 @dataclass

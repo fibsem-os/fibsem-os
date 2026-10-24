@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa:
 from fibsem.applications.autolamella.workflows.tasks.manager import (  # noqa: E402
     TaskManager,
 )
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from fibsem.workflows.runner import ITEMS, RunRequest
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402

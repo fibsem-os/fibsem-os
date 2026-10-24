@@ -13,7 +13,7 @@ import pytest
 from fibsem import utils
 from fibsem.devices import ResourceBusy, Resources
 from fibsem.drivers.demo.devices import DemoScanGenerator
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 
 @pytest.fixture

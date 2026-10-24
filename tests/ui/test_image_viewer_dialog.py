@@ -29,7 +29,7 @@ from test_view_info_bar import (  # noqa: E402
 )
 
 from fibsem.imaging.export import image_fields  # noqa: E402
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.structures.settings import BeamType  # noqa: E402
 from fibsem.ui.widgets import image_viewer_dialog  # noqa: E402
 from fibsem.ui.widgets.image_viewer_dialog import (  # noqa: E402
     ImageViewer,

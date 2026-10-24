@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 import fibsem
-from fibsem.structures import AutoFocusMode, OverviewAcquisitionSettings
+from fibsem.structures.settings import AutoFocusMode, OverviewAcquisitionSettings
 
 
 def test_every_import_path_yields_the_same_enum():
@@ -38,7 +38,7 @@ def test_every_import_path_yields_the_same_enum():
     divergent = [name for name, enum in paths.items() if enum is not AutoFocusMode]
     assert not divergent, (
         f"{divergent} define or import a different AutoFocusMode than "
-        "fibsem.structures. Re-export the canonical one; do not redefine it."
+        "fibsem.structures.settings. Re-export the canonical one; do not redefine it."
     )
 
 

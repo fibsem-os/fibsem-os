@@ -16,11 +16,8 @@ from fibsem.milling.properties import (
     passes_param,
     scan_direction_param,
 )
-from fibsem.structures import (
-    CrossSectionPattern,
-    FibsemRectangleSettings,
-    param,
-)
+from fibsem.structures.params import param
+from fibsem.structures.settings import CrossSectionPattern, FibsemRectangleSettings
 
 
 @dataclass

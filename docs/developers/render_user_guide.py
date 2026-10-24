@@ -337,7 +337,7 @@ class Harness:
         import numpy as np
 
         from fibsem.geometry.projection import BeamStageProjection
-        from fibsem.structures import BeamType
+        from fibsem.structures.settings import BeamType
 
         microscope = self.connection.microscope
         scene = microscope._connection.sample_scene
@@ -803,7 +803,7 @@ def render_movement(h: Harness) -> None:
     import numpy as np
 
     from fibsem import utils
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
     from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
 
     h.first_run(False)
@@ -928,7 +928,7 @@ def render_movement(h: Harness) -> None:
 def render_milling(h: Harness) -> None:
     """The Milling tab: a stage, its pattern on the FIB view, a run, the trench."""
     from fibsem import conversions
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     h.first_run(False)
     h.show_tab(0)
@@ -1154,7 +1154,7 @@ def render_milling(h: Harness) -> None:
 @page("sample-holder")
 def render_sample_holder(h: Harness) -> None:
     """The Sample tab: the holder's slots, naming grids, calibrating, moving."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     h.first_run(False)
     h.show_tab(0)
@@ -1663,7 +1663,7 @@ def render_overview(h: Harness) -> None:
     from fibsem.applications.autolamella.ui.overview.container import (
         MODALITY_FLUORESCENCE as MODALITY_FM,
     )
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     h.first_run(False)
     h.show_tab(0)
@@ -2449,7 +2449,7 @@ def render_correlation(h: Harness) -> None:
         EmissionFilter,
         ZParameters,
     )
-    from fibsem.structures import BeamType, ImageSettings, Point
+    from fibsem.structures.settings import BeamType, ImageSettings, Point
     from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
     from fibsem.workflows.attention import Attention
     from fibsem.workflows.site_tasks.spot_burn import (

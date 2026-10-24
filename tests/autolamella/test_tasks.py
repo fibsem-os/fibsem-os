@@ -10,7 +10,8 @@ from fibsem.applications.autolamella.workflows.tasks.trench import (
     MillTrenchTaskConfig,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemStagePosition
 from tests.autolamella._on_the_record import manager_for
 from tests.fixtures.demo_stage import demo_session
 
@@ -140,7 +141,7 @@ def test_default_filename_is_recorded_as_the_final_reference_set(
     monkeypatch, compustage_microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
     from fibsem import acquire
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     task = _make_trench_task(compustage_microscope, tmp_path)
     lam = Path(task.lamella.path)
@@ -162,7 +163,7 @@ def test_a_custom_filename_is_not_recorded_as_a_final_reference_set(
     do not match the review panel's convention today. Recording them as `final` would
     start showing them there."""
     from fibsem import acquire
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     task = _make_trench_task(compustage_microscope, tmp_path)
     lam = Path(task.lamella.path)

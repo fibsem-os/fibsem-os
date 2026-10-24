@@ -55,7 +55,7 @@ from fibsem.imaging.export import (
     image_fields,
     z_stack,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,

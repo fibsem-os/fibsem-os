@@ -7,7 +7,7 @@ from a different one. Up to v0.5.2 the `id` field held the name. See FIB-446.
 """
 
 from fibsem.config import METADATA_VERSION, UNVERSIONED_METADATA
-from fibsem.structures import FibsemExperimentRef
+from fibsem.structures.system import FibsemExperimentRef
 
 
 def test_the_id_and_the_name_are_separate_fields():

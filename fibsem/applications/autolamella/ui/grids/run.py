@@ -35,7 +35,7 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
 from fibsem.applications.autolamella.workflows.estimate import exchanges_for
-from fibsem.structures import GridInventoryEntry, GridSlotState
+from fibsem.structures.settings import GridInventoryEntry, GridSlotState
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     ACCENT_COLOR,

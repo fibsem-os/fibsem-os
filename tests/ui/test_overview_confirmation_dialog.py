@@ -26,7 +26,7 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QApplication, QLabel  # noqa: E402
 
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     ImageSettings,
     OverviewAcquisitionSettings,
 )

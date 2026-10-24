@@ -32,7 +32,8 @@ from fibsem.applications.autolamella.ui.lamella.history import (  # noqa: E402
     _ClickableRow,
 )
 from fibsem.session_state import user_state  # noqa: E402
-from fibsem.structures import FibsemImage, MicroscopeState  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from fibsem.util.timestamps import format_time  # noqa: E402
 from fibsem.workflows.event_recording import (  # noqa: E402
     EVENTS_FILENAME,

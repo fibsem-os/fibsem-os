@@ -22,7 +22,8 @@ pytest.importorskip("PyQt5")
 
 from fibsem import utils
 from fibsem.imaging.overview_session import OverviewSession
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.canvas.canvas_base import ContentRect
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.transform_overlay import (

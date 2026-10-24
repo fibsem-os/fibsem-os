@@ -56,7 +56,8 @@ from fibsem.server.responses import (
     refusal_of,
     refused,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits

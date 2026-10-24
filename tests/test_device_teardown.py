@@ -18,7 +18,7 @@ from fibsem.devices.entries import (
     build_device_entries,
 )
 from fibsem.drivers import registry
-from fibsem.structures import DeviceEntry
+from fibsem.structures.system import DeviceEntry
 from tests.fixtures.microscopes import demo_microscope
 
 microscope = demo_microscope(scope="function")

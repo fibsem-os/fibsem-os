@@ -37,7 +37,7 @@ from fibsem.codec.upgrades.autofocus import settings as autofocus
 from fibsem.codec.upgrades.fluorescence import channel
 from fibsem.codec.upgrades.overview import acquisition_settings
 from fibsem.fm.structures import ChannelSettings
-from fibsem.structures import OverviewAcquisitionSettings
+from fibsem.structures.settings import OverviewAcquisitionSettings
 from fibsem.workflows.attention import attention_from
 
 SUPERVISED = "supervised"

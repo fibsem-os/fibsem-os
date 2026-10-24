@@ -26,7 +26,8 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition, MicroscopeSettings
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import MicroscopeSettings
 from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemManipulatorWidget import FibsemManipulatorWidget

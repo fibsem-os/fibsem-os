@@ -25,7 +25,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.drivers.demo.simulator import DemoMicroscope
 from fibsem.scripting import load_script, run_script
-from fibsem.structures import FibsemStagePosition, MicroscopeState
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "scripts"
 

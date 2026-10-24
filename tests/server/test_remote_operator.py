@@ -15,7 +15,7 @@ from fibsem.acting import OPERATOR, current_actor  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 from fibsem.workflows.actions import ACTION  # noqa: E402
 
 TOKEN = "agent-token"
