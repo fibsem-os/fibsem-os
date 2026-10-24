@@ -31,6 +31,8 @@ from fibsem.workflows.status import TaskStatus
 
 # The pose an item is milled at.
 MILLING_POSE = "MILLING"
+# The pose an item is imaged at with the FM.
+FLUORESCENCE_POSE = "FLUORESCENCE"
 
 
 class ExperimentItem:

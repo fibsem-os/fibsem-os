@@ -41,7 +41,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFontMetrics
-from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QSizePolicy
+from PyQt5.QtWidgets import QLabel, QPushButton, QSizePolicy
 
 from fibsem.theme.plots import DARK
 from fibsem.ui.icon import fibsem_icon
@@ -56,10 +56,11 @@ from fibsem.ui.tokens import (
     WHITE_ICON_COLOR,
 )
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
+from fibsem.ui.widgets.canvas.overlays.base import _modifiers_from_event
+from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
-    from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
 
 _logger = logging.getLogger(__name__)
 
@@ -191,16 +192,6 @@ _INFO_BAR_STYLE = (
 # ---------------------------------------------------------------------------
 
 
-# Keyboard modifiers mapped to strings, so handler bodies branch on
-# ``"Alt" in modifiers``.
-_QT_MODIFIER_MAP = (
-    (Qt.AltModifier, "Alt"),
-    (Qt.ShiftModifier, "Shift"),
-    (Qt.ControlModifier, "Control"),
-    (Qt.MetaModifier, "Meta"),
-)
-
-
 def _pass_clicks_through(widget) -> None:
     """Make a chrome label invisible to the mouse.
 
@@ -211,19 +202,6 @@ def _pass_clicks_through(widget) -> None:
     gets this; the toolbar buttons deliberately do not.
     """
     widget.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-
-
-def _modifiers_from_event(event) -> Tuple[str, ...]:
-    """Active keyboard modifiers as strings, e.g. ``("Alt",)``.
-
-    Reads the underlying Qt event (``event.guiEvent``) — the Qt modifier state is
-    the reliable source in an embedded canvas, whereas matplotlib's
-    ``MouseEvent.key`` depends on canvas keyboard focus.  Falls back to the
-    application-wide modifier state when no Qt event is attached.
-    """
-    gui = getattr(event, "guiEvent", None)
-    mods = gui.modifiers() if gui is not None else QApplication.keyboardModifiers()
-    return tuple(name for flag, name in _QT_MODIFIER_MAP if mods & flag)
 
 
 # ---------------------------------------------------------------------------
@@ -1143,11 +1121,6 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
 
     # ── active-overlay input gating ───────────────────────────────────────
 
-    @property
-    def active_overlay(self):
-        """The overlay currently owning input, or None (default 'Move' mode)."""
-        return self._active_overlay
-
     def set_active_overlay(self, overlay) -> None:
         """Make *overlay* the sole input handler on this canvas (None = Move).
 
@@ -1248,8 +1221,6 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         """
         if self.btn_toggle_ruler.isChecked():
             if self._ruler_overlay is None:
-                from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
-
                 self._ruler_overlay = RulerOverlay()
                 self.add_overlay(self._ruler_overlay)
             self._ruler_overlay.set_visible(True)

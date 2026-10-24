@@ -15,7 +15,6 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-import json
 
 import pytest
 
@@ -46,6 +45,15 @@ def _result(inp):
     return CorrelationResult(
         poi=[CorrelationPointOfInterest()], rms_error=1.0, input_data=inp
     )
+
+
+def _load_result(w, result, adopt_inputs: bool = True) -> None:
+    """Load *result* as the File menu does: from a saved result file."""
+    import tempfile
+
+    path = os.path.join(tempfile.mkdtemp(), "correlation_result.json")
+    result.save(path)
+    w.load_result(path, adopt_inputs=adopt_inputs)
 
 
 def _widget():
@@ -82,7 +90,7 @@ def test_legacy_result_load_copies_the_snapshot(tmp_path):
 def test_adopting_a_results_inputs_copies_them(qapp):
     w = _widget()
     result = _result(_inputs(x=1.0))
-    w._load_result(result, adopt_inputs=True)
+    _load_result(w, result, adopt_inputs=True)
 
     w.data.fib_coordinates[0].point.x = 9999.0
     assert result.matches_inputs(w.data) is False
@@ -159,7 +167,7 @@ def test_changing_the_image_clears_coordinates_and_result(qapp, monkeypatch):
         FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
     )
     w.set_data(_inputs(x=1382.0))
-    w._load_result(_result(w.data), adopt_inputs=False)
+    _load_result(w, _result(w.data), adopt_inputs=False)
 
     _load_via_picker(w, monkeypatch, QMessageBox.Ok)
 
@@ -225,18 +233,20 @@ def test_image_combo_is_guarded_against_the_mouse_wheel(qapp):
 def test_adopting_a_state_without_a_result_discards_the_old_one(qapp, tmp_path):
     w = _widget()
     w.set_project_dir(str(tmp_path))
-    w._load_result(_result(_inputs(x=1.0)), adopt_inputs=False)
+    _load_result(w, _result(_inputs(x=1.0)), adopt_inputs=False)
     assert w.session.result is not None
 
-    w._adopt_state(CorrelationState(input_data=_inputs(x=5.0), result=None))
+    state = tmp_path / "loaded" / "correlation.json"
+    state.parent.mkdir()
+    CorrelationState(input_data=_inputs(x=5.0), result=None).save(str(state))
+    w.load_correlation(str(state))
     assert w.session.result is None
-
-    saved = json.loads((tmp_path / "correlation.json").read_text(encoding="utf-8"))
-    assert saved["result"] is None  # not re-saved against the new coordinates
+    # not re-saved against the new coordinates
+    assert not (tmp_path / "correlation.json").exists()
 
 
 def test_seeding_discards_a_previous_result(qapp):
     w = _widget()
-    w._load_result(_result(_inputs(x=1.0)), adopt_inputs=False)
+    _load_result(w, _result(_inputs(x=1.0)), adopt_inputs=False)
     w.seed_coordinates(_inputs(x=7.0))
     assert w.session.result is None

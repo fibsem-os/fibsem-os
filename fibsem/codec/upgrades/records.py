@@ -63,9 +63,9 @@ def proposals(
     """An item's proposals as a list, each saying who asked it."""
     if isinstance(data, dict):
         data = [
-            {**proposal, "asked_by": proposal.get("asked_by") or f"task:{name}"}
+            {**item, "asked_by": item.get("asked_by") or f"task:{name}"}
             for name, saved in data.items()
-            for proposal in saved
+            for item in saved
         ]
     return [proposal(p) for p in data or []]
 

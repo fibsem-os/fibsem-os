@@ -2,7 +2,8 @@
 the current shape.
 
 - A task config's parameters sat under ``parameters``; they are at its top level
-  now, beside ``milling`` and ``reference_imaging``.
+  now, beside ``milling`` and ``reference_imaging``. Its milling recipes are
+  upgraded too (`fibsem.codec.upgrades.milling`).
 - A protocol said ``_id``, ``tasks`` and ``order``; it says ``id``, ``task_config``
   and ``workflow_config`` (``{tasks: [{name, required, scheduled_at}]}``) now.
 - A task's ``attention`` and ``requires`` are on its plan entry; format 3 put
@@ -30,7 +31,7 @@ import logging
 import typing
 from typing import Any, Callable, Dict
 
-from fibsem.codec.upgrades import pre_task_protocol, records
+from fibsem.codec.upgrades import milling, pre_task_protocol, records
 
 SUPERVISED = "supervised"
 AUTOMATED = "automated"
@@ -41,14 +42,16 @@ PLAN_FIELDS = ("attention", "requires")
 
 
 def task_config(data: Dict[str, Any]) -> Dict[str, Any]:
-    """A task config with its ``parameters`` at the top level, and nothing of
-    its plan entry."""
+    """A task config with its ``parameters`` at the top level, its milling in
+    the current shape, and nothing of its plan entry."""
     data = dict(data or {})
     for key in PLAN_FIELDS:
         data.pop(key, None)
     parameters = data.pop("parameters", None)
     if isinstance(parameters, dict):
         data = {**parameters, **data}
+    if "milling" in data:
+        data["milling"] = milling.task_milling(data["milling"])
     return data
 
 

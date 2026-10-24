@@ -28,7 +28,7 @@ from PyQt5.QtCore import QRect, QRectF, QSize, Qt
 from PyQt5.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
-from fibsem.geometry.angles import wrap_degrees
+from fibsem.geometry.stage_places import is_half_turn
 from fibsem.structures import FibsemStagePosition
 from fibsem.ui.tokens import (
     BORDER_COLOR,
@@ -56,22 +56,6 @@ _INSET_MARGIN = 8
 # what its stage and columns need to be laid out without crowding.
 _SIDE_RENDER_MIN = QSize(300, 220)
 SIDE, MAP = "side", "map"
-
-
-def is_half_turn(r_radians: float, rotation_reference_degrees: float) -> bool:
-    """Whether the stage is turned more than a quarter turn from the reference.
-
-    That is what mirrors the side view, so it is read from the rotation itself rather
-    than from the orientation's name: a compustage has no rotation axis and reaches
-    FIB by tilting, and a stage between orientations still has a rotation to draw.
-
-    A side view can only be honest at the reference or a half turn from it; anywhere
-    else the sample tilts out of the plane of the columns. The stage is at one or the
-    other in practice, so in between it snaps to the nearer rather than projecting.
-    """
-    delta = math.degrees(r_radians) - rotation_reference_degrees
-    delta = wrap_degrees(delta)
-    return abs(delta) > 90.0
 
 
 class _Inset(QWidget):
@@ -245,10 +229,6 @@ class ChamberView(QWidget):
         diagram.SHUTTLE_COLOURS = (PRIMARY_ACCENT, PRIMARY_ACCENT)
         diagram.GRID_COLOUR = NEUTRAL_300
         diagram.WEDGE_COLOUR = NEUTRAL_300
-
-    @property
-    def has_position(self) -> bool:
-        return self._stack.currentWidget() is self.scene
 
     def set_microscope(self, microscope) -> None:
         """The configuration the map is drawn from: limits, slots, orientations."""

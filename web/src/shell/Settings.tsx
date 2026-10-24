@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, forgetToken } from "@/lib/api";
+import * as fmt from "@/lib/format";
 import { setNoticePrefs, systemNotices, useNoticePrefs } from "@/lib/notify";
 import type { Capabilities, Pairing, PairingRole } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -145,7 +146,7 @@ export function Connections({ roles = ["operator", "agent"] }: { roles?: Pairing
                 {computer.id === me && <span className="font-normal text-muted-foreground"> · this browser</span>}
               </span>
               <span className="text-xs text-muted-foreground">
-                Paired {new Date(computer.paired_at * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}
+                Paired {fmt.when(computer.paired_at)}
               </span>
               {computer.role === "hub" && (
                 <GrantToggle

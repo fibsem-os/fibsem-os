@@ -632,9 +632,11 @@ class LamellaNameListWidget(QWidget):
     """
 
     lamella_selected = pyqtSignal(object)
+    # the list as the ItemSelection the Image and Fluorescence tabs follow
+    item_selected = lamella_selected
+    item_noun = "Lamella"
     add_requested = pyqtSignal()
     move_to_requested = pyqtSignal(object)
-    edit_requested = pyqtSignal(object)
     update_requested = pyqtSignal(object)
     remove_requested = pyqtSignal(object)
     defect_changed = pyqtSignal(object)
@@ -645,7 +647,6 @@ class LamellaNameListWidget(QWidget):
         self._btn_visible = {
             "defect": False,
             "move_to": False,
-            "edit": False,
             "update": False,
             "remove": False,
         }
@@ -697,6 +698,10 @@ class LamellaNameListWidget(QWidget):
         return item.data(Qt.UserRole) if item is not None else None  # type: ignore
 
     @property
+    def selected_item(self) -> Any:
+        return self.selected_lamella
+
+    @property
     def selected_name(self) -> str:
         """Return the display name of the current item, or ``""``."""
         lamella = self.selected_lamella
@@ -728,7 +733,6 @@ class LamellaNameListWidget(QWidget):
             row = LamellaRow(pos, stage_actions=True)
             row.set_grid_context(getattr(self, "_grid_context", None))
             row.move_to_clicked.connect(self.move_to_requested)
-            row.edit_clicked.connect(self.edit_requested)
             row.update_clicked.connect(self.update_requested)
             row.remove_clicked.connect(self.remove_requested)
             row.defect_changed.connect(self.defect_changed)
@@ -776,9 +780,6 @@ class LamellaNameListWidget(QWidget):
     def enable_move_to_action(self, visible: bool) -> None:
         self._set_visible("move_to", visible)
 
-    def enable_edit_action(self, visible: bool) -> None:
-        self._set_visible("edit", visible)
-
     def enable_update_action(self, visible: bool) -> None:
         self._set_visible("update", visible)
 
@@ -801,11 +802,11 @@ class LamellaNameListWidget(QWidget):
         v = self._btn_visible
         row.defect_menu.menuAction().setVisible(v["defect"])
         row.action_move_to.setVisible(v["move_to"])
-        row.action_edit.setVisible(v["edit"])
+        row.action_edit.setVisible(False)
         row.action_update.setVisible(v["update"])
         row.action_remove.setVisible(v["remove"])
         row.btn_actions.setVisible(
-            any(v[k] for k in ("defect", "move_to", "edit", "update", "remove"))
+            any(v[k] for k in ("defect", "move_to", "update", "remove"))
         )
         row.refresh()
 

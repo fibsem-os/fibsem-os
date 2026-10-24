@@ -163,16 +163,6 @@ def test_a_row_click_selects_in_the_store_and_is_announced():
     assert _same(emitted, [coords[1]])
 
 
-def test_clearing_a_list_silently_leaves_another_lists_selection():
-    store, fm, poi = _shared()
-    fm_coords, poi_coords = _coords(PointType.FM, 1), _coords(PointType.POI, 1)
-    store.add_many(fm_coords + poi_coords)
-    store.select(poi_coords[0])
-
-    fm.select_coordinate_silent(None)
-    assert store.current is poi_coords[0]
-
-
 def test_the_selection_survives_the_rebuild_after_a_reorder():
     store, fm, _ = _shared()
     coords = _coords(PointType.FM, 3)
@@ -224,7 +214,7 @@ def test_assigning_the_same_points_again_redraws_their_rows():
     assert _rows(fm)[1].z_spin.value() == 9.0
 
 
-def test_a_silent_select_sits_beside_the_other_canvass_selection():
+def test_an_extended_select_sits_beside_the_other_canvass_selection():
     # a verdict's pair link highlights the FM point and its FIB partner
     store = PointStore()
     fib = CoordinateListWidget(point_type=PointType.FIB, store=store)
@@ -232,8 +222,8 @@ def test_a_silent_select_sits_beside_the_other_canvass_selection():
     a, b = _coords(PointType.FIB, 1)[0], _coords(PointType.FM, 1)[0]
     store.add_many([a, b])
 
-    fm.select_coordinate_silent(b)
-    fib.select_coordinate_silent(a)
+    store.select(b, extend=True)
+    store.select(a, extend=True)
     assert fm.selected_coordinate is b
     assert fib.selected_coordinate is a
     assert _same(_selected_rows(fm), [b]) and _same(_selected_rows(fib), [a])

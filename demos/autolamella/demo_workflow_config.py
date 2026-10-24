@@ -143,7 +143,7 @@ class TestWindow(QWidget):
         self._protocol.set_attention(
             task.name, Attention.automated if supervised else Attention.supervised
         )
-        self.workflow_widget.refresh_task(task)
+        self.workflow_widget.refresh_all()
         self._log(
             f"Attention: {task.name} → {self._protocol.get_attention(task.name).value}"
         )
@@ -161,7 +161,7 @@ class TestWindow(QWidget):
 
     def _on_editor_apply(self, edited: TaskPlan, requires: list) -> None:
         why = self._protocol.set_requirements(edited.name, requires, edited.required)
-        self.workflow_widget.refresh_task(self._editing)
+        self.workflow_widget.refresh_all()
         self.editor.hide()
         self._log(
             why

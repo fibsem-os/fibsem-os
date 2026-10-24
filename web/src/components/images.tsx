@@ -1,8 +1,9 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ImageInfoBar, ScaleBar } from "@/components/image-info";
+import { type ImageKeys, LayerImage } from "@/components/layer-image";
 import { MarkPanel, MarkToolbar, MarkingLayer, toolForKey, useMarkEditor } from "@/components/mark-for-agent";
 import { Stepper } from "@/components/stepper";
 import { type StackView, useFileRead } from "@/lib/files";
@@ -176,43 +177,95 @@ export function Thumb({ path, onOpen }: { path: string; onOpen: () => void }) {
   );
 }
 
-/** The viewer: one image large with its metadata, previous and next through *paths*. */
-export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: number | null; onClose: () => void }) {
-  // The open image by its path, so images added to *paths* while it is open don't move it.
-  const [path, setPath] = useState(at == null ? null : (paths[at] ?? null));
-  const [opened, setOpened] = useState(at);
+/** The image as the server draws it, for a browser without WebGL2: a JPEG of the
+ * plane or projection *view* names, the scalebar on it, the bar under it. */
+function JpegImage({
+  read,
+  name,
+  marking,
+  marks,
+}: {
+  read: ReturnType<typeof useFileRead>;
+  name: string;
+  marking: boolean;
+  marks: ReactNode;
+}) {
   const last = useRef<ImagePayload | undefined>(undefined);
-  if (at !== opened) {
-    setOpened(at);
-    setPath(at == null ? null : (paths[at] ?? null));
-    last.current = undefined;
-  }
-  const index = Math.max(0, path ? paths.indexOf(path) : 0);
-  const [view, setView] = useState<StackView>(WHOLE);
-  const [viewOf, setViewOf] = useState(path);
-  const [marking, setMarking] = useState(false);
-  const [sent, setSent] = useState(false);
-  const read = useFileRead(path, 1600, view);
   const p = read.data?.preview;
   // The last image stays up, dimmed, while the next is read, so the box keeps its size.
   if (p) last.current = p;
   const shown = p ?? (read.error ? undefined : last.current);
   const fullWidth = shown?.full_width ?? shown?.width ?? 1;
   const fullHeight = shown?.full_height ?? shown?.height ?? 1;
-  const editor = useMarkEditor(fullWidth, fullHeight);
+  return (
+    <>
+      <div className="relative flex min-h-[240px] items-center justify-center bg-black p-2">
+        {shown && (!p || read.isPlaceholderData) && (
+          <span className="absolute top-3 left-3 z-10 bg-black/70 px-2 py-0.5 text-[12px] text-white">Reading…</span>
+        )}
+        {shown ? (
+          <div
+            className={cn("relative", marking && "outline outline-1 outline-[#50a6ff]")}
+            style={{
+              aspectRatio: `${fullWidth} / ${fullHeight}`,
+              // the dialog's height less its header, the toolbar and the bar
+              width: `min(100%, calc((84vh - 150px) * ${fullWidth / fullHeight}))`,
+            }}
+          >
+            <img
+              className={cn("absolute inset-0 block h-full w-full", (!p || read.isPlaceholderData) && "opacity-50")}
+              alt={name}
+              src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
+            />
+            <ScaleBar info={read.data?.info} />
+            {marking && marks}
+          </div>
+        ) : (
+          <span className="text-[13px] text-muted-foreground">{read.error ? read.error.message : "Reading…"}</span>
+        )}
+      </div>
+      <ImageInfoBar info={read.data?.info} />
+    </>
+  );
+}
+
+/** The viewer: one image large with its metadata, previous and next through *paths*.
+ * The browser draws it from its raw planes (`LayerImage`); without WebGL2, the
+ * server's JPEG with the legend and planes in the side panel. */
+export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: number | null; onClose: () => void }) {
+  // The open image by its path, so images added to *paths* while it is open don't move it.
+  const [path, setPath] = useState(at == null ? null : (paths[at] ?? null));
+  const [opened, setOpened] = useState(at);
+  if (at !== opened) {
+    setOpened(at);
+    setPath(at == null ? null : (paths[at] ?? null));
+  }
+  const index = Math.max(0, path ? paths.indexOf(path) : 0);
+  const [gl, setGl] = useState(true);
+  const [view, setView] = useState<StackView>(WHOLE);
+  const [viewOf, setViewOf] = useState(path);
+  const [marking, setMarking] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [shownChannels, setShownChannels] = useState<string[] | null>(null);
+  // Drawn in the browser, the file is read for its facts and bar only.
+  const read = useFileRead(path, gl ? 64 : 1600, gl ? undefined : view);
+  const shape = read.data?.summary?.shape as number[] | undefined;
+  const editor = useMarkEditor(shape?.[1] ?? 1, shape?.[0] ?? 1);
   if (path !== viewOf) {
     setViewOf(path);
     setView(WHOLE);
     setMarking(false);
     setSent(false);
+    setShownChannels(null);
     editor.clear();
   }
   const fm = read.data?.summary?.fm;
   const stack = fm && fm.z_planes > 1 ? fm : undefined;
   const pixelSize = read.data?.summary?.pixel_size as number | null | undefined;
   // a beam image, or an FM stack's max projection: single planes can't be marked yet
-  const markable = !!p && (!!fm || imageKind(path ?? "", read.data?.summary?.beam_type) !== "Image");
+  const markable = !!read.data?.preview && (!!fm || imageKind(path ?? "", read.data?.summary?.beam_type) !== "Image");
   const keys = useRef<HTMLDivElement>(null);
+  const imageKeys: ImageKeys = useRef(null);
   const mark = (on: boolean) => {
     setMarking(on);
     setSent(false);
@@ -228,9 +281,39 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
   };
   const name = path?.split("/").pop() ?? "";
   // (height, width), with a colour axis after for a stack's composite.
-  const shape = read.data?.summary?.shape as number[] | undefined;
   const bytes = read.data?.size;
   const size = shape ? `${shape[1]} × ${shape[0]} px${bytes ? ` · ${fmt.bytes(bytes)}` : ""}` : "";
+  const marks = <MarkingLayer editor={editor} pixelSize={pixelSize} />;
+  // The viewer's keys, wherever focus is in the page while it is open, so they keep
+  // working after a click on the image or a menu that closes.
+  const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
+  onKey.current = (e) => {
+    const t = e.target;
+    if (t instanceof HTMLTextAreaElement) return;
+    if (t instanceof HTMLInputElement && !["checkbox", "radio", "button"].includes(t.type)) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const key = e.key.toLowerCase();
+    const picked = marking && toolForKey(key);
+    if (picked) editor.setTool(picked);
+    else if (marking && (e.key === "Delete" || e.key === "Backspace") && editor.selected != null)
+      editor.remove(editor.selected);
+    else if (gl && imageKeys.current?.(e)) {
+      // the image's own: zoom, tools, planes
+    } else if (e.key === "ArrowLeft") step(-1);
+    else if (e.key === "ArrowRight") step(1);
+    else if (!gl && e.key === "ArrowUp" && stack) plane(1);
+    else if (!gl && e.key === "ArrowDown" && stack) plane(-1);
+    else return;
+    e.preventDefault();
+  };
+  const open = at != null;
+  useEffect(() => {
+    if (!open) return;
+    const listener = (e: KeyboardEvent) => onKey.current(e);
+    addEventListener("keydown", listener);
+    return () => removeEventListener("keydown", listener);
+  }, [open]);
+  const channels = gl ? shownChannels : view.channels;
   return (
     <Dialog open={at != null} onOpenChange={(open) => !open && onClose()}>
       <DialogContent
@@ -249,66 +332,37 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
             "grid min-h-0 gap-4 outline-none",
             marking ? "md:grid-cols-[minmax(0,1fr)_320px]" : "md:grid-cols-[minmax(0,1fr)_240px]",
           )}
-          onKeyDown={(e) => {
-            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
-            const key = e.key.toLowerCase();
-            const picked = marking && toolForKey(key);
-            if (picked) editor.setTool(picked);
-            else if (marking && (e.key === "Delete" || e.key === "Backspace") && editor.selected != null)
-              editor.remove(editor.selected);
-            else if (e.key === "ArrowLeft") step(-1);
-            else if (e.key === "ArrowRight") step(1);
-            else if (e.key === "ArrowUp" && stack) plane(1);
-            else if (e.key === "ArrowDown" && stack) plane(-1);
-            else return;
-            e.preventDefault();
-          }}
         >
           <div className="flex min-w-0 flex-col self-start">
             {markable && <MarkToolbar editor={editor} marking={marking} mark={mark} />}
-            <div className="relative flex min-h-[240px] items-center justify-center bg-black p-2">
-              {shown && (!p || read.isPlaceholderData) && (
-                <span className="absolute top-3 left-3 z-10 bg-black/70 px-2 py-0.5 text-[12px] text-white">
-                  Reading…
-                </span>
-              )}
-              {shown ? (
-                <div
-                  className={cn("relative", marking && "outline outline-1 outline-[#50a6ff]")}
-                  style={{
-                    aspectRatio: `${fullWidth} / ${fullHeight}`,
-                    // the dialog's height less its header, the toolbar and the bar
-                    width: `min(100%, calc((84vh - 150px) * ${fullWidth / fullHeight}))`,
-                  }}
-                >
-                  <img
-                    className={cn(
-                      "absolute inset-0 block h-full w-full",
-                      (!p || read.isPlaceholderData) && "opacity-50",
-                    )}
-                    alt={name}
-                    src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
-                  />
-                  <ScaleBar info={read.data?.info} />
-                  {marking && <MarkingLayer editor={editor} pixelSize={pixelSize} />}
-                </div>
-              ) : (
-                <span className="text-[13px] text-muted-foreground">
-                  {read.error ? read.error.message : "Reading…"}
-                </span>
-              )}
-            </div>
-            <ImageInfoBar info={read.data?.info} />
+            {gl && path && read.data ? (
+              <LayerImage
+                key={path}
+                path={path}
+                read={read.data}
+                marking={marking}
+                marks={marks}
+                keys={imageKeys}
+                onNoWebGL={() => setGl(false)}
+                onVisible={(names) => setShownChannels(fm && names.length < fm.channels.length ? names : null)}
+              />
+            ) : gl ? (
+              <div className="flex min-h-[300px] items-center justify-center bg-black text-[13px] text-muted-foreground">
+                {read.error ? read.error.message : "Reading…"}
+              </div>
+            ) : (
+              <JpegImage read={read} name={name} marking={marking} marks={marks} />
+            )}
           </div>
           <div className="flex min-h-0 flex-col gap-3 overflow-y-auto px-4 pb-4 md:max-h-[calc(84vh-60px)] md:pt-2 md:pl-0">
-            {fm && <Legend fm={fm} view={view} setView={setView} />}
-            {stack && !marking && <Planes fm={stack} view={view} setView={setView} />}
+            {!gl && fm && <Legend fm={fm} view={view} setView={setView} />}
+            {!gl && stack && !marking && <Planes fm={stack} view={view} setView={setView} />}
             {marking && path && (
               <MarkPanel
                 editor={editor}
                 image={path}
                 pixelSize={pixelSize}
-                channels={fm ? (view.channels ?? fm.channels.map((c) => c.name)) : null}
+                channels={fm ? (channels ?? fm.channels.map((c) => c.name)) : null}
                 onSent={() => {
                   setMarking(false);
                   setSent(true);
