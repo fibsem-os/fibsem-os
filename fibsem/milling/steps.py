@@ -25,6 +25,7 @@ from typing import Any, Callable, Dict, Iterator, List, Optional
 from psygnal import Signal
 
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, ended_by
+from fibsem.codec import encode
 from fibsem.util.timestamps import now_iso
 
 FINISHED, ENDED, STOPPED, STEP_FAILED = "finished", "ended", "stopped", "failed"
@@ -61,7 +62,7 @@ class MillingStepEnd:
         return _STATUS[self.kind]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"kind": self.kind, "by": self.by, "reason": self.reason}
+        return encode(self)
 
 
 class MillingStep:

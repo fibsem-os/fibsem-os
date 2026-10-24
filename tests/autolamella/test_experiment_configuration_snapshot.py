@@ -13,6 +13,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.codec import encode
 from fibsem.structures.system import CONFIGURATION_VERSION, SystemSettings
 from tests.fixtures.microscopes import demo_microscope
 
@@ -46,7 +47,7 @@ def test_registering_copies_the_configuration_in(microscope, tmp_path):
     # the file's own contents: what is fitted (the manipulator) is asked of the
     # instrument at connect and is deliberately not in a configuration file.
     back = SystemSettings.from_dict(copy)
-    assert utils._plain(back.to_dict()) == utils._plain(microscope.system.to_dict())
+    assert encode(back.to_dict()) == encode(microscope.system.to_dict())
     assert back.stage == microscope.system.stage
 
 
