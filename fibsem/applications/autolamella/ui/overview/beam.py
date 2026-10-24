@@ -40,6 +40,7 @@ from fibsem.applications.autolamella.poses import move_lamella
 from fibsem.applications.autolamella.ui.overview.base import AutoLamellaOverviewTabBase
 from fibsem.imaging.overview_session import BEAM
 from fibsem.ui import notification_service
+from fibsem.ui.widgets.overview_base import OverviewWidgetBase
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from fibsem.workflows.grids import OverlayRecord
 from fibsem.workflows.quality import Verdict
@@ -83,7 +84,7 @@ class BeamOverviewTab(AutoLamellaOverviewTabBase):
 
     # ── what makes this the beam side ────────────────────────────────────
 
-    def _build_overview(self, microscope) -> QWidget:
+    def _build_overview(self, microscope) -> OverviewWidgetBase:
         overview = FibsemOverviewWidget(self.session.overview(BEAM))
         overview.gridbar_placement_changed.connect(self._save_gridbar_placement)
         overview.image_placement_changed.connect(self._save_image_placement)

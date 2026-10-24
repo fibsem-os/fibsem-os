@@ -51,10 +51,7 @@ from fibsem.ui.widgets.canvas.overlays.point_overlay import (  # noqa: E402
 from fibsem.ui.widgets.canvas.real_space_canvas import (  # noqa: E402
     FibsemRealSpaceCanvas,
 )
-from fibsem.ui.widgets.overview_widget import (  # noqa: E402
-    PICK_RADIUS_PX,
-    FibsemOverviewWidget,
-)
+from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -376,9 +373,10 @@ class TestPickingIsTheUnionOfBoxAndRadius:
         probe = frame.to_canvas(_at(base, 40e-6, 0.0))  # inside the 100 um box
 
         assert widget.position_overlay.covers(centre, *probe), "probe missed the box"
-        assert _screen_distance(widget, centre, probe) > PICK_RADIUS_PX, (
-            "the radius alone would explain this hit"
-        )
+        assert (
+            _screen_distance(widget, centre, probe)
+            > FibsemOverviewWidget.PICK_RADIUS_PX
+        ), "the radius alone would explain this hit"
         assert widget._position_at(*probe) == "Lamella-01"
 
     def test_the_same_click_misses_once_the_box_is_taken_away(self, widget, microscope):
@@ -421,7 +419,10 @@ class TestPickingIsTheUnionOfBoxAndRadius:
         assert not widget.position_overlay.covers(centre, *probe), (
             "the box is still the bigger target here; zoom out further"
         )
-        assert _screen_distance(widget, centre, probe) < PICK_RADIUS_PX
+        assert (
+            _screen_distance(widget, centre, probe)
+            < FibsemOverviewWidget.PICK_RADIUS_PX
+        )
         assert widget._position_at(*probe) == "Lamella-01"
 
     def test_the_nearest_crosshair_wins_between_overlapping_boxes(

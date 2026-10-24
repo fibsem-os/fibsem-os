@@ -475,7 +475,7 @@ class TestOneDerivationForBothDirections:
     def test_a_hidden_marker_is_not_a_target(self, widget, microscope):
         """Turned off means gone, not merely invisible.
 
-        With saved positions hidden, `_refresh_position_markers` draws nothing — so a
+        With saved positions hidden, `_refresh_positions` draws nothing — so a
         pick here selects a lamella from a click on what looks like bare mosaic, and the
         host fans that selection out to every list in the window with nothing on screen
         to explain it.
@@ -860,7 +860,7 @@ class TestTheRunOwnsItsSettings:
         widget.settings_widget.path_edit.setText("")
         for _ in range(5):
             _ = widget.beam_type
-            widget._refresh_position_markers()
+            widget._refresh_positions()
             widget._refresh_context_overlays()
             widget._on_stage_moved(microscope.get_stage_position())
 
