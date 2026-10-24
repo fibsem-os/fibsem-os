@@ -31,7 +31,14 @@ import logging
 import typing
 from typing import Any, Callable, Dict
 
+from fibsem.autofunctions.autofocus import AutoFocusSettings
 from fibsem.codec.upgrades import milling, pre_task_protocol, records
+from fibsem.codec.upgrades.autofocus import settings as autofocus
+from fibsem.codec.upgrades.fluorescence import channel
+from fibsem.codec.upgrades.overview import acquisition_settings
+from fibsem.fm.structures import ChannelSettings
+from fibsem.structures import OverviewAcquisitionSettings
+from fibsem.workflows.attention import attention_from
 
 SUPERVISED = "supervised"
 AUTOMATED = "automated"
@@ -62,8 +69,6 @@ def _names(value: Any) -> bool:
 def run_plan(data: Dict[str, Any]) -> Dict[str, Any]:
     """A run plan whose every entry is a dict, with ``attention`` for
     ``supervise``; a task named on its own is required."""
-    from fibsem.workflows.attention import attention_from
-
     data = dict(data or {})
     tasks = []
     for entry in data.get("tasks") or []:
@@ -160,13 +165,6 @@ def experiment(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def _upgrades() -> Dict[type, Callable[[Dict[str, Any]], Dict[str, Any]]]:
     """The upgrade for each type a task config holds that has one."""
-    from fibsem.autofunctions.autofocus import AutoFocusSettings
-    from fibsem.codec.upgrades.autofocus import settings as autofocus
-    from fibsem.codec.upgrades.fluorescence import channel
-    from fibsem.codec.upgrades.overview import acquisition_settings
-    from fibsem.fm.structures import ChannelSettings
-    from fibsem.structures import OverviewAcquisitionSettings
-
     return {
         ChannelSettings: channel,
         AutoFocusSettings: autofocus,
