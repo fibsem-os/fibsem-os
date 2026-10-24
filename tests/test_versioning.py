@@ -455,7 +455,7 @@ def test_metadata_construction_forks_once(monkeypatch):
     copy of the revision and was built per acquired image. That duplicate is gone;
     SystemInfo owns the field now, and the invariant is unchanged.
     """
-    from fibsem.structures import SystemInfo
+    from fibsem.structures.system import SystemInfo
 
     calls = []
 

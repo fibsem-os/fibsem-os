@@ -33,7 +33,7 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 
 from fibsem.devices.core import Device, command
-from fibsem.structures import RangeLimit
+from fibsem.structures.params import RangeLimit
 
 Resolution = Tuple[int, int]
 

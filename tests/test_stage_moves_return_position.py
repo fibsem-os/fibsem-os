@@ -23,7 +23,8 @@ from fibsem.drivers.registry import BuildContext
 from fibsem.drivers.tescan.connection import TescanConnection
 from fibsem.drivers.tescan.devices import build_tescan_stage
 from fibsem.drivers.tescan.microscope import TescanMicroscope
-from fibsem.structures import DeviceEntry, FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import DeviceEntry
 
 STAGE_ENTRY = DeviceEntry(name="stage", type="stage")
 

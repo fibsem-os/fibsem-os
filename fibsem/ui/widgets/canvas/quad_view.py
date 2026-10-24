@@ -28,7 +28,9 @@ from PyQt5.QtWidgets import (
 
 from fibsem import constants
 from fibsem.imaging.export import image_fields, z_stack
-from fibsem.structures import BeamType, FibsemImage, InsertableDeviceState
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
@@ -61,7 +63,7 @@ from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar, show_fm_plane
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
-    from fibsem.structures import FibsemRectangle
+    from fibsem.structures.settings import FibsemRectangle
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 _logger = logging.getLogger(__name__)

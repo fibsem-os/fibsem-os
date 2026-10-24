@@ -12,7 +12,7 @@ import yaml
 
 from fibsem.applications.volume.position import VolumePosition
 from fibsem.applications.volume.protocol import VolumeProtocol
-from fibsem.structures import FibsemRectangle, MicroscopeState, Point
+from fibsem.structures.settings import FibsemRectangle, MicroscopeState, Point
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME, BaseExperiment
 from fibsem.workflows.item import MILLING_POSE

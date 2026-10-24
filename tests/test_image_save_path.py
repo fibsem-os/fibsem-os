@@ -6,7 +6,7 @@ import os
 import pytest
 
 from fibsem.services.imaging import image_save_path
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
 
 
 def test_settings_read_without_a_path_have_none():

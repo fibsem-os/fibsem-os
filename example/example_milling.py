@@ -3,7 +3,7 @@ import logging
 from fibsem import utils
 from fibsem.milling import FibsemMillingStage, MillingAlignment
 from fibsem.milling.patterning.patterns import RectanglePattern
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemMillingSettings,

@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, Tuple
 import numpy as np
 
 from fibsem.codec import decode, encode
-from fibsem.structures import BeamType, FibsemRectangle
+from fibsem.structures.settings import BeamType, FibsemRectangle
 
 if TYPE_CHECKING:
-    from fibsem.structures import FibsemImage, ImageStats
+    from fibsem.structures.image import FibsemImage, ImageStats
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class AutoContrastBrightnessIteration:
 
     @classmethod
     def from_dict(cls, d: dict, result_dir: Path) -> "AutoContrastBrightnessIteration":
-        from fibsem.structures import FibsemImage, ImageStats
+        from fibsem.structures.image import FibsemImage, ImageStats
 
         return cls(
             brightness=d["brightness"],
@@ -158,7 +158,7 @@ class AutoContrastBrightnessResult:
             for it_data in data["iterations"]
         ]
 
-        from fibsem.structures import FibsemImage, ImageStats
+        from fibsem.structures.image import FibsemImage, ImageStats
 
         final_image = FibsemImage.load(str(result_dir / "final.tif"))
         final_stats = ImageStats(**data["final_stats"])
@@ -200,7 +200,7 @@ def run_auto_contrast_brightness(
         ``AutoContrastBrightnessResult`` with the final probe image, stats, convergence
         flag, and the full per-iteration history.
     """
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     if settings is None:
         settings = AutoContrastBrightnessSettings()

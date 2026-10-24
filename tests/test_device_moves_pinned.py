@@ -47,7 +47,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.poses import _to_fluorescence, _to_milling
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 PINS_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "device_move_pins.json")
 

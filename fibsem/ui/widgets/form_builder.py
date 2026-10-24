@@ -12,7 +12,7 @@ could not.
 through it, so a form never inspects a control's type. Adding a control type is
 one branch here rather than four branches in three places each.
 
-Each field arrives as a ``Parameter`` (``fibsem.structures``): SI unit, SI limits,
+Each field arrives as a ``Parameter`` (``fibsem.structures.params``): SI unit, SI limits,
 choices, doc, and a ``Display`` (label, scale, step, decimals). A device
 parameter becomes one through ``parameter_spec``, so a panel of beam controls and a
 recipe form read the same thing.
@@ -48,14 +48,14 @@ from typing import (
 from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QLabel, QWidget
 
 from fibsem.devices.core import BoundParameter
-from fibsem.structures import (
+from fibsem.structures.params import (
     Display,
     Parameter,
     ParameterMetadata,
-    Point,
     declared_device_parameter,
     split_device_parameter,
 )
+from fibsem.structures.settings import Point
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     QFilePathLineEdit,

@@ -27,7 +27,7 @@ from fibsem.applications.autolamella.tools.grid_report import (
 from fibsem.config import POSITION_FOV_WIDTH
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,

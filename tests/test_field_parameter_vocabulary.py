@@ -10,14 +10,8 @@ from typing import Optional
 
 import pytest
 
-from fibsem.structures import (
-    Display,
-    FibsemMillingSettings,
-    Parameter,
-    RangeLimit,
-    field_specs,
-    param,
-)
+from fibsem.structures.params import Display, Parameter, RangeLimit, field_specs, param
+from fibsem.structures.settings import FibsemMillingSettings
 
 
 @dataclass
@@ -118,7 +112,7 @@ def test_a_device_parameter_is_a_parameter():
     """What a form or a description reads off a device parameter is what it reads
     off a field: the device class only adds the binding."""
     from fibsem.devices.beam import Beam
-    from fibsem.structures import Parameter
+    from fibsem.structures.params import Parameter
 
     assert isinstance(Beam.current, Parameter)
     assert field_specs(Probe)["current"].unit == Beam.current.unit
@@ -127,7 +121,7 @@ def test_a_device_parameter_is_a_parameter():
 def test_a_device_declaring_a_plain_parameter_is_refused():
     """A plain Parameter on a device would bind nothing and read as absent."""
     from fibsem.devices.core import Device
-    from fibsem.structures import Parameter
+    from fibsem.structures.params import Parameter
 
     with pytest.raises(TypeError, match="DeviceParameter"):
 

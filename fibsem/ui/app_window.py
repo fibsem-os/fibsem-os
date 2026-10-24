@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings
+from fibsem.structures.system import MicroscopeSettings
 from fibsem.ui.agent.chip_host import AgentChipHost
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 from fibsem.ui.qt.connections import connect_on_gui_thread

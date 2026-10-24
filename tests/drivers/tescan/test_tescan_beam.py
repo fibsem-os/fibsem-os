@@ -27,7 +27,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan.devices import TescanBeam
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from tests.fixtures.demoted_messages import as_logged_now
 from tests.fixtures.tescan_sdk import connect
 

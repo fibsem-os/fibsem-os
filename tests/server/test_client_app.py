@@ -18,7 +18,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.client import FibsemClient, ServerError  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from tests.run_state import stub_session  # noqa: E402
 from tests.server.test_client import TOKEN, InProcess  # noqa: E402
 

@@ -38,7 +38,7 @@ from fibsem.applications.autolamella.ui.workflow.preflight import (
     grid_run_summary,
     run_ending,
 )
-from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
+from fibsem.structures.settings import BeamType, GridInventoryEntry, GridSlotState
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     ACCENT_COLOR,

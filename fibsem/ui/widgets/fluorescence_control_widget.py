@@ -30,7 +30,8 @@ from fibsem.fm.structures import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.session_state import session_state_for
-from fibsem.structures import DeviceImagingState, Point
+from fibsem.structures.settings import Point
+from fibsem.structures.system import DeviceImagingState
 from fibsem.ui import notification_service
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.fm.widgets import (

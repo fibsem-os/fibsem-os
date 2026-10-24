@@ -43,7 +43,7 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     mark_current_verdict,
 )
 from fibsem.config import MODE_COMPACT, MODE_COZY
-from fibsem.structures import GridInventoryEntry, GridSlotState
+from fibsem.structures.settings import GridInventoryEntry, GridSlotState
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     ACCENT_COLOR,

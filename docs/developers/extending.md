@@ -24,7 +24,7 @@ here.
 
 ```python
 from fibsem import utils, acquire
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
 
 microscope, settings = utils.setup_session(manufacturer="Demo")
 image = acquire.acquire_image(
@@ -146,7 +146,7 @@ example's tests check them:
    `pip install -e .` again after editing them. Changes to Python files need
    no reinstall.
 
-A field declares a `Parameter` (from `fibsem.structures`), the same shape a
+A field declares a `Parameter` (from `fibsem.structures.params`), the same shape a
 device parameter is: its SI `unit`, its `limits` in SI, its `choices`, a `doc`,
 and a `Display` for how a form shows it (label, scale, step, decimals). Declare
 the field as `width: float = param(10e-6, unit="m", doc=...)`; a misspelled key

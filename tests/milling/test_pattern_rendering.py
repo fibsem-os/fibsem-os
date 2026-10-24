@@ -25,12 +25,11 @@ from fibsem.milling.patterning.plotting import (  # noqa: E402
     _add_circle_mpl,
     bitmap_to_rgba,
 )
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemImage,
-    FibsemImageMetadata,
     ImageSettings,
     MicroscopeState,
     Point,

@@ -9,11 +9,11 @@ from fibsem import acquire, utils
 from fibsem.constants import TIME_FILE
 from fibsem.imaging.latest import LatestImages
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
-    FibsemImage,
     FibsemRectangle,
     ImageSettings,
 )

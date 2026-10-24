@@ -38,7 +38,8 @@ from fibsem.milling.tasks import (
     record_milling_skipped,
     run_milling_task,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle, ImageSettings
 from fibsem.util.timestamps import now, now_iso
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,

@@ -1,6 +1,6 @@
 """A microscope configuration as older versions wrote it, in the current shape.
 
-The file carries its ``version`` (`fibsem.structures.CONFIGURATION_VERSION`); a file with
+The file carries its ``version`` (`fibsem.structures.system.CONFIGURATION_VERSION`); a file with
 none was written before versioning. What changed, oldest first:
 
 - Before version 1 every block sat at the top level (``stage:``, ``electron:``,
@@ -30,10 +30,10 @@ import copy
 import logging
 from typing import Any, Dict, List
 
-from fibsem.structures import (
+from fibsem.structures.settings import BeamSettings
+from fibsem.structures.system import (
     CONFIGURATION_VERSION,
     CONFIGURED_DEVICES,
-    BeamSettings,
     DeviceEntry,
 )
 

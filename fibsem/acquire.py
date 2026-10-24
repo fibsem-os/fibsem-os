@@ -4,11 +4,8 @@ from typing import Optional
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.services.imaging import acquisition_record
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    ImageSettings,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings
 
 
 def acquire_image(microscope: FibsemMicroscope, settings: ImageSettings) -> FibsemImage:

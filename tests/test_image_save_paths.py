@@ -14,14 +14,8 @@ import os
 import numpy as np
 import pytest
 
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
-    ImageSettings,
-    MicroscopeState,
-    Point,
-)
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import BeamType, ImageSettings, MicroscopeState, Point
 
 
 def _image(path, filename: str = "an-image") -> FibsemImage:

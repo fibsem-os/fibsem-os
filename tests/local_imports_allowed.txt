@@ -43,7 +43,7 @@ fibsem/applications/volume/server.py 1
 fibsem/autofunctions/acb.py 4
 fibsem/autofunctions/autofocus.py 8
 fibsem/autofunctions/brightness_contrast.py 3
-fibsem/autofunctions/charge_neutralisation.py 2
+fibsem/autofunctions/charge_neutralisation.py 1
 fibsem/autofunctions/plotting.py 5
 fibsem/cli.py 12
 fibsem/client/pairing.py 1
@@ -65,7 +65,7 @@ fibsem/devices/core.py 1
 fibsem/devices/entries.py 4
 fibsem/drivers/autoscript/connection.py 2
 fibsem/drivers/autoscript/devices.py 17
-fibsem/drivers/autoscript/images.py 5
+fibsem/drivers/autoscript/images.py 3
 fibsem/drivers/autoscript/manipulator_calibration.py 3
 fibsem/drivers/autoscript/microscope.py 10
 fibsem/drivers/demo/devices.py 7
@@ -131,7 +131,10 @@ fibsem/services/imaging.py 14
 fibsem/services/milling.py 12
 fibsem/services/stage_movement.py 5
 fibsem/session_state.py 1
-fibsem/structures.py 25
+fibsem/structures/image.py 1
+fibsem/structures/params.py 2
+fibsem/structures/settings.py 7
+fibsem/structures/system.py 5
 fibsem/tools/desktop_launch.py 2
 fibsem/tools/hardware_check/__init__.py 1
 fibsem/ui/FibsemImageSettingsWidget.py 1

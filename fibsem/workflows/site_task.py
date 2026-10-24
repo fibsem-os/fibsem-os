@@ -28,16 +28,16 @@ from fibsem import config as fcfg
 from fibsem.acting import OPERATOR
 from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import param
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
-    InsertableDeviceState,
     ReferenceImageParameters,
-    param,
 )
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.util.timestamps import now, now_iso
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.item import SiteItem

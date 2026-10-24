@@ -14,7 +14,7 @@ from types import SimpleNamespace
 import pytest
 
 from fibsem.drivers.tescan.devices import TescanBeam
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 
 class FakeStatus(enum.IntEnum):

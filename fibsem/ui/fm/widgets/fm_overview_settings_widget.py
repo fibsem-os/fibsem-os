@@ -30,7 +30,7 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
-from fibsem.structures import DEFAULT_OVERVIEW_FILENAME, TileOrderStrategy
+from fibsem.structures.settings import DEFAULT_OVERVIEW_FILENAME, TileOrderStrategy
 from fibsem.theme.tokens import (
     TEXT_MUTED_COLOR,
 )

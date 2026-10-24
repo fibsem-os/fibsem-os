@@ -31,7 +31,8 @@ from fibsem.config import POSITION_FOV_HEIGHT, POSITION_FOV_WIDTH
 from fibsem.fm.preview import composite_projection
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.geometry.projection import image_stage_geometry
-from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.theme.tokens import (
     CURRENT_POSITION_COLOUR,
     GRID_BOUNDARY_COLOUR,

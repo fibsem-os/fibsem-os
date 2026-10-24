@@ -42,7 +42,8 @@ from collections import deque
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.structures import BeamType, InsertableDeviceState
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
 
 __all__ = [

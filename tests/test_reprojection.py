@@ -21,7 +21,7 @@ from fibsem.imaging.tiled import (
     calculate_reprojected_stage_position2,
     reproject_stage_positions_onto_image,
 )
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 
 
 @pytest.fixture()

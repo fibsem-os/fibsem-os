@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, Optional, Type, TypeVar
 
 from fibsem.codec import Tagged, decode, encode
-from fibsem.structures import Configurable, param
+from fibsem.structures.params import Configurable, param
 
 if TYPE_CHECKING:
     from fibsem.milling.monitors.base import MillingMonitor

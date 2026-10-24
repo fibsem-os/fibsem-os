@@ -30,7 +30,7 @@ from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.devices.fm import Objective
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition, MicroscopeState
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
 from fibsem.theme.tokens import (
     BORDER_COLOR,
     CANVAS_BG,

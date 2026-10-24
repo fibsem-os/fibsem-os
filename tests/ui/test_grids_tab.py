@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
 from fibsem.applications.autolamella.ui.grids.tab import GridsTabWidget
 from fibsem.services.sample_handling import bind_sample_handling
-from fibsem.structures import SampleGrid
+from fibsem.structures.settings import SampleGrid
 from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
 )

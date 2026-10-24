@@ -10,7 +10,7 @@ import json
 import pytest
 
 from fibsem import cli
-from fibsem.structures import RangeLimit
+from fibsem.structures.params import RangeLimit
 from fibsem.tools.hardware_check import (
     Level,
     Result,

@@ -28,10 +28,9 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E40
     MillRoughTaskConfig,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,

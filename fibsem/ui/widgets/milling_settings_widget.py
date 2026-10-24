@@ -11,7 +11,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.devices.core import ParameterMetadata
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemMillingSettings, Parameter
+from fibsem.structures.params import Parameter
+from fibsem.structures.settings import BeamType, FibsemMillingSettings
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import FormGrid, align_form
 from fibsem.ui.widgets.form_builder import AdvancedRows, Row, build_control

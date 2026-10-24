@@ -117,7 +117,7 @@ class TestItActuallyBehaves:
         """What the card sees. The status change is what triggers its read."""
         import numpy as np
 
-        from fibsem.structures import FibsemImage
+        from fibsem.structures.image import FibsemImage
 
         task._last_fib_image = FibsemImage(data=np.full((32, 32), 9, np.uint8))
         seen = []

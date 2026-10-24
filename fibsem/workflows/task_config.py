@@ -30,7 +30,7 @@ from psygnal import evented
 
 from fibsem.codec import Timestamp, decode, encode
 from fibsem.codec.upgrades import protocol as upgrade
-from fibsem.structures import Configurable, param
+from fibsem.structures.params import Configurable, param
 from fibsem.util.timestamps import now
 from fibsem.workflows.attention import Attention
 

@@ -17,7 +17,7 @@ from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategyConfig,
 )
 from fibsem.milling.strategy.standard import StandardMillingStrategy
-from fibsem.structures import MillingState
+from fibsem.structures.settings import MillingState
 from tests.fixtures.microscopes import demo_microscope
 
 microscope = demo_microscope(scope="function")

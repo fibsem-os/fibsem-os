@@ -38,12 +38,10 @@ from superqt import ensure_main_thread
 from fibsem import config as cfg
 from fibsem import conversions
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
+from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
+from fibsem.structures.system import (
     BEAM_ORIENTATIONS,
-    BeamType,
-    FibsemStagePosition,
     InsertableDeviceState,
-    Point,
     StageSystemSettings,
 )
 from fibsem.ui import notification_service

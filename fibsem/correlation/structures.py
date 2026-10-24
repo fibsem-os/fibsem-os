@@ -18,7 +18,8 @@ from fibsem.codec.upgrades.correlation import (
 )
 from fibsem.conversions import image_to_microscope_image_coordinates_px
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 from fibsem.util.timestamps import now, to_datetime
 
 

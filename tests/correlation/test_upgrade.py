@@ -41,7 +41,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
     load_correlation_file,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 from fibsem.util.timestamps import to_datetime
 
 PINS_PATH = os.path.join(

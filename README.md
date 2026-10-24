@@ -139,7 +139,7 @@ For more detailed examples, see the Examples section below.
 The microscope's beams, stage and other hardware are also available as devices, whose parameters describe their own units, limits and choices:
 
 ```python
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 sem = microscope.beams[BeamType.ELECTRON]   # or microscope.devices["electron"]
 sem.hfw.set_value(150e-6)

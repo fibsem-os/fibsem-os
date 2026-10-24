@@ -85,15 +85,15 @@ from fibsem.milling.strategy.coincidence import (
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.session_state import session_state_for
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
     CrossSectionPattern,
-    DeviceImagingState,
-    FibsemImage,
     FibsemRectangle,
     FibsemRectangleSettings,
     Point,
 )
+from fibsem.structures.system import DeviceImagingState
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     BORDER_COLOR,

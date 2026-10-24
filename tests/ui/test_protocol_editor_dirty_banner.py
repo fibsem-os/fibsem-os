@@ -32,7 +32,7 @@ from fibsem.applications.autolamella.ui.protocol.protocol_tab import (  # noqa: 
     AutoLamellaProtocolTaskConfigEditor,
     _task_tooltips,
 )
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from tests.fixtures.app_session import app_session  # noqa: E402
 
 

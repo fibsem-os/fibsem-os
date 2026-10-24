@@ -124,7 +124,7 @@ def test_a_simulated_probe_is_reported_as_the_instrument(microscope):
 
 
 def _fake_calibrated_slot(microscope):
-    from fibsem.structures import FibsemStagePosition, SlotCalibration
+    from fibsem.structures.settings import FibsemStagePosition, SlotCalibration
 
     holder = microscope.sample_handling.holder
     slot = holder.slots["Slot-01"]
@@ -251,7 +251,7 @@ def test_an_empty_session_has_nothing_in_each_section():
 
 
 def test_the_calibration_tab_shows_the_grid_in_each_slot(qapp, microscope):
-    from fibsem.structures import SampleGrid
+    from fibsem.structures.settings import SampleGrid
 
     microscope.sample_handling.assign_grid("Slot-01", SampleGrid(name="grid-ash"))
 
@@ -263,7 +263,7 @@ def test_the_calibration_tab_shows_the_grid_in_each_slot(qapp, microscope):
 def test_the_session_tab_shows_this_configuration_s_file(qapp, microscope):
     from fibsem.saved_positions import save_saved_positions
     from fibsem.session_state import session_state_for
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     save_saved_positions(
         [FibsemStagePosition(name="cryo")], session_state_for(microscope, writable=True)

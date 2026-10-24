@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import QAction, QDialog, QMainWindow, QMessageBox
 
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.ui.coincidence.menu import CoincidenceMenu
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.tools.apps import AUTOLAMELLA, App, apps
 from fibsem.ui.icon import fibsem_icon

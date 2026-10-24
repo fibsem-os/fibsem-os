@@ -55,7 +55,7 @@ from fibsem.correlation.structures import (
     PointStatus,
     PointXYZ,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 __all__ = [
     "MAX_PRIOR_ANGLE_DEG",

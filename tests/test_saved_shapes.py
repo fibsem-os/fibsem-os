@@ -22,7 +22,6 @@ import numpy as np
 import pytest
 import yaml
 
-from fibsem import structures
 from fibsem.autofunctions.autofocus import (
     AutoFocusSettings,
     FocusMethod,
@@ -42,22 +41,19 @@ from fibsem.fm.structures import (
     ZParameters,
     ZStackOrder,
 )
-from fibsem.structures import (
+from fibsem.structures import system as structures
+from fibsem.structures.image import FibsemImageMetadata
+from fibsem.structures.settings import (
     AutoFocusMode,
     BeamSettings,
     BeamType,
-    CameraImageTransform,
     FibsemDetectorSettings,
-    FibsemImageMetadata,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
-    FibsemUser,
     FocusStackSettings,
     GridSlot,
     ImageSettings,
-    ManipulatorSystemSettings,
-    MicroscopeSettings,
     MicroscopeState,
     MillingAlignment,
     OverviewAcquisitionSettings,
@@ -65,10 +61,16 @@ from fibsem.structures import (
     ReferenceImageParameters,
     SampleGrid,
     SampleHolder,
-    SessionInfo,
     SlotCalibration,
-    SystemInfo,
     TileOrderStrategy,
+)
+from fibsem.structures.system import (
+    CameraImageTransform,
+    FibsemUser,
+    ManipulatorSystemSettings,
+    MicroscopeSettings,
+    SessionInfo,
+    SystemInfo,
 )
 
 TESTS = Path(__file__).parent
@@ -549,7 +551,7 @@ def _stage(**overrides):
     from fibsem.milling.monitors.fm_intensity import FmIntensityConfig
     from fibsem.milling.monitors.sem_peek import SemPeekConfig
     from fibsem.milling.patterning import get_pattern
-    from fibsem.structures import FibsemMillingSettings
+    from fibsem.structures.settings import FibsemMillingSettings
 
     fields = dict(
         name="Rough Mill",

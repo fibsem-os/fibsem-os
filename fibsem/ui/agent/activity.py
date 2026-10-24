@@ -31,7 +31,7 @@ from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
 from fibsem.ai.agent.now import AgentNow
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.theme.tokens import PURPLE_COLOR
 
 if TYPE_CHECKING:

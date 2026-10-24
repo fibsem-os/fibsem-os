@@ -14,7 +14,7 @@ from datetime import datetime
 
 import pytest
 
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows import event_recording
 from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
@@ -588,7 +588,7 @@ def _of_kind(records, kind):
 
 def test_an_acquisition_records_the_file_it_was_saved_to(tmp_path, microscope):
     from fibsem import acquire
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     settings = ImageSettings(
         beam_type=BeamType.ION, filename="ref_test", path=str(tmp_path), save=True
@@ -615,7 +615,7 @@ def test_a_failing_subscriber_costs_the_record_not_the_acquisition(
     tmp_path, microscope
 ):
     from fibsem import acquire
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     def broken(kind, payload):
         raise RuntimeError("a broken subscriber")
@@ -735,7 +735,7 @@ def test_a_spot_burn_records_its_points_and_field_of_view(
     tmp_path, microscope, monkeypatch
 ):
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.structures import BeamType, Point
+    from fibsem.structures.settings import BeamType, Point
 
     monkeypatch.setattr(time, "sleep", lambda *_: None)  # the exposure countdown
     field_of_view = microscope.get_field_of_view(BeamType.ION)
@@ -808,7 +808,7 @@ def test_an_image_taken_as_the_beam_is_set_records_the_exact_file(tmp_path, micr
     """Saved at the name given -- no `_ib` suffix -- as the coincidence strategy's
     before and after images always were."""
     from fibsem import acquire
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     target = tmp_path / "pre-milling-fib-image.tif"
     recorder = EventRecorder(microscope, experiment_path=tmp_path)

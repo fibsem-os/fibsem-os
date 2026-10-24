@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     # `fibsem.fm.structures` in the path of every one of them for a name that is
     # never called.
     from fibsem.fm.structures import FluorescenceImage
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 # The beam tiler: SEM or FIB, since no consumer distinguishes them -- both draw into the
 # same overview.

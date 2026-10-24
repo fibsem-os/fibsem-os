@@ -22,7 +22,8 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle, Point
 from fibsem.ui.widgets.canvas.canvas_state import MaskSpec, MillingSpec, PointsSpec
 from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
 from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay

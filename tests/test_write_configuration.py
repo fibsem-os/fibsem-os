@@ -13,7 +13,7 @@ import yaml
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.codec.upgrades.configuration import upgrade
-from fibsem.structures import MicroscopeSettings
+from fibsem.structures.system import MicroscopeSettings
 
 SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 

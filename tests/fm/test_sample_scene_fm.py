@@ -14,7 +14,7 @@ from fibsem import utils
 from fibsem.drivers.demo.sim_scene import SampleScene, fm_channel_weights
 from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
 from fibsem.geometry.projection import FMStageProjection
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 REFLECTION = ChannelSettings(
     name="reflection",

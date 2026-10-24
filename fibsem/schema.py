@@ -1,7 +1,7 @@
 """JSON schemas from what a value declares: its type and its ``Parameter``.
 
 One description serves the forms and the agent. A dataclass field's ``Parameter``
-(``fibsem.structures.field_specs``, a class's ``.params``) and a device parameter carry the same SI unit,
+(``fibsem.structures.params.field_specs``, a class's ``.params``) and a device parameter carry the same SI unit,
 SI limits, choices, doc and ``Display``; this module writes them as JSON Schema, so a
 client with no copy of the classes (an agent) knows what a command's arguments are.
 
@@ -25,7 +25,7 @@ from typing import Any, Callable, Dict
 from pydantic import PydanticSchemaGenerationError, TypeAdapter
 from pydantic.json_schema import GenerateJsonSchema
 
-from fibsem.structures import Parameter, RangeLimit, display_to_dict, field_specs
+from fibsem.structures.params import Parameter, RangeLimit, display_to_dict, field_specs
 
 Schema = Dict[str, Any]
 

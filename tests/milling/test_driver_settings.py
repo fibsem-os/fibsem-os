@@ -9,7 +9,7 @@ import pytest
 
 from fibsem.codec import decode
 from fibsem.drivers.tescan.settings import TescanMillingSettings
-from fibsem.structures import FibsemMillingSettings
+from fibsem.structures.settings import FibsemMillingSettings
 
 
 def test_a_known_driver_always_has_its_block():

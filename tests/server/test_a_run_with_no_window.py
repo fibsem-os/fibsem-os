@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.server.context import (  # noqa: E402
 )
 from fibsem.server import AuthConfig  # noqa: E402
 from fibsem.server.hosting import AppServerHost  # noqa: E402
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.structures.settings import BeamType  # noqa: E402
 from fibsem.workflows.attention import Attention  # noqa: E402
 from fibsem.workflows.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402

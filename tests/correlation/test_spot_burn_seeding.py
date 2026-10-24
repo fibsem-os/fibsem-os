@@ -17,7 +17,8 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.correlation.structures import PointType
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 
 
 def _widget():

@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 from fibsem import utils
-from fibsem.structures import FibsemBitmapSettings, FibsemMillingSettings
+from fibsem.structures.settings import FibsemBitmapSettings, FibsemMillingSettings
 
 # from fibsem.ui import windows
 

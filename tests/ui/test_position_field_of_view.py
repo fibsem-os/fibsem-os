@@ -37,9 +37,9 @@ from matplotlib.text import Annotation  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
-    FibsemImage,
     FibsemStagePosition,
     ImageSettings,
 )

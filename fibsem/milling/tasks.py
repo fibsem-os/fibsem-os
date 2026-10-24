@@ -32,17 +32,14 @@ from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.milling.steps import MillingStageRun
 from fibsem.services.milling import report_progress, stage_running
 from fibsem.services.milling import task_running as _task_running
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import Configurable, Display, distance_param, param
+from fibsem.structures.settings import (
     BeamType,
-    Configurable,
-    Display,
-    FibsemImage,
     FibsemRectangle,
     ImageSettings,
     MillingAlignment,
     Point,
-    distance_param,
-    param,
 )
 from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp

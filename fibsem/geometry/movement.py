@@ -25,7 +25,8 @@ from typing import Optional, Tuple
 import numpy as np
 
 from fibsem.geometry.frames import StageModel, image_y_shift, in_plane_move, views_back
-from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
+from fibsem.structures.system import FibsemHardwareGeometry
 
 # ── the view projection, without a microscope ────────────────────────────────
 #

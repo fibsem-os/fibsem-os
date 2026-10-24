@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
 from fibsem import utils
 from fibsem.milling.base import FibsemMillingStage, get_strategy
 from fibsem.milling.patterning import get_pattern
-from fibsem.structures import FibsemMillingSettings
+from fibsem.structures.settings import FibsemMillingSettings
 from fibsem.ui.widgets.milling_stages_widget import FibsemMillingStagesWidget
 
 

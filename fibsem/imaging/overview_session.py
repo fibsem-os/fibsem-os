@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Iterable, List, Optional, Set
 
 from psygnal import Signal
 
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.microscope import FibsemMicroscope

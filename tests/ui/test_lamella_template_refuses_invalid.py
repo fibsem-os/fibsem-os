@@ -23,7 +23,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.applications.autolamella.ui.protocol import (
     protocol_tab as editor_module,  # noqa: E402
 )
-from fibsem.structures import FibsemRectangle, MicroscopeState  # noqa: E402
+from fibsem.structures.settings import FibsemRectangle, MicroscopeState  # noqa: E402
 from tests.fixtures.app_session import app_session  # noqa: E402
 
 _OUTSIDE = FibsemRectangle(left=0.8, top=0.0, width=0.5, height=0.5)

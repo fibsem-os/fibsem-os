@@ -252,7 +252,7 @@ def test_a_click_between_the_poses_follows_the_shuttles_lean():
     """A quarter turn from the reference, the pre-tilt leans along x, so a click in
     the SEM slides the stage in y alone. The pre-tilt sign buckets gave a slide
     tilted by the full pre-tilt here, as if at the reference rotation."""
-    from fibsem.structures import FibsemHardwareGeometry
+    from fibsem.structures.system import FibsemHardwareGeometry
 
     geometry = FibsemHardwareGeometry(
         column_tilt=0, fib_column_tilt=52, shuttle_pre_tilt=35.0, rotation_reference=0

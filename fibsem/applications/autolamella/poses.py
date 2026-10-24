@@ -29,12 +29,8 @@ from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
 
-from fibsem.structures import (
-    DeviceImagingState,
-    FibsemStagePosition,
-    InsertableDeviceState,
-    MicroscopeState,
-)
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
+from fibsem.structures.system import DeviceImagingState, InsertableDeviceState
 from fibsem.workflows.proposals import ItemPoses
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only

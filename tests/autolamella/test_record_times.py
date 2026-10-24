@@ -12,7 +12,8 @@ import yaml
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.config import ExperimentSummary, peek_experiment
 from fibsem.correlation.structures import CorrelationResult
-from fibsem.structures import FibsemExperimentRef, SessionInfo, SlotCalibration
+from fibsem.structures.settings import SlotCalibration
+from fibsem.structures.system import FibsemExperimentRef, SessionInfo
 from fibsem.util.timestamps import format_time
 from fibsem.workflows.experiments import (
     created_order,

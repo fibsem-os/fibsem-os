@@ -22,7 +22,8 @@ from fibsem.milling.properties import (
     passes_param,
     scan_direction_param,
 )
-from fibsem.structures import Display, FibsemBitmapSettings, param
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import FibsemBitmapSettings
 
 
 @dataclass

@@ -13,7 +13,8 @@ import pytest
 from fibsem import utils
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.drivers.autoscript.devices import AutoscriptBeam
-from fibsem.structures import BeamType, Point, RangeLimit
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import BeamType, Point
 
 NAMES = ("source_tilt", "lens_alignment")
 

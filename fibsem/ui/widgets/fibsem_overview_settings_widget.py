@@ -32,14 +32,14 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.structures import (
+from fibsem.structures.params import Parameter
+from fibsem.structures.settings import (
     AutoContrastMode,
     AutoFocusMode,
     BeamType,
     FocusStackSettings,
     ImageSettings,
     OverviewAcquisitionSettings,
-    Parameter,
     Resolution,
     TileOrderStrategy,
 )

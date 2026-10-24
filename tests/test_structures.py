@@ -3,12 +3,10 @@ import os
 
 import pytest
 
-from fibsem.drivers.autoscript.microscope import THERMO_API_AVAILABLE
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     AutoFocusMode,
-    FibsemImage,
     FibsemRectangle,
-    FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
     OverviewAcquisitionSettings,
@@ -158,7 +156,7 @@ def test_there_is_only_one_autofocus_settings_now():
     name, so `NONE is NONE` was False across the two import paths with no type error to
     catch it -- so this asserts the duplicate stayed dead (FIB-646).
     """
-    import fibsem.structures as structures
+    import fibsem.structures.settings as structures
     from fibsem.autofunctions.autofocus import AutoFocusSettings as Canonical
 
     assert not hasattr(structures, "AutoFocusSettings")
@@ -187,7 +185,7 @@ def test_overview_acquisition_settings_defaults():
 
 
 def test_overview_acquisition_settings_round_trip():
-    from fibsem.structures import FocusStackSettings
+    from fibsem.structures.settings import FocusStackSettings
 
     for mode in AutoFocusMode:
         s = OverviewAcquisitionSettings(
@@ -451,73 +449,6 @@ def test_overview_scan_time_counts_the_tiles_it_will_acquire():
     assert sparse.scan_time == pytest.approx(image.scan_time * 3)
 
 
-if THERMO_API_AVAILABLE:
-    from fibsem.structures import CompustagePosition, CoordinateSystem, StagePosition
-
-    def test_to_autoscript_position():
-
-        stage_position = FibsemStagePosition(
-            x=1, y=2, z=3, r=4, t=5, coordinate_system="RAW"
-        )
-
-        # test conversion to StagePosition
-        autoscript_stage_position = stage_position.to_autoscript_position()
-
-        assert autoscript_stage_position.x == stage_position.x
-        assert autoscript_stage_position.y == stage_position.y
-        assert autoscript_stage_position.z == stage_position.z
-        assert autoscript_stage_position.r == stage_position.r
-        assert autoscript_stage_position.t == stage_position.t
-        assert autoscript_stage_position.coordinate_system == CoordinateSystem.RAW
-
-        # test convesion to CompuStagePosition
-        autoscript_compustage_position = stage_position.to_autoscript_position(
-            compustage=True
-        )
-
-        assert autoscript_compustage_position.x == stage_position.x
-        assert autoscript_compustage_position.y == stage_position.y
-        assert autoscript_compustage_position.z == stage_position.z
-        assert autoscript_compustage_position.a == stage_position.t
-        assert (
-            autoscript_compustage_position.coordinate_system
-            == CoordinateSystem.SPECIMEN
-        )
-
-    def test_from_autoscript_position():
-
-        autoscript_stage_position = StagePosition(
-            x=1, y=2, z=3, r=4, t=5, coordinate_system=CoordinateSystem.RAW
-        )
-        autoscript_compustage_position = CompustagePosition(
-            x=1, y=2, z=3, a=5, coordinate_system=CoordinateSystem.RAW
-        )
-
-        # test conversion from StagePosition
-        stage_position = FibsemStagePosition.from_autoscript_position(
-            autoscript_stage_position
-        )
-
-        assert stage_position.x == autoscript_stage_position.x
-        assert stage_position.y == autoscript_stage_position.y
-        assert stage_position.z == autoscript_stage_position.z
-        assert stage_position.r == autoscript_stage_position.r
-        assert stage_position.t == autoscript_stage_position.t
-        assert stage_position.coordinate_system == "RAW"
-
-        # test conversion from CompuStagePosition
-        stage_position = FibsemStagePosition.from_autoscript_position(
-            autoscript_compustage_position
-        )
-
-        assert stage_position.x == autoscript_compustage_position.x
-        assert stage_position.y == autoscript_compustage_position.y
-        assert stage_position.z == autoscript_compustage_position.z
-        assert stage_position.r == 0
-        assert stage_position.t == autoscript_compustage_position.a
-        assert stage_position.coordinate_system == "SPECIMEN"
-
-
 # ── ImageSettings.estimated_time ─────────────────────────────────────────────
 
 
@@ -650,7 +581,7 @@ def test_only_system_info_carries_the_software_versions():
     """SystemInfo owns what software is running; the experiment reference carries
     identity only. They both did until FIB-448, with no rule about which won if
     they disagreed -- and they could, being built at different moments."""
-    from fibsem.structures import FibsemExperimentRef, SystemInfo
+    from fibsem.structures.system import FibsemExperimentRef, SystemInfo
 
     ref = FibsemExperimentRef().to_dict()
     info = SystemInfo.from_dict({}).to_dict()
@@ -680,7 +611,7 @@ def test_only_system_info_carries_the_software_versions():
 
 def test_metadata_from_dict_accepts_pre_change_files():
     """Saved data written before fibsem_revision existed must still load."""
-    from fibsem.structures import FibsemExperimentRef, SystemInfo
+    from fibsem.structures.system import FibsemExperimentRef, SystemInfo
 
     legacy_experiment = {
         "id": "exp-1",
@@ -712,7 +643,7 @@ def test_metadata_from_dict_accepts_pre_change_files():
 
 
 def test_metadata_round_trips_fibsem_revision():
-    from fibsem.structures import SystemInfo
+    from fibsem.structures.system import SystemInfo
 
     info = SystemInfo.from_dict({"fibsem_revision": "v0.5.1-48-g4cd11d9c"})
     assert info.fibsem_revision == "v0.5.1-48-g4cd11d9c"
@@ -726,7 +657,7 @@ def test_experiment_date_is_creation_time_not_import_time(monkeypatch):
     the state-stamp test below: Windows' clock ticks about every 15 ms.
     """
     import fibsem.util.timestamps as timestamps
-    from fibsem.structures import FibsemExperimentRef
+    from fibsem.structures.system import FibsemExperimentRef
 
     # real times: Windows' C time functions refuse ones near 1970
     ticks = iter([1789355531.0, 1789355591.0])
@@ -750,8 +681,8 @@ def test_a_microscope_state_is_stamped_when_built_not_at_import(monkeypatch):
     reads: Windows' clock ticks about every 15 ms, so two reads 10 ms apart can
     return the same time.
     """
-    import fibsem.structures as structures
-    from fibsem.structures import MicroscopeState
+    import fibsem.structures.settings as structures
+    from fibsem.structures.settings import MicroscopeState
 
     # real times: Windows' C time functions refuse ones near 1970
     ticks = iter([1789355531.0, 1789355591.0])
@@ -768,7 +699,7 @@ def test_a_microscope_state_is_stamped_when_built_not_at_import(monkeypatch):
 
 
 def test_a_chamber_state_reads_any_vendor_name():
-    from fibsem.structures import ChamberState
+    from fibsem.structures.system import ChamberState
 
     assert ChamberState.from_name("Pumped") is ChamberState.PUMPED
     assert ChamberState.from_name("VENTED") is ChamberState.VENTED
@@ -781,7 +712,7 @@ def test_geometry_holds_plain_numbers_not_numpy_scalars():
     represent (FIB-1326). A float stays a float, an integer an int."""
     import numpy as np
 
-    from fibsem.structures import (
+    from fibsem.structures.settings import (
         FibsemManipulatorPosition,
         FibsemRectangle,
         FibsemStagePosition,

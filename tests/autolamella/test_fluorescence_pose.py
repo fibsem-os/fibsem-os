@@ -24,7 +24,7 @@ from fibsem.applications.autolamella.workflows.tasks.mill_coincident import (
 )
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition, MicroscopeState
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
 from tests.autolamella._on_the_record import manager_for
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(

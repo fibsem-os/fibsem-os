@@ -20,7 +20,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.codec import decode  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 from tests.run_state import stub_session  # noqa: E402

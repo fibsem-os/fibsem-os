@@ -23,7 +23,7 @@ from fibsem.milling.base import FibsemMillingStage, get_strategy_config
 from fibsem.milling.patterning import get_pattern, get_pattern_names
 from fibsem.milling.patterning.shapes import COLOURS
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.structures import Parameter
+from fibsem.structures.params import Parameter
 from fibsem.theme.tokens import (
     CANVAS_BG,
     NEUTRAL_700,

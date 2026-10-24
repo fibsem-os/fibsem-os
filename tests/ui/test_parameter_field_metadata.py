@@ -14,7 +14,8 @@ from PyQt5.QtWidgets import QApplication, QDoubleSpinBox
 
 from fibsem.constants import DEGREE_SYMBOL
 from fibsem.devices.beam import Beam
-from fibsem.structures import BeamType, ImageSettings, RangeLimit
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import BeamType, ImageSettings
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 from fibsem.ui.widgets.custom_widgets import ValueSpinBox, unit_suffix
 from fibsem.ui.widgets.detector_settings_widget import FibsemDetectorSettingsWidget

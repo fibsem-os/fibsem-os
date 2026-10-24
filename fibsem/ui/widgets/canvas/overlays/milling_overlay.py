@@ -37,10 +37,10 @@ from fibsem.milling.patterning.shapes import (
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemImage,
     FibsemLineSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,

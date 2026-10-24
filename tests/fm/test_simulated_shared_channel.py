@@ -20,7 +20,7 @@ import threading
 import pytest
 
 from fibsem.drivers.demo.simulator import FM_ACTIVE_DEVICE, FM_ACTIVE_VIEW
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
 from tests.fixtures.microscopes import demo_microscope
 
 STOLEN = "Imaging channel changed"

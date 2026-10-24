@@ -18,7 +18,7 @@ import pytest
 import yaml
 
 from fibsem import utils
-from fibsem.structures import CONFIGURATION_VERSION
+from fibsem.structures.system import CONFIGURATION_VERSION
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "configuration_v0")
 

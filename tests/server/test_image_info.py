@@ -14,7 +14,8 @@ from fibsem.fm.structures import (
 from fibsem.imaging.export import BAR_DEFAULT_FIELDS, bar_selection, image_fields
 from fibsem.server import files
 from fibsem.server.image_payloads import fields_info, image_info
-from fibsem.structures import BeamType, FibsemImage, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings
 
 
 @pytest.fixture(scope="module")

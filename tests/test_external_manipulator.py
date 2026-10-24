@@ -18,11 +18,8 @@ from fibsem.devices.core import UNLIMITED, ParameterMetadata
 from fibsem.devices.manipulator import Manipulator
 from fibsem.drivers import registry
 from fibsem.drivers.registry import DeviceBuilder, DriverEntry, register_driver
-from fibsem.structures import (
-    DeviceEntry,
-    FibsemManipulatorPosition,
-    InsertableDeviceState,
-)
+from fibsem.structures.settings import FibsemManipulatorPosition
+from fibsem.structures.system import DeviceEntry, InsertableDeviceState
 from tests.fixtures.tescan_sdk import connect
 
 DRIVER = "acme-needles"

@@ -12,7 +12,8 @@ import sys
 
 from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 
-from fibsem.structures import FibsemImage, FibsemRectangle
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemRectangle
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay

@@ -77,7 +77,7 @@ def test_appends_from_many_threads_never_lose_or_duplicate_a_seq():
 
 
 def test_microscope_taps_capture_real_emissions(microscope):
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     buffer = EventBuffer()
     disposers = attach_microscope_taps(buffer, microscope)
@@ -86,7 +86,7 @@ def test_microscope_taps_capture_real_emissions(microscope):
         # acquisition alone is never shown, so it never reaches the stream here.
         image = microscope.acquire_image(beam_type=BeamType.ION)
         microscope.imaging.show(image)
-        from fibsem.structures import FibsemStagePosition
+        from fibsem.structures.settings import FibsemStagePosition
 
         microscope.move_stage_relative(
             FibsemStagePosition(
@@ -110,7 +110,7 @@ def test_microscope_taps_capture_real_emissions(microscope):
 
 
 def test_disposers_detach_the_taps(microscope):
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     buffer = EventBuffer()
     for dispose in attach_microscope_taps(buffer, microscope):
@@ -243,7 +243,7 @@ def test_to_plain_handles_the_awkward_types():
 def test_an_acquisition_alone_never_reaches_the_stream(microscope):
     """Only images someone shows are recorded as sem/fib_acquisition: an
     alignment or reduced-area acquisition stays out, as it stays out of the views."""
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     buffer = EventBuffer()
     disposers = attach_microscope_taps(buffer, microscope)

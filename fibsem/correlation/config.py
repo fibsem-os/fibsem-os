@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Literal, Optional
 
 from fibsem.codec import decode, encode
-from fibsem.structures import Configurable, Display, RangeLimit, param
+from fibsem.structures.params import Configurable, Display, RangeLimit, param
 
 # Plain strings so this module never imports the UI; the method combos list these.
 FIT_METHODS = ("None", "Hole", "Gaussian")

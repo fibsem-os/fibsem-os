@@ -28,7 +28,12 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.structures import FibsemStagePosition, GridSlot, SampleGrid, SampleHolder
+from fibsem.structures.settings import (
+    FibsemStagePosition,
+    GridSlot,
+    SampleGrid,
+    SampleHolder,
+)
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     NEUTRAL_700,

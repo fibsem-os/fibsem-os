@@ -19,7 +19,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 if TYPE_CHECKING:
-    from fibsem.structures import Parameter
+    from fibsem.structures.params import Parameter
 
 # GET a route's JSON (the document an edit patches), or a query's answer with
 # its kwargs (the second argument); None for neither.
@@ -179,7 +179,7 @@ def describe_field(root: Any, path: str) -> Tuple[str, Optional["Parameter"], An
     ("Rough Mill 01 · trench depth"), the field as its form reads it (None for
     none), and the value now. A path that doesn't resolve reads as itself."""
     from fibsem.milling.base import FibsemMillingStage
-    from fibsem.structures import field_specs
+    from fibsem.structures.params import field_specs
 
     node, parent, stage = root, None, None
     parts = str(path).split(".")

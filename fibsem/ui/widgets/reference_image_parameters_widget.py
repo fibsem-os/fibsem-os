@@ -11,7 +11,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.constants import SI_TO_MICRO
-from fibsem.structures import ReferenceImageParameters
+from fibsem.structures.settings import ReferenceImageParameters
 from fibsem.theme import tokens
 from fibsem.theme.tokens import SEMANTIC_WARNING_COLOR
 from fibsem.ui.widgets.custom_widgets import (

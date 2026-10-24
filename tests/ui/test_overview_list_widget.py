@@ -3,6 +3,7 @@
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_overview_list_widget.py
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -117,7 +118,7 @@ def test_toggling_the_eye_reports_which_overview_and_which_way():
     seen = []
     widget.visibility_toggled.connect(lambda rid, vis: seen.append((rid, vis)))
 
-    row.btn_visible.setChecked(True)   # checked means hidden
+    row.btn_visible.setChecked(True)  # checked means hidden
     row.btn_visible.setChecked(False)
 
     assert seen == [("overview-1", False), ("overview-1", True)]

@@ -36,7 +36,8 @@ from PyQt5.QtWidgets import (
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.theme.tokens import (
     BORDER_COLOR,
     CANVAS_BG,

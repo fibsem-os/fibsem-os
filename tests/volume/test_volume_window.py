@@ -118,7 +118,7 @@ def position_view(window, qapp):
     """The Positions tab's Position view on a position with a saved FIB image
     of its face, taken at its milling pose."""
     from fibsem import acquire
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     from .conftest import set_up_position
 
@@ -145,7 +145,7 @@ def test_the_position_view_shows_a_saved_fib_image_not_the_alignment_one(
 
 
 def test_the_position_view_edits_through_the_experiment(window, position_view, toasts):
-    from fibsem.structures import BeamType, FibsemRectangle, Point
+    from fibsem.structures.settings import BeamType, FibsemRectangle, Point
 
     editor = position_view
     experiment = editor.experiment
@@ -244,7 +244,7 @@ def test_the_position_view_draws_the_milling_where_it_mills(position_view):
 
 
 def test_the_position_view_says_the_experiments_refusals(position_view, toasts):
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     editor = position_view
     position = editor.position

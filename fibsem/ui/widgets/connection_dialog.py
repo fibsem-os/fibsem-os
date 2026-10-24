@@ -33,7 +33,7 @@ from PyQt5.QtWidgets import (
 from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings
+from fibsem.structures.system import MicroscopeSettings
 from fibsem.theme.tokens import (
     BORDER_COLOR,
     ERROR_COLOR,

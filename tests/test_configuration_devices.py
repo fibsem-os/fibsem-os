@@ -15,7 +15,7 @@ import yaml
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.codec.upgrades.configuration import upgrade
-from fibsem.structures import (
+from fibsem.structures.system import (
     CONFIGURATION_VERSION,
     DEFAULT_STAGE_DEVICES,
     DeviceEntry,
@@ -426,7 +426,7 @@ def test_an_empty_orientation_list_is_an_error():
 
 
 def test_the_fm_entry_states_how_its_camera_is_mounted():
-    from fibsem.structures import CameraImageTransform
+    from fibsem.structures.system import CameraImageTransform
 
     config = {"hardware": {"devices": [{"name": "fm", "mount_transform": "flip-x"}]}}
 
@@ -439,7 +439,7 @@ def test_the_fm_entry_states_how_its_camera_is_mounted():
 
 
 def test_an_fm_entry_that_does_not_say_is_mounted_straight_and_saved_unchanged():
-    from fibsem.structures import CameraImageTransform
+    from fibsem.structures.system import CameraImageTransform
 
     system = MicroscopeSettings.from_dict(upgrade(_version_1())).system
 
@@ -457,7 +457,7 @@ def test_an_unknown_mount_says_where_it_is_and_what_it_could_be():
 def test_the_demo_microscope_hands_the_fm_entry_to_its_fm(tmp_path):
     """The configuration's fm entry reaches the FM's devices as the binder's config,
     so the images come out the way round the mount says."""
-    from fibsem.structures import CameraImageTransform
+    from fibsem.structures.system import CameraImageTransform
 
     config = utils.load_yaml(
         os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")

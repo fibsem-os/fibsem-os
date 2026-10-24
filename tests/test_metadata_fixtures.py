@@ -16,7 +16,8 @@ from typing import Any, Dict
 import pytest
 
 from fibsem.codec.upgrades.image_metadata import legacy_geometry
-from fibsem.structures import FibsemHardwareGeometry, FibsemImageMetadata
+from fibsem.structures.image import FibsemImageMetadata
+from fibsem.structures.system import FibsemHardwareGeometry
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "metadata")
 
@@ -139,7 +140,7 @@ def test_experiment_reference_spans_three_eras() -> None:
     assert "application_version" in v3
     assert "method" in v3
 
-    from fibsem.structures import FibsemExperimentRef
+    from fibsem.structures.system import FibsemExperimentRef
 
     assert FibsemExperimentRef.from_dict(v3).name is None
     assert FibsemExperimentRef.from_dict(v3).id == "test-experiment"
@@ -198,7 +199,7 @@ def test_a_partial_legacy_blob_recovers_the_same_geometry_either_way(
     routes, every block, same answer.
     """
     from fibsem.codec.upgrades.configuration import upgrade
-    from fibsem.structures import SystemSettings
+    from fibsem.structures.system import SystemSettings
 
     full = load("thermo_aquilos_v3.json")["system"]
     partial = {k: v for k, v in full.items() if k != missing}
@@ -221,7 +222,7 @@ def test_an_absent_ion_block_does_not_flatten_the_fib_column() -> None:
     reprojection turns on, so a default of 0 is not a conservative fallback, it is a
     wrong instrument.
     """
-    from fibsem.structures import DEFAULT_FIB_COLUMN_TILT, SystemSettings
+    from fibsem.structures.system import DEFAULT_FIB_COLUMN_TILT, SystemSettings
 
     assert SystemSettings.from_dict({}).ion.column_tilt == DEFAULT_FIB_COLUMN_TILT
     assert SystemSettings.from_dict({}).electron.column_tilt == 0.0
@@ -236,7 +237,7 @@ def test_an_acquired_image_snapshots_the_instrument_rather_than_aliasing_it() ->
     helper sets are snapshots.
     """
     from fibsem import utils
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     image = microscope.acquire_image(beam_type=BeamType.ELECTRON)

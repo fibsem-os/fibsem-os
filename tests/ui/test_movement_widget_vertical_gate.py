@@ -25,7 +25,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from fibsem.ui.widgets.stage_control_widget import StageControlWidget
 
 

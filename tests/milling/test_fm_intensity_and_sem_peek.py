@@ -16,7 +16,7 @@ from fibsem.milling.monitors.fm_intensity import FmIntensityConfig
 from fibsem.milling.monitors.intensity import IntensityDropRule
 from fibsem.milling.monitors.sem_peek import SemPeekConfig
 from fibsem.milling.patterning.patterns import RectanglePattern
-from fibsem.structures import FibsemRectangle
+from fibsem.structures.settings import FibsemRectangle
 from tests.test_milling_run import (  # noqa: F401
     RUNNING,
     Scripted,

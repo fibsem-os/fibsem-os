@@ -6,7 +6,7 @@ Every device a microscope builds is in ``microscope.devices``, by name (``electr
 emit ``changed``; its commands are plain methods it lists in ``commands``:
 
     from fibsem import utils
-    from fibsem.structures import BeamType, FibsemStagePosition
+    from fibsem.structures.settings import BeamType, FibsemStagePosition
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     sem = microscope.beams[BeamType.ELECTRON]     # microscope.devices["electron"]
@@ -56,7 +56,7 @@ from fibsem.devices.stage import (
     Stage,
     StageLimitError,
 )
-from fibsem.structures import Display
+from fibsem.structures.params import Display
 
 __all__ = [
     "AXIS_UNITS",

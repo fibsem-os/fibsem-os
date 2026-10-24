@@ -34,7 +34,7 @@ from PyQt5.QtCore import QObject, pyqtSignal  # noqa: E402
 from PyQt5.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 from fibsem.ui.widgets import overview_base  # noqa: E402
 from fibsem.ui.widgets import overview_widget as beam_module  # noqa: E402
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget  # noqa: E402

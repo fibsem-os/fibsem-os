@@ -36,7 +36,11 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.imaging.export import DETECTOR_MODE_ABBREVIATIONS
-from fibsem.structures import BeamSettings, FibsemDetectorSettings, MicroscopeState
+from fibsem.structures.settings import (
+    BeamSettings,
+    FibsemDetectorSettings,
+    MicroscopeState,
+)
 from fibsem.theme.tokens import (
     CURRENT_POSITION_COLOUR,
     SAVED_POSITION_COLOUR,

@@ -105,7 +105,7 @@ def test_lifecycle_events_reach_the_agent_through_the_hook(host, microscope):
 def test_microscope_taps_are_live_and_detach_on_stop(host, microscope):
     host.start()
     microscope.get_stage_position()  # ensure cache exists
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope.move_stage_relative(
         FibsemStagePosition(x=1e-6, y=0, z=0, r=0, t=0, coordinate_system="RAW")

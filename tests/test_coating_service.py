@@ -13,7 +13,7 @@ from fibsem.services.coating import (
     CoatingStatus,
     position_text,
 )
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 
 @pytest.fixture
