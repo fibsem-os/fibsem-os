@@ -354,22 +354,6 @@ class ViewInfoBar(QWidget):
         """Forget the image. Live values stay: they did not come from it."""
         self.set_image_fields(None)
 
-    def visible_fields(self) -> List[ExportField]:
-        """The labelled fields the bar has room for, in order."""
-        return [
-            item
-            for item, label in zip(self._labelled, self.field_labels)
-            if not label.isHidden()
-        ]
-
-    def hidden_fields(self) -> List[ExportField]:
-        """The labelled fields dropped for want of room, behind the ``+N`` chip."""
-        return [
-            item
-            for item, label in zip(self._labelled, self.field_labels)
-            if label.isHidden()
-        ]
-
     # ── building ───────────────────────────────────────────────────────────
     def _selected(self) -> Tuple[List[ExportField], List[ExportField], Optional[str]]:
         """(header fields, labelled fields, time) for the current image and keys,
@@ -469,10 +453,6 @@ class ViewInfoBar(QWidget):
         if not self._highlights:
             self._highlight_timer.stop()
         self._paint_fields()
-
-    def highlighted_fields(self) -> List[str]:
-        """The keys of the fields lit up now."""
-        return list(self._highlights)
 
     def _fit(self) -> None:
         """Make the row fit: drop the time first, then whole fields from the right.

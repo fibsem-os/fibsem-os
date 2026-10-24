@@ -33,6 +33,7 @@ from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 from fibsem.ui.widgets.stage_control_widget import StageControlWidget
+from tests.fixtures.info_bar import visible_fields
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -452,7 +453,7 @@ def test_the_stage_position_shows_without_touching_anything():
     _movement_widget(host)
     bar = host.view_controller.widget.stage_bar
     bar.resize(2000, bar.height())
-    labels = [f.label for f in bar.visible_fields()]
+    labels = [f.label for f in visible_fields(bar)]
     assert "X" in labels, (
         f"no stage readout after construction; stage bar holds {labels}"
     )

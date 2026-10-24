@@ -216,10 +216,6 @@ class PageCell(QWidget):
         index = self._stack.currentIndex()
         return self._keys[index] if 0 <= index < len(self._keys) else None
 
-    def set_page(self, key: str) -> None:
-        if key in self._keys:
-            self._show(self._keys.index(key))
-
     def step(self, step: int) -> None:
         """Show the next (+1) or previous (-1) page, wrapping round."""
         if self._keys:
@@ -730,10 +726,6 @@ class MicroscopeViewController(QObject):
                 "could not read the image's fields for its bar", exc_info=True
             )
             bar.clear()
-
-    def set_fm_channel(self, name: str, data, color: Optional[str] = None) -> None:
-        """Upsert one fluorescence channel into the FM composite (by *name*)."""
-        self._widget.fm_widget.set_channel(name, data, color)
 
     def set_fm_pixel_size(self, pixel_size: Optional[float]) -> None:
         """Set the FM canvas pixel size (metres/px) for the scalebar."""

@@ -1332,32 +1332,6 @@ class FMOverviewWidget(QWidget):
         """
         self.session.set_interactive(enabled, reason)
 
-    def set_origin(self, position: Optional[FibsemStagePosition]) -> None:
-        """Anchor the canvas frame at *position*, or None to go back to automatic.
-
-        The origin decides only where canvas zero sits -- everything is drawn relative
-        to it, so any stage position serves. Left alone it is the FM device's origin
-        (`_device_origin`): the place the objective looks at, configured rather than
-        wherever the stage happened to be standing when the canvas first drew.
-
-        Raises:
-            ValueError: if anything has been placed. Images are positioned relative to
-                the origin as it stood when they were added, so re-anchoring afterwards
-                would leave every one of them describing a position it was never
-                acquired at. Clear them first if that is really what you want --
-                silently reprojecting them would be a different feature.
-        """
-        placed = self.canvas.placed_overviews()
-        if placed:
-            raise ValueError(
-                f"Cannot re-anchor the canvas: {len(placed)} image(s) are already "
-                f"placed against the current origin. Call clear_overviews() first."
-            )
-        self._origin = position
-        self._refresh_current_position()
-        self._refresh_positions()
-        self._refresh_tile_grid()
-
     @property
     def origin(self) -> Optional[FibsemStagePosition]:
         """The stage position canvas zero corresponds to, once one has been fixed."""

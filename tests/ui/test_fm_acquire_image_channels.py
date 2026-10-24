@@ -18,15 +18,15 @@ from fibsem.fm.structures import ChannelSettings  # noqa: E402
 from fibsem.ui.widgets import fluorescence_control_widget as module  # noqa: E402
 from fibsem.ui.widgets.fluorescence_control_widget import (  # noqa: E402
     FMControlWidget,
-    _DemoHost,
 )
+from tests.fixtures.fm_host import FMHost  # noqa: E402
 
 
 @pytest.fixture()
 def widget(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
-    host = _DemoHost()
+    host = FMHost()
     w = FMControlWidget(
         microscope=build_microscope(),
         parent=host,
