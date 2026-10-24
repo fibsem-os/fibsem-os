@@ -25,7 +25,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 from fibsem.theme.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 
 
@@ -331,7 +331,7 @@ def test_status_short_and_result_summary_after_run(qapp):
 
 
 def test_apply_post_creates_ghost_and_status(qapp):
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w = _widget(qapp)
     # Correcting needs the image dimensions: px_m is derived from them, and px_m
@@ -362,7 +362,7 @@ def _run_without_surface(w):
     """A finished run on a blank FIB image, before any surface point exists."""
     import copy
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w.set_fib_image(FibsemImage.generate_blank_image(resolution=(512, 512), hfw=100e-6))
     result = CorrelationResult(
@@ -794,7 +794,7 @@ def test_canvas_toolbar_reset_button(qapp):
     """
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w = _widget(qapp)
     w.set_fib_image(FibsemImage(data=np.zeros((64, 64), dtype=np.uint8)))
@@ -1367,7 +1367,7 @@ def test_advanced_panels_start_collapsed(qapp):
 def test_labels_toggle_hides_labels(qapp):
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w = _widget(qapp)
     # The overlay draws artists only once the axes has content -- a point
@@ -2685,7 +2685,7 @@ def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
     """
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w = _widget(qapp)
     w.set_fib_image(FibsemImage(data=np.zeros((100, 100), dtype=np.uint8)))

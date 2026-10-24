@@ -6,12 +6,8 @@ from PyQt5.QtWidgets import QMessageBox
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamType,
-    FibsemManipulatorPosition,
-    InsertableDeviceState,
-    MicroscopeSettings,
-)
+from fibsem.structures.settings import BeamType, FibsemManipulatorPosition
+from fibsem.structures.system import InsertableDeviceState, MicroscopeSettings
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.utils import install_wheel_blocker_recursive, message_box_ui

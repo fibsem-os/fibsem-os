@@ -29,11 +29,8 @@ from fibsem.imaging.tiling.geometry import (
     compute_tile_grid_from_fov,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BEAMS_STAGE_DEVICE,
-    FibsemStagePosition,
-    TileOrderStrategy,
-)
+from fibsem.structures.settings import FibsemStagePosition, TileOrderStrategy
+from fibsem.structures.system import BEAMS_STAGE_DEVICE
 from fibsem.theme.tokens import GRID_BOUNDARY_COLOUR
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.overlays import stage_context

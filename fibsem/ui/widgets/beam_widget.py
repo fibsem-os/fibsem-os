@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSettings, BeamType, FibsemDetectorSettings
+from fibsem.structures.settings import BeamSettings, BeamType, FibsemDetectorSettings
 from fibsem.theme import tokens
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel

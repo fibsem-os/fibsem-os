@@ -48,7 +48,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import ImageSettings
+from fibsem.structures.settings import ImageSettings
 from fibsem.theme.tokens import (
     OK_COLOR,
     PANEL_COLOR,

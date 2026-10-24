@@ -13,7 +13,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from fibsem.imaging.reduce import downsample
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.ui.widgets.canvas.canvas_base import (
     _MAX_DISPLAY_PX,
     FibsemCanvasBase,

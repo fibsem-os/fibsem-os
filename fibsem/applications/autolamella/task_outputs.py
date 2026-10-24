@@ -21,7 +21,7 @@ from fibsem.workflows.status import TaskState
 
 if TYPE_CHECKING:
     from fibsem.applications.autolamella.structures import Experiment
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 
 def fluorescence_images(lamella: Lamella, *tasks: TaskState) -> List[str]:
@@ -214,7 +214,7 @@ class PreviewSources:
         """An item's last FIB image, the one its point of interest and
         alignment area are drawn on: its last completed task's final one, else
         the last one listed."""
-        from fibsem.structures import FibsemImage
+        from fibsem.structures.image import FibsemImage
 
         lamella = self._lamella(item_name)
         if lamella is None:
@@ -233,7 +233,7 @@ class PreviewSources:
     def overview_image(self, grid_name: str, filename: str) -> Optional["FibsemImage"]:
         """A grid's overview, recorded or saved in the experiment, for a
         waiting item_add's preview; None when it is not a beam image."""
-        from fibsem.structures import FibsemImage
+        from fibsem.structures.image import FibsemImage
         from fibsem.workflows.outputs import item_output_named, saved_file
 
         experiment = self._experiment()
@@ -251,7 +251,7 @@ class PreviewSources:
     def item_overview(self, item_name: str) -> Optional["FibsemImage"]:
         """The latest overview of an item's grid, SEM before FIB: where a pose
         off the live view is drawn instead."""
-        from fibsem.structures import FibsemImage
+        from fibsem.structures.image import FibsemImage
         from fibsem.workflows.outputs import latest_item_output
 
         experiment = self._experiment()

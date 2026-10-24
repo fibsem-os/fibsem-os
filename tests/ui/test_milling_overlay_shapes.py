@@ -49,11 +49,10 @@ from fibsem.milling.patterning.patterns import (  # noqa: E402
     PolygonPattern,
     RectanglePattern,
 )
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
     FibsemCircleSettings,
-    FibsemImage,
-    FibsemImageMetadata,
     ImageSettings,
     MicroscopeState,
     Point,
@@ -319,7 +318,7 @@ if __name__ == "__main__":
 def test_patterns_drawn_on_their_own_have_no_crosshair(axes):
     """An agent's mill (FIB-1375) is drawn from its patterns, with no stage pattern
     placed at a point: the shapes and the legend, and no crosshair."""
-    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.structures.settings import FibsemRectangleSettings
     from fibsem.ui.agent.activity import DrawnStage
 
     rectangle = FibsemRectangleSettings(
@@ -338,7 +337,7 @@ def test_a_preview_is_drawn_in_one_colour_dashed(axes):
     dashed, with a fainter fill than patterns on the microscope."""
     from matplotlib.colors import to_rgba
 
-    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.structures.settings import FibsemRectangleSettings
     from fibsem.ui.agent.activity import DrawnStage
 
     rectangle = FibsemRectangleSettings(

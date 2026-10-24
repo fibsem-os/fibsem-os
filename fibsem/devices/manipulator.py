@@ -44,11 +44,8 @@ from fibsem.devices.core import (
     command,
 )
 from fibsem.devices.stage import Stage
-from fibsem.structures import (
-    BeamType,
-    FibsemManipulatorPosition,
-    InsertableDeviceState,
-)
+from fibsem.structures.settings import BeamType, FibsemManipulatorPosition
+from fibsem.structures.system import InsertableDeviceState
 
 MANIPULATOR_RESOURCE = "manipulator"
 

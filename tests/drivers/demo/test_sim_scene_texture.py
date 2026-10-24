@@ -13,7 +13,7 @@ from fibsem.drivers.demo.sim_scene import (
     WorldTexture,
 )
 from fibsem.geometry.projection import BeamStageProjection
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.utils import setup_session
 
 RESOLUTION = (768, 512)

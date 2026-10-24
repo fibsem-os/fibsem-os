@@ -25,7 +25,7 @@ from fibsem.milling.patterning.shapes import (
     convert_pattern_to_napari_polygon,
     convert_pattern_to_napari_rect,
 )
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemCircleSettings,
     FibsemLineSettings,
     FibsemPolygonSettings,
@@ -169,7 +169,7 @@ def test_a_bitmap_pattern_converts_without_reaching_for_a_name_it_has_not_got():
         SHAPES_LAYER_PROPERTIES,
         convert_bitmap_pattern_to_napari_image,
     )
-    from fibsem.structures import FibsemBitmapSettings
+    from fibsem.structures.settings import FibsemBitmapSettings
 
     settings = FibsemBitmapSettings(
         width=4e-6,

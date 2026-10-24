@@ -19,7 +19,11 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.fm.structures import ChannelSettings, OverviewParameters
 from fibsem.imaging.tiling.reach import disable_tiles, reachable_overview
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
-from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.structures.settings import (
+    BeamType,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+)
 from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,

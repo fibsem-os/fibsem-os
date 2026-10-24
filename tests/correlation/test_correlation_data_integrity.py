@@ -30,7 +30,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
     load_correlation_file,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 
 def _fib(x=1.0, y=2.0):

@@ -14,7 +14,8 @@ from PyQt5.QtWidgets import QApplication
 
 import fibsem.config as fibsem_config
 from fibsem import utils
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM, StoredOverviewCanvas
 from tests.fixtures.fm_images import fm_image, gfp, noise
 

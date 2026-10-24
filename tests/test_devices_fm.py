@@ -14,7 +14,7 @@ from fibsem.fm.structures import (
     ChannelSettings,
     EmissionFilter,
 )
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ import pytest
 import fibsem.utils as utils
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.drivers.demo.simulator import DemoMicroscope
-from fibsem.structures import FibsemStagePosition, MicroscopeState
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
 
 
 @pytest.fixture(scope="module")

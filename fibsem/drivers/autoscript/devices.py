@@ -89,21 +89,19 @@ from fibsem.fm.structures import (
     EmissionFilter,
     matching_emission_filter,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
     BeamType,
-    ChamberState,
-    DeviceEntry,
-    FibsemImage,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
-    InsertableDeviceState,
     Point,
-    RangeLimit,
     Resolution,
     ScanMode,
 )
+from fibsem.structures.system import ChamberState, DeviceEntry, InsertableDeviceState
 
 if TYPE_CHECKING:
     from fibsem.drivers.autoscript.connection import AutoScriptConnection

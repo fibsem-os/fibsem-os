@@ -28,7 +28,7 @@ from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.ui.dialogs.overview_plot import (
     OverviewImageWidget,  # noqa: E402
 )
-from fibsem.structures import FibsemImage  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

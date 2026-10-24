@@ -19,7 +19,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.runner import ITEMS
 from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,

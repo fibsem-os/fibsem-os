@@ -24,7 +24,7 @@ from typing import Any, Callable, Optional
 from PyQt5 import QtWidgets
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 

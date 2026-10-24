@@ -2,10 +2,7 @@
 scale, step and decimals it leaves out are the beam parameter's display hint."""
 
 from fibsem.devices.beam import Beam
-from fibsem.structures import (
-    FibsemMillingSettings,
-    ImageSettings,
-)
+from fibsem.structures.settings import FibsemMillingSettings, ImageSettings
 
 
 def test_the_milling_field_of_view_is_shown_as_the_beams():

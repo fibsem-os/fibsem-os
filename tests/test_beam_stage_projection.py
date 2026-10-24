@@ -32,13 +32,9 @@ from fibsem.geometry.projection import BeamStageProjection, surface_foreshorteni
 from fibsem.imaging.tiling.reprojection import (
     reproject_stage_positions_onto_image2,
 )
-from fibsem.structures import (
-    BeamType,
-    FibsemHardwareGeometry,
-    FibsemImage,
-    FibsemStagePosition,
-    ImageSettings,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.system import FibsemHardwareGeometry
 
 SHAPE = (
     1024,

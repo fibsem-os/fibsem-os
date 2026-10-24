@@ -18,7 +18,8 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.imaging.overview_session import OverviewSession
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 from tests.fixtures.fm_images import fm_image, noise
 

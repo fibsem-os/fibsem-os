@@ -1,6 +1,6 @@
 """Host-machine facts: how much room is left where the application is about to write.
 
-Named for the host, not the instrument. ``fibsem.structures.SystemInfo`` is the
+Named for the host, not the instrument. ``fibsem.structures.system.SystemInfo`` is the
 *microscope's* identity -- manufacturer, model, serial -- and a second meaning of
 "system" in this codebase would be misread every time, so nothing here borrows that
 name. This module answers only for the machine the application runs on.

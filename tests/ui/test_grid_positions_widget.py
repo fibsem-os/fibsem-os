@@ -35,7 +35,8 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus

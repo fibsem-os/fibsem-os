@@ -30,15 +30,13 @@ from fibsem.devices.core import (
 )
 from fibsem.devices.scanner import SCANNER_RESOURCE, Scanner, resolution_within
 from fibsem.devices.wire import to_wire
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.params import Display, RangeLimit
+from fibsem.structures.settings import (
     BeamType,
-    Display,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemRectangle,
     ImageSettings,
     Point,
-    RangeLimit,
     ScanMode,
 )
 from fibsem.util.timestamps import now

@@ -13,14 +13,8 @@ import pytest
 
 from fibsem import config as cfg
 from fibsem.fm.structures import FluorescenceChannelMetadata, FluorescenceImageMetadata
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
-    ImageSettings,
-    MicroscopeState,
-    Point,
-)
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import BeamType, ImageSettings, MicroscopeState, Point
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     format_time,

@@ -45,13 +45,8 @@ from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemRectangle,
-    MicroscopeState,
-    Point,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle, MicroscopeState, Point
 from fibsem.ui.widgets.canvas.quad_view import (
     ItemEditorView,
     MicroscopeViewController,

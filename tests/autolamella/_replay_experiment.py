@@ -23,7 +23,7 @@ from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from fibsem.workflows.event_recording import EventRecorder
 from tests.autolamella._on_the_record import manager_for
 

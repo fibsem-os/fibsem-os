@@ -6,7 +6,7 @@ import copy
 from typing import Optional, Tuple
 
 from fibsem.applications.volume.position import SEM_POSE, VolumePosition
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.item import MILLING_POSE
 
 __all__ = ["POSES", "move_milling_pose", "pose_stage_position", "set_pose_now"]

@@ -21,13 +21,8 @@ from fibsem.imaging.tiling.reprojection import (
     calculate_reprojected_stage_position2,
     reproject_stage_positions_onto_image2,
 )
-from fibsem.structures import (
-    LEGACY_ROTATION_CENTRE,
-    BeamType,
-    FibsemHardwareGeometry,
-    FibsemStagePosition,
-    ImageSettings,
-)
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.system import LEGACY_ROTATION_CENTRE, FibsemHardwareGeometry
 
 CENTRE = (1.5e-3, -0.75e-3)
 
@@ -341,7 +336,7 @@ class TestCorrectionConfiguration:
         assert "rotation_centre_correction" not in system.to_dict()["calibration"]
 
     def test_it_round_trips_under_calibration(self):
-        from fibsem.structures import SystemSettings
+        from fibsem.structures.system import SystemSettings
 
         system = utils.setup_session(manufacturer="Demo")[0].system
         system.stage.rotation_centre_correction = (19e-6, 11e-6)

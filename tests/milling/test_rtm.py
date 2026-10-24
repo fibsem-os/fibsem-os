@@ -8,7 +8,7 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.monitors import RtmMonitor, get_monitors
 from fibsem.milling.monitors.rtm import RtmConfig
 from fibsem.milling.rtm import RtmFrame, is_monitored
-from fibsem.structures import CrossSectionPattern, FibsemRectangleSettings
+from fibsem.structures.settings import CrossSectionPattern, FibsemRectangleSettings
 from tests.milling.test_fm_intensity_and_sem_peek import (  # noqa: F401
     _stage,
     milling_in_real_time,

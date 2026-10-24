@@ -8,7 +8,8 @@ from PyQt5.QtCore import pyqtSignal
 from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import ImageSettings, MicroscopeSettings
+from fibsem.structures.settings import ImageSettings
+from fibsem.structures.system import MicroscopeSettings
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     BORDER_COLOR,

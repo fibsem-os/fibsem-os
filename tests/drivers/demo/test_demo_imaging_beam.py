@@ -9,7 +9,8 @@ import threading
 
 import pytest
 
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle, ImageSettings
 from tests.fixtures.microscopes import demo_microscope
 
 AREA = FibsemRectangle(0.25, 0.25, 0.5, 0.5)

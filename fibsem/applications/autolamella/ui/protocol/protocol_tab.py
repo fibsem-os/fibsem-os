@@ -37,7 +37,8 @@ from fibsem.applications.autolamella.workflows.tasks import get_tasks
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 from fibsem.theme.tokens import (
     BORDER_COLOR,
     NEUTRAL_200,

@@ -26,7 +26,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.cancellation import StopEvent
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     POINT_OF_INTEREST,

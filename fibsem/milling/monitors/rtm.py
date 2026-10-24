@@ -21,7 +21,7 @@ from fibsem.milling.monitors.base import (
     MillingMonitorResult,
 )
 from fibsem.milling.rtm import RTM_MODES, RtmFrame
-from fibsem.structures import param
+from fibsem.structures.params import param
 
 
 @dataclass

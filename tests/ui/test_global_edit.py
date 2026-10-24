@@ -35,7 +35,7 @@ from fibsem.applications.autolamella.workflows.tasks.polishing import (  # noqa:
 from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E402
     MillRoughTaskConfig,
 )
-from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.structures.settings import MicroscopeState, Point  # noqa: E402
 from fibsem.workflows.status import TaskStatus  # noqa: E402
 
 ROUGH = "Rough Milling"

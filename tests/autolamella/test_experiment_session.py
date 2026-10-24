@@ -25,7 +25,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import SessionInfo
+from fibsem.structures.system import SessionInfo
 from fibsem.util.timestamps import now, utc_offset_of
 from tests.fixtures.microscopes import demo_microscope
 
@@ -131,7 +131,7 @@ def test_without_a_declared_operator_it_falls_back_to_the_account(
 
     experiment.register_metadata(microscope)
 
-    from fibsem.structures import FibsemUser
+    from fibsem.structures.system import FibsemUser
 
     assert experiment.session.user.name == FibsemUser.from_environment().name
 
@@ -156,7 +156,7 @@ def test_the_hostname_still_comes_from_the_environment(
 ) -> None:
     """It answers a different question -- which machine, not which person -- so a
     declared operator must not overwrite it."""
-    from fibsem.structures import FibsemUser
+    from fibsem.structures.system import FibsemUser
 
     experiment = _experiment(tmp_path, metadata={"user": "Dr Someone"})
 
@@ -169,7 +169,7 @@ def test_an_unrelated_metadata_entry_declares_nobody(
     microscope: FibsemMicroscope, tmp_path: Path
 ) -> None:
     """Only the two fields the dialog offers count; a description is not a user."""
-    from fibsem.structures import FibsemUser
+    from fibsem.structures.system import FibsemUser
 
     experiment = _experiment(tmp_path, metadata={"description": "a test run"})
 

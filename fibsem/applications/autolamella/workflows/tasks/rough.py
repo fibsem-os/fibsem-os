@@ -17,7 +17,8 @@ from fibsem.applications.autolamella.workflows.tasks.base import (
     AutoLamellaTask,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import Display, Point, param
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import Point
 from fibsem.workflows.proposals import MILLING
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 

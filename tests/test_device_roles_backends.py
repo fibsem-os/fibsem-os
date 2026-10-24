@@ -19,7 +19,8 @@ import fibsem
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.entries import RoleBindingError
-from fibsem.structures import BeamType, DeviceEntry, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
+from fibsem.structures.system import DeviceEntry
 from tests.fixtures.fake_drivers import built_in_packages
 from tests.fixtures.tescan_sdk import connect
 
@@ -61,9 +62,8 @@ THERMO = """
 import json, sys
 sys.path.insert(0, sys.argv[1])
 import autoscript_beam_parity as B
-from fibsem.structures import (
-    BeamType, DeviceEntry, FibsemExperimentRef, FibsemUser, ImageSettings,
-)
+from fibsem.structures.settings import BeamType, ImageSettings
+from fibsem.structures.system import DeviceEntry, FibsemExperimentRef, FibsemUser
 
 microscope = B.routed(False)
 # What connect sets and the fixture skips: the beam stamps each image with them.

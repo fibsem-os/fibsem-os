@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fibsem.imaging.tiling.layout_check import TileLayoutCheck
 from fibsem.imaging.tiling.registration import Registration
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 # Written into the run's tile folder, beside the tiles it describes.
 METADATA_FILE = "overview-metadata.json"

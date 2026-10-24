@@ -13,7 +13,7 @@ import numpy as np
 from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QAction, QMenu
 
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 
 class CoincidenceMenu(QObject):

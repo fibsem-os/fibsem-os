@@ -23,9 +23,9 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
     connect_remote_beams,
 )
 from fibsem.server.devices import DeviceServer, demo_devices  # noqa: E402
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
-    FibsemImage,
     FibsemRectangle,
     Point,
     ScanMode,

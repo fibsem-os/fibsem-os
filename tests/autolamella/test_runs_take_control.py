@@ -68,7 +68,7 @@ def test_a_headless_run_turns_the_beams_off_when_the_protocol_says_so(
     microscope, experiment, monkeypatch, manager, turn_beams_off
 ):
     from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     experiment.task_protocol = AutoLamellaTaskProtocol()
     experiment.task_protocol.options.turn_beams_off = turn_beams_off

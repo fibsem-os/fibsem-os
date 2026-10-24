@@ -2,7 +2,7 @@
 
 import pytest
 
-from fibsem.structures import Resolution
+from fibsem.structures.settings import Resolution
 
 
 def test_it_is_the_plain_tuple():

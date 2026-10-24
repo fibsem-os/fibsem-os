@@ -31,14 +31,14 @@ from fibsem.imaging.export import (
     render_export,
     save_export,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
-    FibsemExperimentRef,
-    FibsemImage,
     MicroscopeState,
 )
+from fibsem.structures.system import FibsemExperimentRef
 from tests.fixtures.fm_images import fm_image, gfp
 
 

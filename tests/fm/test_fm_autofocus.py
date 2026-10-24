@@ -15,7 +15,7 @@ from fibsem.autofunctions.autofocus import (
 )
 from fibsem.fm.calibration import run_autofocus, run_coarse_fine_autofocus
 from fibsem.fm.structures import AutoFocusSettings, FocusMethod, ZParameters
-from fibsem.structures import DeviceImagingState
+from fibsem.structures.system import DeviceImagingState
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -386,7 +386,7 @@ def test_run_coarse_fine_passes_channel_to_both_stages():
 
 def test_run_coarse_fine_with_roi():
     m = _mock_fm(best_z=0.0)
-    from fibsem.structures import FibsemRectangle
+    from fibsem.structures.settings import FibsemRectangle
 
     roi = FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5)
     with patch(

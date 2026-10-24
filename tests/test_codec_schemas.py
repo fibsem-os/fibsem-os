@@ -13,7 +13,10 @@ from pydantic import TypeAdapter
 from fibsem.codec import encode
 
 MODULES = [
-    "fibsem.structures",
+    "fibsem.structures.settings",
+    "fibsem.structures.image",
+    "fibsem.structures.params",
+    "fibsem.structures.system",
     "fibsem.milling.base",
     "fibsem.workflows.item",
     "fibsem.workflows.site_task",

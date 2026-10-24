@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.workflows.plan import LamellaRunPlan
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.theme import tokens
 from fibsem.ui import stylesheets
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET

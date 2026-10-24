@@ -16,13 +16,9 @@ import numpy as np
 
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.geometry.movement import beam_view_tilt, inverse_view_corrected_dy
-from fibsem.structures import (
-    LEGACY_ROTATION_CENTRE,
-    BeamType,
-    FibsemImage,
-    FibsemStagePosition,
-    Point,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
+from fibsem.structures.system import LEGACY_ROTATION_CENTRE
 
 
 def calculate_reprojected_stage_position(

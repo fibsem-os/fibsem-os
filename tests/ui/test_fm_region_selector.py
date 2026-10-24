@@ -15,7 +15,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.fm.widgets.fm_region_selector import FMRegionSelectorWidget
 from fibsem.ui.widgets.overview_widget import OverviewView
 

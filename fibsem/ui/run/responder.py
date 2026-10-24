@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Callable, Dict, Type
 
 from PyQt5.QtCore import QObject, pyqtSignal
 
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.workflows.interaction import (
     ClearMillingConfig,
     ClearSpotBurn,

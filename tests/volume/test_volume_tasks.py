@@ -10,7 +10,7 @@ from fibsem.applications.volume.tasks import (
     VolumeFIBMillingTask,
     run_volume_task,
 )
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.workflows.status import TaskStatus
 
 MILL = "Volume FIB Milling"

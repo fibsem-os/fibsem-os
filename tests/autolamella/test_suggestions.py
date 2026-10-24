@@ -10,7 +10,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.structures import MicroscopeState, Point
+from fibsem.structures.settings import MicroscopeState, Point
 from fibsem.workflows.event_recording import ProposalTap
 from fibsem.workflows.events import EventBuffer
 from fibsem.workflows.proposals import (
@@ -219,7 +219,7 @@ def test_a_suggestion_to_keep_a_position_reads_in_words(experiment):
     pytest.importorskip("PyQt5")
     from fibsem.ai.agent.recent import RecentActions
     from fibsem.ai.agent.suggestions import suggestion_card
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     lamella = experiment.positions[0]
     lamella.task_state.name = TASK

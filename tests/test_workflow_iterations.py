@@ -132,7 +132,7 @@ def test_a_run_knows_its_iteration():
 
 
 def test_an_image_says_which_round_took_it():
-    from fibsem.structures import FibsemExperimentRef
+    from fibsem.structures.system import FibsemExperimentRef
 
     ref = FibsemExperimentRef(id="e", name="e")
     ref.set_workflow_metadata(item_id="p1", task_name="Mill", iteration=4)

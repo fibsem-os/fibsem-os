@@ -11,7 +11,7 @@ ignored-fields warning don't count.
 from dataclasses import fields, is_dataclass
 from typing import Set
 
-from fibsem.structures import FibsemMillingSettings
+from fibsem.structures.settings import FibsemMillingSettings
 
 FIELDS = frozenset(f.name for f in fields(FibsemMillingSettings))
 

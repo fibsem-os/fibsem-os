@@ -35,7 +35,8 @@ from fibsem.devices.core import DeviceParameter, Role, command
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.sputter_coater import SputterCoater
 from fibsem.services.core import Service
-from fibsem.structures import FibsemStagePosition, InsertableDeviceState
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.util import wording
 
 _C = TypeVar("_C", bound="Coating")

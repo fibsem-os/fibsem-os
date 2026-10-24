@@ -25,7 +25,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E402
     MillRoughTaskConfig,
 )
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from fibsem.workflows.event_recording import (  # noqa: E402
     EVENTS_FILENAME,
     read_events,

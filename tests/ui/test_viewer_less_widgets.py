@@ -28,7 +28,8 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication, QWidget
 
 from fibsem import utils
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController

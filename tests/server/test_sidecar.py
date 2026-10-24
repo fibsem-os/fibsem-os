@@ -388,7 +388,7 @@ def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device)
 def test_the_milling_state_is_answered_by_name(armed_sidecar):
     """The tool says IDLE, RUNNING, ...; the wire carries the enum's number."""
     from fibsem.ai.agent.mcp.sidecar import _MILLING_STATES
-    from fibsem.structures import MillingState
+    from fibsem.structures.settings import MillingState
 
     assert _MILLING_STATES == tuple(state.name for state in MillingState)
     assert [MillingState[name].value for name in _MILLING_STATES] == list(

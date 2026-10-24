@@ -8,7 +8,7 @@ pytest.importorskip("PyQt5")
 from fibsem.applications.autolamella.workflows.tasks.select_position import (  # noqa: E402
     SelectMillingPositionTaskConfig,
 )
-from fibsem.structures import Point  # noqa: E402
+from fibsem.structures.settings import Point  # noqa: E402
 from fibsem.workflows.proposals import (  # noqa: E402
     POINT_OF_INTEREST,  # noqa: E402
     DecisionOutcome,

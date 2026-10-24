@@ -22,7 +22,7 @@ from fibsem.applications.autolamella.ui.lamella.selected import (
     LamellaPoseListWidget,
     LamellaPoseRowWidget,
 )
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
     FibsemStagePosition,

@@ -10,7 +10,7 @@ from psygnal import evented
 
 from fibsem.codec import Timestamp, decode, encode, saved
 from fibsem.codec.upgrades import records as upgrade
-from fibsem.structures import (
+from fibsem.structures.settings import (
     DEFAULT_ALIGNMENT_AREA,
     FibsemRectangle,
     MicroscopeState,

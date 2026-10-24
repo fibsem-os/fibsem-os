@@ -27,8 +27,8 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.applications.autolamella.ui.lamella.history import (
     LamellaTaskImageWidget,  # noqa: E402
 )
-from fibsem.structures import (  # noqa: E402
-    FibsemImage,
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     FibsemStagePosition,
     MicroscopeState,
 )

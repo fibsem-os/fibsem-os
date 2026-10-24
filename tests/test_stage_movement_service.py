@@ -13,7 +13,7 @@ import pytest
 from fibsem import utils
 from fibsem.devices.stage import StageLimitError
 from fibsem.services.stage_movement import StageMovement
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from tests.fixtures.microscopes import demo_microscope
 
 microscope = demo_microscope(scope="function")
@@ -103,7 +103,7 @@ def test_the_camera_tilt_is_derived_unless_configured(iflm):
 
 
 def test_the_camera_tilt_survives_a_config_round_trip():
-    from fibsem.structures import FluorescenceSystemSettings
+    from fibsem.structures.system import FluorescenceSystemSettings
 
     settings = FluorescenceSystemSettings.from_dict({"camera_tilt": 30.0})
     assert settings.camera_tilt == 30.0

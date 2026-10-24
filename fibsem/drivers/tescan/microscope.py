@@ -14,26 +14,28 @@ from fibsem.microscope import (
     STAGE_TYPES,
     FibsemMicroscope,
 )
-from fibsem.structures import (  # noqa
+from fibsem.structures.image import FibsemImage  # noqa
+from fibsem.structures.settings import (  # noqa
     ACTIVE_MILLING_STATES,
-    BeamSystemSettings,
     BeamType,
     CrossSectionPattern,
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemExperimentRef,
-    FibsemHardwareGeometry,
-    FibsemImage,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPolygonSettings,
     FibsemRectangle,
     FibsemRectangleSettings,
     FibsemStagePosition,
-    FibsemUser,
     ImageSettings,
     MillingState,
     Point,
+)
+from fibsem.structures.system import (  # noqa
+    BeamSystemSettings,
+    FibsemExperimentRef,
+    FibsemHardwareGeometry,
+    FibsemUser,
     SystemSettings,
 )
 

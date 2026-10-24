@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.structures import ReferenceImageParameters
+from fibsem.structures.settings import ReferenceImageParameters
 from fibsem.ui.widgets.reference_image_parameters_widget import (
     ReferenceImageParametersWidget,
 )

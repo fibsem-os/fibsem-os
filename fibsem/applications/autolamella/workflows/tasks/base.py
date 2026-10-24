@@ -33,10 +33,7 @@ from fibsem.detection.detection import (
 )
 from fibsem.fm.structures import ChannelSettings
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    FibsemStagePosition,
-    ImageSettings,
-)
+from fibsem.structures.settings import FibsemStagePosition, ImageSettings
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,
     SetFluorescenceChannels,

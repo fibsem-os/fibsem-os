@@ -10,14 +10,8 @@ from enum import Enum
 from typing import List, Optional, Tuple
 
 from fibsem.schema import arguments_schema, parameter_schema, value_schema
-from fibsem.structures import (
-    Display,
-    FibsemMillingSettings,
-    Parameter,
-    Point,
-    RangeLimit,
-    param,
-)
+from fibsem.structures.params import Display, Parameter, RangeLimit, param
+from fibsem.structures.settings import FibsemMillingSettings, Point
 
 
 class Mode(Enum):
@@ -81,7 +75,7 @@ def test_enums_optionals_and_nested_dataclasses():
 def test_the_schema_is_what_the_codec_reads():
     """Saved keys, tagged classes and fields never read, as `fibsem.codec` has them."""
     from fibsem.milling.base import FibsemMillingStage
-    from fibsem.structures import FibsemImageMetadata
+    from fibsem.structures.image import FibsemImageMetadata
 
     defs = {}
     stage = value_schema(FibsemMillingStage, defs)
@@ -142,7 +136,7 @@ def test_a_parameter_with_choices_is_an_enum():
 
 
 def test_a_field_nothing_reads_says_so():
-    from fibsem.structures import MillingAlignment
+    from fibsem.structures.settings import MillingAlignment
 
     properties = value_schema(MillingAlignment, {})["properties"]
     assert properties["interval"]["not_used"]

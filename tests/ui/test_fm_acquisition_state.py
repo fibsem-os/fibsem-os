@@ -28,7 +28,7 @@ from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 
 if TYPE_CHECKING:
-    from fibsem.structures import DeviceImagingState
+    from fibsem.structures.system import DeviceImagingState
 
 
 def _stop(fm) -> None:
@@ -326,7 +326,7 @@ class TestTheControlWidgetGuard:
 
     @staticmethod
     def _widget(fm, state=None):
-        from fibsem.structures import DeviceImagingState
+        from fibsem.structures.system import DeviceImagingState
         from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 
         widget = FMControlWidget.__new__(FMControlWidget)
@@ -435,7 +435,7 @@ class TestTheControlWidgetWiring:
         z-stack or an autofocus sweep could be started from a beam pose with nothing but
         the button stopping it. The gate refuses travel states and permits a re-pose --
         the acquisition policy, in one place on the enum."""
-        from fibsem.structures import DeviceImagingState
+        from fibsem.structures.system import DeviceImagingState
 
         fm = DemoFluorescenceMicroscope()
         widget = TestTheControlWidgetGuard._widget(
@@ -449,7 +449,7 @@ class TestTheControlWidgetWiring:
         """The Arctis allowance, as gate policy: acquiring in place from a "wrong"
         pose is a harmless watch. A compustage can never need travel, so this row is
         the only refusable one it has -- and it does not refuse."""
-        from fibsem.structures import DeviceImagingState
+        from fibsem.structures.system import DeviceImagingState
 
         widget = TestTheControlWidgetGuard._widget(
             DemoFluorescenceMicroscope(), state=DeviceImagingState.NEEDS_REPOSE

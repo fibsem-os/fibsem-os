@@ -11,7 +11,7 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.beam import DEFAULT_DWELL_TIME_LIMITS, STANDARD_RESOLUTIONS
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 E, I = BeamType.ELECTRON, BeamType.ION
 

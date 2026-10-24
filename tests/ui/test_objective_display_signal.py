@@ -33,7 +33,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 pytest.importorskip("PyQt5")
 

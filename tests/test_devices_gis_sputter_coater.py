@@ -29,7 +29,7 @@ from fibsem.drivers.demo.devices import (
     build_demo_sputter_coater,
 )
 from fibsem.drivers.registry import BuildContext
-from fibsem.structures import DeviceEntry, InsertableDeviceState
+from fibsem.structures.system import DeviceEntry, InsertableDeviceState
 
 
 def _gis(**kwargs) -> DemoGasInjector:

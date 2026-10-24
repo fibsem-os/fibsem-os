@@ -81,7 +81,7 @@ def test_a_run_saved_awaiting_a_decision_loads_as_completed():
 def test_a_lamella_and_a_volume_position_share_the_milling_pose(tmp_path):
     from fibsem.applications.autolamella.structures import Lamella
     from fibsem.applications.volume.position import VolumePosition
-    from fibsem.structures import MicroscopeState
+    from fibsem.structures.settings import MicroscopeState
     from fibsem.workflows.item import MILLING_POSE, SiteItem
 
     state = MicroscopeState()

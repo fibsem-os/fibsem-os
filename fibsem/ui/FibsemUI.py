@@ -24,7 +24,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.imaging.overview_session import OverviewSession
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings
+from fibsem.structures.system import MicroscopeSettings
 from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.tools.apps import FIBSEM_UI
 from fibsem.tools.desktop_launch import Splash

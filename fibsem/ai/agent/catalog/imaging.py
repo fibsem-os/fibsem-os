@@ -198,7 +198,7 @@ def _tiles_on(rows: Any, cols: Any, mask: Any) -> str:
 
 def _overview_size(settings: Dict[str, Any]) -> Optional[str]:
     """What an overview covers, as its estimate says: "about 420 × 280 µm"."""
-    from fibsem.structures import OverviewAcquisitionSettings
+    from fibsem.structures.settings import OverviewAcquisitionSettings
 
     try:
         parsed = OverviewAcquisitionSettings.from_dict(settings)

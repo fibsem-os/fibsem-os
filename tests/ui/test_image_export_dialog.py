@@ -10,14 +10,14 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.imaging import export as ex
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
-    FibsemExperimentRef,
-    FibsemImage,
     MicroscopeState,
 )
+from fibsem.structures.system import FibsemExperimentRef
 
 
 def _sem_image() -> FibsemImage:

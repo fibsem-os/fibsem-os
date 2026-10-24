@@ -25,7 +25,10 @@ REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 # (source image, fixture name). The real files come from two different instruments and
 # the simulator files supply the metadata versions the real ones predate.
 SOURCES: List[Tuple[str, str]] = [
-    ("tests/data/ref_Setup Lamella Position_start_eb.tif", "thermo_arctis_compustage_v3.json"),
+    (
+        "tests/data/ref_Setup Lamella Position_start_eb.tif",
+        "thermo_arctis_compustage_v3.json",
+    ),
     ("tests/data/ref_Mill Fiducial_start_eb.tif", "thermo_aquilos_v3.json"),
     # The real instruments both wrote v3. These cover the later schema versions, and
     # the simulator's is_compustage flag -- the other arm of the compustage check.

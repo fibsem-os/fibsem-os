@@ -18,7 +18,8 @@ import numpy as np
 import pytest
 
 from fibsem import acquire
-from fibsem.structures import FibsemImageMetadata, ImageSettings
+from fibsem.structures.image import FibsemImageMetadata
+from fibsem.structures.settings import ImageSettings
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "fibsem" / "config"
 FIXTURE_DIR = Path(__file__).resolve().parent / "fixtures" / "metadata"
@@ -106,7 +107,7 @@ def test_gamma_remains_available_to_call_deliberately() -> None:
     and written to disk.
     """
     from fibsem.autofunctions.gamma import auto_gamma
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     image = FibsemImage(data=np.full((8, 8), 200, dtype=np.uint8))
     corrected = auto_gamma(image, method="autogamma")

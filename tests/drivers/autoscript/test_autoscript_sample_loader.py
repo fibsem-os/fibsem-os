@@ -20,7 +20,8 @@ from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.drivers.autoscript import devices as autoscript_devices
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.services.sample_handling import DeviceGridMagazine, bind_sample_handling
-from fibsem.structures import DeviceEntry, SampleGrid
+from fibsem.structures.settings import SampleGrid
+from fibsem.structures.system import DeviceEntry
 
 # ---------------------------------------------------------------------------
 # A fake autoloader, shaped like the vendor API

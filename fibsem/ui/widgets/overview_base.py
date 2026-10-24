@@ -16,7 +16,7 @@ from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QLabel, QWidget
 
 from fibsem.imaging.overview_session import POSITIONS, SELECTION, OverviewSession
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.ui import notification_service
 from fibsem.ui.control import control_of
 from fibsem.ui.qt.connections import connect_on_gui_thread

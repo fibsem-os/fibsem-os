@@ -20,7 +20,8 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 from tests.fixtures.toasts import toasts_fixture
 
 _BURNS = [Point(0.25, 0.5), Point(0.75, 0.25)]

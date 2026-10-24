@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 from fibsem.progress import ProgressStatus, ends
-from fibsem.structures import MillingState
+from fibsem.structures.settings import MillingState
 
 __all__ = [
     "MillingProgressStatus",
@@ -136,7 +136,7 @@ class MillingProgress:
     # that *sets the active view* as a side effect, so a UI polling it during a
     # coincidence mill competes for the view with the fluorescence acquisition the
     # strategy is running. `MillingState.UNKNOWN` is a producer declining to look for
-    # exactly that reason -- see `fibsem.structures.MillingState`.
+    # exactly that reason -- see `fibsem.structures.settings.MillingState`.
     milling_state: Optional[MillingState] = None
     # Why the task ended, on `TASK_FAILED` only. The *reason* -- an exception's text --
     # never the label: a consumer words `TASK_FAILED` itself and puts this behind it.

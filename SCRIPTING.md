@@ -273,7 +273,7 @@ Without `writes`, nothing your script changed is persisted — a read-only scrip
 uses_microscope = True
 
 from fibsem import acquire
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
 
 
 def run(ctx):

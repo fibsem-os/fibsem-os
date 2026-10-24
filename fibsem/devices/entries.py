@@ -30,12 +30,13 @@ from typing import (
 
 from fibsem.devices.core import Device
 from fibsem.drivers.registry import REMOTE_DRIVER, normalize_name
-from fibsem.structures import BeamType, DeviceEntry, read_device_entries
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import DeviceEntry, read_device_entries
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import DeviceBuilder
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import SystemSettings
+    from fibsem.structures.system import SystemSettings
 
 
 @dataclass(frozen=True)

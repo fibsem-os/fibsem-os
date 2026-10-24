@@ -11,7 +11,7 @@ from fibsem.acting import ActorKind
 from fibsem.constants import DATETIME_DISPLAY_AMPM
 from fibsem.hooks import HookEvent, HookManager, fire_event
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.util.durations import format_duration_rounded
 from fibsem.workflows.interaction import Responder
 from fibsem.workflows.manager import BaseTaskManager

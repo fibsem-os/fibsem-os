@@ -22,7 +22,7 @@ from fibsem.alignment.coincidence import DEFAULT_ALIGNMENT_HFW
 from fibsem.devices.core import command, query
 from fibsem.devices.wire import Frame
 from fibsem.services.core import Service
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 _A = TypeVar("_A", bound="Alignment")
 
@@ -127,7 +127,7 @@ class Alignment(Service):
         saves the pair and the overlay there.
         """
         from fibsem.alignment.coincidence import _default_image_settings
-        from fibsem.structures import BeamType
+        from fibsem.structures.settings import BeamType
 
         settings = _default_image_settings()
         settings.hfw = hfw
@@ -187,7 +187,7 @@ class Alignment(Service):
             measure_coincidence_at_target,
             render_target_coincidence,
         )
-        from fibsem.structures import BeamType
+        from fibsem.structures.settings import BeamType
 
         result = measure_coincidence_at_target(
             sem_image, fib_image, target=(x, y), reference=BeamType[beam.upper()]

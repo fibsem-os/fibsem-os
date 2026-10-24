@@ -10,13 +10,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from fibsem.structures import (
-    FibsemImage,
-    FibsemImageMetadata,
-    ImageSettings,
-    MicroscopeState,
-    Point,
-)
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import ImageSettings, MicroscopeState, Point
 
 
 def fibsem_image_from_frame(

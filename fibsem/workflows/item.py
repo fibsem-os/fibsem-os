@@ -15,7 +15,7 @@ from typing import Any, ClassVar, Dict, List, Optional
 
 from fibsem.acting import Actor, ActorKind
 from fibsem.codec import encode
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,

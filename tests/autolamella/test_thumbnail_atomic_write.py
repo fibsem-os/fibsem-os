@@ -25,7 +25,7 @@ import threading
 import numpy as np
 import pytest
 
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 
 @pytest.fixture

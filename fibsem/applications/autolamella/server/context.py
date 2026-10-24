@@ -91,7 +91,8 @@ from fibsem.server.responses import (
     no_experiment,
     refused,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
 from fibsem.util.records import content_hash
 from fibsem.util.wording import describe_patch
 from fibsem.workflows.actions import NOTE

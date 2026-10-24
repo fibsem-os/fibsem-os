@@ -18,14 +18,12 @@ from fibsem.applications.volume.tasks.base import VolumeTask
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
-from fibsem.structures import (
+from fibsem.structures.params import Display, distance_param, param
+from fibsem.structures.settings import (
     BeamType,
     CrossSectionPattern,
-    Display,
     FibsemMillingSettings,
     Point,
-    distance_param,
-    param,
 )
 from fibsem.workflows.task_config import TaskConfig
 

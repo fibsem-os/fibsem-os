@@ -26,7 +26,7 @@ import time
 from typing import Any, Optional
 
 from fibsem.devices.core import Device, DeviceParameter, command
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 GIS_RESOURCE = "gis"
 

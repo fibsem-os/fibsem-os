@@ -25,7 +25,8 @@ from psygnal import evented
 from fibsem.codec import NamedEnum, Timestamp, decode, encode
 from fibsem.codec.upgrades import records as upgrade
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 from fibsem.util.timestamps import format_time, now, to_datetime
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,

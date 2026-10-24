@@ -52,11 +52,8 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.structures import (
-    DeviceImagingState,
-    FibsemStagePosition,
-    InsertableDeviceState,
-)
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import DeviceImagingState, InsertableDeviceState
 from fibsem.theme import tokens
 from fibsem.theme.tokens import (
     CURRENT_POSITION_COLOUR,

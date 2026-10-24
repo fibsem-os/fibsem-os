@@ -17,7 +17,7 @@ from fibsem.ai.agent.catalog.spec import (
 from fibsem.util import wording
 
 if TYPE_CHECKING:
-    from fibsem.structures import Parameter
+    from fibsem.structures.params import Parameter
 
 
 _ALIGN_WITH = {
@@ -32,7 +32,7 @@ def _parameter_spec(info: Any) -> Optional["Parameter"]:
     its unit and how it is shown."""
     if not isinstance(info, dict):
         return None
-    from fibsem.structures import Display, Parameter
+    from fibsem.structures.params import Display, Parameter
 
     display = info.get("display")
     shown = None

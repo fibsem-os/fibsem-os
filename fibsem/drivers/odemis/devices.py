@@ -47,18 +47,17 @@ from fibsem.fm.structures import (
     band_name,
     matching_emission_filter,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
     BeamType,
-    ChamberState,
-    FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
-    InsertableDeviceState,
     Point,
-    RangeLimit,
     Resolution,
 )
+from fibsem.structures.system import ChamberState, InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
 
 add_odemis_path()
@@ -75,7 +74,7 @@ if TYPE_CHECKING:
     from fibsem.drivers.odemis.microscope import OdemisThermoMicroscope
     from fibsem.drivers.registry import BuildContext
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import DeviceEntry
+    from fibsem.structures.system import DeviceEntry
 
 # The odemis client's name for each column (``beam_type_to_odemis``).
 ODEMIS_CHANNELS: Dict[BeamType, str] = {

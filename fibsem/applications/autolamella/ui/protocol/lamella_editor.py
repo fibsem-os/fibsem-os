@@ -49,9 +49,9 @@ from fibsem.applications.autolamella.workflows.tasks.tasks import (
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     Point,

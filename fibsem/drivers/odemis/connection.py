@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 
 def plain(value: Any) -> Any:

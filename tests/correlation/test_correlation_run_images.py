@@ -29,7 +29,8 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 
 _PX = 100e-6 / 300  # the blank images' pixel size: 100 um across 300 px
 

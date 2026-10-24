@@ -16,7 +16,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from PyQt5.QtWidgets import QLabel
 
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,

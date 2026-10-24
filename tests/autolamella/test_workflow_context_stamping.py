@@ -18,7 +18,8 @@ from fibsem.applications.autolamella.structures import (
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import BeamType, FibsemExperimentRef
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import FibsemExperimentRef
 from tests.fixtures.microscopes import demo_microscope
 
 microscope = demo_microscope(scope="function")

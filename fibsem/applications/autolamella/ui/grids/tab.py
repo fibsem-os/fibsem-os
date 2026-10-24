@@ -42,7 +42,7 @@ from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.ui.grids.card import GridCardContainer
 from fibsem.applications.autolamella.ui.grids.overview import GridPositionsWidget
 from fibsem.applications.autolamella.ui.grids.results import GridResultsWidget
-from fibsem.structures import GridInventoryEntry
+from fibsem.structures.settings import GridInventoryEntry
 from fibsem.theme import tokens
 from fibsem.theme.tokens import ERROR_COLOR, PANEL_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui.control import control_of

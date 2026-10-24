@@ -62,7 +62,7 @@ from test_viewer_less_widgets import (  # noqa: E402
 
 from fibsem import constants  # noqa: E402
 from fibsem.devices.stage import axis_limits_to_degrees
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 
 # Off-origin on every axis, and asymmetric, so a transposed pair or a dropped
 # conversion cannot coincide with the right answer.

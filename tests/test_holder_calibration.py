@@ -9,7 +9,7 @@ is the only thing that writes a trusted position.
 import pytest
 
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME, bind_sample_handling
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemStagePosition,
     GridSlot,
     SampleHolder,

@@ -48,7 +48,8 @@ from fibsem.guided_setup import (
     manufacturers,
     microscope_models,
 )
-from fibsem.structures import SampleHolder, StageSystemSettings
+from fibsem.structures.settings import SampleHolder
+from fibsem.structures.system import StageSystemSettings
 from fibsem.theme.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,

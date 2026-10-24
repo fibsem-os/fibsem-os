@@ -37,12 +37,9 @@ from fibsem.correlation.structures import (
     load_correlation_file,
 )
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import (
-    BeamType,
-    CameraImageTransform,
-    FibsemImage,
-    FibsemImageMetadata,
-)
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import CameraImageTransform
 
 RUNNING = "Running…"
 

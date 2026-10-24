@@ -13,7 +13,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.milling.base import MillingStrategyConfig, get_strategy_config
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.structures import BeamType, Parameter
+from fibsem.structures.params import Parameter
+from fibsem.structures.settings import BeamType
 from fibsem.theme.tokens import (
     TEXT_MUTED_COLOR,
 )

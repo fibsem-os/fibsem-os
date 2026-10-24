@@ -10,7 +10,7 @@ import sys
 from typing import Dict, Optional, Tuple
 
 import fibsem.constants as constants
-from fibsem.structures import BeamType, FibsemStagePosition, MillingState
+from fibsem.structures.settings import BeamType, FibsemStagePosition, MillingState
 
 TESCAN_API_AVAILABLE = False
 # Read through this rather than importing tescanautomation yourself: the guarded

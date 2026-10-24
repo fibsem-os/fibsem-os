@@ -22,7 +22,8 @@ from fibsem.devices.entries import (
     resolve_device_entries,
 )
 from fibsem.drivers import registry
-from fibsem.structures import BeamType, DeviceEntry
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import DeviceEntry
 
 DEFAULTS = (
     DeviceEntry(name="stage", type="stage"),

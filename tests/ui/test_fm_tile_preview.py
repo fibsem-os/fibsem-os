@@ -18,7 +18,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.geometry.projection import BeamStageProjection, surface_foreshortening
 from fibsem.imaging.tiling.geometry import PlaneRegion
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
 
 OVERLAP = 0.1

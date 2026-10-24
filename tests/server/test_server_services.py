@@ -13,7 +13,11 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.devices.wire import to_wire  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import BeamType, FibsemStagePosition, MillingState  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
+    BeamType,
+    FibsemStagePosition,
+    MillingState,
+)
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -56,7 +60,7 @@ def test_lists_every_service_with_its_commands(read_client, microscope):
     assert body["milling"]["facts"] == {}
     # What each returns, by its type's path, for a client to read it as.
     project = body["stage_movement"]["queries"]["project_stable_move"]
-    assert project["returns"] == "fibsem.structures.FibsemStagePosition"
+    assert project["returns"] == "fibsem.structures.settings.FibsemStagePosition"
 
 
 def test_service_routes_need_the_token(microscope):
@@ -122,7 +126,7 @@ def test_query_works_at_watch_and_takes_no_control(read_client, microscope):
 
 def test_the_estimates_and_the_stage_poses_are_queries(read_client, microscope):
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     settings = SpotBurnSettings(
         coordinates=[Point(0.5, 0.5), Point(0.1, 0.1)], exposure_time=2.0
@@ -266,7 +270,7 @@ def test_devices_and_services_do_not_mix(read_client):
 
 def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
     from fibsem.autofunctions.autofocus import AutoFocusSettings, FocusSweepPass
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     settings = AutoFocusSettings(
         passes=[FocusSweepPass(search_range=20e-6, step_size=10e-6)],
@@ -294,7 +298,7 @@ def test_an_agent_runs_a_focus_sweep(armed_client, microscope):
 
 def test_an_agent_runs_auto_brightness_contrast(armed_client, microscope):
     from fibsem.autofunctions.brightness_contrast import BrightnessContrastSettings
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     beam = microscope.beams[BeamType.ION]
     beam.detector_brightness.set_value(0.95)
@@ -327,7 +331,7 @@ def test_every_service_command_and_query_hint_resolves(microscope):
 def test_hints_resolve_one_at_a_time():
     """A hint that can't resolve is left out; the others still decode."""
     from fibsem.devices.wire import decode_kwargs
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     def move(point: Point, stop_event: "OnlyForTypeChecking" = None):  # noqa: F821
         pass
@@ -360,7 +364,7 @@ def test_sequences_decode_each_element():
     from typing import List, Sequence, Tuple
 
     from fibsem.devices.wire import decode_argument
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     points = [{"x": 1.0, "y": 2.0}, {"x": 3.0, "y": 4.0}]
     expected = [Point(1.0, 2.0), Point(3.0, 4.0)]
@@ -393,7 +397,10 @@ def test_numbers_sent_as_text_decode_as_the_declared_type():
 
 
 def test_a_pattern_dict_names_its_shape():
-    from fibsem.structures import FibsemPatternSettings, FibsemRectangleSettings
+    from fibsem.structures.settings import (
+        FibsemPatternSettings,
+        FibsemRectangleSettings,
+    )
 
     rectangle = FibsemRectangleSettings(
         width=1e-6, height=2e-6, depth=1e-6, centre_x=0.0, centre_y=0.0
@@ -407,7 +414,7 @@ def test_a_pattern_dict_names_its_shape():
 
 def test_an_agent_runs_a_spot_burn(armed_client, microscope):
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     settings = SpotBurnSettings(coordinates=[Point(0.5, 0.5)], exposure_time=0.01)
     resp = armed_client.post(
@@ -425,7 +432,10 @@ def test_an_agent_runs_a_spot_burn(armed_client, microscope):
 
 
 def test_an_agent_prepares_milling_with_patterns(armed_client, microscope):
-    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+    from fibsem.structures.settings import (
+        FibsemMillingSettings,
+        FibsemRectangleSettings,
+    )
 
     rectangle = FibsemRectangleSettings(
         width=1e-6, height=2e-6, depth=1e-6, centre_x=0.0, centre_y=0.0
@@ -547,7 +557,7 @@ def test_an_unknown_key_is_refused_at_any_depth(read_client):
 
 
 def test_what_a_structure_writes_it_reads_back(read_client):
-    from fibsem.structures import OverviewAcquisitionSettings
+    from fibsem.structures.settings import OverviewAcquisitionSettings
 
     path = "/microscope/services/imaging/queries/estimate_overview"
     settings = to_wire(OverviewAcquisitionSettings(nrows=2))
@@ -613,7 +623,10 @@ def test_a_sweep_that_cannot_set_the_working_distance_asks_the_instrument(
 def test_milling_answers_the_current_and_warns_on_one_the_beam_does_not_list(
     armed_client, microscope
 ):
-    from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+    from fibsem.structures.settings import (
+        FibsemMillingSettings,
+        FibsemRectangleSettings,
+    )
 
     listed = sorted(microscope.beams[BeamType.ION].current.choices)
     between = (listed[0] + listed[1]) / 2

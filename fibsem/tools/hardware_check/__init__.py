@@ -32,7 +32,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
-from fibsem.structures import RangeLimit
+from fibsem.structures.params import RangeLimit
 from fibsem.util.timestamps import format_time, now
 
 

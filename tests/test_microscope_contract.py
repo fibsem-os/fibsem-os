@@ -37,19 +37,19 @@ import yaml
 
 from fibsem import config as cfg
 from fibsem import utils
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
     FibsemManipulatorPosition,
     FibsemMillingSettings,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
-    InsertableDeviceState,
     MicroscopeState,
     Point,
     ScanMode,
 )
+from fibsem.structures.system import InsertableDeviceState
 from tests.fixtures import fake_drivers
 from tests.fixtures.fake_drivers import FAKE_DRIVERS
 
@@ -1147,7 +1147,7 @@ def test_finish_milling_puts_the_beam_back(microscope, beam_type):
 
     Where the current is not settable (a Tescan's comes with the milling preset,
     which the fake SDK does not model), only the putting back is checked."""
-    from fibsem.structures import FibsemMillingSettings
+    from fibsem.structures.settings import FibsemMillingSettings
 
     channels = microscope.milling.supported_settings()["milling_channel"].choices
     if channels and beam_type not in channels:
