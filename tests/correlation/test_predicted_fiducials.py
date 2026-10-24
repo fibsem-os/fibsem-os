@@ -31,16 +31,17 @@ from fibsem.fm.structures import (  # noqa: E402
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
-    CameraImageTransform,
-    FibsemHardwareGeometry,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.structures.system import (  # noqa: E402
+    CameraImageTransform,
+    FibsemHardwareGeometry,
 )
 from fibsem.ui.correlation.widgets.correlation_tab_widget import (  # noqa: E402
     CorrelationTabWidget,
@@ -663,7 +664,7 @@ def test_a_seeded_run_shows_the_verdict_and_annotates_the_rows(loaded):
     assert "helped produce" in rt._table.horizontalHeaderItem(1).toolTip()
     assert "without this fiducial" in rt._table.horizontalHeaderItem(2).toolTip()
     # the flagged pair is marked in the table, as it is on the rows
-    from fibsem.ui.tokens import WARN_COLOR
+    from fibsem.theme.tokens import WARN_COLOR
 
     assert rt._table.item(6, 2).foreground().color().name() == WARN_COLOR
     assert rt._table.item(0, 2).foreground().color().name() != WARN_COLOR

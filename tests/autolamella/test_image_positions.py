@@ -10,7 +10,8 @@ from datetime import datetime
 import numpy as np
 import tifffile as tff
 
-from fibsem.structures import FibsemImage, FibsemStagePosition, MicroscopeState
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
 from fibsem.workflows.image_positions import (
     PositionMatch,
     compare_positions,

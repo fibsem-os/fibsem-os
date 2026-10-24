@@ -1,33 +1,20 @@
 """What a tiled acquisition says about itself while it runs.
 
 The imaging service's ``tiled_progress`` signal is shared by the beam tiler and the
-fluorescence tileset runner, which report on it through `report_tiled_progress`. It
-used to carry a bare dict with no declared shape, so every consumer worked out what
-it had received from which keys happened to be present. That held while
-`imaging.tiled` was the only emitter; with a second producer the same key came to
-mean different things depending on who sent it, which is the root of FIB-736 and
-FIB-739.
-
+fluorescence tileset runner, which report on it through `report_tiled_progress`.
 `TiledProgress` is the whole contract, and `TiledStatus` is the whole vocabulary.
 
 One flat record rather than a class per payload shape. Every consumer asks the same
 three questions -- is this mine, does it carry counts, is there something to draw --
-and none dispatches over an exhaustive set of types, so types buy nothing that optional
-fields do not. A hierarchy also fails in a way a flat record cannot: an `isinstance`
-check that quietly misses a sibling class is a run that never finishes, with nothing
-raised anywhere.
+and none dispatches over a set of types; an `isinstance` check that misses a sibling
+class is a run that never finishes, with nothing raised.
 
-`modality` is a field and only a field. Encoding it in the type as well -- a
-`BeamTileCompleted` beside a `FluorescenceTileCompleted` -- gives two discriminators
-that can disagree, and the one that disagrees silently paints a fluorescence mosaic
-into the beam overview (FIB-725).
+`modality` is a field and only a field, so there are not two discriminators that can
+disagree.
 
 Presentation is not on the wire. A producer reports *what happened*; each consumer
-words it. `imaging.tiled` is a headless module and was building English for three
-widgets that each wanted different wording, so the two producers had drifted to
-"Stitching Tiles" and "Stitching tiles..." for the same state. `error` is the one free
-string, and it carries a *reason* -- an exception, a stage-limits rejection naming
-every offending tile -- never a label.
+words it. `error` is the one free string, and it carries a *reason* -- an exception, a
+stage-limits rejection naming every offending tile -- never a label.
 """
 
 from __future__ import annotations
@@ -44,7 +31,7 @@ if TYPE_CHECKING:
     # `fibsem.fm.structures` in the path of every one of them for a name that is
     # never called.
     from fibsem.fm.structures import FluorescenceImage
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 # The beam tiler: SEM or FIB, since no consumer distinguishes them -- both draw into the
 # same overview.
@@ -64,12 +51,9 @@ __all__ = [
 class TiledStatus(ProgressStatus):
     """Where a tiled run has got to.
 
-    One vocabulary covering the whole run rather than a phase enum plus an outcome enum.
-    Splitting them means a consumer needs both fields to know whether a run is over, and
-    the two overlap on the word "finished" -- which is what the split was protecting
-    against in the first place. Both members survive here under names that cannot be
-    confused: `TILES_ACQUIRED` is the runner saying the last tile is in and the stage is
-    parked, `FINISHED` is the whole run being over, mosaic written.
+    One vocabulary covering the whole run, so one field says whether a run is over.
+    `TILES_ACQUIRED` is the runner saying the last tile is in and the stage is parked;
+    `FINISHED` is the whole run being over, mosaic written.
 
     A `str` mixin so a member compares equal to its own value: these are persisted
     nowhere, but they do end up in log lines, and `"finished"` reads better than
@@ -82,9 +66,8 @@ class TiledStatus(ProgressStatus):
     # after -- because what a consumer does with it is identical.
     STARTING = "starting"
     MOVING = "moving"
-    # A tile is beginning. Deliberately not a progress report: emitted *before* the tile,
-    # a count taken from it is always one short, and a bar driven off it stopped at 3/4
-    # for a whole four-tile run (FIB-736).
+    # A tile is beginning. Not a progress report: emitted *before* the tile, so a count
+    # taken from it is always one short.
     TILE_STARTED = "tile-started"
     # A tile is in and painted into the mosaic. The one report per tile that carries
     # counts, and the only one that carries a preview.
@@ -103,15 +86,9 @@ class TiledStatus(ProgressStatus):
 ends(TiledStatus.FINISHED, TiledStatus.CANCELLED, TiledStatus.FAILED)
 
 
-# `eq=False`, so equality and hashing stay identity-based.
-#
-# The generated `__eq__` compares every field, and `preview` holds an image whose own
-# `__eq__` compares a numpy array elementwise -- `FluorescenceImage` is a dataclass, so
-# it has one. Comparing two events then raises `ValueError: truth value of an array with
-# more than one element is ambiguous`, and only sometimes: comparing an event to *itself*
-# short-circuits on identity and returns True, so the naive test passes and the failure
-# waits for two distinct events. `hash()` raises `TypeError` outright. Identity semantics
-# are both honest and what a one-shot progress report actually wants.
+# `eq=False`, so equality and hashing stay identity-based: `preview` holds an image
+# whose `__eq__` compares a numpy array elementwise, so a generated `__eq__` would raise
+# on two distinct events, and `hash()` would raise outright.
 @dataclass(frozen=True, eq=False)
 class TiledProgress:
     """One report from a tiled acquisition.
@@ -126,10 +103,7 @@ class TiledProgress:
 
     status: TiledStatus
     modality: str = MODALITY_BEAM
-    # Tiles **completed**, not the tile in flight. The beam tiler increments and then
-    # emits, so its count has always meant this; the fluorescence side used to say it
-    # twice per tile with two meanings, and a consumer choosing between them got a bar
-    # that changed scale at every boundary (FIB-736, FIB-739).
+    # Tiles **completed**, not the tile in flight.
     completed: Optional[int] = None
     # Tiles that will actually be acquired, not grid cells: a progress bar that stops at
     # 9/25 on a successful sparse run reads as a failure.
@@ -166,11 +140,8 @@ class TiledProgress:
     def display_tile(self) -> Optional[Tuple[int, int]]:
         """`(row, column)` of the tile this report is about, 1-based, for people.
 
-        The one place the offset is applied. Tile 0 is "1" to a reader and 0 to a
-        `_ordered[...]` lookup, and the two spellings sat one function apart on the
-        fluorescence runner -- the log said `[1/3][1/3]` while the payload said row 0 --
-        so the conversion belongs somewhere single and testable rather than inline at
-        whichever call site happens to need it.
+        The one place the offset is applied: tile 0 is "1" to a reader and 0 to a
+        `_ordered[...]` lookup.
         """
         if self.row_index is None or self.column_index is None:
             return None

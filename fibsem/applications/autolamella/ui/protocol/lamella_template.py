@@ -14,13 +14,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import LamellaDefaultConfig
-from fibsem.structures import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
-from fibsem.ui.stylesheets import NAPARI_STYLE
-from fibsem.ui.tokens import (
+from fibsem.structures.settings import DEFAULT_ALIGNMENT_AREA, FibsemRectangle, Point
+from fibsem.theme.tokens import (
     NEUTRAL_500,
     NEUTRAL_750,
     SEMANTIC_WARNING_COLOR,
 )
+from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.alignment_overlay import AlignmentAreaOverlay
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay

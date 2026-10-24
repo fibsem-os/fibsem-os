@@ -7,7 +7,7 @@ Run directly:
 import matplotlib.pyplot as plt
 
 from fibsem.imaging.tiled import compute_tile_grid, order_tiles, plot_tile_positions
-from fibsem.structures import (
+from fibsem.structures.settings import (
     ImageSettings,
     OverviewAcquisitionSettings,
     TileOrderStrategy,

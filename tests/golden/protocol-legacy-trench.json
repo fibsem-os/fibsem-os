@@ -33,7 +33,9 @@
   },
   "id": "pinned-protocol-id",
   "lamella_defaults": {
+    "alignment_area": null,
     "name_prefix": "",
+    "poi": null,
     "use_petname": true
   },
   "name": "autolamella-trench-milling",
@@ -110,7 +112,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 2.5 nA"
+                  }
+                },
                 "hfw": 0.00018,
                 "milling_channel": "ION",
                 "milling_current": 7.6e-09,

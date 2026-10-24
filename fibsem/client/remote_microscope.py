@@ -29,7 +29,7 @@ from fibsem.client.transport import NO_SERVER, ServerUnreachable, resolve, serve
 from fibsem.drivers.remote.devices import REMOTE_FM_PARTS, DeviceClient
 from fibsem.drivers.remote.services import connect_remote_services
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemExperimentRef, FibsemUser
+from fibsem.structures.system import FibsemExperimentRef, FibsemUser
 
 ROOT = "/microscope"
 
@@ -100,7 +100,7 @@ class RemoteMicroscope(FibsemMicroscope):
         default: connecting from another computer changes nothing there."""
         from fibsem.devices.entries import ResolvedEntry, build_device_entries
         from fibsem.drivers.remote.devices import REMOTE_DRIVER
-        from fibsem.structures import DeviceEntry
+        from fibsem.structures.system import DeviceEntry
 
         client = DeviceClient(ip_address, port, token=self._token, root=ROOT)
         self._client = client

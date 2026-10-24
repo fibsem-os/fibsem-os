@@ -23,14 +23,13 @@ from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.imaging.tiling.reach import reachable_overview
 from fibsem.services.sample_handling import uncalibrated_message
-from fibsem.structures import (
-    BEAM_ORIENTATIONS,
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import (
     BeamType,
-    Display,
     FibsemStagePosition,
     OverviewAcquisitionSettings,
-    param,
 )
+from fibsem.structures.system import BEAM_ORIENTATIONS
 from fibsem.workflows.grid.base import (
     GridTask,
     GridTaskConfig,

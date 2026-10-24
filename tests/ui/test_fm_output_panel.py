@@ -27,7 +27,7 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.imaging.tiled import stamped_overview_name
-from fibsem.structures import DEFAULT_OVERVIEW_FILENAME
+from fibsem.structures.settings import DEFAULT_OVERVIEW_FILENAME
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)

@@ -9,7 +9,7 @@ from PyQt5.QtGui import QFontDatabase
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.server.pairing import OPERATOR
-from fibsem.ui.tokens import TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
+from fibsem.theme.tokens import TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 __all__ = ["PairingCode", "PairedList", "STOP_PAIRING_LABEL"]

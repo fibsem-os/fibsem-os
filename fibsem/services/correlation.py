@@ -90,7 +90,7 @@ class Correlation(Service):
         from fibsem.correlation.prior import experiment_runs
         from fibsem.correlation.session import CorrelationSession, load_fm_stack
         from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
-        from fibsem.structures import FibsemImage
+        from fibsem.structures.image import FibsemImage
 
         def coordinates(points, kind, dims):
             out = []
@@ -201,7 +201,7 @@ class Correlation(Service):
         kind = PointType.FIB if beam == "fib" else PointType.FM
         coord = Coordinate(PointXYZ(x, y, z), kind)
         if beam == "fib":
-            from fibsem.structures import FibsemImage
+            from fibsem.structures.image import FibsemImage
 
             result = refine_point(
                 coord, "fib", method, fib_image=FibsemImage.load(image_path)
@@ -270,7 +270,7 @@ class Correlation(Service):
             "reason": reason,
         }
         if fib_image_path and coords:
-            from fibsem.structures import FibsemImage
+            from fibsem.structures.image import FibsemImage
 
             image = FibsemImage.load(fib_image_path)
             mismatch = spot_burn_field_width_mismatch(width, image)

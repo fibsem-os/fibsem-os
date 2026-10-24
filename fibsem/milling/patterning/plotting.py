@@ -17,10 +17,10 @@ from fibsem.conversions import (
     microscope_image_to_image_coordinates,
 )
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemImage,
     FibsemLineSettings,
     FibsemPatternSettings,
     FibsemPolygonSettings,

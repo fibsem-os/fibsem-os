@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 from PyQt5.QtCore import QObject, pyqtSignal
 
 from fibsem.theme.plots import DARK
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CANVAS_BG,
 )
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay, _modifiers_from_event

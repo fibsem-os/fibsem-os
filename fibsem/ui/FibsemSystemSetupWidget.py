@@ -8,16 +8,18 @@ from PyQt5.QtCore import pyqtSignal
 from fibsem import config as cfg
 from fibsem import guided_setup, utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import ImageSettings, MicroscopeSettings
-from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.structures.settings import ImageSettings
+from fibsem.structures.system import MicroscopeSettings
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,
     PANEL_COLOR,
     PRIMARY_COLOR,
     WHITE_ICON_COLOR,
 )
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
@@ -114,6 +116,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         layout.addWidget(self._frame_status)
         layout.addStretch()
 
+        self._shown_connected: Optional[bool] = None
         self.setup_connections()
         self._session_changed.connect(self._on_session_changed)
         self.session.changed.connect(self._hear_session)
@@ -601,6 +604,10 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
     def update_ui(self):
 
         is_microscope_connected = bool(self.microscope)
+        # The window builds or drops its tabs on these: once per change, though
+        # the tab redraws on every connect step and session change.
+        changed = is_microscope_connected != self._shown_connected
+        self._shown_connected = is_microscope_connected
         # Locked while connected: the session runs on the file it was started from,
         # and picking or adding another would show one it is not using.
         self.comboBox_configuration.setEnabled(not is_microscope_connected)
@@ -611,13 +618,12 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
         if is_microscope_connected:
             self.pushButton_connect_to_microscope.setVisible(False)
-            self.connected_signal.emit()
+            if changed:
+                self.connected_signal.emit()
 
             info = self.microscope.system.info
             self._label_status_icon.setPixmap(
-                fibsem_icon("mdi:check-circle", color=stylesheets.GREEN_COLOR).pixmap(
-                    20, 20
-                )
+                fibsem_icon("mdi:check-circle", color=tokens.GREEN_COLOR).pixmap(20, 20)
             )
             self._label_status_title.setText("Microscope Connected")
             self._label_status_subtitle.setText(
@@ -632,7 +638,8 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             self.pushButton_connect_to_microscope.setStyleSheet(
                 stylesheets.PRIMARY_BUTTON_STYLESHEET
             )
-            self.disconnected_signal.emit()
+            if changed:
+                self.disconnected_signal.emit()
 
             # "Not connected" and "tried and failed" are different states, and the
             # difference is exactly what someone needs. The card says which, and it is

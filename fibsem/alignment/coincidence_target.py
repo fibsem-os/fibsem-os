@@ -39,7 +39,8 @@ from fibsem.alignment.coincidence import (
     _local_normalise,
     geometry_from_images,
 )
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 
 METHOD = "target-patch"
 # Width and height of the SEM patch around the target, about what the agent

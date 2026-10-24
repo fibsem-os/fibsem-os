@@ -13,7 +13,7 @@ from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import
     AcquireFluorescenceImageConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 
 class _StubTask(AutoLamellaTask):

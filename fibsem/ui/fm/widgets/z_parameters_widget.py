@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import ZParameters, ZStackOrder
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     NEUTRAL_650,
 )
 from fibsem.ui.widgets.custom_widgets import (

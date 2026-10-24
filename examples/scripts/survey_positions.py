@@ -7,7 +7,7 @@
 uses_microscope = True
 
 from fibsem import acquire
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
 
 
 def run(ctx):

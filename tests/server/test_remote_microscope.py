@@ -20,9 +20,9 @@ from fibsem.drivers.remote.devices import RemoteBeam, RemoteStage  # noqa: E402
 from fibsem.drivers.remote.services import RemoteService  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.services.milling import Milling  # noqa: E402
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
-    FibsemImage,
     FibsemMillingSettings,
     FibsemRectangleSettings,
     FibsemStagePosition,

@@ -11,7 +11,12 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings, SampleGrid
+from fibsem.structures.settings import (
+    BeamType,
+    FibsemStagePosition,
+    ImageSettings,
+    SampleGrid,
+)
 
 TFS_SHUTTLE_CONFIG = os.path.join(
     cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
@@ -157,7 +162,7 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
         BUILTIN_HOLDER_NAME,
         bind_sample_handling,
     )
-    from fibsem.structures import GridSlot, SampleHolder, SlotCalibration
+    from fibsem.structures.settings import GridSlot, SampleHolder, SlotCalibration
 
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=ARCTIS_CONFIG)
     # where the grid lands is pinned here, so the stage goes exactly where it is sent

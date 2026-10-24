@@ -27,7 +27,7 @@ def test_a_float_field_patches_and_reports_old_and_new(config):
 
 
 def test_enums_patch_by_member_name(config):
-    from fibsem.structures import CrossSectionPattern
+    from fibsem.structures.settings import CrossSectionPattern
 
     apply_patch(
         config,
@@ -148,7 +148,7 @@ def test_a_strategy_field_keeps_its_limits(coincident):
 
 
 def test_a_field_that_is_none_takes_its_annotated_type(coincident):
-    from fibsem.structures import FibsemRectangle
+    from fibsem.structures.settings import FibsemRectangle
 
     rect = {"left": 0.1, "top": 0.2, "width": 0.3, "height": 0.4}
     apply_patch(coincident, {f"{STRATEGY}.bbox": rect})
@@ -197,7 +197,7 @@ def test_a_none_field_written_with_a_bar_takes_its_type():
 def test_a_float_field_holding_a_whole_number_takes_a_float():
     """A Point made with ints, as a saved file can hold it, still patches as the
     float its fields are declared (sim session 2026-10-19 F3)."""
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     point = Point(0, 0)
     assert apply_patch(point, {"x": -3e-6}) == [("x", 0, -3e-6)]

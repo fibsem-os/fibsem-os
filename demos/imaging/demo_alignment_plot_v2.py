@@ -13,7 +13,7 @@ from fibsem.alignment import (
     plot_multi_step_alignment,
     shift_from_crosscorrelation_v2,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 
 def make_shifted_image(ref_image, offset_x: int, offset_y: int):

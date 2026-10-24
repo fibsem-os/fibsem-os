@@ -34,7 +34,7 @@ from fibsem.applications.autolamella.ui.coincidence.viewer import (
     _FibImageCanvas,
     _FmImageCanvas,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 

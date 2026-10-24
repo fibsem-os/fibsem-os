@@ -15,10 +15,7 @@ stops there, the same contract ``stage_position_widget`` uses, because reading t
 instrument is a device call and the host is the only thing that knows what one costs.
 
 **Two states, one widget.** A saved pose and the live instrument are the same record
-from different sources, so they are the same widget with a different label. Passing a
-reference through ``set_reference`` turns on the comparison, which is the mode with
-something to say: *how far is the instrument from where this lamella was milled*, asked
-before the operator presses Move To.
+from different sources, so they are the same widget with a different label.
 
 Display only. ``Move To`` and ``Restore`` belong to the host: the moment this widget
 can drive a stage it needs a threading story, and that is a different widget.
@@ -26,7 +23,6 @@ can drive a stage it needs a threading story, and that is a different widget.
 
 from __future__ import annotations
 
-import math
 from typing import List, Optional, Tuple
 
 from PyQt5.QtCore import Qt, pyqtSignal
@@ -40,13 +36,16 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.imaging.export import DETECTOR_MODE_ABBREVIATIONS
-from fibsem.structures import BeamSettings, FibsemDetectorSettings, MicroscopeState
-from fibsem.ui.tokens import (
+from fibsem.structures.settings import (
+    BeamSettings,
+    FibsemDetectorSettings,
+    MicroscopeState,
+)
+from fibsem.theme.tokens import (
     CURRENT_POSITION_COLOUR,
     SAVED_POSITION_COLOUR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
-    WARN_COLOR,
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.util.timestamps import format_time
@@ -60,33 +59,19 @@ from fibsem.utils import (
     format_voltage,
 )
 
-# The two colours the comparison is drawn in, and they are not chosen here.
-# `tokens.py` documents CURRENT_POSITION_COLOUR as "where the stage is now" and
-# SAVED_POSITION_COLOUR as "a marked position", and the FIB/SEM and fluorescence
-# overviews already draw stage markers in them. An operator who has used either
-# canvas has been taught that yellow is live and cyan is saved; inventing a second
-# convention for the same distinction in a panel beside them would be worse than
-# either convention alone.
+# The chips' colours, the ones the FIB/SEM and fluorescence overviews draw stage
+# markers in: `tokens.py` documents CURRENT_POSITION_COLOUR as "where the stage is
+# now" and SAVED_POSITION_COLOUR as "a marked position".
 _SAVED_COLOUR = SAVED_POSITION_COLOUR
 _LIVE_COLOUR = CURRENT_POSITION_COLOUR
 
-# Grid columns. Named because three of the four are referred to from two places, and
-# an off-by-one here puts a value in the label column rather than raising.
 _KEY_COLUMN = 0
-_SAVED_COLUMN = 1
-_GAP_COLUMN = 2
-_LIVE_COLUMN = 3
+_VALUE_COLUMN = 1
 _KEY_COLUMN_MIN_W = 92  # fits "Working dist." at the default UI font
-_GAP_COLUMN_W = 14
-
-# Rows are compared as *rendered strings*, not as floats. Two records holding
-# 2.0e-11 and 2.0000001e-11 both read "20 pA", and marking that row as a difference
-# would be reporting a change the panel cannot show. Comparing what is drawn asks the
-# same question the reader is asking: do these two columns say different things?
 
 
 class MicroscopeStateWidget(QWidget):
-    """One ``MicroscopeState``, optionally against another.
+    """One ``MicroscopeState``.
 
     Parameters
     ----------
@@ -102,7 +87,6 @@ class MicroscopeStateWidget(QWidget):
     def __init__(self, show_refresh: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._state: Optional[MicroscopeState] = None
-        self._reference: Optional[MicroscopeState] = None
         self._show_refresh = show_refresh
         self._setup_ui()
 
@@ -120,9 +104,7 @@ class MicroscopeStateWidget(QWidget):
         header.setSpacing(6)
         self.label_title = QLabel("—")
         self.label_title.setStyleSheet("font-weight: bold;")
-        # Chips, not a sentence. Which record is on screen is the first thing a
-        # reader needs and the thing they will glance back at, and a chip carrying
-        # the colour its column is drawn in answers it without being read.
+        # Which record is on screen: a chip in the colour the overviews use for it.
         self.chip_saved = _chip("saved", _SAVED_COLOUR)
         self.chip_live = _chip("live", _LIVE_COLOUR)
         header.addWidget(self.label_title)
@@ -175,11 +157,6 @@ class MicroscopeStateWidget(QWidget):
         # than no section: it reads as an instrument fault rather than a gap in the
         # record. It arrives when the record can answer for it.
 
-        self.label_delta = QLabel("")
-        self.label_delta.setStyleSheet(f"color: {WARN_COLOR};")
-        self.label_delta.setVisible(False)
-        outer.addWidget(self.label_delta)
-
         self.label_timestamp = QLabel("")
         self.label_timestamp.setStyleSheet(
             f"color: {TEXT_MUTED_COLOR}; font-size: 10pt;"
@@ -201,14 +178,8 @@ class MicroscopeStateWidget(QWidget):
         self.label_title.setText(title or "Microscope state")
         self._refresh()
 
-    def set_reference(self, reference: Optional[MicroscopeState]) -> None:
-        """Compare against ``reference``, or pass ``None`` to stop comparing."""
-        self._reference = reference
-        self._refresh()
-
     def clear(self) -> None:
         self._state = None
-        self._reference = None
         self._refresh()
 
     # ------------------------------------------------------------------
@@ -217,51 +188,27 @@ class MicroscopeStateWidget(QWidget):
 
     def _refresh(self) -> None:
         state = self._state
-        comparing = state is not None and self._reference is not None
-        # Both chips when comparing; otherwise the one that describes this record --
-        # a live readout has a refresh button, a saved pose does not.
-        self.chip_saved.setVisible(
-            state is not None and (comparing or not self._show_refresh)
-        )
-        self.chip_live.setVisible(
-            state is not None and (comparing or self._show_refresh)
-        )
+        # The chip that describes this record: a live readout has a refresh button,
+        # a saved pose does not.
+        self.chip_saved.setVisible(state is not None and not self._show_refresh)
+        self.chip_live.setVisible(state is not None and self._show_refresh)
 
         if state is None:
             for grid in (self.grid_stage, self.grid_electron, self.grid_ion):
                 grid.clear()
             self.headline_electron.setText("")
             self.headline_ion.setText("")
-            self.label_delta.setVisible(False)
             self.label_timestamp.setText("")
             return
 
-        reference = self._reference
-        self.grid_stage.set_rows(
-            _stage_rows(state), _stage_rows(reference) if comparing else None
-        )
+        self.grid_stage.set_rows(_stage_rows(state))
         self.grid_electron.set_rows(
-            _beam_rows(state.electron_beam, state.electron_detector),
-            _beam_rows(reference.electron_beam, reference.electron_detector)
-            if comparing
-            else None,
+            _beam_rows(state.electron_beam, state.electron_detector)
         )
-        self.grid_ion.set_rows(
-            _beam_rows(state.ion_beam, state.ion_detector),
-            _beam_rows(reference.ion_beam, reference.ion_detector)
-            if comparing
-            else None,
-        )
+        self.grid_ion.set_rows(_beam_rows(state.ion_beam, state.ion_detector))
 
         self.headline_electron.setText(_beam_headline(state.electron_beam))
         self.headline_ion.setText(_beam_headline(state.ion_beam))
-
-        separation = _separation(state, reference) if comparing else None
-        self.label_delta.setVisible(separation is not None)
-        if separation is not None:
-            self.label_delta.setText(
-                f"Stage is {format_distance(separation)} from the saved pose"
-            )
 
         self.label_timestamp.setText(_timestamp(state.timestamp))
 
@@ -335,25 +282,6 @@ def _beam_headline(beam: Optional[BeamSettings]) -> str:
     return f"{format_voltage(beam.voltage)} · {format_current(beam.beam_current)}"
 
 
-def _separation(state: MicroscopeState, reference: MicroscopeState) -> Optional[float]:
-    """Straight-line distance between two stage positions, in metres.
-
-    One number an operator can act on. It does collapse three axes into one, which is
-    why the rows above it stay -- the scalar says *whether* to look, the rows say
-    where.
-    """
-    here, there = state.stage_position, reference.stage_position
-    if here is None or there is None:
-        return None
-    squares = 0.0
-    for axis in ("x", "y", "z"):
-        a, b = getattr(here, axis), getattr(there, axis)
-        if a is None or b is None:
-            return None
-        squares += (a - b) ** 2
-    return math.sqrt(squares)
-
-
 def _timestamp(value: Optional[float]) -> str:
     # A state from an older ThermoFisher image holds AutoScript's string here.
     return format_time(value, "%Y-%m-%d %H:%M:%S") or ""
@@ -365,7 +293,7 @@ def _timestamp(value: Optional[float]) -> str:
 
 
 class _ValueGrid(QWidget):
-    """Label/value rows, or label/saved/live rows when comparing.
+    """Label/value rows.
 
     Rebuilt on every update rather than diffed. These are at most eight rows of text
     and the alternative is a cache that can disagree with the record it draws.
@@ -377,17 +305,10 @@ class _ValueGrid(QWidget):
         self._layout.setContentsMargins(2, 2, 2, 2)
         self._layout.setHorizontalSpacing(10)
         self._layout.setVerticalSpacing(1)
-        # The label column gets a floor. Without one the three-column comparison
-        # squeezed it until "Working dist." and "Scan rotation" were clipped to
-        # "Working dist" and "Scan rotatio" -- which the tests could not see, because
-        # a QLabel reports the text it was given whether or not it has room to draw it.
+        # The label column gets a floor, so "Working dist." and "Scan rotation" are
+        # never clipped: a QLabel reports its whole text whether or not it is drawn.
         self._layout.setColumnMinimumWidth(_KEY_COLUMN, _KEY_COLUMN_MIN_W)
-        self._layout.setColumnStretch(_SAVED_COLUMN, 1)
-        # A blank column between the two value columns. When every row matches they
-        # are all muted, and without a gap they read as one run of numbers rather than
-        # two things being compared.
-        self._layout.setColumnMinimumWidth(_GAP_COLUMN, _GAP_COLUMN_W)
-        self._layout.setColumnStretch(_LIVE_COLUMN, 1)
+        self._layout.setColumnStretch(_VALUE_COLUMN, 1)
 
     def clear(self) -> None:
         while self._layout.count():
@@ -396,51 +317,11 @@ class _ValueGrid(QWidget):
             if widget is not None:
                 widget.setParent(None)
 
-    def set_rows(
-        self,
-        rows: List[Tuple[str, str]],
-        reference: Optional[List[Tuple[str, str]]] = None,
-    ) -> None:
+    def set_rows(self, rows: List[Tuple[str, str]]) -> None:
         self.clear()
-        comparing = reference is not None
-        if comparing:
-            self._add_header()
-
-        by_key = dict(reference) if comparing else {}
-        offset = 1 if comparing else 0
-
-        for index, (key, value) in enumerate(rows):
-            row = index + offset
+        for row, (key, value) in enumerate(rows):
             self._layout.addWidget(_key_label(key), row, _KEY_COLUMN)
-            if not comparing:
-                self._layout.addWidget(
-                    _value_label(value, TEXT_COLOR), row, _SAVED_COLUMN
-                )
-                continue
-
-            # The reference is the *saved* side and `rows` is the live one, so the
-            # saved column is drawn from `by_key`. Compared on the rendered strings:
-            # two records holding 2.0e-11 and 2.0000001e-11 both read "20 pA", and a
-            # row showing the same thing twice is not a difference.
-            was = by_key.get(key, NOT_AVAILABLE)
-            differs = was != value
-            self._layout.addWidget(
-                _value_label(was, _SAVED_COLOUR if differs else TEXT_MUTED_COLOR),
-                row,
-                _SAVED_COLUMN,
-            )
-            self._layout.addWidget(
-                _value_label(value, _LIVE_COLOUR if differs else TEXT_MUTED_COLOR),
-                row,
-                _LIVE_COLUMN,
-            )
-
-    def _add_header(self) -> None:
-        for column, text in ((_SAVED_COLUMN, "Saved"), (_LIVE_COLUMN, "Live")):
-            label = QLabel(text)
-            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            label.setStyleSheet(f"color: {TEXT_MUTED_COLOR}; font-size: 9pt;")
-            self._layout.addWidget(label, 0, column)
+            self._layout.addWidget(_value_label(value, TEXT_COLOR), row, _VALUE_COLUMN)
 
 
 def _headline_label() -> QLabel:
@@ -463,7 +344,7 @@ def _headline_label() -> QLabel:
 
 
 def _chip(text: str, colour: str) -> QLabel:
-    """A small pill in the colour its column is drawn in."""
+    """A small pill in *colour*."""
     label = QLabel(text)
     label.setStyleSheet(
         f"color: {colour}; border: 1px solid {colour}; border-radius: 7px;"

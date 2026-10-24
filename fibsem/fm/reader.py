@@ -405,7 +405,7 @@ def assumed_geometry(microscope):
     as its own acquisitions do -- else one looking straight down the stage, with no
     flips. The file cannot say; Fit from points corrects the turn, and a mirror is
     the import dialog's to set."""
-    from fibsem.structures import CameraImageTransform
+    from fibsem.structures.system import CameraImageTransform
 
     try:
         return microscope.fm_image_geometry()

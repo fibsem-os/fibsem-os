@@ -13,7 +13,7 @@ import pytest
 
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.services.spot_burn import SpotBurn
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from tests.drivers.odemis.test_odemis_devices import make, odemis_cls, run  # noqa: F401
 
 

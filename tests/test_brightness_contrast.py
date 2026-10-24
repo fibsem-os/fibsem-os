@@ -17,7 +17,7 @@ from fibsem.autofunctions.brightness_contrast import (
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.drivers.demo import simulator
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 SETTINGS = BrightnessContrastSettings()
 

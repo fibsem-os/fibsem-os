@@ -7,13 +7,9 @@ worse than producing nothing: a reader cannot tell a real user from a placeholde
 import getpass
 import sys
 
-from fibsem.structures import (
-    FibsemImageMetadata,
-    FibsemUser,
-    ImageSettings,
-    MicroscopeState,
-    Point,
-)
+from fibsem.structures.image import FibsemImageMetadata
+from fibsem.structures.settings import ImageSettings, MicroscopeState, Point
+from fibsem.structures.system import FibsemUser
 
 
 def test_from_environment_records_the_real_username(monkeypatch) -> None:

@@ -11,9 +11,7 @@ try:
 except Exception:
     pass
 
-from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -50,6 +48,7 @@ from fibsem.applications.autolamella.ui.protocol.protocol_tab import (
     AutoLamellaProtocolTaskConfigEditor,
 )
 from fibsem.applications.autolamella.ui.workflow.tab import WorkflowTab
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.ui import notification_service
 from fibsem.ui import utils as fui
 from fibsem.ui.app_window import AppWindow
@@ -58,9 +57,8 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.run.attention import AttentionRouter
 from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
-from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
-from fibsem.ui.widgets.microscope_panel import MicroscopePanel
+from fibsem.ui.widgets.microscope_panel import MicroscopePanel, add_microscope_tab
 from fibsem.workflows.grid.naming import (
     grid_rename_refusal,
     record_inventoried_grids,
@@ -236,7 +234,7 @@ class AutoLamellaWindow(AppWindow):
             "No fluorescence microscope available" if no_fm else "No image"
         )
 
-    def _on_session_changed(self, what: str, detail: Any) -> None:
+    def _on_session_changed(self, what: str, detail: Any = None) -> None:
         if what == MICROSCOPE:
             self._on_microscope_changed()
         elif what == EXPERIMENT:
@@ -295,11 +293,6 @@ class AutoLamellaWindow(AppWindow):
 
     def _create_main_tab(self):
         """Create the main AutoLamella tab."""
-        # Create the embedded viewer container
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-
         self._create_panel()
 
         # Everything the workflow says without needing an answer arrives here
@@ -312,8 +305,7 @@ class AutoLamellaWindow(AppWindow):
         notification_service._get_service().toast_action.connect(
             self._on_notification_service_action
         )
-        self._session_changed.connect(self._on_session_changed)
-        self.session.changed.connect(self._hear_session)
+        self._follow_session()
         self.panel.experiment_tab.lamella_list.defect_changed.connect(
             self._on_lamella_defect_changed
         )
@@ -321,16 +313,10 @@ class AutoLamellaWindow(AppWindow):
             self._on_experiment_lamella_selected
         )
 
-        # Layout: quad view (left) | autolamella controls (right) via splitter.
         # The controller's SEM/FIB/FM canvases are the display and drive the control
         # widgets, which are handed it.
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
-
         self.view_controller = MicroscopeViewController(parent=self)
         self.status_bar.follow(self.view_controller)
-        splitter.addWidget(self.view_controller.widget)
-        splitter.addWidget(self.panel)
         # The fourth cell's overview page: the experiment's overviews of the grid the
         # stage is on. Fed from the same places as the Overview tabs, below.
         self.quad_overview_page = QuadOverviewPage()
@@ -345,14 +331,8 @@ class AutoLamellaWindow(AppWindow):
             self._on_quad_overview_lamella_selected
         )
 
-        splitter.setSizes([700, 550])
-        # set minimum width of right panel to 500
-        splitter.widget(1).setMinimumWidth(500)
-        layout.addWidget(splitter)
-        self.tab_widget.addTab(
-            container,
-            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
-            "Microscope",
+        container = add_microscope_tab(
+            self.tab_widget, self.view_controller, self.panel
         )
         # The F5/Esc (View) and F2/F6/F9/F11 (Imaging) shortcuts are defined on QActions —
         # one source of truth for the menu item and its keybinding. Adding those actions to

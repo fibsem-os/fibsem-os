@@ -44,10 +44,7 @@ from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import QLabel, QPushButton, QSizePolicy
 
 from fibsem.theme.plots import DARK
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import CANVAS_BG as _BG
-from fibsem.ui.stylesheets import PRIMARY_ACCENT as _ACCENT
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     GRAY_WHITE_COLOR,
     NEUTRAL_400,
@@ -55,6 +52,9 @@ from fibsem.ui.tokens import (
     TEXT_COLOR,
     WHITE_ICON_COLOR,
 )
+from fibsem.theme.tokens import CANVAS_BG as _BG
+from fibsem.theme.tokens import PRIMARY_ACCENT as _ACCENT
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.canvas.contrast_gamma_control import ContrastGammaControl
 from fibsem.ui.widgets.canvas.overlays.base import _modifiers_from_event
 from fibsem.ui.widgets.canvas.overlays.ruler_overlay import RulerOverlay
@@ -1120,11 +1120,6 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
             self.draw_idle()
 
     # ── active-overlay input gating ───────────────────────────────────────
-
-    @property
-    def active_overlay(self):
-        """The overlay currently owning input, or None (default 'Move' mode)."""
-        return self._active_overlay
 
     def set_active_overlay(self, overlay) -> None:
         """Make *overlay* the sole input handler on this canvas (None = Move).

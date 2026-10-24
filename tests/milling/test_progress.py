@@ -22,7 +22,7 @@ from fibsem.milling.progress import (
     MillingProgress,
     MillingProgressStatus,
 )
-from fibsem.structures import ACTIVE_MILLING_STATES, MillingState
+from fibsem.structures.settings import ACTIVE_MILLING_STATES, MillingState
 
 
 class TestTheStatusVocabulary:

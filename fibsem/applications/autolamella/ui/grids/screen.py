@@ -38,17 +38,18 @@ from fibsem.applications.autolamella.ui.workflow.preflight import (
     grid_run_summary,
     run_ending,
 )
-from fibsem.structures import BeamType, GridInventoryEntry, GridSlotState
-from fibsem.ui import stylesheets
-from fibsem.ui.control import control_of
-from fibsem.ui.qt.threading import thread_worker
-from fibsem.ui.tokens import (
+from fibsem.structures.settings import BeamType, GridInventoryEntry, GridSlotState
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     DISABLED_TEXT_COLOR,
     ERROR_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
+from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.widgets.preflight import (
     BACKGROUND,
     ON_PANEL,
@@ -75,7 +76,7 @@ SCANNING = "scanning"
 REVIEW = "review"
 
 _NOTE_STYLE = f"color: {TEXT_MUTED_COLOR}; font-size: 11px; {ON_PANEL}"
-_WARN_NOTE_STYLE = f"color: {stylesheets.SEMANTIC_WARNING_COLOR}; font-size: 11px;"
+_WARN_NOTE_STYLE = f"color: {tokens.SEMANTIC_WARNING_COLOR}; font-size: 11px;"
 _LINK_STYLE = f"color: {ACCENT_COLOR}; text-decoration: none;"
 
 # A scan cancelled with the dialog keeps running on its own thread; the worker

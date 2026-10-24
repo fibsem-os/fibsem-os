@@ -17,7 +17,8 @@ pytest.importorskip("PyQt5")
 
 from PyQt5.QtWidgets import QCheckBox
 
-from fibsem.structures import Display, Parameter, Point, RangeLimit
+from fibsem.structures.params import Display, Parameter, RangeLimit
+from fibsem.structures.settings import Point
 from fibsem.ui.widgets.custom_widgets import (
     IntegerValueSpinBox,
     QFilePathLineEdit,

@@ -33,7 +33,7 @@ from typing import (
 
 from fibsem.milling.base import MillingStrategyResult
 from fibsem.milling.monitor_config import MillingMonitorConfig
-from fibsem.structures import param
+from fibsem.structures.params import param
 
 if TYPE_CHECKING:
     from fibsem.milling.steps import MillingStep

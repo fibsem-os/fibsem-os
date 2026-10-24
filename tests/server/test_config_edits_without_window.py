@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
-from fibsem.structures import MicroscopeState, Point
+from fibsem.structures.settings import MicroscopeState, Point
 from tests.run_state import stub_session
 
 TASK = "Rough Milling"

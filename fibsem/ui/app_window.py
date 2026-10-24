@@ -8,15 +8,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
-from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings
+from fibsem.structures.system import MicroscopeSettings
 from fibsem.ui.agent.chip_host import AgentChipHost
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
+from fibsem.ui.qt.connections import connect_on_gui_thread
 from fibsem.ui.qt.run_bridge import GuiExecutor, RunRelay
 from fibsem.ui.run.proposals import ProposalPresenter
 from fibsem.ui.run.responder import QtResponder
@@ -39,9 +39,6 @@ class AppWindow(QMainWindow):
     """An app's main window. Subclasses build ``panel`` (a ``MicroscopePanel``),
     ``view_controller`` and ``run_view``, and say what the App Server serves
     (:meth:`app_context`)."""
-
-    # The session's `changed`, carried to the GUI thread.
-    _session_changed = pyqtSignal(str, object)
 
     @property
     def microscope(self) -> Optional[FibsemMicroscope]:
@@ -70,9 +67,6 @@ class AppWindow(QMainWindow):
         # host process makes the session (fibsem.server.headless), connected
         # or not, and the window opens on it.
         self.session = session if session is not None else AppSession()
-        # Before the app's own slots: its views are built for the microscope
-        # by the time it hears one.
-        self._session_changed.connect(self._follow_connection)
         self.setWindowTitle(f"{title} v{get_version_string()} ")
         self.resize(1600, 1000)
 
@@ -134,8 +128,21 @@ class AppWindow(QMainWindow):
         self.workflow_controls = WorkflowControls(self.status_bar)
         self.status_bar.add_action(self.workflow_controls)
 
+    def _follow_session(self) -> None:
+        """Call `_on_session_changed` on the GUI thread for each of the
+        session's changes, until the window closes."""
+        self._stop_following_session = connect_on_gui_thread(
+            self, self.session.changed, self._hear_session
+        )
+
     def _hear_session(self, what: str, detail: Any = None) -> None:
-        self._session_changed.emit(what, detail)
+        # The connection first: the app's views are built for the microscope
+        # by the time it hears one.
+        self._follow_connection(what, detail)
+        self._on_session_changed(what, detail)
+
+    def _on_session_changed(self, what: str, detail: Any = None) -> None:
+        """The session's microscope, experiment or protocol changed."""
 
     def _catch_up(self) -> None:
         """Hear what the session had before this window opened on it: the
@@ -321,7 +328,7 @@ class AppWindow(QMainWindow):
         # instrument go rather than leave the client open until the process ends.
         if self.microscope is not None:
             self.microscope.try_disconnect()
-        self.session.changed.disconnect(self._hear_session)
+        self._stop_following_session()
         super().closeEvent(event)
         # Force the event loop to exit even if another top-level window (e.g. a
         # stray matplotlib pyplot figure) would otherwise keep the app alive once

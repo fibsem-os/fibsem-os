@@ -36,7 +36,8 @@ from fibsem.server.devices import (  # noqa: E402
     configured_devices,
     describe_device,
 )
-from fibsem.structures import DeviceEntry, RangeLimit  # noqa: E402
+from fibsem.structures.params import RangeLimit  # noqa: E402
+from fibsem.structures.system import DeviceEntry  # noqa: E402
 
 DWELL = RangeLimit(min=100e-9, max=10e-6)
 

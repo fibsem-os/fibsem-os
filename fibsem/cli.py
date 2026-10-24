@@ -18,9 +18,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,

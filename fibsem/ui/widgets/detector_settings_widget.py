@@ -10,7 +10,8 @@ from superqt import QDoubleSlider
 
 from fibsem.devices.beam import Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemDetectorSettings, Parameter
+from fibsem.structures.params import Parameter
+from fibsem.structures.settings import BeamType, FibsemDetectorSettings
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.form_builder import parameter_spec

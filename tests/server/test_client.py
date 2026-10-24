@@ -30,9 +30,9 @@ from fibsem.client import (  # noqa: E402
 from fibsem.devices.core import _Controllable  # noqa: E402
 from fibsem.devices.stage import StageLimitError  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import (  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
     BeamType,
-    FibsemImage,
     FibsemStagePosition,
     MicroscopeState,
     MillingState,

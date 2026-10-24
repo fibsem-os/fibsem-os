@@ -49,7 +49,8 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 from fibsem.ui.correlation.widgets.correlation_tab_widget import CorrelationTabWidget
 from fibsem.ui.stylesheets import NAPARI_STYLE
 

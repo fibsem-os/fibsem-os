@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from fibsem.structures import LEGACY_ROTATION_CENTRE
+from fibsem.structures.system import LEGACY_ROTATION_CENTRE
 
 
 def upgrade(geometry: Dict[str, Any]) -> Dict[str, Any]:

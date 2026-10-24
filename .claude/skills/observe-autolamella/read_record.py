@@ -366,7 +366,7 @@ def _log_window(log: Path, start: datetime, end: datetime) -> list:
 
 def preview(tif: Path, out: Path) -> None:
     from fibsem.imaging.thumbnail import write_thumbnail
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     image = FibsemImage.load(str(tif))
     out.mkdir(parents=True, exist_ok=True)

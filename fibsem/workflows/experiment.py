@@ -25,7 +25,7 @@ import yaml
 from psygnal import Signal
 
 from fibsem.acting import Actor
-from fibsem.structures import FibsemUser, SessionInfo
+from fibsem.structures.system import FibsemUser, SessionInfo
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.workflows.proposals import (
@@ -139,7 +139,7 @@ class BaseExperiment:
                 "know is dropped, and saving would lose it."
             )
         self.created_at = to_datetime(ddict.get("created_at"))
-        self.id = ddict.get("_id", "NULL")
+        self.id = ddict.get("_id") or self.id
         self.metadata = ddict.get("metadata", {})
         # Absent from older experiments, and from any that no session has adopted
         # yet. Both mean the same thing -- nothing is known about
@@ -334,7 +334,7 @@ class BaseExperiment:
 
         Never fails registration: a copy that could not be written is logged.
         """
-        from fibsem.structures import CONFIGURATION_VERSION
+        from fibsem.structures.system import CONFIGURATION_VERSION
         from fibsem.utils import _plain, _write_configuration_file, load_yaml
 
         path = os.path.join(self.path, self.CONFIGURATION_FILENAME)

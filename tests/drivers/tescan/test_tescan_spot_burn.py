@@ -9,7 +9,7 @@ spot burn service draws one DrawBeam dot per point instead, through the milling 
 import pytest
 
 from fibsem.drivers.tescan.services import TescanSpotBurn
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 HFW = 100e-6
 RESOLUTION = (1536, 1024)  # (width, height)

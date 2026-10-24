@@ -8,6 +8,9 @@ pattern settings flat in one block; or one flat block. The oldest kept rough and
 polishing milling together under ``lamella``, the last
 ``options.num_polishing_stages`` of them polishing.
 
+Each stage's Tescan settings go to its recipe's driver block
+(`fibsem.codec.upgrades.milling`).
+
 The method's stages become the tasks a task protocol runs: Trench Milling,
 Undercut, Setup Lamella Position, Mill Fiducial, Rough Milling (with the
 microexpansion stages, and the notch as its stress relief) and Polishing. The
@@ -18,6 +21,8 @@ from __future__ import annotations
 
 import copy
 from typing import Any, Dict, List, Optional
+
+from fibsem.codec.upgrades import milling as upgrade_milling
 
 # The milling keys the old file used.
 FIDUCIAL = "fiducial"
@@ -135,7 +140,10 @@ def upgrade(data: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError(
                 f"The protocol has no {key!r} milling, which {method} uses."
             )
-        return [FibsemMillingStage.from_dict(stage) for stage in milling[key]]
+        return [
+            FibsemMillingStage.from_dict(upgrade_milling.stage(stage))
+            for stage in milling[key]
+        ]
 
     def task(key: str, stage_list: List[Any], title: str) -> Dict[str, Any]:
         from fibsem.milling.tasks import FibsemMillingTaskConfig

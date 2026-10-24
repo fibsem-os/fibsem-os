@@ -164,7 +164,7 @@ def test_an_empty_or_long_message_is_refused(server, body):
 
 def _marked_image(server) -> str:
     """A FIB image saved in the experiment, as the viewer opens one."""
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     image = server.session.microscope.acquire_image(
         ImageSettings(resolution=(128, 96), hfw=80e-6, beam_type=BeamType.ION)
@@ -433,7 +433,8 @@ def test_the_card_s_picture_as_the_session_drew_it(server):
 def test_the_session_draws_a_waiting_request_without_a_window(server):
     """FIB-1500: headless, the chat page shows the same picture the card
     would: the session draws it as the request is filed."""
-    from fibsem.structures import BeamType, FibsemImage
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import BeamType
 
     server.session.images.set(
         FibsemImage.generate_blank_image(resolution=(300, 200), hfw=100e-6),
@@ -504,7 +505,7 @@ def test_the_connect_text_is_the_card_s(server):
 
 
 def _suggested(server):
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
     from fibsem.workflows.proposals import POINT_OF_INTEREST, Proposal, Suggestion
     from fibsem.workflows.status import TaskStatus
 
@@ -580,7 +581,7 @@ def test_the_operator_reads_the_agents_session_in_the_cards_words(server):
 
 
 def _asked(server):
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
     from fibsem.workflows.proposals import POINT_OF_INTEREST, Proposal
     from fibsem.workflows.status import TaskStatus
 

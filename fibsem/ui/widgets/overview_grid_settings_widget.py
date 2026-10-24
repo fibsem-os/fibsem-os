@@ -30,8 +30,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem import constants
 from fibsem.fm.structures import OverviewParameters
-from fibsem.structures import TileOrderStrategy
-from fibsem.ui.tokens import TEXT_MUTED_COLOR
+from fibsem.structures.settings import TileOrderStrategy
+from fibsem.theme.tokens import TEXT_MUTED_COLOR
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.form_builder import configure_spinbox

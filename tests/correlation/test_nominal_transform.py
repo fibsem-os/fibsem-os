@@ -38,17 +38,15 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import (
     BeamType,
-    CameraImageTransform,
-    FibsemHardwareGeometry,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
     Point,
 )
+from fibsem.structures.system import CameraImageTransform, FibsemHardwareGeometry
 
 FIXTURE = Path(__file__).parent / "fixtures" / "nominal_transform.json"
 ENTRIES = json.loads(FIXTURE.read_text())["entries"]

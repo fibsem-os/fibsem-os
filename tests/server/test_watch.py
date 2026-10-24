@@ -25,7 +25,7 @@ from fibsem.client.pairing import keep_agent_token  # noqa: E402
 from fibsem.client.transport import Transport  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.discovery import write_discovery_file  # noqa: E402
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from tests.run_state import stub_session
 

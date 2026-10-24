@@ -30,7 +30,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 
 @pytest.fixture

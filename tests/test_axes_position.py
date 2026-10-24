@@ -10,13 +10,13 @@ import math
 import numpy as np
 import pytest
 
-from fibsem.structures import (
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
     FibsemAxesPosition,
     FibsemManipulatorPosition,
     FibsemRectangle,
     FibsemStagePosition,
     Point,
-    RangeLimit,
 )
 
 # -- dict pins ---------------------------------------------------------------

@@ -235,7 +235,7 @@ def image_answer(result) -> dict:
     the agent works from the preview and, when it needs the file, the path.
     """
     from fibsem.devices.wire import Frame
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     if is_image_list(result):  # reference images: each in its place, None kept
         return [None if item is None else image_answer(item) for item in result]
@@ -283,7 +283,7 @@ def is_image_result(result) -> bool:
     :func:`image_answer`: a FibsemImage, a frame, frames, or an array of 2 or
     more dimensions."""
     from fibsem.devices.wire import Frame
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     if isinstance(result, (FibsemImage, Frame)) or is_image_list(result):
         return True
@@ -296,7 +296,7 @@ def is_image_list(result) -> bool:
     """Whether *result* is a list of FibsemImages (or lists of them), None in
     places, with at least one image: what the reference image commands return.
     No program format carries it, so it always answers as :func:`image_answer`."""
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     if not isinstance(result, (list, tuple)) or not result:
         return False

@@ -36,7 +36,7 @@ from PyQt5.QtWidgets import (  # noqa: E402
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,  # noqa: E402
 )
-from fibsem.structures import Display, RangeLimit, param
+from fibsem.structures.params import Display, RangeLimit, param
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
     IntegerValueSpinBox,
     ValueComboBox,

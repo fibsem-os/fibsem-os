@@ -7,15 +7,13 @@ import sys
 from typing import Callable, List, Optional
 
 from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QApplication
 
 from fibsem.applications.autolamella import launch
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
-from fibsem.tools.app_identity import set_app_identity
 from fibsem.tools.apps import AUTOLAMELLA
 from fibsem.tools.desktop_launch import Splash
 from fibsem.ui.icon import autolamella_icon
-from fibsem.ui.qt.gc import install_main_thread_gc
+from fibsem.ui.qt.app import start_qt_app
 
 
 def _start_update_check(on_done: Optional[Callable[[], None]] = None) -> None:
@@ -97,15 +95,7 @@ def run_ui(
     if hasattr(signal, "SIGUSR1"):
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
-    set_app_identity(AUTOLAMELLA.name, windows_app_id=AUTOLAMELLA.app_id)
-    app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName(AUTOLAMELLA.name)
-    app.setStyle("Fusion")
-    app.setWindowIcon(autolamella_icon())
-    # Cyclic garbage must only ever be collected on this thread: worker-thread GC
-    # finalizes Qt/vispy objects off the GUI thread and hard-crashes Windows GL
-    # drivers (access violation in glDrawArrays). See fibsem/ui/qt/gc.py.
-    gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 — kept alive for app lifetime
+    app = start_qt_app(AUTOLAMELLA, autolamella_icon())
     window = AutoLamellaWindow(session=session)
     window.show()
     if splash is not None:

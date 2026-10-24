@@ -21,7 +21,8 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.core import Axes
-from fibsem.structures import BeamType, MicroscopeSettings, SystemSettings
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import MicroscopeSettings, SystemSettings
 from tests.fixtures.microscopes import demo_microscope
 from tests.test_configuration_schema import SHIPPED
 

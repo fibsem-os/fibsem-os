@@ -12,7 +12,8 @@ import logging
 import pytest
 
 from fibsem.drivers.demo.devices import DemoScanGenerator
-from fibsem.structures import BeamType, RangeLimit
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import BeamType
 from tests.fixtures.microscopes import demo_microscope
 
 DWELL = RangeLimit(min=100e-9, max=10e-6)

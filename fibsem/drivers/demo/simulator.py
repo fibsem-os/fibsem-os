@@ -21,11 +21,12 @@ from fibsem.fm.microscope import (
 )
 from fibsem.fm.structures import REFLECTION
 from fibsem.geometry.projection import FMStageProjection
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
-    FibsemImage,
     FibsemManipulatorPosition,
     FibsemPatternSettings,
     FibsemRectangle,
@@ -33,9 +34,8 @@ from fibsem.structures import (
     ImageSettings,
     MillingState,
     Point,
-    RangeLimit,
-    SystemSettings,
 )
+from fibsem.structures.system import SystemSettings
 from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:

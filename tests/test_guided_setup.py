@@ -152,7 +152,7 @@ def test_the_derived_opposite_matches_what_each_model_needs():
     The asked models all rotate, so each lands a half turn from its own reference --
     Tescan at 0, from a reference of 180.
     """
-    from fibsem.structures import StageSystemSettings
+    from fibsem.structures.system import StageSystemSettings
 
     expected = {"tfs-hydra": 180.0, "tfs-aquilos2": 180.0, "tescan": 0.0}
     for key, opposite in expected.items():
@@ -283,7 +283,7 @@ def test_the_compustage_models_are_still_marked_as_such():
 
 
 def test_a_supplied_rotation_reference_derives_its_opposite():
-    from fibsem.structures import StageSystemSettings
+    from fibsem.structures.system import StageSystemSettings
 
     config = wizard.build_configuration(
         wizard.SetupChoices(

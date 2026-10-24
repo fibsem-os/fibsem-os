@@ -12,7 +12,7 @@ def _load(path: str):
         from fibsem.fm.structures import FluorescenceImage
 
         return FluorescenceImage.load(path)
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     return FibsemImage.load(path)
 
@@ -128,7 +128,7 @@ def stage_projector(path: str) -> Tuple[Dict[str, Any], Callable]:
     from fibsem.imaging.tiling.reprojection import (
         reproject_stage_positions_onto_image2,
     )
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     image = FibsemImage.load(path)
     height, width = image.data.shape[:2]

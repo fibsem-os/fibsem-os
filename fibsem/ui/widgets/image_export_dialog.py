@@ -44,12 +44,7 @@ from fibsem.imaging.export import (
     render_export,
     save_export,
 )
-from fibsem.ui import notification_service
-from fibsem.ui.stylesheets import (
-    PRIMARY_BUTTON_STYLESHEET,
-    SECONDARY_BUTTON_STYLESHEET,
-)
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     CAPTION_STYLE,
     CAPTION_VALUE_STYLE,
@@ -59,6 +54,11 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
+)
+from fibsem.ui import notification_service
+from fibsem.ui.stylesheets import (
+    PRIMARY_BUTTON_STYLESHEET,
+    SECONDARY_BUTTON_STYLESHEET,
 )
 from fibsem.ui.utils import arr_to_qimage
 

@@ -24,7 +24,7 @@ from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategyConfig,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
-from fibsem.structures import FibsemMillingSettings, FibsemRectangle
+from fibsem.structures.settings import FibsemMillingSettings, FibsemRectangle
 
 
 def test_coincidence_config_bbox_roundtrip():

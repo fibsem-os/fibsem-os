@@ -7,7 +7,7 @@ import numpy as np
 
 from fibsem import acquire, alignment, utils
 from fibsem.alignment import AlignmentSubsystem
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     CrossSectionPattern,
     FibsemMillingSettings,

@@ -19,7 +19,7 @@ from typing import Any, Dict, Optional
 
 from fibsem.codec.upgrades.hardware_geometry import upgrade as upgrade_geometry
 from fibsem.config import UNVERSIONED_METADATA
-from fibsem.structures import LEGACY_ROTATION_CENTRE, FibsemHardwareGeometry
+from fibsem.structures.system import LEGACY_ROTATION_CENTRE, FibsemHardwareGeometry
 
 
 def upgrade(data: Dict[str, Any]) -> Dict[str, Any]:

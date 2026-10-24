@@ -28,7 +28,7 @@ from fibsem.workflows.task_config import TaskConfig
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.services.sample_handling import SampleHandling
-    from fibsem.structures import GridSlot
+    from fibsem.structures.settings import GridSlot
     from fibsem.workflows.grid.protocol import GridExperiment
 
 

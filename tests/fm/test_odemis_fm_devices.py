@@ -1043,7 +1043,7 @@ def test_an_odemis_microscope_builds_its_fm_from_the_devices(odemis):
     import fibsem.drivers.odemis.microscope as odemis_microscope
     from fibsem.drivers.odemis.devices import build_odemis_fm
     from fibsem.drivers.registry import BuildContext
-    from fibsem.structures import (
+    from fibsem.structures.system import (
         CameraImageTransform,
         DeviceEntry,
         FluorescenceSystemSettings,

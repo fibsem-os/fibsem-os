@@ -30,7 +30,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.server import AuthConfig, build_server
-from fibsem.structures import MicroscopeState
+from fibsem.structures.settings import MicroscopeState
 from fibsem.workflows.event_recording import EventRecorder
 from tests.fixtures.main_window import close_window
 
@@ -287,7 +287,7 @@ def test_a_patch_is_durable_on_disk(ui, qapp):
 def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp, recorded):
     buffer = recorded
     lamella = ui.experiment.positions[0]
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     lamella.poi = Point(x=1e-6, y=2e-6)
     item = lamella.name
@@ -324,7 +324,7 @@ def test_item_fields_patch_moves_poi_and_sets_defect(ui, qapp, recorded):
 
 def test_item_fields_allowlist_and_alignment_validity(ui, qapp):
     lamella = ui.experiment.positions[0]
-    from fibsem.structures import FibsemRectangle
+    from fibsem.structures.settings import FibsemRectangle
 
     lamella.alignment_area = FibsemRectangle(left=0.6, top=0.3, width=0.3, height=0.4)
     item = lamella.name
@@ -406,7 +406,7 @@ def test_apply_protocol_recopies_configs_and_repoints_paths(ui, qapp, recorded):
 def test_a_poi_patch_moves_the_attached_patterns_with_it(ui, qapp):
     """The GUI's POI move syncs sync_to_poi patterns; the patch path must too
     (found live: a patched POI left rough patterns detached)."""
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     lamella = ui.experiment.positions[0]
     lamella.poi = Point(x=1e-6, y=2e-6)
@@ -442,7 +442,7 @@ def test_an_area_patch_moves_the_fiducial_not_milled_yet(ui, qapp):
     from fibsem.applications.autolamella.workflows.tasks.fiducial import (
         MillFiducialTaskConfig,
     )
-    from fibsem.structures import BeamType, FibsemRectangle, ImageSettings
+    from fibsem.structures.settings import BeamType, FibsemRectangle, ImageSettings
     from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
     lamella = ui.experiment.positions[0]

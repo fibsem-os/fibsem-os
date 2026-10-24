@@ -16,15 +16,16 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.constants import DATETIME_DISPLAY_AMPM
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
+    NEUTRAL_700,
+)
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import (
     DRAG_HANDLE_HEIGHT,
     DRAG_HANDLE_WIDTH,
     drag_handle_pixmap,
     fibsem_icon,
-)
-from fibsem.ui.tokens import (
-    NEUTRAL_700,
 )
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.lists import (
@@ -105,12 +106,12 @@ def _attention_chip_words(attention: Attention) -> tuple[str, str, str]:
             "asked while it runs, on the widget it is answered on, and the "
             "run waits for your answer. Click to change."
         )
-        return label, stylesheets.PRIMARY_COLOR, tip
+        return label, tokens.PRIMARY_COLOR, tip
     tip = (
         "Automated — runs without anyone; what it did is recorded for you to "
         "check. Click to change."
     )
-    return label, stylesheets.AUTOMATED_COLOR, tip
+    return label, tokens.AUTOMATED_COLOR, tip
 
 
 def chip_style(colour: str, muted: bool = False) -> str:
@@ -428,13 +429,6 @@ class WorkflowTaskList(QWidget):
                 self._checked.pop(id(task), None)
                 break
         self._sync_select_all()
-
-    def refresh_task(self, task: TaskPlan) -> None:
-        for i in range(self._list.count()):
-            row = self._row(i)
-            if row.task is task:
-                row.refresh()
-                break
 
     def set_protocol(self, protocol: Optional[TaskProtocol]) -> None:
         """The protocol whose tasks these are, for what each needs from a

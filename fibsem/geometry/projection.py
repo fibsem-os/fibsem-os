@@ -37,16 +37,12 @@ from fibsem.geometry.movement import (
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
 )
-from fibsem.structures import (
-    BeamType,
-    FibsemStagePosition,
-    Point,
-)
+from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.fm.structures import FibsemHardwareGeometry
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 
 # A displayed-plane probe length for `surface_foreshortening`. Any value does: the

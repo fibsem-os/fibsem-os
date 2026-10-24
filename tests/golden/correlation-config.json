@@ -1,0 +1,23 @@
+{
+  "auto_interpolate": false,
+  "auto_rerun": true,
+  "delete_fiducial": "pair",
+  "fit": {
+    "fib_method": "Gaussian",
+    "fluorescence_cutout": 5,
+    "fm_fiducial_channel": null,
+    "fm_fiducial_method": "None",
+    "fm_poi_channel": "Cy5",
+    "fm_poi_method": "Gaussian",
+    "reflection_cutout": 2
+  },
+  "load_spot_burns": true,
+  "ri": {
+    "depth_um": 4.0,
+    "mode": "post",
+    "n2": 1.35,
+    "na": 0.8,
+    "tilt_deg": 15.0,
+    "wavelength_um": 0.515
+  }
+}

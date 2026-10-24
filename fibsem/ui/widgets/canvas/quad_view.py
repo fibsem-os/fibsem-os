@@ -28,25 +28,21 @@ from PyQt5.QtWidgets import (
 
 from fibsem import constants
 from fibsem.imaging.export import image_fields, z_stack
-from fibsem.structures import BeamType, FibsemImage, InsertableDeviceState
-from fibsem.ui.stylesheets import (
-    CANVAS_BG as _BG,
-)
-from fibsem.ui.stylesheets import (
-    GREEN_COLOR,
-)
-from fibsem.ui.stylesheets import (
-    PRIMARY_ACCENT as _SELECT_ACCENT,
-)
-from fibsem.ui.tokens import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import InsertableDeviceState
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     CANVAS_BG,
+    GREEN_COLOR,
     PANEL_COLOR,
     ROW_ALT_COLOR,
     TEXT_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.theme.tokens import CANVAS_BG as _BG
+from fibsem.theme.tokens import PRIMARY_ACCENT as _SELECT_ACCENT
 from fibsem.ui.widgets.canvas.canvas_state import (
     AlignmentSpec,
     CanvasState,
@@ -67,7 +63,7 @@ from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar, show_fm_plane
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
-    from fibsem.structures import FibsemRectangle
+    from fibsem.structures.settings import FibsemRectangle
     from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
 
 _logger = logging.getLogger(__name__)
@@ -215,10 +211,6 @@ class PageCell(QWidget):
         """The key of the page on show."""
         index = self._stack.currentIndex()
         return self._keys[index] if 0 <= index < len(self._keys) else None
-
-    def set_page(self, key: str) -> None:
-        if key in self._keys:
-            self._show(self._keys.index(key))
 
     def step(self, step: int) -> None:
         """Show the next (+1) or previous (-1) page, wrapping round."""
@@ -730,10 +722,6 @@ class MicroscopeViewController(QObject):
                 "could not read the image's fields for its bar", exc_info=True
             )
             bar.clear()
-
-    def set_fm_channel(self, name: str, data, color: Optional[str] = None) -> None:
-        """Upsert one fluorescence channel into the FM composite (by *name*)."""
-        self._widget.fm_widget.set_channel(name, data, color)
 
     def set_fm_pixel_size(self, pixel_size: Optional[float]) -> None:
         """Set the FM canvas pixel size (metres/px) for the scalebar."""

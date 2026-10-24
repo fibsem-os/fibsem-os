@@ -12,12 +12,9 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan.devices import STAGE_FRAME_TESCAN
-from fibsem.structures import (
-    STAGE_FRAME_FIBSEM,
-    BeamType,
-    FibsemHardwareGeometry,
-    FibsemImageMetadata,
-)
+from fibsem.structures.image import FibsemImageMetadata
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import STAGE_FRAME_FIBSEM, FibsemHardwareGeometry
 from tests.fixtures.tescan_sdk import connect, image_at
 
 

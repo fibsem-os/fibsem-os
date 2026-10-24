@@ -44,7 +44,7 @@ from fibsem.ui.widgets.canvas.overlays.image_overlay import ImageOverlay
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.fm.structures import FluorescenceImage
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
     from fibsem.ui.widgets.canvas.real_space_canvas import FibsemRealSpaceCanvas
     from fibsem.ui.widgets.canvas.stage_frame import StageFrame
 

@@ -28,7 +28,7 @@ import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.milling.base import get_strategy_config  # noqa: E402
 from fibsem.milling.patterning import get_pattern  # noqa: E402
-from fibsem.structures import FibsemMillingSettings  # noqa: E402
+from fibsem.structures.settings import FibsemMillingSettings  # noqa: E402
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
     IntegerValueSpinBox,
     ValueComboBox,

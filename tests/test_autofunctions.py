@@ -25,7 +25,8 @@ from fibsem.autofunctions.autofocus import (
 )
 from fibsem.autofunctions.charge_neutralisation import auto_charge_neutralisation
 from fibsem.autofunctions.plotting import plot_acb_result, plot_autofocus_result
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,7 +76,7 @@ def mock_microscope(best_wd: float = 4.5e-3, initial_wd: float = 7.0e-3):
 
 
 def make_acb_result(n_iters: int = 3) -> AutoContrastBrightnessResult:
-    from fibsem.structures import ImageStats
+    from fibsem.structures.image import ImageStats
 
     iters = []
     for i in range(n_iters):
@@ -178,7 +179,7 @@ def test_compute_stats_uint8():
 
 
 def test_image_stats_converged():
-    from fibsem.structures import ImageStats
+    from fibsem.structures.image import ImageStats
 
     stats = ImageStats(
         mean=0.5,
@@ -525,7 +526,7 @@ def test_plot_autofocus_threadsafe(tmp_path):
 
 
 def test_auto_charge_neutralisation():
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     m = MagicMock()
     image_settings = MagicMock(spec=ImageSettings)

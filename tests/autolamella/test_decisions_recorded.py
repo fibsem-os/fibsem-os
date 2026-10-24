@@ -23,7 +23,7 @@ from fibsem.detection.decided import (
     detection_values,
 )
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
-from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState, Point
 from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.proposals import (
     DETECTION,

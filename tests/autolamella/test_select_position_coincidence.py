@@ -23,7 +23,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from tests.answering import answering
 from tests.autolamella._on_the_record import manager_for
 

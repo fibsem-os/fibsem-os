@@ -16,7 +16,7 @@ uvicorn = pytest.importorskip("uvicorn")
 from fibsem import cli  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.app_context import AppContext  # noqa: E402
-from fibsem.structures import FibsemImage  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402
 from tests.fixtures.app_server import serving  # noqa: E402
 

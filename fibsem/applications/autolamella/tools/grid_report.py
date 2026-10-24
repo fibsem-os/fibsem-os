@@ -36,7 +36,8 @@ from fibsem.fm.preview import is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImageMetadata, safe_ome_from_tiff
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.image_format import read_metadata_dict
-from fibsem.structures import BeamType, FibsemImageMetadata, FibsemStagePosition
+from fibsem.structures.image import FibsemImageMetadata
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.workflows.grid.manager import (
     LOAD_ENTRY_NAME,
 )

@@ -35,7 +35,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_fluorescence_positio
     SelectFluorescencePositionTask,
 )
 from fibsem.fm.structures import ChannelSettings
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import STATE, DecisionOutcome
 from tests.answering import ANSWERER, answering

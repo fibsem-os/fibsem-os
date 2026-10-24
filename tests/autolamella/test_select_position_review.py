@@ -25,7 +25,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,

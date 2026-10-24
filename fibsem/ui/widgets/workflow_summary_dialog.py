@@ -23,20 +23,17 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.stylesheets import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
+    ORANGE_COLOR,
     PANEL_COLOR,
-    PRIMARY_BUTTON_STYLESHEET,
     ROW_ALT_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
-from fibsem.ui.tokens import (
-    ORANGE_COLOR,
-    TEXT_MUTED_COLOR,
-)
+from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.task_summary_formatting import (
     STATUS_BADGE_COLORS,
     STATUS_CHIP_ORDER,

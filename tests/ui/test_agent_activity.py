@@ -140,7 +140,7 @@ def demo(qapp, monkeypatch):
 
 
 def _rectangle():
-    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.structures.settings import FibsemRectangleSettings
 
     return FibsemRectangleSettings(
         width=10e-6, height=5e-6, depth=1e-6, centre_x=0, centre_y=0
@@ -148,7 +148,7 @@ def _rectangle():
 
 
 def _recipe():
-    from fibsem.structures import FibsemMillingSettings
+    from fibsem.structures.settings import FibsemMillingSettings
 
     return FibsemMillingSettings(
         milling_current=7.6e-9, milling_voltage=30e3, hfw=80e-6
@@ -156,7 +156,7 @@ def _recipe():
 
 
 def test_the_agents_patterns_are_drawn_on_the_fib_view_until_the_run_ends(demo):
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     microscope, activity, views = demo
     with microscope.control.take(AGENT, "prepare"):

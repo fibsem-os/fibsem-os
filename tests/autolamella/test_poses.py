@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.poses import (
     build_lamella_poses,
     sync_fluorescence_pose,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from tests.fixtures.demo_stage import demo_session
 
 
@@ -256,7 +256,7 @@ def test_a_position_at_an_offset_fm_is_the_fluorescence_pose():
 
 def test_a_beam_position_on_an_offset_mount_gets_a_fluorescence_pose():
     """It used to get none. The lamella is still the milling pose verbatim."""
-    from fibsem.structures import DeviceImagingState
+    from fibsem.structures.system import DeviceImagingState
 
     microscope = _iflm()
     marked = _at(microscope, MILLING_ORIENTATION)

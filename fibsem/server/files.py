@@ -204,7 +204,7 @@ def _beam_image(path: str, max_px: Optional[int]) -> Tuple[Any, Tuple[int, ...]]
     import tifffile
 
     from fibsem.image_format import read_level, read_metadata_dict
-    from fibsem.structures import FibsemImage, FibsemImageMetadata
+    from fibsem.structures.image import FibsemImage, FibsemImageMetadata
 
     if max_px is None:
         image = FibsemImage.load(path)

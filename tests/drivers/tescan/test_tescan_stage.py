@@ -21,7 +21,8 @@ from fibsem.drivers.tescan.devices import (
     from_tescan_frame,
     to_tescan_frame,
 )
-from fibsem.structures import STAGE_FRAME_FIBSEM, BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
+from fibsem.structures.system import STAGE_FRAME_FIBSEM
 from tests.fixtures.tescan_sdk import connect
 
 P = FibsemStagePosition

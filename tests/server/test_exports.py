@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient  # noqa: E402
 from PIL import Image  # noqa: E402
 from psygnal.containers import EventedDict  # noqa: E402
 
-from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -26,20 +25,17 @@ from fibsem.imaging.export import (  # noqa: E402
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.responses import AnimationFrames, ImageExportForm  # noqa: E402
-from fibsem.structures import BeamType, ImageSettings, MicroscopeState  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
+    BeamType,
+    ImageSettings,
+    MicroscopeState,
+)
 from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
 from tests.run_state import stub_session  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 DASHBOARD = {"Authorization": "Bearer dashboard-token"}
-
-
-@pytest.fixture(scope="module")
-def microscope():
-    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-    microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
-    return microscope
 
 
 @pytest.fixture

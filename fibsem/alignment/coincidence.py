@@ -37,11 +37,12 @@ import numpy as np
 from scipy import ndimage as ndi
 from scipy.signal import fftconvolve
 
-from fibsem.structures import FibsemImage, FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemStagePosition
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
 # Independent band-pass scales (sigma pairs, px) for the agreement gate.
 AGREEMENT_BANDS: Tuple[Tuple[float, float], Tuple[float, float]] = ((2, 8), (4, 16))
@@ -525,7 +526,7 @@ ProgressCallback = Callable[[CoincidenceProgress], None]
 
 
 def _default_image_settings() -> "ImageSettings":
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     return ImageSettings(
         hfw=DEFAULT_ALIGNMENT_HFW,
@@ -557,7 +558,7 @@ def check_coincidence(
     from copy import deepcopy
 
     from fibsem import acquire
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     settings = deepcopy(image_settings or _default_image_settings())
     # Acquired as given, as the microscope did before this went through
@@ -678,7 +679,7 @@ def ensure_coincident(
     """
     from copy import deepcopy
 
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     if reference is None:
         reference = BeamType.ELECTRON
@@ -925,7 +926,7 @@ def tilt_coincident(
         TiltAlignment; `converged` means the LAST alignment, at the target
         tilt, measured coincident.
     """
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     if reference is None:
         reference = BeamType.ION
@@ -1037,7 +1038,7 @@ def _undo_surface_walk(
     """
     from fibsem.geometry.frames import StageModel
     from fibsem.geometry.projection import BeamStageProjection
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
     if projection is None:

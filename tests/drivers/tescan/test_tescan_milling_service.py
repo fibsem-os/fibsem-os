@@ -21,7 +21,7 @@ from fibsem.drivers.tescan import sdk
 from fibsem.drivers.tescan.services import TescanMilling
 from fibsem.milling.progress import MillingProgressStatus
 from fibsem.services.milling import UnsupportedPattern
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,

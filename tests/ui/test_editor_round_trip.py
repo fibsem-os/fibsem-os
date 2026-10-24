@@ -12,7 +12,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem import utils  # noqa: E402
 from fibsem.milling.tasks import FibsemMillingTaskConfig  # noqa: E402
-from fibsem.structures import ReferenceImageParameters  # noqa: E402
+from fibsem.structures.settings import ReferenceImageParameters  # noqa: E402
 from fibsem.ui.widgets.milling_task_config_widget import (  # noqa: E402
     MillingTaskConfigWidget,
 )

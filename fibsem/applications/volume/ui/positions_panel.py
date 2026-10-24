@@ -82,7 +82,7 @@ class PositionsPanel(QWidget):
 
     title = "Positions"
     # No item selection for the Image and Fluorescence tabs to follow.
-    lamella_list = None
+    item_selection = None
 
     def __init__(
         self,

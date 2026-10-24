@@ -15,7 +15,8 @@ from fibsem.devices import (
     ParameterUnavailable,
     StageLimitError,
 )
-from fibsem.structures import FibsemStagePosition, RangeLimit
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import FibsemStagePosition
 
 # A simulated Arctis, whose stage is a compustage.
 _ARCTIS_CONFIG = os.path.join(SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")

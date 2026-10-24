@@ -30,7 +30,6 @@ def main():
     widget.enable_add_button(True)
     widget.enable_defect_button(True)
     widget.enable_move_to_action(True)
-    widget.enable_edit_action(True)
     widget.enable_update_action(True)
     widget.enable_remove_button(True)
 
@@ -44,7 +43,6 @@ def main():
     )
     widget.add_requested.connect(lambda: print("Add requested"))
     widget.move_to_requested.connect(lambda lam: print(f"Move to: {lam.name}"))
-    widget.edit_requested.connect(lambda lam: print(f"Edit: {lam.name}"))
     widget.update_requested.connect(lambda lam: print(f"Update: {lam.name}"))
     widget.remove_requested.connect(lambda lam: print(f"Remove: {lam.name}"))
     widget.defect_changed.connect(

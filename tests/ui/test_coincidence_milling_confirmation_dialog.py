@@ -32,7 +32,7 @@ from fibsem.milling.strategy.coincidence import (
     CoincidenceMillingStrategyConfig,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemMillingSettings
+from fibsem.structures.settings import FibsemMillingSettings
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

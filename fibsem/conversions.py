@@ -2,7 +2,8 @@ from typing import Tuple
 
 import numpy as np
 
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 
 
 def get_image_pixel_centre(
@@ -11,7 +12,7 @@ def get_image_pixel_centre(
     """The centre of an image, in pixels, as ``(cy, cx)``.
 
     Note the order: ``(y, x)``, matching image shape rather than the ``(x, y)``
-    of :class:`~fibsem.structures.Point`. Kept that way because every existing
+    of :class:`~fibsem.structures.settings.Point`. Kept that way because every existing
     caller unpacks it as ``icy, icx``.
 
     ``subpixel_precision=False`` floors to a whole pixel. That is what the
