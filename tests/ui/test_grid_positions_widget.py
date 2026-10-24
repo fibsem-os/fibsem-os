@@ -48,6 +48,13 @@ _ARCTIS = os.path.join(
 )
 
 
+def _add_at(canvas, x: float, y: float) -> None:
+    """Right-click at a canvas point and choose Add Position Here."""
+    config = canvas.position_menu(x, y)
+    (add,) = [a for a in config.actions if a.label == "Add Position Here"]
+    add.callback()
+
+
 @pytest.fixture
 def ui(qapp, monkeypatch, tmp_path):
     widget = AutoLamellaWindow()
@@ -206,7 +213,7 @@ class TestMarking:
         self, widget, ui, grid
     ):
         cx, cy = _centre(widget)
-        widget.canvas.request_add_at(cx + 5, cy + 5)
+        _add_at(widget.canvas, cx + 5, cy + 5)
         lamellae = ui.experiment.positions
         assert len(lamellae) == 3
         new = lamellae[-1]
@@ -222,7 +229,7 @@ class TestMarking:
     ):
         widget.canvas.show_view(VIEW_FM)
         cx, cy = _centre(widget)
-        widget.canvas.request_add_at(cx, cy)
+        _add_at(widget.canvas, cx, cy)
         new = ui.experiment.positions[-1]
         assert new.grid_id == grid.id
         fm = ui.microscope.get_target_position(
@@ -261,7 +268,7 @@ class TestMarking:
         widget.show()
         _app.processEvents()
         cx, cy = _centre(widget)
-        widget.canvas.request_add_at(cx, cy)
+        _add_at(widget.canvas, cx, cy)
         assert len(ui.experiment.positions) == 2
 
 

@@ -1121,11 +1121,6 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
 
     # ── active-overlay input gating ───────────────────────────────────────
 
-    @property
-    def active_overlay(self):
-        """The overlay currently owning input, or None (default 'Move' mode)."""
-        return self._active_overlay
-
     def set_active_overlay(self, overlay) -> None:
         """Make *overlay* the sole input handler on this canvas (None = Move).
 

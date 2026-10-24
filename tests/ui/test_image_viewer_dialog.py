@@ -37,6 +37,7 @@ from fibsem.ui.widgets.image_viewer_dialog import (  # noqa: E402
     ViewerItem,
     open_image_viewer,
 )
+from tests.fixtures.info_bar import visible_fields  # noqa: E402
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -81,7 +82,7 @@ def test_it_has_the_bar_of_its_kind(beam_path):
     _loaded(viewer, beam_path)
     assert not viewer.fib_bar.isHidden() and viewer.sem_bar.isHidden()
     viewer.fib_bar.resize(2000, viewer.fib_bar.height())
-    shown = {f.label: f.value for f in viewer.fib_bar.visible_fields()}
+    shown = {f.label: f.value for f in visible_fields(viewer.fib_bar)}
     expected = {f.label: f.value for f in image_fields(viewer.image).fields if f.label}
     assert shown["HV"] == expected["HV"] == "30 kV"
 
@@ -110,7 +111,7 @@ def test_a_stack_opens_in_the_fm_viewer_and_up_and_down_step_its_planes(fm_path)
 
     press(Qt.Key_Up)
     assert fm.current_z == start + 1
-    shown = {f.key: f.value for f in viewer.fm_bar.visible_fields()}
+    shown = {f.key: f.value for f in visible_fields(viewer.fm_bar)}
     assert shown["z"].startswith(f"{start + 2} of 5"), "the bar's Z follows the plane"
     press(Qt.Key_Down)
     assert fm.current_z == start

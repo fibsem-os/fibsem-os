@@ -119,7 +119,7 @@ def _list_with(n: int) -> CoordinateListWidget:
 def test_remove_coordinate_selects_the_neighbour_and_emits_nothing():
     lw = _list_with(5)
     coords = lw.coordinates
-    lw.select_coordinate_silent(coords[3])
+    lw._store.select(coords[3])
     emitted = []
     lw.coordinate_selected.connect(lambda c: emitted.append(("selected", c)))
     lw.coordinate_removed.connect(lambda c: emitted.append(("removed", c)))
@@ -165,7 +165,7 @@ def test_canvas_delete_in_the_tab_widget_selects_the_neighbour_not_row_1():
         Coordinate(PointXYZ(10 * i, 10 * i, 0), PointType.FIB) for i in range(5)
     ]
     coords = spec.list_widget.coordinates
-    spec.list_widget.select_coordinate_silent(coords[3])
+    spec.list_widget._store.select(coords[3])
 
     # what the canvas's Delete key reaches
     spec.adapter._surface.picking.points.remove_coordinate(coords[3])

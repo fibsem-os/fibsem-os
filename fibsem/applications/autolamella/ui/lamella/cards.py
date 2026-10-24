@@ -115,9 +115,7 @@ class LamellaCardWidget(RecordCard):
             "Remove",
         )
         # The defect is set from here; its icon only shows once there is one.
-        self._defect_menu = add_defect_menu(
-            _actions_menu, lamella, self._on_defect_written
-        )
+        add_defect_menu(_actions_menu, lamella, self._on_defect_written)
         self._btn_actions.setMenu(_actions_menu)
         self._action_move.triggered.connect(
             lambda: self.move_to_requested.emit(self.lamella)

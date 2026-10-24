@@ -54,6 +54,15 @@ def _delete_on_canvas(widget, coord) -> None:
     _overlay_of(widget, coord).remove_coordinate(coord)
 
 
+def _load_result(w, result, adopt_inputs: bool = True) -> None:
+    """Load *result* as the File menu does: from a saved result file."""
+    import tempfile
+
+    path = os.path.join(tempfile.mkdtemp(), "correlation_result.json")
+    result.save(path)
+    w.load_result(path, adopt_inputs=adopt_inputs)
+
+
 def _widget(qapp):
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
@@ -735,7 +744,7 @@ def test_load_result_keeps_status_message(qapp):
         refractive_index_correction_factor=1.5,
         refractive_index_correction_mode="pre",
     )
-    w._load_result(result)
+    _load_result(w, result)
     assert w._lbl_status.text() == "Done — RI ×1.500"
 
 
@@ -1906,7 +1915,7 @@ def test_row_actions_show_only_on_the_selected_row(qapp):
     assert len(rows) == 3
     # the setter selects the first row
     assert [r.actions.isVisibleTo(r) for r in rows] == [True, False, False]
-    lw.select_coordinate_silent(lw.coordinates[2])
+    lw._store.select(lw.coordinates[2])
     assert [r.actions.isVisibleTo(r) for r in rows] == [False, False, True]
     # the row buttons carry the list's signals
     got = []
@@ -1954,7 +1963,7 @@ def test_f_hotkey_fits_selected_coordinate(qapp, monkeypatch):
     coord = _coord(10.0, 10.0, 0.0, PointType.FIB)
     lw = w._point_specs[PointType.FIB].list_widget
     lw.coordinates = [coord]
-    lw.select_coordinate_silent(coord)
+    lw._store.select(coord)
 
     w._fit_selected_coordinate()
     assert fitted == [coord]
@@ -1979,7 +1988,7 @@ def test_f_hotkey_skips_while_editing_a_field(qapp, monkeypatch):
     coord = _coord(10.0, 10.0, 0.0, PointType.FIB)
     lw = w._point_specs[PointType.FIB].list_widget
     lw.coordinates = [coord]
-    lw.select_coordinate_silent(coord)
+    lw._store.select(coord)
 
     editing = QLineEdit()
     monkeypatch.setattr(QApplication, "focusWidget", lambda: editing)
@@ -2241,7 +2250,7 @@ def test_loading_a_stale_result_does_not_arm_continue(qapp):
     w.set_data(_input(fib=(5.0, 5.0)))  # the points as they are now
 
     stale = _result_from(_input(fib=(1.0, 2.0)))  # fitted to where they were
-    w._load_result(stale, adopt_inputs=False)
+    _load_result(w, stale, adopt_inputs=False)
 
     assert w._btn_continue.isEnabled() is False
     assert w._lbl_result.isHidden() is True  # no RMS badge for a dead transform
@@ -2253,7 +2262,7 @@ def test_loading_a_current_result_stays_live(qapp):
     w.set_data(_input(fib=(5.0, 5.0)))
 
     fresh = _result_from(_input(fib=(5.0, 5.0)))
-    w._load_result(fresh, adopt_inputs=False)
+    _load_result(w, fresh, adopt_inputs=False)
 
     assert w._btn_continue.isEnabled() is True
     assert w._lbl_status.text() == "Done."
@@ -2266,7 +2275,7 @@ def test_load_result_can_keep_the_coordinates_already_loaded(qapp):
     w = _widget(qapp)
     w.set_data(_input(fib=(5.0, 5.0)))
 
-    w._load_result(_result_from(_input(fib=(1.0, 2.0))), adopt_inputs=False)
+    _load_result(w, _result_from(_input(fib=(1.0, 2.0))), adopt_inputs=False)
 
     kept = w._coords_tab.fib_list.coordinates
     assert [(c.point.x, c.point.y) for c in kept] == [(5.0, 5.0)]
@@ -2310,7 +2319,7 @@ def test_stale_status_outranks_the_ri_note(qapp):
     stale = _result_from(_input(fib=(1.0, 2.0)))
     stale.refractive_index_correction_mode = "pre"
     stale.refractive_index_correction_factor = 1.5
-    w._load_result(stale, adopt_inputs=False)
+    _load_result(w, stale, adopt_inputs=False)
 
     assert "changed since this run" in w._lbl_status.text()
     assert "Done" not in w._lbl_status.text()

@@ -531,16 +531,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.image_settings.beam_type = self.dual_beam_widget.beam_type
         return self.image_settings
 
-    def _get_beam_settings_from_ui(self) -> BeamSettings:
-        """Get the beam settings from the UI and return a BeamSettings object"""
-        self.beam_settings = self.dual_beam_widget.get_beam_settings()
-        return self.beam_settings
-
-    def _get_detector_settings_from_ui(self) -> FibsemDetectorSettings:
-        """Get the detector settings from the UI and return a FibsemDetectorSettings object"""
-        self.detector_settings = self.dual_beam_widget.get_detector_settings()
-        return self.detector_settings
-
     def set_ui_from_settings(
         self,
         image_settings: ImageSettings,

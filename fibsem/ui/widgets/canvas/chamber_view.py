@@ -230,10 +230,6 @@ class ChamberView(QWidget):
         diagram.GRID_COLOUR = NEUTRAL_300
         diagram.WEDGE_COLOUR = NEUTRAL_300
 
-    @property
-    def has_position(self) -> bool:
-        return self._stack.currentWidget() is self.scene
-
     def set_microscope(self, microscope) -> None:
         """The configuration the map is drawn from: limits, slots, orientations."""
         self.map.set_microscope(microscope)
