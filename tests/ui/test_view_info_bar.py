@@ -21,9 +21,7 @@ from PyQt5.QtWidgets import QApplication, QLabel
 
 from fibsem import config as cfg
 from fibsem.fm.structures import (
-    FluorescenceChannelMetadata,
     FluorescenceImage,
-    FluorescenceImageMetadata,
 )
 from fibsem.imaging.export import (
     BEAM_FIELD_KEYS,
@@ -47,6 +45,7 @@ from fibsem.ui.widgets.canvas.quad_view import (
     QuadViewWidget,
 )
 from fibsem.ui.widgets.canvas.view_info_bar import BAR_DEFAULT_FIELDS, ViewInfoBar
+from tests.fixtures.fm_images import fm_image, gfp
 from tests.fixtures.info_bar import hidden_fields, highlighted_fields, visible_fields
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -88,26 +87,18 @@ def _beam_image(beam_type=BeamType.ELECTRON, voltage=2e3) -> FibsemImage:
 def _fm_image(slices=3) -> FluorescenceImage:
     data = np.zeros((1, slices, 64, 64), dtype=np.uint16)
     data[0, :, 20:30, 20:30] = 4000
-    channel = FluorescenceChannelMetadata(
-        name="GFP",
+    channel = gfp(
         excitation_wavelength=470,
-        power=0.5,
-        exposure_time=0.1,
-        gain=1.0,
-        offset=0.0,
         color="green",
         objective_magnification=100,
         objective_numerical_aperture=0.75,
     )
-    return FluorescenceImage(
-        data=data,
-        metadata=FluorescenceImageMetadata(
-            acquisition_datetime="2026-10-07T14:00:00",
-            pixel_size_x=110e-9,
-            pixel_size_y=110e-9,
-            pixel_size_z=500e-9,
-            channels=[channel],
-        ),
+    return fm_image(
+        data,
+        [channel],
+        pixel_size=110e-9,
+        acquired="2026-10-07T14:00:00",
+        pixel_size_z=500e-9,
     )
 
 

@@ -34,6 +34,7 @@ from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.FibsemSpotBurnWidget import FibsemSpotBurnWidget
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.item_selection import ItemSelection
 from fibsem.ui.qt.connections import connect_on_gui_thread
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
@@ -63,7 +64,7 @@ class ItemTab(Protocol):
     # the tab's name
     title: str
     # the item selection the Image and Fluorescence tabs follow; None for none
-    lamella_list: Optional[Any]
+    item_selection: Optional[ItemSelection]
 
     def refresh(self) -> None: ...
 
@@ -113,7 +114,7 @@ class MicroscopeControls(QWidget):
         """Where the latest image of each beam is kept."""
         return None
 
-    def _lamella_list(self) -> Optional[Any]:
+    def _item_selection(self) -> Optional[ItemSelection]:
         """The item selection the Image and Fluorescence tabs follow."""
         return None
 
@@ -205,7 +206,7 @@ class MicroscopeControls(QWidget):
                 toggle_movement=lambda enable: (
                     self.movement_widget._toggle_interactions(enable, caller="ui")
                 ),
-                lamella_list=self._lamella_list(),
+                item_selection=self._item_selection(),
                 experiment=self._experiment,
                 revise_prompt=self._revise_prompt,
             )
@@ -254,7 +255,7 @@ class MicroscopeControls(QWidget):
                     microscope=microscope,
                     parent=self,
                     view_controller=self._view_controller,
-                    lamella_list=self._lamella_list(),
+                    item_selection=self._item_selection(),
                     experiment=self._experiment,
                     set_host_enabled=self.setEnabled,
                 )
@@ -395,8 +396,8 @@ class MicroscopePanel(MicroscopeControls):
     def _images(self) -> Optional[Any]:
         return self.session.images
 
-    def _lamella_list(self) -> Optional[Any]:
-        return self.experiment_tab.lamella_list
+    def _item_selection(self) -> Optional[ItemSelection]:
+        return self.experiment_tab.item_selection
 
     def _experiment(self) -> Optional[Any]:
         return self.session.experiment

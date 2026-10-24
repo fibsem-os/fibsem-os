@@ -1,0 +1,24 @@
+{
+  "depth_span_um": 2.5,
+  "mirror_ratio": 4.0,
+  "n_accepted": 1,
+  "n_pairs": 2,
+  "pairs": [
+    {
+      "index": 0,
+      "loo_error_um": 0.3,
+      "residual_um": 0.1
+    },
+    {
+      "index": 2,
+      "loo_error_um": 0.4,
+      "residual_um": 0.2
+    }
+  ],
+  "poi_hull_distance_um": null,
+  "poi_jackknife_um": 0.05,
+  "rms_um": 0.2,
+  "scale_ratio": 1.01,
+  "suggested_z": 12.0,
+  "worst": 1
+}

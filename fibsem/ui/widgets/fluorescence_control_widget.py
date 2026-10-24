@@ -38,6 +38,7 @@ from fibsem.ui.fm.widgets import (
     ObjectiveControlWidget,
 )
 from fibsem.ui.fm.widgets.acquisition_settings import FMAcquisitionSettingsWidget
+from fibsem.ui.item_selection import ItemSelection
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -48,6 +49,7 @@ from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
     ValueComboBox,
 )
+from fibsem.workflows.item import FLUORESCENCE_POSE
 
 if TYPE_CHECKING:
     from fibsem.fm.progress import FluorescenceAcquisitionProgress
@@ -65,7 +67,7 @@ class FMControlWidget(QWidget):
         parent: Optional[QWidget] = None,
         *,
         view_controller: Callable[[], Any] = lambda: None,
-        lamella_list=None,
+        item_selection: Optional[ItemSelection] = None,
         experiment: Callable[[], Any] = lambda: None,
         set_host_enabled: Optional[Callable[[bool], None]] = None,
     ):
@@ -73,7 +75,7 @@ class FMControlWidget(QWidget):
 
         self.microscope = microscope
         self._host_view_controller = view_controller
-        self._lamella_list = lamella_list
+        self._item_selection = item_selection
         self._experiment = experiment
         self._set_host_enabled = set_host_enabled
 
@@ -173,13 +175,14 @@ class FMControlWidget(QWidget):
                 "FM is configured to image from."
             )
 
-        # Checkbox for lamella association
-        self.checkBox_associate_with_lamella = QCheckBox(
-            "Save to Selected Lamella", self
+        # saving to the selected item's folder
+        noun = self._noun.lower()
+        self.checkBox_associate_with_item = QCheckBox(
+            f"Save to Selected {self._noun}", self
         )
-        self.checkBox_associate_with_lamella.setChecked(True)
-        self.checkBox_associate_with_lamella.setToolTip(
-            "When checked, saves files in the selected lamella's directory with lamella name prefix.\n"
+        self.checkBox_associate_with_item.setChecked(True)
+        self.checkBox_associate_with_item.setToolTip(
+            f"When checked, saves files in the selected {noun}'s directory with {noun} name prefix.\n"
             "When unchecked, saves files in the experiment directory."
         )
 
@@ -212,7 +215,7 @@ class FMControlWidget(QWidget):
         button_layout = QGridLayout()
         button_layout.addWidget(self.label_default_orientation, 0, 0)
         button_layout.addWidget(self.comboBox_default_orientation, 0, 1)
-        button_layout.addWidget(self.checkBox_associate_with_lamella, 1, 0, 1, 2)
+        button_layout.addWidget(self.checkBox_associate_with_item, 1, 0, 1, 2)
         button_layout.addWidget(self.pushButton_toggle_acquisition, 2, 0, 1, 2)
         button_layout.addWidget(self.pushButton_run_autofocus, 3, 0, 1, 2)
         button_layout.addWidget(self.pushButton_acquire_single_image, 4, 0)
@@ -332,9 +335,9 @@ class FMControlWidget(QWidget):
                 self.objectiveControlWidget._on_canvas_scroll
             )
 
-        # Update checkbox text when lamella selection changes
-        if self._lamella_list is not None:
-            self._lamella_list.lamella_selected.connect(self._update_checkbox_text)
+        # Update checkbox text when the selected item changes
+        if self._item_selection is not None:
+            self._item_selection.item_selected.connect(self._update_checkbox_text)
 
         # Initialize checkbox text
         self._update_checkbox_text()
@@ -395,9 +398,9 @@ class FMControlWidget(QWidget):
 
         self.objectiveControlWidget.cleanup()
 
-        if self._lamella_list is not None:
+        if self._item_selection is not None:
             try:
-                self._lamella_list.lamella_selected.disconnect(
+                self._item_selection.item_selected.disconnect(
                     self._update_checkbox_text
                 )
             except (TypeError, RuntimeError):
@@ -606,10 +609,15 @@ class FMControlWidget(QWidget):
         """The host's quad-view ``MicroscopeViewController``, or ``None``."""
         return self._host_view_controller()
 
-    def _selected_lamella(self):
-        if self._lamella_list is None:
+    @property
+    def _noun(self) -> str:
+        """What the app calls an item, for the save-to-item labels."""
+        return self._item_selection.item_noun if self._item_selection else "Item"
+
+    def _selected_item(self):
+        if self._item_selection is None:
             return None
-        return self._lamella_list.selected_lamella
+        return self._item_selection.selected_item
 
     def _refuse_to_start(self, what: str) -> bool:
         """Whether *what* may not be started, having logged why. True means "do not".
@@ -691,92 +699,89 @@ class FMControlWidget(QWidget):
             self.start_acquisition()
 
     def _update_checkbox_text(self, _=None):
-        """Update the checkbox text and state to include the selected lamella name."""
-        base_text = "Save to Selected Lamella"
+        """Update the checkbox text and state to include the selected item's name."""
+        base_text = f"Save to Selected {self._noun}"
 
-        lamella = self._selected_lamella()
-        if lamella is not None:
-            self.checkBox_associate_with_lamella.setText(
-                f"{base_text} ({lamella.name})"
-            )
-            self.checkBox_associate_with_lamella.setEnabled(True)
-            self._update_checkbox_tooltip(lamella)
+        item = self._selected_item()
+        if item is not None:
+            self.checkBox_associate_with_item.setText(f"{base_text} ({item.name})")
+            self.checkBox_associate_with_item.setEnabled(True)
+            self._update_checkbox_tooltip(item)
             return
 
-        # No lamella selected or available - disable checkbox
-        self.checkBox_associate_with_lamella.setText(base_text)
-        self.checkBox_associate_with_lamella.setEnabled(False)
+        # nothing selected: nowhere to save to
+        self.checkBox_associate_with_item.setText(base_text)
+        self.checkBox_associate_with_item.setEnabled(False)
         self._update_checkbox_tooltip(None)
 
-    def _update_checkbox_tooltip(self, lamella):
+    def _update_checkbox_tooltip(self, item):
         """Update the checkbox tooltip to show actual save paths.
 
         Args:
-            lamella: The selected Lamella object, or None if no lamella is selected
+            item: The selected item, or None if none is selected
         """
-        if lamella is not None:
+        noun = self._noun.lower()
+        if item is not None:
             experiment_path = "experiment directory"
             experiment = self._experiment()
             if experiment is not None:
                 experiment_path = str(experiment.path)
 
             tooltip = (
-                f"When checked: Saves to lamella directory\n"
-                f"  Path: {lamella.path}\n"
-                f"  Filename: {lamella.name}-image-HH-MM-SS.ome.tiff\n\n"
+                f"When checked: Saves to {noun} directory\n"
+                f"  Path: {item.path}\n"
+                f"  Filename: {item.name}-image-HH-MM-SS.ome.tiff\n\n"
                 f"When unchecked: Saves to experiment directory\n"
                 f"  Path: {experiment_path}\n"
                 f"  Filename: image-HH-MM-SS.ome.tiff"
             )
         else:
             tooltip = (
-                "No lamella selected.\n\n"
-                "When a lamella is selected and this option is checked,\n"
-                "files will be saved in the lamella's directory with the lamella name prefix.\n"
+                f"No {noun} selected.\n\n"
+                f"When a {noun} is selected and this option is checked,\n"
+                f"files will be saved in the {noun}'s directory with the {noun} name prefix.\n"
                 "Otherwise, files are saved in the experiment directory."
             )
 
-        self.checkBox_associate_with_lamella.setToolTip(tooltip)
+        self.checkBox_associate_with_item.setToolTip(tooltip)
 
     def _acquisition_destination(self, name: str) -> Tuple[str, str]:
         """The folder an acquisition saves to and its name: the experiment's
-        folder, or the selected lamella's with its name in front when the box is
+        folder, or the selected item's with its name in front when the box is
         ticked. The imaging service adds the time to the name.
 
         Args:
             name: Base name for the file (e.g., "image", "z-stack")
         """
         path = os.getcwd()
-        lamella_prefix = ""
+        item_prefix = ""
 
         experiment = self._experiment()
         if experiment is not None:
             path = experiment.path
 
-        if self.checkBox_associate_with_lamella.isChecked():
-            lamella = self._selected_lamella()
-            if lamella is not None:
-                self._validate_lamella_selection(lamella)
+        if self.checkBox_associate_with_item.isChecked():
+            item = self._selected_item()
+            if item is not None:
+                self._validate_item_selection(item)
 
-                path = lamella.path
-                lamella_prefix = f"{lamella.name}-"
+                path = item.path
+                item_prefix = f"{item.name}-"
 
-        return str(path), f"{lamella_prefix}{name}"
+        return str(path), f"{item_prefix}{name}"
 
-    def _validate_lamella_selection(self, lamella: Any) -> None:
-        # Check if current position is close to lamella fluorescence pose
-        if (
-            lamella.fluorescence_pose is None
-            or lamella.fluorescence_pose.stage_position is None
-        ):
+    def _validate_item_selection(self, item: Any) -> None:
+        # Check if current position is close to the item's fluorescence pose
+        pose = getattr(item, "poses", {}).get(FLUORESCENCE_POSE)
+        if pose is None or pose.stage_position is None:
             return  # No fluorescence pose defined, skip check
 
         current_position = self.microscope.get_stage_position()
-        lamella_position = lamella.fluorescence_pose.stage_position
+        item_position = pose.stage_position
 
         # Check if positions are close using x, y, z axes with 5 micrometer tolerance
         is_close = current_position.is_close2(
-            lamella_position, tol=5e-6, axes=["x", "y", "z"]
+            item_position, tol=5e-6, axes=["x", "y", "z"]
         )
 
         if not is_close:
@@ -785,11 +790,11 @@ class FMControlWidget(QWidget):
             msg_box.setIcon(QMessageBox.Warning)
             msg_box.setWindowTitle("Position Mismatch Warning")
             msg_box.setText(
-                f"Current stage position is not close to selected lamella '{lamella.name}' fluorescence pose."
+                f"Current stage position is not close to selected {self._noun.lower()} '{item.name}' fluorescence pose."
             )
             msg_box.setInformativeText(
                 f"Current Position: {current_position.pretty}\n"
-                f"Lamella Position: {lamella_position.pretty}\n"
+                f"{self._noun} Position: {item_position.pretty}\n"
                 f"Tolerance: 5.0 μm\n\n"
                 f"Do you want to continue with the acquisition?"
             )

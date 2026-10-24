@@ -14,19 +14,12 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.status import TaskState, TaskStatus
 from fibsem.workflows.task_config import TaskPlan
+from tests.fixtures.toasts import toasts_fixture
 
 pytest.importorskip("PyQt5")
 
 
-@pytest.fixture
-def toasts(monkeypatch):
-    from fibsem.ui import notification_service
-
-    said = []
-    monkeypatch.setattr(
-        notification_service, "show_toast", lambda msg, *a, **k: said.append(msg)
-    )
-    return said
+toasts = toasts_fixture()
 
 
 @pytest.fixture
@@ -107,7 +100,9 @@ def test_a_position_that_has_cut_keeps_its_milling_pose(window, toasts):
 
     panel.set_pose_buttons[MILLING_POSE].click()
 
-    assert toasts == [f"{position.name} has cut slices at its milling pose."]
+    assert [m for m, _ in toasts] == [
+        f"{position.name} has cut slices at its milling pose."
+    ]
     panel.set_pose_buttons["SEM_IMAGING"].click()
     assert "SEM_IMAGING" in position.poses
 
@@ -259,7 +254,9 @@ def test_the_position_view_says_the_experiments_refusals(position_view, toasts):
 
     editor.place_poi(Point(1e-6, 0))
 
-    assert toasts == ["aspen has cut slices from its point of interest."]
+    assert [m for m, _ in toasts] == [
+        "aspen has cut slices from its point of interest."
+    ]
     assert position.poi == Point(0, 1e-6)
     assert editor.poi_label.text() == "x 0.00 µm · y 1.00 µm"
 

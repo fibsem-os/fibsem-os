@@ -8,10 +8,11 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Tuple
 
 import numpy as np
 
+from fibsem.codec import decode, encode
 from fibsem.structures import BeamType, FibsemRectangle
 
 if TYPE_CHECKING:
@@ -39,15 +40,15 @@ class AutoContrastBrightnessSettings:
     mean_tolerance: float = 0.05
     saturation_limit: float = 0.005
     min_range_utilisation: float = 0.6
-    probe_resolution: tuple = (512, 384)
+    probe_resolution: Tuple[int, int] = (512, 384)
     probe_dwell_time: float = 0.2e-6
 
     def to_dict(self) -> dict:
-        return dataclasses.asdict(self)
+        return encode(self)
 
     @classmethod
     def from_dict(cls, d: dict) -> "AutoContrastBrightnessSettings":
-        return cls(**d)
+        return decode(cls, d)
 
 
 @dataclass

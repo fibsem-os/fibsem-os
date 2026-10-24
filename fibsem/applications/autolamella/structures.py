@@ -9,15 +9,27 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import pandas as pd
 import petname
 import yaml
 from psygnal import evented
 from psygnal.containers import EventedDict, EventedList
+from pydantic import PlainSerializer, PlainValidator
 
 from fibsem.applications.autolamella import config as cfg
+from fibsem.codec import decode, encode, saved
 from fibsem.codec.upgrades import pre_task_protocol
 from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.correlation.config import CorrelationConfig
@@ -38,11 +50,9 @@ from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import ExperimentGrids, GridRecord
-from fibsem.workflows.item import SiteItem
+from fibsem.workflows.item import FLUORESCENCE_POSE, SiteItem
 from fibsem.workflows.proposals import (
     Proposal,
-    proposals_from_dict,
-    proposals_to_dict,
 )
 from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.saved_format import check_app
@@ -75,19 +85,6 @@ class AutoLamellaWorkflowConfig(RunPlan):
 
     name: str = ""
     description: str = ""
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {"name": self.name, "description": self.description, **super().to_dict()}
-
-    @classmethod
-    def from_dict(cls, data: Optional[Dict[str, Any]]) -> "AutoLamellaWorkflowConfig":
-        data = data or {}
-        plan = RunPlan.from_dict(data)
-        return cls(
-            name=data.get("name", ""),
-            description=data.get("description", ""),
-            tasks=plan.tasks,
-        )
 
 
 @evented
@@ -123,28 +120,11 @@ class LamellaDefaultConfig(Configurable):
         return ""
 
     def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
-            "use_petname": self.use_petname,
-            "name_prefix": self.name_prefix,
-        }
-        if self.alignment_area is not None:
-            d["alignment_area"] = self.alignment_area.to_dict()
-        if self.poi is not None:
-            d["poi"] = self.poi.to_dict()
-        return d
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "LamellaDefaultConfig":
-        aa = data.get("alignment_area")
-        poi = data.get("poi")
-        return cls(
-            use_petname=data.get("use_petname", True),
-            name_prefix=data.get("name_prefix", ""),
-            alignment_area=FibsemRectangle.from_dict(aa)
-            if isinstance(aa, dict)
-            else None,
-            poi=Point.from_dict(poi) if isinstance(poi, dict) else None,
-        )
+        return decode(cls, data)
 
 
 @evented
@@ -195,9 +175,9 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             "description": self.description,
             "version": self.version,
             "task_config": saved["task_config"],
-            "workflow_config": self.workflow_config.to_dict(),
-            "options": self.options.to_dict(),
-            "lamella_defaults": self.lamella_defaults.to_dict(),
+            "workflow_config": encode(self.workflow_config),
+            "options": encode(self.options),
+            "lamella_defaults": encode(self.lamella_defaults),
             "correlation": self.correlation.to_dict(),
             "grid_tasks": self.grid_tasks.to_dict(),
         }
@@ -213,9 +193,9 @@ class AutoLamellaTaskProtocol(TaskProtocol):
             workflow_config=AutoLamellaWorkflowConfig.from_dict(
                 data.get("workflow_config")
             ),
-            options=WorkflowOptions.from_dict(data.get("options", {})),
-            lamella_defaults=LamellaDefaultConfig.from_dict(
-                data.get("lamella_defaults", {})
+            options=decode(WorkflowOptions, data.get("options") or {}),
+            lamella_defaults=decode(
+                LamellaDefaultConfig, data.get("lamella_defaults") or {}
             ),
             # Missing on protocols saved before this field -> a default config.
             correlation=CorrelationConfig.from_dict(data.get("correlation")),
@@ -279,6 +259,27 @@ def _make_thumbnail_placeholder():
 _THUMBNAIL_PLACEHOLDER = None
 
 
+def _load_task_configs(data: Any) -> "EventedDict[str, AutoLamellaTaskConfig]":
+    from fibsem.applications.autolamella.workflows.tasks import load_task_config
+
+    return data if isinstance(data, EventedDict) else load_task_config(data or {})
+
+
+# A lamella's task configs, read through the task registry: a type this build
+# doesn't know is skipped with a warning.
+LamellaTaskConfigs = Annotated[
+    EventedDict,
+    PlainValidator(_load_task_configs, json_schema_input_type=Dict[str, Any]),
+    PlainSerializer(
+        lambda configs: {name: c.to_dict() for name, c in configs.items()},
+        return_type=Dict[str, Any],
+        when_used="json",
+    ),
+]
+
+
+# A lamella saved with no number is number 0.
+@saved(absent={"number": 0})
 @evented
 @dataclass
 class Lamella(SiteItem):
@@ -290,9 +291,7 @@ class Lamella(SiteItem):
         default_factory=lambda: FibsemRectangle.from_dict(DEFAULT_ALIGNMENT_AREA)
     )
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    task_config: EventedDict[str, "AutoLamellaTaskConfig"] = field(
-        default_factory=lambda: EventedDict()
-    )
+    task_config: LamellaTaskConfigs = field(default_factory=lambda: EventedDict())
     poses: Dict[str, MicroscopeState] = field(default_factory=dict)
     task_state: TaskState = field(default_factory=TaskState)
     task_history: List["TaskState"] = field(default_factory=list)
@@ -431,14 +430,14 @@ class Lamella(SiteItem):
 
     @property
     def fluorescence_pose(self) -> Optional[MicroscopeState]:
-        return self.poses.get("FLUORESCENCE", None)
+        return self.poses.get(FLUORESCENCE_POSE)
 
     @fluorescence_pose.setter
     def fluorescence_pose(self, value: MicroscopeState):
         """Set the fluorescence pose for the lamella."""
         if not isinstance(value, MicroscopeState):
             raise TypeError("Fluorescence pose must be a MicroscopeState instance.")
-        self.poses["FLUORESCENCE"] = value
+        self.poses[FLUORESCENCE_POSE] = value
 
     def related_milling_stages(self, task_name: str) -> list:
         """The enabled milling stages of this lamella's tasks related to
@@ -478,23 +477,7 @@ class Lamella(SiteItem):
             )
 
     def to_dict(self):
-        return {
-            "petname": self.petname,
-            "path": str(self.path),
-            "alignment_area": self.alignment_area.to_dict(),
-            "number": self.number,
-            "id": str(self.id),
-            "poses": {k: v.to_dict() for k, v in self.poses.items()},
-            "task_config": {k: v.to_dict() for k, v in self.task_config.items()},
-            "task_state": self.task_state.to_dict(),
-            "task_history": [task.to_dict() for task in self.task_history],
-            "defect": self.defect.to_dict(),
-            "milling_angle": self.milling_angle,
-            "poi": self.poi.to_dict(),
-            "description": self.description,
-            "grid_id": self.grid_id,
-            "proposals": proposals_to_dict(self.proposals),
-        }
+        return encode(self)
 
     @property
     def info(self) -> str:
@@ -506,40 +489,8 @@ class Lamella(SiteItem):
 
     @classmethod
     def from_dict(cls, data: dict) -> "Lamella":
-        # backwards compatibility
-        alignment_area_ddict = data.get("alignment_area", DEFAULT_ALIGNMENT_AREA)
-        alignment_area = FibsemRectangle.from_dict(alignment_area_ddict)
-
-        from fibsem.applications.autolamella.workflows.tasks import load_task_config
-
-        poses = {
-            k: MicroscopeState.from_dict(v) for k, v in data.get("poses", {}).items()
-        }
-        # backwards compat: migrate legacy top-level objective_position into fluorescence_pose
-        legacy_obj_pos = data.get("objective_position", None)
-        if legacy_obj_pos is not None and "FLUORESCENCE" in poses:
-            if poses["FLUORESCENCE"].objective_position is None:
-                poses["FLUORESCENCE"].objective_position = legacy_obj_pos
-
-        return cls(
-            petname=data["petname"],
-            path=data["path"],
-            alignment_area=alignment_area,
-            number=data.get("number", data.get("number", 0)),
-            id=data.get("id", ""),
-            poses=poses,
-            task_config=load_task_config(data.get("task_config", {})),
-            task_state=TaskState.from_dict(data.get("task_state", {})),
-            task_history=[
-                TaskState.from_dict(task) for task in data.get("task_history", [])
-            ],
-            defect=QualityRecord.from_dict(data.get("defect", {})),
-            milling_angle=data.get("milling_angle", None),
-            poi=Point.from_dict(data.get("poi", {"x": 0, "y": 0})),
-            description=data.get("description", ""),
-            grid_id=data.get("grid_id"),
-            proposals=proposals_from_dict(data.get("proposals")),
-        )
+        """Read a lamella saved by any version (`fibsem.codec.upgrades.protocol`)."""
+        return decode(cls, upgrade.lamella(data))
 
     def get_thumbnail(self) -> "np.ndarray":
         """Load the thumbnail image for this lamella if available.
@@ -692,39 +643,22 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         protocol = self.task_protocol
         return protocol is not None and protocol.options.turn_beams_off
 
-    def to_dict(self, include_protocol: bool = False) -> dict:
-
-        state_dict = {
+    def to_dict(self) -> dict:
+        return {
             **super().to_dict(),
-            "positions": [deepcopy(lamella.to_dict()) for lamella in self.positions],
-            "grids": [grid.to_dict() for grid in self.grids],
+            "positions": encode(list(self.positions), List[Lamella]),
+            "grids": encode(list(self.grids), List[GridRecord]),
         }
-
-        if include_protocol:
-            state_dict["protocol"] = (
-                self.task_protocol.to_dict() if self.task_protocol is not None else None
-            )
-
-        return state_dict
 
     @classmethod
     def from_dict(cls, ddict: dict) -> "Experiment":
+        """Read an experiment saved by any version (`fibsem.codec.upgrades.protocol`)."""
         ddict = upgrade.experiment(ddict)
-        path = os.path.dirname(ddict["path"])
-        name = ddict["name"]
-        experiment = Experiment(path=path, name=name)
+        experiment = Experiment(path="", name=ddict["name"])
+        experiment.path = ddict["path"]
         experiment._read_identity(ddict)
-
-        # load lamella from dict
-        for lamella_dict in ddict["positions"]:
-            lamella = Lamella.from_dict(data=lamella_dict)
-            experiment.positions.append(lamella)
-
-        # Experiments written before grid records existed have no "grids" key and
-        # load with none; nothing else about them changes.
-        for grid_dict in ddict.get("grids", []):
-            experiment.grids.append(GridRecord.from_dict(grid_dict))
-
+        experiment.positions.extend(decode(List[Lamella], ddict["positions"]))
+        experiment.grids.extend(decode(List[GridRecord], ddict.get("grids") or []))
         return experiment
 
     def items(self) -> List[Union["Lamella", GridRecord]]:

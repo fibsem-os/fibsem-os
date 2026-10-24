@@ -139,7 +139,7 @@ class BaseExperiment:
                 "know is dropped, and saving would lose it."
             )
         self.created_at = to_datetime(ddict.get("created_at"))
-        self.id = ddict.get("_id", "NULL")
+        self.id = ddict.get("_id") or self.id
         self.metadata = ddict.get("metadata", {})
         # Absent from older experiments, and from any that no session has adopted
         # yet. Both mean the same thing -- nothing is known about

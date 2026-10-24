@@ -13,20 +13,20 @@ already acquired -- both silent, both worse than recording nothing.
 
 import pytest
 
-from fibsem import utils
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,
     Lamella,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.structures import BeamType, FibsemExperimentRef
+from tests.fixtures.microscopes import demo_microscope
+
+microscope = demo_microscope(scope="function")
 
 
-@pytest.fixture
-def microscope():
-    scope, _ = utils.setup_session(manufacturer="Demo")
-    scope.experiment = FibsemExperimentRef(id="exp-1", name="an-experiment")
-    return scope
+@pytest.fixture(autouse=True)
+def _in_an_experiment(microscope):
+    microscope.experiment = FibsemExperimentRef(id="exp-1", name="an-experiment")
 
 
 @pytest.fixture

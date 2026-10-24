@@ -493,11 +493,10 @@ class Configurable:
     def describe(cls) -> Dict[str, Any]:
         """This class as a JSON Schema object; the dataclasses its fields hold are
         under ``$defs``."""
-        from fibsem.schema import dataclass_schema
+        from fibsem.schema import value_schema
 
         defs: Dict[str, Any] = {}
-        dataclass_schema(cls, defs)
-        schema = dict(defs.pop(cls.__name__))
+        schema = value_schema(cls, defs)
         if defs:
             schema["$defs"] = defs
         return schema

@@ -447,9 +447,15 @@ class LamellaTaskImageWidget(QWidget):
         self._content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._filter_button = _HistoryFilterButton(self)
-        self._filter_button.set_filter(
-            HistoryFilter.from_dict(user_state().load_section(HISTORY_FILTER, {}) or {})
-        )
+        try:
+            saved = HistoryFilter.from_dict(
+                user_state().load_section(HISTORY_FILTER, {}) or {}
+            )
+        except ValueError:
+            # A filter this version doesn't have shows everything rather than
+            # hiding runs.
+            saved = HistoryFilter()
+        self._filter_button.set_filter(saved)
         self._filter_button.changed.connect(self._on_filter_changed)
         self._filter_button.hide()
 

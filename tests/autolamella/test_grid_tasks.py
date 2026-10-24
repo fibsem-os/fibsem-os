@@ -18,6 +18,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
+from fibsem.codec import NamedEnum
 from fibsem.workflows.grid import (
     GridTask,
     GridTaskConfig,
@@ -35,7 +36,7 @@ from tests.fixtures.microscopes import demo_microscope
 # ---------------------------------------------------------------------------
 
 
-class Flavour(Enum):
+class Flavour(NamedEnum, Enum):
     PLAIN = "plain"
     SPICY = "spicy"
 

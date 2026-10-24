@@ -220,8 +220,8 @@ def test_lamella_defaults_to_dict_minimal():
     d = LamellaDefaultConfig().to_dict()
     assert d["use_petname"] is True
     assert d["name_prefix"] == ""
-    assert "alignment_area" not in d
-    assert "poi" not in d
+    assert d["alignment_area"] is None
+    assert d["poi"] is None
 
 
 def test_lamella_defaults_to_dict_full():
