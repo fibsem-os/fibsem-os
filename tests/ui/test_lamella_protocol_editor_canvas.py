@@ -169,7 +169,7 @@ def test_poi_marker_is_placed_and_is_inert():
     assert abs(y - _RESOLUTION[1] / 2) < 1.0, f"POI y={y}, expected image centre"
 
     canvas = editor.view_controller.get_canvas(BeamType.ION)
-    assert canvas.active_overlay is None, "POI armed itself — it must stay inert"
+    assert canvas._active_overlay is None, "POI armed itself — it must stay inert"
 
 
 def test_alignment_area_draws_removes_and_folds_edits_back():
@@ -237,7 +237,7 @@ def test_alignment_edit_toggle_arms_and_disarms():
     editor._selected_lamella = exp.positions[0]
     editor.show_alignment_area = True
 
-    # assert the reducer's model, not canvas.active_overlay: rendering is queued onto
+    # assert the reducer's model, not canvas._active_overlay: rendering is queued onto
     # the GUI thread, so the canvas hasn't caught up until events are processed.
     editor._on_toggle_alignment_area_editable(True)
     assert _armed(editor.view_controller) == ALIGNMENT_OVERLAY_ID
@@ -277,12 +277,12 @@ def test_a_redraw_never_steals_input_from_the_spot_burn_overlay():
 
     # and it does reach the canvas once the queued render lands
     _app.processEvents()
-    assert editor.view_controller.get_canvas(BeamType.ION).active_overlay is not None
+    assert editor.view_controller.get_canvas(BeamType.ION)._active_overlay is not None
 
     editor._on_toggle_alignment_area_editable(False)
     assert _armed(editor.view_controller) is None
     _app.processEvents()
-    assert editor.view_controller.get_canvas(BeamType.ION).active_overlay is None
+    assert editor.view_controller.get_canvas(BeamType.ION)._active_overlay is None
 
 
 def test_fluorescence_task_switches_the_canvas_page():

@@ -240,9 +240,6 @@ class ChoiceCard(QtWidgets.QFrame):
 
         self.set_selected(False)
 
-    def is_selected(self) -> bool:
-        return self._selected
-
     def set_summary(self, summary: str) -> None:
         """Replace the card's subtitle after construction.
 

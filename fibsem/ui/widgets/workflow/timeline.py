@@ -606,11 +606,6 @@ class WorkflowTimelineWidget(QWidget):
             self._contents_layout.addWidget(row)
         self._contents_layout.addStretch(1)
 
-    def set_step_status(self, index: int, status: StepStatus) -> None:
-        if 0 <= index < len(self._steps):
-            self._steps[index].status = status
-            self._rows[index].refresh(self._steps[index])
-
     def show_first(self, status: StepStatus) -> Optional[int]:
         """Select the first row in *status* and scroll it into view; its index, or
         None when no row is in it."""
@@ -1016,18 +1011,6 @@ class WorkflowProgressWidget(QWidget):
         self._header.setText("Workflow")
         self._summary.setVisible(False)
         self._outer.clear()
-
-    def set_active_outer(self, index: int) -> None:
-        """Show the inner container for *index*, hide all others.
-
-        Convenience method for test scripts that drive the widget directly
-        rather than through update_from_status().
-        """
-        self._outer_index = index
-        self._active_id = (
-            self._items[index].id if 0 <= index < len(self._items) else None
-        )
-        self._show_inner_at(index)
 
     # ── Internal ──────────────────────────────────────────────────────────
     _FINISHED = (

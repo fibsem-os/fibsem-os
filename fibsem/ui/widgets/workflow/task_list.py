@@ -430,13 +430,6 @@ class WorkflowTaskList(QWidget):
                 break
         self._sync_select_all()
 
-    def refresh_task(self, task: TaskPlan) -> None:
-        for i in range(self._list.count()):
-            row = self._row(i)
-            if row.task is task:
-                row.refresh()
-                break
-
     def set_protocol(self, protocol: Optional[TaskProtocol]) -> None:
         """The protocol whose tasks these are, for what each needs from a
         person. None: nothing is said."""
