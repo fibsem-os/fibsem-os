@@ -46,9 +46,11 @@ from fibsem.codec import (
     Array,
     AwareTimestamp,
     Blocks,
+    LowerBound,
     NamedEnum,
     Tagged,
     Timestamp,
+    UpperBound,
     decode,
     encode,
     saved,
@@ -79,8 +81,10 @@ TFibsemPatternSettings = TypeVar(
 @saved(required=("min", "max"))
 @dataclass
 class RangeLimit:
-    min: float
-    max: float
+    """A value's range; an unbounded end is infinite, and null as data."""
+
+    min: LowerBound
+    max: UpperBound
 
     def clamp(self, value: float) -> float:
         return max(self.min, min(self.max, value))
@@ -489,11 +493,10 @@ class Configurable:
     def describe(cls) -> Dict[str, Any]:
         """This class as a JSON Schema object; the dataclasses its fields hold are
         under ``$defs``."""
-        from fibsem.schema import dataclass_schema
+        from fibsem.schema import value_schema
 
         defs: Dict[str, Any] = {}
-        dataclass_schema(cls, defs)
-        schema = dict(defs.pop(cls.__name__))
+        schema = value_schema(cls, defs)
         if defs:
             schema["$defs"] = defs
         return schema

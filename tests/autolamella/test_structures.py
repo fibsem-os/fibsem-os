@@ -411,9 +411,9 @@ def test_task_config_estimated_time_no_imaging():
 
 
 def test_task_protocol_estimated_time_per_task():
-    from fibsem import config as fcfg
+    from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 
-    protocol = AutoLamellaTaskProtocol.load(fcfg.AUTOLAMELLA_TASK_PROTOCOL_PATH)
+    protocol = AutoLamellaTaskProtocol.load(TASK_PROTOCOL_PATH)
     for task in protocol.task_config.values():
         assert isinstance(task.estimated_time, float)
         assert task.estimated_time >= 0.0

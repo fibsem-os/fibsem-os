@@ -159,7 +159,7 @@ class TestWindow(QWidget):
         self._protocol.set_attention(
             task.name, Attention.automated if supervised else Attention.supervised
         )
-        self.widget.workflow.refresh_task(task)
+        self.widget.workflow.refresh_all()
         self._log(
             f"Attention: {task.name} → {self._protocol.get_attention(task.name).value}"
         )

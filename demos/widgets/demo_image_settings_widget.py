@@ -75,13 +75,13 @@ def main():
         print(f"  line_int:     {s.line_integration}")
 
     def print_beam_settings():
-        s = widget._get_beam_settings_from_ui()
+        s = widget.dual_beam_widget.get_beam_settings()
         print(f"\n--- BeamSettings ({widget.dual_beam_widget.beam_type.name}) ---")
         for k, v in s.to_dict().items():
             print(f"  {k}: {v}")
 
     def print_detector_settings():
-        s = widget._get_detector_settings_from_ui()
+        s = widget.dual_beam_widget.get_detector_settings()
         print(f"\n--- DetectorSettings ({widget.dual_beam_widget.beam_type.name}) ---")
         print(f"  type:       {s.type}")
         print(f"  mode:       {s.mode}")

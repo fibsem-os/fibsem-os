@@ -99,6 +99,15 @@ class _Checked:
         self.answered.add((method, route or path))
         return decoded
 
+    def refused(self, status, error_type, method, path, **kwargs):
+        """The refusal a route answers: *status*, and the one detail shape."""
+        response = self.client.request(method, path, **kwargs)
+        assert response.status_code == status, (method, path, response.text)
+        detail = response.json()["detail"]
+        assert detail["error_type"] == error_type, (method, path, detail)
+        assert isinstance(detail["message"], str) and detail["message"]
+        return detail
+
 
 def test_the_app_reads_decode_as_their_declared_class(client):
     call = _Checked(client)
@@ -106,7 +115,7 @@ def test_the_app_reads_decode_as_their_declared_class(client):
     task = call("GET", "/app/experiment/protocol").tasks[0].name
     call("GET", "/app/workflow/status")
     call("GET", "/app/workflow/queue")
-    call("GET", "/app/workflow/summary")
+    call.refused(404, "not_found", "GET", "/app/workflow/summary")  # no run yet
     call("GET", "/app/experiment/task_history")
     call("GET", "/app/log")
     call(
@@ -114,10 +123,9 @@ def test_the_app_reads_decode_as_their_declared_class(client):
         f"/app/experiment/protocol/task_config/{task}",
         "/app/experiment/protocol/task_config/{task_name}",
     )
-    call(
-        "GET",
-        f"/app/experiment/items/{item}/task_config/{task}",
-        "/app/experiment/items/{item_name}/task_config/{task_name}",
+    # a new lamella has no config of its own until a run gives it one
+    call.refused(
+        404, "not_found", "GET", f"/app/experiment/items/{item}/task_config/{task}"
     )
     call(
         "GET",
@@ -145,11 +153,12 @@ def test_the_app_reads_decode_as_their_declared_class(client):
     grids = call("GET", "/app/experiment/grids")
     grid = grids.items[0].name
     call("GET", f"/app/experiment/grids/{grid}", "/app/experiment/grids/{grid_name}")
-    call("GET", "/app/experiment/grids/nowhere", "/app/experiment/grids/{grid_name}")
-    call(
+    call.refused(404, "not_found", "GET", "/app/experiment/grids/nowhere")
+    call.refused(
+        404,
+        "not_found",
         "GET",
         f"/app/experiment/grids/{grid}/outputs/none.tif/markers",
-        "/app/experiment/grids/{grid_name}/outputs/{filename:path}/markers",
     )
     grid_task = call("GET", "/app/experiment/protocol").grid_tasks[0].name
     call(
@@ -358,30 +367,36 @@ def test_the_app_edits_decode_as_their_declared_class(client, tmp_path):
     name = call("GET", "/app/experiment/protocols").protocols[0].name
     call("POST", "/app/experiment/protocol/load", json={"protocol": name})
     created = call("POST", "/app/experiment/create", json={"name": "models-new"})
-    assert created.experiment.available
+    assert created.applied and created.experiment.items == []
 
-    # what is not done without a run says why, in a 200
-    call("POST", "/app/workflow/start", json={"task_names": ["Nothing"]})
-    call(
+    # what is not done without a run is refused, saying why
+    unknown = call.refused(
+        404,
+        "not_found",
+        "POST",
+        "/app/workflow/start",
+        json={"task_names": ["Nothing"]},
+    )
+    assert task in unknown["task_names"]
+    call.refused(
+        404,
+        "not_found",
         "POST",
         "/app/workflow/grids/start",
         json={"task_names": [grid_task], "grid_names": ["none"]},
     )
-    call(
-        "POST",
-        "/app/workflow/queue/requeue",
-        json={"item_name": item, "task_name": task},
-    )
-    call(
-        "POST",
-        "/app/workflow/queue/edit",
-        json={"item_name": item, "task_name": task, "action": "remove"},
-    )
-    call(
-        "POST",
-        "/app/workflow/queue/grids",
-        json={"task_names": [grid_task], "grid_names": ["none"]},
-    )
+    for path, body in (
+        ("/app/workflow/queue/requeue", {"item_name": item, "task_name": task}),
+        (
+            "/app/workflow/queue/edit",
+            {"item_name": item, "task_name": task, "action": "remove"},
+        ),
+        (
+            "/app/workflow/queue/grids",
+            {"task_names": [grid_task], "grid_names": ["none"]},
+        ),
+    ):
+        call.refused(409, "not_running", "POST", path, json=body)
 
     call(
         "POST",
@@ -390,11 +405,39 @@ def test_the_app_edits_decode_as_their_declared_class(client, tmp_path):
     )
 
 
+def test_with_no_experiment_the_reads_are_refused(client):
+    """Every read of the experiment answers 409 ``no_experiment`` when none is
+    open; what is not the experiment's still answers."""
+    client.app.state.app_context._session.experiment = None
+    call = _Checked(client)
+    for path in (
+        "/app/experiment",
+        "/app/experiment/protocol",
+        "/app/experiment/task_history",
+        "/app/experiment/items/x",
+        "/app/experiment/items/x/outputs",
+        "/app/experiment/items/x/history",
+        "/app/experiment/items/x/task_config/y",
+        "/app/experiment/protocol/task_config/y",
+        "/app/experiment/grids",
+        "/app/experiment/grids/x",
+        "/app/experiment/grid_protocol/task_config/y",
+        "/app/workflow/proposals",
+        "/app/events/history",
+        "/app/log",
+    ):
+        call.refused(409, "no_experiment", "GET", path)
+    call("GET", "/app/workflow/status")
+    call("GET", "/app/workflow/queue")
+    call("GET", "/app/events")
+
+
 def test_every_app_route_declares_its_answer(client):
     """A route answers a declared class, or an image."""
     images = {
         "/app/experiment/items/{item_name}/outputs/{filename}",
         "/app/experiment/grids/{grid_name}/outputs/{filename}",
+        "/app/experiment/planes/{path:path}",
         "/app/experiment/export/image",
         "/app/experiment/export/animation",
     }

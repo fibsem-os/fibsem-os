@@ -516,11 +516,3 @@ class StoredOverviewCanvas(QWidget):
                 callback=lambda: self.position_move_requested.emit(selected, target),
             )
         return config
-
-    def request_add_at(self, x: float, y: float) -> None:
-        """Ask for a position at a canvas point, naming the overview it is on."""
-        target = self.stage_position_at(x, y)
-        if target is None:
-            return
-        record = self.record_at(x, y)
-        self.position_add_requested.emit(target, record.id if record else None)

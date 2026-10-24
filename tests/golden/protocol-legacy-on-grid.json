@@ -112,7 +112,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 20 nA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 2e-09,
@@ -132,7 +136,7 @@
                   "x": 2.5e-05,
                   "y": 0.0
                 },
-                "rotation": 45,
+                "rotation": 45.0,
                 "width": 1e-06
               },
               "strategy": {
@@ -475,7 +479,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 2.5 nA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 2e-09,

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-import fibsem.config as cfg
+from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -232,9 +232,7 @@ def test_the_shipped_grid_tasks_are_in_the_arctis_reach(microscope):
         overview_reach,
     )
 
-    grid_tasks = AutoLamellaTaskProtocol.load(
-        cfg.AUTOLAMELLA_TASK_PROTOCOL_PATH
-    ).grid_tasks
+    grid_tasks = AutoLamellaTaskProtocol.load(TASK_PROTOCOL_PATH).grid_tasks
     # a misspelt task type is skipped with only a warning, so name both
     assert grid_tasks.ordered_task_names == ["SEM Overview", "FIB Overview"]
     expected = {

@@ -6,6 +6,7 @@ Inner timeline: each task reveals 3–5 named steps progressively (1–2 s apart
 A random 20 % failure chance applies to each inner step; a failed step stops that task.
 """
 
+import copy
 import random
 import sys
 from typing import Dict, List
@@ -21,8 +22,9 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.ui import stylesheets
-from fibsem.ui.widgets.workflow.timeline import StepStatus, WorkflowProgressWidget
+from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.queue import WorkItem
+from fibsem.workflows.status import TaskStatus
 
 # ── Fake workflow data ────────────────────────────────────────────────────────
 LAMELLA_NAMES = ["Lamella-01", "Lamella-02"]
@@ -130,6 +132,10 @@ class AnimatedDemo(QWidget):
         # Advance to next outer item
         self._outer_idx += 1
         if self._outer_idx >= len(self._outer_items):
+            last = self._outer_items[-1]
+            if last.status is TaskStatus.InProgress:
+                last.status = TaskStatus.Completed
+            self._report(last, last.status)
             self._status_label.setText("All tasks completed.")
             return
 
@@ -137,19 +143,13 @@ class AnimatedDemo(QWidget):
         self._inner_steps = TASK_STEPS[item.task_name]
         self._inner_idx = -1
 
-        # Drive the outer timeline directly
-        for i in range(len(self._outer_items)):
-            if i < self._outer_idx:
-                self._progress._outer.set_step_status(i, StepStatus.COMPLETED)
-            elif i == self._outer_idx:
-                self._progress._outer.set_step_status(i, StepStatus.ACTIVE)
-            else:
-                self._progress._outer.set_step_status(i, StepStatus.PENDING)
-
-        self._progress.set_active_outer(self._outer_idx)
-        self._status_label.setText(
-            f"[{item.lamella_name}] {item.task_name} — starting…"
-        )
+        for i, outer in enumerate(self._outer_items):
+            if i == self._outer_idx:
+                outer.status = TaskStatus.InProgress
+            elif outer.status is TaskStatus.InProgress:
+                outer.status = TaskStatus.Completed
+        self._report(item, TaskStatus.InProgress)
+        self._status_label.setText(f"[{item.item_name}] {item.task_name} — starting…")
 
         # Short pause before first inner step
         self._timer.start(600)
@@ -163,8 +163,9 @@ class AnimatedDemo(QWidget):
             self._progress.update_step(step_name)
             self._progress.finish_current_step(failed=True)
             # Mark outer row failed too
-            self._progress._outer.set_step_status(self._outer_idx, StepStatus.FAILED)
-            failed_lamella = self._outer_items[self._outer_idx].lamella_name
+            self._outer_items[self._outer_idx].status = TaskStatus.Failed
+            self._report(self._outer_items[self._outer_idx], TaskStatus.Failed)
+            failed_lamella = self._outer_items[self._outer_idx].item_name
             self._status_label.setText(
                 f"[{failed_lamella}] FAILED at '{step_name}' — stopping task."
             )
@@ -177,9 +178,7 @@ class AnimatedDemo(QWidget):
         self._progress.update_step(step_name)
 
         item = self._outer_items[self._outer_idx]
-        self._status_label.setText(
-            f"[{item.lamella_name}] {item.task_name} — {step_name}"
-        )
+        self._status_label.setText(f"[{item.item_name}] {item.task_name} — {step_name}")
 
         is_last_inner = self._inner_idx == len(self._inner_steps) - 1
         if is_last_inner:
@@ -188,6 +187,17 @@ class AnimatedDemo(QWidget):
             self._timer.start(outer_delay)
         else:
             self._timer.start(random.randint(1_000, 2_000))
+
+    def _report(self, item: WorkItem, status: TaskStatus) -> None:
+        """Send the timeline the report the task manager would."""
+        self._progress.update_from_status(
+            {
+                "task_name": item.task_name,
+                "item_name": item.item_name,
+                "status": status,
+                "queue_items": [copy.copy(i) for i in self._outer_items],
+            }
+        )
 
     def _restart(self):
         self._timer.stop()

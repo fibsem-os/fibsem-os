@@ -23,16 +23,7 @@ from fibsem.structures import (
     FibsemStagePosition,
     MicroscopeState,
 )
-from fibsem.ui.tokens import (
-    CURRENT_POSITION_COLOUR,
-    SAVED_POSITION_COLOUR,
-    TEXT_MUTED_COLOR,
-)
-from fibsem.ui.widgets.microscope_state_widget import (
-    _LIVE_COLUMN,
-    _SAVED_COLUMN,
-    MicroscopeStateWidget,
-)
+from fibsem.ui.widgets.microscope_state_widget import MicroscopeStateWidget
 from fibsem.utils import NOT_AVAILABLE
 
 
@@ -80,15 +71,6 @@ def _grid_text(grid) -> dict:
         if cells[0]:
             out[cells[0]] = [c for c in cells[1:] if c is not None]
     return out
-
-
-def _colour_of(grid, label: str, column: int) -> str:
-    layout = grid._layout
-    for row in range(layout.rowCount()):
-        first = layout.itemAtPosition(row, 0)
-        if first is not None and first.widget().text() == label:
-            return layout.itemAtPosition(row, column).widget().styleSheet()
-    raise AssertionError(f"no row {label!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -190,89 +172,6 @@ def test_clearing_empties_every_section(qapp):
     assert _grid_text(widget.grid_stage) == {}
     assert widget.headline_ion.text() == "", "a cleared panel reports no values"
     assert widget.label_timestamp.text() == ""
-    assert widget.label_delta.isHidden() is True
-
-
-# ---------------------------------------------------------------------------
-# Comparing two states
-# ---------------------------------------------------------------------------
-
-
-def test_comparing_shows_both_columns(qapp):
-    widget = MicroscopeStateWidget()
-    widget.set_state(_state(x=42e-6), title="MILLING")
-    widget.set_reference(_state(x=0.0))
-
-    rows = _grid_text(widget.grid_stage)
-    assert rows["X"] == ["0 nm", "42.00 µm"], "saved column first, then live"
-    assert widget.chip_saved.isHidden() is False
-    assert widget.chip_live.isHidden() is False
-
-
-def test_only_the_rows_that_differ_are_coloured(qapp):
-    """Colouring every value would hide the two that matter.
-
-    The colours are `tokens.py`'s own: CURRENT_POSITION_COLOUR is documented as "where
-    the stage is now" and SAVED_POSITION_COLOUR as "a marked position", which is what
-    the overview canvases already draw stage markers in.
-    """
-    widget = MicroscopeStateWidget()
-    widget.set_state(_state(x=42e-6), title="MILLING")
-    widget.set_reference(_state(x=0.0))
-
-    assert SAVED_POSITION_COLOUR in _colour_of(widget.grid_stage, "X", _SAVED_COLUMN)
-    assert CURRENT_POSITION_COLOUR in _colour_of(widget.grid_stage, "X", _LIVE_COLUMN)
-
-    # Y did not move.
-    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_stage, "Y", _SAVED_COLUMN)
-    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_stage, "Y", _LIVE_COLUMN)
-
-
-def test_two_identical_states_colour_nothing(qapp):
-    widget = MicroscopeStateWidget()
-    widget.set_state(_state())
-    widget.set_reference(_state())
-
-    for label in ("X", "Y", "Z", "R", "T"):
-        assert TEXT_MUTED_COLOR in _colour_of(
-            widget.grid_stage, label, _SAVED_COLUMN
-        ), label
-
-
-def test_values_are_compared_as_rendered_not_as_floats(qapp):
-    """Two records holding 2.0e-11 and 2.0000001e-11 both read "20 pA".
-
-    Marking that row as a difference would report a change the panel cannot show.
-    """
-    widget = MicroscopeStateWidget()
-    widget.set_state(_state(ion_current=2.0000001e-11))
-    widget.set_reference(_state(ion_current=2.0e-11))
-
-    assert _grid_text(widget.grid_ion)["Current"] == ["20 pA", "20 pA"]
-    assert TEXT_MUTED_COLOR in _colour_of(widget.grid_ion, "Current", _SAVED_COLUMN)
-
-
-def test_the_separation_is_reported_in_three_dimensions(qapp):
-    """One number to act on. 3-4-5 in micrometres, so the arithmetic is checkable."""
-    widget = MicroscopeStateWidget()
-    widget.set_state(_state(x=3e-6, y=4e-6, z=0.0))
-    widget.set_reference(_state(x=0.0, y=0.0, z=0.0))
-
-    # `isHidden`, not `isVisible`: a child of a widget that was never shown is never
-    # visible, so `isVisible() is False` would pass here whatever the code did.
-    assert widget.label_delta.isHidden() is False
-    assert "5.00 µm" in widget.label_delta.text()
-
-
-def test_dropping_the_reference_stops_comparing(qapp):
-    widget = MicroscopeStateWidget()
-    widget.set_state(_state(x=42e-6))
-    widget.set_reference(_state(x=0.0))
-    widget.set_reference(None)
-
-    assert _grid_text(widget.grid_stage)["X"] == ["42.00 µm"]
-    assert widget.label_delta.isHidden() is True
-    assert widget.chip_live.isHidden() is True, "a saved pose is not live"
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 from PyQt5.QtWidgets import QApplication, QPushButton
 
 from fibsem import utils
+from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
@@ -23,7 +24,6 @@ from fibsem.applications.autolamella.ui.grids.overview import (
     QuadOverviewPage,
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
-from fibsem.config import AUTOLAMELLA_TASK_PROTOCOL_PATH
 from fibsem.structures import (
     BeamType,
     FibsemStagePosition,
@@ -36,6 +36,15 @@ from fibsem.ui.widgets.canvas.overlays.stage_context import holder_slots
 from fibsem.workflows.grids import GridRecord
 
 SLOT_X = {"Grid-A": -2.5e-3, "Grid-B": 2.5e-3}
+
+
+def _show_page(cell, key: str) -> None:
+    """Step the page cycler round to *key*, as the operator does."""
+    for _ in range(len(cell._keys)):
+        if cell.page == key:
+            return
+        cell.step(1)
+    assert cell.page == key, key
 
 
 def _calibrate(microscope):
@@ -73,9 +82,7 @@ def world(qapp, tmp_path):
     microscope, _ = utils.setup_session(manufacturer="Demo")
     _calibrate(microscope)
     experiment = Experiment.create(path=tmp_path, name="quad-overview")
-    experiment.task_protocol = AutoLamellaTaskProtocol.load(
-        AUTOLAMELLA_TASK_PROTOCOL_PATH
-    )
+    experiment.task_protocol = AutoLamellaTaskProtocol.load(TASK_PROTOCOL_PATH)
     grids = {
         name: experiment.add_grid(GridRecord(name=name))
         for name in ("Grid-A", "Grid-B", "Grid-C")
@@ -291,9 +298,9 @@ def test_the_page_s_controls_share_the_cell_s_header_row(world):
     cell = controller.widget.page_cell
     cell.add_page("overview", "Overview", world.page, header=world.page.header)
     assert world.page.header.parentWidget() is cell._headers
-    cell.set_page("chamber")
+    _show_page(cell, "chamber")
     assert cell._headers.currentWidget() is not world.page.header
-    cell.set_page("overview")
+    _show_page(cell, "overview")
     assert cell._headers.currentWidget() is world.page.header
 
 
@@ -303,7 +310,7 @@ def test_the_header_stays_at_the_top_of_an_empty_page(world):
     controller = MicroscopeViewController()  # kept: it owns the cell
     cell = controller.widget.page_cell
     cell.add_page("overview", "Overview", world.page, header=world.page.header)
-    cell.set_page("overview")
+    _show_page(cell, "overview")
     _pin(world.page, world.grids["Grid-C"].id)
     controller.widget.resize(900, 700)
     controller.widget.show()

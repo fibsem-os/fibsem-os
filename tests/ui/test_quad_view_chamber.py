@@ -12,11 +12,11 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 
 from fibsem import utils
 from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
+from fibsem.geometry.stage_places import is_half_turn
 from fibsem.services.sample_handling import bind_sample_handling
 from fibsem.structures import FibsemStagePosition
-from fibsem.ui.widgets.canvas.chamber_view import is_half_turn
 from fibsem.ui.widgets.canvas.quad_view import (
-    LamellaEditorView,
+    ItemEditorView,
     MicroscopeViewController,
 )
 
@@ -55,7 +55,10 @@ def test_cell_opens_on_the_chamber_page_with_nothing_drawn(controller):
     cell = controller.widget.page_cell
     assert cell.page == "chamber"
     assert cell.label.text() == "Chamber"
-    assert not controller.widget.chamber_view.has_position
+    assert (
+        controller.widget.chamber_view._stack.currentWidget()
+        is not controller.widget.chamber_view.scene
+    )
 
 
 @pytest.mark.parametrize(
@@ -68,7 +71,7 @@ def test_chamber_follows_the_stage_update(
     chamber = _show(controller, microscope, orientation)
     diagram = chamber.diagram
 
-    assert chamber.has_position
+    assert chamber._stack.currentWidget() is chamber.scene
     assert diagram._orientation == orientation
     assert diagram._mirrored is mirrored
     assert diagram._pre_tilt == microscope.system.stage.shuttle_pre_tilt
@@ -156,7 +159,7 @@ def test_a_position_without_tilt_keeps_the_last_drawing(controller, microscope):
 
 
 def test_lamella_editor_view_has_no_chamber(qapp, microscope):
-    controller = MicroscopeViewController(view=LamellaEditorView())
+    controller = MicroscopeViewController(view=ItemEditorView())
     controller.update_info(microscope, stage_position=microscope.get_stage_position())
 
 

@@ -110,7 +110,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 2.5 nA"
+                  }
+                },
                 "hfw": 0.00018,
                 "milling_channel": "ION",
                 "milling_current": 7.6e-09,

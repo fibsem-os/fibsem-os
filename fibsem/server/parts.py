@@ -20,6 +20,8 @@ __all__ = [
     "PARTS",
     "POSES",
     "Poses",
+    "REPLAY",
+    "Replay",
     "served_parts",
 ]
 
@@ -28,6 +30,7 @@ POSES = "poses"
 GRIDS = "grids"
 MILLING_STAGES = "milling_stages"
 LAMELLAE = "lamellae"
+REPLAY = "replay"
 
 
 @runtime_checkable
@@ -234,12 +237,23 @@ class Lamellae(Protocol):
     def animation_steps(self, item_name: str) -> Dict[str, Any]: ...
 
 
+@runtime_checkable
+class Replay(Protocol):
+    """The experiment's recorded actions, read back as a timeline to step
+    through."""
+
+    def replay(self) -> Any: ...
+
+    def replay_scene(self, index: int, item: Optional[str] = None) -> Any: ...
+
+
 PARTS = {
     ITEMS: Items,
     POSES: Poses,
     GRIDS: Grids,
     MILLING_STAGES: MillingStages,
     LAMELLAE: Lamellae,
+    REPLAY: Replay,
 }
 
 
