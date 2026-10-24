@@ -65,9 +65,10 @@ class VolumeWindow(AppWindow):
         self._create_status_bar()
         self._create_tabs()
         self._update_instructions()
+        self.sync_app_server_with_preference()
 
-    def app_context(self, event_buffer) -> VolumeAppContext:
-        return VolumeAppContext(self.session, event_buffer=event_buffer)
+    def app_context(self) -> VolumeAppContext:
+        return VolumeAppContext(self.session)
 
     # --- building -------------------------------------------------------------
 

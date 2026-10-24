@@ -26,6 +26,7 @@ from fibsem import config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.ui.widgets import connection_dialog  # noqa: E402
 from fibsem.ui.widgets.connection_dialog import ConnectionDialog  # noqa: E402
+from fibsem.workflows.session import AppSession  # noqa: E402
 
 
 @pytest.fixture
@@ -36,8 +37,7 @@ def dialog(qapp):
     # code doing anything. exec_ would block the test on the event loop.
     d.show()
     yield d
-    if d.microscope is not None:
-        d.microscope.disconnect()
+    d.session.disconnect()
     d.deleteLater()
 
 
@@ -146,12 +146,12 @@ def _record_question(monkeypatch) -> dict:
 @pytest.fixture
 def connected_dialog(qapp):
     """The dialog as the header chip opens it: something is already connected."""
-    microscope, settings = utils.setup_session(manufacturer="Demo")
-    d = ConnectionDialog(microscope=microscope, settings=settings)
+    session = AppSession()
+    session.connect(manufacturer="Demo")
+    d = ConnectionDialog(session=session)
     d.show()
     yield d
-    if d.microscope is not None:
-        d.microscope.disconnect()
+    session.disconnect()
     d.deleteLater()
 
 
@@ -205,19 +205,6 @@ def test_reconnecting_replaces_the_session(connected_dialog, monkeypatch):
     assert connected_dialog.microscope is not original
 
 
-def test_the_helper_reports_no_change_when_nothing_happened(qapp):
-    """A cancel must not read as a disconnect, or the caller drops the session."""
-    from fibsem.ui.widgets.connection_dialog import ConnectionResult
-
-    microscope, settings = utils.setup_session(manufacturer="Demo")
-    try:
-        result = ConnectionResult(False, microscope, settings)
-        assert result.changed is False
-        assert result.microscope is microscope
-    finally:
-        microscope.disconnect()
-
-
 def test_a_disconnected_dialog_offers_no_disconnect(dialog):
     assert not dialog.disconnect_button.isVisible()
     assert dialog.connect_button.text() == "Connect"
@@ -252,22 +239,21 @@ def test_declining_a_reconnect_keeps_the_session(connected_dialog, monkeypatch):
     assert connected_dialog.changed is False
 
 
-def test_losing_the_session_mid_workflow_says_what_it_will_break(qapp, monkeypatch):
-    """Still allowed -- an instrument that has already gone needs releasing exactly
-    when a workflow believes it is using it -- but the warning has to say so."""
-    asked = _record_question(monkeypatch)
+def test_disconnecting_mid_run_is_refused_and_says_why(connected_dialog, monkeypatch):
+    """The session refuses while a run is on: the run would fail on an
+    instrument pulled out from under it. Stop the run first."""
+    _answer_disconnect(monkeypatch, True)
+    session = connected_dialog.session
+    microscope = session.microscope
+    runner = type(session.runner)
+    monkeypatch.setattr(runner, "is_running", property(lambda _: True))
 
-    microscope, settings = utils.setup_session(manufacturer="Demo")
-    d = ConnectionDialog(
-        microscope=microscope, settings=settings, workflow_running=True
-    )
-    d.show()
-    try:
-        d.disconnect_button.click()
-        assert "workflow is running" in asked["text"].lower()
-    finally:
-        microscope.disconnect()
-        d.deleteLater()
+    connected_dialog.disconnect_button.click()
+
+    assert session.microscope is microscope
+    assert connected_dialog.changed is False
+    assert "run is on" in connected_dialog.message_label.text()
+    monkeypatch.undo()  # before the fixture disconnects
 
 
 def test_the_details_panel_reports_the_connection(connected_dialog):

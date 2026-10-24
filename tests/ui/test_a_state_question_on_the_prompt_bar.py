@@ -68,10 +68,7 @@ def window(qapp, tmp_path):
     for manager, thread in win._started:
         manager.stop()
         _pump(qapp, lambda: not thread.is_alive())
-    microscope = ui.microscope
-    ui.disconnect_from_microscope()
-    if microscope is not None:
-        microscope.disconnect()
+    ui.session.disconnect()
     close_window(win)
     win.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
