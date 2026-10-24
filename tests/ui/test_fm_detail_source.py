@@ -48,7 +48,9 @@ def widget():
 def place(widget, key="fm-composite", centre=(0.0, 0.0), seed=0):
     widget.set_composite_key(key)
     widget.set_placement(centre)
-    widget.set_channels([(n, plane(seed=seed + i), c) for i, (n, c) in enumerate(CHANNELS)])
+    widget.set_channels(
+        [(n, plane(seed=seed + i), c) for i, (n, c) in enumerate(CHANNELS)]
+    )
     return key
 
 
@@ -103,8 +105,12 @@ def test_a_patch_says_which_ground_it_actually_covers(widget):
     # Every edge lands on a whole stored pixel. This is the assertion that bites: a
     # source returning the region it was *asked* for satisfies "covers what was asked"
     # trivially, and only this notices.
-    for edge, extent in ((got.left, SIDE), (got.right, SIDE),
-                         (got.top, SIDE), (got.bottom, SIDE)):
+    for edge, extent in (
+        (got.left, SIDE),
+        (got.right, SIDE),
+        (got.top, SIDE),
+        (got.bottom, SIDE),
+    ):
         assert edge * extent == pytest.approx(round(edge * extent), abs=1e-9)
 
     # Outward, strictly -- none of the asked edges falls on a pixel boundary.

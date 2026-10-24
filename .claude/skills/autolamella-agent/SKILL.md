@@ -98,6 +98,22 @@ A refusal names its reason in `detail.error_type`:
   listings mark it `agent: false`), and no request makes it allowed. Say what
   you wanted and that it is the operator's to do.
 
+Every other refusal is an HTTP error too, never a 200 answer: its `detail`
+is `{error_type, message}` plus the names there are.
+
+- `no_experiment` (409): no experiment is open, so reads are refused as
+  well. Say so once and wait for the operator to open one.
+- `not_found` (404): no item, grid, task or file by that name. The detail
+  lists the names there are (`item_names`, `task_names`, `grid_names`,
+  `filenames`): pick from those rather than guessing again.
+- `task_running`, `not_running`, `not_pending` (409): the run's state doesn't
+  allow it now. Re-read the queue or the status before you try again.
+- `invalid`, `invalid_value`, `missing_field` (422): the call itself is
+  wrong. Fix the arguments by its `message`.
+
+A run plan (`workflow_plan`, `workflow_plan_grids`) that would be refused
+comes back as the refusal. A limit with no end reads as `null`.
+
 If your level drops mid-session for any reason, the rule is the same as
 `agent_stopped`: re-read `/capabilities`, report and stop acting. Never treat
 a 403 as an error to work around, and never retry it in another form.

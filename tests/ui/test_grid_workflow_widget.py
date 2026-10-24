@@ -28,7 +28,7 @@ from fibsem.applications.autolamella.workflows.estimate import (
     exchanges_for,
 )
 from fibsem.services.sample_handling import bind_sample_handling
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
@@ -301,7 +301,7 @@ class TestRequiresOnTheTaskList:
 def test_a_grid_proposals_image_loads_from_the_grid_directory(experiment):
     """A grid's recorded outputs are relative to its grid_path, which the record
     does not store; the loader resolves it through the experiment."""
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
     from fibsem.workflows.proposals import STATE, Proposal
     from fibsem.workflows.reference_images import load_reference_image
 

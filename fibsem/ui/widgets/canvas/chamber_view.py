@@ -29,8 +29,8 @@ from PyQt5.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from fibsem.geometry.stage_places import is_half_turn
-from fibsem.structures import FibsemStagePosition
-from fibsem.ui.tokens import (
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     FIB_BEAM_MUTED_COLOUR,
@@ -229,10 +229,6 @@ class ChamberView(QWidget):
         diagram.SHUTTLE_COLOURS = (PRIMARY_ACCENT, PRIMARY_ACCENT)
         diagram.GRID_COLOUR = NEUTRAL_300
         diagram.WEDGE_COLOUR = NEUTRAL_300
-
-    @property
-    def has_position(self) -> bool:
-        return self._stack.currentWidget() is self.scene
 
     def set_microscope(self, microscope) -> None:
         """The configuration the map is drawn from: limits, slots, orientations."""

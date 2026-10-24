@@ -13,7 +13,8 @@ import sys
 
 from PyQt5.QtWidgets import QApplication
 
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
 
@@ -29,7 +30,7 @@ def main() -> None:
     controller.set_image(
         BeamType.ION, FibsemImage.generate_blank_image(hfw=80e-6, random=True)
     )
-    controller.set_fm_channel(
+    controller.fm_widget.set_channel(
         "FM", FibsemImage.generate_blank_image(hfw=150e-6, random=True).data, "gray"
     )
 

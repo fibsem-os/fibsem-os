@@ -17,7 +17,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.codec import encode
 from fibsem.server.responses import Refusal
-from fibsem.structures import MicroscopeState
+from fibsem.structures.settings import MicroscopeState
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskStatus
 from tests.protocols import add_planned, planned
@@ -222,7 +222,7 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     """One read for what a supervisor judges an item by — the exemplar-mode
     seam: after the operator answers, the accepted POI/alignment area are
     readable here rather than raced out of the live prompt mirror."""
-    from fibsem.structures import FibsemRectangle, MicroscopeState, Point
+    from fibsem.structures.settings import FibsemRectangle, MicroscopeState, Point
 
     host = stub_session()
     host.experiment = experiment

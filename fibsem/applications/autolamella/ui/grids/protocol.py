@@ -34,7 +34,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.applications.autolamella.structures import Experiment
-from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR, WARN_COLOR
+from fibsem.theme.tokens import NEUTRAL_200, TEXT_MUTED_COLOR, WARN_COLOR
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
     TaskNameListWidget,

@@ -55,9 +55,8 @@ from fibsem.imaging.export import (
     image_fields,
     z_stack,
 )
-from fibsem.structures import FibsemImage
-from fibsem.ui.stylesheets import NAPARI_STYLE, SECONDARY_BUTTON_STYLESHEET
-from fibsem.ui.tokens import (
+from fibsem.structures.image import FibsemImage
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     CANVAS_BG,
@@ -65,6 +64,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.stylesheets import NAPARI_STYLE, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.view_info_bar import ViewInfoBar, show_fm_plane

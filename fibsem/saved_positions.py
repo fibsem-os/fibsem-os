@@ -17,7 +17,7 @@ import yaml
 
 from fibsem import config as cfg
 from fibsem.session_state import SessionState
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 SAVED_POSITIONS = "saved_positions"
 

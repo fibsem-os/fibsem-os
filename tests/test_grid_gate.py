@@ -15,7 +15,7 @@ from fibsem.applications.autolamella.workflows.runs import (
     lamellae_off_the_stage,
     run_refusal,
 )
-from fibsem.structures import MicroscopeState
+from fibsem.structures.settings import MicroscopeState
 
 
 @pytest.fixture

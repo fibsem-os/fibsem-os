@@ -13,6 +13,7 @@ markers meant to be told apart by colour, all drawn the same white.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_point_overlay_colour.py
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -87,9 +88,10 @@ def test_two_overlays_of_different_colours_do_not_come_out_the_same():
     saved.set_points([(10.0, 10.0)])
     selected.set_points([(20.0, 20.0)])
 
-    assert _markers(saved)[0].get_markeredgecolor() != _markers(selected)[
-        0
-    ].get_markeredgecolor()
+    assert (
+        _markers(saved)[0].get_markeredgecolor()
+        != _markers(selected)[0].get_markeredgecolor()
+    )
 
 
 def test_the_label_and_the_marker_agree():

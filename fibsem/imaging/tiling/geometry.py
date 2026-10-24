@@ -15,7 +15,7 @@ import math
 from dataclasses import dataclass
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemStagePosition,
     OverviewAcquisitionSettings,
     TileOrderStrategy,

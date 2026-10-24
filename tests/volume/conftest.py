@@ -6,7 +6,7 @@ from fibsem import acquire
 from fibsem.applications.volume.experiment import VolumeExperiment
 from fibsem.applications.volume.position import FIB_REFERENCE, SEM_REFERENCE
 from fibsem.applications.volume.tasks import milling as milling_module
-from fibsem.structures import BeamType, ImageSettings, Point
+from fibsem.structures.settings import BeamType, ImageSettings, Point
 from fibsem.workflows import task as task_module
 
 

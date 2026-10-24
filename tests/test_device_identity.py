@@ -9,7 +9,8 @@ everything it needs from `fibsem.devices`.
 import pytest
 
 from fibsem.devices import Device, DeviceParameter, Display
-from fibsem.structures import BeamType, display_to_dict
+from fibsem.structures.params import display_to_dict
+from fibsem.structures.settings import BeamType
 
 
 def test_each_built_device_names_the_driver_that_built_it(microscope):

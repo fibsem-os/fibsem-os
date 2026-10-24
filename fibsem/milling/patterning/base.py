@@ -20,15 +20,14 @@ from typing import (
 
 from fibsem.codec import NotSaved, Tagged, decode, encode
 from fibsem.milling.properties import distance_param
-from fibsem.structures import (
+from fibsem.structures.params import (
     Configurable,
     Display,
-    Point,
     RangeLimit,
-    TFibsemPatternSettings,
     flagged_fields,
     param,
 )
+from fibsem.structures.settings import Point, TFibsemPatternSettings
 
 TPattern = TypeVar("TPattern", bound="BasePattern")
 

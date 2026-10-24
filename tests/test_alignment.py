@@ -17,7 +17,7 @@ from fibsem.alignment import (
     shift_from_skimage_phase_correlation,
 )
 from fibsem.alignment.methods import _subpixel_peak
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 
 @pytest.mark.parametrize("offset", [-30, -10, 0, 10, 30])

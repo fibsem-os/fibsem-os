@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 
 def plain(value: Any) -> Any:

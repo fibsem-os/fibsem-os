@@ -32,11 +32,8 @@ from fibsem.fm.structures import (
 )
 from fibsem.imaging.reduce import PREVIEW_MAX_DIMENSION
 from fibsem.imaging.tiling.progress import TiledStatus
-from fibsem.structures import (
-    FibsemStagePosition,
-    InsertableDeviceState,
-    TileOrderStrategy,
-)
+from fibsem.structures.settings import FibsemStagePosition, TileOrderStrategy
+from fibsem.structures.system import InsertableDeviceState
 
 
 @pytest.fixture
@@ -792,7 +789,7 @@ def test_the_tileset_row_direction_matches_the_beam_tiler(fm_microscope, monkeyp
     convention can only ever be changed in both places at once.
     """
     from fibsem.imaging.tiled import compute_tile_grid
-    from fibsem.structures import ImageSettings, OverviewAcquisitionSettings
+    from fibsem.structures.settings import ImageSettings, OverviewAcquisitionSettings
 
     rows, cols = 3, 3
     microscope = fm_microscope
@@ -1725,7 +1722,7 @@ def _narrow_limits(microscope, half_width: float, monkeypatch):
     """Shrink the stage device's x and y limits to +/- half_width about the origin."""
     from dataclasses import replace
 
-    from fibsem.structures import RangeLimit
+    from fibsem.structures.params import RangeLimit
 
     position = microscope.stage.position
     limits = dict(

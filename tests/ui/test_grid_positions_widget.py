@@ -35,7 +35,8 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
@@ -46,6 +47,13 @@ _app = QApplication.instance() or QApplication([])
 _ARCTIS = os.path.join(
     os.path.dirname(fibsem_config.__file__), "config", "sim-arctis-configuration.yaml"
 )
+
+
+def _add_at(canvas, x: float, y: float) -> None:
+    """Right-click at a canvas point and choose Add Position Here."""
+    config = canvas.position_menu(x, y)
+    (add,) = [a for a in config.actions if a.label == "Add Position Here"]
+    add.callback()
 
 
 @pytest.fixture
@@ -206,7 +214,7 @@ class TestMarking:
         self, widget, ui, grid
     ):
         cx, cy = _centre(widget)
-        widget.canvas.request_add_at(cx + 5, cy + 5)
+        _add_at(widget.canvas, cx + 5, cy + 5)
         lamellae = ui.experiment.positions
         assert len(lamellae) == 3
         new = lamellae[-1]
@@ -222,7 +230,7 @@ class TestMarking:
     ):
         widget.canvas.show_view(VIEW_FM)
         cx, cy = _centre(widget)
-        widget.canvas.request_add_at(cx, cy)
+        _add_at(widget.canvas, cx, cy)
         new = ui.experiment.positions[-1]
         assert new.grid_id == grid.id
         fm = ui.microscope.get_target_position(
@@ -261,7 +269,7 @@ class TestMarking:
         widget.show()
         _app.processEvents()
         cx, cy = _centre(widget)
-        widget.canvas.request_add_at(cx, cy)
+        _add_at(widget.canvas, cx, cy)
         assert len(ui.experiment.positions) == 2
 
 

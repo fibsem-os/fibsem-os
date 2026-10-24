@@ -23,7 +23,7 @@ from fibsem.geometry.projection import (
     surface_foreshortening,
 )
 from fibsem.imaging.tiling.geometry import PlaneRegion, compute_tile_grid_from_fov
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 
 @pytest.fixture

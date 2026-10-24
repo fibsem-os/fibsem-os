@@ -20,7 +20,7 @@ from fibsem.alignment.coincidence_target import (
     measure_coincidence_at_target,
     render_target_coincidence,
 )
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from tests.test_coincidence import _image_with_metadata, make_fib_view
 
 PIXEL_SIZE = 0.2e-6  # 154 um field at 768 px

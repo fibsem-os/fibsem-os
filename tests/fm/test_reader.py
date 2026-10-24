@@ -29,7 +29,8 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import CameraImageTransform, FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import CameraImageTransform
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
@@ -382,7 +383,7 @@ def test_building_refuses_what_it_cannot_place(names, pixel_size, message):
 def test_the_built_image_saves_and_loads_back_as_built(tmp_path):
     """What goes into the grid folder is our own OME-TIFF: it must come back with
     its pixels, channels, pixel size and placement intact."""
-    from fibsem.structures import FibsemHardwareGeometry
+    from fibsem.structures.system import FibsemHardwareGeometry
 
     geometry = FibsemHardwareGeometry(
         column_tilt=52.0,
@@ -436,7 +437,7 @@ class _NoFM:
     """A FIB/SEM with no fluorescence microscope: the case a truly external image is."""
 
     def __init__(self):
-        from fibsem.structures import FibsemHardwareGeometry
+        from fibsem.structures.system import FibsemHardwareGeometry
 
         self.geometry = FibsemHardwareGeometry(
             column_tilt=52.0,

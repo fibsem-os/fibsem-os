@@ -15,7 +15,7 @@ from typing import Any, ClassVar, Dict, List, Optional
 
 from fibsem.acting import Actor, ActorKind
 from fibsem.codec import encode
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,
@@ -31,6 +31,8 @@ from fibsem.workflows.status import TaskStatus
 
 # The pose an item is milled at.
 MILLING_POSE = "MILLING"
+# The pose an item is imaged at with the FM.
+FLUORESCENCE_POSE = "FLUORESCENCE"
 
 
 class ExperimentItem:

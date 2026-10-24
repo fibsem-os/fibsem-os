@@ -24,7 +24,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.workflows import status as workflow_status
 from fibsem.workflows.interaction import ask
 from fibsem.workflows.status import set_images_ui

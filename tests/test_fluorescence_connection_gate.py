@@ -23,7 +23,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import FluorescenceSystemSettings
+from fibsem.structures.system import FluorescenceSystemSettings
 
 IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")

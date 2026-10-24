@@ -13,9 +13,9 @@ from fibsem import conversions
 from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.imaging import tiled
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
     FibsemStagePosition,
     ImageSettings,
     Point,

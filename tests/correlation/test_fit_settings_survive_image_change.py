@@ -23,40 +23,33 @@ pytest.importorskip("PyQt5")
 from fibsem.correlation.config import CorrelationConfig, FitSettings
 from fibsem.fm.structures import (
     EmissionFilter,
-    FluorescenceChannelMetadata,
     FluorescenceImage,
-    FluorescenceImageMetadata,
 )
 from fibsem.ui.correlation.widgets.correlation_tab_widget import CorrelationTabWidget
+from tests.fixtures.fm_images import fm_image, gfp
 
 _SIZE = 32
 
 
 def _fm_image(channel_names, nz: int = 5) -> FluorescenceImage:
     """A small (C, Z, Y, X) stack carrying the given channel names."""
-    metadata = FluorescenceImageMetadata(
-        acquisition_datetime="2026-08-14T00:00:00",
-        pixel_size_x=1e-7,
-        pixel_size_y=1e-7,
+    channels = [
+        gfp(
+            name=name,
+            color="#00ff00",
+            emission_filter=EmissionFilter.band("509 nm", 509),
+            power=1.0,
+        )
+        for name in channel_names
+    ]
+    return fm_image(
+        np.zeros((len(channel_names), nz, _SIZE, _SIZE), dtype=np.uint16),
+        channels,
+        acquired="2026-08-14T00:00:00",
         pixel_size_z=5e-7,
         resolution=(_SIZE, _SIZE),
-        channels=[
-            FluorescenceChannelMetadata(
-                name=name,
-                color="#00ff00",
-                excitation_wavelength=488,
-                emission_filter=EmissionFilter.band("509 nm", 509),
-                power=1.0,
-                exposure_time=0.1,
-                gain=1.0,
-                offset=0.0,
-            )
-            for name in channel_names
-        ],
         filename="stack",
     )
-    data = np.zeros((len(channel_names), nz, _SIZE, _SIZE), dtype=np.uint16)
-    return FluorescenceImage(data=data, metadata=metadata)
 
 
 @pytest.fixture

@@ -31,16 +31,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.ui.agent.style import (
-    LEVEL_MENU,
-    LEVEL_NAMES,
-    LEVEL_STYLES,
-    LEVEL_TIPS,
-    LEVEL_WORDS,
-    STOP_CHIP,
-)
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     PURPLE_COLOR,
@@ -52,6 +43,15 @@ from fibsem.ui.tokens import (
     WAITING_COLOR,
     WARN_COLOR,
 )
+from fibsem.ui.agent.style import (
+    LEVEL_MENU,
+    LEVEL_NAMES,
+    LEVEL_STYLES,
+    LEVEL_TIPS,
+    LEVEL_WORDS,
+    STOP_CHIP,
+)
+from fibsem.ui.icon import fibsem_icon
 
 _CARD = f"""
     #agentCard {{ background: {SURFACE_COLOR}; }}

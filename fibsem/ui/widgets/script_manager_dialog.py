@@ -34,14 +34,12 @@ from PyQt5.QtWidgets import (
 from fibsem.cancellation import OperationCancelledError
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.scripting import DiscoveredScript, ScriptResult
-from fibsem.ui.stylesheets import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
-    DANGER_BUTTON_STYLESHEET,
     DISABLED_BG_COLOR,
     ERROR_COLOR,
     PANEL_COLOR,
-    PRIMARY_BUTTON_STYLESHEET,
     ROW_ALT_COLOR,
     SEMANTIC_WARNING_COLOR,
     SURFACE_COLOR,
@@ -49,6 +47,7 @@ from fibsem.ui.stylesheets import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.stylesheets import DANGER_BUTTON_STYLESHEET, PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.utils import open_path_in_file_explorer
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, chip, style_with_tooltip
 from fibsem.ui.widgets.script_runner import ScriptRunner

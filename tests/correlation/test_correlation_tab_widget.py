@@ -15,6 +15,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 
+from fibsem.codec.upgrades.correlation import CORRELATION_FILE_VERSION
 from fibsem.correlation.structures import (
     Coordinate,
     CorrelationInputData,
@@ -24,9 +25,8 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.upgrade import CORRELATION_FILE_VERSION
-from fibsem.structures import Point
-from fibsem.ui.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
+from fibsem.structures.settings import Point
+from fibsem.theme.tokens import ERROR_COLOR, TEXT_MUTED_COLOR, WARN_COLOR
 
 
 def _coord(x=0.0, y=0.0, z=0.0, pt=PointType.FIB) -> Coordinate:
@@ -52,6 +52,15 @@ def _click(widget, coord) -> None:
 def _delete_on_canvas(widget, coord) -> None:
     """What the canvas's Delete key reaches."""
     _overlay_of(widget, coord).remove_coordinate(coord)
+
+
+def _load_result(w, result, adopt_inputs: bool = True) -> None:
+    """Load *result* as the File menu does: from a saved result file."""
+    import tempfile
+
+    path = os.path.join(tempfile.mkdtemp(), "correlation_result.json")
+    result.save(path)
+    w.load_result(path, adopt_inputs=adopt_inputs)
 
 
 def _widget(qapp):
@@ -322,7 +331,7 @@ def test_status_short_and_result_summary_after_run(qapp):
 
 
 def test_apply_post_creates_ghost_and_status(qapp):
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w = _widget(qapp)
     # Correcting needs the image dimensions: px_m is derived from them, and px_m
@@ -353,7 +362,7 @@ def _run_without_surface(w):
     """A finished run on a blank FIB image, before any surface point exists."""
     import copy
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w.set_fib_image(FibsemImage.generate_blank_image(resolution=(512, 512), hfw=100e-6))
     result = CorrelationResult(
@@ -735,7 +744,7 @@ def test_load_result_keeps_status_message(qapp):
         refractive_index_correction_factor=1.5,
         refractive_index_correction_mode="pre",
     )
-    w._load_result(result)
+    _load_result(w, result)
     assert w._lbl_status.text() == "Done — RI ×1.500"
 
 
@@ -785,7 +794,7 @@ def test_canvas_toolbar_reset_button(qapp):
     """
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w = _widget(qapp)
     w.set_fib_image(FibsemImage(data=np.zeros((64, 64), dtype=np.uint8)))
@@ -1358,7 +1367,7 @@ def test_advanced_panels_start_collapsed(qapp):
 def test_labels_toggle_hides_labels(qapp):
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w = _widget(qapp)
     # The overlay draws artists only once the axes has content -- a point
@@ -1906,7 +1915,7 @@ def test_row_actions_show_only_on_the_selected_row(qapp):
     assert len(rows) == 3
     # the setter selects the first row
     assert [r.actions.isVisibleTo(r) for r in rows] == [True, False, False]
-    lw.select_coordinate_silent(lw.coordinates[2])
+    lw._store.select(lw.coordinates[2])
     assert [r.actions.isVisibleTo(r) for r in rows] == [False, False, True]
     # the row buttons carry the list's signals
     got = []
@@ -1954,7 +1963,7 @@ def test_f_hotkey_fits_selected_coordinate(qapp, monkeypatch):
     coord = _coord(10.0, 10.0, 0.0, PointType.FIB)
     lw = w._point_specs[PointType.FIB].list_widget
     lw.coordinates = [coord]
-    lw.select_coordinate_silent(coord)
+    lw._store.select(coord)
 
     w._fit_selected_coordinate()
     assert fitted == [coord]
@@ -1979,7 +1988,7 @@ def test_f_hotkey_skips_while_editing_a_field(qapp, monkeypatch):
     coord = _coord(10.0, 10.0, 0.0, PointType.FIB)
     lw = w._point_specs[PointType.FIB].list_widget
     lw.coordinates = [coord]
-    lw.select_coordinate_silent(coord)
+    lw._store.select(coord)
 
     editing = QLineEdit()
     monkeypatch.setattr(QApplication, "focusWidget", lambda: editing)
@@ -2241,7 +2250,7 @@ def test_loading_a_stale_result_does_not_arm_continue(qapp):
     w.set_data(_input(fib=(5.0, 5.0)))  # the points as they are now
 
     stale = _result_from(_input(fib=(1.0, 2.0)))  # fitted to where they were
-    w._load_result(stale, adopt_inputs=False)
+    _load_result(w, stale, adopt_inputs=False)
 
     assert w._btn_continue.isEnabled() is False
     assert w._lbl_result.isHidden() is True  # no RMS badge for a dead transform
@@ -2253,7 +2262,7 @@ def test_loading_a_current_result_stays_live(qapp):
     w.set_data(_input(fib=(5.0, 5.0)))
 
     fresh = _result_from(_input(fib=(5.0, 5.0)))
-    w._load_result(fresh, adopt_inputs=False)
+    _load_result(w, fresh, adopt_inputs=False)
 
     assert w._btn_continue.isEnabled() is True
     assert w._lbl_status.text() == "Done."
@@ -2266,7 +2275,7 @@ def test_load_result_can_keep_the_coordinates_already_loaded(qapp):
     w = _widget(qapp)
     w.set_data(_input(fib=(5.0, 5.0)))
 
-    w._load_result(_result_from(_input(fib=(1.0, 2.0))), adopt_inputs=False)
+    _load_result(w, _result_from(_input(fib=(1.0, 2.0))), adopt_inputs=False)
 
     kept = w._coords_tab.fib_list.coordinates
     assert [(c.point.x, c.point.y) for c in kept] == [(5.0, 5.0)]
@@ -2310,7 +2319,7 @@ def test_stale_status_outranks_the_ri_note(qapp):
     stale = _result_from(_input(fib=(1.0, 2.0)))
     stale.refractive_index_correction_mode = "pre"
     stale.refractive_index_correction_factor = 1.5
-    w._load_result(stale, adopt_inputs=False)
+    _load_result(w, stale, adopt_inputs=False)
 
     assert "changed since this run" in w._lbl_status.text()
     assert "Done" not in w._lbl_status.text()
@@ -2676,7 +2685,7 @@ def test_selecting_a_fitted_point_keeps_its_fitted_flag(qapp):
     """
     import numpy as np
 
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     w = _widget(qapp)
     w.set_fib_image(FibsemImage(data=np.zeros((100, 100), dtype=np.uint8)))

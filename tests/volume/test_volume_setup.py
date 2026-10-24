@@ -10,7 +10,7 @@ from fibsem.applications.volume.position import (
     SEM_REFERENCE,
 )
 from fibsem.applications.volume.tasks import VolumeSetupMillingTask
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.proposals import (

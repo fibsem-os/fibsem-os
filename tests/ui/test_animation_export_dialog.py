@@ -12,7 +12,8 @@ pytest.importorskip("PyQt5")
 from PIL import Image
 
 from fibsem.imaging.animation import AnimationStep, load_frames
-from fibsem.structures import BeamType, FibsemImage, ImageSettings, MicroscopeState
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings, MicroscopeState
 
 
 def _save(path: str, beam: BeamType, hfw: float, value: int) -> str:

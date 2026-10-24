@@ -30,7 +30,8 @@ from fibsem.client.app import App
 from fibsem.client.events import EventStream
 from fibsem.client.microscope import Remote, Remotes, Run
 from fibsem.client.transport import ServerError, ServerUnreachable, Transport
-from fibsem.structures import MicroscopeState, SystemSettings
+from fibsem.structures.settings import MicroscopeState
+from fibsem.structures.system import SystemSettings
 
 MICROSCOPE_EVENTS = "/microscope/events"
 

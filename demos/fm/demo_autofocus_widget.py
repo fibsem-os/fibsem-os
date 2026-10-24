@@ -18,10 +18,10 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
-from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     SURFACE_COLOR,
 )
+from fibsem.ui.fm.widgets.autofocus_widget import AutofocusWidget
 
 
 def _format(settings) -> str:

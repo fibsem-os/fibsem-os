@@ -13,6 +13,7 @@ Covers the properties the migration depends on:
 Run directly (headless):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_qt_threading.py
 """
+
 from __future__ import annotations
 
 import gc
@@ -89,9 +90,11 @@ def test_success_delivers_on_main_thread():
     worker.start()
     _spin(worker.finished)
 
-    assert recv.returned_value["result"] == 42          # method binding worked (self + x)
-    assert recv.returned_value["thread"] is not _MAIN_THREAD  # body ran off the main thread
-    assert recv.returned_on_main is True                # ...but the slot ran ON the main thread
+    assert recv.returned_value["result"] == 42  # method binding worked (self + x)
+    assert (
+        recv.returned_value["thread"] is not _MAIN_THREAD
+    )  # body ran off the main thread
+    assert recv.returned_on_main is True  # ...but the slot ran ON the main thread
     assert recv.finished_on_main is True
 
 
@@ -112,7 +115,7 @@ def test_error_still_finishes():
     assert isinstance(recv.errored_value, ValueError)
     assert str(recv.errored_value) == "nope"
     assert not any(k == "returned" for k, _ in fired)  # returned skipped on error
-    assert ("finished", None) in fired                 # finished still fired
+    assert ("finished", None) in fired  # finished still fired
 
 
 def test_worker_survives_dropped_local_ref():
@@ -157,21 +160,21 @@ def test_is_alive_and_join_mirror_thread():
             time.sleep(0.01)
 
     worker = acquire()
-    assert worker.is_alive() is False          # not started yet
+    assert worker.is_alive() is False  # not started yet
     worker.start()
     # give the daemon thread a moment to actually enter the loop
     for _ in range(50):
         if worker.is_alive():
             break
         time.sleep(0.01)
-    assert worker.is_alive() is True           # running
+    assert worker.is_alive() is True  # running
 
     # cancel: set the stop event (widget-owned), then join with a timeout (as cancel does)
     stop_event.set()
     worker.join(timeout=5)
-    assert worker.is_alive() is False          # joined cleanly within the timeout
+    assert worker.is_alive() is False  # joined cleanly within the timeout
 
-    _spin(worker.finished, timeout_ms=1000)    # drain the queued finished signal
+    _spin(worker.finished, timeout_ms=1000)  # drain the queued finished signal
 
 
 def test_join_before_start_is_noop():
@@ -180,7 +183,7 @@ def test_join_before_start_is_noop():
         return None
 
     worker = noop()
-    worker.join(timeout=1)                      # must not raise when never started
+    worker.join(timeout=1)  # must not raise when never started
     assert worker.is_alive() is False
 
 

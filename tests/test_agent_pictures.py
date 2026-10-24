@@ -14,7 +14,8 @@ from fibsem.ai.agent.pictures import (
     request_patterns,
     request_targets,
 )
-from fibsem.structures import BeamType, FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, Point
 from fibsem.theme.tokens import PURPLE_COLOR
 
 _RECTANGLE = {
@@ -237,7 +238,7 @@ def test_patterns_past_the_edge_of_the_field_are_drawn_again_in_red():
         PAST_FIELD_COLOUR,
         request_outside_field,
     )
-    from fibsem.structures import FibsemMillingSettings
+    from fibsem.structures.settings import FibsemMillingSettings
 
     inside = dict(_RECTANGLE)
     outside = dict(_RECTANGLE, centre_x=-30e-6, centre_y=30e-6, height=8e-6)
@@ -275,7 +276,7 @@ def test_a_pattern_s_extent_from_its_numbers():
     import math
 
     from fibsem.milling.patterning.utils import outside_field, pattern_extent
-    from fibsem.structures import (
+    from fibsem.structures.settings import (
         FibsemCircleSettings,
         FibsemLineSettings,
         FibsemRectangleSettings,
@@ -304,7 +305,7 @@ def test_a_pattern_s_outline_from_its_numbers():
     import math
 
     from fibsem.milling.patterning.utils import pattern_outline
-    from fibsem.structures import FibsemLineSettings, FibsemRectangleSettings
+    from fibsem.structures.settings import FibsemLineSettings, FibsemRectangleSettings
 
     turned = FibsemRectangleSettings(
         width=4e-6,
@@ -375,7 +376,7 @@ def test_a_review_decision_s_point_is_drawn_on_the_card_on_its_own_image():
 
 def test_a_suggestion_is_drawn_on_its_proposal_s_image_in_its_own_picture():
     from fibsem.ai.agent.suggestions import suggestion_request
-    from fibsem.structures import FibsemRectangle
+    from fibsem.structures.settings import FibsemRectangle
     from fibsem.workflows.proposals import ALIGNMENT_AREA, Proposal, Suggestion
 
     reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
@@ -410,7 +411,7 @@ def test_a_suggestion_to_confirm_as_proposed_draws_the_proposal_s_own_values():
     """Round 12: approving "confirm it" on an alignment area showed no area,
     and the image it was asked on was captioned the agent's."""
     from fibsem.ai.agent.suggestions import suggestion_request
-    from fibsem.structures import FibsemRectangle
+    from fibsem.structures.settings import FibsemRectangle
     from fibsem.workflows.proposals import ALIGNMENT_AREA, Proposal, Suggestion
 
     reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
@@ -826,7 +827,7 @@ def test_a_new_lamella_is_marked_where_it_would_go():
 def test_a_pose_move_and_a_pose_set_are_marked_through_the_stage(monkeypatch):
     # FIB-1411: item_move_to_pose and item_set_pose drew nothing.
     from fibsem.geometry import projection
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     pose = FibsemStagePosition(x=1e-6)
     placed = []
@@ -862,7 +863,7 @@ def test_a_pose_move_and_a_pose_set_are_marked_through_the_stage(monkeypatch):
 def test_a_mark_off_the_picture_is_not_drawn_and_its_key_says_so(monkeypatch):
     # Sim session 2026-10-15b (F3): the pose now was keyed but off the left edge.
     from fibsem.geometry import projection
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     monkeypatch.setattr(projection, "stage_to_pixel", lambda frame, pose: (-537, 43))
     controller = _Controller()  # 200 × 100 px
@@ -878,7 +879,7 @@ def test_a_mark_off_the_picture_is_not_drawn_and_its_key_says_so(monkeypatch):
 def test_a_pose_off_the_view_is_drawn_on_its_grid_overview(monkeypatch):
     # A pose the FIB view does not show is drawn on the item's grid overview.
     from fibsem.geometry import projection
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     controller = _Controller()  # 200 × 100 px
     overview = FibsemImage.generate_blank_image(resolution=(400, 300), hfw=1e-3)
@@ -905,7 +906,7 @@ def test_a_pose_off_the_view_is_drawn_on_its_grid_overview(monkeypatch):
 
 def test_a_pose_on_the_view_stays_on_the_view(monkeypatch):
     from fibsem.geometry import projection
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     controller = _Controller()
     monkeypatch.setattr(projection, "stage_to_pixel", lambda frame, pose: (30, 20))
@@ -924,7 +925,7 @@ def test_a_pose_on_the_view_stays_on_the_view(monkeypatch):
 
 def test_a_pose_off_the_view_with_no_overview_draws_no_picture(monkeypatch):
     from fibsem.geometry import projection
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     controller = _Controller()
     monkeypatch.setattr(projection, "stage_to_pixel", lambda frame, pose: (-900, 40))
@@ -945,7 +946,7 @@ def test_past_the_field_off_the_picture_says_so():
         _key_past_field,
         _Layer,
     )
-    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.structures.settings import FibsemRectangleSettings
 
     frame = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=100e-6)
     layer = _Layer("#ff0000")

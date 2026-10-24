@@ -12,11 +12,11 @@ from fibsem.imaging.tiled import (
 from fibsem.imaging.tiling import grid_centre_offset, unreachable_tiles
 from fibsem.imaging.tiling.progress import MODALITY_BEAM, TiledStatus
 from fibsem.imaging.tiling.result import OverviewResult
-from fibsem.structures import (
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
     FibsemStagePosition,
     ImageSettings,
     OverviewAcquisitionSettings,
-    RangeLimit,
     TileOrderStrategy,
 )
 
@@ -511,7 +511,7 @@ def test_the_grid_is_measured_from_the_centre_it_is_given(tmp_path):
     measured from somewhere else would pass the weaker check.
     """
     from fibsem import utils
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     here = microscope.get_stage_position()
@@ -553,7 +553,7 @@ def _contrast_calls(tmp_path, mode, centre=None):
     """Run a 2 x 2 on the simulator and record every autocontrast: beam, area,
     where the stage was, and how many tiles had been acquired by then."""
     from fibsem import utils
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     calls, acquired = [], []
@@ -586,7 +586,7 @@ def test_auto_contrast_once_is_set_at_the_grid_centre_before_the_tiles(tmp_path)
     """ONCE: one detector setting for the whole mosaic, at the centre (a
     typewriter order starts in a corner), on the centred half-frame, before any
     tile. The per-image flag is driven by the mode, not the other way round."""
-    from fibsem.structures import AutoContrastMode, BeamType
+    from fibsem.structures.settings import AutoContrastMode, BeamType
 
     centre = FibsemStagePosition(x=1e-3, y=-2e-3, z=4e-3, r=0.0, t=0.0)
     calls, settings = _contrast_calls(tmp_path, AutoContrastMode.ONCE, centre)
@@ -600,7 +600,7 @@ def test_auto_contrast_once_is_set_at_the_grid_centre_before_the_tiles(tmp_path)
 
 
 def test_auto_contrast_each_tile_is_what_the_flag_means_for_any_image(tmp_path):
-    from fibsem.structures import AutoContrastMode, BeamType
+    from fibsem.structures.settings import AutoContrastMode, BeamType
 
     calls, settings = _contrast_calls(tmp_path, AutoContrastMode.EACH_TILE)
     assert [c[0] for c in calls] == [BeamType.ION] * 4
@@ -609,7 +609,7 @@ def test_auto_contrast_each_tile_is_what_the_flag_means_for_any_image(tmp_path):
 
 
 def test_auto_contrast_none_sets_nothing_whatever_the_flag_says(tmp_path):
-    from fibsem.structures import AutoContrastMode
+    from fibsem.structures.settings import AutoContrastMode
 
     calls, settings = _contrast_calls(tmp_path, AutoContrastMode.NONE)
     assert calls == [] and settings.image_settings.autocontrast is False
@@ -618,7 +618,7 @@ def test_auto_contrast_none_sets_nothing_whatever_the_flag_says(tmp_path):
 def test_an_old_file_that_ticked_auto_contrast_reads_as_once():
     """Before the mode, the overview settings carried only the per-image flag,
     and the runner ignored it. A ticked box meant the mosaic: ONCE."""
-    from fibsem.structures import AutoContrastMode
+    from fibsem.structures.settings import AutoContrastMode
 
     old = _make_settings(2, 2).to_dict()
     old.pop("autocontrast_mode")
@@ -869,7 +869,7 @@ def _autofocus_runner(mode, settings=None, af_result=MagicMock(to_dict=dict)):
     from unittest.mock import MagicMock
 
     from fibsem.imaging.tiled import TiledAcquisitionRunner
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     s = settings if settings is not None else _make_settings(2, 2, hfw=500e-6)
     s.autofocus_mode = mode
@@ -902,7 +902,7 @@ def test_the_sweep_scores_the_centred_half_frame_unless_told_otherwise(tmp_path)
     is filled on the runner's copy: the caller's settings stay as they were, and an
     area the settings do name is kept."""
     from fibsem.autofunctions.autofocus import AutoFocusSettings
-    from fibsem.structures import AutoFocusMode, FibsemRectangle
+    from fibsem.structures.settings import AutoFocusMode, FibsemRectangle
 
     settings = _make_settings(1, 1)
     settings.autofocus_mode = AutoFocusMode.ONCE
@@ -923,7 +923,7 @@ def test_the_sweep_is_given_the_tiles_own_field_of_view(monkeypatch):
     """`run_auto_focus`'s `hfw` defaults to 150 um. An overview tile is routinely 500 um
     or wider, so taking the default would score probe images framing a different picture
     from the one being focused -- and it would look like nothing more than soft tiles."""
-    from fibsem.structures import AutoFocusMode, BeamType
+    from fibsem.structures.settings import AutoFocusMode, BeamType
 
     runner, calls, fake = _autofocus_runner(AutoFocusMode.EACH_TILE)
     monkeypatch.setattr("fibsem.imaging.tiled.run_auto_focus", fake)
@@ -937,7 +937,7 @@ def test_the_sweep_is_given_the_tiles_own_field_of_view(monkeypatch):
 
 
 def test_a_mode_that_does_not_match_does_not_focus(monkeypatch):
-    from fibsem.structures import AutoFocusMode
+    from fibsem.structures.settings import AutoFocusMode
 
     runner, calls, fake = _autofocus_runner(AutoFocusMode.ONCE)
     monkeypatch.setattr("fibsem.imaging.tiled.run_auto_focus", fake)
@@ -953,7 +953,7 @@ def test_the_stop_event_is_handed_to_the_sweep(monkeypatch):
     within the sweep and restores the starting working distance on the way out."""
     import threading
 
-    from fibsem.structures import AutoFocusMode
+    from fibsem.structures.settings import AutoFocusMode
 
     runner, calls, fake = _autofocus_runner(AutoFocusMode.EACH_TILE)
     runner.stop_event = threading.Event()
@@ -974,7 +974,7 @@ def test_an_unavailable_focus_warns_once_and_lets_the_run_continue(monkeypatch, 
     """
     import logging as _logging
 
-    from fibsem.structures import AutoFocusMode
+    from fibsem.structures.settings import AutoFocusMode
 
     runner, calls, fake = _autofocus_runner(AutoFocusMode.EACH_TILE, af_result=None)
     monkeypatch.setattr("fibsem.imaging.tiled.run_auto_focus", fake)
@@ -995,7 +995,7 @@ def test_a_sweep_with_no_enabled_passes_is_refused_before_the_first_tile():
     from unittest.mock import MagicMock
 
     from fibsem.imaging.tiled import TiledAcquisitionRunner
-    from fibsem.structures import AutoFocusMode
+    from fibsem.structures.settings import AutoFocusMode
 
     s = _make_settings(2, 2)
     s.autofocus_mode = AutoFocusMode.EACH_TILE
@@ -1023,7 +1023,7 @@ def test_an_all_disabled_sweep_is_fine_when_autofocus_is_off(tmp_path):
     from unittest.mock import MagicMock
 
     from fibsem.imaging.tiled import TiledAcquisitionRunner
-    from fibsem.structures import AutoFocusMode
+    from fibsem.structures.settings import AutoFocusMode
 
     s = _make_settings(2, 2)
     s.image_settings.path = str(tmp_path)
@@ -1048,7 +1048,7 @@ def test_a_stitched_overview_records_when_its_first_tile_was_acquired(tmp_path):
     acquisition time from its first tile (FIB-1190), and keeps it through a save."""
     from fibsem import utils
     from fibsem.imaging.tiled import acquire_tiled_overview
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
     from fibsem.util.timestamps import zone_known
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -1080,7 +1080,8 @@ def test_an_overview_is_laid_out_at_the_size_the_beam_scans(tmp_path, monkeypatc
     crashed the stitch on an Arctis."""
     from fibsem import utils
     from fibsem.imaging.tiled import acquire_tiled_overview
-    from fibsem.structures import BeamType, FibsemImage
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import BeamType
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
     beam = microscope.beams[BeamType.ELECTRON]

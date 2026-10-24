@@ -22,7 +22,8 @@ pytest.importorskip("PyQt5")
 
 from fibsem import utils
 from fibsem.imaging.overview_session import OverviewSession
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.widgets.canvas.canvas_base import ContentRect
 from fibsem.ui.widgets.canvas.overlays.gridbar_overlay import GridBarOverlay
 from fibsem.ui.widgets.canvas.overlays.transform_overlay import (
@@ -33,6 +34,11 @@ from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
 
 PITCH = 50.0
 WIDTH = 8.0
+
+
+def _bar_count(overlay) -> int:
+    """How many bars are drawn: one artist per bar."""
+    return sum(1 for a in overlay._artists if getattr(a, "_gridbar", False))
 
 
 class _FakeCanvas:
@@ -121,7 +127,7 @@ class TestTheLatticeIsDrawnThroughItsRotationAndSquash:
         # A pitch of 50 across an 800 px view, out to the far corner (~566 px): each
         # family reaches past the corners, so the lattice fills the view however it is
         # panned. Two families of the same count.
-        assert overlay.bar_count % 2 == 0 and overlay.bar_count > 2 * (800 / PITCH)
+        assert _bar_count(overlay) % 2 == 0 and _bar_count(overlay) > 2 * (800 / PITCH)
 
     def test_rotation_turns_every_bar_by_that_angle(self, qapp):
         overlay = build(rotation=30.0)
@@ -151,7 +157,7 @@ class TestTheLatticeIsDrawnThroughItsRotationAndSquash:
         overlay = build()
         radius = 220.0
         overlay.set_lattice((400.0, 400.0), PITCH, WIDTH, radius=radius)
-        assert overlay.bar_count < 2 * (2 * radius / PITCH + 1) + 1
+        assert _bar_count(overlay) < 2 * (2 * radius / PITCH + 1) + 1
         for bar in _bars(overlay):
             for x, y in bar.get_xy():
                 u, v = overlay.from_canvas(x, y)
@@ -198,9 +204,9 @@ class TestTheLatticeIsDrawnThroughItsRotationAndSquash:
 
     def test_the_handles_are_drawn_only_while_the_overlay_is_active(self, qapp):
         active = build(active=True)
-        assert len(active._artists) == active.bar_count + 3
+        assert len(active._artists) == _bar_count(active) + 3
         inert = build(active=False)
-        assert len(inert._artists) == inert.bar_count
+        assert len(inert._artists) == _bar_count(inert)
 
 
 # ── the gesture ───────────────────────────────────────────────────────────
@@ -451,15 +457,15 @@ class TestADragIsKeptAlongTheSurface:
 class TestAlignIsTheCanvasOverlayMode:
     def test_the_button_hands_the_canvas_to_the_bars_and_back(self, widget):
         _show(widget, SQUARE)
-        assert widget.canvas.active_overlay is None
+        assert widget.canvas._active_overlay is None
 
         widget.btn_align_gridbars.setChecked(True)
-        assert widget.canvas.active_overlay is widget.gridbar_overlay
+        assert widget.canvas._active_overlay is widget.gridbar_overlay
         assert widget.gridbar_overlay.is_editable()
         assert not widget.canvas.btn_mode.isHidden()
 
         widget.btn_align_gridbars.setChecked(False)
-        assert widget.canvas.active_overlay is None
+        assert widget.canvas._active_overlay is None
         assert widget.canvas.btn_mode.isHidden()
 
     def test_turning_the_bars_off_leaves_the_mode(self, widget):
@@ -469,7 +475,7 @@ class TestAlignIsTheCanvasOverlayMode:
         widget.overlay_controls.set_visible("gridbars", False)
 
         assert not widget.btn_align_gridbars.isChecked()
-        assert widget.canvas.active_overlay is None
+        assert widget.canvas._active_overlay is None
         assert not widget.btn_align_gridbars.isEnabled()
 
     def test_unchecking_the_canvas_toggle_leaves_the_mode_too(self, widget):
@@ -479,7 +485,7 @@ class TestAlignIsTheCanvasOverlayMode:
         widget.canvas.btn_mode.setChecked(False)
 
         assert not widget.btn_align_gridbars.isChecked()
-        assert widget.canvas.active_overlay is None
+        assert widget.canvas._active_overlay is None
 
     def test_the_controls_start_matched_to_the_checkbox(self, widget):
         assert not widget.btn_align_gridbars.isEnabled()

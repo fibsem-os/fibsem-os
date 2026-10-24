@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 

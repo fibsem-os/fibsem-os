@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.structures import MicroscopeState, Point
+from fibsem.structures.settings import MicroscopeState, Point
 from fibsem.workflows.proposals import (
     DETECTION,
     Decision,

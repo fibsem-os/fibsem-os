@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardWidget
 from fibsem.config import MODE_COMPACT, MODE_COZY
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.ui import thumbnails
 from fibsem.ui.utils import arr_to_qimage
 

@@ -18,7 +18,7 @@ import pytest
 from psygnal.containers import EventedList
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 pytest.importorskip("PyQt5")
 
@@ -40,7 +40,8 @@ from fibsem.imaging.tiling.progress import (
     TiledProgress,
     TiledStatus,
 )
-from fibsem.structures import CameraImageTransform, TileOrderStrategy
+from fibsem.structures.settings import TileOrderStrategy
+from fibsem.structures.system import CameraImageTransform
 from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
 )
@@ -823,7 +824,7 @@ def test_resizing_the_grid_redraws_the_overlay(qapp, overview_widget):
 
 
 def _offset(base, dx=0.0, dy=0.0, name=""):
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     position = FibsemStagePosition(
         x=base.x + dx, y=base.y + dy, z=base.z, r=base.r, t=base.t
@@ -1317,7 +1318,7 @@ def test_the_current_position_marker_follows_the_stage(qapp, overview_widget):
     means nothing to anyone looking at it, and what is worth marking lives in stage
     space -- which this widget draws itself.
     """
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     widget = overview_widget
     widget.canvas.clear_overviews()
@@ -1342,7 +1343,7 @@ def test_the_marker_lands_where_an_image_acquired_there_is_placed(
     """The marker and the image reach the canvas by different routes — one through
     set_points, the other through add_image — so agreeing is worth checking. If they
     ever diverge, the canvas is telling two stories about the same stage position."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     widget = overview_widget
     widget.canvas.clear_overviews()
@@ -1415,7 +1416,7 @@ def interactive_widget(qapp, overview_widget):
     The widget is module-scoped, so a target left behind by one test would silently
     re-centre every grid the next one drew.
     """
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     widget = overview_widget
     start = widget.microscope.get_stage_position()
@@ -1433,7 +1434,7 @@ def test_a_canvas_point_resolves_to_the_position_it_was_drawn_from(interactive_w
     """The two projections have to be exact inverses, not merely close. Everything on
     this canvas is placed by the forward one and clicked through the backward one, so
     any gap between them is the distance between what you point at and what you get."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     widget = interactive_widget
     frame = widget._frame()
@@ -1457,10 +1458,11 @@ def test_a_canvas_point_resolves_to_the_position_it_was_drawn_from(interactive_w
 def test_double_clicking_moves_the_stage_to_that_point(
     qapp, interactive_widget, monkeypatch
 ):
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     frame = widget._frame()
     before = widget._current_stage_position()
     point = frame.to_canvas(before)
@@ -1481,10 +1483,11 @@ def test_the_marker_follows_the_stage_after_a_double_click(
 ):
     """The move is confirmed by re-reading the stage rather than assumed, so the marker
     shows where the instrument went rather than where it was asked to go."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     before = list(widget.current_position_overlay._points)
 
     widget._on_canvas_double_clicked(1500.0, 900.0, None)
@@ -1496,10 +1499,11 @@ def test_the_marker_follows_the_stage_after_a_double_click(
 def test_the_stage_cannot_be_driven_during_an_acquisition(
     qapp, interactive_widget, monkeypatch
 ):
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     before = widget.microscope.get_stage_position()
 
     class _Running:
@@ -1522,10 +1526,11 @@ def test_a_point_outside_the_stage_limits_is_refused(
 ):
     """A click can land anywhere on a real-space canvas, including well past where the
     stage can physically go. Asking for it is how a stage ends up against its stop."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     before = widget.microscope.get_stage_position()
     limits = widget.microscope.stage.position.limits
     if not limits:
@@ -1580,10 +1585,11 @@ def test_the_planned_grid_is_centred_where_the_run_will_be(qapp, interactive_wid
 def test_an_untargeted_grid_follows_the_stage(qapp, interactive_widget, monkeypatch):
     """It used to be pinned to the canvas origin -- where the stage was the first time
     anything was drawn. Correct until the stage moved, and then quietly not."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     before = widget.tile_grid_overlay._anchor()
 
     widget._on_canvas_double_clicked(before[0] + 1500.0, before[1], None)
@@ -1597,10 +1603,11 @@ def test_an_untargeted_grid_follows_the_stage(qapp, interactive_widget, monkeypa
 def test_a_targeted_grid_stays_put_when_the_stage_moves(
     qapp, interactive_widget, monkeypatch
 ):
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     anchor = widget.tile_grid_overlay._anchor()
     widget._on_grid_move(anchor[0] + 800.0, anchor[1])
     qapp.processEvents()
@@ -1809,68 +1816,6 @@ def test_a_grid_that_jumps_clear_of_an_empty_canvas_re_frames(qapp):
 # ── anchoring the frame (FIB-418) ────────────────────────────────────────
 
 
-def test_the_frame_can_be_anchored_at_a_chosen_position(qapp, interactive_widget):
-    """So one canvas can describe the FM mount while another describes the column
-    48 mm away, each correctly framed, rather than both taking whatever the stage
-    happened to be doing when they woke up."""
-    from fibsem.structures import FibsemStagePosition
-
-    widget = interactive_widget
-    widget.canvas.clear_overviews()
-    stage = widget._current_stage_position()
-    elsewhere = FibsemStagePosition(
-        x=stage.x + 48e-3,
-        y=stage.y,
-        z=stage.z,
-        r=stage.r,
-        t=stage.t,
-        coordinate_system=stage.coordinate_system,
-    )
-    try:
-        widget.set_origin(elsewhere)
-        qapp.processEvents()
-
-        assert widget.origin is elsewhere
-        # canvas zero is now that position, and the stage is 48 mm the other way
-        assert widget._frame().to_canvas(elsewhere) == pytest.approx((0.0, 0.0))
-        assert widget.current_position_overlay._points[0][0] == pytest.approx(
-            widget._frame().to_canvas(stage)[0]
-        )
-    finally:
-        widget.set_origin(None)
-        qapp.processEvents()
-
-
-def test_anchoring_again_returns_to_the_device_origin(qapp, interactive_widget):
-    """`set_origin(None)` hands the anchor back to the automatic one, which is the
-    FM device's configured origin rather than wherever the stage is standing."""
-    from fibsem.structures import FibsemStagePosition
-
-    widget = interactive_widget
-    widget.canvas.clear_overviews()
-    stage = widget._current_stage_position()
-    device = widget.microscope.system.stage.devices["FM"].origin
-    widget.set_origin(
-        FibsemStagePosition(
-            x=stage.x + 1e-3,
-            y=stage.y,
-            z=stage.z,
-            r=stage.r,
-            t=stage.t,
-            coordinate_system=stage.coordinate_system,
-        )
-    )
-    qapp.processEvents()
-
-    widget.set_origin(None)
-    qapp.processEvents()
-
-    # re-derived on the next use, rather than left unset
-    assert widget._frame() is not None
-    assert widget.origin.x == pytest.approx(device.x or 0.0)
-    assert widget.origin.t == pytest.approx(stage.t)
-
-
 def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
     """Canvas zero is where the objective looks, which on an offset mount is 48.8 mm
     from where the stage stands when the tab is built. Anchoring at the stage put
@@ -1896,25 +1841,6 @@ def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
     finally:
         widget.deleteLater()
         qapp.processEvents()
-
-
-def test_the_frame_cannot_be_re_anchored_under_placed_images(qapp, interactive_widget):
-    """Images are positioned relative to the origin as it stood when they were added,
-    so moving it afterwards leaves every one describing a position it was never
-    acquired at."""
-    widget = interactive_widget
-    widget.canvas.clear_overviews()
-    widget.set_image(
-        widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
-    )
-    qapp.processEvents()
-    anchored = widget.origin
-
-    with pytest.raises(ValueError, match="already"):
-        widget.set_origin(widget._current_stage_position())
-
-    assert widget.origin is anchored, "the origin moved despite the refusal"
-    widget.canvas.clear_overviews()
 
 
 def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
@@ -2799,7 +2725,7 @@ def _microscope_at(tilt_deg: float):
     import numpy as np
 
     from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope, _ = demo_session(compustage=True)
     microscope.system.stage.shuttle_pre_tilt = 0
@@ -2889,7 +2815,7 @@ def test_an_acquired_image_lands_where_the_grid_that_planned_it_is_drawn(qapp):
     import numpy as np
 
     from fibsem.fm.structures import ChannelSettings
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope = _microscope_at(0.0)
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
@@ -2917,7 +2843,7 @@ def test_the_placement_of_an_image_matches_a_widget_that_never_moved(qapp):
     import numpy as np
 
     from fibsem.fm.structures import ChannelSettings
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     somewhere = FibsemStagePosition(
         x=200e-6, y=150e-6, z=0.0, r=0.0, t=np.deg2rad(-180)
@@ -2949,7 +2875,7 @@ def test_the_placement_of_an_image_matches_a_widget_that_never_moved(qapp):
 def _named(name: str, x: float, y: float, tilt_deg: float = -180.0):
     import numpy as np
 
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     position = FibsemStagePosition(x=x, y=y, z=0.0, r=0.0, t=np.deg2rad(tilt_deg))
     position.name = name
@@ -3058,7 +2984,7 @@ def _lamella_with_poses(name: str, microscope, tmp_path, x: float, y: float):
         build_lamella_poses,
     )
     from fibsem.applications.autolamella.structures import Lamella
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     beam = microscope.get_orientation(MILLING_ORIENTATION)
     marked = FibsemStagePosition(x=x, y=y, z=0.0, r=beam.r, t=beam.t)
@@ -3235,10 +3161,11 @@ def test_the_position_offered_is_the_one_a_double_click_would_move_to(
     """Both gestures resolve a canvas point through the same code, so marking somewhere
     and driving there cannot drift apart -- which they would, eventually, being the same
     arithmetic written twice."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     widget = interactive_widget
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     frame = widget._frame()
     point = frame.to_canvas(widget._current_stage_position())
     x, y = point[0] + 1500.0, point[1] + 900.0
@@ -3347,7 +3274,7 @@ def test_nothing_is_offered_from_a_beam_orientation(qapp):
     point resolved at a beam orientation comes back carrying *beam* rotation and tilt on
     fluorescence-side coordinates -- a fluorescence pose that is not in the fluorescence
     orientation."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)  # FM, on a compustage
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
@@ -3418,7 +3345,7 @@ def _real_lamella(name, microscope, tmp_path, x=100e-6, y=50e-6):
         build_lamella_poses,
     )
     from fibsem.applications.autolamella.structures import Lamella
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     beam = microscope.get_orientation(MILLING_ORIENTATION)
     poses = build_lamella_poses(
@@ -4049,10 +3976,11 @@ def test_move_to_drives_the_stage_to_the_fluorescence_pose(qapp, tmp_path, monke
     """Not `stage_position`, which is the milling pose. This tab looks at the sample from
     the fluorescence side, and moving to the milling pose would swing the stage 180
     degrees away from the view you asked to centre."""
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     tab = _tab_with(qapp, tmp_path)
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     microscope = tab.microscope
     lamella = _lamella_with_poses("Lamella-01", microscope, tmp_path, 300e-6, -150e-6)
     tab.experiment.positions.append(lamella)
@@ -4074,10 +4002,11 @@ def test_move_to_drives_the_stage_to_the_fluorescence_pose(qapp, tmp_path, monke
 def test_move_to_a_lamella_with_no_fluorescence_pose_is_refused(
     qapp, tmp_path, monkeypatch
 ):
-    from fibsem.ui.fm.widgets import fm_overview_widget as module
 
     tab = _tab_with(qapp, tmp_path)
-    monkeypatch.setattr(module, "FunctionWorker", _SynchronousWorker)
+    monkeypatch.setattr(
+        "fibsem.ui.widgets.overview_base.FunctionWorker", _SynchronousWorker
+    )
     microscope = tab.microscope
     lamella = _lamella_with_poses("Lamella-01", microscope, tmp_path, 300e-6, -150e-6)
     del lamella.poses["FLUORESCENCE"]
@@ -4167,7 +4096,7 @@ def test_a_lamella_is_complete_before_anyone_is_told_about_it(qapp, tmp_path):
         build_lamella_poses,
     )
     from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
     from tests.fixtures.fm_microscope import build_microscope
 
     microscope = build_microscope()
@@ -4203,7 +4132,7 @@ def test_a_lamella_added_from_elsewhere_lands_on_the_canvas_immediately(qapp, tm
         build_lamella_poses,
     )
     from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     tab = _tab_with(qapp, tmp_path)
     microscope = tab.microscope
@@ -4238,7 +4167,7 @@ def test_marked_positions_move_when_the_stage_re_poses(qapp):
     move. Everything on this canvas is placed through a frame whose rotation and tilt
     come from wherever the stage is, so a re-pose moves all of it -- but only the current
     position crosshair and the tile grid were being redrawn."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)  # FM
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
@@ -4266,7 +4195,7 @@ def test_marked_positions_move_when_the_stage_re_poses(qapp):
 
 def test_the_selected_marker_re_poses_too(qapp):
     """It is on its own overlay, so it is a second thing that has to be redrawn."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
@@ -4292,7 +4221,7 @@ def test_translating_the_stage_leaves_the_markers_alone(qapp):
     """The stage is polled constantly and a translation moves none of this: the origin
     everything is measured from does not move with it. Redrawing anyway would be work
     per poll for no visible change."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
@@ -4325,7 +4254,7 @@ def test_translating_the_stage_leaves_the_stage_context_alone(qapp):
     translation moves none of them either. The free grid follows the stage on every
     update, and used to redraw them on its way past: a full repaint and a device
     conversion per slot, per poll, each logging a line. A re-pose still redraws them."""
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
@@ -4408,7 +4337,7 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
     grid boundary sit at canvas zero whatever the pose -- a zero offset stays zero
     through any rotation -- so the test would pass by drawing nothing that could move.
     """
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope = _microscope_at(-180.0)
     fm = microscope.get_orientation("FM")
@@ -4416,7 +4345,7 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
         FibsemStagePosition(x=250e-6, y=-180e-6, z=0.0, r=fm.r, t=fm.t)
     )
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
-    widget.set_origin(microscope.get_stage_position())  # off-centre, on purpose
+    widget._origin = microscope.get_stage_position()  # off-centre, on purpose
     widget._refresh_tile_grid()
     qapp.processEvents()
     before = [(spec.cx, spec.cy) for spec in widget.stage_overlay._specs]
@@ -5305,7 +5234,7 @@ class TestTheCameraTransformReachesTheProjection:
         """
         import inspect
 
-        source = inspect.getsource(FMOverviewWidget.closeEvent)
+        source = inspect.getsource(FMOverviewWidget._subscriptions)
         assert "transform_changed" in source, (
             "the transform subscription is not in closeEvent's teardown list"
         )
@@ -6106,7 +6035,7 @@ def test_a_typed_preview_places_itself_from_its_own_metadata(qapp):
     middle one reads the camera under an `active_channel()` scope once a tile *during*
     a run, so the display was taking the shared channel from the acquisition using it.
     """
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
     from fibsem.ui.fm.widgets.fm_overview_widget import PREVIEW_KEY
 
     host = _PreviewHost()

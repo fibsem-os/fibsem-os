@@ -30,7 +30,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from tests.fixtures.correlation import fiducial_pairs, fm_image
 
 from .test_nominal_transform import ENTRIES, _input_data

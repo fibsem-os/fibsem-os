@@ -22,7 +22,7 @@ from fibsem.imaging.tiling.geometry import (
     compute_tile_grid_from_fov,
     unreachable_tiles,
 )
-from fibsem.structures import FibsemStagePosition, OverviewAcquisitionSettings
+from fibsem.structures.settings import FibsemStagePosition, OverviewAcquisitionSettings
 
 if TYPE_CHECKING:
     from fibsem.fm.structures import OverviewParameters

@@ -3,7 +3,7 @@ import logging
 import matplotlib.pyplot as plt
 
 from fibsem import acquire, utils
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 """
 This script will take an image with the electron beam, an image with the ion beam, and an image with both beams. 

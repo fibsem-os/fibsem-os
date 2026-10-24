@@ -21,11 +21,9 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.codec.upgrades.configuration import upgrade
-from fibsem.structures import (
+from fibsem.structures.settings import BeamSettings, BeamType, FibsemStagePosition
+from fibsem.structures.system import (
     CONFIGURED_DEVICES,
-    BeamSettings,
-    BeamType,
-    FibsemStagePosition,
     MicroscopeSettings,
     SystemSettings,
 )

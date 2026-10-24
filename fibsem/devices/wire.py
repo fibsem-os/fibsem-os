@@ -296,8 +296,8 @@ _PLAIN["numpy.ndarray"] = np.ndarray  # a command's array, sent as npy bytes
 
 def type_path(hint: Any) -> str:
     """A type as text a client can read back (`type_from_path`): fibsem classes by
-    their full path, ``fibsem.structures.FibsemStagePosition``, inside the
-    generics they're declared with, ``List[fibsem.structures.GridSlot]``."""
+    their full path, ``fibsem.structures.settings.FibsemStagePosition``, inside the
+    generics they're declared with, ``List[fibsem.structures.settings.GridSlot]``."""
     origin, args = typing.get_origin(hint), typing.get_args(hint)
     if origin is Union:
         rest = [arg for arg in args if arg is not type(None)]

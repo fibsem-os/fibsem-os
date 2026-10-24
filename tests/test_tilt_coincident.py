@@ -156,7 +156,7 @@ def _anchor_in_sem_view(microscope) -> tuple:
     """Where the world anchor projects into the SEM view (m) - the sim's
     own projection, so exact and alias-free."""
     from fibsem.geometry.projection import BeamStageProjection
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
     scene = microscope._connection.sample_scene

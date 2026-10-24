@@ -18,7 +18,7 @@ import numpy as np
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 
 SIM_COMPUSTAGE_CONFIG = os.path.join(
     cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"

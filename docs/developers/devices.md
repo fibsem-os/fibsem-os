@@ -63,7 +63,7 @@ and named resources replace the single lock where a backend allows it.
 
 ```python
 from fibsem import utils
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 microscope, settings = utils.setup_session(manufacturer="Demo")
 
@@ -179,7 +179,7 @@ new code.
 ### Events
 
 ```python
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 seen = []
 sem.hfw.changed.connect(seen.append)                          # this parameter
@@ -194,8 +194,9 @@ through the old API, a live read that found a different value, or a change the
 backend reports from elsewhere (the vendor's own UI, another client). The value before
 the change is in `parameter.previous`. `metadata_changed` fires with the new
 `ParameterMetadata` when a parameter's limits or choices were refreshed. The signals
-are [psygnal](https://psygnal.readthedocs.io) signals; in a Qt widget, connect them to
-a slot that runs on the GUI thread.
+are [psygnal](https://psygnal.readthedocs.io) signals; in a Qt widget, connect them with
+`connect_on_gui_thread(widget, signal, slot)` from `fibsem/ui/qt/connections.py`, which
+calls the slot on the GUI thread and disconnects when the widget goes.
 
 ## Commands
 
@@ -252,7 +253,7 @@ microscope gets an empty session, which has no listeners and stamps nothing.
 
 ```python
 from fibsem.devices import StageLimitError
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 stage = microscope.stage
 stage.position.get_value()     # a FibsemStagePosition, in the raw stage frame
@@ -501,7 +502,7 @@ class.
 `ion` and, on a dual beam, `electron`:
 
 ```python
-from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+from fibsem.structures.settings import FibsemMillingSettings, FibsemRectangleSettings
 
 microscope, settings = utils.setup_session(manufacturer="Demo")
 milling = microscope.milling
@@ -668,7 +669,7 @@ parameter with methods named after it, which `connect()` binds:
 
 ```python
 from fibsem.devices import Device, DeviceParameter, ParameterMetadata, command
-from fibsem.structures import RangeLimit
+from fibsem.structures.params import RangeLimit
 
 
 class Knife(Device):
@@ -719,7 +720,7 @@ interfaces such as `Scanner`) and `fibsem.drivers.registry`; the submodules may 
 A parameter's `Display` crosses to clients in its description (`describe()`, and the
 device server's `GET /devices`), so an agent shows it as a form does.
 
-A `DeviceParameter` is a `fibsem.structures.Parameter` (type, SI unit, SI limits,
+A `DeviceParameter` is a `fibsem.structures.params.Parameter` (type, SI unit, SI limits,
 choices, doc, `Display`) with the binding to the hardware added. A dataclass field
 declares the same `Parameter` with `param(default, ...)` and reads it back as
 `Config.params.name`, so a form, a description and the

@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional, Tuple
 
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 
 class AutoScriptConnection:

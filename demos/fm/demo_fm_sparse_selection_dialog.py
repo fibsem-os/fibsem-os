@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import QApplication
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.fm.structures import OverviewParameters
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import FMSparseSelectionDialog
 from fibsem.ui.widgets.overview_widget import OverviewView
 

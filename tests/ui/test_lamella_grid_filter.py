@@ -24,7 +24,7 @@ from fibsem.applications.autolamella.ui.lamella.rows import (
     FILTER_NO_GRID,
     LamellaListWidget,
 )
-from fibsem.structures import MicroscopeState
+from fibsem.structures.settings import MicroscopeState
 from fibsem.workflows.grids import GridRecord
 
 _app = QApplication.instance() or QApplication([])

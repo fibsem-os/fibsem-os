@@ -32,14 +32,9 @@ from typing import ClassVar, Optional, Type
 from fibsem import timing
 from fibsem.applications.autolamella.structures import AutoLamellaTaskConfig
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import (
-    Display,
-    FibsemRectangle,
-    InsertableDeviceState,
-    Point,
-    RangeLimit,
-    param,
-)
+from fibsem.structures.params import Display, RangeLimit, param
+from fibsem.structures.settings import FibsemRectangle, Point
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.attention import Attention
 
 SETUP_COINCIDENCE_MILLING_KEY = "SETUP_COINCIDENCE_MILLING"
@@ -299,7 +294,7 @@ class SetupCoincidenceMillingTask(AutoLamellaTask):
     def _align_coincidence(self) -> None:
         """Opt-in SEM/FIB coincidence alignment at the milling pose, keeping the FIB view."""
         from fibsem.alignment.coincidence import ensure_coincident
-        from fibsem.structures import BeamType
+        from fibsem.structures.settings import BeamType
 
         self.log_status_message("ALIGN_COINCIDENCE", "Aligning SEM/FIB coincidence...")
         result = ensure_coincident(self.microscope, reference=BeamType.ION)

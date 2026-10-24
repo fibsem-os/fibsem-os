@@ -12,7 +12,7 @@ pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is delibe
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.services.sample_handling import BUILTIN_SLOT_NAME, bind_sample_handling
-from fibsem.structures import FibsemStagePosition, SampleHolder
+from fibsem.structures.settings import FibsemStagePosition, SampleHolder
 from fibsem.ui.widgets.holder_calibration_dialog import (
     CALIBRATION_ORIENTATION,
     HolderCalibrationDialog,

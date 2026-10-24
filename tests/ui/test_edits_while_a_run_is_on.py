@@ -18,7 +18,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Lamella,
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.run_state import StubRunner, run_working_on  # noqa: E402
 

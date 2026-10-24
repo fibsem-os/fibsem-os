@@ -16,7 +16,8 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
 from fibsem.applications.autolamella.workflows.core import align_feature_coincident
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.detection.detection import LamellaBottomEdge, LamellaCentre, LamellaTopEdge
-from fibsem.structures import BeamType, param
+from fibsem.structures.params import param
+from fibsem.structures.settings import BeamType
 from fibsem.workflows.proposals import DETECTION, MILLING
 
 

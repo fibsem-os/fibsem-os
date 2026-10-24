@@ -11,7 +11,6 @@ import pytest
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
-from fibsem.ui import notification_service
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
 # The real message a ThermoFisher backend raises with no AutoScript on the machine.
@@ -55,18 +54,6 @@ class Demo:
     )
 
 
-@pytest.fixture
-def toasts(monkeypatch):
-    """Collect the toasts rather than showing them."""
-    captured = []
-    monkeypatch.setattr(
-        notification_service,
-        "show_toast",
-        lambda message, level="info", *a, **k: captured.append((level, message)),
-    )
-    return captured
-
-
 def _fail_to_connect(monkeypatch, error: Exception) -> None:
     """Make the connection attempt raise, the way a real backend would.
 
@@ -100,7 +87,7 @@ def test_a_failed_connection_says_why(widget, monkeypatch, toasts):
 
     widget.connect_to_microscope()
 
-    errors = [message for level, message in toasts if level == "error"]
+    errors = [message for message, level in toasts if level == "error"]
     assert errors, "a failed connection reported nothing"
     assert "not installed" in errors[-1]
 
@@ -184,7 +171,7 @@ def test_a_failed_disconnect_does_not_escape_the_slot(widget, toasts):
 
     # One outcome, not two: the tab does drop to disconnected, so the message says
     # what happened rather than announcing a failure beside a disconnected tab.
-    errors = [message for level, message in toasts if level == "error"]
+    errors = [message for message, level in toasts if level == "error"]
     assert any("did not close cleanly" in message for message in errors)
 
 
@@ -213,7 +200,7 @@ def test_a_successful_disconnect_lets_go_too(widget, toasts, demo_microscope):
     widget.connect_to_microscope()
 
     assert widget.microscope is None
-    assert not [message for level, message in toasts if level == "error"]
+    assert not [message for message, level in toasts if level == "error"]
 
 
 def test_a_successful_connection_still_reports_and_holds_the_microscope(
@@ -229,7 +216,7 @@ def test_a_successful_connection_still_reports_and_holds_the_microscope(
     widget.connect_to_microscope()
 
     assert widget.microscope is demo_microscope
-    infos = [message for level, message in toasts if level == "info"]
+    infos = [message for message, level in toasts if level == "info"]
     assert any("Connected to microscope at" in message for message in infos)
 
 
@@ -400,6 +387,6 @@ def test_the_connect_message_says_what_connecting_did(
     demo_microscope.connect_actions = actions
     _connect(widget, monkeypatch, demo_microscope)
 
-    assert any(lvl == level and says in message for lvl, message in toasts), toasts
+    assert any(lvl == level and says in message for message, lvl in toasts), toasts
     widget.microscope = None
     widget.update_ui()

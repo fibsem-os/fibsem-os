@@ -72,7 +72,7 @@ def test_the_fluorescence_pose_follows_the_milling_pose(tmp_path, sync):
         _to_fluorescence,
         build_lamella_poses,
     )
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     microscope, _ = utils.setup_session(
         manufacturer="Demo",

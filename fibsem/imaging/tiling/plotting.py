@@ -22,11 +22,8 @@ from fibsem import constants
 from fibsem.conversions import is_inside_image_bounds
 from fibsem.imaging.tiling.geometry import TilePosition
 from fibsem.imaging.tiling.reprojection import reproject_stage_positions_onto_image2
-from fibsem.structures import (
-    FibsemImage,
-    FibsemStagePosition,
-    OverviewAcquisitionSettings,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemStagePosition, OverviewAcquisitionSettings
 from fibsem.theme.tokens import PANEL_COLOR
 
 POSITION_COLOURS = [

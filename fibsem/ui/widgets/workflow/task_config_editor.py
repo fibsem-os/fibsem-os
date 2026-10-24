@@ -29,7 +29,7 @@ from fibsem.workflows.task_configs import set_task_config_values
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
-    from fibsem.structures import ReferenceImageParameters
+    from fibsem.structures.settings import ReferenceImageParameters
     from fibsem.workflows.session import AppSession
     from fibsem.workflows.task_config import TaskConfig
 

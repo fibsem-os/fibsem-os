@@ -75,7 +75,7 @@ def test_the_named_operator_decides(experiment):
 
 def test_a_plain_experiment_keeps_what_was_asked_about_it(tmp_path):
     from fibsem.acting import Actor
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
     from fibsem.workflows.experiment import FibsemExperiment, load_experiment
     from fibsem.workflows.proposals import STATE, Proposal
 

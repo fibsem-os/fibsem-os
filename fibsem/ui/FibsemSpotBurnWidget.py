@@ -23,7 +23,7 @@ from fibsem.imaging.spot import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.services.spot_burn import in_frame
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker

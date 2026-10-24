@@ -13,7 +13,8 @@ from superqt.utils import qdebounced
 from fibsem import utils
 from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamSettings, BeamType, Parameter, Point, Resolution
+from fibsem.structures.params import Parameter
+from fibsem.structures.settings import BeamSettings, BeamType, Point, Resolution
 from fibsem.ui import notification_service
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.qt.threading import FunctionWorker

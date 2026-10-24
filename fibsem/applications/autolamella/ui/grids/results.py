@@ -29,10 +29,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
-from fibsem.ui import stylesheets
-from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET
-from fibsem.ui.thumbnails import ClickableLabel
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     ERROR_COLOR,
     NEUTRAL_200,
     NEUTRAL_400,
@@ -40,6 +38,8 @@ from fibsem.ui.tokens import (
     NEUTRAL_900,
     OK_COLOR,
 )
+from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET
+from fibsem.ui.thumbnails import ClickableLabel
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.util.timestamps import format_time
@@ -54,9 +54,9 @@ _TILE_W, _TILE_H = 320, 213  # 3:2, at a card-friendly size
 _STATUS_COLOUR = {
     TaskStatus.Completed: OK_COLOR,
     TaskStatus.Failed: ERROR_COLOR,
-    TaskStatus.Cancelled: stylesheets.DEFECT_ORANGE_COLOR,
+    TaskStatus.Cancelled: tokens.DEFECT_ORANGE_COLOR,
     TaskStatus.Skipped: NEUTRAL_550,
-    TaskStatus.InProgress: stylesheets.GREEN_COLOR,
+    TaskStatus.InProgress: tokens.GREEN_COLOR,
 }
 
 

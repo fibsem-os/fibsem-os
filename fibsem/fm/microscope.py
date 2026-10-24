@@ -59,7 +59,7 @@ from fibsem.fm.structures import (
     ZStackOrder,
     matching_emission_filter,
 )
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.util.timestamps import now_iso
 
 if TYPE_CHECKING:

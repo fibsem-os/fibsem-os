@@ -2,7 +2,7 @@ import numpy as np
 import scipy.ndimage as ndi
 
 from fibsem.imaging import utils as image_utils
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 
 ### MASKING

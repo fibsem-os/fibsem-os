@@ -73,15 +73,15 @@ from fibsem.fm.structures import (
 )
 from fibsem.imaging.tiling.progress import TiledProgress
 from fibsem.services.core import Service, save_beam_conditions
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
-    DeviceImagingState,
-    FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
     OverviewAcquisitionSettings,
 )
+from fibsem.structures.system import DeviceImagingState
 from fibsem.util import timestamps
 
 # Two beam currents closer than this, relatively, are the same current: a

@@ -23,7 +23,7 @@ from fibsem.correlation.structures import (  # noqa: E402
     PointType,
     PointXYZ,
 )
-from fibsem.structures import FibsemImage  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
 from fibsem.ui.correlation.widgets.correlation_tab_widget import (  # noqa: E402
     CORRELATION_FILENAME,
     CorrelationTabWidget,

@@ -29,7 +29,7 @@ from fibsem.server.responses import (
     no_experiment,
     refused,
 )
-from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
+from fibsem.structures.settings import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.util.records import content_hash
 from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.outputs import item_output_named, saved_file

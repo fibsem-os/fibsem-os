@@ -31,7 +31,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from tests.fixtures.pins import close_to_pin, plain
 
 PINS_PATH = os.path.join(

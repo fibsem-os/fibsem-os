@@ -25,7 +25,8 @@ from fibsem.fm.progress import (  # noqa: E402
     FluorescenceAcquisitionProgress,
     FluorescenceAcquisitionStatus,
 )
-from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget, _DemoHost
+from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
+from tests.fixtures.fm_host import FMHost  # noqa: E402
 
 # A report an emitter actually produces: the within-tile z-stack progress from
 # `acquire_z_stack`. It reaches the bar and the label, which is what these tests need
@@ -44,7 +45,7 @@ PROGRESS = FluorescenceAcquisitionProgress(
 def widget(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
-    host = _DemoHost()
+    host = FMHost()
     w = FMControlWidget(
         microscope=build_microscope(),
         parent=host,

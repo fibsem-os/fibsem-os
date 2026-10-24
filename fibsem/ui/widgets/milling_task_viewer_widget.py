@@ -13,7 +13,8 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import LinePattern
 from fibsem.milling.patterning.shapes import is_pattern_placement_valid
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import BeamType, FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, Point
 from fibsem.ui import notification_service
 from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 from fibsem.ui.widgets.custom_widgets import ContextMenu, ContextMenuConfig

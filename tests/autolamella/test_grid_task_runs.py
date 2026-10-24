@@ -16,7 +16,11 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
     Lamella,
 )
-from fibsem.structures import BeamType, ImageSettings, OverviewAcquisitionSettings
+from fibsem.structures.settings import (
+    BeamType,
+    ImageSettings,
+    OverviewAcquisitionSettings,
+)
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,

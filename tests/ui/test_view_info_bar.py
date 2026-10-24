@@ -21,9 +21,7 @@ from PyQt5.QtWidgets import QApplication, QLabel
 
 from fibsem import config as cfg
 from fibsem.fm.structures import (
-    FluorescenceChannelMetadata,
     FluorescenceImage,
-    FluorescenceImageMetadata,
 )
 from fibsem.imaging.export import (
     BEAM_FIELD_KEYS,
@@ -32,11 +30,11 @@ from fibsem.imaging.export import (
     image_fields,
     z_value,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
-    FibsemImage,
     FibsemStagePosition,
     MicroscopeState,
 )
@@ -47,8 +45,19 @@ from fibsem.ui.widgets.canvas.quad_view import (
     QuadViewWidget,
 )
 from fibsem.ui.widgets.canvas.view_info_bar import BAR_DEFAULT_FIELDS, ViewInfoBar
+from tests.fixtures.fm_images import fm_image, gfp
+from tests.fixtures.info_bar import hidden_fields, highlighted_fields, visible_fields
 
 _app = QApplication.instance() or QApplication(sys.argv)
+
+
+def _show_page(cell, key: str) -> None:
+    """Step the page cycler round to *key*, as the operator does."""
+    for _ in range(len(cell._keys)):
+        if cell.page == key:
+            return
+        cell.step(1)
+    assert cell.page == key, key
 
 
 @pytest.fixture(autouse=True)
@@ -78,31 +87,23 @@ def _beam_image(beam_type=BeamType.ELECTRON, voltage=2e3) -> FibsemImage:
 def _fm_image(slices=3) -> FluorescenceImage:
     data = np.zeros((1, slices, 64, 64), dtype=np.uint16)
     data[0, :, 20:30, 20:30] = 4000
-    channel = FluorescenceChannelMetadata(
-        name="GFP",
+    channel = gfp(
         excitation_wavelength=470,
-        power=0.5,
-        exposure_time=0.1,
-        gain=1.0,
-        offset=0.0,
         color="green",
         objective_magnification=100,
         objective_numerical_aperture=0.75,
     )
-    return FluorescenceImage(
-        data=data,
-        metadata=FluorescenceImageMetadata(
-            acquisition_datetime="2026-10-07T14:00:00",
-            pixel_size_x=110e-9,
-            pixel_size_y=110e-9,
-            pixel_size_z=500e-9,
-            channels=[channel],
-        ),
+    return fm_image(
+        data,
+        [channel],
+        pixel_size=110e-9,
+        acquired="2026-10-07T14:00:00",
+        pixel_size_z=500e-9,
     )
 
 
 def _shown(bar: ViewInfoBar):
-    return [(f.label, f.value) for f in bar.visible_fields()]
+    return [(f.label, f.value) for f in visible_fields(bar)]
 
 
 @pytest.fixture
@@ -192,11 +193,11 @@ def test_a_narrow_bar_drops_whole_fields_behind_a_chip():
     bar.show()
 
     _sized(bar, 2000)
-    assert len(bar.visible_fields()) == 4
+    assert len(visible_fields(bar)) == 4
     assert bar.more_chip.isHidden()
 
     _sized(bar, 280)
-    visible, hidden = bar.visible_fields(), bar.hidden_fields()
+    visible, hidden = visible_fields(bar), hidden_fields(bar)
     assert hidden, "280 px cannot hold four fields beside the header"
     assert len(visible) + len(hidden) == 4
     # dropped from the right, whole
@@ -215,7 +216,7 @@ def test_a_narrow_bar_drops_whole_fields_behind_a_chip():
     assert "Acquired at: " in bar.more_chip.toolTip()
 
     _sized(bar, 2000)
-    assert bar.hidden_fields() == []
+    assert hidden_fields(bar) == []
     assert not bar.time_label.isHidden()
     assert bar.more_chip.isHidden()
     bar.close()
@@ -230,7 +231,7 @@ def test_the_time_drops_before_any_field():
     fields = sum(label.sizeHint().width() for label in bar.field_labels) + spacing
     exact = bar.width() - bar._room(with_time=True) + fields
     _sized(bar, exact - 1)  # one pixel short of fitting the time as well
-    assert bar.hidden_fields() == []
+    assert hidden_fields(bar) == []
     assert bar.time_label.isHidden()
     assert bar.more_chip.text() == "+1"
     bar.close()
@@ -320,7 +321,7 @@ class _Microscope:
     def __init__(self):
         from types import SimpleNamespace
 
-        from fibsem.structures import FibsemStagePosition
+        from fibsem.structures.settings import FibsemStagePosition
 
         # a stage is fitted, so update_info shows it, at its last known position
         self.stage = SimpleNamespace(
@@ -337,7 +338,7 @@ class _Microscope:
 
 
 def _obj(bar):
-    return {f.label: f for f in bar.visible_fields()}.get("OBJ")
+    return {f.label: f for f in visible_fields(bar)}.get("OBJ")
 
 
 def test_the_fm_bar_shows_the_objective_it_is_told(controller):
@@ -375,7 +376,7 @@ def test_a_new_stack_or_a_clear_keeps_the_objective(controller):
     controller.set_fm_image(_fm_image())
     bar = controller.widget.fm_bar
     bar.resize(2000, 26)
-    labels = [f.label for f in bar.visible_fields()]
+    labels = [f.label for f in visible_fields(bar)]
     assert labels[-1] == "OBJ", "live values sit after the image's fields"
     controller.clear()
     assert _obj(bar).value == "200.0 µm"
@@ -384,9 +385,9 @@ def test_a_new_stack_or_a_clear_keeps_the_objective(controller):
 def test_a_live_value_can_be_removed():
     bar = ViewInfoBar("FM")
     bar.set_live_field("objective_position", "OBJ", "1.0 µm", name="Objective")
-    assert [f.label for f in bar.visible_fields()] == ["OBJ"]
+    assert [f.label for f in visible_fields(bar)] == ["OBJ"]
     bar.set_live_field("objective_position", "OBJ", None, name="Objective")
-    assert bar.visible_fields() == []
+    assert visible_fields(bar) == []
 
 
 def test_the_stage_is_shown_once_under_the_fourth_cell(controller):
@@ -441,9 +442,9 @@ def test_a_page_s_controls_have_a_row_above_it_only_when_it_has_some(controller)
     cell.add_page("overview", "Overview", QLabel(), header=controls)
     panel = controller.widget.stage_bar.parentWidget()
     assert panel.layout().indexOf(cell.header) == 0
-    cell.set_page("chamber")
+    _show_page(cell, "chamber")
     assert cell.header.isHidden(), "the chamber page has no controls, so no row"
-    cell.set_page("overview")
+    _show_page(cell, "overview")
     assert not cell.header.isHidden()
     assert cell._headers.currentWidget() is controls
 
@@ -613,10 +614,10 @@ def _with_wd(wd: float, beam_type=BeamType.ELECTRON):
 def test_the_next_frame_lights_up_only_the_field_that_changed(controller):
     controller.set_image(BeamType.ELECTRON, _with_wd(4.00e-3))
     bar = controller.widget.sem_bar
-    assert bar.highlighted_fields() == [], "a view's first image has nothing to compare"
+    assert highlighted_fields(bar) == [], "a view's first image has nothing to compare"
 
     controller.set_image(BeamType.ELECTRON, _with_wd(4.02e-3))
-    assert bar.highlighted_fields() == ["working_distance"]
+    assert highlighted_fields(bar) == ["working_distance"]
     wd_label = bar.field_labels[
         [f.key for f in bar._labelled].index("working_distance")
     ]
@@ -626,7 +627,7 @@ def test_the_next_frame_lights_up_only_the_field_that_changed(controller):
 def test_a_value_that_rounds_to_the_same_text_does_not_light_up(controller):
     controller.set_image(BeamType.ELECTRON, _with_wd(4.000e-3))
     controller.set_image(BeamType.ELECTRON, _with_wd(4.001e-3))  # still `4.00 mm`
-    assert controller.widget.sem_bar.highlighted_fields() == []
+    assert highlighted_fields(controller.widget.sem_bar) == []
 
 
 def test_the_highlight_fades_and_takes_its_tint_with_it(controller):
@@ -636,7 +637,7 @@ def test_the_highlight_fades_and_takes_its_tint_with_it(controller):
     assert bar._highlight_timer.isActive()
     for _ in range(view_info_bar._HIGHLIGHT_MS // view_info_bar._HIGHLIGHT_TICK_MS):
         bar._fade_highlights()
-    assert bar.highlighted_fields() == []
+    assert highlighted_fields(bar) == []
     assert not bar._highlight_timer.isActive()
     assert all("rgba" not in label.styleSheet() for label in bar.field_labels)
 
@@ -652,16 +653,16 @@ def test_a_highlight_does_not_move_anything(controller):
 def test_a_pushed_live_value_lights_up(controller):
     controller.update_info(_Microscope(), objective_position=200e-6)
     bar = controller.widget.fm_bar
-    assert bar.highlighted_fields() == []
+    assert highlighted_fields(bar) == []
     controller.update_info(_Microscope(), objective_position=200.5e-6)
-    assert bar.highlighted_fields() == ["objective_position"]
+    assert highlighted_fields(bar) == ["objective_position"]
 
 
 def test_scrubbing_the_planes_is_not_news(controller):
     controller.set_fm_image(_fm_image(slices=5))
     controller.widget.fm_widget.set_max_projection(False)
     controller.widget.fm_widget.step_z(1)
-    assert controller.widget.fm_bar.highlighted_fields() == []
+    assert highlighted_fields(controller.widget.fm_bar) == []
 
 
 def test_a_chosen_image_does_not_light_up():
@@ -669,7 +670,7 @@ def test_a_chosen_image_does_not_light_up():
     editor = MicroscopeViewController(view=ItemEditorView())
     editor.set_image(BeamType.ION, _with_wd(16.50e-3, BeamType.ION))
     editor.set_image(BeamType.ION, _with_wd(16.60e-3, BeamType.ION))
-    assert editor.widget.fib_bar.highlighted_fields() == []
+    assert highlighted_fields(editor.widget.fib_bar) == []
 
 
 # --- the status chips: does each view still match the stage? (FIB-1188) ------------

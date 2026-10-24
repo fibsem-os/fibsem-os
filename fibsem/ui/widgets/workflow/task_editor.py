@@ -18,14 +18,14 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,
     NEUTRAL_700,
     TEXT_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.workflows.task_config import SCHEDULE_DAYS_AHEAD, TaskPlan
 

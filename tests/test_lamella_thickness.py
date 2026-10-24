@@ -15,7 +15,8 @@ from fibsem.imaging.thickness import (
     LamellaThicknessResult,
     measure_lamella_band,
 )
-from fibsem.structures import FibsemImage, FibsemRectangle, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemRectangle, Point
 
 WIDTH, HEIGHT = 1536, 1024
 FINE = 15e-6 / WIDTH  # 9.8 nm per pixel

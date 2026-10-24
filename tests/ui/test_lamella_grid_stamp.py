@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
-from fibsem.structures import FibsemStagePosition, SampleGrid, SlotCalibration
+from fibsem.structures.settings import FibsemStagePosition, SampleGrid, SlotCalibration
 from fibsem.workflows.grids import GridRecord
 from tests.fixtures.main_window import close_window
 

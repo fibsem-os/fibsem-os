@@ -35,15 +35,9 @@ from PyQt5.QtWidgets import (
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.grids.card import grid_headline
 from fibsem.applications.autolamella.workflows.estimate import exchanges_for
-from fibsem.structures import GridInventoryEntry, GridSlotState
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import (
-    DRAG_HANDLE_HEIGHT,
-    DRAG_HANDLE_WIDTH,
-    drag_handle_pixmap,
-    fibsem_icon,
-)
-from fibsem.ui.tokens import (
+from fibsem.structures.settings import GridInventoryEntry, GridSlotState
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     NEUTRAL_200,
@@ -52,6 +46,13 @@ from fibsem.ui.tokens import (
     OK_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
+)
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import (
+    DRAG_HANDLE_HEIGHT,
+    DRAG_HANDLE_WIDTH,
+    drag_handle_pixmap,
+    fibsem_icon,
 )
 from fibsem.ui.widgets.custom_widgets import (
     ElidedLabel,
@@ -420,13 +421,13 @@ class _TaskRow(QWidget):
         supervised = self.supervised
         state = "supervised" if supervised else "automated"
         if supervised:
-            colour = stylesheets.PRIMARY_COLOR
+            colour = tokens.PRIMARY_COLOR
             tooltip = (
                 "Supervised — a question the task needs answered is asked while "
                 "it runs, and the run waits for your answer. Click for Automated."
             )
         else:
-            colour = stylesheets.AUTOMATED_COLOR
+            colour = tokens.AUTOMATED_COLOR
             tooltip = (
                 "Automated — runs without anyone; what it acquired is recorded "
                 "for you to check. Click for Supervised."
@@ -658,7 +659,7 @@ class GridWorkflowWidget(QWidget):
         self.btn_settings.setIcon(
             fibsem_icon(
                 "mdi:cog-outline",
-                color=ACCENT_COLOR if changed else stylesheets.GRAY_ICON_COLOR,
+                color=ACCENT_COLOR if changed else tokens.GRAY_ICON_COLOR,
             )
         )
         self.btn_settings.setToolTip(

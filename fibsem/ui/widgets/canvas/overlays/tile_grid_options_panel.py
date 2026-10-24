@@ -29,8 +29,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.theme.tokens import WHITE_ICON_COLOR
 from fibsem.ui.stylesheets import CANVAS_PANEL_STYLE
-from fibsem.ui.tokens import WHITE_ICON_COLOR
 from fibsem.ui.widgets.canvas.overlay_controls import panel_header, panel_hint
 
 # Ordered by how often an FM sample makes them useless: magenta first, because

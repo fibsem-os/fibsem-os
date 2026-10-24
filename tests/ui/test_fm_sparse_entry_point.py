@@ -18,7 +18,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.fm.structures import OverviewParameters
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
-from fibsem.structures import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
 from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import (
     SparseSelection,

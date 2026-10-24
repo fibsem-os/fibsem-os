@@ -20,7 +20,9 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
+from tests.fixtures.toasts import toasts_fixture
 
 _BURNS = [Point(0.25, 0.5), Point(0.75, 0.25)]
 
@@ -36,17 +38,7 @@ def widget(qapp, monkeypatch):
     w.close()
 
 
-@pytest.fixture
-def toasts(monkeypatch):
-    from fibsem.ui import notification_service
-
-    events = []
-    monkeypatch.setattr(
-        notification_service,
-        "show_toast",
-        lambda msg, notification_type="info": events.append((msg, notification_type)),
-    )
-    return events
+toasts = toasts_fixture()
 
 
 def _image(hfw: float, resolution=(300, 200)) -> FibsemImage:

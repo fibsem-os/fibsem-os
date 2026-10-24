@@ -25,7 +25,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.codec import encode
-from fibsem.structures import MicroscopeState
+from fibsem.structures.settings import MicroscopeState
 from tests.fixtures.main_window import close_window
 
 
@@ -58,7 +58,8 @@ def test_display_images_are_the_sessions_latest_images(ui):
     reads them there, once a microscope connects and the window shows them."""
     import numpy as np
 
-    from fibsem.structures import BeamType, FibsemImage
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import BeamType
 
     sem = FibsemImage.generate_blank_image(resolution=[128, 128], hfw=1e-6)
     sem.data[:] = np.random.randint(0, 255, sem.data.shape, dtype=np.uint8)

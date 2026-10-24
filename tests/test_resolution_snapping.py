@@ -28,7 +28,7 @@ def test_nothing_listed_keeps_the_resolution():
 def _task_on(choices):
     from types import SimpleNamespace
 
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     parameter = SimpleNamespace(choices=choices)
     ion = SimpleNamespace(parameters={"resolution": parameter})

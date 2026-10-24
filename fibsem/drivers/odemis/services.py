@@ -17,7 +17,7 @@ from fibsem.drivers.odemis.microscope import (
     beam_type_to_odemis,
 )
 from fibsem.services.milling import BeamMilling, bind_milling
-from fibsem.structures import (
+from fibsem.structures.settings import (
     CrossSectionPattern,
     FibsemCircleSettings,
     FibsemLineSettings,

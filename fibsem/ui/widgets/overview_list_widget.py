@@ -26,8 +26,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from fibsem.theme.tokens import TEXT_MUTED_COLOR
 from fibsem.ui import stylesheets
-from fibsem.ui.tokens import TEXT_MUTED_COLOR
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 if TYPE_CHECKING:

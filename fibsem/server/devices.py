@@ -142,7 +142,8 @@ from fibsem.server.responses import (
     Values,
     answer,
 )
-from fibsem.structures import FibsemImage, Limits
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import Limits
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
 # which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
@@ -1015,7 +1016,7 @@ def configured_devices(
 
     from fibsem.codec.upgrades.configuration import upgrade
     from fibsem.devices.entries import build_device_entries, resolve_device_entries
-    from fibsem.structures import read_device_entries
+    from fibsem.structures.system import read_device_entries
 
     with open(path) as f:
         settings = upgrade(yaml.safe_load(f) or {})

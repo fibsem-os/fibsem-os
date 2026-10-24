@@ -10,7 +10,8 @@ from fibsem.applications.autolamella.workflows._default_milling_config import (
     DEFAULT_MILLING_CONFIG,
 )
 from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
-from fibsem.structures import BEAM_ORIENTATIONS, param
+from fibsem.structures.params import param
+from fibsem.structures.system import BEAM_ORIENTATIONS
 from fibsem.workflows.proposals import MILLING
 
 

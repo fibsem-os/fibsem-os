@@ -25,12 +25,8 @@ import pytest
 from fibsem import utils
 from fibsem.geometry.movement import beam_view_tilt, inverse_view_corrected_dy
 from fibsem.imaging.tiling.reprojection import _inverse_y_corrected_stage_movement
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemStagePosition,
-    ImageSettings,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 
 # Poses worth asking about, in degrees. The configured orientations plus the two the
 # geometry is exact at, because a sweep of round numbers misses -128 and -23 entirely.

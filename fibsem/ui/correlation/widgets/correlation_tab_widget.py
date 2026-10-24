@@ -139,19 +139,10 @@ from fibsem.correlation.verdict import (
     MIRROR_RATIO_AMBIGUOUS,
 )
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import CameraImageTransform, FibsemImage, Point
-from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
-from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
-    CorrelationFMCanvasWidget,
-)
-from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
-    FitConfirmationDialog,
-)
-from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
-from fibsem.ui.tokens import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
+from fibsem.structures.system import CameraImageTransform
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BODY_MUTED_STYLE,
     BODY_STYLE,
@@ -170,6 +161,17 @@ from fibsem.ui.tokens import (
     state_color,
     state_style,
 )
+from fibsem.ui import notification_service, stylesheets
+from fibsem.ui.correlation.widgets.coordinate_list_widget import CoordinateListWidget
+from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
+    CorrelationFMCanvasWidget,
+)
+from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
+    FitConfirmationDialog,
+)
+from fibsem.ui.correlation.widgets.refractive_index_widget import RefractiveIndexWidget
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.stylesheets import IMAGE_HEADER_STYLE
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.canvas.overlays.coordinate_overlay import POINT_COLORS
 from fibsem.ui.widgets.canvas.point_canvas import PointCanvasWidget
@@ -2798,12 +2800,6 @@ class CorrelationTabWidget(QWidget):
         with self._session.reading():  # showing it writes nothing either
             self._show_state(state, shown)
 
-    def _adopt_state(self, state: CorrelationState) -> None:
-        """Apply a loaded correlation state (:meth:`CorrelationSession.adopt_state`)."""
-        shown = self._session.result is not None
-        self._session.adopt_state(state)
-        self._show_state(state, shown)
-
     def _show_state(self, state: CorrelationState, shown: bool) -> None:
         """Show a state the session has just adopted; ``shown`` is whether a
         result was on screen before it."""
@@ -4198,16 +4194,6 @@ class CorrelationTabWidget(QWidget):
         with self._session.reading():  # showing it writes nothing either
             self._on_result_ready(result, live=live)
 
-    def _load_result(
-        self, result: CorrelationResult, *, adopt_inputs: bool = True
-    ) -> None:
-        """Adopt a correlation result already read, and its input data unless
-        ``adopt_inputs`` is False (:meth:`CorrelationSession.adopt_result`)."""
-        live = self._session.adopt_result(result, adopt_inputs=adopt_inputs)
-        # _on_result_ready refreshes the run button and sets the final status
-        # text itself — no trailing update here, it would overwrite the status.
-        self._on_result_ready(result, live=live)
-
     def _menu_load_correlation(self) -> None:
         start = self._session.project_dir or ""
         path, _ = QFileDialog.getOpenFileName(
@@ -4252,9 +4238,6 @@ class CorrelationTabWidget(QWidget):
         """The coordinate lists whose points live in the FM volume (carry z)."""
         cl = self._coords_tab
         return [cl.fm_list, cl.poi_list, cl.fm_surface_list]
-
-    def _fm_point_count(self) -> int:
-        return sum(len(lst.coordinates) for lst in self._fm_side_lists())
 
     def _on_interpolate_fm(self) -> None:
         if self._session.fm_image is None:

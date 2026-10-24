@@ -15,7 +15,7 @@ from skimage.transform import resize
 from fibsem.fm.preview import composite_projection, is_fluorescence_image
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.export import ImageFields, image_fields
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 # Thumbnails, two to a line in the panel's width, up to the size the tab has
 # always shown them at: big enough to judge a lamella from without opening it.

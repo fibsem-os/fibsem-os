@@ -34,7 +34,8 @@ from fibsem.applications.volume.position_milling import (
     position_millings,
     slice_depth_text,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemRectangle, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemRectangle, Point
 from fibsem.ui import stylesheets
 from fibsem.ui.run.run_refusal import refused
 from fibsem.ui.widgets.canvas.canvas_state import (

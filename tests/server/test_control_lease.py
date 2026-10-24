@@ -22,7 +22,7 @@ from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
 from fibsem.control import MicroscopeBusy, lending  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.leases import LEASE_HEADER, Leases  # noqa: E402
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 
 TOKEN = "test-token"
 OPERATOR_TOKEN = "operator-token"

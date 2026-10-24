@@ -16,7 +16,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.tools.grid_report_html import REPORT_FILENAME
 from fibsem.services.sample_handling import bind_sample_handling
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,

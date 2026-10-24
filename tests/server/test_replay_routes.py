@@ -144,7 +144,7 @@ def test_without_an_experiment_there_is_nothing_to_replay(client, session):
 def calibrated(microscope):
     """The holder's slots calibrated, the first at the stage's recorded x and y."""
     from fibsem.geometry.stage_places import holder_slots
-    from fibsem.structures import FibsemStagePosition, SlotCalibration
+    from fibsem.structures.settings import FibsemStagePosition, SlotCalibration
 
     stage = microscope.system.stage
     slots = holder_slots(microscope)

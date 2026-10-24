@@ -9,11 +9,9 @@ from fibsem import utils
 from fibsem.devices.core import UNLIMITED, AxisLimitError, ParameterMetadata
 from fibsem.devices.manipulator import Manipulator, ManipulatorLimitError
 from fibsem.devices.stage import StageLimitError
-from fibsem.structures import (
-    FibsemManipulatorPosition,
-    InsertableDeviceState,
-    RangeLimit,
-)
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import FibsemManipulatorPosition
+from fibsem.structures.system import InsertableDeviceState
 
 LIMITS = {
     "x": RangeLimit(min=-1e-3, max=1e-3),
