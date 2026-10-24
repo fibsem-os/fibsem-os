@@ -21,6 +21,7 @@ from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.FibsemSpotBurnWidget import FibsemSpotBurnWidget
+from fibsem.ui.item_selection import ItemSelection
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
@@ -49,7 +50,7 @@ class ItemTab(Protocol):
     # the tab's name
     title: str
     # the item selection the Image and Fluorescence tabs follow; None for none
-    lamella_list: Optional[Any]
+    item_selection: Optional[ItemSelection]
 
     def refresh(self) -> None: ...
 
@@ -289,7 +290,7 @@ class MicroscopePanel(QWidget):
                 toggle_movement=lambda enable: (
                     self.movement_widget._toggle_interactions(enable, caller="ui")
                 ),
-                lamella_list=self.experiment_tab.lamella_list,
+                item_selection=self.experiment_tab.item_selection,
                 experiment=lambda: self.session.experiment,
                 revise_prompt=lambda msg, ok: self.prompt_bar.revise(
                     msg, can_continue=ok
@@ -331,7 +332,7 @@ class MicroscopePanel(QWidget):
                     microscope=microscope,
                     parent=self,
                     view_controller=self._view_controller,
-                    lamella_list=self.experiment_tab.lamella_list,
+                    item_selection=self.experiment_tab.item_selection,
                     experiment=lambda: self.session.experiment,
                     set_host_enabled=self.setEnabled,
                 )

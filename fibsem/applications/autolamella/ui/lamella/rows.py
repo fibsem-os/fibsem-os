@@ -632,6 +632,9 @@ class LamellaNameListWidget(QWidget):
     """
 
     lamella_selected = pyqtSignal(object)
+    # the list as the ItemSelection the Image and Fluorescence tabs follow
+    item_selected = lamella_selected
+    item_noun = "Lamella"
     add_requested = pyqtSignal()
     move_to_requested = pyqtSignal(object)
     update_requested = pyqtSignal(object)
@@ -693,6 +696,10 @@ class LamellaNameListWidget(QWidget):
         """Return the ``Qt.UserRole`` data of the current item, or ``None``."""
         item = self._list.currentItem()
         return item.data(Qt.UserRole) if item is not None else None  # type: ignore
+
+    @property
+    def selected_item(self) -> Any:
+        return self.selected_lamella
 
     @property
     def selected_name(self) -> str:

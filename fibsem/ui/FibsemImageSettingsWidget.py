@@ -21,6 +21,7 @@ from fibsem.ui import notification_service
 from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.item_selection import ItemSelection
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
@@ -41,7 +42,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         *,
         view_controller: Callable[[], Any] = lambda: None,
         toggle_movement: Optional[Callable[[bool], None]] = None,
-        lamella_list: Optional[Any] = None,
+        item_selection: Optional[ItemSelection] = None,
         experiment: Optional[Callable[[], Any]] = None,
         revise_prompt: Optional[Callable[[str, bool], None]] = None,
     ):
@@ -51,7 +52,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         What the host offers, each None when it has none: ``view_controller``
         returns the quad view; ``toggle_movement`` locks the Movement tab with
-        this one; ``lamella_list`` (its selection) and ``experiment`` (a
+        this one; ``item_selection`` (the app's selected item) and ``experiment`` (a
         getter) are where images can be saved; ``revise_prompt(msg,
         can_continue)`` says on the prompt bar whether an alignment area can
         be confirmed."""
@@ -63,7 +64,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self._host_view_controller = view_controller
         self._toggle_movement = toggle_movement
-        self._lamella_list = lamella_list
+        self._item_selection = item_selection
         self._experiment = experiment
         self._revise_prompt = revise_prompt
         self.microscope = microscope
@@ -173,8 +174,8 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.pushButton_take_all_images = QtWidgets.QPushButton("Acquire All Images")
         self.pushButton_run_autocontrast = QtWidgets.QPushButton("Run AutoContrast")
         self.pushButton_run_autofocus = QtWidgets.QPushButton("Run AutoFocus")
-        self.checkBox_save_with_selected_lamella = QtWidgets.QCheckBox(
-            "Save with Selected Lamella"
+        self.checkBox_save_with_selected_item = QtWidgets.QCheckBox(
+            f"Save with Selected {self._noun}"
         )
 
         # Spinner (hidden until acquiring / auto-function running)
@@ -187,7 +188,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         tools_layout = QtWidgets.QHBoxLayout(tools_row)
         tools_layout.setContentsMargins(0, 0, 0, 0)
         tools_layout.setSpacing(4)
-        tools_layout.addWidget(self.checkBox_save_with_selected_lamella)
+        tools_layout.addWidget(self.checkBox_save_with_selected_item)
         tools_layout.addStretch()
         tools_layout.addWidget(self._spinner)
 
@@ -238,6 +239,11 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self.microscope, self.dual_beam_widget.beam_type
         )
 
+    @property
+    def _noun(self) -> str:
+        """What the app calls an item, for the save-with-item labels."""
+        return self._item_selection.item_noun if self._item_selection else "Item"
+
     def setup_connections(self) -> None:
         """Set up the connections for the UI components, signals and initialise the UI"""
 
@@ -246,22 +252,21 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
         self.pushButton_acquire_fib_image.clicked.connect(self.acquire_fib_image)
         self.pushButton_take_all_images.clicked.connect(self.acquire_reference_images)
 
-        # save image with selected lamella control
-        show_lamella_controls = self._lamella_list is not None
-        self.checkBox_save_with_selected_lamella.setVisible(show_lamella_controls)
-        self.checkBox_save_with_selected_lamella.toggled.connect(
+        # save image with the selected item
+        self.checkBox_save_with_selected_item.setVisible(
+            self._item_selection is not None
+        )
+        self.checkBox_save_with_selected_item.toggled.connect(
             self.update_ui_saving_settings
         )
-        self.checkBox_save_with_selected_lamella.setToolTip(
-            "Save images to the path of the currently selected lamella position in the experiment."
+        self.checkBox_save_with_selected_item.setToolTip(
+            f"Save images to the path of the currently selected {self._noun.lower()} position in the experiment."
         )
         self.image_settings_widget.save_image_check.toggled.connect(
             self.update_ui_saving_settings
         )
-        if self._lamella_list is not None:
-            self._lamella_list.lamella_selected.connect(
-                self._on_current_lamella_changed
-            )
+        if self._item_selection is not None:
+            self._item_selection.item_selected.connect(self._on_selected_item_changed)
 
         # the image settings offer what the selected beam can acquire
         self.dual_beam_widget.sem_radio.toggled.connect(self._use_selected_beam)
@@ -558,43 +563,40 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
     def update_ui_saving_settings(self) -> None:
         """Toggle the visibility / state of the image saving settings"""
-        # If save_with_selected_lamella is checked, ensure save_image is also checked
-        if self.checkBox_save_with_selected_lamella.isChecked():
+        # saving with the selected item saves the image
+        if self.checkBox_save_with_selected_item.isChecked():
             self.image_settings_widget.save_image_check.blockSignals(True)
             self.image_settings_widget.save_image_check.setChecked(True)
             self.image_settings_widget.save_image_check.blockSignals(False)
 
         save_image = self.image_settings_widget.save_image_check.isChecked()
 
-        save_with_lamella = self.checkBox_save_with_selected_lamella.isChecked()
+        save_with_item = self.checkBox_save_with_selected_item.isChecked()
         self.image_settings_widget.path_edit.setEnabled(
-            save_image and not save_with_lamella
+            save_image and not save_with_item
         )
 
-        if save_with_lamella:
+        if save_with_item:
             try:
-                lamella = self._lamella_list.selected_lamella
-                self.image_settings_widget.path_edit.setText(str(lamella.path))
+                item = self._item_selection.selected_item
+                self.image_settings_widget.path_edit.setText(str(item.path))
             except Exception as e:
-                logging.debug(f"Error setting image path from selected lamella: {e}")
+                logging.debug(f"Error setting image path from the selected item: {e}")
         else:
             experiment = self._experiment() if self._experiment else None
             if experiment is not None:
                 self.image_settings_widget.path_edit.setText(str(experiment.path))
 
-    def _on_current_lamella_changed(self, lamella):
-        """Update the image path when the selected lamella changes"""
+    def _on_selected_item_changed(self, item):
+        """Update the image path when the selected item changes"""
         try:
-            if (
-                self.checkBox_save_with_selected_lamella.isChecked()
-                and lamella is not None
-            ):
-                self.image_settings_widget.path_edit.setText(str(lamella.path))
-                self.checkBox_save_with_selected_lamella.setText(
-                    f"Save with Selected Lamella ({lamella.name})"
+            if self.checkBox_save_with_selected_item.isChecked() and item is not None:
+                self.image_settings_widget.path_edit.setText(str(item.path))
+                self.checkBox_save_with_selected_item.setText(
+                    f"Save with Selected {self._noun} ({item.name})"
                 )
         except Exception as e:
-            logging.debug(f"Error updating image path from selected lamella: {e}")
+            logging.debug(f"Error updating image path from the selected item: {e}")
 
     def _toggle_interactions(
         self, enable: bool, caller: str = None, imaging: bool = False
@@ -678,11 +680,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         try:
             filename = self.image_settings.filename
-            save_selected_lamella = self.checkBox_save_with_selected_lamella.isChecked()
-            if save_selected_lamella:
+            if self.checkBox_save_with_selected_item.isChecked():
                 self.image_settings.filename = f"ref_{filename}"
         except Exception as e:
-            logging.error(f"Error getting selected lamella for image saving: {e}")
+            logging.error(f"Error getting the selected item for image saving: {e}")
 
         ts = utils.current_timestamp(TIME_FILE)
         self.image_settings.filename = f"{self.image_settings.filename}-{ts}"
