@@ -33,7 +33,7 @@ from fibsem.applications.autolamella.ui.protocol.lamella_template import (
     _pixel_to_poi,
     _poi_to_pixel,
 )
-from fibsem.structures import FibsemRectangle, Point
+from fibsem.structures.settings import FibsemRectangle, Point
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 
 _app = QApplication.instance() or QApplication(sys.argv)

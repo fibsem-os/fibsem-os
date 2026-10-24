@@ -27,7 +27,7 @@ from fibsem.fm.structures import (  # noqa: E402
 )
 from fibsem.fm.timing import estimate_fm_overview_time  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import InsertableDeviceState  # noqa: E402
+from fibsem.structures.system import InsertableDeviceState  # noqa: E402
 
 TOKEN = "test-token"
 IMAGING = "/microscope/services/imaging"

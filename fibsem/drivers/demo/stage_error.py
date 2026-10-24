@@ -29,7 +29,7 @@ from typing import Any, Mapping, Optional, Tuple
 
 import numpy as np
 
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 
 class StageMoveError:

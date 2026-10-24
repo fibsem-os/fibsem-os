@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from psygnal import EmitLoopError
 
-from fibsem.structures import field_specs
+from fibsem.structures.params import field_specs
 
 __all__ = ["PatchError", "apply_patch", "check_patch"]
 

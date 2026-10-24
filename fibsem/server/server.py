@@ -83,7 +83,7 @@ from fibsem.server.responses import (
     answer,
 )
 from fibsem.server.web_app import web_app_router
-from fibsem.structures import BeamType, MicroscopeState
+from fibsem.structures.settings import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
 
 API_VERSION = "0.3.0"

@@ -150,7 +150,7 @@ def beam_image_ome(data: np.ndarray, metadata: Optional[Any]) -> str:
         UnitsLength,
     )
 
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     ny, nx = data.shape[-2:]
     values = {FORMAT_KEY: str(FORMAT_VERSION)}

@@ -8,7 +8,7 @@ import os
 from typing import Any, Optional, Union
 
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.workflows.proposals import Proposal
 
 __all__ = ["load_reference_image", "preview_of"]

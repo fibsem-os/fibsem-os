@@ -47,7 +47,8 @@ from fibsem.fm.structures import (
 )
 from fibsem.geometry import angles
 from fibsem.geometry.movement import beam_view_tilt
-from fibsem.structures import BeamType, FibsemHardwareGeometry, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
+from fibsem.structures.system import FibsemHardwareGeometry
 from tests.fixtures.microscopes import demo_microscope
 
 # sweep: stage tilt x pretilt x rotation x beam x compustage
@@ -632,7 +633,7 @@ class TestTiledInverseMatchesMicroscope:
 
     @pytest.fixture()
     def image(self, microscope):
-        from fibsem.structures import ImageSettings
+        from fibsem.structures.settings import ImageSettings
 
         return microscope.acquire_image(
             ImageSettings(

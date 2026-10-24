@@ -17,7 +17,7 @@ from fibsem.fm.structures import (
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.structures import FibsemExperimentRef
+from fibsem.structures.system import FibsemExperimentRef
 
 
 def _experiment() -> FibsemExperimentRef:
@@ -107,7 +107,7 @@ def test_a_projection_keeps_the_geometry_it_was_captured_under() -> None:
     missing geometry rather than guessing, since a marker drawn in the wrong place
     looks exactly like one drawn in the right place.
     """
-    from fibsem.structures import FibsemHardwareGeometry
+    from fibsem.structures.system import FibsemHardwareGeometry
 
     image = _image(_experiment(), z=3)
     image.metadata.geometry = FibsemHardwareGeometry(
@@ -123,7 +123,7 @@ def test_a_projection_keeps_the_geometry_it_was_captured_under() -> None:
 
 def test_a_focus_stack_keeps_both() -> None:
     """The other derived path, which had the same gap."""
-    from fibsem.structures import FibsemHardwareGeometry
+    from fibsem.structures.system import FibsemHardwareGeometry
 
     image = _image(_experiment(), z=3)
     image.metadata.geometry = FibsemHardwareGeometry(shuttle_pre_tilt=35.0)

@@ -9,7 +9,8 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter
 from fibsem.devices.fm import Camera
 from fibsem.devices.stage import Stage
-from fibsem.structures import BeamType, Display
+from fibsem.structures.params import Display
+from fibsem.structures.settings import BeamType
 
 
 def test_the_beam_declares_its_hints_and_a_bound_parameter_has_them():

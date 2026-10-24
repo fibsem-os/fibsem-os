@@ -22,7 +22,7 @@ from typing import Any, Dict, Optional
 
 from fibsem.codec import decode, encode
 from fibsem.devices.core import Device, DeviceParameter, command
-from fibsem.structures import ChamberState
+from fibsem.structures.system import ChamberState
 
 CHAMBER_RESOURCE = "chamber"
 

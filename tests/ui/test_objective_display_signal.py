@@ -33,7 +33,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 pytest.importorskip("PyQt5")
 
@@ -42,6 +42,7 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.constants import METRE_TO_MICRON
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
+from tests.fixtures.info_bar import visible_fields
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -204,7 +205,7 @@ class TestTheLabelStillExistsBeforeTheFirstMove:
         controller.update_info(microscope)  # a stage update, carrying no objective
 
         # On the FM bar now (FIB-1186), and no longer in the canvas's info text.
-        shown = {f.label: f.value for f in controller.widget.fm_bar.visible_fields()}
+        shown = {f.label: f.value for f in visible_fields(controller.widget.fm_bar)}
         assert shown.get("OBJ") == "200.0 µm"
         info = dict(controller._states[controller._widget.fm_canvas].info)
         assert "objective" not in info

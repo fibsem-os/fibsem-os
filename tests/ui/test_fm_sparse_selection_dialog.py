@@ -23,7 +23,7 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
-from fibsem.structures import TileOrderStrategy
+from fibsem.structures.settings import TileOrderStrategy
 from fibsem.ui.fm.widgets.fm_sparse_selection_dialog import FMSparseSelectionDialog
 from fibsem.util.durations import format_duration_rounded
 

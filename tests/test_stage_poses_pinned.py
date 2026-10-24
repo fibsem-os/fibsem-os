@@ -41,7 +41,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from tests.fixtures.demo_stage import demo_session
 
 # The probes `get_stage_orientation` is asked about, relative to each declared pose:
@@ -80,10 +80,9 @@ def _deg(angle: float) -> float:
 
 
 def _image(geometry, pose: FibsemStagePosition, beam_type: BeamType):
-    from fibsem.structures import (
+    from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+    from fibsem.structures.settings import (
         BeamSettings,
-        FibsemImage,
-        FibsemImageMetadata,
         ImageSettings,
         MicroscopeState,
         Point,

@@ -21,7 +21,8 @@ import pytest
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.poses import _to_fluorescence, _to_milling
-from fibsem.structures import FibsemStagePosition, InsertableDeviceState
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import InsertableDeviceState
 
 ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
 IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -142,7 +143,7 @@ def test_the_acquisition_guard_can_answer_now():
     because neither axis alone could tell an FM position from a beam one. The
     predicate asks both axes, so the offset mount finally gets a real answer:
     not at the FM, and SEM is not a pose the objective images from."""
-    from fibsem.structures import DeviceImagingState
+    from fibsem.structures.system import DeviceImagingState
 
     microscope = _microscope(IFLM_CONFIG)
 

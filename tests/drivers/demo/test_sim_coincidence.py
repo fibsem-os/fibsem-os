@@ -22,7 +22,7 @@ import pytest
 
 from fibsem import conversions
 from fibsem.alignment.coincidence import measure_coincidence_from_images
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
@@ -194,7 +194,7 @@ def test_views_share_the_scene_but_not_the_contrast():
     both; cells are bright in the SEM, outlined in the FIB)."""
     from fibsem.drivers.demo.sim_scene import SampleScene
     from fibsem.geometry.projection import BeamStageProjection
-    from fibsem.structures import FibsemHardwareGeometry
+    from fibsem.structures.system import FibsemHardwareGeometry
 
     scene = SampleScene(
         coincidence_offset=0.0, fiducial=True, noise_sigma=0.0, noise_fraction=0.0

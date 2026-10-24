@@ -10,7 +10,7 @@ import yaml
 from fibsem import utils
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.services.sample_handling import bind_sample_handling
-from fibsem.structures import SampleGrid
+from fibsem.structures.settings import SampleGrid
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus

@@ -20,7 +20,7 @@ import yaml
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.codec.upgrades.configuration import upgrade
-from fibsem.structures import MicroscopeSettings, SystemSettings
+from fibsem.structures.system import MicroscopeSettings, SystemSettings
 
 IFLM = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 

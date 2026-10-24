@@ -47,7 +47,7 @@ import cv2
 import numpy as np
 
 from fibsem.codec import decode, encode
-from fibsem.structures import FibsemRectangle
+from fibsem.structures.settings import FibsemRectangle
 
 # How far each control moves (centre, log spread), per unit of its range, before the
 # stepper has seen the detector respond: brightness moves the centre one for one,
@@ -536,7 +536,7 @@ class BrightnessContrastIteration:
     def from_dict(
         cls, d: Dict[str, Any], result_dir: Optional[Path] = None
     ) -> "BrightnessContrastIteration":
-        from fibsem.structures import load_tiff
+        from fibsem.structures.image import load_tiff
 
         stats = {
             k: v
@@ -621,7 +621,7 @@ class BrightnessContrastResult:
         ... (each probe image), and ``plot.png`` when ``save_plot``."""
         import json
 
-        from fibsem.structures import save_tiff
+        from fibsem.structures.image import save_tiff
 
         result_dir = Path(path) / name
         result_dir.mkdir(parents=True, exist_ok=True)

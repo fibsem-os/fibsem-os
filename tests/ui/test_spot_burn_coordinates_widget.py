@@ -24,9 +24,10 @@ pytest.importorskip("PyQt5")
 from PyQt5.QtWidgets import QApplication
 
 from fibsem.imaging.spot import SpotBurnSettings
-from fibsem.structures import BeamType, FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, Point
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import (
     ItemEditorView,
     MicroscopeViewController,

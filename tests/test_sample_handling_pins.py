@@ -39,7 +39,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import FibsemStagePosition, SampleGrid
+from fibsem.structures.settings import FibsemStagePosition, SampleGrid
 
 PINS_PATH = os.path.join(
     os.path.dirname(__file__), "fixtures", "sample_handling_pins.json"
@@ -70,7 +70,7 @@ def _isolate_holder_files() -> None:
     to import, and an empty session state."""
     import fibsem.services.sample_handling as stage_module
     import fibsem.session_state as session_state
-    from fibsem.structures import default_sample_holder
+    from fibsem.structures.settings import default_sample_holder
 
     directory = tempfile.mkdtemp(prefix="pins-holder-")
     path = os.path.join(directory, "sample-holder.yaml")
@@ -117,7 +117,7 @@ def _calibrate(microscope) -> None:
     stage is at connect. The holder is the configuration's, so a rebuild keeps it."""
     from copy import deepcopy
 
-    from fibsem.structures import SlotCalibration
+    from fibsem.structures.settings import SlotCalibration
 
     stage = microscope.system.stage
     here = microscope.get_stage_position()

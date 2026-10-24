@@ -14,7 +14,8 @@ from fibsem import utils
 from fibsem.devices.entries import ResolvedEntry, RoleBindingError, bind_device_roles
 from fibsem.devices.scanner import Scanner
 from fibsem.drivers.demo.devices import DemoScanGenerator
-from fibsem.structures import BeamType, DeviceEntry, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
+from fibsem.structures.system import DeviceEntry
 
 SCAN_GENERATOR = {"name": "scan_generator", "type": "scan_generator", "driver": "demo"}
 

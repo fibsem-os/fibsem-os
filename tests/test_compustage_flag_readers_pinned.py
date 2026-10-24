@@ -18,7 +18,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.poses import _to_milling
 from fibsem.services.sample_handling import BUILTIN_HOLDER_NAME
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 ARCTIS = "sim-arctis-configuration.yaml"
 IFLM = "sim-iflm-configuration.yaml"

@@ -22,7 +22,7 @@ from fibsem.alignment.coincidence import (
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
-from fibsem.structures import BeamType, ImageSettings
+from fibsem.structures.settings import BeamType, ImageSettings
 
 TFS_SHUTTLE_CONFIG = os.path.join(
     cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
@@ -468,7 +468,7 @@ def test_milled_patterns_persist_in_the_world(microscope):
     """A rectangle milled at the milling pose is a trench from then on: it
     sits where the pattern was drawn in the FIB view, it moves with the
     stage, and the SEM sees it too (FIB-877)."""
-    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.structures.settings import FibsemRectangleSettings
 
     _scene(
         microscope,
@@ -542,7 +542,7 @@ def test_a_rotated_pattern_mills_the_footprint_it_was_drawn_with(microscope):
     """A rectangle drawn at 45 deg in the FIB view at the milling angle must
     come back as that same rotated rectangle in the FIB view - the
     foreshortening is undone on the corners, not on a height alone."""
-    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.structures.settings import FibsemRectangleSettings
 
     _scene(
         microscope,
@@ -591,7 +591,7 @@ def _fib_and_sem(microscope, hfw=150e-6):
 def test_holes_and_trenches_are_dark_in_both_beams(microscope):
     """No material, no signal: a hole in the film and a milled trench read
     dark in the FIB as well as the SEM - the FIB is not an inverted SEM."""
-    from fibsem.structures import FibsemRectangleSettings
+    from fibsem.structures.settings import FibsemRectangleSettings
 
     scene = _scene(
         microscope,
@@ -664,7 +664,7 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     channel see it too."""
     from fibsem.drivers.demo.sim_scene import SPOT_BURN_DIAMETER
     from fibsem.imaging.spot import SpotBurnSettings
-    from fibsem.structures import Point
+    from fibsem.structures.settings import Point
 
     scene = _scene(
         microscope,

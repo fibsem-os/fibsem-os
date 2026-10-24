@@ -10,11 +10,8 @@ from fibsem.milling.patterning.base import BasePattern
 from fibsem.milling.properties import (
     distance_param,
 )
-from fibsem.structures import (
-    FibsemLineSettings,
-    RangeLimit,
-    param,
-)
+from fibsem.structures.params import RangeLimit, param
+from fibsem.structures.settings import FibsemLineSettings
 
 
 @dataclass

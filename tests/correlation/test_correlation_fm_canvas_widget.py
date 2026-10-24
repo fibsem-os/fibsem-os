@@ -22,13 +22,11 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
 from fibsem.fm.structures import (
     EmissionFilter,
-    FluorescenceChannelMetadata,
-    FluorescenceImage,
-    FluorescenceImageMetadata,
 )
 from fibsem.ui.correlation.widgets.correlation_fm_canvas_widget import (
     CorrelationFMCanvasWidget,
 )
+from tests.fixtures.fm_images import fm_image, gfp
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -36,27 +34,17 @@ _NZ = 9
 
 
 def _fm_image(nz=_NZ, size=32):
-    metadata = FluorescenceImageMetadata(
-        acquisition_datetime="2026-08-10T00:00:00",
-        pixel_size_x=1e-7,
-        pixel_size_y=1e-7,
+    channel = gfp(
+        color="#00ff00",
+        emission_filter=EmissionFilter.band("509 nm", 509),
+        power=1.0,
+    )
+    return fm_image(
+        np.zeros((1, nz, size, size), dtype=np.uint16),
+        [channel],
         resolution=(size, size),
-        channels=[
-            FluorescenceChannelMetadata(
-                name="GFP",
-                color="#00ff00",
-                excitation_wavelength=488,
-                emission_filter=EmissionFilter.band("509 nm", 509),
-                power=1.0,
-                exposure_time=0.1,
-                gain=1.0,
-                offset=0.0,
-            )
-        ],
         filename="stack",
     )
-    data = np.zeros((1, nz, size, size), dtype=np.uint16)
-    return FluorescenceImage(data=data, metadata=metadata)
 
 
 def _widget():

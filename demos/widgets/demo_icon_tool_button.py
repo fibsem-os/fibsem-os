@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui import stylesheets
+from fibsem.theme import tokens
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
 
@@ -78,7 +78,7 @@ class IconToolButtonDemo(QWidget):
         btn_en_off = IconToolButton(
             icon="mdi:checkbox-blank-outline",
             checked_icon="mdi:checkbox-marked-outline",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Enable feature",
             checked_tooltip="Disable feature",
             checked=False,
@@ -86,7 +86,7 @@ class IconToolButtonDemo(QWidget):
         btn_en_on = IconToolButton(
             icon="mdi:checkbox-blank-outline",
             checked_icon="mdi:checkbox-marked-outline",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Enable feature",
             checked_tooltip="Disable feature",
             checked=True,
@@ -104,14 +104,14 @@ class IconToolButtonDemo(QWidget):
         btn_adv = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )
         btn_adv_on = IconToolButton(
             icon="mdi:tune",
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
             checked=True,
@@ -158,7 +158,7 @@ class IconToolButtonDemo(QWidget):
         self._btn_synced = IconToolButton(
             icon="mdi:checkbox-blank-outline",
             checked_icon="mdi:checkbox-marked-outline",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Enable",
             checked_tooltip="Disable",
         )

@@ -40,7 +40,7 @@ from typing_extensions import TypedDict
 from fibsem.acting import Actor, SavedActor
 from fibsem.codec import NamedEnum, Timestamp, decode, encode, saved
 from fibsem.codec.upgrades import records as upgrade
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,

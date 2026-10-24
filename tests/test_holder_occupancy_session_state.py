@@ -14,7 +14,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.services.sample_handling import HOLDER_OCCUPANCY
 from fibsem.session_state import SessionState, session_state_for
-from fibsem.structures import SampleGrid
+from fibsem.structures.settings import SampleGrid
 
 SHIPPED = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 

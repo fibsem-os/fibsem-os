@@ -11,7 +11,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 OFFSET_FM = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 

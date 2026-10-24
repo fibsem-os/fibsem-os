@@ -31,9 +31,9 @@ from fibsem.devices.wire import (
 from fibsem.imaging.spot import SpotBurnStatus
 from fibsem.milling.progress import MillingProgressStatus
 from fibsem.services.coating import CoatingStatus
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
     FibsemRectangleSettings,
     GridSlot,
     GridSlotState,
@@ -185,4 +185,6 @@ def test_a_type_path_imports_only_fibsem():
         type_from_path("os.system")
     with pytest.raises(ValueError):
         type_from_path("List[subprocess.Popen]")
-    assert type_from_path("List[fibsem.structures.Point]") == typing.List[Point]
+    assert (
+        type_from_path("List[fibsem.structures.settings.Point]") == typing.List[Point]
+    )

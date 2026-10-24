@@ -8,7 +8,8 @@ from typing import ClassVar, Optional, Type
 
 from fibsem import timing
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn, show_after_burn
-from fibsem.structures import BeamType, Display, Point, param
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import BeamType, Point
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,
     ClearSpotBurn,

@@ -25,11 +25,11 @@ from PyQt5.QtWidgets import (
 from superqt import ensure_main_thread
 
 from fibsem.services.coating import CoatingProgress, CoatingStatus, position_text
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
+from fibsem.theme.tokens import TEXT_MUTED_COLOR
 from fibsem.ui import stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.tokens import TEXT_MUTED_COLOR
 from fibsem.ui.widgets.custom_widgets import TitledPanel, ValueComboBox, ValueSpinBox
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
 

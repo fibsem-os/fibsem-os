@@ -38,8 +38,7 @@ from fibsem.plugins.report import (
     render_report,
     summarise,
 )
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.stylesheets import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     DISABLED_BG_COLOR,
@@ -54,6 +53,7 @@ from fibsem.ui.stylesheets import (
     TEXT_STRONG_COLOR,
     WARN_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.utils import open_path_in_file_explorer
 from fibsem.ui.widgets.custom_widgets import (
     ElidedLabel,

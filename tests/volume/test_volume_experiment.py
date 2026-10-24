@@ -11,7 +11,7 @@ from fibsem.applications.volume.tasks import (
     VolumeFIBMillingTaskConfig,
     VolumeSetupMillingTaskConfig,
 )
-from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState, Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.experiment import load_experiment
 from fibsem.workflows.item import MILLING_POSE

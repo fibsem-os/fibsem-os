@@ -84,9 +84,9 @@ from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidge
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.geometry.projection import BeamStageProjection
-from fibsem.structures import FibsemImage, FibsemImageMetadata, FibsemStagePosition
-from fibsem.ui import notification_service, stylesheets
-from fibsem.ui.tokens import (
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.theme.tokens import (
     CANVAS_BG,
     NEUTRAL_200,
     NEUTRAL_550,
@@ -94,6 +94,7 @@ from fibsem.ui.tokens import (
     PANEL_COLOR,
     WARN_COLOR,
 )
+from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.utils import message_box_ui
 from fibsem.ui.widgets.canvas.overlays.stage_context import (
     at_device,

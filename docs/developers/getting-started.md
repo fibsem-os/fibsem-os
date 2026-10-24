@@ -28,8 +28,12 @@ fibsem/                     the instrument library (no application logic)
   drivers/<driver>/         __init__.py (its DRIVER record), devices.py,
                             services.py, microscope.py (its FibsemMicroscope);
                             remote has only devices.py
-  structures.py             shared types: FibsemImage, Point, FibsemRectangle,
-                            stage positions, settings
+  structures/               shared types, imported from the submodules:
+    params.py               field declarations: param, Parameter, Display
+    settings.py             positions, beams, image and milling settings,
+                            the sample holder
+    system.py               SystemSettings, MicroscopeSettings, the session
+    image.py                FibsemImage and its metadata
   milling/, imaging/        beam operations built on the abstract class
   segmentation/             segmentation models
   ui/                       shared Qt widgets, stylesheets, canvases

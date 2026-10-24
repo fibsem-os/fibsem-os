@@ -22,7 +22,7 @@ from fibsem.services.sample_handling import (
     GridSlotState,
     bind_sample_handling,
 )
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemStagePosition,
     GridSlot,
     SampleGrid,

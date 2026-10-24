@@ -17,7 +17,7 @@ from fibsem.milling.progress import (
     MillingProgressStatus,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import MillingState
+from fibsem.structures.settings import MillingState
 from fibsem.ui import stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker
@@ -42,9 +42,6 @@ class FibsemMillingWidget(QWidget):
         self.parent_widget = parent
 
         self._milling_thread: Optional[FunctionWorker] = None
-        # Why the last mill failed, or None. Set on the worker thread before its
-        # `finished`, so a listener of `finished_milling_signal` reads this run's.
-        self.milling_error: Optional[Exception] = None
         self._has_stages = False
         # The last words a producer supplied, so a backend's messageless tick still
         # has a label to show. See `MillingMessageTracker`.
@@ -197,7 +194,6 @@ class FibsemMillingWidget(QWidget):
             return
 
         # disable gui elements
-        self.milling_error = None
         self.pushButton_run_milling.setEnabled(False)
 
         if config is None:
@@ -252,7 +248,6 @@ class FibsemMillingWidget(QWidget):
             logging.error(
                 f"Error occurred while running milling task: {e}", exc_info=True
             )
-            self.milling_error = e
 
         finally:
             self._milling_thread = None

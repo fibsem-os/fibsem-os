@@ -16,7 +16,7 @@ from fibsem.milling.base import (
 )
 from fibsem.milling.patterning import get_pattern
 from fibsem.milling.patterning.base import BasePattern
-from fibsem.structures import BeamType, FibsemMillingSettings
+from fibsem.structures.settings import BeamType, FibsemMillingSettings
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 from fibsem.ui.widgets.milling_settings_widget import FibsemMillingSettingsWidget

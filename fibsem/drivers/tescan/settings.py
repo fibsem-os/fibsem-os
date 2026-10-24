@@ -1,7 +1,7 @@
 """Tescan's own milling settings: the ones only DrawBeam mills with.
 
 A recipe keeps them in its ``driver`` block under ``Tescan``
-(``fibsem.structures.FibsemMillingSettings``). Imports only ``fibsem.structures``, so
+(``fibsem.structures.settings.FibsemMillingSettings``). Imports only ``fibsem.structures``, so
 any PC reads the block, Tescan or not.
 """
 
@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from fibsem.structures import Display, DriverMillingSettings, RangeLimit, param
+from fibsem.structures.params import Display, RangeLimit, param
+from fibsem.structures.settings import DriverMillingSettings
 
 
 @dataclass

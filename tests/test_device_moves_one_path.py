@@ -15,11 +15,8 @@ import logging
 import pytest
 
 from fibsem.applications.autolamella.poses import _to_fluorescence, _to_milling
-from fibsem.structures import (
-    DeviceImagingState,
-    FibsemStagePosition,
-    InsertableDeviceState,
-)
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import DeviceImagingState, InsertableDeviceState
 from tests import test_device_moves_pinned as pinned
 
 OFFSET = FibsemStagePosition(x=50e-6, y=-30e-6)

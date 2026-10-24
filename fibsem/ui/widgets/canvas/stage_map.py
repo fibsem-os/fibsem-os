@@ -44,8 +44,8 @@ from fibsem.geometry.stage_places import (
     holder_square,
     slot_points,
 )
-from fibsem.structures import BeamType, FibsemStagePosition
-from fibsem.ui.tokens import (
+from fibsem.structures.settings import BeamType, FibsemStagePosition
+from fibsem.theme.tokens import (
     CANVAS_BG,
     CURRENT_POSITION_COLOUR,
     GRID_BOUNDARY_COLOUR,

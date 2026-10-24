@@ -17,7 +17,7 @@ from fibsem.alignment.coincidence import (
     REASON_MAX_ITERATIONS,
     ensure_coincident,
 )
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -42,7 +42,7 @@ def _replay(run_dir: str) -> list:
         DEFAULT_MAX_RIVAL_RATIO,
         measure_coincidence_from_images,
     )
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     with open(os.path.join(run_dir, "run.json")) as f:
         run = json.load(f)

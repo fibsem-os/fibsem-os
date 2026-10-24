@@ -30,7 +30,7 @@ import fibsem
 from fibsem.drivers.demo.devices import bind_demo_fm
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.microscope import ObjectiveLens
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 
 @pytest.fixture

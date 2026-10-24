@@ -23,8 +23,8 @@ from fibsem.fm.structures import (  # noqa: E402
 )
 from fibsem.ui.widgets.fluorescence_control_widget import (  # noqa: E402
     FMControlWidget,
-    _DemoHost,
 )
+from tests.fixtures.fm_host import FMHost  # noqa: E402
 
 # Toasts go to a list (tests/ui/conftest.py); the widgets' own behaviour
 # is what these tests are about.
@@ -35,7 +35,7 @@ pytestmark = pytest.mark.usefixtures("toasts")
 def widget(qapp):
     from tests.fixtures.fm_microscope import build_microscope
 
-    host = _DemoHost()
+    host = FMHost()
     w = FMControlWidget(
         microscope=build_microscope(),
         parent=host,

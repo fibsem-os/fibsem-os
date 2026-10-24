@@ -28,8 +28,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     CANVAS_BG,
     GRAY_ICON_COLOR,
@@ -37,6 +36,7 @@ from fibsem.ui.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 
 # Every row in the panel's lists, and the type in them: the name, then whatever
 # qualifies it (a status, what a task waits for, a task's type).
@@ -46,6 +46,20 @@ DETAIL_PX = 12
 # A chip that sits in a row: tall enough to read, short enough to leave the row its
 # margin.
 CHIP_HEIGHT = 22
+
+
+def sync_select_all(box: QCheckBox, checked: int, total: int) -> None:
+    """Set a select-all tick box from its rows: all ticked, some (partly), or
+    none, so its next click means the opposite. Emits nothing."""
+    box.blockSignals(True)
+    if total and checked == total:
+        box.setCheckState(Qt.CheckState.Checked)
+    elif checked:
+        box.setTristate(True)
+        box.setCheckState(Qt.CheckState.PartiallyChecked)
+    else:
+        box.setCheckState(Qt.CheckState.Unchecked)
+    box.blockSignals(False)
 
 
 class ListHeader(QWidget):
@@ -110,18 +124,8 @@ class ListHeader(QWidget):
         self.count_label.setText(text)
 
     def sync(self, checked: int, total: int) -> None:
-        """Set the tick box from its rows: all ticked, some (partly), or none,
-        so its next click means the opposite. Emits nothing."""
-        box = self.checkbox_all
-        box.blockSignals(True)
-        if total and checked == total:
-            box.setCheckState(Qt.CheckState.Checked)
-        elif checked:
-            box.setTristate(True)
-            box.setCheckState(Qt.CheckState.PartiallyChecked)
-        else:
-            box.setCheckState(Qt.CheckState.Unchecked)
-        box.blockSignals(False)
+        """Set the tick box from its rows. Emits nothing."""
+        sync_select_all(self.checkbox_all, checked, total)
 
     def add_widget(self, widget: QWidget, stretch: int = 0) -> None:
         self._layout.addWidget(widget, stretch)

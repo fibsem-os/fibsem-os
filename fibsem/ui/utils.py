@@ -19,7 +19,8 @@ from PyQt5.QtWidgets import (
 
 from fibsem import config as cfg
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, Parameter
+from fibsem.structures.params import Parameter
+from fibsem.structures.settings import BeamType
 
 
 def beam_choices(microscope: FibsemMicroscope, name: str, beam_type: BeamType) -> list:

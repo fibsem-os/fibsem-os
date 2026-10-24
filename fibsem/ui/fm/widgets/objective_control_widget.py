@@ -19,7 +19,7 @@ from superqt.utils import qdebounced
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
 from fibsem.devices.fm import Objective
 from fibsem.fm.microscope import FluorescenceMicroscope
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.ui import notification_service
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker

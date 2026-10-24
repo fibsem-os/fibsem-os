@@ -19,14 +19,13 @@ from fibsem.applications.volume.tasks.milling import (
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import FiducialPattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import (
+from fibsem.structures.params import distance_param, param
+from fibsem.structures.settings import (
     BeamType,
     FibsemMillingSettings,
     FibsemRectangle,
     ImageSettings,
     Point,
-    distance_param,
-    param,
 )
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,

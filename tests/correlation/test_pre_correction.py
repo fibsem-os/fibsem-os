@@ -278,7 +278,7 @@ class TestSerialization:
 
     def test_poi_uncorrected_roundtrip(self):
         from fibsem.correlation.structures import CorrelationPointOfInterest
-        from fibsem.structures import Point
+        from fibsem.structures.settings import Point
 
         r = CorrelationResult(
             poi_uncorrected=[

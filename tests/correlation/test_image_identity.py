@@ -25,11 +25,10 @@ pytest.importorskip("PyQt5")
 from fibsem.correlation.structures import CorrelationInputData
 from fibsem.fm.structures import (
     EmissionFilter,
-    FluorescenceChannelMetadata,
-    FluorescenceImage,
-    FluorescenceImageMetadata,
 )
-from fibsem.structures import FibsemImage, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import ImageSettings
+from tests.fixtures.fm_images import fm_image, gfp
 
 # What a lamella folder actually holds, and what the acquirer asked to call it.
 # Note the request has no extension -- that is the whole defect.
@@ -52,29 +51,18 @@ def _fib_image(filepath=FIB_PATH, requested_name=FIB_REQUESTED_NAME):
 
 
 def _fm_image(filepath=FM_PATH, requested_name="fm_stack_as_acquired"):
-    metadata = FluorescenceImageMetadata(
-        acquisition_datetime="2026-08-05T00:00:00",
-        pixel_size_x=1e-7,
-        pixel_size_y=1e-7,
-        resolution=(16, 16),
-        channels=[
-            FluorescenceChannelMetadata(
-                name="GFP",
-                color="#00FF00",
-                excitation_wavelength=488,
-                emission_filter=EmissionFilter.band("509 nm", 509),
-                power=1.0,
-                exposure_time=0.1,
-                gain=1.0,
-                offset=0.0,
-            )
-        ],
-        filename=requested_name,
+    channel = gfp(
+        color="#00FF00",
+        emission_filter=EmissionFilter.band("509 nm", 509),
+        power=1.0,
     )
-    return FluorescenceImage(
-        data=np.zeros((1, 2, 16, 16), dtype=np.uint16),
-        metadata=metadata,
+    return fm_image(
+        np.zeros((1, 2, 16, 16), dtype=np.uint16),
+        [channel],
+        acquired="2026-08-05T00:00:00",
         filepath=filepath,
+        resolution=(16, 16),
+        filename=requested_name,
     )
 
 

@@ -45,7 +45,7 @@ from fibsem.fm.progress import (
     FluorescenceAcquisitionStatus,
 )
 from fibsem.fm.structures import AutoFocusSettings, ZParameters
-from fibsem.structures import FibsemRectangle
+from fibsem.structures.settings import FibsemRectangle
 
 __all__ = [
     "get_focus_measure_function",
@@ -125,7 +125,7 @@ def run_autofocus(
         >>> best_z = run_autofocus(microscope, channel, z_params, method='sobel')
 
         >>> # Autofocus on a specific region
-        >>> from fibsem.structures import FibsemRectangle
+        >>> from fibsem.structures.settings import FibsemRectangle
         >>> roi = FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5)
         >>> best_z = run_autofocus(microscope, roi=roi)
     """

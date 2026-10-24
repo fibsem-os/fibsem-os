@@ -36,18 +36,19 @@ from PyQt5.QtWidgets import (
 from fibsem.fm.structures import ChannelSettings, OverviewParameters, ZParameters
 from fibsem.fm.timing import estimate_tileset_acquisition_time
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import FibsemImage, FibsemStagePosition
-from fibsem.ui import stylesheets
-from fibsem.ui.fm.widgets.fm_region_selector import FMRegionSelectorWidget
-from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
-from fibsem.ui.stylesheets import CANVAS_BG
-from fibsem.ui.tokens import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.theme.tokens import (
     BORDER_COLOR,
+    CANVAS_BG,
     PANEL_COLOR,
     STAGE_LIMITS_COLOUR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.fm.widgets.fm_region_selector import FMRegionSelectorWidget
+from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.util.durations import format_duration_rounded
 

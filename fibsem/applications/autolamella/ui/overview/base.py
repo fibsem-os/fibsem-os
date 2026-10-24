@@ -50,10 +50,11 @@ from PyQt5.QtWidgets import QVBoxLayout, QWidget
 from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
 from fibsem.ui import notification_service
+from fibsem.ui.widgets.overview_base import OverviewWidgetBase
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.applications.autolamella.structures import Lamella
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
     from fibsem.workflows.session import AppSession
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         # Built empty and filled in on connection: both overview widgets require a
         # microscope at construction -- every scale on their canvases comes from the
         # instrument -- and at the point a tab is reserved there may be no microscope.
-        self.overview: Optional[QWidget] = None
+        self.overview: Optional[OverviewWidgetBase] = None
         # The microscope the current widget was built for. A reconnection hands out a
         # new object, and the old widget would go on reading geometry from an instrument
         # nobody is driving, so the identity is worth keeping.
@@ -128,7 +129,7 @@ class AutoLamellaOverviewTabBase(QWidget):
         """
         raise NotImplementedError
 
-    def _build_overview(self, microscope) -> QWidget:
+    def _build_overview(self, microscope) -> OverviewWidgetBase:
         """Construct this tab's overview widget for *microscope*."""
         raise NotImplementedError
 

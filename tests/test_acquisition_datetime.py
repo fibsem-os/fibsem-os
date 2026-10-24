@@ -12,21 +12,15 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from fibsem import config as cfg
-from fibsem import utils
 from fibsem.fm.structures import FluorescenceChannelMetadata, FluorescenceImageMetadata
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
-    ImageSettings,
-    MicroscopeState,
-    Point,
-)
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import BeamType, ImageSettings, MicroscopeState, Point
 from fibsem.util.timestamps import (
     acquisition_datetime_of,
     format_time,
     zone_known,
 )
+from tests.fixtures.microscopes import demo_microscope
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures", "metadata")
 
@@ -36,14 +30,12 @@ def _fixture(name: str) -> FibsemImageMetadata:
         return FibsemImageMetadata.from_dict(json.load(f))
 
 
-@pytest.fixture
-def microscope():
-    microscope, _ = utils.setup_session(
-        config_path=cfg.DEFAULT_CONFIGURATION_PATH,
-        manufacturer="Demo",
-        setup_logging=False,
-    )
-    yield microscope
+microscope = demo_microscope(scope="function")
+
+
+@pytest.fixture(autouse=True)
+def _stop_acquisition(microscope):
+    yield
     microscope.stop_acquisition()
 
 

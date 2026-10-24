@@ -14,13 +14,12 @@ from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (
     sync_fiducial_to_alignment_area,
 )
-from fibsem.structures import (
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import (
     BeamType,
-    Display,
     FibsemStagePosition,
     ImageSettings,
     Point,
-    param,
 )
 from fibsem.workflows.proposals import (
     ALIGNMENT_AREA,

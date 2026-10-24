@@ -24,7 +24,8 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.milling.patterning.utils import get_patterns_bounding_box
-from fibsem.structures import FibsemImage, FibsemRectangle, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import FibsemRectangle, Point
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.autolamella._on_the_record import manager_for
 from tests.fixtures.microscopes import demo_microscope
@@ -208,7 +209,7 @@ def _save_alignment_reference(microscope, lamella, hfw=100e-6):
     """The alignment reference Setup leaves in the lamella's folder, cropped to
     the area, as Setup takes it."""
     from fibsem import acquire
-    from fibsem.structures import BeamType, ImageSettings
+    from fibsem.structures.settings import BeamType, ImageSettings
 
     acquire.acquire_image(
         microscope,

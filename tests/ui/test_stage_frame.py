@@ -24,7 +24,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.fm.structures import CameraImageTransform, FibsemHardwareGeometry
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.ui.widgets.canvas.stage_frame import FMStageProjection, StageFrame
 
 PIXEL_SIZE = 1e-7

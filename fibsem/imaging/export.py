@@ -36,7 +36,8 @@ from fibsem.imaging.drawing import (
     draw_scalebar,
     scalebar_plate,
 )
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 from fibsem.theme import tokens
 from fibsem.util.timestamps import acquisition_datetime_of, format_time
 

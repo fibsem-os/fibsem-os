@@ -11,7 +11,7 @@ from fibsem.applications.volume.tasks.milling import (
     start_slice_at,
     trench_at,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 POI = Point(1e-6, 2e-6)
 

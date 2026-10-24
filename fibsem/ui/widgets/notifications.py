@@ -26,9 +26,8 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.constants import TIME_DISPLAY
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     DISABLED_BG_COLOR,
@@ -37,6 +36,7 @@ from fibsem.ui.tokens import (
     SURFACE_COLOR,
     TEXT_COLOR,
 )
+from fibsem.ui.icon import fibsem_icon
 
 # A link on a toast or a history entry: (text, callback), e.g. ("Show summary", ...).
 ToastAction = Tuple[str, Callable[[], None]]
@@ -77,8 +77,8 @@ class ToastNotification(QWidget):
     # Notification types with colors
     TYPES = {
         "info": ACCENT_COLOR,  # Blue
-        "success": stylesheets.GREEN_COLOR,  # Green
-        "warning": stylesheets.ORANGE_COLOR,  # Orange
+        "success": tokens.GREEN_COLOR,  # Green
+        "warning": tokens.ORANGE_COLOR,  # Orange
         "error": "#f44336",  # Red
     }
 

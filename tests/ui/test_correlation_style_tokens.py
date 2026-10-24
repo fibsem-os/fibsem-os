@@ -1,5 +1,5 @@
 """The correlation widgets style themselves from the text roles in
-``fibsem.ui.tokens``, not from inline literals (FIB-978).
+``fibsem.theme.tokens``, not from inline literals (FIB-978).
 
 Before this guard the six widget files carried 71 ``setStyleSheet`` calls with
 33 labels at 11 px, 17 at 12 px, and five different greys for "muted". A role
@@ -41,7 +41,7 @@ def test_no_hex_colour_literals_in_the_correlation_widgets():
         for n, line in _code_lines(WIDGETS / name):
             if HEX.search(line) and "tokens" not in line:
                 hits.append(f"{name}:{n}: {line.strip()}")
-    assert not hits, "hex colour literals; use fibsem.ui.tokens:\n" + "\n".join(hits)
+    assert not hits, "hex colour literals; use fibsem.theme.tokens:\n" + "\n".join(hits)
 
 
 def test_no_inline_font_sizes_in_the_correlation_widgets():
@@ -56,5 +56,6 @@ def test_no_inline_font_sizes_in_the_correlation_widgets():
             if FONT_SIZE.search(line):
                 hits.append(f"{name}:{n}: {line.strip()}")
     assert not hits, (
-        "inline font sizes; use a text role from fibsem.ui.tokens:\n" + "\n".join(hits)
+        "inline font sizes; use a text role from fibsem.theme.tokens:\n"
+        + "\n".join(hits)
     )

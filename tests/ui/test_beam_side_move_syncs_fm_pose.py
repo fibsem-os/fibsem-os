@@ -36,7 +36,7 @@ from fibsem.applications.autolamella.poses import (
     MILLING_ORIENTATION,
     build_lamella_poses,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from tests.fixtures.demo_stage import demo_session
 
 _app = QApplication.instance() or QApplication(sys.argv)

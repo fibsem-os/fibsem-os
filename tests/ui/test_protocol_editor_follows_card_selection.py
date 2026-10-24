@@ -24,7 +24,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 from fibsem.applications.autolamella.ui import (
     window as module,  # noqa: E402  # noqa: E402
 )
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

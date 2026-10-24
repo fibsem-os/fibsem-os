@@ -17,12 +17,11 @@ from typing import TYPE_CHECKING, Any, Optional, Tuple
 import numpy as np
 
 import fibsem.constants as constants
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
     FibsemDetectorSettings,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,

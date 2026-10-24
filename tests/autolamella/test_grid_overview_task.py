@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import acquire_tiled_overview, stamped_overview_name
 from fibsem.services.sample_handling import bind_sample_handling
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,
@@ -271,7 +271,7 @@ def test_the_saved_overview_says_which_grid_it_is_of(microscope, experiment):
     the grid it was taken for, on `metadata.experiment`. That is what lets a
     lamella marked on the overview later be given this grid rather than
     whichever one is on the stage (FIB-71)."""
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     grid = experiment.get_grid_by_name("grid-aspen")
     run_grid_task(microscope, "overview_sem", experiment, grid)

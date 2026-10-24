@@ -7,14 +7,8 @@ importing anything under ``fibsem.ui`` runs its ``__init__``, which imports the
 widgets, so code that draws without Qt (saved figures, the image export) used
 to copy colours out of here by hand rather than import them.
 
-``fibsem.ui.tokens`` re-exports every name below, so existing callers doing
-``from fibsem.ui.tokens import SURFACE_COLOR`` keep working unchanged.
-
-``stylesheets`` imports them at the top, so its QSS constants interpolate the
-tokens and the palette has one source of truth.
-
-``fibsem.ui.stylesheets`` re-exports every name below, so existing callers doing
-``from fibsem.ui.stylesheets import BORDER_COLOR`` keep working unchanged.
+``fibsem.ui.stylesheets`` interpolates these into its QSS constants, so the
+palette has one source of truth.
 """
 
 # Color palette

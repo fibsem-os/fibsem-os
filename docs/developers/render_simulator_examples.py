@@ -29,7 +29,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.demo.sim_scene import SampleScene, fm_channel_weights
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemRectangleSettings,
     FibsemStagePosition,

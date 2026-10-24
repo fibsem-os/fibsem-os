@@ -33,7 +33,8 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
     AutoLamellaProtocolEditorWidget,
 )
-from fibsem.structures import BeamType, FibsemImage, MicroscopeState
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, MicroscopeState
 from tests.fixtures.app_session import app_session
 
 _app = QApplication.instance() or QApplication(sys.argv)

@@ -1,50 +1,20 @@
 """What a fluorescence acquisition says about itself while it runs.
 
-`FluorescenceMicroscope.acquisition_progress_signal` used to carry a bare dict with no
-declared shape, so every consumer worked out what it had received from which keys
-happened to be present -- and a key an emitter forgot was indistinguishable from one
-legitimately absent.
+`FluorescenceMicroscope.acquisition_progress_signal` carries a
+`FluorescenceAcquisitionProgress`. The signal is fluorescence only: it is declared on
+`FluorescenceMicroscope` and every emit site is in `fibsem/fm`, so nothing here carries
+a modality, unlike `imaging.tiling.progress.TiledProgress`. The types are named for the
+modality anyway, because `FibsemImageSettingsWidget` has an unrelated
+`acquisition_progress_signal` for the beam side.
 
-This signal is **fluorescence only**, by construction rather than by convention: it is
-declared on `FluorescenceMicroscope`, every subscriber reaches it as
-`microscope.fm.acquisition_progress_signal`, and every emit site is in `fibsem/fm`. That
-is why nothing here carries a modality, unlike `imaging.tiling.progress.TiledProgress` --
-that signal hangs off `FibsemMicroscope` and genuinely has two producers, so it needs a
-field to tell them apart. This one can only ever have one.
-
-The types are named for the modality anyway, because `acquisition_progress_signal` is
-*also* the name of an unrelated `pyqtSignal` on `FibsemImageSettingsWidget` carrying the
-beam side's `{"msg"} / {"finished"}`. The two are distinguishable only by whether you
-reach them through `.fm.` or `.image_widget.`, which is a poor thing to rely on when
-reading a call site.
-
-# One flat record, not a union
-
-The same reasoning as `TiledProgress`, and it applies harder here. A union keyed on the
-acquisition routine looks natural and does not match how either consumer branches: both
-ask first *is there a z count?* --
-
-    if zlevel and total_zlevels:
-
--- and **both the z-stack and the autofocus sweep carry one**. A `ZStackProgress` type
-would miss autofocus, so the check becomes `isinstance(e, (ZStackProgress,
-AutofocusProgress))`: the multi-class tuple whose failure mode is silent, since an
-omitted class is a bar that stops moving rather than an error. The union would cut
-across the axis the consumers actually use.
-
-What is left after that is presence checks on optional fields, which is what this is.
-
-# One status, not `state` plus `operation`
-
-Those two fields were separate axes with only four live combinations between them, and
-the overlap is what made autofocus signal itself two different ways -- a `state:
-"autofocus"` at sweep start and an `operation: "autofocus"` per step, both live at once.
-A single closed enum makes that unrepresentable.
+One flat record rather than a type per acquisition routine: both consumers first ask
+whether there is a z count, and both the z-stack and the autofocus sweep carry one. One
+closed status rather than separate state and operation fields, so autofocus cannot
+signal itself two ways at once.
 
 `zlevel` and `channel_index` are 1-based on the wire, unlike the tile indices on
-`TiledProgress`. They are counts of work done, not indices into anything -- nothing
-subscripts by them -- so the number a reader sees is the number the producer sends, and
-there is no offset to apply anywhere.
+`TiledProgress`: they are counts of work done, not indices into anything, so there is no
+offset to apply.
 """
 
 from __future__ import annotations
@@ -63,7 +33,6 @@ __all__ = [
 class FluorescenceAcquisitionStatus(ProgressStatus):
     """What a fluorescence acquisition is doing.
 
-    Four members for what used to be a `state` field crossed with an `operation` field.
     The three `ACQUIRING_*` members differ in *what is being counted*, which is the only
     thing a consumer needs them for: channels, z planes, or focus steps.
 
@@ -108,8 +77,7 @@ class FluorescenceAcquisitionProgress:
     channel_index: Optional[int] = None
     total_channels: Optional[int] = None
     # Planes, or focus-sweep positions, done and to do. Carried by both
-    # `ACQUIRING_ZSTACK` and `ACQUIRING_AUTOFOCUS` -- which is exactly why a type per
-    # acquisition routine would not have worked.
+    # `ACQUIRING_ZSTACK` and `ACQUIRING_AUTOFOCUS`.
     zlevel: Optional[int] = None
     total_zlevels: Optional[int] = None
     # Which pass of a multi-pass focus sweep. Without it a coarse sweep followed by a

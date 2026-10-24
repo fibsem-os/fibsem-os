@@ -6,7 +6,7 @@ import os
 
 import pytest
 
-from fibsem.structures import InsertableDeviceState
+from fibsem.structures.system import InsertableDeviceState
 
 pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
 
@@ -14,7 +14,7 @@ from fibsem import utils
 from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
 from fibsem.geometry.stage_places import is_half_turn
 from fibsem.services.sample_handling import bind_sample_handling
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.ui.widgets.canvas.quad_view import (
     ItemEditorView,
     MicroscopeViewController,
@@ -55,7 +55,10 @@ def test_cell_opens_on_the_chamber_page_with_nothing_drawn(controller):
     cell = controller.widget.page_cell
     assert cell.page == "chamber"
     assert cell.label.text() == "Chamber"
-    assert not controller.widget.chamber_view.has_position
+    assert (
+        controller.widget.chamber_view._stack.currentWidget()
+        is not controller.widget.chamber_view.scene
+    )
 
 
 @pytest.mark.parametrize(
@@ -68,7 +71,7 @@ def test_chamber_follows_the_stage_update(
     chamber = _show(controller, microscope, orientation)
     diagram = chamber.diagram
 
-    assert chamber.has_position
+    assert chamber._stack.currentWidget() is chamber.scene
     assert diagram._orientation == orientation
     assert diagram._mirrored is mirrored
     assert diagram._pre_tilt == microscope.system.stage.shuttle_pre_tilt

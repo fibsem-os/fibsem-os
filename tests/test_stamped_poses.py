@@ -15,7 +15,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import FibsemHardwareGeometry
+from fibsem.structures.system import FibsemHardwareGeometry
 
 STAGE_TYPES = [
     "microscope-configuration.yaml",
@@ -76,7 +76,7 @@ def test_an_fm_position_without_r_or_t_takes_the_stamped_pose():
     """A stage that keeps its rotation and tilts to the ion beam (JEOL-style)
     completes to the FIB pose it stamped, not to a half turn from the reference."""
     from fibsem.correlation.geometry import _complete_fm_pose
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     geometry = FibsemHardwareGeometry(
         rotation_reference=0.0,

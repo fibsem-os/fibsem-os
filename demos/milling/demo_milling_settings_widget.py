@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem import utils
-from fibsem.structures import FibsemMillingSettings
+from fibsem.structures.settings import FibsemMillingSettings
 from fibsem.ui.widgets.milling_settings_widget import FibsemMillingSettingsWidget
 
 

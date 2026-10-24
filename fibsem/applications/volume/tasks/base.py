@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Optional, Type
 
 from fibsem import acquire
 from fibsem.applications.volume.position import VolumePosition
-from fibsem.structures import BeamType, FibsemImage, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings
 from fibsem.util.timestamps import now
 from fibsem.workflows.proposals import STATE
 from fibsem.workflows.site_task import get_task_supervision

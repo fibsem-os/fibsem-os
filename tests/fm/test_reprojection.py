@@ -26,7 +26,7 @@ from fibsem.geometry.movement import (
     view_corrected_stage_movement,
 )
 from fibsem.geometry.projection import image_point_to_stage
-from fibsem.structures import FibsemStagePosition, Point
+from fibsem.structures.settings import FibsemStagePosition, Point
 
 TRANSFORMS = list(CameraImageTransform)
 SHAPE = (1024, 1024)

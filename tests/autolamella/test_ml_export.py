@@ -27,10 +27,9 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.applications.autolamella.workflows.tasks.trench import MillTrenchTaskConfig
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,

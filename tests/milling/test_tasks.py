@@ -17,7 +17,7 @@ from fibsem.milling.tasks import (
     record_milling_skipped,
     run_milling_task,
 )
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemMillingSettings,
     ImageSettings,
@@ -446,7 +446,7 @@ def test_a_stage_records_the_current_it_milled_at(tmp_path):
     """The beam snaps a current it doesn't list to the nearest it does: the
     record said the current asked for, so a 60 pA stage that ran at 30 pA
     read as 60 pA."""
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     stages = [FibsemMillingStage(name="listed"), FibsemMillingStage(name="between")]
     microscope, task = _task(tmp_path, stages=stages, acquire_final_image=False)

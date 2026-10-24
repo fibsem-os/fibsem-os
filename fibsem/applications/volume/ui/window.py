@@ -11,13 +11,11 @@ import os
 import sys
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (
-    QApplication,
     QFileDialog,
     QInputDialog,
     QMessageBox,
-    QSplitter,
 )
 
 from fibsem.applications.volume.experiment_setup import (
@@ -28,18 +26,17 @@ from fibsem.applications.volume.server import VolumeAppContext
 from fibsem.applications.volume.ui.positions_panel import PositionsPanel
 from fibsem.applications.volume.ui.positions_tab import PositionsTab
 from fibsem.applications.volume.ui.protocol_tab import ProtocolTab
-from fibsem.tools.app_identity import set_app_identity
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.tools.apps import VOLUME
 from fibsem.ui import notification_service
 from fibsem.ui.app_window import AppWindow
 from fibsem.ui.icon import fibsem_icon, fibsemos_icon
-from fibsem.ui.qt.gc import install_main_thread_gc
+from fibsem.ui.qt.app import start_qt_app
 from fibsem.ui.run.attention import AttentionRouter
 from fibsem.ui.run.run_refusal import refused_during_run
 from fibsem.ui.run.view import RunView
-from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController
-from fibsem.ui.widgets.microscope_panel import MicroscopePanel
+from fibsem.ui.widgets.microscope_panel import MicroscopePanel, add_microscope_tab
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME
 from fibsem.workflows.experiments import default_experiment_directory
 from fibsem.workflows.protocol_files import record_recent
@@ -98,19 +95,9 @@ class VolumeWindow(AppWindow):
         self.panel.tabWidget.insertTab(0, self.system_widget, "Connection")
         self.panel.refresh()
 
-        splitter = QSplitter(Qt.Horizontal)
-        splitter.setChildrenCollapsible(False)
         self.view_controller = MicroscopeViewController(parent=self)
         self.status_bar.follow(self.view_controller)
-        splitter.addWidget(self.view_controller.widget)
-        splitter.addWidget(self.panel)
-        splitter.setSizes([700, 550])
-        self.panel.setMinimumWidth(500)
-        self.tab_widget.addTab(
-            splitter,
-            fibsem_icon("mdi:microscope", color=GRAY_ICON_COLOR),
-            "Microscope",
-        )
+        add_microscope_tab(self.tab_widget, self.view_controller, self.panel)
 
         self.protocol_tab = ProtocolTab(self.session)
         self.tab_widget.addTab(
@@ -163,12 +150,11 @@ class VolumeWindow(AppWindow):
         )
         self.run_relay.finished.connect(lambda *_: self.panel.refresh())
         self.run_relay.finished.connect(lambda *_: self._positions_redraw.start())
-        self._session_changed.connect(self._on_session_changed)
-        self.session.changed.connect(self._hear_session)
+        self._follow_session()
 
     # --- the session ----------------------------------------------------------
 
-    def _on_session_changed(self, what: str, detail: Any) -> None:
+    def _on_session_changed(self, what: str, detail: Any = None) -> None:
         if what == MICROSCOPE:
             self.status_bar.set_microscope(self.microscope)
             self.agent_host.activity.set_microscope(self.microscope)
@@ -298,13 +284,7 @@ class VolumeWindow(AppWindow):
 def main(argv: Optional[List[str]] = None, splash: Optional[Splash] = None) -> None:
     """Open the volume window. *argv* is the launcher's common signature; the
     window takes no flags. *splash* closes once the window is up."""
-    set_app_identity(VOLUME.name, windows_app_id=VOLUME.app_id)
-    app = QApplication.instance() or QApplication(sys.argv)
-    app.setApplicationName(VOLUME.name)
-    app.setStyle("Fusion")
-    app.setWindowIcon(fibsemos_icon())
-    # Cyclic garbage is only collected on this thread (fibsem/ui/qt/gc.py).
-    gc_collector = install_main_thread_gc(parent=app)  # noqa: F841 - kept alive
+    app = start_qt_app(VOLUME, fibsemos_icon())
     window = VolumeWindow()
     window.show()
     if splash is not None:

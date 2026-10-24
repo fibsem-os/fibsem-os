@@ -11,8 +11,8 @@ each is warned about once, so a field doesn't silently lose its tooltip.
 import logging
 from dataclasses import dataclass, field, fields
 
-import fibsem.structures as fstructures
-from fibsem.structures import (
+import fibsem.structures.params as fstructures
+from fibsem.structures.params import (
     PARAMETER_KEY,
     Display,
     Parameter,

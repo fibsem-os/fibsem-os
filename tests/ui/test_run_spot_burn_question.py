@@ -33,7 +33,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 from fibsem.workflows import site_task
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (

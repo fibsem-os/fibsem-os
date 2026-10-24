@@ -56,7 +56,8 @@ from fibsem.server.responses import (
     refusal_of,
     refused,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
@@ -597,7 +598,9 @@ class AppContext:
             self.history_images(experiment, item),
             folder=str(experiment.item_path(item)),
         )
-        shown = HistoryFilter.from_dict(flt)
+        shown = HistoryFilter.from_dict(
+            {key: value for key, value in flt.items() if value not in (None, "")}
+        )
         return {
             "item_name": item.name,
             "filter": shown.to_dict(),

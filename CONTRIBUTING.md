@@ -146,7 +146,7 @@ New widgets use the shared napari-dark palette. **Import the role-named tokens f
 `ACCENT_COLOR` and the rest — rather than pasting hex values into a widget, and reach for
 the prebuilt stylesheets in `fibsem/ui/stylesheets.py` for buttons and progress bars.
 `fibsem.theme.tokens` imports without Qt, so code outside `fibsem/ui` (a saved figure,
-an export) imports it too instead of copying a colour; `fibsem.ui.tokens` re-exports it.
+an export) imports it too instead of copying a colour.
 
 Render an offscreen screenshot (`widget.grab().save(...)`) to check layout before calling
 a widget done.

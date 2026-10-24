@@ -12,12 +12,8 @@ import numpy as np
 from fibsem import acquire, utils
 from fibsem.cancellation import CANCELLED, COMPLETED, ended_by
 from fibsem.constants import TIME_FILE
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    ImageSettings,
-    Point,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings, Point
 from fibsem.util.timestamps import now_iso
 
 if TYPE_CHECKING:

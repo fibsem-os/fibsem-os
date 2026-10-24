@@ -15,7 +15,7 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 
-from fibsem.structures import CrossSectionPattern
+from fibsem.structures.settings import CrossSectionPattern
 
 # How densely a driver reads: "low" fewer points per pattern, "high" more.
 RTM_MODES = ("low", "high")

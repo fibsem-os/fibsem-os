@@ -19,7 +19,7 @@ from fibsem.milling.patterning.patterns import (
     RulerPattern,
     TrenchPattern,
 )
-from fibsem.structures import (
+from fibsem.structures.settings import (
     CrossSectionPattern,
     FibsemCircleSettings,
     FibsemLineSettings,

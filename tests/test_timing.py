@@ -12,7 +12,7 @@ from fibsem import timing
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig, MillingTaskAcquisitionSettings
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemMillingSettings,
     ImageSettings,
     MillingAlignment,

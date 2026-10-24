@@ -10,7 +10,7 @@ pytest.importorskip("PyQt5")
 
 from fibsem.saved_positions import load_saved_positions  # noqa: E402
 from fibsem.session_state import session_state_for  # noqa: E402
-from fibsem.structures import FibsemStagePosition  # noqa: E402
+from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 
 microscope = demo_microscope("microscope-configuration.yaml", scope="function")
 

@@ -13,9 +13,9 @@ from fibsem.applications.autolamella.config_edits import (
     item_fields_version,
 )
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.ui import stylesheets
+from fibsem.theme import tokens
+from fibsem.theme.tokens import ACCENT_COLOR, NEUTRAL_550
 from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import ACCENT_COLOR, NEUTRAL_550
 from fibsem.ui.widgets.preflight import format_clock
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
@@ -105,9 +105,9 @@ def has_verdict(lamella) -> bool:
 # alike: icon, colour, words. Filled circles for a judgement, an empty one for none.
 VERDICT_LOOK = {
     Verdict.UNASSESSED: ("mdi:circle-outline", NEUTRAL_550, "Not assessed"),
-    Verdict.GOOD: ("mdi:check-circle", stylesheets.GREEN_COLOR, "Good"),
-    Verdict.REWORK: ("mdi:alert-circle", stylesheets.DEFECT_ORANGE_COLOR, "Rework"),
-    Verdict.FAILED: ("mdi:close-circle", stylesheets.DEFECT_RED_COLOR, "Failed"),
+    Verdict.GOOD: ("mdi:check-circle", tokens.GREEN_COLOR, "Good"),
+    Verdict.REWORK: ("mdi:alert-circle", tokens.DEFECT_ORANGE_COLOR, "Rework"),
+    Verdict.FAILED: ("mdi:close-circle", tokens.DEFECT_RED_COLOR, "Failed"),
 }
 
 
@@ -209,7 +209,7 @@ def status_look(lamella: Lamella) -> tuple[str, str]:
     if ts and ts.status == TaskStatus.InProgress:
         return (
             f"{ts.name}",
-            f"color: {stylesheets.PRIMARY_COLOR}; background: transparent;",
+            f"color: {tokens.PRIMARY_COLOR}; background: transparent;",
         )
     last = lamella.last_completed_task
     if last:

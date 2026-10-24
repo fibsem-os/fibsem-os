@@ -47,12 +47,8 @@ from fibsem.imaging.tiling.progress import (
 )
 from fibsem.imaging.tiling.registration import compose_mosaic, measure_registration
 from fibsem.imaging.tiling.result import OverviewResult
-from fibsem.structures import (
-    DeviceImagingState,
-    FibsemStagePosition,
-    InsertableDeviceState,
-    TileOrderStrategy,
-)
+from fibsem.structures.settings import FibsemStagePosition, TileOrderStrategy
+from fibsem.structures.system import DeviceImagingState, InsertableDeviceState
 from fibsem.util.timestamps import to_iso
 
 if TYPE_CHECKING:

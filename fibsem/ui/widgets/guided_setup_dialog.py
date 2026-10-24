@@ -48,11 +48,9 @@ from fibsem.guided_setup import (
     manufacturers,
     microscope_models,
 )
-from fibsem.structures import SampleHolder, StageSystemSettings
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.tokens import (
+from fibsem.structures.settings import SampleHolder
+from fibsem.structures.system import StageSystemSettings
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     NEUTRAL_500,
     PANEL_COLOR,
@@ -62,6 +60,9 @@ from fibsem.ui.tokens import (
     TEXT_STRONG_COLOR,
     WARN_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import install_wheel_blocker_recursive
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 from fibsem.ui.widgets.form_builder import configure_spinbox
@@ -239,9 +240,6 @@ class ChoiceCard(QtWidgets.QFrame):
         row.addWidget(self._tick, 0, Qt.AlignVCenter)
 
         self.set_selected(False)
-
-    def is_selected(self) -> bool:
-        return self._selected
 
     def set_summary(self, summary: str) -> None:
         """Replace the card's subtitle after construction.

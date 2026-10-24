@@ -22,7 +22,7 @@ from typing import List, Optional, Sequence, Tuple
 
 from fibsem.geometry.angles import wrap_degrees
 from fibsem.geometry.projection import BeamStageProjection, surface_foreshortening
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 logger = logging.getLogger(__name__)
 

@@ -23,15 +23,13 @@ from fibsem.milling.properties import (
     duration_param,
     passes_param,
 )
-from fibsem.structures import (
+from fibsem.structures.params import Display, RangeLimit, param
+from fibsem.structures.settings import (
     CrossSectionPattern,
-    Display,
     FibsemBitmapSettings,
     FibsemCircleSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
-    RangeLimit,
-    param,
 )
 
 

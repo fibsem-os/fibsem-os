@@ -22,7 +22,7 @@ from fibsem.correlation.structures import (  # noqa: E402
     CorrelationState,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.structures.settings import MicroscopeState, Point  # noqa: E402
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from tests.run_state import stub_session
 

@@ -15,7 +15,7 @@ from fibsem.drivers.registry import (
     register_driver,
 )
 from fibsem.drivers.setup import SetupDevice, SetupKey
-from fibsem.structures import DeviceEntry
+from fibsem.structures.system import DeviceEntry
 from fibsem.utils import configuration_device
 
 UNIT = SetupDevice(

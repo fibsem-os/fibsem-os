@@ -11,19 +11,20 @@ from fibsem.drivers.tescan.microscope import TescanMicroscope
 from fibsem.microscope import (
     FibsemMicroscope,
 )
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
-    DeviceEntry,
     FibsemDetectorSettings,
-    FibsemExperimentRef,
-    FibsemImage,
-    FibsemImageMetadata,
     FibsemStagePosition,
-    FibsemUser,
     ImageSettings,
     MicroscopeState,
     Point,
+)
+from fibsem.structures.system import (
+    DeviceEntry,
+    FibsemExperimentRef,
+    FibsemUser,
     SystemSettings,
 )
 

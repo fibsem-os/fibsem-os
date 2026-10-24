@@ -1,60 +1,38 @@
 # style sheets
 import os as _os
 
-# The application-level sheet moved to its own module; re-exported so that both
-# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
-# keep resolving.
-from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
-
-# The colour palette lives in fibsem.ui.tokens and is imported here, at the top,
-# so the QSS constants below can interpolate it. Every name is re-exported for
-# the callers that import colours from this module rather than from tokens.
-from fibsem.ui.tokens import (  # noqa: F401  (re-exported for existing callers)
+# The QSS constants below interpolate the colour palette from fibsem.theme.tokens.
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
-    AUTOMATED_COLOR,
     BORDER_COLOR,
     CANVAS_BG,
-    DEFECT_ORANGE_COLOR,
-    DEFECT_RED_COLOR,
     DISABLED_BG_COLOR,
     DISABLED_TEXT_COLOR,
-    ERROR_COLOR,
-    GRAY_BACKGROUND_COLOR,
-    GRAY_CANVAS_COLOR,
-    GRAY_CONSOLE_COLOR,
-    GRAY_FOREGROUND_COLOR,
-    GRAY_HIGHLIGHT_COLOR,
-    GRAY_ICON_COLOR,
-    GRAY_PRIMARY_COLOR,
-    GRAY_SECONDARY_COLOR,
     GRAY_TEXT_COLOR,
-    GRAY_WHITE_COLOR,
-    GREEN_COLOR,
     NEUTRAL_300,
     NEUTRAL_650,
     OK_COLOR,
     ORANGE_COLOR,
     PANEL_COLOR,
     PENDING_COLOR,
-    PRIMARY_ACCENT,
     PRIMARY_COLOR,
     PRIMARY_COLOR_HOVER,
     PRIMARY_COLOR_PRESSED,
     PURPLE_COLOR,
-    RED_COLOR,
     ROW_ALT_COLOR,
     SEMANTIC_ERROR_COLOR,
     SEMANTIC_ERROR_HOVER_COLOR,
     SEMANTIC_ERROR_PRESSED_COLOR,
-    SEMANTIC_WARNING_COLOR,
     SURFACE_COLOR,
     TEXT_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
-    WAITING_COLOR,
-    WARN_COLOR,
-    WHITE_ICON_COLOR,
 )
+
+# The application-level sheet moved to its own module; re-exported so that both
+# `from fibsem.ui.stylesheets import NAPARI_STYLE` and `stylesheets.NAPARI_STYLE`
+# keep resolving.
+from fibsem.ui.napari_style import NAPARI_STYLE  # noqa: F401
 
 _ICONS_DIR = _os.path.join(_os.path.dirname(__file__), "icons").replace("\\", "/")
 
@@ -548,20 +526,6 @@ QDateTimeEdit::down-arrow {{
 }}
 """.replace("__ICONS_DIR__", _ICONS_DIR)
 
-# ---------------------------------------------------------------------------
-# Deprecated aliases.
-#
-# These three were named for the first thing that used them, and then used for
-# everything else. Only one of the progress bar's four consumers was milling;
-# the "run workflow" green ended up on Load Images, Set Objective and Acquire;
-# the "stop workflow" red ended up on Delete Position and Retract Manipulator.
-#
-# Kept so an out-of-tree plugin importing the old name still works. Prefer the
-# names above in new code.
-MILLING_PROGRESS_BAR_STYLESHEET = PROGRESS_BAR_STYLESHEET
-RUN_WORKFLOW_BUTTON_STYLESHEET = CONFIRM_BUTTON_STYLESHEET
-STOP_WORKFLOW_BUTTON_STYLESHEET = DANGER_BUTTON_STYLESHEET
-
 
 # A small panel floating over a canvas, opened from a toolbar button. Shared so the
 # canvas's panels cannot drift apart -- contrast, the overlay switches, the tile grid
@@ -604,5 +568,3 @@ QSlider::sub-page:horizontal {{ background: {ACCENT_COLOR}; border-radius: 2px; 
 QSlider::handle:horizontal {{ width: 12px; margin: -5px 0; background: {TEXT_COLOR}; border-radius: 6px; }}
 QFrame#panelSeparator {{ background: {BORDER_COLOR}; border: none; max-height: 1px; min-height: 1px; }}
 """
-# The older name, kept for its callers.
-CANVAS_POPOVER_STYLE = CANVAS_PANEL_STYLE

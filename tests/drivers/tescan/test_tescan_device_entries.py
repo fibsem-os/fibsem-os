@@ -15,7 +15,8 @@ from fibsem import utils
 from fibsem.devices.entries import DeviceBuildError
 from fibsem.drivers.registry import device_builder
 from fibsem.drivers.tescan.devices import TescanBeam, TescanStage
-from fibsem.structures import BeamType, DeviceEntry
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import DeviceEntry
 from tests.fixtures.tescan_sdk import connect
 
 

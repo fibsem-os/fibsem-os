@@ -31,16 +31,14 @@ from fibsem.milling.config import MILLING_SPUTTER_RATE
 from fibsem.milling.monitor_config import MillingMonitorConfig
 from fibsem.milling.patterning import DEFAULT_PATTERN
 from fibsem.milling.patterning.base import BasePattern
-from fibsem.structures import (
-    Configurable,
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import Configurable, flagged_fields, param
+from fibsem.structures.settings import (
     CrossSectionPattern,
-    FibsemImage,
     FibsemMillingSettings,
     FibsemPatternSettings,
     ImageSettings,
     MillingAlignment,
-    flagged_fields,
-    param,
 )
 
 if TYPE_CHECKING:

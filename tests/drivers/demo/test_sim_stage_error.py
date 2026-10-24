@@ -5,7 +5,7 @@ import pytest
 
 from fibsem import utils
 from fibsem.drivers.demo.stage_error import StageMoveError
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     ImageSettings,

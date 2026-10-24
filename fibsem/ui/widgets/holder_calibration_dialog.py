@@ -30,16 +30,13 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from fibsem import utils
-from fibsem.structures import (
+from fibsem.structures.settings import (
     GRID_RADIUS,
     FibsemStagePosition,
     SampleHolder,
     SlotCalibration,
 )
-from fibsem.ui import stylesheets
-from fibsem.ui.control import control_of
-from fibsem.ui.qt.threading import FunctionWorker
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BORDER_COLOR,
     ERROR_COLOR,
     OK_COLOR,
@@ -50,6 +47,9 @@ from fibsem.ui.tokens import (
     TEXT_STRONG_COLOR,
     WARN_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.control import control_of
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import install_wheel_blocker_recursive
 from fibsem.ui.widgets.custom_widgets import ValueSpinBox
 from fibsem.ui.widgets.guided_setup_dialog import StageDiagram

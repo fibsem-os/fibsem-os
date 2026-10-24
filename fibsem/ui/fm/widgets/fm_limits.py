@@ -20,7 +20,7 @@ from PyQt5.QtCore import QEvent, QObject
 from PyQt5.QtWidgets import QAbstractSpinBox, QToolTip
 
 from fibsem.fm.structures import ChannelSettings
-from fibsem.structures import Parameter
+from fibsem.structures.params import Parameter
 from fibsem.ui.widgets.custom_widgets import ValueSpinBox
 from fibsem.ui.widgets.form_builder import bound_spec, configure_spinbox
 

@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )

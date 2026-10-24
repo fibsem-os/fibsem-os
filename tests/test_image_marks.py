@@ -9,7 +9,7 @@ from PIL import Image
 from fibsem.imaging.export import ExportImage, ExportOptions
 from fibsem.imaging.labels import LabelPlacer, label_size
 from fibsem.imaging.marks import canvas, draw_marks, marked_picture, scaled_marks
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.theme.tokens import ACCENT_COLOR, AGENT_MARK_COLOR
 
 

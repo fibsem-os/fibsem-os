@@ -11,7 +11,7 @@ Imported and re-exported by ``fibsem.ui.stylesheets``, so both
 
 import os as _os
 
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     BORDER_COLOR,
     DISABLED_BG_COLOR,

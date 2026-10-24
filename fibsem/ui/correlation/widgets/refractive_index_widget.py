@@ -28,7 +28,7 @@ from fibsem.correlation.refractive_index import (
     lookup_zeta,
     zeta_params_from_settings,
 )
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CONTROL_STYLE,
     state_style,
 )

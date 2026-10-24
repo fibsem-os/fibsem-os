@@ -81,4 +81,4 @@ def test_a_missing_id_does_not_raise(tmp_path: Path) -> None:
     data = lamella.to_dict()
     del data["id"]
 
-    assert Lamella.from_dict(data).id == ""
+    assert Lamella.from_dict(data).id, "a new one"

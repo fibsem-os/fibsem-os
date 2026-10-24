@@ -5,7 +5,12 @@ from fibsem.services.sample_handling import (
     SampleHandling,
     bind_sample_handling,
 )
-from fibsem.structures import FibsemStagePosition, GridSlot, SampleGrid, SampleHolder
+from fibsem.structures.settings import (
+    FibsemStagePosition,
+    GridSlot,
+    SampleGrid,
+    SampleHolder,
+)
 from tests.fixtures.demo_stage import demo_session
 
 # ---------------------------------------------------------------------------

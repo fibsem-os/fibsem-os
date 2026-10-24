@@ -28,6 +28,7 @@ from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
 from PyQt5.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.ai.agent.levels import AgentLevel, chip_request_text
+from fibsem.theme.tokens import BORDER_COLOR
 from fibsem.ui.agent.card import (
     AgentCard,
     last_heard_text,
@@ -39,7 +40,6 @@ from fibsem.ui.agent.style import (
     REQUEST_CHIP,
     pulse_chip,
 )
-from fibsem.ui.tokens import BORDER_COLOR
 
 __all__ = [
     "AgentLevelChip",

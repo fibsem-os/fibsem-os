@@ -18,7 +18,8 @@ import numpy as np
 
 from fibsem import acquire
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import BeamType, FibsemManipulatorPosition, MicroscopeSettings
+from fibsem.structures.settings import BeamType, FibsemManipulatorPosition
+from fibsem.structures.system import MicroscopeSettings
 
 FIELD_WIDTHS = [2000e-6, 900e-6, 400e-6, 150e-6]
 

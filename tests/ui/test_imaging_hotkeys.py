@@ -14,7 +14,7 @@ import pytest
 
 pytest.importorskip("PyQt5")
 
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 main_ui = main_window_fixture(connect=True)
 

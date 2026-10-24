@@ -211,12 +211,9 @@ from fibsem.drivers.autoscript.connection import AutoScriptConnection  # noqa: E
 from fibsem.drivers.autoscript.devices import (  # noqa: E402
     AutoscriptCompustage,
 )
-from fibsem.structures import (  # noqa: E402
-    BeamType,
-    FibsemStagePosition,
-    InsertableDeviceState,
-    RangeLimit,
-)
+from fibsem.structures.params import RangeLimit  # noqa: E402
+from fibsem.structures.settings import BeamType, FibsemStagePosition  # noqa: E402
+from fibsem.structures.system import InsertableDeviceState  # noqa: E402
 
 assert A.THERMO_API_AVAILABLE, A.THERMO_API_IMPORT_ERROR
 

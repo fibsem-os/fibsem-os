@@ -31,12 +31,9 @@ from fibsem.geometry.movement import (
     vertical_move_delta,
 )
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamType,
-    FibsemHardwareGeometry,
-    FibsemStagePosition,
-    RangeLimit,
-)
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import BeamType, FibsemStagePosition
+from fibsem.structures.system import FibsemHardwareGeometry
 
 # -128 is the compustage FIB orientation at the default pretilt of 0
 TILTS_DEG = [-128, -50, 0, 18, 52]
