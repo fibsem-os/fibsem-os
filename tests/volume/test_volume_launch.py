@@ -49,3 +49,17 @@ def test_an_experiment_must_exist_unless_created(tmp_path, capsys):
     assert launch.main([str(tmp_path / "none")]) == 1
     assert "--create" in capsys.readouterr().out
     assert launch.main([str(tmp_path), "--create"]) == 1
+
+
+def test_with_the_window_no_experiment_is_needed(monkeypatch):
+    import fibsem.applications.volume.ui.window as window
+
+    opened = []
+    monkeypatch.setattr(
+        window, "main", lambda argv, splash=None, session=None: opened.append(session)
+    )
+
+    window.host([])
+
+    (session,) = opened
+    assert session.microscope is None and session.experiment is None

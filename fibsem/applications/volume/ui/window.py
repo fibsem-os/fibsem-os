@@ -18,6 +18,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
 )
 
+from fibsem.applications.volume import launch
 from fibsem.applications.volume.experiment_setup import (
     create_experiment,
     load_for_adoption,
@@ -59,13 +60,14 @@ POSITIONS_REDRAW_MS = 300
 
 
 class VolumeWindow(AppWindow):
-    def __init__(self):
-        super().__init__("Volume")
+    def __init__(self, session=None):
+        super().__init__("Volume", session=session)
         self._create_menu()
         self._create_status_bar()
         self._create_tabs()
         self._update_instructions()
         self.sync_app_server_with_preference()
+        self._catch_up()
 
     def app_context(self) -> VolumeAppContext:
         return VolumeAppContext(self.session)
@@ -80,7 +82,7 @@ class VolumeWindow(AppWindow):
         file_menu.addSeparator()
         file_menu.addAction("Quit", self.close)
         tools_menu = menu.addMenu("Tools")
-        tools_menu.addAction("App Server…", self._on_app_server_dialog)
+        tools_menu.addAction("Host…", self._on_app_server_dialog)
         self.action_new_experiment.triggered.connect(self.create_experiment)
         self.action_load_experiment.triggered.connect(self.load_experiment)
 
@@ -282,15 +284,29 @@ class VolumeWindow(AppWindow):
             notification_service.show_toast(started.reason, "warning")
 
 
-def main(argv: Optional[List[str]] = None, splash: Optional[Splash] = None) -> None:
-    """Open the volume window. *argv* is the launcher's common signature; the
-    window takes no flags. *splash* closes once the window is up."""
+def main(
+    argv: Optional[List[str]] = None,
+    splash: Optional[Splash] = None,
+    session=None,
+) -> None:
+    """Open the volume window on *session* (a new one when None). *argv* is
+    the launcher's common signature; the window takes no flags. *splash*
+    closes once the window is up."""
     app = start_qt_app(VOLUME, fibsemos_icon())
-    window = VolumeWindow()
+    window = VolumeWindow(session=session)
     window.show()
     if splash is not None:
         splash.finish(window)
-    sys.exit(app.exec_())
+    code = app.exec_()
+    window.session.stop_app_server()
+    sys.exit(code)
+
+
+def host(argv: Optional[List[str]] = None, splash: Optional[Splash] = None) -> int:
+    """``fibsem-volume-ui``: the Volume host with the window. The host's
+    flags connect the session first (none: the window's Connect does) and
+    may name an experiment to open."""
+    return launch.main(argv, window=lambda session: main([], splash, session))
 
 
 if __name__ == "__main__":

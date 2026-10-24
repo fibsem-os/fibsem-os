@@ -299,7 +299,7 @@ def test_a_server_not_serving_the_microscope_says_where_to_turn_it_on(
     from fibsem.client.transport import error_for
 
     said = cli._said(error_for("GET /microscope/devices", 404, detail["detail"]))
-    assert "Tools > App Server" in said
+    assert "Tools > Host" in said
 
 
 def test_lengths_are_um_on_the_command_line():

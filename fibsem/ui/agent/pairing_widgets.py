@@ -1,5 +1,5 @@
 """Pairing in the window: the button that shows a code, and the paired list
-with Unpair, for one role (`fibsem.server.pairing`). Tools → App Server pairs
+with Unpair, for one role (`fibsem.server.pairing`). Tools → Host pairs
 the operator's computers; agents pair from the web app's Settings."""
 
 import time
