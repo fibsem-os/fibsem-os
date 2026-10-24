@@ -215,7 +215,7 @@ def test_the_configure_scope_gates_the_route(ui, qapp):
         doc = client.get(
             f"/app/experiment/items/{item}/task_config/{TASK}", headers=AUTH
         ).json()
-        assert doc["available"] is True
+        assert doc["version"]
         resp = client.post(
             f"/app/experiment/items/{item}/task_config/{TASK}",
             headers=AUTH,

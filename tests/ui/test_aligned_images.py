@@ -321,10 +321,10 @@ class TestTheControls:
         overlay = widget.aligned_images.get(key).overlay
 
         widget.aligned_image_panel.btn_align.setChecked(True)
-        assert widget.canvas.active_overlay is overlay
+        assert widget.canvas._active_overlay is overlay
 
         widget.aligned_image_panel.btn_align.setChecked(False)
-        assert widget.canvas.active_overlay is None
+        assert widget.canvas._active_overlay is None
 
     def test_one_thing_owns_the_canvas_at_a_time(self, widget, microscope):
         _show(widget, SQUARE)
@@ -335,7 +335,7 @@ class TestTheControls:
         widget.aligned_image_panel.btn_align.setChecked(True)
 
         assert not widget.btn_align_gridbars.isChecked()
-        assert widget.canvas.active_overlay is not widget.gridbar_overlay
+        assert widget.canvas._active_overlay is not widget.gridbar_overlay
 
     def test_remove_takes_the_image_off_the_canvas_and_the_list(
         self, widget, microscope
@@ -348,7 +348,7 @@ class TestTheControls:
 
         assert widget.aligned_images.keys() == []
         assert widget.aligned_image_panel.combo.count() == 0
-        assert widget.canvas.active_overlay is None
+        assert widget.canvas._active_overlay is None
         assert not widget.aligned_image_panel.btn_align.isEnabled()
         assert key not in widget.aligned_images.keys()
 
@@ -552,6 +552,6 @@ class TestTargetingThroughTheAlignedImage:
         down, so dragging the image cannot also drive the stage."""
         self._spot(widget, microscope)
         widget.aligned_image_panel.btn_align.setChecked(True)
-        assert widget.canvas.active_overlay is not None
+        assert widget.canvas._active_overlay is not None
         assert not widget.canvas._overlay_input_allowed(None)
         widget.aligned_image_panel.btn_align.setChecked(False)

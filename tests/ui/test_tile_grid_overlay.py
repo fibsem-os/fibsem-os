@@ -850,7 +850,7 @@ def test_a_press_away_from_an_edge_starts_no_resize(qapp):
 
     overlay._on_press(_event(overlay, overlay._rect.cx, overlay._rect.cy))
 
-    assert overlay.is_resizing is False
+    assert overlay._resize_axes is None
 
 
 def test_a_press_on_an_edge_claims_the_gesture_from_the_canvas(qapp):
@@ -862,11 +862,11 @@ def test_a_press_on_an_edge_claims_the_gesture_from_the_canvas(qapp):
 
     overlay._on_press(_event(overlay, right, overlay._rect.cy))
 
-    assert overlay.is_resizing is True
+    assert overlay._resize_axes is not None
     assert overlay._canvas._overlay_consuming_event is True
 
     overlay._on_release(_event(overlay, right, overlay._rect.cy))
-    assert overlay.is_resizing is False
+    assert overlay._resize_axes is None
 
 
 def test_a_hidden_grid_cannot_be_resized(qapp):
@@ -876,7 +876,7 @@ def test_a_hidden_grid_cannot_be_resized(qapp):
 
     overlay._on_press(_event(overlay, right, overlay._rect.cy))
 
-    assert overlay.is_resizing is False
+    assert overlay._resize_axes is None
 
 
 # ── hover affordance ─────────────────────────────────────────────────────
@@ -1035,7 +1035,7 @@ def test_an_edge_press_still_resizes_rather_than_moving(qapp):
     _drag(overlay, (right, overlay._rect.cy), (right + WIDTH, overlay._rect.cy))
 
     assert moved == []
-    assert overlay.is_resizing is False  # released
+    assert overlay._resize_axes is None  # released
 
 
 def test_a_hidden_grid_cannot_be_moved(qapp):
@@ -1356,7 +1356,7 @@ def test_a_modified_edge_press_still_resizes(qapp):
 
     overlay._on_press(_shift(_event(overlay, left, top + height / 2)))
 
-    assert overlay.is_resizing
+    assert overlay._resize_axes is not None
     assert overlay._paint_value is None
 
 
@@ -1421,7 +1421,7 @@ def test_the_grid_is_editable_by_default(qapp):
 
     overlay._on_press(_event(overlay, right, overlay._rect.cy))
 
-    assert overlay.is_resizing is True
+    assert overlay._resize_axes is not None
 
 
 def test_a_fixed_grid_cannot_be_resized(qapp):
@@ -1434,7 +1434,7 @@ def test_a_fixed_grid_cannot_be_resized(qapp):
     overlay._on_press(_event(overlay, right, overlay._rect.cy))
     overlay._on_drag(_event(overlay, right + WIDTH, overlay._rect.cy))
 
-    assert overlay.is_resizing is False
+    assert overlay._resize_axes is None
     assert requested == []
 
 

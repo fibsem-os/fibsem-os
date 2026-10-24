@@ -38,7 +38,7 @@ from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
 from fibsem.workflows.grid.protocol import GridTaskProtocol
 from fibsem.workflows.grids import ExperimentGrids, GridRecord
-from fibsem.workflows.item import SiteItem
+from fibsem.workflows.item import FLUORESCENCE_POSE, SiteItem
 from fibsem.workflows.proposals import (
     Proposal,
     proposals_from_dict,
@@ -431,14 +431,14 @@ class Lamella(SiteItem):
 
     @property
     def fluorescence_pose(self) -> Optional[MicroscopeState]:
-        return self.poses.get("FLUORESCENCE", None)
+        return self.poses.get(FLUORESCENCE_POSE)
 
     @fluorescence_pose.setter
     def fluorescence_pose(self, value: MicroscopeState):
         """Set the fluorescence pose for the lamella."""
         if not isinstance(value, MicroscopeState):
             raise TypeError("Fluorescence pose must be a MicroscopeState instance.")
-        self.poses["FLUORESCENCE"] = value
+        self.poses[FLUORESCENCE_POSE] = value
 
     def related_milling_stages(self, task_name: str) -> list:
         """The enabled milling stages of this lamella's tasks related to

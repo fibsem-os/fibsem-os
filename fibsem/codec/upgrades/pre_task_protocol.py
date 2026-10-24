@@ -8,6 +8,9 @@ pattern settings flat in one block; or one flat block. The oldest kept rough and
 polishing milling together under ``lamella``, the last
 ``options.num_polishing_stages`` of them polishing.
 
+Each stage's Tescan settings go to its recipe's driver block
+(`fibsem.codec.upgrades.milling`).
+
 The method's stages become the tasks a task protocol runs: Trench Milling,
 Undercut, Setup Lamella Position, Mill Fiducial, Rough Milling (with the
 microexpansion stages, and the notch as its stress relief) and Polishing. The
@@ -19,6 +22,8 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Optional
 
+from fibsem.codec.upgrades import milling as upgrade_milling
+
 # The milling keys the old file used.
 FIDUCIAL = "fiducial"
 MICROEXPANSION = "microexpansion"
@@ -28,6 +33,39 @@ NOTCH = "notch"
 TRENCH = "trench"
 UNDERCUT = "undercut"
 STRESS_RELIEF = "stress-relief"
+
+# The pattern a milling key meant when its block named none (no ``type``).
+PATTERN_BY_KEY = {
+    "cut": "Rectangle",
+    "fiducial": "Fiducial",
+    "flatten": "Rectangle",
+    "undercut": "Undercut",
+    "horseshoe": "Horseshoe",
+    "lamella": "Trench",
+    "polish_lamella": "Trench",
+    "thin_lamella": "Trench",
+    "sever": "Rectangle",
+    "sharpen": "Rectangle",
+    "needle": "Rectangle",
+    "copper_release": "Horseshoe",
+    "serial_trench": "Horseshoe",
+    "serial_undercut": "Rectangle",
+    "serial_sever": "Rectangle",
+    "lamella_sever": "Rectangle",
+    "lamella_polish": "Trench",
+    "trench": "Trench",
+    "notch": "WaffleNotch",
+    "microexpansion": "MicroExpansion",
+    "clover": "Clover",
+    "autolamella": "Trench",
+    "MillUndercut": "Rectangle",
+    "rectangle": "Rectangle",
+    "MillRough": "Trench",
+    "MillRegularCut": "Trench",
+    "MillPolishing": "Trench",
+    "mill_rough": "Trench",
+    "mill_polishing": "Trench",
+}
 
 # What a flat stage block held for its milling, rather than its pattern.
 MILLING_KEYS = (
@@ -102,7 +140,10 @@ def upgrade(data: Dict[str, Any]) -> Dict[str, Any]:
             raise ValueError(
                 f"The protocol has no {key!r} milling, which {method} uses."
             )
-        return [FibsemMillingStage.from_dict(stage) for stage in milling[key]]
+        return [
+            FibsemMillingStage.from_dict(upgrade_milling.stage(stage))
+            for stage in milling[key]
+        ]
 
     def task(key: str, stage_list: List[Any], title: str) -> Dict[str, Any]:
         from fibsem.milling.tasks import FibsemMillingTaskConfig
@@ -225,12 +266,9 @@ def _stage(block: dict, key: str, point: Optional[dict]) -> Dict[str, Any]:
     milling key always meant."""
     pattern_name = block.get("type")
     if pattern_name is None:
-        from fibsem.milling.patterning import PROTOCOL_MILL_MAP
-
-        pattern = PROTOCOL_MILL_MAP.get(key)
-        if pattern is None:
+        pattern_name = PATTERN_BY_KEY.get(key)
+        if pattern_name is None:
             raise ValueError(f"The {key!r} milling names no pattern ('type').")
-        pattern_name = pattern.name
     skip = (*MILLING_KEYS, "strategy", "name", "type")
     pattern = {k: v for k, v in block.items() if k not in skip}
     pattern["name"] = pattern_name

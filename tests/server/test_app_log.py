@@ -180,7 +180,6 @@ def test_a_failed_runs_errors_over_http(client):
     body = client.get(
         "/app/log", params={"task_id": "run-1", "level": "warning"}, headers=AUTH
     ).json()
-    assert body["available"] is True
     assert [r["text"].splitlines()[0][-11:] for r in body["records"]] == ["failed 2999"]
     assert body["since"] == (T0 + timedelta(seconds=2990)).isoformat()
 
@@ -210,12 +209,11 @@ def test_refusals_over_http(client):
     assert client.get("/app/log").status_code == 401
 
 
-def test_no_experiment_is_unavailable(client, host):
+def test_no_experiment_is_refused(client, host):
     host.experiment = None
-    assert client.get("/app/log", headers=AUTH).json() == {
-        "available": False,
-        "records": [],
-    }
+    answer = client.get("/app/log", headers=AUTH)
+    assert answer.status_code == 409
+    assert answer.json()["detail"]["error_type"] == "no_experiment"
 
 
 def test_the_tool_passes_the_window(client):

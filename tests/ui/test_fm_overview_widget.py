@@ -1809,68 +1809,6 @@ def test_a_grid_that_jumps_clear_of_an_empty_canvas_re_frames(qapp):
 # ── anchoring the frame (FIB-418) ────────────────────────────────────────
 
 
-def test_the_frame_can_be_anchored_at_a_chosen_position(qapp, interactive_widget):
-    """So one canvas can describe the FM mount while another describes the column
-    48 mm away, each correctly framed, rather than both taking whatever the stage
-    happened to be doing when they woke up."""
-    from fibsem.structures import FibsemStagePosition
-
-    widget = interactive_widget
-    widget.canvas.clear_overviews()
-    stage = widget._current_stage_position()
-    elsewhere = FibsemStagePosition(
-        x=stage.x + 48e-3,
-        y=stage.y,
-        z=stage.z,
-        r=stage.r,
-        t=stage.t,
-        coordinate_system=stage.coordinate_system,
-    )
-    try:
-        widget.set_origin(elsewhere)
-        qapp.processEvents()
-
-        assert widget.origin is elsewhere
-        # canvas zero is now that position, and the stage is 48 mm the other way
-        assert widget._frame().to_canvas(elsewhere) == pytest.approx((0.0, 0.0))
-        assert widget.current_position_overlay._points[0][0] == pytest.approx(
-            widget._frame().to_canvas(stage)[0]
-        )
-    finally:
-        widget.set_origin(None)
-        qapp.processEvents()
-
-
-def test_anchoring_again_returns_to_the_device_origin(qapp, interactive_widget):
-    """`set_origin(None)` hands the anchor back to the automatic one, which is the
-    FM device's configured origin rather than wherever the stage is standing."""
-    from fibsem.structures import FibsemStagePosition
-
-    widget = interactive_widget
-    widget.canvas.clear_overviews()
-    stage = widget._current_stage_position()
-    device = widget.microscope.system.stage.devices["FM"].origin
-    widget.set_origin(
-        FibsemStagePosition(
-            x=stage.x + 1e-3,
-            y=stage.y,
-            z=stage.z,
-            r=stage.r,
-            t=stage.t,
-            coordinate_system=stage.coordinate_system,
-        )
-    )
-    qapp.processEvents()
-
-    widget.set_origin(None)
-    qapp.processEvents()
-
-    # re-derived on the next use, rather than left unset
-    assert widget._frame() is not None
-    assert widget.origin.x == pytest.approx(device.x or 0.0)
-    assert widget.origin.t == pytest.approx(stage.t)
-
-
 def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
     """Canvas zero is where the objective looks, which on an offset mount is 48.8 mm
     from where the stage stands when the tab is built. Anchoring at the stage put
@@ -1896,25 +1834,6 @@ def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
     finally:
         widget.deleteLater()
         qapp.processEvents()
-
-
-def test_the_frame_cannot_be_re_anchored_under_placed_images(qapp, interactive_widget):
-    """Images are positioned relative to the origin as it stood when they were added,
-    so moving it afterwards leaves every one describing a position it was never
-    acquired at."""
-    widget = interactive_widget
-    widget.canvas.clear_overviews()
-    widget.set_image(
-        widget.microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
-    )
-    qapp.processEvents()
-    anchored = widget.origin
-
-    with pytest.raises(ValueError, match="already"):
-        widget.set_origin(widget._current_stage_position())
-
-    assert widget.origin is anchored, "the origin moved despite the refusal"
-    widget.canvas.clear_overviews()
 
 
 def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
@@ -4416,7 +4335,7 @@ def test_the_stage_limits_re_pose_even_with_the_grid_pinned(qapp):
         FibsemStagePosition(x=250e-6, y=-180e-6, z=0.0, r=fm.r, t=fm.t)
     )
     widget = FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
-    widget.set_origin(microscope.get_stage_position())  # off-centre, on purpose
+    widget._origin = microscope.get_stage_position()  # off-centre, on purpose
     widget._refresh_tile_grid()
     qapp.processEvents()
     before = [(spec.cx, spec.cy) for spec in widget.stage_overlay._specs]

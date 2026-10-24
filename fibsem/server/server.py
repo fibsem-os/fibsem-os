@@ -16,7 +16,7 @@ import json
 import logging
 from typing import Any, Callable, Dict, Mapping, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, WebSocket
+from fastapi import APIRouter, Depends, FastAPI, Request, WebSocket
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
@@ -49,6 +49,7 @@ from fibsem.server.auth import (
     caller_lease,
     drive_is_lent,
     is_operator_token,
+    refusal_error,
     require_level,
     require_monitoring,
     require_token,
@@ -240,19 +241,17 @@ async def _stop_reason(request: Request):
     if not operator and (not isinstance(reason, str) or not reason.strip()):
         kwargs = body.get("kwargs") if isinstance(body, dict) else None
         misplaced = isinstance(kwargs, dict) and "reason" in kwargs
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error_type": "missing_reason",
-                "message": "Pass a reason with a stop: the operator reads why "
-                "the agent stopped it."
-                + (
-                    ' It goes beside kwargs, not inside them: {"kwargs": {}, '
-                    '"reason": "..."}.'
-                    if misplaced
-                    else ""
-                ),
-            },
+        raise refusal_error(
+            422,
+            "missing_reason",
+            "Pass a reason with a stop: the operator reads why "
+            "the agent stopped it."
+            + (
+                ' It goes beside kwargs, not inside them: {"kwargs": {}, '
+                '"reason": "..."}.'
+                if misplaced
+                else ""
+            ),
         )
     own = _agents_own_action(request)
     yield
@@ -659,12 +658,8 @@ def build_server(
     @whole.websocket("/events", dependencies=[Depends(_watch)])
     async def microscope_events(websocket: WebSocket):
         if "origin" in websocket.headers:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "browser_refused",
-                    "message": "The events socket refuses a browser page.",
-                },
+            raise refusal_error(
+                403, "browser_refused", "The events socket refuses a browser page."
             )
         await stream_events(
             websocket,
@@ -676,12 +671,8 @@ def build_server(
     @whole.websocket("/devices/{device}/live", dependencies=[Depends(_watch)])
     async def microscope_live(websocket: WebSocket, device: str):
         if "origin" in websocket.headers:
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_type": "browser_refused",
-                    "message": "The live socket refuses a browser page.",
-                },
+            raise refusal_error(
+                403, "browser_refused", "The live socket refuses a browser page."
             )
         await stream_live(
             websocket,
@@ -894,10 +885,7 @@ MICROSCOPE_OFF_MESSAGE = (
 
 
 def _microscope_off(request: Request) -> None:
-    raise HTTPException(
-        status_code=404,
-        detail={"error_type": "microscope_off", "message": MICROSCOPE_OFF_MESSAGE},
-    )
+    raise refusal_error(404, "microscope_off", MICROSCOPE_OFF_MESSAGE)
 
 
 def _microscope_off_router() -> APIRouter:

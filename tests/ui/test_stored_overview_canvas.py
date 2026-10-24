@@ -21,6 +21,13 @@ from tests.fixtures.fm_images import fm_image, gfp, noise
 _app = QApplication.instance() or QApplication([])
 
 
+def _add_at(canvas, x: float, y: float) -> None:
+    """Right-click at a canvas point and choose Add Position Here."""
+    config = canvas.position_menu(x, y)
+    (add,) = [a for a in config.actions if a.label == "Add Position Here"]
+    add.callback()
+
+
 @pytest.fixture(scope="module")
 def arctis():
     path = os.path.join(
@@ -204,7 +211,7 @@ class TestPlacing:
         seen = []
         widget.position_add_requested.connect(lambda pos, r: seen.append((pos, r)))
         (cx, cy), _ = widget.overviews[0].extent
-        widget.request_add_at(*widget.canvas.metres_to_canvas(cx + 20e-6, cy))
-        widget.request_add_at(*widget.canvas.metres_to_canvas(cx + 5e-3, cy))
+        _add_at(widget, *widget.canvas.metres_to_canvas(cx + 20e-6, cy))
+        _add_at(widget, *widget.canvas.metres_to_canvas(cx + 5e-3, cy))
         assert [r for _, r in seen] == [rid, None]
         assert abs(seen[0][0].x - (base.x + 20e-6)) < 1e-7

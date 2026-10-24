@@ -108,11 +108,6 @@ class GridBarOverlay(TransformGestureOverlay):
     def radius(self) -> Optional[float]:
         return self._radius
 
-    @property
-    def bar_count(self) -> int:
-        """How many bars are currently drawn. One artist per bar."""
-        return sum(1 for a in self._artists if getattr(a, "_gridbar", False))
-
     # ── drawing ───────────────────────────────────────────────────────────
 
     def _offsets(self, half_span: float) -> List[float]:
