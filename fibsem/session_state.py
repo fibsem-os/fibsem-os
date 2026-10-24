@@ -54,6 +54,7 @@ from typing import Any, Callable, Dict, Optional, Union
 import yaml
 
 from fibsem import config as cfg
+from fibsem.codec import encode
 
 SESSION_STATE_VERSION: int = 1
 
@@ -196,15 +197,13 @@ class SessionState:
         """
         if not self.writable:
             return False
-        from fibsem.utils import _plain
-
         with _lock_for(self.path):
             data = self._read()
             if data is None:
                 self._set_aside_unreadable()
                 data = {}
             data["version"] = SESSION_STATE_VERSION
-            _set(data, name, _plain(value))
+            _set(data, name, encode(value))
             try:
                 self._replace(data)
             except Exception as e:

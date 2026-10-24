@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Tuple
 
-from fibsem.ai.agent.catalog.spec import ToolSpec, kwargs_body
+from fibsem.ai.agent.catalog.spec import ToolSpec, arg, kwargs_body
 from fibsem.server.parts import GRIDS
 from fibsem.util import wording
 
@@ -98,7 +98,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get, or any saved image's path in the experiment",
-            "cells": "optional: true draws the overview's named cells and lists them (default false)",
+            "cells": arg(
+                "optional: true draws the overview's named cells and lists them (default false)",
+                bool,
+            ),
         },
         optional=("cells",),
     ),
@@ -114,10 +117,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "grid_name": "the grid name",
             "filename": "an overview basename from grid_list / grid_get, or any saved image's path in the experiment",
-            "x": "source-pixel x (with y)",
-            "y": "source-pixel y, +y down (with x)",
-            "fx": "fraction across the image, 0-1 (with fy)",
-            "fy": "fraction down the image, 0-1 (with fx)",
+            "x": arg("source-pixel x (with y)", float),
+            "y": arg("source-pixel y, +y down (with x)", float),
+            "fx": arg("fraction across the image, 0-1 (with fy)", float),
+            "fy": arg("fraction down the image, 0-1 (with fx)", float),
         },
         optional=("x", "y", "fx", "fy"),
     ),
@@ -185,7 +188,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "grid_name": "the grid name, from grid_list",
             "verdict": "GOOD, REWORK, FAILED, or UNASSESSED to clear",
-            "reason": "why, for the operator",
+            "reason": arg("why, for the operator", default=""),
         },
         optional=("reason",),
         line=_grid_set_quality,
@@ -231,6 +234,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/sample_handling/queries/get_inventory",
+        result_key="inventory",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
     ),
@@ -242,6 +246,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/sample_handling/queries/current",
+        result_key="current",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
     ),
@@ -254,6 +259,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/sample_handling/queries/holder_slots",
+        result_key="slots",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
     ),
@@ -268,6 +274,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/sample_handling/commands/run_inventory",
+        result_key="run",
         level="drive",
         hardware=True,
         call=lambda a: ({}, kwargs_body()),
@@ -286,6 +293,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/sample_handling/commands/ensure_loaded",
+        result_key="run",
         level="drive",
         hardware=True,
         params={"grid_name": "the grid's name, from grid_get_inventory"},
@@ -300,6 +308,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/sample_handling/commands/unload",
+        result_key="run",
         level="drive",
         hardware=True,
         call=lambda a: ({}, kwargs_body()),
@@ -314,6 +323,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/sample_handling/commands/move_to_grid",
+        result_key="position",
         level="drive",
         hardware=True,
         params={"grid_name": "the grid's name"},
@@ -328,6 +338,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/sample_handling/commands/move_to_slot",
+        result_key="position",
         level="drive",
         hardware=True,
         params={"slot_name": "the holder slot's name"},

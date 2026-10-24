@@ -3,6 +3,7 @@ it can do: ``/app/agent/transcript`` and the session's facts."""
 
 import json
 import time
+from datetime import datetime
 
 import pytest
 
@@ -11,7 +12,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.ai.agent.session import session_facts  # noqa: E402
+from fibsem.ai.agent.session import session_facts, session_line  # noqa: E402
 from fibsem.server import AuthConfig  # noqa: E402
 from fibsem.server.agent_session import report  # noqa: E402
 from fibsem.server.agent_transcript import build_agent_transcript_router  # noqa: E402
@@ -121,7 +122,27 @@ def test_the_agent_says_what_it_can_do_and_the_chip_lists_it():
     assert dict(session_facts(files))["Code"] == "Off; reads and writes files in /w"
     # Claude Code says none of it: nothing to list but what it reported.
     assert session_facts({"model": "m"}) == [("Model", "m")]
+    profiled = {"profile": "night", "profile_hash": "abc"}
+    assert session_facts(profiled) == [("Profile", "night (abc)")]
     assert session_facts(None) == []
+
+
+def test_the_agent_pages_session_line_leaves_the_goal_and_budget_to_the_panel():
+    session = {
+        "model": "claude-opus",
+        "goal": "Mill 01",
+        "code": True,
+        "spent_usd": 3.0,
+        "budget_usd": 4.0,
+        "started": "2026-10-23T23:12:00+00:00",
+    }
+    line = session_line(session)
+    started = datetime.fromisoformat(session["started"]).astimezone()
+    assert line == f"claude-opus · code mode · started {started:%H:%M}"
+    ended = {"model": "claude-opus", "ended": True, "reason": "its budget is spent"}
+    assert session_line(ended) == "claude-opus · ended: its budget is spent"
+    assert session_line({"goal": "Mill 01"}) is None
+    assert session_line(None) is None
 
 
 @pytest.mark.parametrize(

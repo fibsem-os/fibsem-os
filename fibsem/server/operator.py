@@ -78,7 +78,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 stopped=bool(auth.stopped) if auth is not None else False,
                 last_heard_s=agent.seconds_since_seen(),
                 client=agent.client(),
-                session=agent.session_text(),
+                session=agent.session_line(),
                 budget_low=agent.budget_low(),
                 request=request_view,
                 chip=chip_text(

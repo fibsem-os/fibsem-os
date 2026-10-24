@@ -217,3 +217,17 @@ def test_the_session_carries_the_profiles_skills_prompt_and_reminders(checkout):
     assert options.system_prompt["append"].endswith("Overnight.")
     assert list(options.hooks) == ["PreToolUse"]
     assert runner_mod.build_options(checkout).hooks is None, "no profile, no hooks"
+
+
+def test_the_session_report_names_the_profile_and_its_reminders():
+    profile = Profile(
+        name="night",
+        path=Path("night.yaml"),
+        hash="abc",
+        hooks=[profiles.Hook("site", "Check the film.")],
+    )
+    assert runner_mod._profile_report(profile) == {
+        "profile": "night",
+        "profile_hash": "abc",
+        "hooks": [{"when": "site", "label": "At a site", "say": "Check the film."}],
+    }
