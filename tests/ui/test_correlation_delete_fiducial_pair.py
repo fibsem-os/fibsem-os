@@ -179,8 +179,7 @@ def test_the_setting_travels_with_the_correlation_config(tab):
     assert tab._coords_tab._delete_fiducial_combo.value() == "one"
     assert tab.correlation_config.to_dict()["delete_fiducial"] == "one"
 
-    # an older protocol has no key, and a bad value is not trusted: ask
+    # an older protocol has no key: ask; a value it doesn't have is refused
     assert CorrelationConfig.from_dict({}).delete_fiducial == "ask"
-    assert (
-        CorrelationConfig.from_dict({"delete_fiducial": "x"}).delete_fiducial == "ask"
-    )
+    with pytest.raises(ValueError):
+        CorrelationConfig.from_dict({"delete_fiducial": "x"})
