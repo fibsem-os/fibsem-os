@@ -3,6 +3,7 @@ from the web page or a script, and nothing the agent's token can reach."""
 
 import base64
 import os
+import re
 import socket
 import time
 
@@ -559,24 +560,37 @@ def test_the_operator_declines_the_agent_s_suggestion(server):
     assert proposal.suggestion.declined_reason == "that is the trench"
 
 
-def test_the_operator_reads_the_agents_session_in_the_cards_words(server):
+def test_the_operator_reads_the_agents_session(server):
     assert server.get("/app/agent", headers=server.operator).json()["session"] is None
     server.post(
         "/app/agent/session",
         headers=server.agent,
-        json={"model": "claude-opus", "goal": "Mill 01", "spent_usd": 1.5},
+        json={
+            "model": "claude-opus",
+            "goal": "Mill 01",
+            "spent_usd": 1.5,
+            "code": True,
+        },
     )
     answer = server.get("/app/agent", headers=server.operator).json()
-    assert answer["session"] == "claude-opus · Mill 01 · $1.50 spent"
+    # The goal and the budget are the side panel's: the line keeps the rest.
+    assert re.fullmatch(
+        r"claude-opus · code mode · started \d\d:\d\d", answer["session"]
+    )
     assert answer["budget_low"] is False
     server.post(
         "/app/agent/session",
         headers=server.agent,
-        json={"budget_usd": 5, "spent_usd": 4.1},
+        json={"budget_usd": 5, "spent_usd": 4.1, "checklist": [{"text": "Mill 01"}]},
     )
-    answer = server.get("/app/agent", headers=server.operator).json()
-    assert answer["session"] == "$4.10 of $5, 82% used · claude-opus · Mill 01"
-    assert answer["budget_low"] is True
+    assert (
+        server.get("/app/agent", headers=server.operator).json()["budget_low"] is True
+    )
+    session = server.get("/app/agent/session", headers=server.operator).json()[
+        "session"
+    ]
+    assert session["goal"] == "Mill 01"
+    assert session["checklist"] == [{"text": "Mill 01", "state": "open"}]
 
 
 def _asked(server):
