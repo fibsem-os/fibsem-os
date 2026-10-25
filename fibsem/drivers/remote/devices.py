@@ -78,7 +78,7 @@ import httpx
 import numpy as np
 from psygnal import Signal
 
-from fibsem.client.events import HEARTBEAT, EventStream
+from fibsem.client.events import HEARTBEAT, EventStream, require_websockets
 from fibsem.client.transport import ServerError, ServerUnreachable, Transport
 from fibsem.codec import decode
 from fibsem.devices.beam import Beam
@@ -273,6 +273,7 @@ class DeviceClient:
 
     def open_live(self, device: str) -> Any:
         """The socket of *device*'s live frames (``WS /devices/{device}/live``)."""
+        require_websockets(f"live imaging from {self.base_url}")
         from websockets.sync.client import connect
 
         headers = (

@@ -130,9 +130,9 @@ from fibsem.devices.wire import (
 from fibsem.drivers.registry import REMOTE_DRIVER
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.schema import arguments_schema
-from fibsem.server import device_auth
+from fibsem.server import operator_token
 from fibsem.server.auth import refusal_error, require_operator
-from fibsem.server.device_auth import DeviceAuth, read_device_token
+from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.images import (
     TIFF_MEDIA_TYPE,
     image_answer,
@@ -140,6 +140,7 @@ from fibsem.server.images import (
     is_image_result,
     tiff_bytes,
 )
+from fibsem.server.operator_token import read_device_token
 from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.server.responses import (
     CommandDescription,
@@ -1153,7 +1154,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     host = args.host or server.get("host") or "127.0.0.1"
     port = args.port or server.get("port") or 8765
     token_file = (
-        Path(args.token_file) if args.token_file else device_auth.DEVICE_TOKEN_FILE
+        Path(args.token_file) if args.token_file else operator_token.DEVICE_TOKEN_FILE
     )
     if read_device_token(token_file) is None:
         print(f"Made this Device Server's token, kept in {token_file}.")

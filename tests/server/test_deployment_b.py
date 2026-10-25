@@ -68,7 +68,7 @@ def meteor_pc(tmp_path, monkeypatch):
 
     # The host is another computer: no Device Server token of its own to fall back on.
     monkeypatch.setattr(
-        "fibsem.server.device_auth.DEVICE_TOKEN_FILE", tmp_path / "none.json"
+        "fibsem.server.operator_token.DEVICE_TOKEN_FILE", tmp_path / "none.json"
     )
     start()
     yield built, auth, port, start, servers

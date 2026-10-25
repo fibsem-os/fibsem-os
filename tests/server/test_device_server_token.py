@@ -64,7 +64,7 @@ def test_another_computer_pairs_by_command_once(beams, tmp_path, monkeypatch):
     url = f"http://127.0.0.1:{server.port}"
     # Another computer: no Device Server token of its own.
     monkeypatch.setattr(
-        "fibsem.server.device_auth.DEVICE_TOKEN_FILE", tmp_path / "none.json"
+        "fibsem.server.operator_token.DEVICE_TOKEN_FILE", tmp_path / "none.json"
     )
     try:
         with pytest.raises(RemoteDeviceNotPaired, match="fibsem-cli pair-device"):

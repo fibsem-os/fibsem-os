@@ -18,6 +18,9 @@ from typing import Optional
 from fibsem.server.discovery import DISCOVERY_DIR
 
 OPERATOR_TOKEN_FILE = DISCOVERY_DIR / "operator-token.json"
+# A Device Server's token (`fibsem.server.device_auth`), here so a client on
+# this computer reads it without the [server] extra.
+DEVICE_TOKEN_FILE = DISCOVERY_DIR / "device-server-token.json"
 
 
 def read_operator_token(path: Optional[Path] = None) -> Optional[str]:
@@ -50,3 +53,8 @@ def new_operator_token(path: Optional[Path] = None) -> str:
         json.dump({"token": token, "person": None}, f, indent=2)
     os.chmod(path, 0o600)
     return token
+
+
+def read_device_token(path: Optional[Path] = None) -> Optional[str]:
+    """This computer's Device Server token, or None when none has been made."""
+    return read_operator_token(path if path is not None else DEVICE_TOKEN_FILE)

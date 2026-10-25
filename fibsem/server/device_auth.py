@@ -11,20 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from fibsem.server import operator_token
 from fibsem.server.auth import _matches
 from fibsem.server.discovery import DISCOVERY_DIR
-from fibsem.server.operator_token import load_operator_token, read_operator_token
+from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import PairedTokens, Pairing
 
-__all__ = ["DEVICE_TOKEN_FILE", "DeviceAuth", "read_device_token"]
+__all__ = ["DeviceAuth"]
 
-DEVICE_TOKEN_FILE = DISCOVERY_DIR / "device-server-token.json"
 DEVICE_PAIRED_FILE = DISCOVERY_DIR / "device-server-paired.json"
-
-
-def read_device_token(path: Optional[Path] = None) -> Optional[str]:
-    """This computer's Device Server token, or None when none has been made."""
-    return read_operator_token(path if path is not None else DEVICE_TOKEN_FILE)
 
 
 @dataclass
@@ -56,7 +51,7 @@ class DeviceAuth:
     ) -> "DeviceAuth":
         """This install's token, made the first time, and its paired computers."""
         token = load_operator_token(
-            token_file if token_file is not None else DEVICE_TOKEN_FILE
+            token_file if token_file is not None else operator_token.DEVICE_TOKEN_FILE
         )
         paired = paired_file if paired_file is not None else DEVICE_PAIRED_FILE
         return cls(token=token, pairing=Pairing(PairedTokens(paired)))
