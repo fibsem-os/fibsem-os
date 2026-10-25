@@ -1,12 +1,12 @@
 """The running application, without Qt.
 
 An :class:`AppSession` holds what a session of an application is: the
-microscope it is connected to, the experiment it has open, the event stream of
-that connection, whoever carries out the run's instructions in a window, where an edit to the
+microscope it is connected to (connected and disconnected here, whoever asks),
+the experiment it has open, the event stream of that connection, whoever
+carries out the run's instructions in a window, where an edit to the
 experiment runs, the run controller, and the App Server over them when one is
-hosted. A window
-attaches to it as one client and reads and writes these through it; a headless
-server can be another, so nothing here may need a widget.
+hosted. A window attaches to it as one client and reads and writes these
+through it; the App Server is another, so nothing here may need a widget.
 """
 
 from __future__ import annotations
@@ -21,11 +21,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from psygnal import Signal
 
 from fibsem import config as cfg
+from fibsem import utils
 from fibsem.acting import AGENT, OPERATOR, ActorKind
 from fibsem.ai.agent.session import AgentSession
+from fibsem.devices.runs import Runs
 from fibsem.imaging.latest import LatestImages
 from fibsem.imaging.overview_session import OverviewSession
 from fibsem.workflows.event_recording import EventRecorder
+from fibsem.workflows.events import EventBuffer
 from fibsem.workflows.runner import WorkflowRunner
 
 EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
@@ -78,6 +81,17 @@ class AppSession:
         executor: Optional[EditExecutor] = None,
     ) -> None:
         self._microscope: Optional[Any] = None
+        # The connected microscope's settings (its configuration and image
+        # settings), None while disconnected.
+        self.settings: Optional[Any] = None
+        # The configuration file the microscope was connected with.
+        self.configuration_path: Optional[str] = None
+        # What a connect is doing now ("Turning the beams on…"), and why the
+        # last one failed; a connect from the App Server runs as a run here.
+        self.connecting: Optional[str] = None
+        self.connect_error: Optional[str] = None
+        self.connect_runs = Runs(_Connecting())
+        self._connect_lock = threading.Lock()
         self._experiment: Optional[Any] = None
         # Where what is done is recorded while no application's experiment is
         # open: a plain FibsemExperiment, made the first time the agent may act.
@@ -89,6 +103,9 @@ class AppSession:
         # connects, whatever else runs, and recorded to events.jsonl in the
         # experiment's directory. None only while disconnected.
         self.recorder: Optional[EventRecorder] = None
+        # The stream while there is no recorder: the agent's messages and
+        # calls before a microscope connects.
+        self._idle_buffer = EventBuffer()
         # Where an edit to the experiment runs: the window's GUI thread, whose
         # widgets listen to the experiment, or here under a lock.
         self.executor: EditExecutor = executor or LockedExecutor()
@@ -191,6 +208,118 @@ class AppSession:
         self.images.follow(microscope)
         self.changed.emit(MICROSCOPE)
 
+    def connect(
+        self,
+        configuration_path: Optional[str] = None,
+        progress: Optional[Callable[[str], None]] = None,
+        **options: Any,
+    ) -> Any:
+        """Connect the microscope *configuration_path* names (the default
+        configuration when None), record its events, and say so on
+        ``changed``. Runs on the calling thread; *progress* hears each step.
+        *options* go to `utils.setup_session` (``manufacturer``,
+        ``ip_address``, ``debug``). Raises ValueError while a microscope is
+        connected or another connect is under way, and whatever connecting
+        raised."""
+        if not self._connect_lock.acquire(blocking=False):
+            raise ValueError("A connect is already under way.")
+        try:
+            if self.microscope is not None:
+                raise ValueError("A microscope is connected; disconnect it first.")
+            self.connect_error = None
+
+            def step(line: str) -> None:
+                self.connecting = line
+                if progress is not None:
+                    progress(line)
+
+            step("Connecting…")
+            try:
+                microscope, settings = utils.setup_session(
+                    config_path=configuration_path, progress=step, **options
+                )
+            except Exception as error:
+                self.connect_error = str(error) or type(error).__name__
+                raise
+            finally:
+                self.connecting = None
+            # Heard once everything here is the new microscope's.
+            with self.changed.paused():
+                self.settings = settings
+                self.configuration_path = getattr(
+                    microscope, "configuration_path", None
+                ) or (str(configuration_path) if configuration_path else None)
+                self.microscope = microscope
+                self.start_recording()
+            return microscope
+        finally:
+            self._connect_lock.release()
+
+    def disconnect(self) -> Optional[str]:
+        """Let the microscope go and stop recording its events; the App Server
+        stays up. Refused (RuntimeError) while a run is on. Returns why the
+        client did not close cleanly, or None: the session lets go of it
+        either way."""
+        if self.microscope is None:
+            return None
+        if self.runner.is_running:
+            raise RuntimeError("A run is on: stop it before disconnecting.")
+        microscope = self.microscope
+        error = None
+        try:
+            microscope.disconnect()
+        except Exception as e:  # noqa: BLE001 - a failed teardown still ends it
+            logging.error(f"Could not cleanly disconnect the microscope: {e}")
+            error = str(e)
+        with self.changed.paused():
+            self.stop_recording()
+            self.settings = None
+            self.configuration_path = None
+            self.microscope = None
+        return error
+
+    @property
+    def connection(self) -> Dict[str, Any]:
+        """Whether a microscope is connected, with which configuration, what a
+        connect is doing or why the last failed, and the configurations it can
+        connect with."""
+        microscope = self.microscope
+        info = (
+            getattr(getattr(self.settings, "system", None), "info", None)
+            if microscope is not None
+            else None
+        )
+        path = self.configuration_path
+        name = next(
+            (
+                known
+                for known, entry in cfg.USER_CONFIGURATIONS.items()
+                if path and entry.get("path") == path
+            ),
+            None,
+        )
+        run = self.connect_runs.latest
+        return {
+            "connected": microscope is not None,
+            "connecting": self.connecting,
+            "error": self.connect_error,
+            "configuration": None
+            if microscope is None
+            else {
+                "name": name,
+                "path": path,
+                "manufacturer": getattr(info, "manufacturer", None),
+                "model": getattr(info, "model", None),
+                "address": getattr(info, "ip_address", None),
+            },
+            "configurations": [
+                {"name": known, "default": known == cfg.DEFAULT_CONFIGURATION_NAME}
+                for known, entry in cfg.USER_CONFIGURATIONS.items()
+                if entry.get("path")
+            ],
+            "run": run.to_dict() if run is not None else None,
+        }
+
     @property
     def experiment(self) -> Optional[Any]:
         return self._experiment
@@ -252,21 +381,17 @@ class AppSession:
         return self.plain_experiment
 
     @property
-    def event_buffer(self) -> Optional[Any]:
-        """The session's event stream: the App Server's when one is hosted
-        (the recorder's, or its own without one), else the recorder's."""
-        host = self.app_server
-        if host is not None and getattr(host, "event_buffer", None) is not None:
-            return host.event_buffer
+    def event_buffer(self) -> EventBuffer:
+        """The session's event stream: the recorder's while a microscope is
+        connected, else the session's own. A reader tells them apart by the
+        buffer's ``stream``."""
         recorder = self.recorder
-        return recorder.buffer if recorder is not None else None
+        return recorder.buffer if recorder is not None else self._idle_buffer
 
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
         """Put an event on the session's record, as whoever marked this
-        thread; nothing without a stream."""
-        buffer = self.event_buffer
-        if buffer is not None:
-            buffer.append(kind, payload)
+        thread."""
+        self.event_buffer.append(kind, payload)
 
     def start_recording(self) -> None:
         """Record events for the connected microscope.
@@ -280,10 +405,6 @@ class AppSession:
         recorder = self.recorder
         if recorder is not None and recorder.microscope is self.microscope:
             return
-        if recorder is not None:
-            # A running server serves the old stream: stopped, so it is
-            # started again on the new one rather than serve a closed one.
-            self.stop_app_server()
         self.stop_recording()
         if self.microscope is None:
             return
@@ -308,17 +429,17 @@ class AppSession:
             self.recorder.close()
             self.recorder = None
 
-    def start_app_server(self, app_context: Callable[[Any], Any]) -> bool:
+    def start_app_server(self, app_context: Callable[[], Any]) -> bool:
         """Host the App Server over this session, or keep the one running.
 
-        ``app_context`` builds the application's ``/app`` view over an event
-        buffer. Never raises (see ``fibsem.server.hosting``).
+        ``app_context`` builds the application's ``/app`` view over the
+        session. Never raises (see ``fibsem.server.hosting``).
         """
         from fibsem.server import hosting
 
         if self.app_server is None:
             self.app_server = hosting.AppServerHost(
-                self, app_context, serve_microscope=bool(self.serve_microscope)
+                self, app_context, serve_microscope=self.serve_microscope is not False
             )
         started = self.app_server.start()
         if started:
@@ -342,3 +463,10 @@ class AppSession:
         host.stop()
         self.app_server = None
         return was_running
+
+
+class _Connecting:
+    """What the session's connect runs are on (`Runs`): the connection."""
+
+    name = "connection"
+    session = None

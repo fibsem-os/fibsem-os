@@ -1,13 +1,14 @@
-"""``fibsem-autolamella-server``: serve AutoLamella on a microscope over the App
-Server, with no window, and an experiment open or none (the agent can create or
-open one). The agent level starts at Watch; the operator raises it from the chat
-page. Set up in the window first (positions, patterns, calibration), quit it,
-then serve the same experiment."""
+"""``fibsem-autolamella-server``: the AutoLamella host. It starts the session,
+connects the microscope and serves it over the App Server with an experiment
+open or none (the agent can create or open one), with no window.
+``fibsem-autolamella-ui`` is the same host with the window (it hands in
+*window*). The agent level starts at Watch; the operator raises it from the
+web app."""
 
 import argparse
 import threading
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella import experiment_setup
@@ -16,6 +17,7 @@ from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.server import headless
 from fibsem.workflows import protocol_files
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME
+from fibsem.workflows.session import AppSession
 
 __all__ = ["main", "serve"]
 
@@ -23,9 +25,7 @@ __all__ = ["main", "serve"]
 def serve(session) -> bool:
     """Host the App Server over an AutoLamella *session* with no window.
     Whether it is serving (see ``AppSession.start_app_server``)."""
-    return session.start_app_server(
-        lambda buffer: AutoLamellaAppContext(session, event_buffer=buffer)
-    )
+    return session.start_app_server(lambda: AutoLamellaAppContext(session))
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -110,10 +110,16 @@ def _experiment(args: argparse.Namespace):
 
 
 def main(
-    argv: Optional[List[str]] = None, stop: Optional[threading.Event] = None
+    argv: Optional[List[str]] = None,
+    stop: Optional[threading.Event] = None,
+    window: Optional[Callable[[AppSession, List[str]], int]] = None,
 ) -> int:
-    """Serve until Ctrl-C (or *stop* is set), then stop the run and the server."""
-    args = _parser().parse_args(argv)
+    """Serve until Ctrl-C (or *stop* is set), then stop the run and the
+    server; with *window*, ``window(session, window_args)`` until it closes,
+    the flags this parser does not know (``--quickstart``) passed on."""
+    args, window_args = _parser().parse_known_args(argv)
+    if window_args and window is None:
+        _parser().parse_args(argv)  # says what is unknown, and exits
     if args.experiments is not None and not args.experiments.is_dir():
         print(f"error: {args.experiments} is not a folder.")
         return 1
@@ -121,7 +127,7 @@ def main(
     if why is not None:
         print(f"error: {why}")
         return 1
-    session = headless.open_session(headless.connect(args), experiment)
+    session = headless.open_session(args, experiment, windowed=window is not None)
     if args.experiments is not None:
         session.experiments_folder = str(args.experiments.resolve())
     session.serve_microscope = (
@@ -129,6 +135,8 @@ def main(
         if args.serve_microscope is not None
         else fibsem_cfg.load_user_preferences().install.app_server.microscope
     )
+    if window is not None:
+        return window(session, window_args)
     return headless.serve_until_stopped(
         session, serve, "fibsem-autolamella-server", stop
     )

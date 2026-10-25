@@ -463,7 +463,7 @@ def test_an_acting_tool_names_itself_to_the_server():
     from the tool and arguments the sidecar names; a read names nothing."""
     client = _make_client("drive")
     sidecar = build_sidecar(client, _capabilities(client))
-    microscope = client.app.state.microscope
+    microscope = client.app.state.served.current
     recorded = []
 
     def record(kind, payload):

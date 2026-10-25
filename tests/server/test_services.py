@@ -54,7 +54,7 @@ def test_microscope_off_says_why(microscope):
         assert response.status_code == 404, (method, path)
         detail = response.json()["detail"]
         assert detail["error_type"] == "microscope_off", (method, path)
-        assert "Tools → App Server" in detail["message"]
+        assert "Tools → Host" in detail["message"]
     # A path that never existed is still a plain 404.
     missing = client.get("/no_such_route", headers=AUTH)
     assert missing.status_code == 404
