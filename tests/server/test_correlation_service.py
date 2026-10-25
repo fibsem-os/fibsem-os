@@ -225,6 +225,28 @@ def test_refine_point_answers_a_proposal(client, images):
     assert result["initial"] == [50.0, 50.0, 5.0]
 
 
+def test_refine_point_starts_on_the_sharpest_plane_and_takes_a_channel_name(
+    client, images
+):
+    """An FM point with no z starts on its channel's sharpest plane: a hole's
+    fit searches only the planes around it. The channel is its name or index."""
+    from fibsem.fm.preview import plane_sharpness
+    from fibsem.fm.structures import FluorescenceImage
+
+    fm = FluorescenceImage.load(images.fm)
+    sharpness = plane_sharpness(fm.data[0])
+    url = f"{CORRELATION}/queries/refine_point"
+    for channel in (0, fm.metadata.channels[0].name):
+        point = {"image_path": images.fm, "x": 50.0, "y": 50.0, "beam": "fm"}
+        resp = client.post(url, json={"kwargs": {**point, "channel": channel}})
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["result"]["initial"][2] == sharpness.index(max(sharpness))
+    for channel, says in (("DAPI", "no channel 'DAPI'"), (9, "channel is 0 to")):
+        point = {"image_path": images.fm, "x": 50.0, "y": 50.0, "beam": "fm"}
+        resp = client.post(url, json={"kwargs": {**point, "channel": channel}})
+        assert resp.status_code == 422 and says in resp.text, resp.text
+
+
 def test_served_with_no_microscope(images, experiment):
     """An analysis service: the App Server serves it with the microscope's
     routes off and no microscope at all."""

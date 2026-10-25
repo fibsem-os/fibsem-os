@@ -261,8 +261,13 @@ def _keep_marked(event, marked) -> None:
             marked.pop(next(iter(marked)))
 
 
-def _px(x, y) -> str:
-    return f"{x:.0f},{y:.0f} px"
+def _px(x, y, mark=None) -> str:
+    # A mark on a stack's plane: z as the correlation tools take it.
+    z = (mark or {}).get("z")
+    # The pictures and the viewer count planes from 1.
+    return f"{x:.0f},{y:.0f} px" + (
+        f" z {z:g} (plane {round(z) + 1})" if z is not None else ""
+    )
 
 
 def _stage(position) -> str:
@@ -280,24 +285,24 @@ def _mark_parts(marks):
     for point in marks.get("points") or []:
         kind = "target" if point.get("shape") == "target" else "point"
         yield (
-            f"{_named(kind, point)} at {_px(point['x'], point['y'])}"
+            f"{_named(kind, point)} at {_px(point['x'], point['y'], point)}"
             f"{_stage(point.get('stage'))}"
         )
     for area in marks.get("areas") or []:
         yield (
-            f"{_named('area', area)} at {_px(area['x'], area['y'])} "
+            f"{_named('area', area)} at {_px(area['x'], area['y'], area)} "
             f"{area['width']:.0f}x{area['height']:.0f} px, centre"
             f"{_stage(area.get('stage')) or ' (no stage)'}"
         )
     for circle in marks.get("circles") or []:
         yield (
-            f"{_named('circle', circle)} at {_px(circle['x'], circle['y'])} "
+            f"{_named('circle', circle)} at {_px(circle['x'], circle['y'], circle)} "
             f"radius {circle['radius']:.0f} px{_stage(circle.get('stage'))}"
         )
     for line in marks.get("lines") or []:
         kind = "arrow" if line.get("arrow") else "line"
         yield (
-            f"{_named(kind, line)} from {_px(line['x1'], line['y1'])}"
+            f"{_named(kind, line)} from {_px(line['x1'], line['y1'], line)}"
             f"{_stage(line.get('stage1'))} to {_px(line['x2'], line['y2'])}"
             f"{_stage(line.get('stage2'))}"
         )
@@ -305,17 +310,21 @@ def _mark_parts(marks):
 
 def _marks_part(evidence) -> str:
     """The marks of the image the operator sent with a message, written out:
-    where each is in the image's pixels and, when the image says where it was
-    taken, on the stage."""
+    where each is in the image's pixels (and a stack's plane, z), and, when
+    the image says where it was taken, on the stage."""
     if not evidence:
         return ""
-    parts = list(_mark_parts(evidence.get("marks") or {}))
+    marks = evidence.get("marks") or {}
+    parts = list(_mark_parts(marks))
     shown = "; ".join(parts[:MARKS_WRITTEN])
     if len(parts) > MARKS_WRITTEN:
         shown += f"; and {len(parts) - MARKS_WRITTEN} more"
     channels = evidence.get("channels")
+    planes = any("z" in mark for kind in marks.values() for mark in kind)
     on = f"{evidence.get('image')}" + (
-        f" (max projection of {', '.join(channels)})" if channels else ""
+        f" ({'' if planes else 'max projection of '}{', '.join(channels)})"
+        if channels
+        else ""
     )
     head = f" -- marks on {on} (evidence {evidence.get('evidence_id')})"
     return f"{head}: {shown}" if shown else f"{head}, no marks"

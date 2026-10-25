@@ -596,8 +596,8 @@ class AutoLamellaAppContext(AppContext):
         fov: bool = False,
         current: bool = False,
     ) -> Dict[str, Any]:
-        """Any beam image in the experiment with the items drawn on it, as the
-        overview plot dialog draws them (`overview_figure`): numbers for names,
+        """Any beam image or fluorescence overview (its max projection) in the
+        experiment with the items drawn on it, as the overview plot dialog draws them (`overview_figure`): numbers for names,
         green, red for a failed item. *grid_name* draws that grid's items only;
         without it, every item with a pose. Saved as ``markers/<image>.png``
         beside the image (replaced when drawn again), a path the agent can cite
@@ -617,21 +617,15 @@ class AutoLamellaAppContext(AppContext):
             if grid is None:
                 return self._no_such_grid(experiment, grid_name)
             lamellae, linked, reason = _grid_items(experiment, grid)
-        if is_fluorescence_image(target):
-            return refused(
-                "invalid",
-                f"{path!r} is a fluorescence image; the items are drawn on a beam image.",
-            )
-        try:
-            image = FibsemImage.load(target)
-        except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
-            return refused("invalid", f"{path!r}: {exc}")
-        stem = os.path.splitext(os.path.basename(target))[0]
+        stem = image_stem(target)
         saved = os.path.join(os.path.dirname(target), "markers", f"{stem}.png")
         stage = None
         if current and self._microscope is not None:
             stage = self._microscope.get_stage_position()
-        jpeg = save_markers_picture(image, lamellae, saved, fov=fov, current=stage)
+        try:
+            jpeg = save_markers_picture(target, lamellae, saved, fov=fov, current=stage)
+        except Exception as exc:  # noqa: BLE001 - an unreadable file is a data fact
+            return refused("invalid", f"{path!r}: {exc}")
         answer = {
             "image": path,
             "path": saved,

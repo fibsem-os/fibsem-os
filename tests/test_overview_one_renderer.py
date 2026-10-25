@@ -151,6 +151,8 @@ def test_the_overview_is_drawn_without_pyplot(overview, tmp_path, no_pyplot):
 
     positions = _positions(overview, ["01-a"])
     plot_minimap(overview, positions, grid_positions=positions, show_grid_radius=True)
-    assert save_markers_picture(overview, [], str(tmp_path / "markers.png"))[:2] == (
+    path = str(tmp_path / "overview.tif")
+    overview.save(path)
+    assert save_markers_picture(path, [], str(tmp_path / "markers.png"))[:2] == (
         b"\xff\xd8"
     )

@@ -244,6 +244,24 @@ def test_the_message_writes_out_the_operator_s_marks(app):
     )
 
 
+def test_marks_on_a_stack_s_planes_say_their_z():
+    from fibsem.ai.agent.mcp.watch import _marks_part
+
+    marks = {
+        "points": [{"x": 812, "y": 440, "z": 11, "label": "POI"}],
+        "areas": [{"x": 1, "y": 2, "width": 3, "height": 4}],
+    }
+    said = _marks_part(
+        _marked("ab12cd34", marks, image="/exp/stack.ome.tiff", channels=["GFP"])
+    )
+    assert said == (
+        " -- marks on /exp/stack.ome.tiff (GFP) (evidence ab12cd34): "
+        'point "POI" at 812,440 px z 11 (plane 12); area at 1,2 px 3x4 px, centre (no stage)'
+    )
+    flat = _marks_part(_marked("ab12cd34", {"areas": marks["areas"]}, channels=["GFP"]))
+    assert "(max projection of GFP)" in flat
+
+
 def test_a_message_waiting_for_the_watch_keeps_its_marks(app):
     marks = {"areas": [{"x": 1, "y": 2, "width": 3, "height": 4, "label": "here"}]}
     app.buffer.append("evidence", _marked("aa00bb11", marks), actor="operator")

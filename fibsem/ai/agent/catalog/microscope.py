@@ -2,7 +2,7 @@
 
 import os
 from dataclasses import fields as dataclass_fields
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 
 from fibsem.ai.agent.catalog.spec import (
     RETRACT_FIRST,
@@ -717,13 +717,20 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "x": arg("the picked x, pixels", float),
             "y": arg("the picked y, pixels", float),
             "z": arg(
-                "the picked slice, for an FM point (default 0)", float, default=0.0
+                "the picked slice, for an FM point, 0 the first (default the "
+                "channel's sharpest plane; a Hole fit searches only the planes "
+                "around it)",
+                float,
             ),
             "beam": arg("fib or fm (default fib)", default="fib"),
             "method": arg(
                 "Hole or Gaussian (default Hole for fib, Gaussian for fm)", default=""
             ),
-            "channel": arg("the FM channel index (default 0)", int, default=0),
+            "channel": arg(
+                "the FM channel, by name or index (default the first)",
+                Union[str, int],
+                default=0,
+            ),
         },
         optional=("z", "beam", "method", "channel"),
         call=lambda a: ({}, kwargs_body(**a)),

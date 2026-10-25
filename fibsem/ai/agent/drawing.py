@@ -30,6 +30,7 @@ from fibsem.imaging.marks import (
     load_marked_image,
     mark_colour,
     marked_picture,
+    plane_shown,
     png_bytes,
 )
 from fibsem.theme.tokens import PURPLE_COLOR
@@ -206,18 +207,19 @@ def picture_png(
 def evidence_png(evidence: Optional[Dict[str, Any]], chip: str = "") -> Optional[bytes]:
     """The image of *evidence*, its marks drawn on it in the colour of whoever
     marked it and *chip* at the top right, at most `PICTURE_WIDTH` wide (a
-    beam image or a stack's projection with its scalebar and metadata bar): a
-    PNG, or None when there is no image."""
+    beam image, or a stack's projection or the plane its marks are on, with
+    its scalebar and metadata bar): a PNG, or None when there is no image."""
     evidence = evidence or {}
     path = evidence.get("image")
-    image, options = (
-        load_marked_image(str(path), evidence.get("channels")) if path else (None, None)
-    )
+    if not path:
+        return None
+    plane, marks = plane_shown(evidence.get("marks"))
+    image, options = load_marked_image(str(path), evidence.get("channels"), plane)
     if image is None:
         return None
     rgb = marked_picture(
         image,
-        evidence.get("marks"),
+        marks,
         mark_colour(evidence.get("by")),
         options,
         PICTURE_WIDTH,

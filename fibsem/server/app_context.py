@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional
 from fibsem.acting import OPERATOR, WORKFLOW, Actor, current_actor, signer
 from fibsem.codec import decode, encode
 from fibsem.config import get_recent_experiments
+from fibsem.fm.preview import is_fluorescence_image
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
 from fibsem.imaging.cells import from_crop
 from fibsem.imaging.marks import (
@@ -23,6 +24,7 @@ from fibsem.imaging.marks import (
     drawn_path,
     drawn_picture,
     image_stem,
+    plane_shown,
     save_drawn,
 )
 from fibsem.server import log_tail
@@ -311,12 +313,14 @@ class AppContext:
         crosshair: bool = False,
         metadata_bar: bool = True,
         channels: Optional[List[str]] = None,
+        plane: Optional[int] = None,
     ) -> Any:
-        """A saved image in the experiment (beam, or a fluorescence stack's max
-        projection) with *marks* (the one marks vocabulary, its pixels) drawn
-        on it, as evidence draws them, the centre *crosshair*, the scale bar
-        and the metadata bar. Saved as ``drawn/<image>.png`` beside the image
-        (replaced when drawn again), a path to cite as evidence."""
+        """A saved image in the experiment (beam, or a fluorescence stack's
+        *plane* or max projection) with *marks* (the one marks vocabulary, its
+        pixels) drawn on it, as evidence draws them, the centre *crosshair*,
+        the scale bar and the metadata bar. Saved as ``drawn/<image>.png``
+        beside the image (``<image>-plane-<n>.png`` for a plane; replaced when
+        drawn again), a path to cite as evidence."""
         target, refusal = self._experiment_image(path)
         if refusal:
             return refusal
@@ -330,10 +334,11 @@ class AppContext:
                 crosshair=crosshair,
                 metadata_bar=metadata_bar,
                 channels=channels,
+                plane=plane,
             )
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
-        saved = drawn_path(target, image_stem(target))
+        saved = drawn_path(target, _drawn_stem(target, checked, plane))
         return ImageDrawn(path, saved, checked, save_drawn(rgb, saved))
 
     def draw_pair(
@@ -343,10 +348,13 @@ class AppContext:
         marks: Any = None,
         metadata_bar: bool = True,
         channels: Optional[List[str]] = None,
+        before_plane: Optional[int] = None,
+        after_plane: Optional[int] = None,
     ) -> Any:
         """Two saved images of the experiment side by side at one scale, each
         with its own bars, *marks* (in *before*'s pixels) drawn on both: pre and
-        post mill, before and after an alignment, SEM next to FIB. Saved as
+        post mill, before and after an alignment, SEM next to FIB, two planes
+        of one fluorescence stack (*before_plane*, *after_plane*). Saved as
         ``drawn/<before>-<after>.png`` beside *before*."""
         first, refusal = self._experiment_image(before)
         if refusal:
@@ -364,10 +372,16 @@ class AppContext:
                 checked,
                 metadata_bar=metadata_bar,
                 channels=channels,
+                before_plane=before_plane,
+                after_plane=after_plane,
             )
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
-        saved = drawn_path(first, f"{image_stem(first)}-{image_stem(second)}")
+        saved = drawn_path(
+            first,
+            f"{_drawn_stem(first, checked, before_plane)}"
+            f"-{_drawn_stem(second, checked, after_plane)}",
+        )
         return ImagePairDrawn(before, after, saved, checked, save_drawn(rgb, saved))
 
     @property
@@ -1756,6 +1770,14 @@ def _uncropped_point(target: str, crop: Any, px, fraction):
     if px is not None:
         return [px[0] * scale + x0, px[1] * scale + y0], None
     return [x0 + fraction[0] * box[2], y0 + fraction[1] * box[3]], None
+
+
+def _drawn_stem(path: str, marks: Any, plane: Optional[int]) -> str:
+    """The name a picture of *path* is saved by: its stem, with the plane of a
+    stack it shows (`plane_shown`), so each plane's picture is kept."""
+    shown, _ = plane_shown(marks, plane, is_fluorescence_image(path))
+    stem = image_stem(path)
+    return stem if shown is None else f"{stem}-plane-{shown + 1}"
 
 
 def _checked_marks(marks: Any, image_path: str):

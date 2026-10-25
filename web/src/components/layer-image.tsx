@@ -250,8 +250,9 @@ export type ImageKeys = MutableRefObject<((e: KeyboardEvent) => boolean) | null>
  * An image drawn in the browser from its raw planes: each channel (or the detector)
  * a layer with its own colour, opacity, gamma and contrast, the stack's planes and
  * projections, zoom and pan, the ruler, crosshair and scalebar, the value under the
- * cursor, and export. *marks* is drawn over the image while marking, which keeps the
- * whole stack's max projection on screen.
+ * cursor, and export. *marks* is drawn over the image while marking: on one plane of
+ * a stack, or its whole max projection. *onPlane* hears the plane on screen (null, a
+ * projection); *planeTo* is set to show a plane.
  */
 export function LayerImage({
   path,
@@ -261,6 +262,8 @@ export function LayerImage({
   keys,
   onNoWebGL,
   onVisible,
+  onPlane,
+  planeTo,
 }: {
   path: string;
   read: FileRead;
@@ -268,6 +271,8 @@ export function LayerImage({
   marks?: ReactNode;
   keys: ImageKeys;
   onNoWebGL: () => void;
+  onPlane?: (z: number | null) => void;
+  planeTo?: MutableRefObject<((z: number) => void) | null>;
   /** The names of the channels on screen, when they change. */
   onVisible?: (names: string[]) => void;
 }) {
@@ -292,7 +297,14 @@ export function LayerImage({
     first: 0,
     last: count - 1,
   });
-  const drawn: StackShown = marking && stack ? { ...shown, projection: "max", first: 0, last: count - 1 } : shown;
+  // Marks go on one plane or the whole stack's max projection, as the agent's picture shows them.
+  const drawn: StackShown =
+    marking && stack && shown.projection ? { ...shown, projection: "max", first: 0, last: count - 1 } : shown;
+  const onScreen = stack ? (drawn.projection ? null : drawn.z) : undefined;
+  useEffect(() => {
+    if (onScreen !== undefined) onPlane?.(onScreen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onScreen]);
   const [settled, setSettled] = useState(drawn);
   useEffect(() => {
     const t = setTimeout(() => setSettled(drawn), SETTLE_MS);
@@ -487,6 +499,7 @@ export function LayerImage({
       z: Math.max(0, Math.min(count - 1, shown.projection ? shown.z : shown.z + by)),
       projection: null,
     });
+  if (planeTo) planeTo.current = (z) => setShown({ ...shown, z, projection: null });
   keys.current = (e) => {
     const key = e.key.toLowerCase();
     if (key === "+" || key === "=") setView(zoomed(view, 1.5));
@@ -497,9 +510,9 @@ export function LayerImage({
     else if (key === "c") toggleTool("crosshair");
     else if (key === "s") toggleTool("scalebar");
     else if (key === "e") setExporting(!exporting);
-    else if (key === "p" && stack && !marking) setProjMenu(!projMenu);
-    else if (e.key === "ArrowUp" && stack && !marking) stepPlane(1);
-    else if (e.key === "ArrowDown" && stack && !marking) stepPlane(-1);
+    else if (key === "p" && stack) setProjMenu(!projMenu);
+    else if (e.key === "ArrowUp" && stack) stepPlane(1);
+    else if (e.key === "ArrowDown" && stack) stepPlane(-1);
     else return false;
     return true;
   };
@@ -585,10 +598,10 @@ export function LayerImage({
         {exporting && <ExportMenu save={save} close={() => setExporting(false)} />}
       </div>
       <ImageInfoBar info={info} values={values} readout={readout} />
-      {stack && !marking && (
+      {stack && (
         <ZRow
           count={count}
-          shown={shown}
+          shown={drawn}
           set={setShown}
           sharpness={fm?.channels[selected]?.sharpness ?? fm?.channels.find((c) => c.sharpness)?.sharpness ?? null}
           menu={projMenu}

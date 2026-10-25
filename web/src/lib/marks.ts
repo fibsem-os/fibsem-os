@@ -3,14 +3,19 @@ import * as fmt from "./format";
 /** Marks on an image, as evidence records keep them: full-resolution source
  * pixels, origin top left (plans/agent-drawing, "Marks schema"). */
 
-export interface PointMark {
+/** The plane of a fluorescence stack a mark is on, 0 the first; none for the projection. */
+interface OnPlane {
+  z?: number;
+}
+
+export interface PointMark extends OnPlane {
   x: number;
   y: number;
   shape?: "cross" | "target";
   label?: string;
 }
 
-export interface AreaMark {
+export interface AreaMark extends OnPlane {
   x: number;
   y: number;
   width: number;
@@ -18,14 +23,14 @@ export interface AreaMark {
   label?: string;
 }
 
-export interface CircleMark {
+export interface CircleMark extends OnPlane {
   x: number;
   y: number;
   radius: number;
   label?: string;
 }
 
-export interface LineMark {
+export interface LineMark extends OnPlane {
   x1: number;
   y1: number;
   x2: number;
@@ -70,9 +75,13 @@ export function listMarks(marks: Marks | null | undefined): Mark[] {
 const px = (v: number) => Math.round(v);
 
 /** *list* as a record keeps it: whole pixels, empty labels and kinds left out,
- * a measured line's label left to the server. */
+ * a measured line's label left to the server, each mark's plane kept. */
 export function toMarks(list: Mark[]): Marks {
-  const label = (m: { label?: string }) => (m.label?.trim() ? { label: m.label.trim().slice(0, MAX_LABEL) } : {});
+  const label = (m: { label?: string; z?: number }) => ({
+    ...(m.label?.trim() ? { label: m.label.trim().slice(0, MAX_LABEL) } : {}),
+    ...plane(m),
+  });
+  const plane = (m: { z?: number }) => (m.z != null ? { z: m.z } : {});
   const out: Marks = {};
   for (const m of list) {
     if (m.kind === "point")
@@ -89,7 +98,7 @@ export function toMarks(list: Mark[]): Marks {
         y2: px(m.y2),
         arrow: !!m.arrow,
         measure: !!m.measure,
-        ...(m.measure ? {} : label(m)),
+        ...(m.measure ? plane(m) : label(m)),
       });
   }
   return out;

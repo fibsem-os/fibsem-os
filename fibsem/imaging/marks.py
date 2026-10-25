@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from fibsem.fm.preview import is_fluorescence_image
 from fibsem.imaging.export import (
     ExportImage,
     ExportOptions,
@@ -291,21 +292,68 @@ def draw_marks(
         placer.place(anchor, label, c)
 
 
-def load_marked_image(path: str, channels: Optional[Sequence[str]] = None):
+def plane_shown(
+    marks: Optional[Dict[str, Any]], plane: Optional[int] = None, stack: bool = True
+) -> Tuple[Optional[int], Optional[Dict[str, Any]]]:
+    """``(plane, marks)``: the plane of a *stack* a picture of *marks* shows
+    (*plane* when given, else the one every mark with a z is on, else None,
+    the max projection) and the marks it draws: on a plane, that plane's and
+    those with no z; on the projection or an image with no planes, all, each
+    label saying its plane."""
+    if plane is None and stack:
+        planes = {_plane(m) for kind in (marks or {}).values() for m in kind}
+        planes.discard(None)
+        plane = planes.pop() if len(planes) == 1 else None
+    if not marks:
+        return plane, marks
+    shown = {}
+    for name, kind in marks.items():
+        if plane is not None:
+            kind = [m for m in kind if _plane(m) in (None, plane)]
+        else:
+            kind = [_with_plane(m) if "z" in m else m for m in kind]
+        if kind:
+            shown[name] = kind
+    return plane, shown or None
+
+
+def _plane(mark: Dict[str, Any]) -> Optional[int]:
+    """The plane *mark* is drawn on: its z, a fitted fraction to the nearest."""
+    return round(mark["z"]) if "z" in mark else None
+
+
+def _with_plane(mark: Dict[str, Any]) -> Dict[str, Any]:
+    """*mark* labelled with its plane, counted from 1 as the viewer counts."""
+    where = f"plane {_plane(mark) + 1}"
+    label = mark.get("label")
+    return {**mark, "label": f"{label} · {where}" if label else where}
+
+
+def load_marked_image(
+    path: str, channels: Optional[Sequence[str]] = None, plane: Optional[int] = None
+):
     """``(image, options)``: the image at *path* as the export shows it, a beam
-    image or a fluorescence stack's max projection (only *channels*, by name,
-    when given) with its scale bar and metadata bar, or any other image as it
-    is; ``(None, None)`` when it does not read."""
+    image or a fluorescence stack's *plane* (0 the first; None the max
+    projection), only *channels* (by name) when given, with its scale bar and
+    metadata bar, or any other image as it is; ``(None, None)`` when it does
+    not read. ValueError for a plane the stack doesn't have."""
     from PIL import Image
 
-    from fibsem.imaging.export import load_export_image
+    from fibsem.imaging.export import load_export_image, restacked
 
     if path.lower().endswith((".tif", ".tiff")):
         try:
             image = load_export_image(path)
-            return image, options_for(image, channels=channels)
         except Exception:  # noqa: BLE001 - try it as a plain image
-            pass
+            image = None
+        if image is not None:
+            options = options_for(image, channels=channels)
+            if plane is not None:
+                if not image.layers:
+                    raise ValueError(f"plane is for a fluorescence stack: {path}")
+                options.plane = plane
+                image = restacked(image, options)
+            return image, options
     try:
         with Image.open(path) as opened:
             rgb = np.asarray(opened.convert("RGB"))
@@ -471,12 +519,15 @@ def drawn_picture(
     metadata_bar: bool = True,
     channels: Optional[Sequence[str]] = None,
     max_width: int = DRAWN_WIDTH,
+    plane: Optional[int] = None,
 ) -> np.ndarray:
     """The image at *path* with *marks* (its pixels) drawn on it, at most
     *max_width* wide: the centre *crosshair*, the scale bar and, when
     *metadata_bar*, the metadata bar, as the export dialog draws them. Raises
-    ValueError for a file that is not an image."""
-    image, options = load_marked_image(path, channels)
+    ValueError for a file that is not an image. On a fluorescence stack, the
+    *plane* `plane_shown` picks for the marks."""
+    plane, marks = plane_shown(marks, plane, is_fluorescence_image(path))
+    image, options = load_marked_image(path, channels, plane)
     if image is None:
         raise ValueError(f"{path} is not an image")
     options.crosshair = crosshair
@@ -501,12 +552,15 @@ def drawn_pair(
     colour: str = AGENT_MARK_COLOR,
     metadata_bar: bool = True,
     channels: Optional[Sequence[str]] = None,
+    before_plane: Optional[int] = None,
+    after_plane: Optional[int] = None,
 ) -> np.ndarray:
     """*before* and *after* side by side at one scale (the wider field at
     most `DRAWN_WIDTH` wide), each with its own bars, *marks* (*before*'s pixels)
     on both: on *after* at the same place on the sample, the two taken
     centred on one point (at the same place of its frame when either does not
-    say its pixel size)."""
+    say its pixel size). A stack shows its *before_plane* / *after_plane* (as
+    `drawn_picture` picks when None): two planes of one stack side by side."""
     field_before, shape_before = _field_width(before, channels)
     field_after, shape_after = _field_width(after, channels)
     widths = [DRAWN_WIDTH, DRAWN_WIDTH]
@@ -537,9 +591,9 @@ def drawn_pair(
             shape_after[0] / shape_before[0],
         )
     left = drawn_picture(
-        before, marks, colour, False, metadata_bar, channels, widths[0]
+        before, marks, colour, False, metadata_bar, channels, widths[0], before_plane
     )
     right = drawn_picture(
-        after, moved, colour, False, metadata_bar, channels, widths[1]
+        after, moved, colour, False, metadata_bar, channels, widths[1], after_plane
     )
     return side_by_side(left, right)

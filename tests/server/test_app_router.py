@@ -1106,6 +1106,46 @@ def test_draw_image_saves_the_marks_drawn_beside_the_image(
     )
 
 
+def test_draw_image_shows_a_stack_s_plane(client, host):
+    """On a fluorescence stack the agent draws one plane, the one asked or the
+    one its marks are on, saved by its plane; the pair puts two planes of one
+    stack side by side."""
+    from tests.fixtures.fm_stacks import planes_stack
+
+    path = str(Path(host.experiment.path) / "stack.ome.tiff")
+    planes_stack(path)
+    url = "/app/experiment/images/drawn"
+    poi = {"points": [{"x": 80, "y": 20, "z": 2, "label": "POI"}]}
+    resp = client.post(url, headers=AUTH, json={"path": path, "marks": poi})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["path"].endswith("drawn/stack-plane-3.png")
+    assert resp.json()["marks"]["points"][0]["z"] == 2
+    asked = client.post(url, headers=AUTH, json={"path": path, "plane": 0})
+    assert asked.json()["path"].endswith("drawn/stack-plane-1.png")
+    flat = client.post(url, headers=AUTH, json={"path": path})
+    assert flat.json()["path"].endswith("drawn/stack.png")
+    for body in ({"plane": -1}, {"plane": "2"}, {"plane": 3}):
+        refused = client.post(url, headers=AUTH, json={"path": path, **body})
+        assert refused.status_code == 422, body
+    too_deep = {"points": [{"x": 1, "y": 1, "z": 3}]}
+    refused = client.post(url, headers=AUTH, json={"path": path, "marks": too_deep})
+    assert refused.status_code == 422 and "0 to 2" in refused.text
+
+    pair = client.post(
+        "/app/experiment/images/pair",
+        headers=AUTH,
+        json={
+            "before": path,
+            "after": path,
+            "marks": poi,
+            "before_plane": 2,
+            "after_plane": 0,
+        },
+    )
+    assert pair.status_code == 200, pair.text
+    assert pair.json()["path"].endswith("drawn/stack-plane-3-stack-plane-1.png")
+
+
 def test_draw_pair_puts_two_images_side_by_side_at_one_scale(
     client, host, grid_with_overview, microscope
 ):
@@ -1336,6 +1376,17 @@ def test_fm_overview_previews_in_colour_and_places_markers(
         headers=AUTH,
     ).json()["stage_position"]
     assert (converted["x"], converted["y"]) == pytest.approx((centre.x, centre.y))
+
+    # The agent's markers picture draws on the max projection.
+    drawn = client.post(
+        "/app/experiment/images/markers",
+        headers=AUTH,
+        json={"path": str(outdir / "overview.ome.tiff"), "grid_name": "grid-aspen"},
+    )
+    assert drawn.status_code == 200, drawn.text
+    assert drawn.json()["path"] == str(outdir / "markers" / "overview.png")
+    assert os.path.getsize(drawn.json()["path"]) > 0
+    assert len(drawn.json()["items"]) == 2
 
     listed = client.get("/app/experiment/grids", headers=AUTH).json()["items"][0][
         "overviews"

@@ -205,6 +205,24 @@ def test_a_message_carries_the_image_the_operator_marked(server):
     assert read.json()["by"] == "operator"
 
 
+def test_marks_on_a_stack_s_plane_read_back_on_that_plane(server):
+    from tests.fixtures.fm_stacks import planes_stack
+
+    planes_stack(os.path.join(str(server.session.experiment.path), "stack.ome.tiff"))
+    marks = {"points": [{"x": 80, "y": 20, "z": 2, "label": "POI"}, {"x": 5, "y": 5}]}
+    answer = server.post(
+        "/app/agent/messages",
+        headers=server.operator,
+        json={"text": "", "evidence": {"image": "stack.ome.tiff", "marks": marks}},
+    )
+    assert answer.status_code == 201, answer.text
+    read = server.get(
+        f"/app/agent/evidence/{answer.json()['evidence_id']}", headers=server.operator
+    ).json()
+    assert read["plane"] == 2
+    assert [p.get("z") for p in read["marks"]["points"]] == [2, None]
+
+
 @pytest.mark.parametrize(
     "marks",
     [

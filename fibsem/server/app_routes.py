@@ -650,13 +650,21 @@ def build_app_router(context: Any) -> APIRouter:
             context.render_markers(path, grid_name, **_flags(body, "fov", "current"))
         )
 
-    def _draw_options(body: Dict[str, Any]) -> Dict[str, Any]:
+    def _draw_options(body: Dict[str, Any], *planes: str) -> Dict[str, Any]:
         options: Dict[str, Any] = _flags(body, "crosshair", "metadata_bar")
         channels = body.get("channels")
         if channels is not None:
             options["channels"] = _names(
                 body, "channels", "the fluorescence channels to show, by name"
             )
+        for name in planes:
+            plane = body.get(name)
+            if plane is not None:
+                if isinstance(plane, bool) or not isinstance(plane, int) or plane < 0:
+                    raise _missing_field(
+                        f"{name} is a fluorescence stack's plane, 0 the first."
+                    )
+                options[name] = plane
         return options
 
     @router.post("/experiment/images/drawn", response_model=ImageDrawn)
@@ -664,14 +672,14 @@ def build_app_router(context: Any) -> APIRouter:
         # A POST because the picture is saved beside the image, as markers are.
         path = _required_text(body, "path", "a saved image inside the experiment")
         return _typed(
-            context.draw_image(path, body.get("marks"), **_draw_options(body))
+            context.draw_image(path, body.get("marks"), **_draw_options(body, "plane"))
         )
 
     @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
     def draw_pair(body: Dict[str, Any]):
         before = _required_text(body, "before", "a saved image inside the experiment")
         after = _required_text(body, "after", "a saved image inside the experiment")
-        options = _draw_options(body)
+        options = _draw_options(body, "before_plane", "after_plane")
         options.pop("crosshair", None)
         return _typed(context.draw_pair(before, after, body.get("marks"), **options))
 

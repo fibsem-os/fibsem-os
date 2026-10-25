@@ -664,6 +664,7 @@ def build_sidecar(client, capabilities):
         crosshair: Optional[bool] = None,
         metadata_bar: Optional[bool] = None,
         channels: Optional[List[str]] = None,
+        plane: Optional[int] = None,
     ):
         return _routed(
             "experiment_draw_image",
@@ -673,6 +674,7 @@ def build_sidecar(client, capabilities):
                 crosshair=crosshair,
                 metadata_bar=metadata_bar,
                 channels=list(channels) if channels is not None else None,
+                plane=plane,
             ),
         )
 
@@ -682,6 +684,8 @@ def build_sidecar(client, capabilities):
         marks: Optional[dict] = None,
         metadata_bar: Optional[bool] = None,
         channels: Optional[List[str]] = None,
+        before_plane: Optional[int] = None,
+        after_plane: Optional[int] = None,
     ):
         return _routed(
             "experiment_draw_pair",
@@ -691,6 +695,8 @@ def build_sidecar(client, capabilities):
                 marks=dict(marks) if marks is not None else None,
                 metadata_bar=metadata_bar,
                 channels=list(channels) if channels is not None else None,
+                before_plane=before_plane,
+                after_plane=after_plane,
             ),
         )
 

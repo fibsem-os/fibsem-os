@@ -119,9 +119,16 @@ export function markLabel(m: Mark, pixelSize?: number | null): string | undefine
   return m.label || undefined;
 }
 
+/** *label* with the plane *z* a mark is on, counted from 1 as the viewer counts. */
+export function planeLabel(label: string | undefined, z: number | null | undefined): string | undefined {
+  if (z == null) return label;
+  return label ? `${label} · plane ${z + 1}` : `plane ${z + 1}`;
+}
+
 /** Marks drawn over an image *width* x *height* source pixels, the SVG laid over it
  * exactly. With *onMarkDown*, each mark can be picked up; *hiddenLabel* is the one
- * whose label is being typed. */
+ * whose label is being typed. *plane* is the stack's plane on screen: marks on
+ * other planes are left out; null, the projection, shows each mark's plane. */
 export function MarkLayer({
   marks,
   width,
@@ -130,6 +137,7 @@ export function MarkLayer({
   pixelSize,
   selected = null,
   hiddenLabel = null,
+  plane,
   onMarkDown,
   onPointerDown,
   onPointerMove,
@@ -143,6 +151,7 @@ export function MarkLayer({
   pixelSize?: number | null;
   selected?: number | null;
   hiddenLabel?: number | null;
+  plane?: number | null;
   onMarkDown?: (index: number, e: ReactPointerEvent<SVGGElement>) => void;
   onPointerDown?: (e: ReactPointerEvent<SVGSVGElement>) => void;
   onPointerMove?: (e: ReactPointerEvent<SVGSVGElement>) => void;
@@ -161,7 +170,8 @@ export function MarkLayer({
       onPointerUp={onPointerUp}
     >
       {marks.map((m, i) => {
-        const text = i === hiddenLabel ? undefined : markLabel(m, pixelSize);
+        if (plane != null && m.z != null && m.z !== plane) return null;
+        const text = i === hiddenLabel ? undefined : planeLabel(markLabel(m, pixelSize), plane === null ? m.z : null);
         const [lx, ly] = labelAt(m, k);
         return (
           <g
