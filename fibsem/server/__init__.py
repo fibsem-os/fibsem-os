@@ -10,7 +10,7 @@ fastapi installed, preview silently degraded to None).
 """
 
 from importlib.util import find_spec
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Sequence
 
 __all__ = ["AuthConfig", "build_server", "missing_server_extra"]
 
@@ -27,9 +27,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from fibsem.server.server import build_server  # noqa: F401
 
 
-def missing_server_extra() -> Optional[str]:
-    """Why this install can't serve, or None when the [server] extra is in."""
-    missing = [name for name in SERVER_EXTRA if find_spec(name) is None]
+def missing_server_extra(packages: Sequence[str] = SERVER_EXTRA) -> Optional[str]:
+    """Why this install can't use *packages* (serve, by default), or None when
+    the [server] extra is in."""
+    missing = [name for name in packages if find_spec(name) is None]
     if not missing:
         return None
     return (

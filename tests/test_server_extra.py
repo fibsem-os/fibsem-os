@@ -1,14 +1,17 @@
 """The base install, without the [server] extra: the host says why it isn't
-serving, the server commands say what to install, and a client of a Device
-Server still works."""
+serving, the server commands and a client's event stream say what to install,
+and a client of a Device Server still pairs."""
 
 import subprocess
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 from fibsem import server
 from fibsem.applications.autolamella import launch as autolamella_launch
 from fibsem.applications.volume import launch as volume_launch
+from fibsem.client import events
 from fibsem.gateway import main as gateway_main
 from fibsem.server import headless, hosting
 
@@ -67,3 +70,13 @@ def test_a_device_server_client_needs_no_server_extra(tmp_path):
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "None"
+
+
+def test_an_event_stream_says_what_to_install(monkeypatch):
+    monkeypatch.setattr(events, "missing_server_extra", lambda packages: MISSING)
+    stream = events.EventStream("ws://127.0.0.1:9/events", lambda event: None)
+
+    with pytest.raises(ImportError) as raised:
+        stream.start()
+    assert str(raised.value) == f"following ws://127.0.0.1:9/events needs {MISSING}"
+    assert not stream.started
