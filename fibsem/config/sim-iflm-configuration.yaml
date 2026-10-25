@@ -46,6 +46,10 @@ hardware:                                                   # what the instrumen
         range:                      {x: 20.0e-3}                # the FM's window, a half-width from its origin         [metres][SPECIFIED]
 calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
+    devices:                                                # SEM to FM: slot 1 at the beams and under the objective        [MEASURED]
+        fibsem: {origin: {x: 0.0, y: 0.0}}                  # the simulator's are nominal
+        fm: {origin: {x: 48.8e-3, y: 0.0}}
+        holder: null                                        # null: holds for any holder (the simulator only)
 defaults:                                                   # what a session starts from
     beams_on_at_connect:        false                       # turn each column on at connect, before the defaults
     apply_on_connect:           false                       # set the columns to these defaults at connect

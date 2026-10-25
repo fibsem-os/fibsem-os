@@ -35,7 +35,7 @@ from fibsem.structures.settings import (
     MillingState,
     Point,
 )
-from fibsem.structures.system import SystemSettings
+from fibsem.structures.system import BEAMS_STAGE_DEVICE, SystemSettings
 from fibsem.util.draw_numbers import draw_text
 
 if TYPE_CHECKING:
@@ -330,7 +330,7 @@ def render_fm_scene(
     )
     scene.holder_slots = simulator.scene_holder_slots()
     frame = scene.render_fm(
-        simulator.scene_stage_position(),
+        simulator.scene_stage_position_at_fm(),
         resolution,
         projection,
         weights=weights,
@@ -823,6 +823,30 @@ class DemoSimulator:
         if stage is None or not hasattr(stage, "sim_actual"):
             return position
         return stage.sim_actual(position)
+
+    def scene_stage_position_at_fm(self) -> FibsemStagePosition:
+        """Where the stage really is, as the FM's objective sees the sample.
+
+        On an offset mount the objective is the FM entry's nominal origin from the
+        beams, plus `sim.fm_origin_error` ({x, y}, metres) for a calibration to
+        find; the scene is drawn at the beams, so the stage is taken back by that
+        much. A compustage's objective is under the grid: nothing to take back."""
+        position = self.scene_stage_position()
+        movement = getattr(self.microscope, "stage_movement", None)
+        devices = self.microscope.system.stage.devices
+        if movement is None or movement.fm_is_a_pose() or "FM" not in devices:
+            return position
+        error = (self.microscope.system.sim or {}).get("fm_origin_error") or {}
+        beams = devices[BEAMS_STAGE_DEVICE].origin
+        fm = devices["FM"].origin
+        position = copy.deepcopy(position)
+        for axis in ("x", "y"):
+            start = getattr(beams, axis) or 0.0
+            end = getattr(fm, axis)
+            offset = (start if end is None else end) - start
+            offset += float(error.get(axis, 0.0))
+            setattr(position, axis, getattr(position, axis) - offset)
+        return position
 
     def scene_holder_slots(self) -> list:
         """The holder's occupied slots with a position, for the scene to put

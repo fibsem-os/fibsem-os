@@ -22,8 +22,9 @@ every backend.
 from __future__ import annotations
 
 import logging
+from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeVar
+from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, TypeVar
 
 import numpy as np
 
@@ -133,6 +134,8 @@ class StageMovement(Service):
         # The orientation table, built from the stage's poses and the milling angle
         # on first use, and again whenever either changes.
         self._orientations: Optional[Dict[str, FibsemStagePosition]] = None
+        # Set while the SEM to FM calibration travels by the nominal origin.
+        self._calibrating = False
 
     # -- orientations --------------------------------------------------------------------
 
@@ -375,9 +378,11 @@ class StageMovement(Service):
     # orientation is the pose it is held in once there.
 
     def _device(self, device: str) -> StageDeviceSettings:
-        """The configuration for `device`, or a refusal naming the ones there are."""
+        """The configuration for `device`, or a refusal naming the ones there are.
+        An offset FM's origin is the SEM to FM calibration's once it is run
+        (`StageSystemSettings.calibrated_device`)."""
         try:
-            return self.parent.system.stage.devices[device]
+            return self.parent.system.stage.calibrated_device(device)
         except KeyError:
             raise ValueError(
                 f"Microscope {device} not supported. "
@@ -448,8 +453,9 @@ class StageMovement(Service):
             return False
         origin = self._resolved_origin(target)
         return all(
-            getattr(self._resolved_origin(device), axis) == getattr(origin, axis)
-            for device in self.parent.system.stage.devices.values()
+            getattr(self._resolved_origin(self._device(name)), axis)
+            == getattr(origin, axis)
+            for name in self.parent.system.stage.devices
             for axis in DEVICE_AXES
         )
 
@@ -492,18 +498,21 @@ class StageMovement(Service):
         if by_pose is not None:
             return by_pose
 
+        devices = {
+            name: self._device(name) for name in self.parent.system.stage.devices
+        }
         containing = [
             name
-            for name, device in self.parent.system.stage.devices.items()
+            for name, device in devices.items()
             if self._is_the_only_place(device) or device.contains(stage_position)
         ]
         if not containing:
             return None
         return min(
             containing,
-            key=lambda name: self._resolved_origin(
-                self.parent.system.stage.devices[name]
-            ).euclidean_distance(stage_position),
+            key=lambda name: self._resolved_origin(devices[name]).euclidean_distance(
+                stage_position
+            ),
         )
 
     def _device_at_position_pose(
@@ -1763,6 +1772,43 @@ class StageMovement(Service):
         except ValueError:
             return True
 
+    @query
+    def fm_calibration_needed(self) -> bool:
+        """Is travel to the FM refused until SEM to FM is calibrated? True on an
+        offset mount until a calibration holds for the fitted holder; never on a
+        compustage or a system with no FM."""
+        if self.parent.fm is None or self.fm_is_a_pose():
+            return False
+        if "FM" not in self.parent.system.stage.devices:
+            return False
+        return not self.parent.system.stage.fm_calibrated()
+
+    def _refuse_uncalibrated_fm_travel(self) -> None:
+        if self._calibrating or not self.fm_calibration_needed():
+            return
+        stage = self.parent.system.stage
+        calibration = stage.device_calibration
+        if calibration is not None:
+            raise ValueError(
+                f"Recheck SEM to FM first: it was calibrated on the holder "
+                f"'{calibration.holder}', and '{stage.active_holder}' is fitted. "
+                "Travel to the fluorescence microscope stays off until then."
+            )
+        raise ValueError(
+            "Calibrate SEM to FM first: travel to the fluorescence microscope stays "
+            "off until the SEM to FM calibration is run for this holder."
+        )
+
+    @contextmanager
+    def calibrating(self) -> Iterator[None]:
+        """Travel to the FM by its nominal origin while the SEM to FM calibration
+        measures it: the one travel the gate lets through."""
+        self._calibrating = True
+        try:
+            yield
+        finally:
+            self._calibrating = False
+
     @command
     def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:
         """Travel to `device`, re-posing on the way when the pose has to change.
@@ -1814,6 +1860,9 @@ class StageMovement(Service):
                     f"{target_device.available_orientations}; re-posing to {desired} "
                     f"at the beams before travelling."
                 )
+
+            if device == "FM" and source != "FM":
+                self._refuse_uncalibrated_fm_travel()
 
             if desired is None and source == device:
                 logging.info(f"Already at {device} position, no need to move.")

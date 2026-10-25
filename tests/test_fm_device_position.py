@@ -45,6 +45,13 @@ def _microscope(config_path: str = IFLM_CONFIG):
     return microscope
 
 
+def _nominal(microscope):
+    """With no SEM to FM calibration, so the entries' origins decide; travel to
+    the FM then goes as the calibration's own first trip does."""
+    microscope.system.stage.device_calibration = None
+    return microscope
+
+
 def _at_fib(microscope):
     """`move_to_device("FM")` refuses from any other orientation -- see FIB-832."""
     microscope.move_to_orientation("FIB")
@@ -424,12 +431,13 @@ def test_the_traverse_is_the_gap_between_the_devices_not_a_constant():
     that had to be kept consistent with two windows by hand. Now there is one origin
     to move, and the traverse and the window both follow it.
     """
-    microscope = _at_fib(_microscope())
+    microscope = _at_fib(_nominal(_microscope()))
     microscope.system.stage.devices["FM"] = StageDeviceSettings(
         origin=FibsemStagePosition(x=30.0e-3)
     )
 
-    microscope.move_to_device("FM")
+    with microscope.stage_movement.calibrating():
+        microscope.move_to_device("FM")
 
     assert microscope.get_stage_position().x == pytest.approx(30.0e-3)
     assert microscope.is_at_device("FM") is True
@@ -646,7 +654,7 @@ def test_devices_are_allowed_to_overlap():
     Forbidding overlap would make an Arctis unrepresentable. Position stops deciding
     which device it is -- correctly, because there it is the orientation that does.
     """
-    microscope = _microscope()
+    microscope = _nominal(_microscope())
     microscope.system.stage.devices["FM"] = StageDeviceSettings(
         origin=FibsemStagePosition(x=0.0)
     )
@@ -747,7 +755,7 @@ def test_the_traverse_commands_only_the_axes_the_devices_differ_along():
 
 def test_an_axis_a_device_leaves_unset_is_the_beams():
     """The beams' origin is zero on x and y, so a y on the FM is travelled along."""
-    microscope = _at_beam_x(_microscope(), 0.0)
+    microscope = _at_beam_x(_nominal(_microscope()), 0.0)
     microscope.system.stage.devices["FM"] = StageDeviceSettings(
         origin=FibsemStagePosition(x=48.8e-3, y=2.0e-3),
         available_orientations=["FIB"],
@@ -755,7 +763,8 @@ def test_an_axis_a_device_leaves_unset_is_the_beams():
     )
     before = deepcopy(microscope.get_stage_position())
 
-    microscope.move_to_device("FM")
+    with microscope.stage_movement.calibrating():
+        microscope.move_to_device("FM")
 
     after = microscope.get_stage_position()
     assert after.x == pytest.approx(before.x + 48.8e-3)

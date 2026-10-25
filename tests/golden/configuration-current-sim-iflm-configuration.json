@@ -1,6 +1,21 @@
 {
   "calibration": {
     "active_holder": "",
+    "devices": {
+      "fibsem": {
+        "origin": {
+          "x": 0.0,
+          "y": 0.0
+        }
+      },
+      "fm": {
+        "origin": {
+          "x": 0.0488,
+          "y": 0.0
+        }
+      },
+      "holder": null
+    },
     "holders": {},
     "objective": {
       "focus_position": null,

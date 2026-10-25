@@ -803,6 +803,24 @@ def write_holder_calibration(
     _write_configuration_file(path, config)
 
 
+def write_device_calibration(
+    path: Union[str, Path],
+    devices: dict,
+    rotation_centre_correction: Tuple[float, float],
+) -> None:
+    """Record the SEM to FM calibration (`calibration.devices`) and the rotation
+    centre it was measured with in the configuration at *path*."""
+    config = _read_for_writing(path)
+    calibration = config.get("calibration")
+    if not isinstance(calibration, dict):
+        calibration = config["calibration"] = {}
+    calibration["devices"] = devices
+    calibration["rotation_centre_correction"] = [
+        float(v) for v in rotation_centre_correction
+    ]
+    _write_configuration_file(path, config)
+
+
 def _write_configuration_file(path: Union[str, Path], config: dict) -> None:
     """Write a configuration dict to exactly *path*.
 
