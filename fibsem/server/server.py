@@ -369,6 +369,7 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
 _RECORDS_ITSELF = (
     "/app/agent/",
     "/app/experiment/notes",
+    "/app/experiment/messages",
     "/app/experiment/evidence",
     "/app/workflow/proposals/suggest",
 )

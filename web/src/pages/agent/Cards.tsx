@@ -43,11 +43,13 @@ function Decide({
   refuse,
   refuseWord,
   approveWord = "Approve",
+  busy,
 }: {
   approve: () => void;
   refuse: (reason: string) => void;
   refuseWord: string;
   approveWord?: string;
+  busy: boolean;
 }) {
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
@@ -63,17 +65,19 @@ function Decide({
           onKeyDown={(e) => e.key === "Enter" && refuse(reason)}
         />
         <Button onClick={() => setAsking(false)}>Back</Button>
-        <Button variant="primary" onClick={() => refuse(reason)}>
+        <Button variant="primary" disabled={busy} onClick={() => refuse(reason)}>
           {refuseWord}
         </Button>
       </div>
     );
   return (
     <div className="flex flex-wrap gap-2">
-      <Button variant="primary" onClick={approve}>
+      <Button variant="primary" disabled={busy} onClick={approve}>
         {approveWord}
       </Button>
-      <Button onClick={() => setAsking(true)}>{refuseWord}…</Button>
+      <Button disabled={busy} onClick={() => setAsking(true)}>
+        {refuseWord}…
+      </Button>
     </div>
   );
 }
@@ -105,7 +109,7 @@ function Why({ reason }: { reason: string }) {
 
 /** The agent's request, each action a numbered step; while it runs, how far each got. */
 export function RequestCard({ request, agent }: { request: AgentRequest; agent: AgentState }) {
-  const { act, error } = useAct();
+  const { act, busy, error } = useAct();
   const [details, setDetails] = useState(false);
   const applying = request.status === "applying";
   const results = request.results ?? [];
@@ -174,6 +178,7 @@ export function RequestCard({ request, agent }: { request: AgentRequest; agent: 
         </div>
       ) : (
         <Decide
+          busy={busy}
           refuseWord="Reject"
           approve={() => act(`/app/agent/requests/${id}/approve`)}
           refuse={(reason) =>
@@ -191,7 +196,7 @@ export function RequestCard({ request, agent }: { request: AgentRequest; agent: 
 
 /** The agent's suggestion on a pending proposal: Approve decides it as suggested. */
 export function SuggestionCard({ suggestion, agent }: { suggestion: Suggestion; agent: AgentState }) {
-  const { act, error } = useAct();
+  const { act, busy, error } = useAct();
   const id = encodeURIComponent(suggestion.proposal_id);
   const picture = agent.pictures.suggestion;
   const [folded, setFolded] = useState(false);
@@ -215,6 +220,7 @@ export function SuggestionCard({ suggestion, agent }: { suggestion: Suggestion; 
         </>
       )}
       <Decide
+        busy={busy}
         refuseWord="Decline"
         approve={() => act(`/app/agent/suggestions/${id}/approve`)}
         refuse={(reason) =>
@@ -231,7 +237,7 @@ export function SuggestionCard({ suggestion, agent }: { suggestion: Suggestion; 
 
 /** An agent on this PC asking to connect: until it is allowed it reaches nothing. */
 export function ConnectCard({ ask }: { ask: ConnectAsk }) {
-  const { act, error } = useAct();
+  const { act, busy, error } = useAct();
   const id = encodeURIComponent(ask.id);
   const rows: [string, string][] = [
     ["Agent", `${ask.client}, as it names itself`],
@@ -254,6 +260,7 @@ export function ConnectCard({ ask }: { ask: ConnectAsk }) {
         {ask.if_allowed}
       </div>
       <Decide
+        busy={busy}
         approveWord="Allow"
         refuseWord="Deny"
         approve={() => act(`/app/agent/connections/${id}/allow`)}

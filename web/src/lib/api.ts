@@ -15,6 +15,16 @@ export class ApiError extends Error {
 }
 
 let token: string | null = null;
+
+/** fetch, with no answer at all (the server down, the network gone) an ApiError
+ * that says so, status 0, rather than the browser's "Failed to fetch". */
+async function reach(path: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch {
+    throw new ApiError(0, "Can't reach the microscope PC.", "unreachable");
+  }
+}
 const listeners = new Set<() => void>();
 
 function stored(store: () => Storage, key: string): string | null {
@@ -30,7 +40,7 @@ export function loadToken(): string | null {
   const fragment = new URLSearchParams(location.hash.slice(1)).get("token");
   if (fragment) {
     // The window's link carries the operator token; it is kept for this tab.
-    history.replaceState(null, "", location.pathname);
+    history.replaceState(null, "", location.pathname + location.search);
     setToken(fragment, "operator");
     return token;
   }
@@ -89,7 +99,7 @@ async function answer<T>(response: Response): Promise<T> {
 
 /** A call with this browser's token. A 401 forgets the token, so the app asks to pair again. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(path, {
+  const response = await reach(path, {
     ...init,
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   });
@@ -99,7 +109,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 /** An image route's bytes as an object URL, for an <img> that can't send the token. */
 export async function imageUrl(path: string): Promise<string> {
-  const response = await fetch(path, { headers: { Authorization: `Bearer ${token}` } });
+  const response = await reach(path, { headers: { Authorization: `Bearer ${token}` } });
   if (response.status === 401) forgetToken();
   if (!response.ok) throw new ApiError(response.status, response.statusText);
   return URL.createObjectURL(await response.blob());
@@ -108,7 +118,7 @@ export async function imageUrl(path: string): Promise<string> {
 /** POSTs *body* to a route that answers a file, and saves it under the name the
  * server gives (Content-Disposition), else *fallback*. */
 export async function download(path: string, body: unknown, fallback: string): Promise<void> {
-  const response = await fetch(path, {
+  const response = await reach(path, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -128,7 +138,7 @@ export async function download(path: string, body: unknown, fallback: string): P
 
 /** The pairing routes, which take no token. */
 export async function unauthed<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, {
+  const response = await reach(path, {
     method: body === undefined ? "GET" : "POST",
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
