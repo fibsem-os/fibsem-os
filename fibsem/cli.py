@@ -546,6 +546,20 @@ def _print_experiments(experiments) -> None:
 # ---------------------------------------------------------------------------
 
 
+def cmd_pair_device(args) -> int:
+    """Pair this computer with a Device Server, by the code its --pair shows,
+    and keep the token where a remote entry's connect reads it."""
+    from fibsem.client.pairing import pair
+
+    address, _, port = args.server.rpartition(":")
+    if not address or not port.isdigit():
+        print(f"error: {args.server!r} is not ADDRESS:PORT", file=sys.stderr)
+        return 2
+    pair(args.code, f"http://{address}:{port}")
+    print(f"Paired with the Device Server at {address}:{port}.")
+    return 0
+
+
 def cmd_plugins(args) -> int:
     """Print what resolved under each entry point group.
 
@@ -827,6 +841,21 @@ def _add_experiment_parsers(sub, conn) -> None:
     )
 
 
+def _add_pair_device_parser(sub) -> None:
+    """Takes no connection arguments: it reaches the Device Server, not the App
+    Server."""
+    p = sub.add_parser(
+        "pair-device",
+        help="Pair this computer with a Device Server (a METEOR PC's, say)",
+        description="Pair with the Device Server at ADDRESS:PORT using the code its "
+        "--pair shows (5 minutes, works once). The token is kept for every later "
+        "connect, so the remote entry names only address and port.",
+    )
+    p.add_argument("server", metavar="ADDRESS:PORT")
+    p.add_argument("code")
+    p.set_defaults(func=cmd_pair_device, needs_server=False)
+
+
 def _add_plugins_parser(sub) -> None:
     """Takes no connection arguments: diagnosing a plugin is usually done away
     from the instrument."""
@@ -885,6 +914,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_microscope_parsers(sub, conn)
     _add_remote_parsers(sub, conn)
     _add_experiment_parsers(sub, conn)
+    _add_pair_device_parser(sub)
     _add_plugins_parser(sub)
     return root
 

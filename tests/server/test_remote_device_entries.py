@@ -170,3 +170,16 @@ def test_disconnecting_the_microscope_closes_its_remote_clients(server, tmp_path
         assert client._events.closing.is_set()
     finally:
         client.close()
+
+
+@pytest.mark.parametrize("key", ["code", "token"])
+def test_a_remote_entry_names_only_where_its_server_is(server, caplog, key):
+    at = {"driver": "remote", "address": "127.0.0.1", "port": server.port}
+    with caplog.at_level(logging.WARNING):
+        built = _build(
+            {"name": "electron", "required": False, key: "1234", **at},
+            {"name": "fm", "type": "fm", "required": False, key: "1234", **at},
+        )
+    assert built == {}
+    assert caplog.text.count(f"takes no {key}") == 2
+    assert "fibsem-cli pair-device" in caplog.text

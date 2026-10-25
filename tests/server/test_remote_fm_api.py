@@ -413,7 +413,10 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
 
     import fibsem.config as cfg
     from fibsem import utils
+    from fibsem.server.device_auth import DeviceAuth
 
+    # A Device Server on this computer: its install token is there before it starts.
+    DeviceAuth.from_disk()
     port = _free_port()
     settings = utils.load_yaml(
         os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -444,3 +447,12 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
         fm.client.close()
         if server is not None:
             server.stop()
+
+
+def test_the_saved_focus_position_clears_on_the_far_side(served):
+    far, fm = served
+    fm.objective.focus_position = 1e-3
+    assert far.objective.focus_position == pytest.approx(1e-3)
+    fm.objective.focus_position = None
+    assert far.objective.focus_position is None
+    assert fm.objective.focus_position is None

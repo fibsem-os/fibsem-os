@@ -866,13 +866,16 @@ A device server makes devices on one computer available to the microscope on
 another, as the METEOR's FM is on the computer that drives the beams:
 
 ```bash
-python -m fibsem.server.devices --serve odemis-fm --port 8765
+python -m fibsem.server.devices --config ~/.fibsem/device-server.yaml
 ```
 
-It listens on its own computer only; the microscope's computer reaches it through an
-SSH tunnel, or over a private cable with `--host <address on that link>`. Not
-`--host 0.0.0.0`: that listens on every network and nothing is encrypted
-(INSTALLATION.md, "Delmic METEOR").
+The file lists what to serve as `hardware.devices` entries, each built by its own
+driver; an `fm` entry is served as the FM's parts. Its `server:` block says where to
+listen, `127.0.0.1` by default: its own computer only, reached through an SSH tunnel,
+or over a private cable at its address on that link. Not `0.0.0.0`: that listens on
+every network and nothing is encrypted (INSTALLATION.md, "Delmic METEOR"). An entry
+the server can't serve (a remote one, or an `fm` entry stating keys the host's entry
+owns, such as `origin`) is refused at start-up.
 
 On the microscope's computer, the `fm` entry names `driver: remote` and the server's
 `address` and `port`, as in the example under
@@ -936,10 +939,10 @@ when the server stops. Roles are not bound on the server: the coordinator binds 
 
 Every route and stream needs a token: the one the server keeps for its install
 (`~/.fibsem/device-server-token.json`, made on first start), which a client on the
-same computer reads by itself, or one paired with a code (`--pair` prints it; the
-remote entry's `code:` pairs once and keeps the token). An entry may also state
-`token:`. Keep it on the microscope's private network all the same: the traffic is
-not encrypted.
+same computer reads by itself, or one paired by command: `--pair` prints a code, and
+`fibsem-cli pair-device ADDRESS:PORT CODE` on the other computer keeps the token for
+every later connect. A remote entry names only `address` and `port`. Keep the server
+on the microscope's private network all the same: the traffic is not encrypted.
 
 ### Over the App Server
 

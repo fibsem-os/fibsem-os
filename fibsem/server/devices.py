@@ -1159,10 +1159,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         print(f"Made this Device Server's token, kept in {token_file}.")
     auth = DeviceAuth.from_disk(token_file)
     if args.pair:
+        code = auth.pairing.open()
         print(
-            f"Pairing code: {auth.pairing.open()} (5 minutes). Put it in the "
-            "other computer's remote entry as code:, or send it with "
-            "fibsem.client.pairing.pair(code, url)."
+            f"Pairing code: {code} (5 minutes, works once). On the other computer "
+            f"run: fibsem-cli pair-device <this computer's address>:{port} {code}"
         )
     logging.info(f"serving {sorted(devices)} on http://{host}:{port}")
     try:

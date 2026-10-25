@@ -232,6 +232,9 @@ class ObjectiveLens:
             self._focus_position = position
             self.focus_position_changed.emit(position)
             return
+        if position is None:
+            self._device.clear_focus_position()
+            return
         _param(self._device, "focus_position").write_through(position)
 
     def save_focus_position(self) -> float:
