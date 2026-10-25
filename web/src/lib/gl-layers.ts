@@ -162,12 +162,15 @@ export class LayerRenderer {
   }
 
   /** Draws *layers* at *at* on a canvas *width* x *height* pixels; *pixelated*
-   * shows each image pixel as a square when zoomed in. */
-  draw(layers: DrawLayer[], at: Placement, width: number, height: number, pixelated: boolean) {
+   * shows each image pixel as a square when zoomed in. *clear* false draws over
+   * what is there, as a sharper region over the whole. */
+  draw(layers: DrawLayer[], at: Placement, width: number, height: number, pixelated: boolean, clear = true) {
     const gl = this.gl;
     gl.viewport(0, 0, width, height);
-    gl.clearColor(0, 0, 0, 1);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    if (clear) {
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
     const shown = layers.slice(0, MAX_LAYERS);
     if (!shown.length) return;
     const uniform = (name: string) => gl.getUniformLocation(this.program, name);

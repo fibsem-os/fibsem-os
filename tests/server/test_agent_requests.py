@@ -1372,6 +1372,53 @@ def test_a_new_lamella_s_point_of_interest_takes_a_float(client, app, context):
     assert item.poi.x == -3e-6
 
 
+def _deciding_then(context, monkeypatch, meanwhile):
+    """Run *meanwhile* while the operator's decision is being recorded."""
+    experiment = context._session.experiment
+    decide = experiment.decide
+
+    def slow_decide(*args, **kwargs):
+        meanwhile()
+        return decide(*args, **kwargs)
+
+    monkeypatch.setattr(experiment, "decide", slow_decide)
+
+
+def test_a_request_being_approved_can_t_be_withdrawn(
+    client, app, context, microscope, monkeypatch
+):
+    """Critique B10: the operator's approve and the agent's withdraw race."""
+    filed = _file(client, NUDGE).json()
+    store = app.state.requests
+    refused = []
+
+    def withdraw():
+        with pytest.raises(RequestRefused) as caught:
+            store.withdraw(filed["request_id"], "changed my mind")
+        refused.append(caught.value.detail["error_type"])
+
+    _deciding_then(context, monkeypatch, withdraw)
+    request = store.approve(filed["request_id"])
+    assert request._done.wait(5)
+    assert refused == ["not_pending"]
+    assert (request.status, request.cancel_reason) == ("applied", "")
+    assert _proposal(context, filed["request_id"]).current.outcome.name == "Confirmed"
+
+
+def test_a_cancel_while_approving_runs_none_of_it(
+    client, app, context, microscope, monkeypatch
+):
+    filed = _file(client, NUDGE).json()
+    store = app.state.requests
+    before = microscope.get_stage_position()
+    _deciding_then(context, monkeypatch, lambda: store.cancel("Stop agent"))
+    request = store.approve(filed["request_id"])
+    assert request._done.wait(5)
+    assert (request.status, request.cancel_reason) == ("cancelled", "Stop agent")
+    assert request.results == []
+    assert microscope.get_stage_position().x == pytest.approx(before.x)
+
+
 def test_a_request_can_t_decide_a_proposal(client, app):
     """At Assist the operator decides; the agent suggests (round 10 F13)."""
     decide = {

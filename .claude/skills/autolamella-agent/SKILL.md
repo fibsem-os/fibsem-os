@@ -63,9 +63,12 @@ Read `server_get_capabilities` (`/capabilities`) before anything else:
 - `routers.microscope` says whether the microscope is served: live reads and
   hardware actions need it.
 
-No discovery file means no App Server. Tell the operator it is switched on in
-Tools → App Server and starts when a microscope connects. Don't look for
-other ways in.
+No discovery file means no App Server. It starts with the app, with or
+without a microscope connected; tell the operator it is switched on in
+Tools → Host. Don't look for other ways in.
+
+`/microscope` answering 409 `not_connected` means the operator hasn't
+connected the microscope yet. You can't connect it: say so and wait.
 
 ## Levels
 
@@ -362,8 +365,8 @@ coincidence check before a position. Say what you are about to do first.
 
 **Check before you start.** In `/capabilities`, `routers.microscope` must be
 true. If it isn't, or your level doesn't allow the action, say plainly which,
-and that the operator changes it (the Agent chip for the level; Tools → App
-Server, *Serve the microscope*, for the microscope). A hardware tool missing
+and that the operator changes it (the Agent chip for the level; Tools → Host,
+*Serve the microscope*, for the microscope). A hardware tool missing
 from your tool list means the same thing. Don't look for another way in.
 
 **An image costs dose.** On a real sample a fresh image is an action, not a

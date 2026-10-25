@@ -20,7 +20,9 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
     Experiment,
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.server.files import list_folder  # noqa: E402
 from fibsem.structures.settings import MicroscopeState  # noqa: E402
+from fibsem.workflows.actions import ACTION  # noqa: E402
 from tests.protocols import add_planned, planned  # noqa: E402
 from tests.run_state import run_working_on, stub_session
 
@@ -663,6 +665,14 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         assert bad.status_code == 422
         # A note tells nobody: it is for the record.
         assert "to" not in note["payload"]
+        # Each is on the record once, as itself: not again as an action.
+        recorded = []
+        microscope.session.record_signal.connect(
+            lambda kind, payload: recorded.append(kind)
+        )
+        for route in ("/app/experiment/notes", "/app/experiment/messages"):
+            client.post(route, headers=AUTH, json={"text": "x"})
+        assert ACTION not in recorded
 
 
 def test_agent_notes_need_only_the_read_scope(client):
@@ -1666,6 +1676,19 @@ def test_experiment_files_list_one_folder_at_watch(client, host, grid_with_overv
     assert file.status_code == 422
 
 
+def test_experiment_files_list_numbered_folders_in_number_order(tmp_path):
+    for name in ("100-nice-bream", "10-funky-pony", "9-cool-badger", "Notes", "a.md"):
+        (tmp_path / name).mkdir() if "." not in name else (tmp_path / name).touch()
+    names = [e["name"] for e in list_folder(str(tmp_path))["entries"]]
+    assert names == [
+        "9-cool-badger",
+        "10-funky-pony",
+        "100-nice-bream",
+        "Notes",
+        "a.md",
+    ]
+
+
 def test_experiment_files_read_text_and_image_previews(
     client, host, grid_with_overview
 ):
@@ -1739,6 +1762,15 @@ def test_an_images_raw_planes_for_the_web_viewer(client, host, grid_with_overvie
     assert again.status_code == 304
     refused = client.get(url, params={"factor": 3}, headers=AUTH)
     assert refused.status_code == 422
+    # zoomed in: the region on screen, at full size
+    region = client.get(url, params={"box": "32,16,20,10"}, headers=AUTH)
+    header = json.loads(region.headers["X-Planes"])
+    assert header["shape"] == [1, 1, 10, 20] and header["box"] == [32, 16, 20, 10]
+    values = np.frombuffer(region.content, dtype=header["dtype"]).reshape(10, 20)
+    np.testing.assert_array_equal(values, image.data[16:26, 32:52])
+    for box in ("1,2", "a,b,c,d", "120,0,20,10"):
+        bad = client.get(url, params={"box": box}, headers=AUTH)
+        assert bad.status_code == 422, box
 
 
 def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):

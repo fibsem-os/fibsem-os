@@ -179,16 +179,14 @@ def pair(
     return token, role
 
 
-def device_server_token(url: str, code: Optional[str] = None) -> Optional[str]:
+def device_server_token(url: str) -> Optional[str]:
     """The token for the Device Server at *url*: the one this computer was
-    paired with there, else one paired now with *code*, else the token of a
-    Device Server on this computer (`fibsem.server.operator_token`). None when
-    there is none."""
+    paired with there (``fibsem-cli pair-device``), else the token of a Device
+    Server on this computer (`fibsem.server.operator_token`). None when there
+    is none."""
     from fibsem.server.operator_token import read_device_token
 
     paired = paired_token(url)
     if paired is not None:
         return paired
-    if code:
-        return pair(str(code), url)[0]
     return read_device_token()

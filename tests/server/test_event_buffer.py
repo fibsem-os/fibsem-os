@@ -59,6 +59,16 @@ def test_long_poll_times_out_empty():
     assert 0.15 <= time.monotonic() - start < 2.0
 
 
+def test_a_reader_from_a_restarted_app_is_answered_at_once():
+    """Its seq is past this stream's latest: it starts again, not parks."""
+    buffer = EventBuffer()
+    buffer.append("news", {})
+    start = time.monotonic()
+    result = buffer.wait_for(since=900, timeout=5.0)
+    assert time.monotonic() - start < 1.0
+    assert result["latest_seq"] == 1 and result["stream"] == buffer.stream
+
+
 def test_appends_from_many_threads_never_lose_or_duplicate_a_seq():
     buffer = EventBuffer(maxlen=5000)
     threads = [

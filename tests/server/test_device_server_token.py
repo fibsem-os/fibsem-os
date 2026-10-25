@@ -1,5 +1,5 @@
 """A Device Server needs a token on every route and stream (FIB-1264): this
-install's, which a client on the same computer reads, or one paired with a code.
+install's, which a client on the same computer reads, or one paired by command.
 
 Skipped when the [server] extra is not installed.
 """
@@ -12,10 +12,11 @@ pytest.importorskip("uvicorn")
 from fastapi.testclient import TestClient  # noqa: E402
 from starlette.websockets import WebSocketDisconnect  # noqa: E402
 
+from fibsem import cli  # noqa: E402
 from fibsem.client import pairing as client_pairing  # noqa: E402
 from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
-    RemoteDeviceError,
+    RemoteDeviceNotPaired,
 )
 from fibsem.server.device_auth import DeviceAuth  # noqa: E402
 from fibsem.server.devices import (  # noqa: E402
@@ -57,7 +58,7 @@ def test_a_client_on_the_same_computer_needs_no_steps(beams):
         server.stop()
 
 
-def test_another_computer_pairs_with_the_code_once(beams, tmp_path, monkeypatch):
+def test_another_computer_pairs_by_command_once(beams, tmp_path, monkeypatch):
     auth = DeviceAuth("install", Pairing(PairedTokens(tmp_path / "paired.json")))
     server = DeviceServer(beams, auth=auth).start()
     url = f"http://127.0.0.1:{server.port}"
@@ -66,14 +67,12 @@ def test_another_computer_pairs_with_the_code_once(beams, tmp_path, monkeypatch)
         "fibsem.server.operator_token.DEVICE_TOKEN_FILE", tmp_path / "none.json"
     )
     try:
-        refused = DeviceClient("127.0.0.1", server.port)
-        with pytest.raises(RemoteDeviceError, match="401"):
-            refused.describe()
-        refused.close()
-        first = DeviceClient("127.0.0.1", server.port, code=auth.pairing.open())
-        assert "electron" in first.describe()
-        first.close()
-        # Later connections use the kept token, with no code.
+        with pytest.raises(RemoteDeviceNotPaired, match="fibsem-cli pair-device"):
+            DeviceClient("127.0.0.1", server.port)
+        with pytest.raises(SystemExit) as paired:
+            cli.main(["pair-device", f"127.0.0.1:{server.port}", auth.pairing.open()])
+        assert paired.value.code == 0
+        # Every later connection uses the kept token.
         assert client_pairing.paired_token(url) is not None
         again = DeviceClient("127.0.0.1", server.port)
         assert "electron" in again.describe()
@@ -81,9 +80,22 @@ def test_another_computer_pairs_with_the_code_once(beams, tmp_path, monkeypatch)
         (computer,) = auth.pairing.tokens.computers()
         auth.pairing.tokens.remove(computer.id)
         cut = DeviceClient("127.0.0.1", server.port)
-        with pytest.raises(RemoteDeviceError, match="401"):
+        with pytest.raises(RemoteDeviceNotPaired, match=f"127.0.0.1:{server.port}"):
             cut.describe()
         cut.close()
+    finally:
+        server.stop()
+
+
+def test_a_wrong_code_is_refused(beams, tmp_path, capsys):
+    auth = DeviceAuth("install", Pairing(PairedTokens(tmp_path / "paired.json")))
+    server = DeviceServer(beams, auth=auth).start()
+    try:
+        auth.pairing.open()
+        with pytest.raises(SystemExit) as refused:
+            cli.main(["pair-device", f"127.0.0.1:{server.port}", "0000"])
+        assert refused.value.code == 1
+        assert "Pairing refused" in capsys.readouterr().err
     finally:
         server.stop()
 

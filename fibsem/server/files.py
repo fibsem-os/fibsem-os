@@ -13,6 +13,7 @@ an absolute path elsewhere and a link out of the folder are refused alike
 
 import base64
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -27,6 +28,7 @@ IMAGE_SUFFIXES = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 TEXT_LIMIT = 512 * 1024
 # The widest preview served: an image enlarged to fill a screen.
 MAX_PREVIEW_WIDTH = 3072
+_DIGITS = re.compile(r"(\d+)")
 
 
 class FileRefusal(Exception):
@@ -106,6 +108,13 @@ def _entry(root: str, path: str) -> Dict[str, Any]:
     return entry
 
 
+def _by_name(name: str) -> List[Any]:
+    """Numbers in a name count as numbers: 2-x before 10-x, 99-x before 100-x."""
+    return [
+        int(part) if part.isdigit() else part.lower() for part in _DIGITS.split(name)
+    ]
+
+
 def list_folder(root: Optional[str], path: str = "") -> Dict[str, Any]:
     """One folder of the experiment: its folders first, then its files, by name."""
     target = resolve(root, path)
@@ -114,7 +123,7 @@ def list_folder(root: Optional[str], path: str = "") -> Dict[str, Any]:
             422, "invalid", f"{path} is a file: read it, or list its folder."
         )
     real_root = os.path.realpath(root)
-    names = sorted(os.listdir(target))
+    names = sorted(os.listdir(target), key=_by_name)
     paths = [os.path.join(target, name) for name in names]
     paths = [p for p in paths if os.path.isdir(p)] + [
         p for p in paths if not os.path.isdir(p)

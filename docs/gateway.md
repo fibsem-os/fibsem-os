@@ -34,12 +34,61 @@ over an SSH tunnel, as it reaches the App Server.
 ## The tray and the page
 
 The tray icon's dot shows the mode: grey for off, blue for a window, purple for a headless
-app. Its menu opens a window, runs an app headless (the last experiment, or one you
-choose), stops it, pairs a computer, and opens the gateway's page. Quitting the gateway
+app. Its menu does the following:
+
+- opens a window;
+- runs an app headless, with the last experiment or one you choose;
+- stops it;
+- ends the agent, while one runs;
+- pairs a computer;
+- opens the gateway's page. Quitting the gateway
 stops a headless app that isn't running a workflow.
 
-The page (`/ui/gateway`) shows the same modes, the paired computers, and every switch
-with who made it and from where.
+The page (`/ui/gateway`) shows:
+
+- the same modes;
+- the agent;
+- the paired computers;
+- every switch, with who made it and from where.
+
+## The agent
+
+The gateway can run the agent on this PC, next to the app. The **Agent** card on the page
+starts it with:
+
+- a **profile** (`default` is picked first);
+- a **level** (Watch, Assist or Drive);
+- an optional **budget**, in place of the profile's;
+- a **goal** for the session.
+
+**Show configuration** lists what the profile runs with: the model, budget, skills and
+reminders.
+
+Start needs:
+
+- **The app running**, in Window or Headless mode. The agent acts through it.
+- **An API key** in `ANTHROPIC_API_KEY`, set for this PC's user. Restart the gateway after
+  setting it. The key stays in the environment; it's never written to a file or a log.
+- **A profile that doesn't run code.** Windows has no sandbox for the agent's code.
+
+If another agent is already connected, such as Claude Code from another computer, Start asks
+first. **Disconnect and start** replaces it.
+
+While it runs, the card shows the goal, profile, level and spend.
+
+- **If the app restarts,** the agent waits for it and resumes the same session. That's at
+  most 3 times an hour after the app restarts, and once an hour after a crash. The gateway
+  sets the Start level again each time, because the app starts at Watch.
+- **End** stops the agent and keeps the app. **End and stop the app** asks first, then stops
+  both.
+- **Stopping the app** from the gateway (Stop, a switch, or Quit) ends the agent first.
+
+The tray has **End agent** while one runs. A hub with "may start and stop apps" can start and
+end the agent too. Each session's record and log are in
+`~/.fibsem/agent/sessions/<date>-<session id>/`, and the page lists the latest sessions.
+
+Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
+for it.
 
 ## Pairing a hub
 

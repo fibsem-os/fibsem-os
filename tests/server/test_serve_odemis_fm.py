@@ -5,13 +5,14 @@ tests/fm/_odemis_stubs.py, which return components by role as odemis does.
 """
 
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 pytest.importorskip("fastapi")
 
 from fibsem.server import devices as server_devices  # noqa: E402
-from fibsem.server.devices import device_health, odemis_fm_devices  # noqa: E402
+from fibsem.server.devices import device_health  # noqa: E402
 from fibsem.server.responses import DeviceHealth  # noqa: E402
 from tests.fm import _odemis_stubs as stubs  # noqa: E402
 
@@ -31,6 +32,13 @@ def odemis_stubs():
     for name in stubs.FIBSEM_ODEMIS_MODULE_NAMES:
         sys.modules.pop(name, None)
     sys.modules.update(saved)
+
+
+def odemis_fm_devices(config=None):
+    """The METEOR FM's parts and group, as the Device Server serves them."""
+    from fibsem.drivers.odemis.devices import bind_odemis_fm
+
+    return list(bind_odemis_fm(config=config).values())
 
 
 class _Unanswered:
@@ -138,16 +146,32 @@ def test_a_remote_fm_brings_how_its_camera_is_mounted(odemis_stubs):
         server.stop()
 
 
-def test_the_command_line_names_the_mount(odemis_stubs, monkeypatch):
+def test_the_command_line_serves_the_odemis_fm(odemis_stubs, monkeypatch):
     served = {}
+    monkeypatch.setattr(
+        server_devices.uvicorn,
+        "run",
+        lambda app, host, port, **_: served.update(host=host, port=port),
+    )
 
-    def odemis_fm_devices(config):
-        served["config"] = config
-        return []
+    server_devices.main(["--serve", "odemis-fm"])
 
-    monkeypatch.setattr(server_devices, "odemis_fm_devices", odemis_fm_devices)
+    assert served == {"host": "127.0.0.1", "port": 8765}
+
+
+def test_the_command_line_names_the_mount(odemis_stubs, monkeypatch):
+    sources = []
+
+    def configured_devices(source):
+        sources.append(source)
+        return {"fm": SimpleNamespace(name="fm")}, []
+
+    monkeypatch.setattr(server_devices, "configured_devices", configured_devices)
+    monkeypatch.setattr(server_devices, "build_device_app", lambda *a: None)
     monkeypatch.setattr(server_devices.uvicorn, "run", lambda *a, **k: None)
 
     server_devices.main(["--serve", "odemis-fm", "--mount-transform", "flip-y"])
 
-    assert served["config"] == {"mount_transform": "flip-y"}
+    (entry,) = sources[0]["hardware"]["devices"]
+    assert entry["driver"] == "Odemis"
+    assert entry["mount_transform"] == "flip-y"

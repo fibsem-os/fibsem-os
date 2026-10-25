@@ -304,8 +304,8 @@ export function AgentPage() {
     return () => watcher.disconnect();
   });
 
-  if (agent.error) return <div className="p-5 text-destructive">{String(agent.error.message)}</div>;
-  if (!a) return null;
+  // A failed read keeps the last answer on screen; the top line says why.
+  if (!a) return agent.error ? <div className="p-5 text-destructive">{agent.error.message}</div> : null;
   const request = a.request && ["pending", "applying"].includes(a.request.status) ? a.request : null;
   const suggestion = a.suggestion && a.request?.status !== "pending" ? a.suggestion : null;
   const label = SHOWS.find(([key]) => key === show)![1];
