@@ -1,8 +1,9 @@
 """The gateway's agent: one ``fibsem-agent`` for this PC's microscope, started
 and ended from the gateway's page or tray, kept by an `AgentSessionManager`.
 
-Start pairs the agent's token straight into the shared ``paired.json`` (the
-operator starting it is the Allow), sets the App Server's level, then starts
+Start needs the app running with a microscope connected. It pairs the agent's
+token straight into the shared ``paired.json`` (the operator starting it is
+the Allow), sets the App Server's level, then starts
 ``fibsem-agent --profile NAME``. The token and the API key go only in the
 agent's environment. When the app comes back after a restart the manager
 resumes the agent, and the gateway sets the Start level again: the App Server
@@ -33,9 +34,9 @@ from fibsem.ai.agent.manager import (
     agent_command,
     read_json,
 )
-from fibsem.gateway.gateway import HEADLESS, WINDOW, Gateway, GatewayRefused
+from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
+from fibsem.gateway.host import call_host, microscope_connected
 from fibsem.server.discovery import read_discovery_file
-from fibsem.server.operator_token import read_operator_token
 from fibsem.server.pairing import AGENT, PairedTokens
 from fibsem.util import timestamps
 
@@ -79,24 +80,12 @@ def fibsem_agent_json(flags: List[str]) -> Any:
 
 def set_level(url: str, level: str) -> None:
     """Set the App Server's agent level as the operator, or raise `GatewayRefused`."""
-    import httpx
-
-    token = read_operator_token()
     try:
-        r = httpx.put(
-            f"{url}/app/agent/level",
-            json={"level": level},
-            headers={"Authorization": f"Bearer {token}"} if token else {},
-            timeout=10.0,
-        )
-    except httpx.HTTPError as error:
-        raise GatewayRefused(503, "no_app", f"The App Server didn't answer: {error}")
-    if r.status_code != 200:
-        try:
-            message = r.json()["detail"]["message"]
-        except (ValueError, KeyError, TypeError):
-            message = r.text
-        raise GatewayRefused(409, "level_refused", message)
+        call_host(url, "PUT", "/app/agent/level", {"level": level})
+    except GatewayRefused as refusal:
+        if refusal.error_type == "no_app":
+            raise
+        raise GatewayRefused(409, "level_refused", str(refusal)) from None
 
 
 def answers(url: str) -> bool:
@@ -147,6 +136,7 @@ class GatewayAgent:
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         level: Callable[[str, str], None] = set_level,
         reachable: Callable[[str], bool] = answers,
+        connected: Callable[[str], bool] = microscope_connected,
         agent_json: Callable[[List[str]], Any] = fibsem_agent_json,
         environ: Optional[Dict[str, str]] = None,
         platform: str = sys.platform,
@@ -157,6 +147,7 @@ class GatewayAgent:
         self._discovery = discovery
         self._level = level
         self._answers = reachable
+        self._connected = connected
         self._agent_json = agent_json
         self._environ = os.environ if environ is None else environ
         self._platform = platform
@@ -225,7 +216,7 @@ class GatewayAgent:
             except ValueError:
                 names = ", ".join(lvl.value for lvl in AgentLevel)
                 raise GatewayRefused(422, "bad_level", f"The level is one of {names}.")
-            if self._gateway.state().mode not in (HEADLESS, WINDOW):
+            if self._gateway.state().mode != RUNNING:
                 raise GatewayRefused(
                     409, "no_app", "Run the app first: the agent acts through it."
                 )
@@ -233,6 +224,12 @@ class GatewayAgent:
             if url is None:
                 raise GatewayRefused(
                     409, "no_app", "The app's server isn't up yet: try again shortly."
+                )
+            if not self._connected(url):
+                raise GatewayRefused(
+                    409,
+                    "not_connected",
+                    "Connect the microscope first: the agent works on it.",
                 )
             current = self._manager.agent(self.microscope)
             if current is not None and current.state != "ended":

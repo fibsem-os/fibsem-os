@@ -1,14 +1,10 @@
 # The Gateway
 
-The gateway (`fibsem-gateway`) is a small, always-on program on a microscope PC. It runs
-one **mode** at a time, so a hub on another computer, or a browser, can start and stop the
-app there without anyone at the PC:
-
-| Mode | What runs |
-|---|---|
-| **Off** | Nothing holds the microscope. |
-| **Window** | The app's window at this PC, as a desktop launch opens it. |
-| **Headless app** | The app's App Server with no window (`fibsem-autolamella-server`). |
+The gateway (`fibsem-gateway`) is a small, always-on program on a microscope PC. It starts
+and stops the app there, so a hub on another computer, or a browser, can do it without
+anyone at the PC. The app is either **off** (nothing holds the microscope) or **running**:
+the app's host, with its window at this PC (as a desktop launch opens it) or without one
+(as `fibsem-autolamella-server` runs it).
 
 It never touches the microscope itself; the app it starts does. Without the gateway
 installed, nothing changes: desktop launches work as they always have.
@@ -24,32 +20,36 @@ starts when you log on, with a tray icon and no console. It needs no admin right
 `fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run` (add
 `--no-tray` with no desktop).
 
-A headless app connects with one of the microscope configurations saved on this PC, the
-ones the window offers: the default unless the page picks another. Connection flags given
-to `install` or `run` (`--manufacturer`, `--ip-address`) override the configuration's.
+The app starts with no microscope. Connect one in the window, or on the gateway's page once
+the app is up (**Connection**, with the configurations saved on this PC). To have the app
+connect as it starts, give connection flags to `install` or `run` (`--manufacturer`,
+`--ip-address`, `--config`): every start then connects with them.
 
 The gateway listens on this PC only (`http://127.0.0.1:8010`). Another computer reaches it
 over an SSH tunnel, as it reaches the App Server.
 
 ## The tray and the page
 
-The tray icon's dot shows the mode: grey for off, blue for a window, purple for a headless
-app. Its menu does the following:
+The tray icon's dot shows the app: grey for off, blue with its window, purple without one.
+Its menu does the following:
 
-- opens a window;
-- runs an app headless, with the last experiment or one you choose;
-- stops it;
+- starts an app with its window;
+- starts an app without a window, with the last experiment or one you choose;
+- stops it (an app without its window);
 - ends the agent, while one runs;
 - pairs a computer;
 - opens the gateway's page. Quitting the gateway
-stops a headless app that isn't running a workflow.
+stops an app without its window that isn't running a workflow.
 
 The page (`/ui/gateway`) shows:
 
-- the same modes;
+- the app: Start, with an app, an experiment folder and **Show the window on this PC**, or
+  what runs and Stop;
+- the microscope's **Connection** while the app runs: Connect and Disconnect, the same as
+  the web app's Microscope page;
 - the agent;
 - the paired computers;
-- every switch, with who made it and from where.
+- every start and stop, with who made it and from where.
 
 ## The agent
 
@@ -66,7 +66,8 @@ reminders.
 
 Start needs:
 
-- **The app running**, in Window or Headless mode. The agent acts through it.
+- **The app running**, with its window or without. The agent acts through it.
+- **A microscope connected.** The agent works on it.
 - **An API key** in `ANTHROPIC_API_KEY`, set for this PC's user. Restart the gateway after
   setting it. The key stays in the environment; it's never written to a file or a log.
 - **A profile that doesn't run code.** Windows has no sandbox for the agent's code.
@@ -81,7 +82,7 @@ While it runs, the card shows the goal, profile, level and spend.
   sets the Start level again each time, because the app starts at Watch.
 - **End** stops the agent and keeps the app. **End and stop the app** asks first, then stops
   both.
-- **Stopping the app** from the gateway (Stop, a switch, or Quit) ends the agent first.
+- **Stopping the app** from the gateway (Stop, a new start, or Quit) ends the agent first.
 
 The tray has **End agent** while one runs. A hub with "may start and stop apps" can start and
 end the agent too. Each session's record and log are in
@@ -93,21 +94,22 @@ for it.
 ## Pairing a hub
 
 Pair a hub as you pair a browser, with a 4-digit code: **Pair a computer → A hub that may
-start and stop apps** in the tray, or `fibsem-gateway pair --hub --may-switch`. Without
-that grant a hub can only read the gateway. Untick **May start and stop apps** on the page
-to take it back, or unpair the hub. A hub can never force a switch past a running
-workflow; only the operator at the PC can.
+start and stop apps** in the tray, or `fibsem-gateway pair --hub --may-switch`. With it a
+hub can also connect and disconnect the microscope. Without that grant a hub can only read
+the gateway. Untick **May start and stop apps** on the page to take it back, or unpair the
+hub. A hub can never force a stop past a running workflow; only the operator at the PC
+can.
 
 ## At the scope
 
 Double-click the desktop shortcut as usual.
 
-- With the gateway off, the window opens and the gateway shows Window mode until you close
-  it.
-- With the app running headless, you're asked first: **Take over** stops it (and any
-  workflow it is running), then opens the window; **Cancel** leaves it running.
+- With the gateway off, the window opens and the gateway shows the app running with its
+  window until you close it.
+- With the app running without its window, you're asked first: **Take over** stops it (and
+  any workflow it is running), then opens the window; **Cancel** leaves it running.
 
-A window is only ever closed at the PC: the gateway refuses to switch away from it.
+A window is only ever closed at the PC: the gateway refuses to stop it.
 
-Two things never hold the microscope at once: while an App Server the gateway didn't start
-is running (a hand-run `fibsem-autolamella-server`), the gateway refuses every switch.
+Two things never hold the microscope at once: while a host the gateway didn't start is
+running (a hand-run `fibsem-autolamella-server`), the gateway refuses every start.

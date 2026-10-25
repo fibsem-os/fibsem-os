@@ -109,7 +109,7 @@ function ConfigurationFacts({ name }: { name: string }) {
   return <Facts className="border-t border-border pt-2.5 [&_dd]:text-left" rows={rows} />;
 }
 
-function Start({ state, appRunning }: { state: AgentState; appRunning: boolean }) {
+function Start({ state, appRunning, connected }: { state: AgentState; appRunning: boolean; connected: boolean }) {
   const client = useQueryClient();
   const profiles = useQuery({
     queryKey: ["gateway/agent/profiles"],
@@ -210,7 +210,9 @@ function Start({ state, appRunning }: { state: AgentState; appRunning: boolean }
           {start.error && <p className="m-0 text-[13px] text-destructive">{(start.error as Error).message}</p>}
           <div className="flex flex-wrap items-center justify-end gap-2.5">
             {!appRunning ? (
-              <span className="text-xs text-muted-foreground">Run the app first: the agent acts through it.</span>
+              <span className="text-xs text-muted-foreground">Start the app first: the agent acts through it.</span>
+            ) : !connected ? (
+              <span className="text-xs text-muted-foreground">Connect the microscope first: the agent works on it.</span>
             ) : !state.api_key ? (
               <span className="text-xs text-muted-foreground">
                 Set ANTHROPIC_API_KEY for this PC's user, then restart the gateway.
@@ -220,7 +222,7 @@ function Start({ state, appRunning }: { state: AgentState; appRunning: boolean }
             )}
             <Button
               variant="primary"
-              disabled={start.isPending || !appRunning || !state.api_key || !chosen}
+              disabled={start.isPending || !appRunning || !connected || !state.api_key || !chosen}
               onClick={() => start.mutate(false)}
             >
               Start
@@ -309,7 +311,7 @@ function Run({ running }: { running: Running }) {
 }
 
 /** This PC's agent: start one with a profile, or the one running and its End. */
-export function AgentCard({ appRunning }: { appRunning: boolean }) {
+export function AgentCard({ appRunning, connected }: { appRunning: boolean; connected: boolean }) {
   const agent = useQuery({
     queryKey: ["gateway/agent"],
     queryFn: () => api<AgentState>("/gateway/agent"),
@@ -334,7 +336,7 @@ export function AgentCard({ appRunning }: { appRunning: boolean }) {
         )}
       </div>
       {agent.error && <p className="m-0 text-[13px] text-destructive">{(agent.error as Error).message}</p>}
-      {state && (state.running ? <Run running={state.running} /> : <Start state={state} appRunning={appRunning} />)}
+      {state && (state.running ? <Run running={state.running} /> : <Start state={state} appRunning={appRunning} connected={connected} />)}
     </Card>
   );
 }

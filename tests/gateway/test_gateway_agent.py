@@ -1,4 +1,4 @@
-"""The gateway's agent: Start's chain and its refusals, End, a mode switch
+"""The gateway's agent: Start's chain and its refusals, End, stopping the app
 ending the agent, the level set again on a resume, and a restarted gateway
 taking the agent back, with the stand-in ``fibsem-agent``
 (tests/agent/stand_in.py) in real processes and a fake App Server."""
@@ -12,7 +12,7 @@ import pytest
 
 from fibsem.ai.agent.manager import MANAGED, RECORD, folders, read_json
 from fibsem.gateway.agent import AGENT_NAME, API_KEY, GatewayAgent
-from fibsem.gateway.gateway import HEADLESS, OFF, GatewayRefused, GatewayState
+from fibsem.gateway.gateway import OFF, RUNNING, GatewayRefused, GatewayState
 from fibsem.server.pairing import AGENT, PairedTokens
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -22,7 +22,7 @@ DEFAULT = {"profile": {"name": "default"}, "mode": "none", "model": None}
 
 
 class FakeGateway:
-    def __init__(self, mode=HEADLESS):
+    def __init__(self, mode=RUNNING):
         self.mode = mode
         self.before_stop = []
         self.watchers = []
@@ -43,6 +43,7 @@ class App:
 
     def __init__(self):
         self.up = True
+        self.connected = True
         self.levels = []
         self.refuse = None
 
@@ -83,6 +84,7 @@ def made(tmp_path, monkeypatch):
             discovery=app.discovery,
             level=app.level,
             reachable=lambda url: app.up,
+            connected=lambda url: app.connected,
             agent_json=agent_json,
             environ={API_KEY: key} if key else {},
             platform=platform,
@@ -175,6 +177,17 @@ def test_start_needs_the_app_server_to_answer(made):
     with pytest.raises(GatewayRefused) as refused:
         agent.start("default", None, "watch", "operator", "page")
     assert refused.value.error_type == "no_app"
+
+
+def test_start_needs_a_microscope_connected(made, tmp_path):
+    app = App()
+    app.connected = False
+    agent, _, _ = made(app=app)
+    with pytest.raises(GatewayRefused) as refused:
+        agent.start("default", None, "assist", "operator", "page")
+    assert refused.value.error_type == "not_connected"
+    assert app.levels == []
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
 
 
 def test_a_code_profile_runs_off_windows(made):

@@ -38,6 +38,7 @@ from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
+from fibsem.extras import missing_extra_message
 from fibsem.logo import print_fibsem_logo
 from fibsem.util import timestamps
 
@@ -1496,13 +1497,9 @@ def main(argv=None) -> int:
     if args.show_config:
         config = show_config(args, checkout, work, code, profile)
         return _print(config, args.json, _config_text)
-    try:
-        import claude_agent_sdk  # noqa: F401
-    except ImportError:
-        print(
-            "fibsem-agent needs the [agent] extra: pip install fibsem[agent]",
-            file=sys.stderr,
-        )
+    missing = missing_extra_message("agent", "fibsem-agent")
+    if missing:
+        print(missing, file=sys.stderr)
         return 1
     if args.resume == LAST:
         args.resume = sessions.last_session(work or checkout)
