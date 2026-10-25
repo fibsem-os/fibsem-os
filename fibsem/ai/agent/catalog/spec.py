@@ -167,7 +167,12 @@ MARKS_PARAM = (
     "measure labels the line with its length, as the ruler does. Labels (at most "
     "32 characters) name what is where; at most 50 marks. Marks read off a crop "
     "take crop: the cell's name (B3) or the crop's box [x, y, width, height], "
-    "their x, y then as read off that crop's picture"
+    "their x, y then as read off that crop's picture. On a fluorescence stack any mark takes "
+    "z, the plane it is on (0 the first, as fm_points and poi_points of "
+    "correlation_correlate count; a fitted fraction is drawn on the nearest plane; "
+    "pictures and the viewer say plane z + 1): a "
+    "picture shows that plane, and the mark's "
+    "[x, y, z] goes to correlation as it is"
 )
 
 # The optional argument every acting tool takes (`ToolSpec.takes_evidence`):

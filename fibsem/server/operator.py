@@ -24,6 +24,7 @@ from fibsem.ai.agent.levels import (
 )
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
 from fibsem.codec import encode
+from fibsem.imaging.marks import plane_shown
 from fibsem.server import files
 from fibsem.server.agent_setup import setup_text
 from fibsem.server.auth import refusal_error, require_operator
@@ -152,10 +153,12 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         except evidence.EvidenceRefused as refusal:
             raise HTTPException(status_code=refusal.status_code, detail=refusal.detail)
         image = record.get("image")
+        # A fluorescence stack shows the channels it was marked on, and the
+        # plane its marks are on.
+        plane, marks = plane_shown(record.get("marks"))
         try:
             relative = os.path.relpath(image, os.path.realpath(root))
-            # A fluorescence stack shows the channels it was marked on.
-            read = files.read(root, relative, channels=record.get("channels"))
+            read = files.read(root, relative, channels=record.get("channels"), z=plane)
         except (TypeError, ValueError, files.FileRefusal) as exc:
             raise refusal_error(
                 404, "not_found", f"The evidence image is missing: {exc}"
@@ -163,10 +166,11 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         return answer(
             EvidenceView(
                 read.get("preview"),
-                record.get("marks"),
+                marks,
                 relative.replace(os.sep, "/"),
                 record.get("by") or evidence.AGENT,
                 record.get("channels"),
+                plane,
             )
         )
 

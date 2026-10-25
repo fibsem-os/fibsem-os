@@ -1,6 +1,7 @@
 """Marks drawn on an image (fibsem.imaging.marks) and their labels placed
 where they read (fibsem.imaging.labels)."""
 
+import base64
 import io
 
 import numpy as np
@@ -11,6 +12,7 @@ from fibsem.imaging.labels import LabelPlacer, label_size
 from fibsem.imaging.marks import canvas, draw_marks, marked_picture, scaled_marks
 from fibsem.structures.image import FibsemImage
 from fibsem.theme.tokens import ACCENT_COLOR, AGENT_MARK_COLOR
+from tests.fixtures.fm_stacks import planes_stack
 
 
 def _rgb(colour):
@@ -168,3 +170,125 @@ def test_marks_draw_on_a_stack_s_max_projection_in_the_channels_shown(tmp_path):
 
     red_only = drawn_picture(path, None, channels=["red"])
     assert red_only[200, 200].max() < 30
+
+
+def test_a_picture_shows_the_plane_its_marks_are_on():
+    from fibsem.imaging.marks import plane_shown
+
+    target = {"x": 1, "y": 2, "z": 2, "label": "POI"}
+    surface = {"x": 3, "y": 4, "z": 0, "label": "surface"}
+    loose = {"x": 5, "y": 6}
+    # One plane: that plane's marks and those on no plane.
+    assert plane_shown({"points": [target, loose]}) == (
+        2,
+        {"points": [target, loose]},
+    )
+    assert plane_shown({"points": [target, surface]}, 0) == (
+        0,
+        {"points": [surface]},
+    )
+    # Marks on several planes: the projection, each label saying its plane.
+    plane, shown = plane_shown({"points": [target, surface, loose]})
+    assert plane is None
+    assert shown["points"][0]["label"] == "POI · plane 3"
+    assert shown["points"][1]["label"] == "surface · plane 1"
+    assert "label" not in shown["points"][2]
+    assert plane_shown({"points": [{"x": 1, "y": 2, "z": 1.6}]})[0] == 2
+    # An image with no planes draws them all, labelled.
+    assert plane_shown({"points": [target]}, stack=False)[0] is None
+    assert plane_shown(None) == (None, None)
+
+
+def test_marks_draw_on_the_plane_they_are_on(tmp_path):
+    from fibsem.imaging.marks import drawn_pair, drawn_picture
+
+    path = str(tmp_path / "stack.ome.tiff")
+    planes_stack(path)
+    on_two = {"points": [{"x": 80, "y": 20, "z": 2}]}
+    picture = drawn_picture(path, on_two, ACCENT_COLOR)
+    # Plane 2's block, not plane 0's, and the mark on it.
+    assert picture[48, 80].max() > 100 and picture[48, 16].max() < 30
+    assert _near(picture[10:30, 70:90], ACCENT_COLOR).any()
+    # Asked for plane 0: plane 0's block, and the mark on plane 2 left out.
+    other = drawn_picture(path, on_two, ACCENT_COLOR, plane=0)
+    assert other[48, 16].max() > 100 and other[48, 80].max() < 30
+    assert not _near(other[10:30, 70:90], ACCENT_COLOR).any()
+
+    pair = drawn_pair(
+        path,
+        path,
+        {"points": [{"x": 16, "y": 20, "z": 0}, {"x": 80, "y": 20, "z": 2}]},
+        before_plane=0,
+        after_plane=2,
+    )
+    left, right = pair[:, :96], pair[:, -96:]
+    assert left[48, 16].max() > 100 and right[48, 80].max() > 100
+    assert _near(left[10:30, 6:26], AGENT_MARK_COLOR).any()
+    assert not _near(left[10:30, 70:90], AGENT_MARK_COLOR).any()
+    assert _near(right[10:30, 70:90], AGENT_MARK_COLOR).any()
+
+
+def test_a_plane_is_for_a_fluorescence_stack(tmp_path):
+    import pytest
+
+    from fibsem.imaging.marks import drawn_picture
+
+    path = str(tmp_path / "stack.ome.tiff")
+    planes_stack(path)
+    with pytest.raises(ValueError):
+        drawn_picture(path, None, plane=3)
+    beam = str(tmp_path / "beam.tif")
+    FibsemImage.generate_blank_image(resolution=(64, 64)).save(beam)
+    with pytest.raises(ValueError, match="fluorescence stack"):
+        drawn_picture(beam, None, plane=0)
+
+
+def test_evidence_keeps_the_plane_a_mark_is_on(tmp_path):
+    import pytest
+
+    from fibsem.workflows import evidence
+
+    planes_stack(str(tmp_path / "stack.ome.tiff"))
+    FibsemImage.generate_blank_image(resolution=(64, 64)).save(
+        str(tmp_path / "beam.tif")
+    )
+    root = lambda: str(tmp_path)  # noqa: E731
+
+    kept = evidence.save(
+        root,
+        image="stack.ome.tiff",
+        marks={"points": [{"x": 1, "y": 2, "z": 2}, {"x": 3, "y": 4}]},
+        by=evidence.OPERATOR,
+    )
+    assert [p.get("z") for p in kept["marks"]["points"]] == [2, None]
+    # A fitted z is kept as it is and drawn on the nearest plane.
+    fitted = evidence.save(
+        root, image="stack.ome.tiff", marks={"points": [{"x": 1, "y": 2, "z": 1.6}]}
+    )
+    assert fitted["marks"]["points"][0]["z"] == 1.6
+
+    for image, marks, says in (
+        ("stack.ome.tiff", {"points": [{"x": 1, "y": 2, "z": 3}]}, "0 to 2"),
+        (
+            "stack.ome.tiff",
+            {"areas": [{"x": 1, "y": 2, "width": 3, "height": 4, "z": -1}]},
+            "marks is",
+        ),
+        ("stack.ome.tiff", {"points": [{"x": 1, "y": 2, "z": True}]}, "marks is"),
+        ("stack.ome.tiff", {"points": [{"x": 1, "y": 2, "z": 2.6}]}, "0 to 2"),
+        (
+            "beam.tif",
+            {"lines": [{"x1": 1, "y1": 2, "x2": 3, "y2": 4, "z": 0}]},
+            "fluorescence stack",
+        ),
+    ):
+        with pytest.raises(evidence.EvidenceRefused, match=says):
+            evidence.save(root, image=image, marks=marks)
+    png = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(png, format="PNG")
+    with pytest.raises(evidence.EvidenceRefused, match="fluorescence stack"):
+        evidence.save(
+            root,
+            upload=base64.b64encode(png.getvalue()).decode(),
+            marks={"points": [{"x": 1, "y": 2, "z": 0}]},
+        )

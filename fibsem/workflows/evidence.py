@@ -95,7 +95,9 @@ _SHAPE = (
     "label?}], circles: [{x, y, radius, label?}], lines: [{x1, y1, x2, y2, "
     "arrow?, measure?, label?}], crop?}, in the image's full-resolution pixels from "
     "its top left, or as read off a crop's picture when crop names it (a cell, B3, "
-    "or the box [x, y, width, height]); shape is cross or target."
+    "or the box [x, y, width, height]); shape is cross or target. On a "
+    "fluorescence stack any mark may take z, the plane it is on (0 the first, as "
+    "the correlation tools count): a picture of the stack then shows that plane."
 )
 
 
@@ -119,6 +121,7 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
                     "y": _number(p["y"]),
                     "shape": _shape(p),
                     "label": _label(p),
+                    **_z(p),
                 }
                 for p in marks.get("points") or []
             ],
@@ -129,6 +132,7 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
                     "width": _number(a["width"]),
                     "height": _number(a["height"]),
                     "label": _label(a),
+                    **_z(a),
                 }
                 for a in marks.get("areas") or []
             ],
@@ -138,6 +142,7 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
                     "y": _number(c["y"]),
                     "radius": _number(c["radius"]),
                     "label": _label(c),
+                    **_z(c),
                 }
                 for c in marks.get("circles") or []
             ],
@@ -150,6 +155,7 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
                     "arrow": _flag(line, "arrow"),
                     "measure": _flag(line, "measure"),
                     "label": _label(line),
+                    **_z(line),
                 }
                 for line in marks.get("lines") or []
             ],
@@ -166,6 +172,47 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
         raise EvidenceRefused(422, "invalid", f"At most {MAX_MARKS} marks.")
     checked = {name: kind for name, kind in checked.items() if kind}
     return checked or None
+
+
+_NOT_A_STACK = "z is for marks on a fluorescence stack's planes."
+
+
+def _z(mark: Dict[str, Any]) -> Dict[str, float]:
+    """A mark's plane of a stack, ``{"z": n}``, or nothing when it has none: a
+    fraction (a fitted z, as correlation_refine_point answers it) is kept, and
+    drawn on the nearest plane."""
+    z = mark.get("z")
+    if z is None:
+        return {}
+    if _number(z) < 0:
+        raise ValueError
+    return {"z": z}
+
+
+def _on_planes(
+    marks: Optional[Dict[str, List[Dict[str, Any]]]], image_path: str
+) -> Optional[Dict[str, List[Dict[str, Any]]]]:
+    """*marks*, refused when one names a plane the image doesn't have: z is
+    for a fluorescence stack's planes."""
+    planes = [m["z"] for kind in (marks or {}).values() for m in kind if "z" in m]
+    if not planes:
+        return marks
+    from fibsem.fm.preview import is_fluorescence_image
+    from fibsem.fm.stack_file import StackFile
+
+    count = 0
+    if is_fluorescence_image(image_path):
+        with StackFile(image_path) as stack:
+            count = stack.planes
+    if not count:
+        raise EvidenceRefused(422, "invalid", _NOT_A_STACK)
+    if round(max(planes)) >= count:
+        raise EvidenceRefused(
+            422,
+            "invalid",
+            f"z is a plane of the stack, 0 to {count - 1}: not {max(planes):g}.",
+        )
+    return marks
 
 
 def _shape(point: Dict[str, Any]) -> str:
@@ -281,6 +328,7 @@ def checked_marks(
     labelled with its length and each place given its stage position, from
     the image at *image_path*."""
     placed = _moved(_marks(_uncropped(marks)), _crop(marks), image_path)
+    placed = _on_planes(placed, image_path)
     return _with_stage(_with_lengths(placed, image_path), image_path)
 
 
@@ -396,6 +444,8 @@ def save(
                 "invalid",
                 "A crop is for marks on an image in the experiment, not an upload.",
             )
+        if any("z" in m for kind in (checked_marks or {}).values() for m in kind):
+            raise EvidenceRefused(422, "invalid", _NOT_A_STACK)
         os.makedirs(where, exist_ok=True)
         _save_upload(upload, os.path.join(where, f"{evidence_id}.png"))
         path = os.path.join(FOLDER, f"{evidence_id}.png")
@@ -413,6 +463,7 @@ def save(
                 )
         image_path = os.path.join(root, path)
         checked_marks = _moved(checked_marks, _crop(marks), image_path)
+        checked_marks = _on_planes(checked_marks, image_path)
         checked_marks = _with_lengths(checked_marks, image_path)
         checked_marks = _with_stage(checked_marks, image_path)
     record = {

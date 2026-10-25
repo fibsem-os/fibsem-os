@@ -1399,6 +1399,8 @@ class EvidenceView:
     by: str = "agent"
     # The fluorescence channels shown, for marks on a stack's projection.
     channels: Optional[List[str]] = None
+    # The stack's plane shown (0 the first), when the marks are on one.
+    plane: Optional[int] = None
 
 
 @dataclass

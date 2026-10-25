@@ -106,6 +106,11 @@ export function useMarkEditor(width: number, height: number) {
   const [marks, setMarks] = useState<Mark[]>([]);
   const [selected, setSelected] = useState<number | null>(null);
   const [labelling, setLabelling] = useState<number | null>(null);
+  // The stack's plane on screen (null, the projection; undefined, not a stack): a mark
+  // made on a plane is on it. *goTo* shows a plane, set by the image.
+  const [plane, setPlane] = useState<number | null | undefined>(undefined);
+  const goTo = useRef<((z: number) => void) | null>(null);
+  const on = plane != null ? { z: plane } : {};
   const drag = useRef<Drag | null>(null);
   // the marks as last drawn, for the end of a drag that moved them since this render
   const latest = useRef(marks);
@@ -120,14 +125,23 @@ export function useMarkEditor(width: number, height: number) {
     setSelected(index);
     setLabelling(null);
     if (tool === "point") {
-      setMarks([...marks, { kind: "point", ...p }]);
+      setMarks([...marks, { kind: "point", ...p, ...on }]);
       setLabelling(index);
       return;
     }
     const mark: Mark =
       tool === "box"
-        ? { kind: "area", ...p, width: 0, height: 0 }
-        : { kind: "line", x1: p.x, y1: p.y, x2: p.x, y2: p.y, arrow: tool === "arrow", measure: tool === "line" };
+        ? { kind: "area", ...p, width: 0, height: 0, ...on }
+        : {
+            kind: "line",
+            x1: p.x,
+            y1: p.y,
+            x2: p.x,
+            y2: p.y,
+            arrow: tool === "arrow",
+            measure: tool === "line",
+            ...on,
+          };
     drag.current = { index, from: p, was: mark, creating: true };
     setMarks([...marks, mark]);
   };
@@ -188,6 +202,9 @@ export function useMarkEditor(width: number, height: number) {
     remove,
     label,
     clear,
+    plane,
+    setPlane,
+    goTo,
     width,
     height,
   };
@@ -211,6 +228,7 @@ export function MarkingLayer({ editor, pixelSize }: { editor: MarkEditor; pixelS
         pixelSize={pixelSize}
         selected={editor.selected}
         hiddenLabel={labelling}
+        plane={editor.plane}
         onMarkDown={editor.pickUp}
         onPointerDown={editor.start}
         onPointerMove={editor.move}
@@ -255,6 +273,14 @@ function where(m: Mark, pixelSize?: number | null): string {
   }
   if (m.kind === "circle") return `${n(m.x)}, ${n(m.y)} px, r ${n(m.radius)}`;
   return `${n(m.x1)}, ${n(m.y1)} → ${n(m.x2)}, ${n(m.y2)} px`;
+}
+
+/** What a stack's marks were made on, for the Send line: "max projection", "plane 12", or both. */
+function madeOn(marks: Mark[]): string {
+  const planes = [...new Set(marks.filter((m) => m.z != null).map((m) => m.z! + 1))].sort((a, b) => a - b);
+  const on = planes.length ? `plane${planes.length > 1 ? "s" : ""} ${planes.join(", ")}` : "";
+  const flat = !marks.length || marks.some((m) => m.z == null) ? "max projection" : "";
+  return [flat, on].filter(Boolean).join(", ");
 }
 
 const GLYPH: Record<string, string> = { point: "+", area: "▭", circle: "○", arrow: "↗", line: "—" };
@@ -332,7 +358,21 @@ export function MarkPanel({
                 <X size={13} />
               </button>
               <span />
-              <span className="text-[12px] text-muted-foreground tabular-nums">{where(m, pixelSize)}</span>
+              <span className="text-[12px] text-muted-foreground tabular-nums">
+                {where(m, pixelSize)}
+                {m.z != null && (
+                  <>
+                    {" · "}
+                    <button
+                      className="cursor-pointer border-0 bg-transparent p-0 text-[12px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                      aria-label={`Show plane ${m.z + 1}`}
+                      onClick={() => editor.goTo.current?.(m.z!)}
+                    >
+                      plane {m.z + 1}
+                    </button>
+                  </>
+                )}
+              </span>
             </li>
           );
         })}
@@ -351,7 +391,7 @@ export function MarkPanel({
       {error && <p className="m-0 text-[12px] text-destructive">{error}</p>}
       <div className="flex items-center gap-2">
         <span className="flex-1 text-[12px] text-muted-foreground">
-          {channels ? `Sent with: ${channels.join(", ")} · max projection` : "Goes to the agent like any message"}
+          {channels ? `Sent with: ${channels.join(", ")} · ${madeOn(marks)}` : "Goes to the agent like any message"}
         </span>
         <Button onClick={editor.clear} disabled={!marks.length}>
           Clear

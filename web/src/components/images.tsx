@@ -258,11 +258,12 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
     setSent(false);
     setShownChannels(null);
     editor.clear();
+    editor.setPlane(undefined);
   }
   const fm = read.data?.summary?.fm;
   const stack = fm && fm.z_planes > 1 ? fm : undefined;
   const pixelSize = read.data?.summary?.pixel_size as number | null | undefined;
-  // a beam image, or an FM stack's max projection: single planes can't be marked yet
+  // a beam image, or an FM stack's planes or max projection
   const markable = !!read.data?.preview && (!!fm || imageKind(path ?? "", read.data?.summary?.beam_type) !== "Image");
   const keys = useRef<HTMLDivElement>(null);
   const imageKeys: ImageKeys = useRef(null);
@@ -345,6 +346,8 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
                 keys={imageKeys}
                 onNoWebGL={() => setGl(false)}
                 onVisible={(names) => setShownChannels(fm && names.length < fm.channels.length ? names : null)}
+                onPlane={editor.setPlane}
+                planeTo={editor.goTo}
               />
             ) : gl ? (
               <div className="flex min-h-[300px] items-center justify-center bg-black text-[13px] text-muted-foreground">
