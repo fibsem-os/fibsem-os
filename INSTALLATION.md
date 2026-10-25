@@ -209,67 +209,93 @@ On the METEOR's Linux PC:
    ```
 
 3. **Start odemis** (`odemis-start`).
-4. **Serve the FM:**
+4. **Write the Device Server's file**, `~/.fibsem/device-server.yaml`:
 
-   ```bash
-   python -m fibsem.server.devices --serve odemis-fm --port 8765
+   ```yaml
+   info: {manufacturer: Odemis}
+   server: {host: 127.0.0.1, port: 8765}
+   hardware:
+     devices:
+       - name: fm
+         type: fm
+         mount_transform: none    # or flip-x, flip-y, flip-xy: how the camera is mounted
    ```
 
-   It listens on this PC only (`127.0.0.1`). The support PC reaches it through
-   an SSH tunnel, which encrypts the traffic:
+   `server.host` is where it listens. `127.0.0.1` is this PC only, and the
+   support PC reaches it through an SSH tunnel, which encrypts the traffic:
 
    ```bash
    ssh -N -L 8765:localhost:8765 <user>@<METEOR PC address>   # on the support PC
    ```
 
-   and its FM entry names `address: 127.0.0.1`. When the two PCs are cabled
-   to each other with nothing else on that link, `--host <METEOR PC address on
-   that link>` serves straight to the support PC instead. Don't use
-   `--host 0.0.0.0`: it listens on every network the PC is on, and the traffic
-   is not encrypted.
+   When the two PCs are cabled to each other with nothing else on that link,
+   set `host` to the METEOR PC's address on that link instead, and the support
+   PC reaches it directly. Don't use `0.0.0.0`: it listens on every network the
+   PC is on, and the traffic is not encrypted.
 
-   If odemis cannot be imported or does not answer, this stops with a message
-   saying which.
+5. **Serve the FM:**
 
-   Every request needs a token. The first start makes one and says where it
-   is kept (`~/.fibsem/device-server-token.json`). To give the support PC its
-   own, start once with `--pair`: it prints a 4-digit code (5 minutes, works
-   once). Put it in the support PC's FM entry as `code: 1234`; the first
-   connect pairs and keeps the token, and the `code:` line can then go.
-   `token: <the token from that file>` works too.
+   ```bash
+   python -m fibsem.server.devices --config ~/.fibsem/device-server.yaml --pair
+   ```
 
-5. **With `--host`, open the port to the support PC only**, for example with `ufw`:
+   If odemis cannot be imported or does not answer, the FM is not served and
+   the message says which.
+
+   Every request needs a token. The first start makes this PC's own and says
+   where it is kept (`~/.fibsem/device-server-token.json`). `--pair` also prints
+   a 4-digit code (5 minutes, works once) for the support PC.
+
+6. **With a `host` on the link, open the port to the support PC only**, for
+   example with `ufw`:
 
    ```bash
    sudo ufw allow from <support PC address> to any port 8765 proto tcp
    ```
 
-To start the server with the computer rather than by hand, run step 4 as a
-service, for example with a systemd unit. It must run as a user in the `odemis`
-group, and after odemis has started.
+To start the server with the computer rather than by hand, run step 5 (without
+`--pair`) as a service, for example with a systemd unit. It must run as a user
+in the `odemis` group, and after odemis has started.
 
-On the support PC, the microscope configuration names the FM as remote, with an
-entry in its device list:
+On the support PC:
 
-```yaml
-hardware:
-    devices:
-      # ... the beams and the stage ...
-      - name:       fm
-        enabled:    true
-        driver:     remote
-        address:    192.168.0.20    # the METEOR PC
-        port:       8765
-```
+1. **Pair once**, with the code step 5 printed (the address is `127.0.0.1`
+   through the tunnel):
 
-A configuration from before the device list, with an `fm:` block under
-`hardware:`, still loads and is saved in this form. See
-[Devices](docs/developers/devices.md#configuring-devices) for the other keys.
+   ```bash
+   fibsem-cli pair-device <METEOR PC address>:8765 1234
+   ```
+
+   The token is kept in `~/.fibsem/remote/`, and every later connect uses it.
+   A connect without one says to run this.
+
+2. **Name the FM as remote** in the microscope configuration's device list. The
+   entry says where the server is and where the FM sits on the stage; nothing
+   about pairing:
+
+   ```yaml
+   hardware:
+       devices:
+         # ... the beams and the stage ...
+         - name:       fm
+           type:       fm
+           enabled:    true
+           driver:     remote
+           address:    127.0.0.1         # through the tunnel, else the METEOR PC
+           port:       8765
+           origin:     {x: 50.63e-3, y: 4.98e-3}   # the FM from the beams: odemis's CALIB dx, dy
+           range:      {x: 20.0e-3}      # the FM's window, a half-width from its origin
+           available_orientations: [FIB] # the objective images in the FIB pose
+   ```
+
+   `origin` is the nominal offset, from odemis's `CALIB` dx and dy for the
+   stage. See [Devices](docs/developers/devices.md#configuring-devices) for the
+   other keys.
 
 Two things to know:
 
-- **The server has no authentication yet.** Anyone who can reach the port can
-  drive the FM, so keep it on the microscope's private network.
+- **The traffic is not encrypted.** Keep the server on this PC behind the SSH
+  tunnel, or on a link to the support PC only.
 - **The odemis GUI and fibsemOS drive the same camera, light and filter wheel,**
   and nothing arbitrates between them. Image from one at a time: stop the odemis
   GUI's streams before acquiring from fibsemOS, and the other way round.

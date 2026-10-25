@@ -45,7 +45,7 @@ fibsem/autofunctions/autofocus.py 8
 fibsem/autofunctions/brightness_contrast.py 3
 fibsem/autofunctions/charge_neutralisation.py 1
 fibsem/autofunctions/plotting.py 5
-fibsem/cli.py 12
+fibsem/cli.py 13
 fibsem/client/pairing.py 1
 fibsem/client/remote_microscope.py 4
 fibsem/codec/upgrades/fluorescence.py 1

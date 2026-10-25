@@ -43,9 +43,16 @@ Try it on one computer:
     python -m fibsem.server.devices --config devices.yaml  # or what a file lists
 
 On a METEOR's Linux PC, serving its real FM to the PC that drives the beams (see
-INSTALLATION.md, "Delmic METEOR"):
+INSTALLATION.md, "Delmic METEOR"), from a file naming the FM and where to serve it:
 
-    python -m fibsem.server.devices --serve odemis-fm --pair  # shows a pairing code
+    # ~/.fibsem/device-server.yaml
+    info: {manufacturer: Odemis}
+    server: {host: 127.0.0.1, port: 8765}
+    hardware:
+      devices:
+        - {name: fm, type: fm, mount_transform: none}
+
+    python -m fibsem.server.devices --config ~/.fibsem/device-server.yaml --pair
 
     from fibsem.drivers.remote.devices import connect_remote_beams   # terminal 2
     beams = connect_remote_beams("127.0.0.1", 8765)
@@ -55,7 +62,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib
 import io
 import json
 import logging
@@ -72,6 +78,7 @@ from typing import (
     Optional,
     Sequence,
     Tuple,
+    Union,
 )
 
 import numpy as np
@@ -100,6 +107,11 @@ from fibsem.devices.core import (
     ParameterUnavailable,
     ResourceBusy,
 )
+from fibsem.devices.entries import (
+    build_device_entries,
+    disconnect_devices,
+    resolve_device_entries,
+)
 from fibsem.devices.runs import RUNNING, Run
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.devices.wire import (
@@ -115,6 +127,8 @@ from fibsem.devices.wire import (
     type_hints,
     type_path,
 )
+from fibsem.drivers.registry import REMOTE_DRIVER
+from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.schema import arguments_schema
 from fibsem.server import device_auth
 from fibsem.server.auth import refusal_error, require_operator
@@ -144,6 +158,7 @@ from fibsem.server.responses import (
 )
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.params import Limits
+from fibsem.structures.system import read_device_entries
 
 # Before uvicorn 0.54 its default websockets implementation imports websockets.legacy,
 # which websockets 14+ deprecates on import; under the test suite's warnings-as-errors
@@ -958,100 +973,128 @@ def demo_devices(parts: Sequence[str] = ("beams",)) -> List[Device]:
     return devices
 
 
-def demo_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
-    """The Demo FM's parts and group, on their own, as a METEOR PC would serve its
-    FM. *config* is the FM's configuration keys, as an fm entry states them."""
-    from fibsem.drivers.demo.devices import bind_demo_fm
+SERVED_FM_DRIVERS = {"fm": "Demo", "odemis-fm": "Odemis"}
+"""The FM ``--serve`` names, and the driver whose fm entry each builds."""
 
-    return list(bind_demo_fm(config=config).values())
-
-
-def odemis_fm_devices(config: Optional[Mapping[str, Any]] = None) -> List[Device]:
-    """The METEOR's FM, through the odemis backend on this computer.
-
-    odemis is reachable only from the computer running it, over unix sockets, which
-    is why the FM is served from there rather than driven from the beams' PC.
-    *config* is the FM's configuration keys, as an fm entry states them: its
-    ``mount_transform``, which the camera reports so every client sees the frames
-    the same way round.
-
-    Raises:
-        RuntimeError: odemis is not installed here, or its backend did not answer;
-            the message says which, and what to check.
-    """
-    try:
-        from fibsem.drivers.odemis.devices import bind_odemis_fm
-
-        # The FM's odemis modules, on the path importing the driver added.
-        importlib.import_module("odemis.acq.stream")
-    except ImportError as e:
-        raise RuntimeError(
-            f"odemis cannot be imported here ({e}). Serve the odemis FM from the "
-            "METEOR PC that runs odemis."
-        ) from e
-    try:
-        return list(bind_odemis_fm(parent=None, config=config).values())
-    except Exception as e:
-        raise RuntimeError(
-            f"The odemis backend did not answer ({type(e).__name__}: {e}). Check "
-            "that odemis is running (odemis-start) and that this user is in the "
-            "'odemis' group."
-        ) from e
+HOST_FM_KEYS = (
+    "address",
+    "port",
+    "origin",
+    "range",
+    "available_orientations",
+    "focus_position",
+    "limit_position",
+    "camera_tilt",
+)
+"""fm entry keys the host's remote entry owns, refused in a Device Server's file."""
 
 
-def configured_devices(
-    path: str,
-) -> Tuple[Dict[str, Device], List[Callable[[], None]]]:
-    """The devices a configuration file's ``hardware.devices`` lists, each built by
-    its own driver with no microscope (``BuildContext.microscope`` is None), as a
-    unit's PC serves them; and what their builders registered to close
-    (`fibsem.devices.entries.disconnect_devices` closes both).
+def served_fm_settings(
+    serve: str, mount_transform: Optional[str] = None
+) -> Dict[str, Any]:
+    """The one-entry file that ``--serve fm`` or ``--serve odemis-fm`` stands for."""
+    entry: Dict[str, Any] = {
+        "name": "fm",
+        "type": "fm",
+        "driver": SERVED_FM_DRIVERS[serve],
+        "required": True,
+    }
+    if mount_transform is not None:
+        entry["mount_transform"] = mount_transform
+    return {"hardware": {"devices": [entry]}}
 
-    The file has the shape of a microscope configuration, so entries copy across. An
-    entry names its ``driver``, unless ``info.manufacturer`` names one for all of
-    them. An entry that can't be built is left out with a warning, unless it is
-    ``required: true``. Roles are not bound: each device is served on its own.
-    """
+
+def read_server_settings(path: str) -> Dict[str, Any]:
+    """A Device Server's file: a microscope configuration's ``info`` and
+    ``hardware.devices``, and a ``server:`` block with its ``host`` and ``port``."""
     import yaml
 
     from fibsem.codec.upgrades.configuration import upgrade
-    from fibsem.devices.entries import build_device_entries, resolve_device_entries
-    from fibsem.structures.system import read_device_entries
 
     with open(path) as f:
-        settings = upgrade(yaml.safe_load(f) or {})
+        return upgrade(yaml.safe_load(f) or {})
+
+
+def _refuse_unservable(entries: Iterable[Any]) -> None:
+    """Refuse an entry a Device Server can't serve, before anything is built."""
+    for entry in entries:
+        if entry.driver == REMOTE_DRIVER:
+            raise ValueError(
+                f"'{entry.name}' is a remote entry: a Device Server serves the devices "
+                "it builds itself. Put remote entries in the host's configuration."
+            )
+        host_keys = [key for key in HOST_FM_KEYS if key in entry.options]
+        if entry.type == "fm" and host_keys:
+            raise ValueError(
+                f"'{entry.name}' sets {', '.join(host_keys)}, which belong on the "
+                "host's remote fm entry, not the Device Server's."
+            )
+
+
+def configured_devices(
+    source: Union[str, Mapping[str, Any]],
+) -> Tuple[Dict[str, Device], List[Callable[[], None]]]:
+    """The devices a configuration's ``hardware.devices`` lists, each built by its own
+    driver with no microscope (``BuildContext.microscope`` is None), as a unit's PC
+    serves them; and what their builders registered to close
+    (`fibsem.devices.entries.disconnect_devices` closes both).
+
+    *source* is a file, or its settings already read. It has the shape of a
+    microscope configuration, so entries copy across. An entry names its ``driver``,
+    unless ``info.manufacturer`` names one for all of them. An entry that can't be
+    built is left out with a warning, unless it is ``required: true``; one the
+    server can't serve is refused (`_refuse_unservable`). An ``fm`` entry is served
+    as the FM's parts and group, which the host's remote FM mirrors. Roles are not
+    bound: each device is served on its own.
+    """
+    settings = read_server_settings(source) if isinstance(source, str) else source
     configured = read_device_entries(settings)
+    _refuse_unservable(configured.values())
     manufacturer = (settings.get("info") or {}).get("manufacturer")
     resolved = resolve_device_entries([], configured, manufacturer)
     cleanups: List[Callable[[], None]] = []
-    built = build_device_entries(resolved, None, cleanups=cleanups)
+    built: Dict[str, Device] = {}
+    for name, device in build_device_entries(resolved, None, cleanups=cleanups).items():
+        if isinstance(device, FluorescenceMicroscope):
+            built.update(device.devices)
+        else:
+            built[name] = device
     return built, cleanups
 
 
 def main(argv: Optional[List[str]] = None) -> None:
     parser = argparse.ArgumentParser(description="Serve devices over HTTP.")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument(
+        "--host", default=None, help="default the file's server.host, else 127.0.0.1"
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="default the file's server.port, else 8765",
+    )
     parser.add_argument(
         "--serve",
         nargs="+",
-        choices=(*DEMO_PARTS, "fm", "odemis-fm"),
+        choices=(*DEMO_PARTS, *SERVED_FM_DRIVERS),
         default=None,
         help="beams, stage, chamber, manipulator: the Demo microscope's; fm: a "
         "simulated FM's parts; odemis-fm: the FM of the METEOR this computer runs "
-        "odemis for. Default beams, unless --config is given",
+        "odemis for (each the one fm entry of a file). Default beams, unless "
+        "--config is given",
     )
     parser.add_argument(
         "--config",
-        help="a configuration file whose hardware.devices entries to build and "
-        "serve, each with its own driver: a plugin's device too",
+        help="a Device Server file (~/.fibsem/device-server.yaml): its "
+        "hardware.devices entries, each built and served with its own driver, and "
+        "its server host and port",
     )
     parser.add_argument(
         "--mount-transform",
         choices=("none", "flip-x", "flip-y", "flip-xy"),
-        default="none",
+        default=None,
         help="fm, odemis-fm: the flip that puts the camera's frames into the "
-        "stage's axes, from how it is mounted",
+        "stage's axes; in a file, the fm entry's mount_transform",
     )
     parser.add_argument(
         "--token-file",
@@ -1067,31 +1110,48 @@ def main(argv: Optional[List[str]] = None) -> None:
     args = parser.parse_args(argv)
     if args.serve is None:
         args.serve = [] if args.config else ["beams"]
+    if args.mount_transform is not None:
+        logging.warning(
+            "--mount-transform still works, but belongs in the Device Server's file: "
+            f"mount_transform: {args.mount_transform} on its fm entry."
+        )
     served: List[Device] = []
     built: Dict[str, Device] = {}
     cleanups: List[Callable[[], None]] = []
+    sources: List[Union[str, Mapping[str, Any]]] = []
+    settings: Mapping[str, Any] = {}
     if args.config:
         try:
-            built, cleanups = configured_devices(args.config)
+            settings = read_server_settings(args.config)
         except Exception as e:
             logging.error(f"{args.config}: {e}")
             raise SystemExit(1) from e
-        served += built.values()
+        sources.append(settings)
+    sources += [
+        served_fm_settings(serve, args.mount_transform)
+        for serve in SERVED_FM_DRIVERS
+        if serve in args.serve
+    ]
+    for source in sources:
+        try:
+            more, closes = configured_devices(source)
+        except Exception as e:
+            logging.error(f"{args.config if source is settings else 'FM'}: {e}")
+            disconnect_devices(built, cleanups)
+            raise SystemExit(1) from e
+        built.update(more)
+        cleanups += closes
+    served += built.values()
     demo_parts = [part for part in DEMO_PARTS if part in args.serve]
     if demo_parts:
         served += demo_devices(demo_parts)
-    # The FM's configuration keys, as an fm entry in a microscope configuration
-    # states them.
-    fm_config = {"mount_transform": args.mount_transform}
-    if "fm" in args.serve:
-        served += demo_fm_devices(fm_config)
-    if "odemis-fm" in args.serve:
-        try:
-            served += odemis_fm_devices(fm_config)
-        except RuntimeError as e:
-            logging.error(e)
-            raise SystemExit(1) from e
+    if not served:
+        logging.error("Nothing to serve: no device was built.")
+        raise SystemExit(1)
     devices: Mapping[str, Device] = {d.name: d for d in served}
+    server = settings.get("server") or {}
+    host = args.host or server.get("host") or "127.0.0.1"
+    port = args.port or server.get("port") or 8765
     token_file = (
         Path(args.token_file) if args.token_file else device_auth.DEVICE_TOKEN_FILE
     )
@@ -1099,22 +1159,20 @@ def main(argv: Optional[List[str]] = None) -> None:
         print(f"Made this Device Server's token, kept in {token_file}.")
     auth = DeviceAuth.from_disk(token_file)
     if args.pair:
+        code = auth.pairing.open()
         print(
-            f"Pairing code: {auth.pairing.open()} (5 minutes). Put it in the "
-            "other computer's remote entry as code:, or send it with "
-            "fibsem.client.pairing.pair(code, url)."
+            f"Pairing code: {code} (5 minutes, works once). On the other computer "
+            f"run: fibsem-cli pair-device <this computer's address>:{port} {code}"
         )
-    logging.info(f"serving {sorted(devices)} on http://{args.host}:{args.port}")
+    logging.info(f"serving {sorted(devices)} on http://{host}:{port}")
     try:
         uvicorn.run(
             build_device_app(devices.values(), auth),
-            host=args.host,
-            port=args.port,
+            host=host,
+            port=port,
             ws=WS_PROTOCOL,
         )
     finally:
-        from fibsem.devices.entries import disconnect_devices
-
         disconnect_devices(built, cleanups)
 
 

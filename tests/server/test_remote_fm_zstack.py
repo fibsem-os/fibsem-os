@@ -25,7 +25,7 @@ from fibsem.fm.structures import (  # noqa: E402
     ZParameters,
     ZStackOrder,
 )
-from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
+from fibsem.server.devices import DeviceServer  # noqa: E402
 
 CHANNELS = [
     ChannelSettings(name="green", excitation_wavelength=488, exposure_time=0.01),
@@ -38,7 +38,7 @@ ZPARAMS = ZParameters(zmin=-1e-6, zmax=1e-6, zstep=1e-6)  # 3 planes
 
 @pytest.fixture
 def served():
-    far = {d.name: d for d in demo_fm_devices()}
+    far = {d.name: d for d in bind_demo_fm().values()}
     far["camera"].binning.set_value(8)  # small frames, so each stack is quick
     server = DeviceServer(far.values()).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
