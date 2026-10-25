@@ -12,8 +12,13 @@ export interface Planes {
   channels: string[];
   /** The full image's (Y, X), which these planes are a copy of at *factor*. */
   full_shape: [number, number];
+  /** The region read (x, y, width, height), when it is one. */
+  box?: Box;
   values: Values;
 }
+
+/** A region of an image in its full-size pixels: x, y, width, height. */
+export type Box = [number, number, number, number];
 
 export type Projection = "max" | "mean" | "min";
 
@@ -23,6 +28,8 @@ export interface PlanesAsk {
   z: number | "all" | Projection;
   first?: number;
   last?: number;
+  /** Only this region, at factor 1. */
+  box?: Box;
 }
 
 const ARRAYS = { uint8: Uint8Array, uint16: Uint16Array, float32: Float32Array };
@@ -31,6 +38,7 @@ export async function readPlanes(path: string, ask: PlanesAsk): Promise<Planes> 
   const query = new URLSearchParams({ factor: String(ask.factor), z: String(ask.z) });
   if (ask.first != null) query.set("first", String(ask.first));
   if (ask.last != null) query.set("last", String(ask.last));
+  if (ask.box) query.set("box", ask.box.join(","));
   const response = await fetch(`/app/experiment/planes/${encodePath(path)}?${query}`, {
     headers: { Authorization: `Bearer ${getToken()}` },
   });

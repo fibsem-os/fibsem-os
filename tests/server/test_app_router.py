@@ -1739,6 +1739,15 @@ def test_an_images_raw_planes_for_the_web_viewer(client, host, grid_with_overvie
     assert again.status_code == 304
     refused = client.get(url, params={"factor": 3}, headers=AUTH)
     assert refused.status_code == 422
+    # zoomed in: the region on screen, at full size
+    region = client.get(url, params={"box": "32,16,20,10"}, headers=AUTH)
+    header = json.loads(region.headers["X-Planes"])
+    assert header["shape"] == [1, 1, 10, 20] and header["box"] == [32, 16, 20, 10]
+    values = np.frombuffer(region.content, dtype=header["dtype"]).reshape(10, 20)
+    np.testing.assert_array_equal(values, image.data[16:26, 32:52])
+    for box in ("1,2", "a,b,c,d", "120,0,20,10"):
+        bad = client.get(url, params={"box": box}, headers=AUTH)
+        assert bad.status_code == 422, box
 
 
 def test_experiment_files_crop_at_native_resolution(client, grid_with_overview):

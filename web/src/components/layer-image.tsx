@@ -8,7 +8,7 @@ import { download } from "@/lib/api";
 import type { DrawLayer } from "@/lib/gl-layers";
 import * as fmt from "@/lib/format";
 import { type Look, autoClim, cssColor, storeLook, storedLook, tint } from "@/lib/layers";
-import { type Planes, type PlanesAsk, type Values, planeOf, project, usePlanes } from "@/lib/planes";
+import { type Box, type Planes, type PlanesAsk, type Values, planeOf, project, usePlanes } from "@/lib/planes";
 import type { FileRead, ImageInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +48,23 @@ function askFor(shown: StackShown, factor: number): PlanesAsk {
 }
 
 const sameAsk = (a: PlanesAsk | null, b: PlanesAsk | null) => JSON.stringify(a) === JSON.stringify(b);
+
+// The region read at full size, padded so a small pan stays inside it and snapped
+// to the file's 256 px tiles so a pan back reads the same region again.
+const TILE = 256;
+const REGION_PIXELS = 4096 * 4096;
+
+/** The region to read at full size for *sight* of a (Y, X) *full* image, or null
+ * when it would be larger than a read allows. */
+function regionFor(sight: Box, full: [number, number]): Box | null {
+  const [x, y, w, h] = sight;
+  const snap = (v: number) => Math.floor(v / TILE) * TILE;
+  const x0 = Math.max(0, snap(x - w / 4));
+  const y0 = Math.max(0, snap(y - h / 4));
+  const x1 = Math.min(full[1], snap(x + w * 1.25) + TILE);
+  const y1 = Math.min(full[0], snap(y + h * 1.25) + TILE);
+  return (x1 - x0) * (y1 - y0) > REGION_PIXELS ? null : [x0, y0, x1 - x0, y1 - y0];
+}
 
 /** A toolbar button over the image, as the Qt canvas's. */
 function Tool({
@@ -309,6 +326,31 @@ export function LayerImage({
   if (current) last.current = current;
   const showing = current ?? (last.current as typeof current);
 
+  // Zoomed into a large image until its copy shows each pixel twice over or more,
+  // the region in sight is read at full size and drawn over it, once the view rests.
+  const [sight, setSight] = useState<{ box: Box; scale: number } | null>(null);
+  const sightTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(sightTimer.current), []);
+  const onSight = (box: Box, scale: number) => {
+    clearTimeout(sightTimer.current);
+    sightTimer.current = setTimeout(() => setSight({ box, scale }), SETTLE_MS);
+  };
+  const region = sharp > 1 && sight && sight.scale * sharp >= 2 ? regionFor(sight.box, full) : null;
+  const regionAsk = region ? { ...askFor(settled, 1), box: region } : null;
+  const fullRead = usePlanes(path, regionAsk);
+  const lastRegion = useRef<{ of: string; box: Box; planes: Values[]; width: number } | null>(null);
+  if (fullRead.data && !fullRead.isFetching) {
+    const p = fullRead.data;
+    lastRegion.current = {
+      of: JSON.stringify(askFor(settled, 1)),
+      box: p.box!,
+      planes: channels.map((_, c) => planeOf(p, c)),
+      width: p.shape[3],
+    };
+  }
+  // the last region read stays while the next is, if it is of the planes drawn
+  const sharpRegion = region && lastRegion.current?.of === JSON.stringify(askFor(drawn, 1)) ? lastRegion.current : null;
+
   // Auto contrast while stepping planes holds each channel's projection contrast, as Qt does.
   const held = useMemo(() => {
     const p = all.data;
@@ -333,6 +375,8 @@ export function LayerImage({
   const climOf = (c: number): [number, number] | null => {
     if (looks[c].clim) return looks[c].clim;
     if (stack && !drawn.projection && held) return held[c];
+    // zoomed in, auto contrast fits the full-size pixels in sight, not the copy's averages
+    if (sharpRegion) return autoOf(sharpRegion.planes[c], sharpRegion.width);
     return showing ? autoOf(showing.planes[c], showing.width) : null;
   };
   const setLook = (c: number, look: Look) => {
@@ -357,6 +401,9 @@ export function LayerImage({
       ];
     });
   const layers = showing ? drawLayers(showing.planes, showing.width) : [];
+  const detail = sharpRegion
+    ? { layers: drawLayers(sharpRegion.planes, sharpRegion.width), box: sharpRegion.box }
+    : null;
 
   // Z as the server's bar says it (fibsem.imaging.export.z_value), for what is drawn
   const step = fm?.z_step ? ` × ${fmt.length(fm.z_step)}` : "";
@@ -372,6 +419,14 @@ export function LayerImage({
           }${step}`;
   const values: Record<string, string> = zValue ? { z: zValue } : {};
 
+  // a pixel's value from the full-size region where it covers the cursor, else the copy
+  const valueAt = (c: number, [x, y]: [number, number]) => {
+    const r = sharpRegion;
+    if (r && x >= r.box[0] && y >= r.box[1] && x < r.box[0] + r.box[2] && y < r.box[1] + r.box[3])
+      return r.planes[c][Math.floor(y - r.box[1]) * r.width + Math.floor(x - r.box[0])];
+    const f = showing!.factor;
+    return showing!.planes[c][Math.floor(y / f) * showing!.width + Math.floor(x / f)];
+  };
   const readout =
     cursor && showing ? (
       <>
@@ -382,8 +437,7 @@ export function LayerImage({
         )}
         {channels.map((ch, c) => {
           if (!visible[c]) return null;
-          const f = showing.factor;
-          const v = showing.planes[c][Math.floor(cursor[1] / f) * showing.width + Math.floor(cursor[0] / f)];
+          const v = valueAt(c, cursor);
           return (
             <span key={ch.name} className="inline-flex items-center gap-1" title={ch.name}>
               <span className="inline-block size-2 rounded-[2px]" style={{ background: cssColor(looks[c].color) }} />
@@ -476,6 +530,8 @@ export function LayerImage({
           dim={dim}
           onCursor={setCursor}
           onRenderer={(r) => r || onNoWebGL()}
+          onSight={onSight}
+          detail={detail}
           snapshot={snapshot}
         >
           {marking ? marks : null}
