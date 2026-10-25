@@ -5,9 +5,11 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ImageInfoBar, ScaleBar } from "@/components/image-info";
 import { type ImageKeys, LayerImage } from "@/components/layer-image";
 import { MarkPanel, MarkToolbar, MarkingLayer, toolForKey, useMarkEditor } from "@/components/mark-for-agent";
+import { MarkLayer } from "@/components/marks";
 import { Stepper } from "@/components/stepper";
 import { type StackView, useFileRead } from "@/lib/files";
 import * as fmt from "@/lib/format";
+import { AGENT_MARK, type Mark } from "@/lib/marks";
 import type { ImagePayload, StackFacts } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -218,7 +220,7 @@ function JpegImage({
               src={`data:image/jpeg;base64,${shown.image_b64_jpeg}`}
             />
             <ScaleBar info={read.data?.info} />
-            {marking && marks}
+            {marks}
           </div>
         ) : (
           <span className="text-[13px] text-muted-foreground">{read.error ? read.error.message : "Reading…"}</span>
@@ -229,10 +231,27 @@ function JpegImage({
   );
 }
 
+/** The agent's picture the operator answers by marking: its marks, and the plane they are on. */
+export interface Reply {
+  marks: Mark[];
+  plane?: number | null;
+}
+
 /** The viewer: one image large with its metadata, previous and next through *paths*.
  * The browser draws it from its raw planes (`LayerImage`); without WebGL2, the
- * server's JPEG with the legend and planes in the side panel. */
-export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: number | null; onClose: () => void }) {
+ * server's JPEG with the legend and planes in the side panel. Given *reply*, it
+ * opens marking, with the agent's marks drawn under the operator's. */
+export function ImageViewer({
+  paths,
+  at,
+  onClose,
+  reply,
+}: {
+  paths: string[];
+  at: number | null;
+  onClose: () => void;
+  reply?: Reply;
+}) {
   // The open image by its path, so images added to *paths* while it is open don't move it.
   const [path, setPath] = useState(at == null ? null : (paths[at] ?? null));
   const [opened, setOpened] = useState(at);
@@ -245,7 +264,6 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
   const [view, setView] = useState<StackView>(WHOLE);
   const [viewOf, setViewOf] = useState(path);
   const [marking, setMarking] = useState(false);
-  const [sent, setSent] = useState(false);
   const [shownChannels, setShownChannels] = useState<string[] | null>(null);
   // Drawn in the browser, the file is read for its facts and bar only.
   const read = useFileRead(path, gl ? 64 : 1600, gl ? undefined : view);
@@ -254,8 +272,7 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
   if (path !== viewOf) {
     setViewOf(path);
     setView(WHOLE);
-    setMarking(false);
-    setSent(false);
+    setMarking(!!reply);
     setShownChannels(null);
     editor.clear();
     editor.setPlane(undefined);
@@ -263,13 +280,13 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
   const fm = read.data?.summary?.fm;
   const stack = fm && fm.z_planes > 1 ? fm : undefined;
   const pixelSize = read.data?.summary?.pixel_size as number | null | undefined;
-  // a beam image, or an FM stack's planes or max projection
-  const markable = !!read.data?.preview && (!!fm || imageKind(path ?? "", read.data?.summary?.beam_type) !== "Image");
+  // in answer to the agent's picture: a beam image, or an FM stack's planes or max projection
+  const markable =
+    !!reply && !!read.data?.preview && (!!fm || imageKind(path ?? "", read.data?.summary?.beam_type) !== "Image");
   const keys = useRef<HTMLDivElement>(null);
   const imageKeys: ImageKeys = useRef(null);
   const mark = (on: boolean) => {
     setMarking(on);
-    setSent(false);
     if (on && view.z != null) setView({ ...view, z: null });
     // the tools' keys go to the viewer, not the button
     if (on) keys.current?.focus();
@@ -284,7 +301,21 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
   // (height, width), with a colour axis after for a stack's composite.
   const bytes = read.data?.size;
   const size = shape ? `${shape[1]} × ${shape[0]} px${bytes ? ` · ${fmt.bytes(bytes)}` : ""}` : "";
-  const marks = <MarkingLayer editor={editor} pixelSize={pixelSize} />;
+  const marks = (
+    <>
+      {reply && (
+        <MarkLayer
+          marks={reply.marks}
+          width={editor.width}
+          height={editor.height}
+          color={AGENT_MARK}
+          pixelSize={pixelSize}
+          plane={editor.plane}
+        />
+      )}
+      {marking && <MarkingLayer editor={editor} pixelSize={pixelSize} />}
+    </>
+  );
   // The viewer's keys, wherever focus is in the page while it is open, so they keep
   // working after a click on the image or a menu that closes.
   const onKey = useRef<(e: KeyboardEvent) => void>(() => {});
@@ -348,6 +379,7 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
                 onVisible={(names) => setShownChannels(fm && names.length < fm.channels.length ? names : null)}
                 onPlane={editor.setPlane}
                 planeTo={editor.goTo}
+                plane={reply?.plane}
               />
             ) : gl ? (
               <div className="flex min-h-[300px] items-center justify-center bg-black text-[13px] text-muted-foreground">
@@ -366,14 +398,9 @@ export function ImageViewer({ paths, at, onClose }: { paths: string[]; at: numbe
                 image={path}
                 pixelSize={pixelSize}
                 channels={fm ? (channels ?? fm.channels.map((c) => c.name)) : null}
-                onSent={() => {
-                  setMarking(false);
-                  setSent(true);
-                }}
+                // back to the chat, where the message shows with its marks
+                onSent={onClose}
               />
-            )}
-            {sent && (
-              <div className="text-[12px] text-muted-foreground">Sent · the agent reads it on its next turn</div>
             )}
             <div className="flex flex-col gap-0.5 text-[12px] text-muted-foreground">
               <span className="break-all">{path}</span>

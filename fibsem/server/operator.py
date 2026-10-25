@@ -171,6 +171,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 record.get("by") or evidence.AGENT,
                 record.get("channels"),
                 plane,
+                _markable(
+                    root, record.get("source") if record.get("uploaded") else image
+                ),
             )
         )
 
@@ -299,3 +302,14 @@ def _decided(result: Any, proposal_id: str) -> Any:
         status = 422 if result.error_type == "invalid_value" else 409
         raise refusal_error(status, result.error_type or "not_decided", result.reason)
     return answer(SuggestionDecided(proposal_id, True))
+
+
+def _markable(root: str, image: Optional[str]) -> Optional[str]:
+    """*image* inside the experiment at *root*, when it is a beam image or a
+    fluorescence stack (TIFF) the operator can mark; None otherwise."""
+    if not image or not image.lower().endswith((".tif", ".tiff")):
+        return None
+    if not os.path.isfile(image):
+        return None
+    relative = os.path.relpath(image, os.path.realpath(root))
+    return None if relative.startswith("..") else relative.replace(os.sep, "/")

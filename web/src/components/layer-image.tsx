@@ -250,9 +250,9 @@ export type ImageKeys = MutableRefObject<((e: KeyboardEvent) => boolean) | null>
  * An image drawn in the browser from its raw planes: each channel (or the detector)
  * a layer with its own colour, opacity, gamma and contrast, the stack's planes and
  * projections, zoom and pan, the ruler, crosshair and scalebar, the value under the
- * cursor, and export. *marks* is drawn over the image while marking: on one plane of
- * a stack, or its whole max projection. *onPlane* hears the plane on screen (null, a
- * projection); *planeTo* is set to show a plane.
+ * cursor, and export. *marks* is drawn over the image; while marking, on one plane
+ * of a stack or its whole max projection. *onPlane* hears the plane on screen (null, a
+ * projection); *planeTo* is set to show a plane; *plane* is the one to open on.
  */
 export function LayerImage({
   path,
@@ -264,6 +264,7 @@ export function LayerImage({
   onVisible,
   onPlane,
   planeTo,
+  plane,
 }: {
   path: string;
   read: FileRead;
@@ -273,6 +274,7 @@ export function LayerImage({
   onNoWebGL: () => void;
   onPlane?: (z: number | null) => void;
   planeTo?: MutableRefObject<((z: number) => void) | null>;
+  plane?: number | null;
   /** The names of the channels on screen, when they change. */
   onVisible?: (names: string[]) => void;
 }) {
@@ -292,8 +294,8 @@ export function LayerImage({
 
   const sharpest = fm?.channels.find((c) => c.sharpest_plane != null)?.sharpest_plane ?? 0;
   const [shown, setShown] = useState<StackShown>({
-    z: sharpest,
-    projection: stack ? "max" : null,
+    z: plane ?? sharpest,
+    projection: stack && plane == null ? "max" : null,
     first: 0,
     last: count - 1,
   });
@@ -547,7 +549,7 @@ export function LayerImage({
           detail={detail}
           snapshot={snapshot}
         >
-          {marking ? marks : null}
+          {marks}
         </LayerView>
         {(!showing || dim) && (
           <span className="absolute top-2 left-2 z-10 bg-black/70 px-2 py-0.5 text-[12px] text-white">

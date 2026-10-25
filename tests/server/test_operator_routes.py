@@ -220,6 +220,8 @@ def test_marks_on_a_stack_s_plane_read_back_on_that_plane(server):
         f"/app/agent/evidence/{answer.json()['evidence_id']}", headers=server.operator
     ).json()
     assert read["plane"] == 2
+    # The image to mark in reply is the stack itself.
+    assert read["source"] == "stack.ome.tiff"
     assert [p.get("z") for p in read["marks"]["points"]] == [2, None]
 
 
@@ -418,6 +420,16 @@ def test_evidence_names_its_image_for_the_files_panel(server):
     ).json()
     assert answer["path"] == f"evidence/{record['evidence_id']}.png"
     assert answer["preview"]["full_width"] == 32
+    # Nothing to mark in reply, unless the picture was drawn from an image.
+    assert answer["source"] is None
+    image = _marked_image(server)
+    drawn = evidence.save(
+        lambda: root, upload=base64.b64encode(buffer.getvalue()).decode(), source=image
+    )
+    answer = server.get(
+        f"/app/agent/evidence/{drawn['evidence_id']}", headers=server.operator
+    ).json()
+    assert answer["source"] == image
 
 
 def test_missing_evidence_is_not_found(server):
