@@ -56,6 +56,7 @@ def test_a_stage_that_declares_an_fm_pose_reaches_the_fm_by_re_posing():
     microscope.stage.position.refresh_metadata()
     microscope.system.stage.devices["FM"].origin = FibsemStagePosition(x=0.0)
     microscope.system.stage.devices["FM"].available_orientations = ["FM"]
+    microscope.system.stage.device_calibration = None  # the entry's origin decides
     start = microscope.get_stage_position()
 
     microscope.move_to_device("FM")
@@ -99,4 +100,5 @@ def test_a_compustage_that_declares_no_fm_pose_travels_to_it():
     # The travelling route, which then finds the FM's declared orientation is not a
     # pose this stage has.
     with pytest.raises(ValueError, match="Orientation FM not supported"):
-        microscope.move_to_device("FM")
+        with microscope.stage_movement.calibrating():
+            microscope.move_to_device("FM")
