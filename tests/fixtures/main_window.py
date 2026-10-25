@@ -61,10 +61,7 @@ def main_window(
         yield win
     finally:
         ui.session.runner.manager = None
-        microscope = ui.microscope
-        ui.disconnect_from_microscope()
-        if microscope is not None:
-            microscope.disconnect()
+        ui.session.disconnect()
         with quit_stubbed(qapp):
             win.close()
         from PyQt5.QtCore import QCoreApplication, QEvent

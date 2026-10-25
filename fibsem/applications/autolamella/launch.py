@@ -23,9 +23,7 @@ __all__ = ["main", "serve"]
 def serve(session) -> bool:
     """Host the App Server over an AutoLamella *session* with no window.
     Whether it is serving (see ``AppSession.start_app_server``)."""
-    return session.start_app_server(
-        lambda buffer: AutoLamellaAppContext(session, event_buffer=buffer)
-    )
+    return session.start_app_server(lambda: AutoLamellaAppContext(session))
 
 
 def _parser() -> argparse.ArgumentParser:

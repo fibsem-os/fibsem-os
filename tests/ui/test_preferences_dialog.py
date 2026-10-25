@@ -70,12 +70,14 @@ def test_the_app_server_is_not_in_preferences(qapp):
     saved values back untouched."""
     prefs = UserPreferences()
     prefs.install.app_server.enabled = True
-    prefs.install.app_server.microscope = True
+    prefs.install.app_server.microscope = False
     dialog = PreferencesDialog(prefs)
     pages = [dialog._sidebar.item(i).text() for i in range(dialog._sidebar.count())]
     assert "App Server" not in pages
     rebuilt = dialog.get_preferences()
-    assert rebuilt.install.app_server.enabled and rebuilt.install.app_server.microscope
+    assert (
+        rebuilt.install.app_server.enabled and not rebuilt.install.app_server.microscope
+    )
     dialog.deleteLater()
 
 
@@ -85,7 +87,7 @@ def test_the_app_server_fails_closed():
     app_server = lambda d: UserPreferences.from_dict(d).install.app_server  # noqa: E731
     assert app_server({"features": {}}).enabled is False
     assert app_server({"app_server": {}}).enabled is False
-    assert app_server({"install": {"app_server": {}}}).microscope is False
+    assert app_server({"install": {"app_server": {}}}).microscope is True
     assert app_server({"features": {"agent_server_enabled": True}}).enabled is False
 
 
@@ -120,7 +122,7 @@ def _every_field_changed() -> UserPreferences:
 
     prefs.install.update_check_enabled = True
     prefs.install.app_server.enabled = True
-    prefs.install.app_server.microscope = True
+    prefs.install.app_server.microscope = False
     prefs.install.app_server.allow_local_agents = True
     return prefs
 

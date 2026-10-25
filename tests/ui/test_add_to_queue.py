@@ -78,7 +78,7 @@ def runner_over(queue: TaskQueue, experiment, recorded=None):
                 (kind, payload, actor)
             )
         )
-        session.app_server = SimpleNamespace(event_buffer=buffer)
+        session._idle_buffer = buffer
     return session.runner
 
 

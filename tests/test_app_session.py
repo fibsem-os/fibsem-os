@@ -154,36 +154,97 @@ def fake_hosting(monkeypatch):
 
 
 def test_the_app_server_is_the_sessions_and_starts_once(session, fake_hosting):
-    assert session.start_app_server(lambda buffer: None)
+    assert session.start_app_server(lambda: None)
     host = session.app_server
 
-    session.start_app_server(lambda buffer: None)
+    session.start_app_server(lambda: None)
 
     assert session.app_server is host and host.starts == 2 and host.running
 
 
-def test_serving_the_microscope_drops_a_running_server(session, fake_hosting):
-    session.start_app_server(lambda buffer: None)
+def test_the_microscope_is_served_unless_the_operator_says_not(session, fake_hosting):
+    session.start_app_server(lambda: None)
     host = session.app_server
+    assert host.serve_microscope
 
-    assert session.set_serve_microscope(True) is True
+    assert session.set_serve_microscope(False) is True
 
     assert not host.running and session.app_server is None
-    session.start_app_server(lambda buffer: None)
-    assert session.app_server.serve_microscope
+    session.start_app_server(lambda: None)
+    assert not session.app_server.serve_microscope
 
 
-def test_a_new_microscope_stops_the_server_on_the_old_stream(
-    session, microscope, fake_hosting
-):
+def test_a_new_microscope_keeps_the_server(session, microscope, fake_hosting):
+    """The server reads the session's microscope and stream at each call, so
+    another microscope needs no restart."""
     session.microscope = microscope
     session.start_recording()
-    session.start_app_server(lambda buffer: None)
+    session.start_app_server(lambda: None)
+    first = session.event_buffer
     session.microscope = object()
 
     session.start_recording()
 
-    assert not session.app_server.running
+    assert session.app_server.running
+    assert session.event_buffer is not first
+
+
+def test_connect_and_disconnect_are_the_sessions(monkeypatch):
+    """Connect sets the microscope and its settings and records its events,
+    heard once on ``changed``; disconnect lets it go, and a reconnect gets a
+    new stream."""
+    monkeypatch.setenv("FIBSEM_SIM_NO_DELAY", "1")
+    session = AppSession()
+    heard, steps = [], []
+    session.changed.connect(lambda what, *_: heard.append(what))
+    idle = session.event_buffer
+    assert session.connection["connected"] is False
+
+    microscope = session.connect(
+        progress=steps.append, manufacturer="Demo", ip_address="localhost"
+    )
+
+    assert session.microscope is microscope and session.settings is not None
+    assert heard == [MICROSCOPE] and steps
+    assert session.recorder is not None and session.event_buffer is not idle
+    assert session.connection["connected"] is True
+    assert session.connection["configuration"]["manufacturer"] == "Demo"
+    with pytest.raises(ValueError, match="disconnect it first"):
+        session.connect(manufacturer="Demo", ip_address="localhost")
+    first = session.recorder
+
+    assert session.disconnect() is None
+    assert session.microscope is None and session.settings is None
+    assert session.recorder is None and session.event_buffer is idle
+    assert heard == [MICROSCOPE, MICROSCOPE]
+
+    session.connect(manufacturer="Demo", ip_address="localhost")
+    assert session.recorder is not first
+    session.disconnect()
+
+
+def test_disconnect_is_refused_while_a_run_is_on(session, microscope, monkeypatch):
+    session.microscope = microscope
+    monkeypatch.setattr(type(session.runner), "is_running", property(lambda _: True))
+
+    with pytest.raises(RuntimeError, match="run is on"):
+        session.disconnect()
+    assert session.microscope is microscope
+
+
+def test_a_failed_connect_says_why(monkeypatch):
+    from fibsem import utils
+
+    def fail(**_):
+        raise ConnectionError("no route to 10.0.0.1")
+
+    monkeypatch.setattr(utils, "setup_session", fail)
+    session = AppSession()
+
+    with pytest.raises(ConnectionError):
+        session.connect("/nowhere.yaml")
+    assert session.connection["error"] == "no route to 10.0.0.1"
+    assert session.microscope is None and session.connecting is None
 
 
 def test_an_edit_runs_and_resolves_to_its_result():
@@ -284,7 +345,7 @@ def test_who_can_answer_is_what_is_attached_and_the_agent_at_drive(fake_hosting)
     detach()
     assert session.deciders() == ()
 
-    session.start_app_server(lambda buffer: None)
+    session.start_app_server(lambda: None)
     session.agent_auth = SimpleNamespace(level=AgentLevel.ASSIST)
     assert session.deciders() == (), "at Assist the agent suggests, it does not answer"
     session.agent_auth.level = AgentLevel.DRIVE
