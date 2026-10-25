@@ -407,6 +407,39 @@ def test_a_suggestion_is_drawn_on_its_proposal_s_image_in_its_own_picture():
     assert previews.suggestion_picture is None and card.shown is None
 
 
+def test_a_suggestion_with_nothing_to_mark_shows_the_image_it_was_asked_on():
+    """A Position to confirm marks nothing: the card still shows its image,
+    as its "drawn on the image it was asked on" line says (headless sim)."""
+    from fibsem.ai.agent.suggestions import suggestion_request
+    from fibsem.structures.settings import FibsemStagePosition
+    from fibsem.workflows.proposals import STATE, Proposal, Suggestion
+
+    reference = FibsemImage.generate_blank_image(resolution=(200, 100), hfw=200e-6)
+    card = _Card()
+    previews = AgentPictures(
+        _Controller().image,
+        reference_image=lambda arguments: reference,
+        show_picture=card,
+    )
+    proposal = Proposal(
+        kind=STATE,
+        provenance={"task_id": "run-1"},
+        values={"stage_position": FibsemStagePosition(x=0, y=0, z=0, r=0, t=0)},
+    )
+    proposal.suggestion = Suggestion(actor="agent:claude", reason="centred")
+
+    class _Item:
+        id, name = "01", "01-full-magpie"
+
+    previews.show_suggestion(suggestion_request(_Item(), "Setup", proposal, None))
+
+    frame, _layers = previews.suggestion_picture
+    assert frame is reference
+    png, caption = card.shown
+    assert _pixels(png).shape[1] == 200
+    assert caption.startswith("01-full-magpie · Setup")
+
+
 def test_a_suggestion_to_confirm_as_proposed_draws_the_proposal_s_own_values():
     """Round 12: approving "confirm it" on an alignment area showed no area,
     and the image it was asked on was captioned the agent's."""

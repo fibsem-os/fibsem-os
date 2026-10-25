@@ -883,9 +883,9 @@ def _proposal_hold_text(
     ]
     if not names:
         return (
-            f"nobody can answer {asked}: open the app, or connect the agent at Drive",
+            f"nobody can answer {asked}: open the app, or connect the agent at Assist or Drive",
             f"{task_name} is waiting for an answer on {item_name}. Nobody can "
-            "answer it: open the app, or connect the agent at Drive.",
+            "answer it: open the app, or connect the agent at Assist or Drive.",
         )
     by = " or ".join(names)
     return (

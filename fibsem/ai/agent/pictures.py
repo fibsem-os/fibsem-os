@@ -308,6 +308,14 @@ def _agent_image(load: Callable[[str], object], path: Any):
     return image
 
 
+def _skips(request: Dict[str, Any]) -> bool:
+    """Whether *request* skips a pass rather than deciding it."""
+    return any(
+        (action.get("arguments") or {}).get("action") == "skip"
+        for action in request.get("actions", [])
+    )
+
+
 def _has_pixel_size(image) -> bool:
     size = getattr(getattr(image, "metadata", None), "pixel_size", None)
     return image is not None and size is not None
@@ -658,6 +666,7 @@ class AgentPictures:
         missing: List[str] = []
         marks = self._request_marks(request, missing)
         pass_title = ""
+        asked_on = False
         # The agent's own image when it gave one; else the one the values were
         # measured on.
         evidence = _agent_image(self._load_image, request.get("image"))
@@ -674,6 +683,8 @@ class AgentPictures:
                 found = self._pass_frame(request)
                 if found is not None:
                     frame, beam, pass_title = found
+                    # A skipped pass does nothing: nothing to show.
+                    asked_on = not _skips(request)
             if not (patterns or milled or before or kept):
                 frame, beam = self._pose_overview(marks, frame, beam)
         # The card: the image the values were measured on, every value on it.
@@ -728,6 +739,7 @@ class AgentPictures:
             layers,
             suggestion=suggestion,
             agent_image=evidence is not None,
+            asked_on=asked_on,
             title="" if evidence is not None else title,
             marks=cited.get("marks") if evidence is not None else None,
         )
@@ -1025,12 +1037,14 @@ class AgentPictures:
         layers: List[_Layer],
         suggestion: bool = False,
         agent_image: bool = False,
+        asked_on: bool = False,
         title: str = "",
         marks: Optional[Dict[str, Any]] = None,
     ) -> None:
         drawn = None
-        # The agent's own image shows with nothing drawn on it, too.
-        if frame is not None and (agent_image or any(layers)):
+        # The agent's own image, and the image a decision with nothing to mark
+        # was asked on, show with nothing drawn on them too.
+        if frame is not None and (agent_image or asked_on or any(layers)):
             drawn = (frame, layers)
         if suggestion:
             self.suggestion_picture = drawn

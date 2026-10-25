@@ -212,7 +212,7 @@ def test_with_nobody_to_answer_a_supervised_task_still_waits(microscope, tmp_pat
     assert question.pending and question.asking
     hold, note = holds[0]
     assert "nobody can answer" in hold.releases
-    assert "connect the agent at Drive" in note
+    assert "connect the agent at Assist or Drive" in note
 
     who.append(ActorKind.agent)
     deadline = time.monotonic() + 10
