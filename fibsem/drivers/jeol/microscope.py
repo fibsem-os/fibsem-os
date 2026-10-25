@@ -1,22 +1,24 @@
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
 
-from fibsem.devices.entries import build_device_entries, resolve_system_devices
-from fibsem.drivers.jeol.connection import JeolConnection, load_sdk
-from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamType,
-    DeviceEntry,
+from fibsem.drivers.jeol import DRIVER
+from fibsem.drivers.jeol.connection import SEM_PORT, JeolConnection, load_sdk
+from fibsem.drivers.jeol.services import (
+    JeolStageMovement,
+    bind_jeol_milling,
+    bind_jeol_spot_burn,
+)
+from fibsem.microscope import BEAM_TYPES, STAGE_TYPES, FibsemMicroscope
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import (
     FibsemExperimentRef,
     FibsemUser,
     SystemSettings,
 )
 
-# The device types each connect step builds (``JeolMicroscope._build_devices``); any
-# other type a configuration adds is built last.
-_BEAM_TYPES = ("beam",)
-_STAGE_TYPES = ("stage",)
-_OWN_TYPES = _BEAM_TYPES + _STAGE_TYPES + ("fm",)
+# The device types each connect step builds (``FibsemMicroscope._build_devices``).
+# The FM is built on its own path; any other type a configuration adds is built last.
+_OWN_TYPES = BEAM_TYPES + STAGE_TYPES + ("fm",)
 
 # The detectors each column images with after connect: the SEM's in-lens detector,
 # else the first it lists; the FIB's only one.
@@ -56,7 +58,7 @@ class JeolMicroscope(FibsemMicroscope):
             }
         )
 
-    def disconnect(self) -> None:
+    def _disconnect(self) -> None:
         if self._connection is not None:
             self._connection.disconnect()
             self._connection = None
@@ -69,18 +71,15 @@ class JeolMicroscope(FibsemMicroscope):
         sem_port: Optional[int] = None,
         api_path: Optional[str] = None,
     ) -> None:
-        """Connect JEOL's FIB client on *port* and its SEM client on *sem_port*, each
-        defaulting to the driver's; the client library is imported from *api_path*,
-        else the driver's, else ``FIBSEM_JEOL_API_PATH``."""
-        from fibsem.drivers.jeol import DRIVER
-
-        config = DRIVER.config
-        sdk = load_sdk(api_path or config.get("api_path"))
+        """Connect JEOL's FIB client on *port*, defaulting to the driver's, and its
+        SEM client on *sem_port*, defaulting to ``SEM_PORT``; the client library is
+        imported from *api_path*, else ``FIBSEM_JEOL_API_PATH``."""
+        sdk = load_sdk(api_path)
         self._connection = JeolConnection.open(
             sdk,
             ip_address,
-            port if port is not None else config["port"],
-            sem_port if sem_port is not None else config["sem_port"],
+            port if port is not None else DRIVER.port,
+            sem_port if sem_port is not None else SEM_PORT,
         )
 
         self._build_beams()
@@ -118,46 +117,11 @@ class JeolMicroscope(FibsemMicroscope):
         except Exception as e:
             logging.warning(f"Could not build the sample handling: {e}")
 
-    def _build_devices(
-        self,
-        defaults: List[DeviceEntry],
-        types: Optional[Tuple[str, ...]] = None,
-        exclude_types: Tuple[str, ...] = (),
-    ) -> Dict[str, Any]:
-        """Build one connect step's devices: *defaults*, with the configuration's
-        ``hardware.devices`` entries of *types* over them, and put them in ``devices``."""
-        resolved = resolve_system_devices(
-            self.system, defaults, types, exclude_types, self.driver_name
-        )
-        built = build_device_entries(resolved, self)
-        for name, device in built.items():
-            self._set_device(name, device)
-        return built
-
-    def _build_beams(self) -> None:
-        """A device per enabled column; a disabled one gets none and is never touched."""
-        self._build_devices(
-            [
-                DeviceEntry(name="electron", type="beam"),
-                DeviceEntry(name="ion", type="beam"),
-            ],
-            _BEAM_TYPES,
-        )
-
-    def _build_stage(self) -> None:
-        self._build_devices([DeviceEntry(name="stage", type="stage")], _STAGE_TYPES)
-
     def _build_milling(self) -> None:
-        from fibsem.drivers.jeol.services import bind_jeol_milling
-
         self.milling = bind_jeol_milling(self)
 
     def _build_stage_movement(self, service: Optional[type] = None) -> None:
-        from fibsem.drivers.jeol.services import JeolStageMovement
-
         super()._build_stage_movement(service or JeolStageMovement)
 
     def _build_spot_burn(self) -> None:
-        from fibsem.drivers.jeol.services import bind_jeol_spot_burn
-
         self.spot_burn = bind_jeol_spot_burn(self)

@@ -14,8 +14,9 @@ driver did, and hands the devices only the values.
 JEOL's client library is not an installed package: it is a folder of top-level
 modules (``command``, ``ecommand``, ``models``, ``common``, ``sem_live``, ...).
 `load_sdk` puts that folder on ``sys.path`` and imports them at connect, never at
-import, so listing the drivers never needs it. The folder comes from the driver's
-``api_path`` config, else the ``FIBSEM_JEOL_API_PATH`` environment variable.
+import, so listing the drivers never needs it. The folder comes from
+``connect_to_microscope``'s ``api_path``, else the ``FIBSEM_JEOL_API_PATH``
+environment variable.
 """
 
 from __future__ import annotations
@@ -28,9 +29,12 @@ import threading
 import time
 from typing import Any, NamedTuple, Optional, Tuple
 
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 
 JEOL_API_PATH_ENV = "FIBSEM_JEOL_API_PATH"
+
+# The SEM client's port; the FIB client's is the driver's (``DRIVER.port``).
+SEM_PORT = 22300
 
 # The modules of JEOL's client library the driver uses.
 _SDK_MODULES = ("common", "command", "ecommand", "models", "sem_live")
@@ -55,7 +59,7 @@ def load_sdk(api_path: Optional[str] = None) -> JeolSdk:
     path = api_path or os.environ.get(JEOL_API_PATH_ENV)
     if not path:
         raise ImportError(
-            "The JEOL client library's folder is not set: give the driver's api_path, "
+            "The JEOL client library's folder is not set: give connect's api_path, "
             f"or set {JEOL_API_PATH_ENV} to the folder of its modules."
         )
     if path not in sys.path:

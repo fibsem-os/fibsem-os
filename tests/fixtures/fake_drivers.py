@@ -46,7 +46,7 @@ FAKE_DRIVERS: Dict[str, FakeDriver] = {
         tescan_sdk.install,
     ),
     "JEOL": FakeDriver(
-        os.path.join(cfg.CONFIG_PATH, "jeol-configuration.yaml"),
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "jeol-configuration.yaml"),
         jeol_sdk.install,
         tolerances=jeol_sdk.STEP_TOLERANCES,
         known_gaps=jeol_sdk.KNOWN_GAPS,

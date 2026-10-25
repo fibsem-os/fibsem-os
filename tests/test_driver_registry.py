@@ -26,6 +26,7 @@ BUILT_IN = {
         "fibsem.drivers.odemis.microscope:OdemisThermoMicroscope",
         None,
     ),
+    "JEOL": ("fibsem.drivers.jeol.microscope:JeolMicroscope", 22218),
     "Demo": ("fibsem.drivers.demo.microscope:DemoMicroscope", 7520),
 }
 

@@ -25,12 +25,13 @@ from fibsem.cancellation import AnyStopEvent, OperationCancelledError
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata, command
 from fibsem.drivers.jeol.devices import nearest_beam_current
+from fibsem.drivers.jeol.settings import JeolMillingSettings
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.milling.progress import MillingProgress
 from fibsem.services.milling import Milling, bind_milling, progress_update
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
 from fibsem.services.stage_movement import StageMovement
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     CrossSectionPattern,
     FibsemLineSettings,
@@ -98,17 +99,12 @@ def _scan_direction(direction: str) -> str:
     return nearest
 
 
-def dose_for_depth(depth: float, rate: float) -> float:
-    """The dose (nC/um2) that mills *depth* (m) at *rate*, the volume the beam removes
-    per charge (m3/C, `FibsemMillingSettings.rate`): depth / rate, from C/m2.
-
-    PENDING Patrick's call on the milling recipe (B0): the old driver read a JEOL-only
-    ``milling_rate`` (nC/um3, the inverse of this rate, 1 / (rate * 1e9)), and ``rate``'s
-    unit is still to be pinned.
-    """
-    if rate <= 0:
-        raise ValueError(f"The milling rate must be positive, got {rate}.")
-    return depth / rate * 1e-3  # C/m2 -> nC/um2
+def dose_for_depth(depth: float, milling_rate: float) -> float:
+    """The dose (nC/um2) that mills *depth* (m) at *milling_rate*, the charge that
+    removes a unit of volume (C/m3, ``JeolMillingSettings.milling_rate``)."""
+    if milling_rate <= 0:
+        raise ValueError(f"The milling rate must be positive, got {milling_rate}.")
+    return depth * milling_rate * 1e-3  # C/m2 -> nC/um2
 
 
 def spot_burn_dose(exposure_time: float, current: float) -> float:
@@ -135,17 +131,19 @@ class JeolMilling(Milling):
     parent: JeolMicroscope
 
     # The field the patterns are placed in; the current picks each item's beam mode;
-    # the rate makes its dose.
-    setting_names = ("milling_channel", "hfw", "milling_current", "rate")
+    # JEOL's own milling rate makes its dose.
+    setting_names = ("milling_channel", "hfw", "milling_current")
+    settings_class = JeolMillingSettings
     scan_directions = SCAN_DIRECTIONS
 
     def __init__(self, connection: JeolConnection, **kwargs: Any):
         super().__init__(**kwargs)
         self.connection = connection
-        # The beam mode and rate the last setup chose, which each item is drawn at.
+        # The beam mode and milling rate the last setup chose, which each item is
+        # drawn at.
         self._beam_mode: Optional[int] = None
         self._current: Optional[float] = None
-        self._rate: Optional[float] = None
+        self._milling_rate: Optional[float] = None
 
     def _fib(self, method: str, *args: Any, **kwargs: Any) -> Any:
         return self.connection.fib_call(method, *args, **kwargs)
@@ -157,8 +155,6 @@ class JeolMilling(Milling):
     def _setting_metadata(self, name: str) -> ParameterMetadata:
         if name == "milling_channel":
             return ParameterMetadata(choices=(BeamType.ION,))
-        if name == "rate":
-            return ParameterMetadata()
         return super()._setting_metadata(name)
 
     def _setup(self, settings: FibsemMillingSettings, name: Optional[str]) -> None:
@@ -171,7 +167,7 @@ class JeolMilling(Milling):
         self._beam_mode, self._current = nearest_beam_current(
             float(settings.milling_current), BeamType.ION
         )
-        self._rate = float(settings.rate)
+        self._milling_rate = self.own_settings(settings).milling_rate
         logging.info(
             f"JEOL milling at beam mode {self._beam_mode} ({self._current:.3e} A)"
         )
@@ -220,7 +216,7 @@ class JeolMilling(Milling):
         item = models.ProcessItemData.area(
             mode=mode,
             beam=self._beam_mode,
-            dose=dose_for_depth(pattern.depth, self._rate),
+            dose=dose_for_depth(pattern.depth, self._milling_rate),
             x=x,
             y=y,
             width=pattern.width * constants.METRE_TO_MICRON,
@@ -252,7 +248,7 @@ class JeolMilling(Milling):
             mode=models.EProcessMode.MILL,
             line_type=line_type,
             beam=self._beam_mode,
-            dose=dose_for_depth(pattern.depth, self._rate),
+            dose=dose_for_depth(pattern.depth, self._milling_rate),
             x=x,
             y=y,
             width=(pattern.end_x - pattern.start_x) * constants.METRE_TO_MICRON,

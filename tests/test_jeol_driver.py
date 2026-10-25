@@ -13,8 +13,9 @@ from fibsem.drivers import registry
 from fibsem.drivers.jeol import devices as jd
 from fibsem.drivers.jeol import services as js
 from fibsem.drivers.jeol.connection import load_sdk
+from fibsem.drivers.jeol.settings import JeolMillingSettings
 from fibsem.imaging.spot import SpotBurnSettings, SpotBurnStatus
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     CrossSectionPattern,
     FibsemCircleSettings,
@@ -41,7 +42,7 @@ def connected(monkeypatch):
 def test_registry_names_jeol():
     entry = registry.get_driver("JEOL")
     assert entry.microscope_class == "fibsem.drivers.jeol.microscope:JeolMicroscope"
-    assert entry.config["port"] == 22218 and entry.config["sem_port"] == 22300
+    assert entry.port == 22218
     assert registry.get_driver("jeol") is entry
 
 
@@ -318,7 +319,7 @@ def test_images_are_stamped_through_the_session(connected):
     microscope, _ = connected
     beam = microscope.beams[I]
     stamped = []
-    beam.session._stamp = stamped.append
+    beam.session.stamp = stamped.append
     image = microscope.acquire_image(ImageSettings(beam_type=I, hfw=128e-6))
     assert stamped == [image]
 
@@ -396,19 +397,58 @@ def test_stage_limits(connected):
 # -- milling --------------------------------------------------------------------------
 
 
-def _setup(microscope, current=1e-9, rate=1e-9, hfw=128e-6):
+def _setup(microscope, current=1e-9, milling_rate=1e9, hfw=128e-6):
     microscope.milling.setup(
         FibsemMillingSettings(
-            milling_channel=I, milling_current=current, rate=rate, hfw=hfw
+            milling_channel=I,
+            milling_current=current,
+            hfw=hfw,
+            driver={"JEOL": JeolMillingSettings(milling_rate=milling_rate)},
         )
     )
 
 
-def test_dose_from_rate():
-    # 1 um deep at 1 um3/nC (1e-9 m3/C) is 1 nC/um2: the old milling_rate of 1
-    assert js.dose_for_depth(1e-6, 1e-9) == pytest.approx(1.0)
+def _draw_rectangle(microscope, depth):
+    microscope.milling.draw(
+        [
+            FibsemRectangleSettings(
+                width=10e-6, height=10e-6, depth=depth, centre_x=0, centre_y=0
+            )
+        ]
+    )
+
+
+def test_dose_from_milling_rate():
+    # 1 um deep at 1 nC/um3 (1e9 C/m3) is 1 nC/um2
+    assert js.dose_for_depth(1e-6, 1e9) == pytest.approx(1.0)
     with pytest.raises(ValueError):
         js.dose_for_depth(1e-6, 0)
+
+
+def test_the_milling_rate_is_read_from_the_recipes_jeol_block(connected):
+    microscope, fake = connected
+    _setup(microscope, milling_rate=2e9)
+    _draw_rectangle(microscope, depth=1e-6)
+    assert fake.fib.items[-1].fields["dose"] == pytest.approx(2.0)
+
+
+def test_a_recipe_without_a_jeol_block_mills_at_the_default_rate(connected):
+    microscope, fake = connected
+    microscope.milling.setup(
+        FibsemMillingSettings(milling_channel=I, milling_current=1e-9, hfw=128e-6)
+    )
+    _draw_rectangle(microscope, depth=1e-6)
+    default = JeolMillingSettings().milling_rate
+    assert fake.fib.items[-1].fields["dose"] == pytest.approx(default * 1e-9)
+
+
+def test_the_jeol_block_round_trips_through_a_saved_recipe():
+    recipe = FibsemMillingSettings(
+        driver={"JEOL": JeolMillingSettings(milling_rate=3e9)}
+    )
+    loaded = FibsemMillingSettings.from_dict(recipe.to_dict())
+    assert loaded.driver["JEOL"].milling_rate == pytest.approx(3e9)
+    assert loaded.setting("driver.JEOL.milling_rate") == pytest.approx(3e9)
 
 
 def test_rectangle_is_an_area_item(connected):
@@ -575,7 +615,7 @@ def test_milling_runs_to_the_end(connected):
         width=1e-6, height=1e-6, depth=1e-6, centre_x=0, centre_y=0
     )
     microscope.milling.draw([rectangle, rectangle, rectangle])
-    assert microscope.milling.estimate() == 3.0
+    assert microscope.milling.estimate_time()["seconds"] == 3.0
     microscope.milling.run()
     assert fake.fib.process_state == "Exit"
     assert fake.fib.items == []  # cleared at the end
@@ -606,7 +646,12 @@ def test_milling_offers_ion_only(connected):
     microscope, _ = connected
     assert microscope.milling.supported_settings(E) == {}
     supported = microscope.milling.supported_settings(I)
-    assert set(supported) == {"milling_channel", "hfw", "milling_current", "rate"}
+    assert set(supported) == {
+        "milling_channel",
+        "hfw",
+        "milling_current",
+        "driver.JEOL.milling_rate",
+    }
     assert supported["milling_current"].choices == jd.BEAM_CURRENTS[I]
 
 

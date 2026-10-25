@@ -33,7 +33,7 @@ from fibsem import utils
 from fibsem.drivers.jeol import microscope as jeol_microscope
 from fibsem.drivers.jeol.connection import JeolConnection, JeolSdk
 from fibsem.drivers.jeol.microscope import JeolMicroscope
-from fibsem.structures import SystemSettings
+from fibsem.structures.system import SystemSettings
 
 # -- the library's enums and models -------------------------------------------------
 
@@ -712,21 +712,12 @@ KNOWN_GAPS: Dict[str, str] = {
 
 
 def jeol_system(electron: bool = True, ion: bool = True) -> SystemSettings:
-    """A JEOL system: the shipped Tescan configuration with JEOL's geometry (from
-    Patrick's jeol-cryolameller-configuration.yaml)."""
+    """The shipped JEOL configuration, with either column disabled."""
     system = utils.load_microscope_configuration(
-        os.path.join(cfg.CONFIG_PATH, "tescan-configuration.yaml")
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "jeol-configuration.yaml")
     ).system
-    system.info.manufacturer = "JEOL"
-    system.info.port = None
     system.electron.enabled = electron
     system.ion.enabled = ion
-    system.electron.column_tilt = 0
-    system.ion.column_tilt = 53
-    system.electron.eucentric_height = 8.5e-3
-    system.ion.eucentric_height = 16.5e-3
-    system.stage.rotation_reference = 0
-    system.stage.shuttle_pre_tilt = 0
     return system
 
 

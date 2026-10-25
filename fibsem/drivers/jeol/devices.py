@@ -32,22 +32,24 @@ from fibsem.devices.beam import Beam, nearest_resolution
 from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.stage import Stage, axis_limits_from_degrees, rotating_stage_poses
 from fibsem.drivers.jeol import images
-from fibsem.structures import (
-    BeamType,
+from fibsem.structures.image import (
     FibsemImage,
     FibsemImageMetadata,
+)
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
+    BeamType,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
     Point,
-    RangeLimit,
 )
 
 if TYPE_CHECKING:
     from fibsem.drivers.jeol.connection import JeolConnection
     from fibsem.drivers.jeol.microscope import JeolMicroscope
     from fibsem.drivers.registry import BuildContext
-    from fibsem.structures import DeviceEntry
+    from fibsem.structures.system import DeviceEntry
 
 # -- what the columns have ----------------------------------------------------------
 
@@ -648,8 +650,8 @@ class JeolIonBeam(JeolBeam):
         self._fib("setFibScanRotation", _degrees(value))
 
     def read_shift(self) -> Point:
-        x = self._fib("getFibFineShiftX") * constants.MILLI_TO_SI
-        y = self._fib("getFibFineShiftY") * constants.MILLI_TO_SI
+        x = self._fib("getFibFineShiftX") * constants.MILLIMETRE_TO_METRE
+        y = self._fib("getFibFineShiftY") * constants.MILLIMETRE_TO_METRE
         return self._signed_shift(Point(x, y))
 
     def write_shift(self, value: Point) -> None:
