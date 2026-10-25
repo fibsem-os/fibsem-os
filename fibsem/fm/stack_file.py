@@ -21,6 +21,7 @@ from fibsem.fm.structures import (
     open_tiff,
     to_czyx,
 )
+from fibsem.image_format import read_region
 
 
 class StackFile:
@@ -93,6 +94,16 @@ class StackFile:
         if level:
             return self._levels[level].pages[page].asarray()
         return self._tif.asarray(key=page, series=0)
+
+    def region(
+        self, channel: int, z: int, top: int, left: int, height: int, width: int
+    ) -> np.ndarray:
+        """The (*height*, *width*) of plane *z* of *channel* from (*top*, *left*)
+        at full size, reading only the tiles it covers."""
+        if self._whole is not None:
+            return self._whole[channel, z, top : top + height, left : left + width]
+        page = self._tif.series[0].pages[int(self._pages[channel, z])]
+        return read_region(page, top, left, height, width)
 
     def close(self) -> None:
         self._tif.close()

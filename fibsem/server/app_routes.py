@@ -812,21 +812,29 @@ def build_app_router(context: Any) -> APIRouter:
         first: Optional[int] = None,
         last: Optional[int] = None,
         channels: Optional[str] = None,
+        box: Optional[str] = None,
         experiment: Optional[str] = None,
     ):
         # An image's raw planes for the web viewer, which draws them itself: the
         # values as stored, gzipped, C-order, little-endian; X-Planes says their
         # (C, Z, Y, X) shape, dtype and channels. factor 1, 4 or 8; z a plane
-        # (0 the first), "all", or max/mean/min over first..last.
+        # (0 the first), "all", or max/mean/min over first..last; box x,y,w,h
+        # a region at full size.
         picked = [c for c in (channels or "").split(",") if c] or None
         plane = int(z) if z is not None and z.lstrip("-").isdigit() else z
-        query = ("planes", factor, z, first, last, channels)
+        region = None
+        if box is not None:
+            try:
+                region = [int(n) for n in box.split(",")]
+            except ValueError:
+                raise _missing_field("box is x,y,width,height in pixels.") from None
+        query = ("planes", factor, z, first, last, channels, box)
         tag = _files_answer(experiment, files.read_etag, path, *query)
         cache = {"ETag": tag, "Cache-Control": "no-cache"} if tag else {}
         if tag is not None and request.headers.get("if-none-match") == tag:
             return Response(status_code=304, headers=cache)
         header, data = _files_answer(
-            experiment, planes.read, path, factor, plane, first, last, picked
+            experiment, planes.read, path, factor, plane, first, last, picked, region
         )
         _record_read(experiment, path, False)
         return Response(
