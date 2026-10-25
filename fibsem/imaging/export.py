@@ -20,7 +20,7 @@ import functools
 import logging
 import math
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -28,7 +28,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from fibsem.constants import MU_SYMBOL
 from fibsem.fm.composite import FMLayer, auto_clim, composite_fm_layers, tint_rgb
-from fibsem.fm.preview import is_fluorescence_image, projection_layers
+from fibsem.fm.preview import is_fluorescence_image, projection_layers, stack_layers
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.imaging.drawing import (
     _get_font,
@@ -108,6 +108,8 @@ class ExportImage:
     # A fluorescence image's channels, each max-projected over z: kept so a hidden
     # channel is re-blended out without reading the stack again.
     layers: List[FMLayer] = field(default_factory=list)
+    # The greyscale data's (min, max) before scaling, for limits given in its values.
+    value_range: Optional[Tuple[float, float]] = None
 
     @property
     def adjustable(self) -> bool:
@@ -118,6 +120,21 @@ class ExportImage:
 
     def provenance_keys(self) -> List[str]:
         return [f.key for f in self.provenance]
+
+
+@dataclass
+class ChannelLook:
+    """How one layer is drawn, as the web viewer's layers panel sets it: limits in
+    the image's own values (None: auto), gamma, opacity, and a colour by name
+    (empty: the file's)."""
+
+    clim: Optional[Tuple[float, float]] = None
+    gamma: float = 1.0
+    opacity: float = 1.0
+    color: str = ""
+
+
+PROJECTION_NAMES = {"max": "Max", "mean": "Mean", "min": "Min"}
 
 
 @dataclass
@@ -137,6 +154,24 @@ class ExportOptions:
     gamma: float = 1.0
     # Fluorescence channels left out of the blend and the legend, by index.
     hidden_channels: Sequence[int] = ()
+    # A fluorescence stack's planes drawn: one *plane* (0 the first), else the
+    # *projection* (PROJECTION_NAMES) over *first* to *last*, the whole stack
+    # when None. The defaults are the max projection the export always drew.
+    plane: Optional[int] = None
+    projection: str = "max"
+    first: Optional[int] = None
+    last: Optional[int] = None
+    # Each layer's look by index: a fluorescence channel, or a greyscale image's
+    # one layer, which then takes it in place of the contrast above.
+    looks: Sequence[ChannelLook] = ()
+
+    def planes_are_default(self) -> bool:
+        return (self.plane, self.projection, self.first, self.last) == (
+            None,
+            "max",
+            None,
+            None,
+        )
 
     def contrast_is_default(self) -> bool:
         return (self.contrast_min, self.contrast_max, self.gamma) == (0.0, 1.0, 1.0)
@@ -251,12 +286,61 @@ def auto_contrast_limits(image: ExportImage) -> Tuple[float, float]:
     return auto_clim(image.gray)
 
 
+def _look(options: ExportOptions, i: int) -> Optional[ChannelLook]:
+    return options.looks[i] if i < len(options.looks) else None
+
+
 def _visible_channels(image: ExportImage, options: ExportOptions):
     hidden = set(options.hidden_channels)
-    return [c for i, c in enumerate(image.channels) if i not in hidden]
+    shown = []
+    for i, c in enumerate(image.channels):
+        if i in hidden:
+            continue
+        look = _look(options, i)
+        if look is not None and look.color:
+            r, g, b = tint_rgb(look.color)
+            c = ExportChannel(
+                name=c.name, color=(round(r * 255), round(g * 255), round(b * 255))
+            )
+        shown.append(c)
+    return shown
+
+
+def _looked_layers(image: ExportImage, options: ExportOptions) -> List[FMLayer]:
+    """The layers drawn under *options.looks*: the fluorescence channels, or the
+    greyscale image as one grey layer with its limits scaled as its data is."""
+    hidden = set(options.hidden_channels)
+    if image.layers:
+        sources = image.layers
+    else:
+        sources = [FMLayer(name=image.kind, data=image.gray, color="gray")]
+    layers = []
+    for i, source in enumerate(sources):
+        look = _look(options, i) or ChannelLook()
+        clim = look.clim
+        if clim is not None and not image.layers and image.value_range is not None:
+            lo, hi = image.value_range
+            span = (hi - lo) or 1.0
+            clim = ((clim[0] - lo) / span, (clim[1] - lo) / span)
+        layers.append(
+            FMLayer(
+                name=source.name,
+                data=source.data,
+                color=look.color or source.color,
+                opacity=look.opacity,
+                clim=clim,
+                autocontrast=clim is None,
+                gamma=look.gamma,
+                visible=i not in hidden,
+            )
+        )
+    return layers
 
 
 def _display_rgb(image: ExportImage, options: ExportOptions) -> np.ndarray:
+    if options.looks and (image.layers or image.gray is not None):
+        layers = _looked_layers(image, options)
+        return composite_fm_layers(layers, shape=image.rgb.shape[:2])
     hidden = set(options.hidden_channels)
     if image.layers and hidden:
         # Set on every render, so the layers never carry one render's choice into
@@ -491,15 +575,30 @@ def fibsem_image_fields(image: FibsemImage) -> ImageFields:
     )
 
 
-def z_value(slices: int, step: float, plane: Optional[int] = None) -> str:
-    """The Z field: `MIP · 21 × 568 nm`, or `11 of 21 × 568 nm` for one plane.
+def z_value(
+    slices: int,
+    step: float,
+    plane: Optional[int] = None,
+    projection: str = "max",
+    first: Optional[int] = None,
+    last: Optional[int] = None,
+) -> str:
+    """The Z field: `MIP · 21 × 568 nm`, `11 of 21 × 568 nm` for one plane, or
+    `Mean · 5–12 of 21 × 568 nm` for another projection or a range of planes.
 
-    *plane* is 0-based, as the FM canvas counts it; None is the max projection.
+    *plane* is 0-based, as the FM canvas counts it; None is the *projection*
+    over *first* to *last* (the whole stack when None).
     """
     step_text = format_si(step, "m")
-    if plane is None:
+    if plane is not None:
+        return f"{plane + 1} of {slices} × {step_text}"
+    a = 0 if first is None else first
+    b = slices - 1 if last is None else last
+    whole = (a, b) == (0, slices - 1)
+    if projection == "max" and whole:
         return f"MIP · {slices} × {step_text}"
-    return f"{plane + 1} of {slices} × {step_text}"
+    planes = f"{slices}" if whole else f"{a + 1}–{b + 1} of {slices}"
+    return f"{PROJECTION_NAMES[projection]} · {planes} × {step_text}"
 
 
 def image_caption(info: ImageFields) -> str:
@@ -587,7 +686,14 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
     rgb = _to_uint8(image.data)
     gray = _normalize(image.data)
     if image.metadata is None:
-        return ExportImage(rgb=rgb, pixel_size=None, kind="Image", path=path, gray=gray)
+        return ExportImage(
+            rgb=rgb,
+            pixel_size=None,
+            kind="Image",
+            path=path,
+            gray=gray,
+            value_range=_value_range(image.data),
+        )
     md = image.metadata
     info = fibsem_image_fields(image)
     return ExportImage(
@@ -598,7 +704,13 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
         provenance=info.provenance,
         path=path,
         gray=gray,
+        value_range=_value_range(image.data),
     )
+
+
+def _value_range(data: np.ndarray) -> Optional[Tuple[float, float]]:
+    data = np.asarray(data)
+    return (float(data.min()), float(data.max())) if data.ndim == 2 else None
 
 
 def from_fluorescence_image(
@@ -627,6 +739,28 @@ def from_fluorescence_image(
         layers=layers,
         path=path,
     )
+
+
+def restacked(image: ExportImage, options: ExportOptions) -> ExportImage:
+    """*image*, a fluorescence stack, drawn from the planes *options* pick (one
+    plane, or a projection over a range) with its Z field to match; *image*
+    itself when they are the max projection it was read as. ValueError names a
+    plane, range or projection the stack doesn't have."""
+    if not image.layers or options.planes_are_default():
+        return image
+    fm = FluorescenceImage.load(image.path)
+    layers = stack_layers(
+        fm, options.plane, None, options.projection, options.first, options.last
+    )
+    fields = image.fields
+    stack = z_stack(fm)
+    if stack is not None:
+        z = z_value(
+            *stack, options.plane, options.projection, options.first, options.last
+        )
+        fields = [replace(f, value=z) if f.key == "z" else f for f in fields]
+    rgb = composite_fm_layers(layers, shape=image.rgb.shape[:2])
+    return replace(image, layers=layers, rgb=rgb, fields=fields)
 
 
 def load_export_image(path: str) -> ExportImage:

@@ -2,7 +2,7 @@
 
 from typing import Tuple
 
-from fibsem.ai.agent.catalog.spec import ToolSpec, command_body, kwargs_body
+from fibsem.ai.agent.catalog.spec import ToolSpec, arg, command_body, kwargs_body
 
 _HOLD_NOTE = (
     "As milling_stop: a mill the agent started itself it can pause and resume at "
@@ -36,7 +36,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         method="POST",
         path="/microscope/services/milling/queries/estimate_time",
         level="watch",
-        params={"stages": "FibsemMillingStage dicts; left out, what prepare drew"},
+        params={
+            "stages": arg("FibsemMillingStage dicts; left out, what prepare drew", list)
+        },
         optional=("stages",),
         call=lambda a: ({}, kwargs_body(stages=a.get("stages"))),
     ),
@@ -57,10 +59,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/milling/commands/run_stage",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
-            "stage": "a FibsemMillingStage dict",
+            "stage": arg("a FibsemMillingStage dict", dict),
             "path": "optional folder inside the open experiment to save into",
         },
         optional=("path",),
@@ -83,9 +86,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/spot_burn/commands/run",
+        result_key="run",
         level="drive",
         hardware=True,
-        params={"settings": SPOT_BURN_SETTINGS},
+        params={"settings": arg(SPOT_BURN_SETTINGS, dict)},
         call=lambda a: ({}, kwargs_body(settings=dict(a["settings"]))),
     ),
     ToolSpec(
@@ -96,8 +100,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/spot_burn/queries/estimate",
+        result_key="seconds",
         level="watch",
-        params={"settings": SPOT_BURN_SETTINGS},
+        params={"settings": arg(SPOT_BURN_SETTINGS, dict)},
         call=lambda a: ({}, kwargs_body(settings=dict(a["settings"]))),
     ),
     ToolSpec(
@@ -116,10 +121,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/milling/commands/run_task",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
-            "config": "a FibsemMillingTaskConfig dict",
+            "config": arg("a FibsemMillingTaskConfig dict", dict),
             "path": "optional folder inside the open experiment to save into",
         },
         optional=("path",),
@@ -142,7 +148,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         params={
             "image_path": "a saved ion image inside the open experiment",
-            "stages": "FibsemMillingStage dicts; left out, what prepare drew",
+            "stages": arg(
+                "FibsemMillingStage dicts; left out, what prepare drew", list
+            ),
         },
         optional=("stages",),
         call=lambda a: (
@@ -161,10 +169,15 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/milling/queries/check_stages",
+        result_key="stages",
         level="watch",
         params={
-            "stages": "FibsemMillingStage dicts",
-            "aspect": "the image's height over width (default 2/3, a 1536 x 1024 image)",
+            "stages": arg("FibsemMillingStage dicts", list),
+            "aspect": arg(
+                "the image's height over width (default 2/3, a 1536 x 1024 image)",
+                float,
+                default=2 / 3,
+            ),
         },
         optional=("aspect",),
         call=lambda a: (
@@ -189,6 +202,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/milling/queries/list_options",
+        result_key="options",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
     ),
@@ -251,8 +265,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
         path="/microscope/services/milling/queries/follow_readings",
         level="watch",
         params={
-            "since": "the seq of the last reading you have (0 for all kept)",
-            "timeout": "seconds to wait for a new reading, at most 30",
+            "since": arg(
+                "the seq of the last reading you have (0 for all kept)", int, default=0
+            ),
+            "timeout": arg(
+                "seconds to wait for a new reading, at most 30", float, default=0.0
+            ),
         },
         optional=("since", "timeout"),
         call=lambda a: (

@@ -622,7 +622,7 @@ class BeamType(NamedEnum, Enum):
     # NavCam = 4 # see enumerations/ImagingDevice
 
 
-class ImagingState(Enum):
+class ImagingState(NamedEnum, Enum):
     IDLE = 0
     RUNNING = 1
     STOPPING = 2
@@ -1710,7 +1710,7 @@ TFibsemPatternSettings = TypeVar(
 )
 
 
-class MillingState(Enum):
+class MillingState(NamedEnum, Enum):
     IDLE = 0
     RUNNING = 1
     STOPPING = 2

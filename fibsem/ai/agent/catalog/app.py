@@ -2,16 +2,22 @@
 
 import os
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from fibsem.ai.agent.catalog.spec import MARKS_PARAM, ToolSpec
+from fibsem.ai.agent.catalog.spec import MARKS_PARAM, ToolSpec, arg
 from fibsem.server.parts import GRIDS, LAMELLAE, MILLING_STAGES
 from fibsem.util import wording
 
 # A fluorescence stack's plane and channels, as the files route reads them.
 _STACK_PARAMS = {
-    "z": "a fluorescence stack's plane to show, 0 the first (default: the max projection over z)",
-    "channels": "the fluorescence channels to show, by name, as its fm block lists them (default: all)",
+    "z": arg(
+        "a fluorescence stack's plane to show, 0 the first (default: the max projection over z)",
+        int,
+    ),
+    "channels": arg(
+        "the fluorescence channels to show, by name, as its fm block lists them (default: all)",
+        List[str],
+    ),
 }
 
 
@@ -469,7 +475,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "since": "ISO time: records at or after it (instead of task_id)",
             "until": "ISO time: records at or before it (instead of task_id)",
             "level": "the lowest level to keep: DEBUG, INFO, WARNING, ERROR (default DEBUG, or INFO with task_id)",
-            "lines": "the most records to return, the latest kept (default 200, max 2000)",
+            "lines": arg(
+                "the most records to return, the latest kept (default 200, max 2000)",
+                int,
+                default=200,
+            ),
         },
         optional=("task_id", "since", "until", "level", "lines"),
     ),
@@ -506,8 +516,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "path": "a beam image file path inside the experiment folder",
             "grid_name": "draw only this grid's items",
-            "fov": "optional: each item's field of view box (default false)",
-            "current": "optional: where the stage is now, a yellow target (default false)",
+            "fov": arg("optional: each item's field of view box (default false)", bool),
+            "current": arg(
+                "optional: where the stage is now, a yellow target (default false)",
+                bool,
+            ),
         },
         optional=("grid_name", "fov", "current"),
     ),
@@ -521,10 +534,17 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "path": "an image file path inside the experiment folder",
-            "marks": MARKS_PARAM,
-            "crosshair": "optional: draw the centre crosshair (default false)",
-            "metadata_bar": "optional: the metadata bar under the image (default true)",
-            "channels": "optional: for a fluorescence stack, the channels to show, by name (default all)",
+            "marks": arg(MARKS_PARAM, dict),
+            "crosshair": arg(
+                "optional: draw the centre crosshair (default false)", bool
+            ),
+            "metadata_bar": arg(
+                "optional: the metadata bar under the image (default true)", bool
+            ),
+            "channels": arg(
+                "optional: for a fluorescence stack, the channels to show, by name (default all)",
+                List[str],
+            ),
         },
         optional=("marks", "crosshair", "metadata_bar", "channels"),
     ),
@@ -539,9 +559,14 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "before": "an image file path inside the experiment folder, drawn on the left",
             "after": "an image file path inside the experiment folder, drawn on the right",
-            "marks": MARKS_PARAM,
-            "metadata_bar": "optional: the metadata bar under each image (default true)",
-            "channels": "optional: for fluorescence stacks, the channels to show, by name (default all)",
+            "marks": arg(MARKS_PARAM, dict),
+            "metadata_bar": arg(
+                "optional: the metadata bar under each image (default true)", bool
+            ),
+            "channels": arg(
+                "optional: for fluorescence stacks, the channels to show, by name (default all)",
+                List[str],
+            ),
         },
         optional=("marks", "metadata_bar", "channels"),
     ),
@@ -556,12 +581,22 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=LAMELLAE,
         params={
             "item_name": "the item's name",
-            "task_names": "the milling tasks to draw, e.g. [mill_rough, mill_polishing]: the first in colour, the rest behind it",
+            "task_names": arg(
+                "the milling tasks to draw, e.g. [mill_rough, mill_polishing]: the first in colour, the rest behind it",
+                List[str],
+            ),
             "image_path": "optional: an ion image inside the experiment to draw on (default the item's latest FIB image)",
             "background": "optional: related (default) also draws the first task's related tasks behind it; none draws only the tasks named",
-            "scan_direction": "optional: an arrow for each rectangle's scan direction (default false)",
-            "alignment_area": "optional: the item's alignment area (default false)",
-            "metadata_bar": "optional: the metadata bar under the image (default true)",
+            "scan_direction": arg(
+                "optional: an arrow for each rectangle's scan direction (default false)",
+                bool,
+            ),
+            "alignment_area": arg(
+                "optional: the item's alignment area (default false)", bool
+            ),
+            "metadata_bar": arg(
+                "optional: the metadata bar under the image (default true)", bool
+            ),
         },
         optional=(
             "image_path",
@@ -581,11 +616,14 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "path": "an image file path inside the experiment folder",
-            "x": "source-pixel x (with y)",
-            "y": "source-pixel y, +y down (with x)",
-            "fx": "fraction across the image, 0-1 (with fy)",
-            "fy": "fraction down the image, 0-1 (with fx)",
-            "crop": "optional: the crop the point was read off: a cell's name (B3) from experiment_crop_image, or its box [x, y, width, height]",
+            "x": arg("source-pixel x (with y)", float),
+            "y": arg("source-pixel y, +y down (with x)", float),
+            "fx": arg("fraction across the image, 0-1 (with fy)", float),
+            "fy": arg("fraction down the image, 0-1 (with fx)", float),
+            "crop": arg(
+                "optional: the crop the point was read off: a cell's name (B3) from experiment_crop_image, or its box [x, y, width, height]",
+                Union[str, List[float]],
+            ),
         },
         optional=("x", "y", "fx", "fy", "crop"),
     ),
@@ -599,7 +637,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "path": "an image file path inside the experiment folder",
-            "stage_positions": "stage position dicts (x, y, z, r, t, coordinate_system)",
+            "stage_positions": arg(
+                "stage position dicts (x, y, z, r, t, coordinate_system)", list
+            ),
         },
     ),
     ToolSpec(
@@ -627,7 +667,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "path": "a path from experiment_list_files, or an image path an image answer gave",
             **_STACK_PARAMS,
-            "cells": "optional: true draws the image's named cells on the preview and lists them (default false)",
+            "cells": arg(
+                "optional: true draws the image's named cells on the preview and lists them (default false)",
+                bool,
+            ),
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
         optional=("z", "channels", "cells", "experiment"),
@@ -656,9 +699,16 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "path": "an image path from experiment_list_files, or one an image answer gave",
-            "box": "[x, y, width, height] in source pixels (instead of fraction)",
-            "fraction": "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
-            "cells": 'up to 8 cell names, e.g. ["B3", "C3"] (instead of box)',
+            "box": arg(
+                "[x, y, width, height] in source pixels (instead of fraction)", list
+            ),
+            "fraction": arg(
+                "[left, top, width, height] as fractions of the image, 0 to 1 (instead of box)",
+                list,
+            ),
+            "cells": arg(
+                'up to 8 cell names, e.g. ["B3", "C3"] (instead of box)', List[str]
+            ),
             **_STACK_PARAMS,
             "experiment": "optional: a past experiment to read instead of the open one, by its relative_path from experiment_list_all (or its path from experiment_list_recent); only one the operator named. Every read of it goes on the record",
         },
@@ -712,7 +762,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         router="app",
         params={
-            "actions": "list of {tool, arguments}, at most 20",
+            "actions": arg("list of {tool, arguments}, at most 20", list),
             "reason": "why, for the operator, in two or three short sentences: what you saw, then why these actions follow. The card already says what each action does: don't restate it. Attach the image you judged from as evidence: it is the card's picture, with the actions' points, areas and patterns drawn on it when it is a beam image; without it, the card draws them on the image the values were measured on",
         },
         note="Works at Assist only: at Drive make the calls yourself; refused (403 level) at Drive and Watch.",
@@ -763,7 +813,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "task_name": "the task name",
             "milling_key": "which milling config within the task",
-            "order": "the current stage names in their new sequence",
+            "order": arg("the current stage names in their new sequence", list),
             "version": "the version token from protocol_get_task_config",
         },
         line=_protocol_reorder_milling_stages,
@@ -792,8 +842,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="drive",
         router="app",
         params={
-            "show_run_summary": "true to open the summary dialog at a run's end, false for the toast only",
-            "turn_beams_off": "true to turn the beams off when a run ends",
+            "show_run_summary": arg(
+                "true to open the summary dialog at a run's end, false for the toast only",
+                bool,
+            ),
+            "turn_beams_off": arg("true to turn the beams off when a run ends", bool),
         },
         optional=("show_run_summary", "turn_beams_off"),
         line=_workflow_set_options,
@@ -808,9 +861,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "task_name": "the task name, as listed by protocol_get",
-            "patch": (
+            "patch": arg(
                 "object of dotted-path: value entries to set; a list of settings "
-                "(channel_settings) is set whole, as a list of their dicts"
+                "(channel_settings) is set whole, as a list of their dicts",
+                dict,
             ),
             "version": "the version token from protocol_get_task_config",
         },
@@ -849,7 +903,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         path="/app/experiment/protocol/tasks/reorder",
         level="drive",
         router="app",
-        params={"order": "every workflow task name, in the new order"},
+        params={"order": arg("every workflow task name, in the new order", list)},
         line=_protocol_reorder_tasks,
     ),
     ToolSpec(
@@ -862,8 +916,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "task_name": "the task name, as listed by protocol_get",
-            "requires": "the earlier tasks it needs ([] for none)",
-            "required": "true for required, false for optional",
+            "requires": arg("the earlier tasks it needs ([] for none)", list),
+            "required": arg("true for required, false for optional", bool),
         },
         optional=("requires", "required"),
         line=_protocol_set_task_requirements,
@@ -878,10 +932,13 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         part=LAMELLAE,
         params={
-            "use_petname": "true to name new items with petnames",
+            "use_petname": arg("true to name new items with petnames", bool),
             "name_prefix": "the prefix for new item names",
-            "poi": "the default point of interest {x, y}, or {} to clear it",
-            "alignment_area": "the default alignment area {left, top, width, height}, or {} to clear it",
+            "poi": arg("the default point of interest {x, y}, or {} to clear it", dict),
+            "alignment_area": arg(
+                "the default alignment area {left, top, width, height}, or {} to clear it",
+                dict,
+            ),
         },
         optional=("use_petname", "name_prefix", "poi", "alignment_area"),
         line=_protocol_set_lamella_defaults,
@@ -896,7 +953,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "name": "a file name (.yaml is added if missing), no folders",
-            "overwrite": "true to replace a file of that name",
+            "overwrite": arg(
+                "true to replace a file of that name", bool, default=False
+            ),
         },
         optional=("overwrite",),
         line=_protocol_save,
@@ -923,7 +982,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=GRIDS,
         params={
             "task_name": "a grid task name, from protocol_get's grid_tasks",
-            "patch": "object of dotted-path: value entries to set",
+            "patch": arg("object of dotted-path: value entries to set", dict),
             "version": "the version token from protocol_get_grid_task_config",
         },
         line=_protocol_update_grid_task_config,
@@ -937,7 +996,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="drive",
         router="app",
         part=GRIDS,
-        params={"order": "every grid task name, in the new order"},
+        params={"order": arg("every grid task name, in the new order", list)},
         line=_protocol_reorder_grid_tasks,
     ),
     ToolSpec(
@@ -951,7 +1010,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=GRIDS,
         params={
             "task_name": "a grid task name, from protocol_get's grid_tasks",
-            "requires": "the grid tasks it needs first ([] for none)",
+            "requires": arg("the grid tasks it needs first ([] for none)", list),
         },
         line=_protocol_set_grid_task_requirements,
     ),
@@ -964,8 +1023,16 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         router="app",
         params={
-            "since": "return events with seq greater than this (0 for all held)",
-            "timeout": "seconds to wait for new events before returning (max 30)",
+            "since": arg(
+                "return events with seq greater than this (0 for all held)",
+                int,
+                default=0,
+            ),
+            "timeout": arg(
+                "seconds to wait for new events before returning (max 30)",
+                float,
+                default=0.0,
+            ),
         },
         optional=("since", "timeout"),
     ),
@@ -1006,8 +1073,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="drive",
         router="app",
         params={
-            "task_names": "the tasks to run, from the protocol's task names",
-            "item_names": "the items (lamellae) to run them for; omit for all",
+            "task_names": arg("the tasks to run, from the protocol's task names", list),
+            "item_names": arg(
+                "the items (lamellae) to run them for; omit for all", list
+            ),
         },
         optional=("item_names",),
         line=_workflow_start,
@@ -1022,10 +1091,18 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         part=LAMELLAE,
         params={
-            "task_names": "the tasks to run, from the protocol's task names",
-            "item_names": "the items (lamellae) to run them for; omit for all",
-            "add": "true to plan adding them to the running queue instead",
-            "run_next": "with add, true to plan them to run next",
+            "task_names": arg("the tasks to run, from the protocol's task names", list),
+            "item_names": arg(
+                "the items (lamellae) to run them for; omit for all", list
+            ),
+            "add": arg(
+                "true to plan adding them to the running queue instead",
+                bool,
+                default=False,
+            ),
+            "run_next": arg(
+                "with add, true to plan them to run next", bool, default=False
+            ),
         },
         optional=("item_names", "add", "run_next"),
     ),
@@ -1039,9 +1116,17 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         part=GRIDS,
         params={
-            "task_names": "grid tasks to run, from the protocol's grid_tasks names",
-            "grid_names": "grids to run them on; omit for every recorded grid",
-            "screen_all": "true = inventory first, then every present grid (no grid_names)",
+            "task_names": arg(
+                "grid tasks to run, from the protocol's grid_tasks names", list
+            ),
+            "grid_names": arg(
+                "grids to run them on; omit for every recorded grid", list
+            ),
+            "screen_all": arg(
+                "true = inventory first, then every present grid (no grid_names)",
+                bool,
+                default=False,
+            ),
         },
         optional=("grid_names", "screen_all"),
     ),
@@ -1055,11 +1140,23 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         part=GRIDS,
         params={
-            "task_names": "grid tasks to run, from the protocol's grid_tasks names",
-            "grid_names": "grids to run them on; omit for every recorded grid",
-            "screen_all": "true = inventory first, then every present grid (no grid_names)",
-            "unload_at_end": "true to unload the last grid when the run ends",
-            "report_at_end": "true to write the grid report when the run ends",
+            "task_names": arg(
+                "grid tasks to run, from the protocol's grid_tasks names", list
+            ),
+            "grid_names": arg(
+                "grids to run them on; omit for every recorded grid", list
+            ),
+            "screen_all": arg(
+                "true = inventory first, then every present grid (no grid_names)",
+                bool,
+                default=False,
+            ),
+            "unload_at_end": arg(
+                "true to unload the last grid when the run ends", bool, default=False
+            ),
+            "report_at_end": arg(
+                "true to write the grid report when the run ends", bool, default=False
+            ),
         },
         optional=("grid_names", "screen_all", "unload_at_end", "report_at_end"),
         line=_workflow_start_grids,
@@ -1074,7 +1171,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         params={
             "task_name": "the task to change, e.g. 'Rough Milling'",
-            "supervise": "true to ask before acting, false to run automatically",
+            "supervise": arg(
+                "true to ask before acting, false to run automatically", bool
+            ),
         },
         line=_protocol_set_supervision,
     ),
@@ -1089,7 +1188,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item (lamella) to run the task for",
             "task_name": "the task to queue, from the protocol's task names",
-            "front": "true to run it next instead of at the end (optional)",
+            "front": arg(
+                "true to run it next instead of at the end (optional)",
+                bool,
+                default=False,
+            ),
         },
         optional=("front",),
         line=_workflow_requeue,
@@ -1119,8 +1222,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         router="app",
         part=GRIDS,
         params={
-            "task_names": "grid tasks to add, from the protocol's grid_tasks names",
-            "grid_names": "the grids to add them for",
+            "task_names": arg(
+                "grid tasks to add, from the protocol's grid_tasks names", list
+            ),
+            "grid_names": arg("the grids to add them for", list),
         },
         line=_workflow_queue_grids,
     ),
@@ -1153,14 +1258,31 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_id": "the item id from proposal_list (by id, never name)",
             "task_name": "the task name from proposal_list",
-            "proposal_id": "the proposal_id from proposal_list: the proposal you looked at",
-            "task_id": "optional, and only in place of proposal_id: the run the proposal is from",
+            "proposal_id": arg(
+                "the proposal_id from proposal_list: the proposal you looked at",
+                default="",
+            ),
+            "task_id": arg(
+                "optional, and only in place of proposal_id: the run the proposal is from",
+                default="",
+            ),
             "outcome": "Confirmed or Rejected",
-            "values": "on Confirmed of a pending proposal: every value its kind carries, as proposed or adjusted",
-            "reason": "required on Rejected",
-            "actor": "optional agent/model name, recorded as agent:<name>",
-            "action": "on Confirmed of a milling or spot_burn pass: one of its provenance.actions",
-            "patch": "optional, on a milling pass: {dotted path: value} set on the config (given in values, else as proposed)",
+            "values": arg(
+                "on Confirmed of a pending proposal: every value its kind carries, as proposed or adjusted",
+                dict,
+            ),
+            "reason": arg("required on Rejected", default=""),
+            "actor": arg(
+                "optional agent/model name, recorded as agent:<name>", default=""
+            ),
+            "action": arg(
+                "on Confirmed of a milling or spot_burn pass: one of its provenance.actions",
+                default="",
+            ),
+            "patch": arg(
+                "optional, on a milling pass: {dotted path: value} set on the config (given in values, else as proposed)",
+                dict,
+            ),
         },
         optional=(
             "proposal_id",
@@ -1186,11 +1308,24 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "task_name": "the task name from proposal_list",
             "proposal_id": "the proposal_id from proposal_list",
             "reason": "why: the operator reads it when deciding",
-            "outcome": "Confirmed (default) or Rejected, as for proposal_decide",
-            "values": "optional: the values you suggest, as for proposal_decide",
-            "patch": "optional, on a milling pass: {dotted path: value} set on the proposed config",
-            "action": "on a milling or spot_burn pass: one of its provenance.actions",
-            "actor": "optional agent/model name, recorded as agent:<name>",
+            "outcome": arg(
+                "Confirmed (default) or Rejected, as for proposal_decide",
+                default="Confirmed",
+            ),
+            "values": arg(
+                "optional: the values you suggest, as for proposal_decide", dict
+            ),
+            "patch": arg(
+                "optional, on a milling pass: {dotted path: value} set on the proposed config",
+                dict,
+            ),
+            "action": arg(
+                "on a milling or spot_burn pass: one of its provenance.actions",
+                default="",
+            ),
+            "actor": arg(
+                "optional agent/model name, recorded as agent:<name>", default=""
+            ),
         },
         optional=("outcome", "values", "patch", "action", "actor"),
         note="Works at Assist and Drive; refused (403) at Watch. At Drive you may proposal_decide directly instead.",
