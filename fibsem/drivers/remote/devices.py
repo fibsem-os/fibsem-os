@@ -143,6 +143,11 @@ class RemoteDeviceUnreachable(ConnectionError):
     """The server could not be reached. Nothing about the device is known right now."""
 
 
+class RemoteDeviceNotPaired(PermissionError):
+    """This computer has no token the Device Server takes: pair it once with
+    ``fibsem-cli pair-device``."""
+
+
 def _decoded(type_: type, value: Any) -> Any:
     """A value read from the wire as *type_*; None (nothing yet) stays None."""
     return None if value is None else decode(type_, value)
@@ -183,13 +188,12 @@ class DeviceClient:
         token: Optional[str] = None,
         events: bool = True,
         root: str = "",
-        code: Optional[str] = None,
     ):
         """*token* goes on every HTTP request as a bearer token and on opening the
         event stream at ``{root}/events``. For the App Server, which serves the
         same routes under *root* (``"/microscope"``, ``fibsem.server.server``),
         it is given. For a Device Server, without one, the token this computer
-        was paired with there, else one paired now with *code*, else a Device
+        was paired with there (``fibsem-cli pair-device``), else a Device
         Server's on this computer (`device_server_token`).
 
         *events* False never opens the event stream. Reads, writes and commands
@@ -202,12 +206,10 @@ class DeviceClient:
         if token is None and not root:
             from fibsem.client.pairing import device_server_token
 
-            try:
-                token = device_server_token(f"http://{host}:{port}", code)
-            except (PermissionError, OSError) as error:
-                raise RemoteDeviceUnreachable(
-                    f"pairing with the device server at {host}:{port} failed: {error}"
-                ) from None
+            token = device_server_token(f"http://{host}:{port}")
+            if token is None:
+                raise RemoteDeviceNotPaired(not_paired(host, port))
+        self.address = (host, port)
         self.base_url = f"http://{host}:{port}{root}"
         self.root = root
         self.events = events
@@ -253,6 +255,8 @@ class DeviceClient:
                 f"{method} {self.base_url}/{path}: {reason}"
             ) from None
         except ServerError as error:
+            if error.status == 401 and not self.root:
+                raise RemoteDeviceNotPaired(not_paired(*self.address)) from None
             raise RemoteDeviceError(str(error)) from None
 
     def health(self) -> Dict[str, Any]:
@@ -633,6 +637,10 @@ class RemoteObjective(RemoteDevice, Objective):
 
     def _move_relative(self, delta: float) -> None:
         self.call_command("move_relative", delta=delta)
+
+    def _clear_focus_position(self) -> None:
+        # None is no float on the wire, so the server clears its own.
+        self.call_command("clear_focus_position")
 
 
 class RemoteFM(RemoteDevice, FM):
@@ -1017,7 +1025,7 @@ def build_remote_fm(
     if entry.options.get("mount_transform") not in (None, "none"):
         logging.warning(
             "The configuration states the FM's mount_transform, but this FM is "
-            "remote: its server states its own (--mount-transform), and that is "
+            "remote: its Device Server's fm entry states its own, and that is "
             "what is used."
         )
     address, port = entry.options.get("address"), entry.options.get("port")
@@ -1045,12 +1053,26 @@ def build_remote_fm(
     return fm
 
 
-def _client(address: str, port: int, options: Mapping[str, Any]) -> DeviceClient:
-    """The client for a ``driver: remote`` entry's server, with the entry's
-    ``token`` (or ``code``, to pair once) when it states one."""
-    return DeviceClient(
-        address, port, token=options.get("token"), code=options.get("code")
+def not_paired(host: str, port: int) -> str:
+    """What to do when this computer has no token for the Device Server at
+    *host*:*port*, or the server refused the one it has."""
+    return (
+        f"This computer is not paired with the Device Server at {host}:{port}. "
+        "Start that server with --pair, then here run: fibsem-cli pair-device "
+        f"{host}:{port} <code>"
     )
+
+
+def _client(address: str, port: int, options: Mapping[str, Any]) -> DeviceClient:
+    """The client for a ``driver: remote`` entry's server, with the token this
+    computer was paired with there. An entry names only where the server is."""
+    stated = [key for key in ("code", "token") if key in options]
+    if stated:
+        raise ValueError(
+            f"A remote entry takes no {' or '.join(stated)}: pair once with "
+            f"fibsem-cli pair-device {address}:{port} <code>, and the token is kept."
+        )
+    return DeviceClient(address, port)
 
 
 def _server(

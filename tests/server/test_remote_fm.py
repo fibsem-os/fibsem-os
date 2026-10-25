@@ -9,6 +9,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
+from fibsem.drivers.demo.devices import bind_demo_fm  # noqa: E402
 from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteCamera,
@@ -20,7 +21,7 @@ from fibsem.fm.structures import (
     ChannelSettings,  # noqa: E402
     EmissionFilter,  # noqa: E402
 )
-from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
+from fibsem.server.devices import DeviceServer  # noqa: E402
 from fibsem.structures.system import InsertableDeviceState  # noqa: E402
 
 
@@ -44,7 +45,7 @@ def wait_for(condition, timeout=2.0):
 
 @pytest.fixture
 def served():
-    local = {d.name: d for d in demo_fm_devices()}
+    local = {d.name: d for d in bind_demo_fm().values()}
     server = DeviceServer(local.values()).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     remote = connect_remote_fm("127.0.0.1", server.port, client=client)
