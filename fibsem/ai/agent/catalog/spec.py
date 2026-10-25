@@ -1,8 +1,23 @@
 """What a tool is (`ToolSpec`), the words its description shares, and the
 pieces its route call is built from."""
 
+import inspect
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple, Union
+
+
+@dataclass(frozen=True)
+class Arg:
+    """A tool argument other than a plain string: its words, its type and, when
+    it is optional and not None, its default."""
+
+    doc: str
+    type: Any = str
+    default: Any = None
+
+
+def arg(doc: str, type: Any = str, default: Any = None) -> Arg:
+    return Arg(doc, type, default)
 
 
 @dataclass(frozen=True)
@@ -12,10 +27,11 @@ class ToolSpec:
     method: str  # "GET" | "POST" | "PUT"
     path: str
     level: str  # the level the route needs: "watch" | "assist" | "drive"
-    params: Dict[str, str] = field(default_factory=dict)  # name -> description
+    # name -> its description, a plain string argument; or its `arg`.
+    params: Dict[str, Union[str, Arg]] = field(default_factory=dict)
     # The params that may be left out; the rest are required. With params, the
-    # tool's arguments: a request is checked against them at filing,
-    # and the sidecar's signatures are pinned to them (test_sidecar).
+    # tool's arguments: a request is checked against them at filing, and the
+    # sidecar's tools take them (`arguments`).
     optional: Tuple[str, ...] = ()
     # Which router serves it: "microscope" unless the App Server's devices
     # service is off; "app" only when the server was built with an
@@ -41,6 +57,39 @@ class ToolSpec:
     # The class its route answers, by its name in `fibsem.server.responses`
     # (`answer_class` writes it as the app's); "" for an image.
     returns: str = ""
+    # The name the sidecar answers its route's ``result`` under; "" answers
+    # the route's whole answer.
+    result_key: str = ""
+
+    @property
+    def arguments(self) -> Dict[str, Arg]:
+        """Each param as its `Arg`."""
+        return {
+            name: Arg(value) if isinstance(value, str) else value
+            for name, value in self.params.items()
+        }
+
+    @property
+    def signature(self) -> inspect.Signature:
+        """The tool's arguments as a Python signature, from which the sidecar's
+        MCP server derives the tool's input schema."""
+        parameters = []
+        for name, argument in self.arguments.items():
+            if name not in self.optional:
+                default, annotation = inspect.Parameter.empty, argument.type
+            elif argument.default is None:
+                default, annotation = None, Optional[argument.type]
+            else:
+                default, annotation = argument.default, argument.type
+            parameters.append(
+                inspect.Parameter(
+                    name,
+                    inspect.Parameter.KEYWORD_ONLY,
+                    default=default,
+                    annotation=annotation,
+                )
+            )
+        return inspect.Signature(parameters)
 
     @property
     def answers(self) -> Any:

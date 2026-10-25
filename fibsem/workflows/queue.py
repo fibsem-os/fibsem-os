@@ -23,6 +23,7 @@ from enum import Enum, auto
 from typing import Callable, Iterable, List, Optional, Tuple
 from uuid import uuid4
 
+from fibsem.codec import NamedEnum
 from fibsem.workflows.status import TaskStatus
 
 
@@ -54,7 +55,7 @@ class WorkItem:
 QUEUE_ACTIONS = ("remove", "move_up", "move_down", "run_next")
 
 
-class QueueOp(Enum):
+class QueueOp(NamedEnum, Enum):
     """Outcome of a queue mutation."""
 
     OK = auto()

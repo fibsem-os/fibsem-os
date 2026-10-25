@@ -2,9 +2,9 @@
 
 import os
 import re
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent.catalog.spec import RETRACT_FIRST_SAFE_MOVE, ToolSpec
+from fibsem.ai.agent.catalog.spec import RETRACT_FIRST_SAFE_MOVE, ToolSpec, arg
 from fibsem.server.parts import ITEMS, LAMELLAE, MILLING_STAGES, POSES
 from fibsem.util import wording
 
@@ -302,11 +302,17 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=ITEMS,
         params={
             "item_name": "the item name",
-            "show": "all (default), images (runs that left images) or operations (runs that recorded operations)",
-            "status": "all (default), failed or cancelled",
+            "show": arg(
+                "all (default), images (runs that left images) or operations (runs that recorded operations)",
+                default="all",
+            ),
+            "status": arg("all (default), failed or cancelled", default="all"),
             "task": "one task name, or omit for every task",
-            "decided_by": "anyone (default), agent or operator: the runs whose proposals they decided",
-            "order": "oldest (default) or newest first",
+            "decided_by": arg(
+                "anyone (default), agent or operator: the runs whose proposals they decided",
+                default="anyone",
+            ),
+            "order": arg("oldest (default) or newest first", default="oldest"),
         },
         optional=("show", "status", "task", "decided_by", "order"),
     ),
@@ -322,8 +328,14 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item (lamella) name",
             "path": "a FIB image file path inside the experiment folder",
-            "width_um": "window along the lamella, um (default: from the trench patterns)",
-            "height_um": "window across the lamella, um (default: from the trench patterns)",
+            "width_um": arg(
+                "window along the lamella, um (default: from the trench patterns)",
+                float,
+            ),
+            "height_um": arg(
+                "window across the lamella, um (default: from the trench patterns)",
+                float,
+            ),
         },
         optional=("width_um", "height_um"),
     ),
@@ -352,7 +364,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=ITEMS,
         params={
             "item_name": "the item (lamella) name",
-            "task_names": "optional list of task names; omitted = every task in the protocol",
+            "task_names": arg(
+                "optional list of task names; omitted = every task in the protocol",
+                List[str],
+            ),
         },
         optional=("task_names",),
         line=_item_apply_protocol,
@@ -368,8 +383,13 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=ITEMS,
         params={
             "name": "optional name; the app picks one when omitted",
-            "stage_position": "optional {x, y, z, r, t} (metres, radians) to add at",
-            "overview": "optional {grid_name, filename, px | fraction}: a point on a grid overview",
+            "stage_position": arg(
+                "optional {x, y, z, r, t} (metres, radians) to add at", dict
+            ),
+            "overview": arg(
+                "optional {grid_name, filename, px | fraction}: a point on a grid overview",
+                dict,
+            ),
         },
         optional=("name", "stage_position", "overview"),
         line=_item_add,
@@ -462,8 +482,13 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=POSES,
         params={
             "item_name": "the item (lamella) name",
-            "stage_position": "optional {x, y, z, r, t} (metres, radians) to move it to",
-            "overview": "optional {grid_name, filename, px | fraction}: a point on a grid overview",
+            "stage_position": arg(
+                "optional {x, y, z, r, t} (metres, radians) to move it to", dict
+            ),
+            "overview": arg(
+                "optional {grid_name, filename, px | fraction}: a point on a grid overview",
+                dict,
+            ),
         },
         optional=("stage_position", "overview"),
         line=_item_set_position,
@@ -494,7 +519,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "item_name": "the item (lamella) name",
             "task_name": "the task name",
             "milling_key": "which milling config within the task (e.g. mill_rough)",
-            "order": "the current stage names in their new sequence",
+            "order": arg("the current stage names in their new sequence", list),
             "version": "the version token from item_get_task_config",
         },
         line=_item_reorder_milling_stages,
@@ -510,7 +535,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         part=ITEMS,
         params={
             "item_name": "the item (lamella) name",
-            "patch": "object of dotted-path: value entries to set",
+            "patch": arg("object of dotted-path: value entries to set", dict),
             "version": "the version token from item_get",
         },
         line=_item_update,
@@ -527,9 +552,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "item_name": "the item (lamella) name",
             "task_name": "the task name, as listed by protocol_get",
-            "patch": (
+            "patch": arg(
                 "object of dotted-path: value entries to set; a list of settings "
-                "(channel_settings) is set whole, as a list of their dicts"
+                "(channel_settings) is set whole, as a list of their dicts",
+                dict,
             ),
             "version": "the version token from item_get_task_config",
         },

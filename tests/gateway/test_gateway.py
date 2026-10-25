@@ -221,7 +221,8 @@ def test_window_mode_opens_the_apps_desktop_launch(tmp_path, fakes):
     state = gateway.switch(WINDOW, "operator", "tray", app="stand-in")
     try:
         assert state.mode == WINDOW
-        assert _wait_for(seen.exists)
+        # The shell creates the file before it writes the line.
+        assert _wait_for(lambda: seen.exists() and seen.read_text().strip())
         assert seen.read_text().split() == [
             "-m",
             "fibsem.tools.desktop_launch",

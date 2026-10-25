@@ -22,7 +22,7 @@ scan rotation), never something a stage move fixes.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
@@ -39,6 +39,7 @@ from fibsem.alignment.coincidence import (
     _local_normalise,
     geometry_from_images,
 )
+from fibsem.codec import encode
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType
 
@@ -90,7 +91,7 @@ class TargetCoincidence:
         return not self.warnings
 
     def to_dict(self) -> Dict[str, Any]:
-        return {**asdict(self), "agrees": self.agrees}
+        return {**encode(self), "agrees": self.agrees}
 
 
 def _pixels(sem: np.ndarray, target: Tuple[float, float], pixel_size: float):

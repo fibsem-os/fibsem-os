@@ -21,10 +21,21 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import (
+    Annotated,
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 import numpy as np
 
+from fibsem.codec import NotSaved, encode
 from fibsem.imaging.tiling.layout_check import (
     DEFAULT_MIN_SCORE,
     PairMeasurement,
@@ -119,20 +130,12 @@ class Registration:
     shifts: Dict[str, List[float]] = field(default_factory=dict)
     largest_shift: Optional[float] = None
     limit: float = MAX_SHIFT
-    positions: Optional[Dict[TileKey, PixelPosition]] = field(
+    positions: Annotated[Optional[Dict[TileKey, PixelPosition]], NotSaved] = field(
         default=None, repr=False, compare=False
     )
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "requested": self.requested,
-            "applied": self.applied,
-            "note": self.note,
-            "pairs_used": self.pairs_used,
-            "largest_shift": self.largest_shift,
-            "limit": self.limit,
-            "shifts": self.shifts,
-        }
+        return encode(self)
 
     def summary(self) -> Dict[str, Any]:
         """The record without the per-tile shifts."""
