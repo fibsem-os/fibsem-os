@@ -11,7 +11,7 @@ import { Popup } from "@/components/ui/popup";
 import { ApiError, api } from "@/lib/api";
 import { useFileRead } from "@/lib/files";
 import * as fmt from "@/lib/format";
-import type { ReplayImage, ReplayRow, ReplayTimeline, ReplayView } from "@/lib/types";
+import type { ReplayImage, ReplayRow, ReplayTimeline, ReplayView, WorkflowStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const KIND: Record<string, string> = {
@@ -279,11 +279,24 @@ function FilterMenu({
 /** The experiment's recorded actions, stepped through with the images, milling
  * and stage at each. */
 export function Replay() {
+  const status = useQuery({
+    queryKey: ["app/workflow/status"],
+    queryFn: () => api<WorkflowStatus>("/app/workflow/status"),
+  });
+  const running = !!status.data?.workflow.running;
+  // The whole record each read: read again only while a run adds to it, and
+  // once when it ends.
   const timeline = useQuery({
     queryKey: ["app/experiment/replay"],
     queryFn: () => api<ReplayTimeline>("/app/experiment/replay"),
-    refetchInterval: 10_000,
+    refetchInterval: running ? 10_000 : false,
   });
+  const refetchTimeline = timeline.refetch;
+  const wasRunning = useRef(running);
+  useEffect(() => {
+    if (wasRunning.current && !running) void refetchTimeline();
+    wasRunning.current = running;
+  }, [running, refetchTimeline]);
   const events = useMemo(() => timeline.data?.events ?? [], [timeline.data]);
   const [filter, setFilter] = useState<Filter>(NO_FILTER);
   const [index, setIndex] = useState(0);
@@ -346,7 +359,9 @@ export function Replay() {
   // A 404 is an experiment with nothing recorded yet: empty, not an error.
   if (timeline.error instanceof ApiError && timeline.error.status === 404)
     return <div className="text-[13px] text-muted-foreground">{timeline.error.message}</div>;
-  if (timeline.error) return <div className="text-[13px] text-destructive">{timeline.error.message}</div>;
+  // A failed re-read keeps the record on screen.
+  if (timeline.error && !timeline.data)
+    return <div className="text-[13px] text-destructive">{timeline.error.message}</div>;
   if (!events.length) return <div className="text-[13px] text-muted-foreground">Nothing has been recorded yet.</div>;
 
   const go = (to: number) => {
