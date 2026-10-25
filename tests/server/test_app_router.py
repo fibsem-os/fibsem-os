@@ -21,6 +21,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.structures.settings import MicroscopeState  # noqa: E402
+from fibsem.workflows.actions import ACTION  # noqa: E402
 from tests.protocols import add_planned, planned  # noqa: E402
 from tests.run_state import run_working_on, stub_session
 
@@ -663,6 +664,14 @@ def test_agent_notes_land_on_the_record(microscope, host, event_buffer):
         assert bad.status_code == 422
         # A note tells nobody: it is for the record.
         assert "to" not in note["payload"]
+        # Each is on the record once, as itself: not again as an action.
+        recorded = []
+        microscope.session.record_signal.connect(
+            lambda kind, payload: recorded.append(kind)
+        )
+        for route in ("/app/experiment/notes", "/app/experiment/messages"):
+            client.post(route, headers=AUTH, json={"text": "x"})
+        assert ACTION not in recorded
 
 
 def test_agent_notes_need_only_the_read_scope(client):
