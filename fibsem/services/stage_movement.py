@@ -1773,15 +1773,19 @@ class StageMovement(Service):
             return True
 
     @query
+    def travels_to_fm(self) -> bool:
+        """Is the FM a place the stage travels to (an offset mount)?"""
+        return (
+            self.parent.fm is not None
+            and "FM" in self.parent.system.stage.devices
+            and not self.fm_is_a_pose()
+        )
+
     def fm_calibration_needed(self) -> bool:
         """Is travel to the FM refused until SEM to FM is calibrated? True on an
         offset mount until a calibration holds for the fitted holder; never on a
         compustage or a system with no FM."""
-        if self.parent.fm is None or self.fm_is_a_pose():
-            return False
-        if "FM" not in self.parent.system.stage.devices:
-            return False
-        return not self.parent.system.stage.fm_calibrated()
+        return self.travels_to_fm() and not self.parent.system.stage.fm_calibrated()
 
     def _refuse_uncalibrated_fm_travel(self) -> None:
         if self._calibrating or not self.fm_calibration_needed():

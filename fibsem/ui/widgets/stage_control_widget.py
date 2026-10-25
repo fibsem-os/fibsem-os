@@ -29,10 +29,18 @@ the process aborts. Whatever else changes here, registration and
 from __future__ import annotations
 
 import logging
+import math
 from functools import partial
 from typing import Any, Callable, Optional
 
-from PyQt5.QtWidgets import QDoubleSpinBox, QGridLayout, QLabel, QPushButton, QWidget
+from PyQt5.QtWidgets import (
+    QDoubleSpinBox,
+    QGridLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QWidget,
+)
 from superqt import ensure_main_thread
 
 from fibsem import config as cfg
@@ -65,6 +73,42 @@ INSTRUCTIONS_TEXT = (
 # to "updating images", "taking new images" and, on the orientation path, nothing at
 # all -- so the same phase looked different depending on how the move was started.
 ACQUIRING_IMAGES = "Acquiring images…"
+
+FM_NEEDS_CALIBRATION = (
+    "Calibrate SEM to FM first: Microscope Configuration, Calibration tab."
+)
+
+
+def travel_route(microscope: FibsemMicroscope, device: str, orientation: str) -> list:
+    """What `move_to_device` does to reach *device* in *orientation*, step by step;
+    empty when the stage is already at *device* and only turns there."""
+    movement = microscope.stage_movement
+    source = movement.current_device()
+    if source is None or source == device:
+        return []
+    turn = movement.stage_orientation() != orientation
+    origin, target = movement.device_origin(source), movement.device_origin(device)
+    legs = [
+        getattr(target, a) - getattr(origin, a)
+        for a in ("x", "y", "z")
+        if getattr(target, a) is not None and getattr(origin, a) is not None
+    ]
+    distance = f" {math.hypot(*legs) * 1e3:.1f} mm" if legs else ""
+    travel = (
+        f"Travel{distance} to the FM"
+        if device == "FM"
+        else f"Travel{distance} back to the beams"
+    )
+    steps = ["Retract the objective"]
+    if device == "FM":
+        if turn:
+            steps.append(f"Turn to the {orientation} orientation at the beams")
+        steps += [travel, "Insert the objective"]
+    else:
+        steps.append(travel)
+        if turn:
+            steps.append(f"Turn to the {orientation} orientation")
+    return steps
 
 
 class StageControlWidget(QWidget):
@@ -124,15 +168,24 @@ class StageControlWidget(QWidget):
         layout.addWidget(self.doubleSpinBox_milling_angle, 2, 0)
         layout.addWidget(self.pushButton_move_to_milling_angle, 2, 1)
 
+        # On an offset mount the FM is a place: its button travels there.
+        self.pushButton_move_to_fm = QPushButton("Move to FM")
+        self.pushButton_move_to_fm.setObjectName("move_to_fm")
+        layout.addWidget(self.pushButton_move_to_fm, 3, 0, 1, 2)
+        self.pushButton_move_to_fm.setVisible(
+            self.microscope.stage_movement.travels_to_fm()
+        )
+
         self.label_movement_instructions = QLabel()
         self.label_movement_instructions.setWordWrap(True)
-        layout.addWidget(self.label_movement_instructions, 3, 0, 1, 2)
+        layout.addWidget(self.label_movement_instructions, 4, 0, 1, 2)
 
         self._move_buttons = [
             self.pushButton_move,
             self.pushButton_move_to_fib_orientation,
             self.pushButton_move_to_sem_orientation,
             self.pushButton_move_to_milling_angle,
+            self.pushButton_move_to_fm,
         ]
 
     def setup_connections(self) -> None:
@@ -144,6 +197,7 @@ class StageControlWidget(QWidget):
         self.pushButton_move_to_sem_orientation.clicked.connect(
             lambda: self.move_to_orientation("SEM")
         )
+        self.pushButton_move_to_fm.clicked.connect(self.move_to_fm)
 
         # register mouse callbacks — one canvas per beam. The canvases are app-lifetime
         # (owned by the controller), so store each (canvas, slot) pair and disconnect it in
@@ -180,6 +234,8 @@ class StageControlWidget(QWidget):
             SECONDARY_BUTTON_STYLESHEET
         )
         self.pushButton_move_to_milling_angle.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.pushButton_move_to_fm.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self._refresh_fm_button()
 
         # display orientation values on tooltips
         self.pushButton_move_to_sem_orientation.setText("Move to SEM Orientation")
@@ -257,6 +313,20 @@ class StageControlWidget(QWidget):
                 if btn is self.pushButton_move
                 else SECONDARY_BUTTON_STYLESHEET
             )
+        if enable:
+            self._refresh_fm_button()
+
+    def _refresh_fm_button(self) -> None:
+        """The FM button stays off until SEM to FM is calibrated for this holder."""
+        needed = self.microscope.stage_movement.fm_calibration_needed()
+        self.pushButton_move_to_fm.setEnabled(
+            not needed and self.pushButton_move.isEnabled()
+        )
+        self.pushButton_move_to_fm.setToolTip(
+            FM_NEEDS_CALIBRATION
+            if needed
+            else "Retract the objective, travel to the FM, and insert it."
+        )
 
     # --- saying what the stage is doing --------------------------------------
 
@@ -323,6 +393,8 @@ class StageControlWidget(QWidget):
             stage_position = self.microscope.get_stage_position()
 
         self.position_widget.set_position(stage_position)
+        if self.pushButton_move.isEnabled():
+            self._refresh_fm_button()
 
         # update the current position label
         self._update_position_readout(stage_position=stage_position)
@@ -573,9 +645,13 @@ class StageControlWidget(QWidget):
     # --- moving to an orientation --------------------------------------------
 
     def move_to_orientation(self, orientation: str) -> None:
-        """Move to the specifed orientation"""
+        """Move to the specifed orientation. On an offset mount this goes by
+        `move_to_device`, so a press at the FM brings the stage back first."""
         if orientation not in BEAM_ORIENTATIONS:
             raise ValueError(f"Invalid orientation: {orientation}")
+        if self.microscope.stage_movement.travels_to_fm():
+            self._move_to_device("FIBSEM", orientation)
+            return
         self._toggle_interactions(False)
         self._report_move(f"Moving to the {orientation} orientation…")
         worker = self.move_to_orientation_worker(orientation)
@@ -592,3 +668,40 @@ class StageControlWidget(QWidget):
     def move_to_orientation_worker(self, orientation: str) -> None:
         """Move the stage. Runs off the GUI thread — only signals may cross back."""
         self.microscope.move_to_orientation(orientation)
+
+    # --- travelling between the beams and an offset FM -----------------------
+
+    def move_to_fm(self) -> None:
+        """Travel to the FM, in the pose it images from."""
+        fm = self.microscope.system.stage.devices["FM"]
+        orientation = (fm.available_orientations or ["FIB"])[0]
+        self._move_to_device("FM", orientation)
+
+    def _confirm_travel(self, steps: list) -> bool:
+        answer = QMessageBox.question(
+            self,
+            "Move the stage",
+            "The stage will:\n\n"
+            + "\n".join(f"{i}. {step}" for i, step in enumerate(steps, 1)),
+            QMessageBox.Ok | QMessageBox.Cancel,
+            QMessageBox.Ok,
+        )
+        return answer == QMessageBox.Ok
+
+    def _move_to_device(self, device: str, orientation: str) -> None:
+        """Move by `move_to_device`, asking first when the stage travels."""
+        steps = travel_route(self.microscope, device, orientation)
+        if steps and not self._confirm_travel(steps):
+            return
+        self._toggle_interactions(False)
+        where = "the FM" if device == "FM" else f"the {orientation} orientation"
+        self._report_move(f"Moving to {where}…")
+        worker = self.move_to_device_worker(device, orientation)
+        worker.returned.connect(self._on_stage_move_returned)
+        worker.finished.connect(self.move_stage_finished)
+        worker.start(control=control_of(self.microscope), action="move stage to device")
+
+    @thread_worker
+    def move_to_device_worker(self, device: str, orientation: str) -> None:
+        """Move the stage. Runs off the GUI thread — only signals may cross back."""
+        self.microscope.stage_movement.move_to_device(device, orientation=orientation)

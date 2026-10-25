@@ -454,8 +454,26 @@ def slot_rows(holder) -> List[Tuple[str, str, str, str, str]]:
 STATE_COLOURS = {"Calibrated": OK_COLOR, "Built in": OK_COLOR}
 
 
-def calibration_tab(microscope: FibsemMicroscope, calibrate_slots) -> QWidget:
-    """*calibrate_slots* opens the holder's guided calibration, or is None."""
+def sem_to_fm_rows(microscope: FibsemMicroscope) -> List[Tuple[str, str]]:
+    stage = microscope.system.stage
+    record = stage.device_calibration
+    if record is None:
+        return [("State", "Not calibrated")]
+    state = "Calibrated" if stage.fm_calibrated() else "Recheck: another holder"
+    return [
+        ("State", state),
+        ("Measured on", record.holder or "Any holder"),
+        ("When", format_time(record.when) or "—"),
+        ("Travel", _axes_mm(record.translation())),
+        ("Sites", str(len(record.sites)) if record.sites else "—"),
+    ]
+
+
+def calibration_tab(
+    microscope: FibsemMicroscope, calibrate_slots, calibrate_sem_to_fm=None
+) -> QWidget:
+    """*calibrate_slots* opens the holder's guided calibration, or is None;
+    *calibrate_sem_to_fm* opens the SEM to FM calibration, or is None."""
     holder = microscope.sample_handling.holder
     rows = slot_rows(holder)
     calibrated = sum(1 for _, state, *_ in rows if state != "Not calibrated")
@@ -499,6 +517,14 @@ def calibration_tab(microscope: FibsemMicroscope, calibrate_slots) -> QWidget:
     left.addStretch()
 
     right = QVBoxLayout()
+    if calibrate_sem_to_fm is not None:
+        rows = sem_to_fm_rows(microscope)
+        right.addWidget(_panel("SEM to FM", _form(rows)))
+        button = QPushButton("Calibrate SEM to FM…")
+        button.setObjectName("calibrate_sem_to_fm")
+        button.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        button.clicked.connect(calibrate_sem_to_fm)
+        right.addWidget(button, alignment=Qt.AlignRight)
     fm = microscope.system.fm
     if microscope.fm is not None:
         right.addWidget(
@@ -844,8 +870,25 @@ class MicroscopeConfigurationWindow(QDialog):
         # slots to capture.
         loader = getattr(self.microscope.sample_handling, "magazine", None)
         return calibration_tab(
-            self.microscope, None if loader is not None else self.calibrate_slots
+            self.microscope,
+            None if loader is not None else self.calibrate_slots,
+            self.calibrate_sem_to_fm
+            if self.microscope.stage_movement.travels_to_fm()
+            else None,
         )
+
+    def calibrate_sem_to_fm(self) -> None:
+        """Open the SEM to FM calibration; this tab follows when it saves."""
+        from fibsem.ui.widgets.sem_to_fm_dialog import SemToFmDialog
+
+        dialog = SemToFmDialog(
+            self.microscope,
+            parent=self,
+            configuration_path=getattr(self.microscope, "configuration_path", None),
+        )
+        dialog.calibration_saved.connect(self.refresh_calibration)
+        self._calibration_dialog = dialog  # non-modal; kept alive here
+        dialog.show()
 
     def calibrate_slots(self) -> None:
         """Open the holder's guided calibration; this tab follows when it saves."""
