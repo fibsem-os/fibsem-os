@@ -6,14 +6,17 @@ calls it makes, not JEOL's behaviour, which the hardware session checks.
 """
 
 import math
+import sys
 
 import pytest
 
+from fibsem import vendor_libraries
 from fibsem.drivers import registry
 from fibsem.drivers.jeol import devices as jd
 from fibsem.drivers.jeol import services as js
 from fibsem.drivers.jeol.connection import load_sdk
 from fibsem.drivers.jeol.settings import JeolMillingSettings
+from fibsem.drivers.jeol.setup import LIBRARY
 from fibsem.imaging.spot import SpotBurnSettings, SpotBurnStatus
 from fibsem.structures.settings import (
     BeamType,
@@ -50,6 +53,36 @@ def test_load_sdk_needs_a_path(monkeypatch):
     monkeypatch.delenv("FIBSEM_JEOL_API_PATH", raising=False)
     with pytest.raises(ImportError, match="FIBSEM_JEOL_API_PATH"):
         load_sdk(None)
+
+
+@pytest.fixture
+def jeol_library_folder(tmp_path, monkeypatch):
+    """A folder of stand-ins for JEOL's client modules; unloaded afterwards."""
+    for name in LIBRARY.packages:
+        (tmp_path / f"{name}.py").write_text(f"NAME = {name!r}\n")
+    yield tmp_path
+    finder = vendor_libraries._FINDERS.pop("JEOL", None)
+    if finder in sys.meta_path:
+        sys.meta_path.remove(finder)
+    for name in LIBRARY.packages:
+        sys.modules.pop(name, None)
+
+
+def test_load_sdk_serves_the_client_modules_from_their_folder(
+    jeol_library_folder, monkeypatch
+):
+    monkeypatch.setenv("FIBSEM_JEOL_API_PATH", str(jeol_library_folder))
+    sdk = load_sdk()
+    assert sdk.command.NAME == "command" and sdk.sem_live.NAME == "sem_live"
+    assert str(jeol_library_folder) not in sys.path
+
+
+def test_the_guided_setup_asks_for_jeols_library():
+    from fibsem import guided_setup
+
+    jeol = guided_setup.get_manufacturer("JEOL")
+    assert jeol.library is LIBRARY
+    assert guided_setup.api_label(jeol) == "JEOL client library"
 
 
 def test_connect_builds_the_devices_and_services(monkeypatch):

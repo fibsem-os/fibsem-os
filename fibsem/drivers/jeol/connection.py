@@ -13,25 +13,21 @@ driver did, and hands the devices only the values.
 
 JEOL's client library is not an installed package: it is a folder of top-level
 modules (``command``, ``ecommand``, ``models``, ``common``, ``sem_live``, ...).
-`load_sdk` puts that folder on ``sys.path`` and imports them at connect, never at
-import, so listing the drivers never needs it. The folder comes from
-``connect_to_microscope``'s ``api_path``, else the ``FIBSEM_JEOL_API_PATH``
-environment variable.
+`load_sdk` serves those modules from that folder (``fibsem.vendor_libraries``) and
+imports them at connect, never at import, so listing the drivers never needs it.
 """
 
 from __future__ import annotations
 
 import importlib
 import logging
-import os
-import sys
 import threading
 import time
 from typing import Any, NamedTuple, Optional, Tuple
 
+from fibsem import vendor_libraries
+from fibsem.drivers.jeol.setup import LIBRARY
 from fibsem.structures.settings import BeamType
-
-JEOL_API_PATH_ENV = "FIBSEM_JEOL_API_PATH"
 
 # The SEM client's port; the FIB client's is the driver's (``DRIVER.port``).
 SEM_PORT = 22300
@@ -55,20 +51,15 @@ class JeolSdk(NamedTuple):
 
 
 def load_sdk(api_path: Optional[str] = None) -> JeolSdk:
-    """Import JEOL's client library from *api_path*, else ``FIBSEM_JEOL_API_PATH``."""
-    path = api_path or os.environ.get(JEOL_API_PATH_ENV)
-    if not path:
-        raise ImportError(
-            "The JEOL client library's folder is not set: give connect's api_path, "
-            f"or set {JEOL_API_PATH_ENV} to the folder of its modules."
-        )
-    if path not in sys.path:
-        sys.path.append(path)
+    """Import JEOL's client library from *api_path*, else from where this PC has it
+    (``fibsem.vendor_libraries``: ``FIBSEM_JEOL_API_PATH``, then the folder chosen in
+    the guided setup or Preferences)."""
+    folder = vendor_libraries.serve("JEOL", LIBRARY, api_path)
     try:
         modules = {name: importlib.import_module(name) for name in _SDK_MODULES}
     except Exception as e:
         raise ImportError(
-            f"The JEOL client library could not be imported from {path}: {e}"
+            f"The JEOL client library could not be imported from {folder}: {e}"
         ) from e
     return JeolSdk(**modules)
 

@@ -95,7 +95,7 @@ def test_the_features_page_is_gone(qapp):
     """Coincidence milling and the connection chip were its last two flags."""
     dialog = PreferencesDialog(UserPreferences())
     pages = [dialog._sidebar.item(i).text() for i in range(dialog._sidebar.count())]
-    assert pages == ["Display", "Experiment", "Movement"]
+    assert pages == ["Display", "Experiment", "Movement", "Libraries"]
     dialog.deleteLater()
 
 
