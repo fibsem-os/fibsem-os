@@ -1107,15 +1107,34 @@ def bind_odemis_fm(
 ) -> Dict[str, Device]:
     """The METEOR's FM parts and group, by device name, from the odemis backend on
     this computer: its components by role, and one ``FluoStream`` over them. *config* is
-    the fm entry's own keys (``mount_transform``)."""
-    from odemis import model
-    from odemis.acq.stream import FluoStream
+    the fm entry's own keys (``mount_transform``).
+
+    Raises:
+        RuntimeError: odemis is not installed here, or its backend did not answer;
+            the message says which, and what to check.
+    """
+    try:
+        from odemis import model
+        from odemis.acq.stream import FluoStream
+    except ImportError as e:
+        raise RuntimeError(
+            f"odemis cannot be imported here ({e}). Serve the odemis FM from the "
+            "METEOR PC that runs odemis."
+        ) from e
 
     resources = resources if resources is not None else resources_of(parent)
-    camera = model.getComponent(role="ccd")
-    light_source = model.getComponent(role="light")
-    light_filter = model.getComponent(role="filter")
-    focuser = model.getComponent(role="focus")
+    try:
+        camera = model.getComponent(role="ccd")
+        light_source = model.getComponent(role="light")
+        light_filter = model.getComponent(role="filter")
+        focuser = model.getComponent(role="focus")
+        lens = model.getComponent(role="lens")
+    except Exception as e:
+        raise RuntimeError(
+            f"The odemis backend did not answer ({type(e).__name__}: {e}). Check "
+            "that odemis is running (odemis-start) and that this user is in the "
+            "'odemis' group."
+        ) from e
     stream = FluoStream(
         name="fm-stream",
         detector=camera,
@@ -1127,7 +1146,7 @@ def bind_odemis_fm(
     # The stream drives the components itself and needs them as they are; the devices
     # reach them, and the stream, through PlainCalls, so they send no numpy values.
     camera, focuser = PlainCalls(camera), PlainCalls(focuser)
-    lens = PlainCalls(model.getComponent(role="lens"))
+    lens = PlainCalls(lens)
     stream = PlainCalls(stream)
     common = {"parent": parent, "resources": resources}
     parts: Dict[str, Device] = {
