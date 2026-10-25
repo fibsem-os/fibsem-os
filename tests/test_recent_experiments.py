@@ -77,6 +77,22 @@ def test_peek_reads_display_metadata(prefs_env):
     assert info.available is True
 
 
+def test_peek_reads_a_file_again_only_once_it_changes(prefs_env, monkeypatch):
+    path = _write_experiment(prefs_env / "once", name="first", num_positions=2)
+    reads = []
+    load = yaml.load
+    monkeypatch.setattr(
+        cfg.yaml, "load", lambda *a, **k: reads.append(1) or load(*a, **k)
+    )
+    assert cfg.peek_experiment(path).name == "first"
+    assert cfg.peek_experiment(path).name == "first"
+    assert len(reads) == 1
+    _write_experiment(prefs_env / "once", name="second", num_positions=5)
+    os.utime(path, ns=(0, os.stat(path).st_mtime_ns + 1_000_000))
+    info = cfg.peek_experiment(path)
+    assert (info.name, info.num_items, len(reads)) == ("second", 5, 2)
+
+
 def test_peek_missing_file(prefs_env):
     path = str(prefs_env / "gone" / "experiment.yaml")
     info = cfg.peek_experiment(path)

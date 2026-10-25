@@ -534,6 +534,13 @@ class ExperimentSummary:
     software_version: Optional[str] = None
 
 
+# libyaml's loader when installed: a large experiment.yaml reads ~6x faster.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+# Each summary read, by path, with the file's (mtime, size) it was read at: the
+# recents list is read on every page load, and an experiment.yaml runs to MBs.
+_PEEKED: Dict[str, Any] = {}
+
+
 def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
     """Read an experiment.yaml's summary without fully loading it.
 
@@ -555,15 +562,20 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         )
 
     try:
+        stat = os.stat(experiment_yaml_path)
+        key = (stat.st_mtime_ns, stat.st_size)
+        peeked = _PEEKED.get(experiment_yaml_path)
+        if peeked is not None and peeked[0] == key:
+            return dataclasses.replace(peeked[1])
         with open(experiment_yaml_path) as f:
-            ddict = yaml.safe_load(f) or {}
+            ddict = yaml.load(f, Loader=_YAML_LOADER) or {}
         # `or {}` at each level, not `.get(k, {})`: a key present but null is how
         # an experiment no session has adopted serialises, and that has to read
         # the same as the key being absent entirely.
         session = ddict.get("session") or {}
         system = session.get("system") or {}
         user = session.get("user") or {}
-        return ExperimentSummary(
+        summary = ExperimentSummary(
             path=experiment_yaml_path,
             name=ddict.get("name") or fallback_name,
             app=saved_app(ddict),
@@ -576,6 +588,8 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
             operator=user.get("name"),
             software_version=system.get("fibsem_version"),
         )
+        _PEEKED[experiment_yaml_path] = (key, summary)
+        return dataclasses.replace(summary)
     except Exception as e:
         logging.warning(
             f"Failed to read experiment info from {experiment_yaml_path}: {e}"
