@@ -1,7 +1,7 @@
-"""The gateway's tray icon: the same switches as its page, for the operator at
-the PC. Its colour follows the mode. A switch can take a minute (a headless
-app stops its run), so it runs off the Qt thread and reports back in a
-tray message."""
+"""The gateway's tray icon: starting and stopping the app as its page does,
+for the operator at the PC. Its colour says whether the app runs, and with
+its window or without. A stop can take a minute (the app stops its run), so
+it runs off the Qt thread and reports back in a tray message."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from PyQt5.QtWidgets import (
     QSystemTrayIcon,
 )
 
-from fibsem.gateway.gateway import HEADLESS, OFF, WINDOW, Gateway, GatewayRefused
+from fibsem.gateway.gateway import OFF, Gateway, GatewayRefused, GatewayState
 from fibsem.gateway.main import quit_gateway
 from fibsem.server.pairing import HUB, OPERATOR, SWITCH_MODES
 from fibsem.theme.tokens import (
@@ -31,19 +31,24 @@ from fibsem.theme.tokens import (
 )
 from fibsem.tools.apps import ICONS_DIR
 
-__all__ = ["GatewayTray", "mode_colour", "run_tray"]
+__all__ = ["GatewayTray", "mode_colour", "mode_name", "run_tray"]
 
-MODE_NAMES = {OFF: "Off", WINDOW: "Window", HEADLESS: "Headless app"}
 VIA = "tray"
 ASK_FORCE = "ask_force"  # a report that asks whether to stop past a running workflow
 
 
-def mode_colour(mode: str, switching: bool) -> str:
-    if switching:
+def mode_name(state: GatewayState) -> str:
+    if state.mode == OFF:
+        return "Off"
+    return "Running with the window" if state.window else "Running without a window"
+
+
+def mode_colour(state: GatewayState) -> str:
+    if state.switching:
         return SEMANTIC_WARNING_COLOR
-    return {WINDOW: PRIMARY_COLOR, HEADLESS: PURPLE_COLOR}.get(
-        mode, GRAY_SECONDARY_COLOR
-    )
+    if state.mode == OFF:
+        return GRAY_SECONDARY_COLOR
+    return PRIMARY_COLOR if state.window else PURPLE_COLOR
 
 
 def tray_icon(colour: str) -> QIcon:
@@ -85,12 +90,12 @@ class GatewayTray(QSystemTrayIcon):
 
     def refresh(self) -> None:
         state = self._gateway.state()
-        shown = (state.mode, state.switching, state.app, state.experiment)
+        shown = (state.mode, state.window, state.switching, state.app, state.experiment)
         if shown == self._shown:
             return
         self._shown = shown
-        self.setIcon(tray_icon(mode_colour(state.mode, state.switching)))
-        what = MODE_NAMES[state.mode]
+        self.setIcon(tray_icon(mode_colour(state)))
+        what = mode_name(state)
         if state.app:
             what += f" · {state.app}"
         if state.experiment:
@@ -101,15 +106,15 @@ class GatewayTray(QSystemTrayIcon):
         menu = self.menu
         menu.clear()
         state = self._gateway.state()
-        title = menu.addAction(f"Mode: {MODE_NAMES[state.mode]}")
+        title = menu.addAction(f"App: {mode_name(state)}")
         title.setEnabled(False)
         if state.holder is not None:
-            held = menu.addAction(f"Another App Server runs (pid {state.holder.pid})")
+            held = menu.addAction(f"Another fibsem host runs (pid {state.holder.pid})")
             held.setEnabled(False)
         menu.addSeparator()
-        free = state.mode != WINDOW and not state.switching
-        windows = menu.addMenu("Open window")
-        headless = menu.addMenu("Run headless")
+        free = not state.window and not state.switching
+        windows = menu.addMenu("Start with the window")
+        headless = menu.addMenu("Start without a window")
         for app in state.apps:
             self._add(windows, app.name, free, lambda k=app.key: self._window(k))
             if app.headless:
@@ -123,10 +128,9 @@ class GatewayTray(QSystemTrayIcon):
                 self._add(sub, "Choose…", free, lambda k=app.key: self._choose(k))
         windows.setEnabled(free)
         headless.setEnabled(free)
-        stop = self._add(
-            menu, "Stop", state.mode == HEADLESS and not state.switching, self._stop
-        )
-        if state.mode == WINDOW:
+        running = state.mode != OFF and not state.window
+        stop = self._add(menu, "Stop", running and not state.switching, self._stop)
+        if state.window:
             stop.setText("Stop (close the window)")
         if self._agent is not None and self._agent.state().running is not None:
             self._add(menu, "End agent", True, self._end_agent)
@@ -167,7 +171,7 @@ class GatewayTray(QSystemTrayIcon):
         if title == ASK_FORCE:
             answer = QMessageBox.question(
                 None,
-                "Stop the headless app",
+                "Stop the app",
                 f"{message}\n\nStop it anyway? The workflow stops too.",
             )
             if answer == QMessageBox.Yes:
@@ -178,18 +182,18 @@ class GatewayTray(QSystemTrayIcon):
 
     def _window(self, key: str) -> None:
         self._in_background(
-            "Open window",
-            lambda: self._gateway.switch(WINDOW, "operator", VIA, app=key),
+            "Start with the window",
+            lambda: self._gateway.start_app("operator", VIA, app=key),
         )
 
     def _headless(self, key: str, folder: Optional[str]) -> None:
         self._in_background(
-            "Run headless",
-            lambda: self._gateway.switch(
-                HEADLESS,
+            "Start without a window",
+            lambda: self._gateway.start_app(
                 "operator",
                 VIA,
                 app=key,
+                window=False,
                 experiment=folder,
                 last=folder is None,
             ),

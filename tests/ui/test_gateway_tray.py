@@ -1,11 +1,16 @@
-"""The gateway's tray: its menu follows the mode, and its icon's colour."""
+"""The gateway's tray: its menu follows the app, and its icon's colour."""
 
 import pytest
 
 pytest.importorskip("PyQt5")
 pytest.importorskip("fastapi")
 
-from fibsem.gateway.gateway import HEADLESS, OFF, WINDOW, Gateway  # noqa: E402
+from fibsem.gateway.gateway import (  # noqa: E402
+    OFF,
+    RUNNING,
+    Gateway,
+    GatewayState,
+)
 from fibsem.gateway.server import GatewayAuth  # noqa: E402
 from fibsem.gateway.ui.tray import GatewayTray, mode_colour  # noqa: E402
 from fibsem.theme.tokens import PRIMARY_COLOR, SEMANTIC_WARNING_COLOR  # noqa: E402
@@ -32,24 +37,35 @@ def tray(qapp, tmp_path):
     tray.hide()
 
 
-def test_off_offers_every_mode(tray):
+def test_off_offers_both_starts(tray):
     tray, _ = tray
     tray._build_menu()
     texts = dict(_texts(tray.menu))
-    assert texts["Mode: Off"] is False
-    assert texts["Open window"] and texts["  AutoLamella"]
-    assert texts["Run headless"] and texts["    Last experiment"]
+    assert texts["App: Off"] is False
+    assert texts["Start with the window"] and texts["  AutoLamella"]
+    assert texts["Start without a window"] and texts["    Last experiment"]
     assert texts["Stop"] is False
     assert "fibsemOS Gateway: Off" == tray.toolTip()
 
 
 def test_a_window_is_stopped_at_the_window(tray):
     tray, gateway = tray
-    gateway._state.mode = WINDOW
+    gateway._state.mode, gateway._state.window = RUNNING, True
     tray._build_menu()
     texts = dict(_texts(tray.menu))
-    assert texts["Open window"] is False and texts["Run headless"] is False
+    assert texts["App: Running with the window"] is False
+    assert texts["Start with the window"] is False
+    assert texts["Start without a window"] is False
     assert texts["Stop (close the window)"] is False
+
+
+def test_an_app_without_its_window_is_stopped_from_the_tray(tray):
+    tray, gateway = tray
+    gateway._state.mode = RUNNING
+    tray._build_menu()
+    texts = dict(_texts(tray.menu))
+    assert texts["App: Running without a window"] is False
+    assert texts["Stop"] is True
 
 
 def test_pairing_a_hub_opens_a_code_with_its_grant(tray, monkeypatch):
@@ -66,7 +82,10 @@ def test_pairing_a_hub_opens_a_code_with_its_grant(tray, monkeypatch):
     assert state["code"] in shown[0]
 
 
-def test_the_icon_colour_follows_the_mode():
-    assert mode_colour(WINDOW, False) == PRIMARY_COLOR
-    assert mode_colour(HEADLESS, True) == SEMANTIC_WARNING_COLOR
-    assert mode_colour(OFF, False) != mode_colour(HEADLESS, False)
+def test_the_icon_colour_follows_the_app():
+    def state(mode, window=False, switching=False):
+        return GatewayState(mode, "test", window=window, switching=switching)
+
+    assert mode_colour(state(RUNNING, window=True)) == PRIMARY_COLOR
+    assert mode_colour(state(RUNNING, switching=True)) == SEMANTIC_WARNING_COLOR
+    assert mode_colour(state(OFF)) != mode_colour(state(RUNNING))
