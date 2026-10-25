@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Facts } from "@/components/ui/card";
 import { HoverCard } from "@/components/ui/hover-card";
 import { api } from "@/lib/api";
+import { useReachable } from "@/lib/events";
 import type { Go } from "@/lib/route";
 import type { AgentState, Capabilities, ProgressLine, WorkflowStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,7 @@ export function TopLine({ go }: { go: Go }) {
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
   const agent = useQuery({ queryKey: ["app/agent"], queryFn: () => api<AgentState>("/app/agent") });
   const [dismissed, setDismissed] = useState(readDismissed);
+  const reachable = useReachable();
   const data = status.data;
   const workflow = data?.workflow;
   const experiment = data?.experiment;
@@ -105,7 +107,8 @@ export function TopLine({ go }: { go: Go }) {
           className="h-2 w-2 shrink-0 rounded-full"
           style={{ background: running ? "var(--fibsem-primary-color)" : "var(--fibsem-gray-primary-color)" }}
         />
-        {data && (
+        {!reachable && <span className="shrink-0 text-destructive">Can't reach the microscope PC · trying again</span>}
+        {reachable && data && (
           <HoverCard
             align="start"
             trigger={

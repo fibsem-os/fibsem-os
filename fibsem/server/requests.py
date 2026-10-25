@@ -136,6 +136,9 @@ class AgentRequest:
     # Set when the level changes or the operator stops the agent mid-batch: the
     # actions not yet run are not run.
     _abort: Optional[str] = field(default=None, repr=False)
+    # Set while the operator's decision is being recorded: it is theirs, so
+    # the agent can't withdraw it and a cancel stops it before it runs.
+    _deciding: bool = field(default=False, repr=False)
     _done: threading.Event = field(default_factory=threading.Event, repr=False)
 
     def view(self) -> AgentRequestView:
@@ -583,6 +586,7 @@ class RequestStore:
         with self._lock:
             request = self._pending_or_refuse(request_id)
             assisting = self._assisting()
+            request._deciding = assisting
         if not assisting:
             self._close(request, CANCELLED, "the agent is no longer at Assist")
             raise RequestRefused(
@@ -592,6 +596,9 @@ class RequestStore:
             )
         self._decide(request, DecisionOutcome.Confirmed, by)
         with self._lock:
+            # A cancel while it was being decided: _apply runs none of it.
+            if request._abort is not None:
+                request.cancel_reason = request._abort
             request.status = APPLYING
         self._changed(request)
         threading.Thread(
@@ -607,6 +614,7 @@ class RequestStore:
     ) -> AgentRequest:
         with self._lock:
             request = self._pending_or_refuse(request_id)
+            request._deciding = True
         request.reject_reason = str(reason or "").strip()
         self._decide(request, DecisionOutcome.Rejected, by, request.reject_reason)
         with self._lock:
@@ -626,12 +634,17 @@ class RequestStore:
             )
         with self._lock:
             request = self._pending_or_refuse(request_id)
-        self._close(
+        if not self._close(
             request,
             CANCELLED,
             f"withdrawn by the agent: {reason.strip()}",
             actor=self._agent(),
-        )
+        ):
+            raise RequestRefused(
+                409,
+                "not_pending",
+                f"Request {request_id} was decided by the operator first.",
+            )
         return request
 
     def cancel(self, why: str) -> Optional[AgentRequest]:
@@ -852,6 +865,10 @@ class RequestStore:
                 "not_pending",
                 f"Request {request_id} is {request.status}, not waiting.",
             )
+        if request._deciding:
+            raise RequestRefused(
+                409, "not_pending", f"Request {request_id} is being decided."
+            )
         return request
 
     def _finish_locked(self, request: AgentRequest, status: str) -> None:
@@ -897,17 +914,21 @@ class RequestStore:
             actor = experiment.actor()
         else:
             actor = Actor.parse(by) if ":" in by else Actor.task(by)
-        decided = experiment.decide(
-            None,
-            "",
-            Decision(
-                outcome=outcome,
-                actor=actor,
-                reason=reason,
-                via="request",
-                proposal_id=request.id,
-            ),
-        )
+        try:
+            decided = experiment.decide(
+                None,
+                "",
+                Decision(
+                    outcome=outcome,
+                    actor=actor,
+                    reason=reason,
+                    via="request",
+                    proposal_id=request.id,
+                ),
+            )
+        finally:
+            with self._lock:
+                request._deciding = False
         if not decided.applied:
             raise RequestRefused(
                 409, decided.error_type or "not_pending", decided.reason
@@ -922,16 +943,22 @@ class RequestStore:
         status: str,
         why: str,
         actor: Optional[Actor] = None,
-    ) -> None:
-        """End a request nobody decided, its proposal withdrawn with ``why``."""
+    ) -> bool:
+        """End a request nobody decided, its proposal withdrawn with ``why``.
+        False when it was decided first: one being decided is marked to
+        stop before its first action instead."""
         with self._lock:
             if request.status != PENDING:
-                return
+                return False
+            if request._deciding:
+                request._abort = why
+                return False
             request.cancel_reason = why
             self._finish_locked(request, status)
         if request.experiment is not None:
             request.experiment.withdraw_experiment_proposal(request.id, why, actor)
         self._changed(request)
+        return True
 
     def _emit(self, kind: str, payload: Dict[str, Any]) -> None:
         if self._emit_fn is not None:

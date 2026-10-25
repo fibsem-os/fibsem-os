@@ -199,7 +199,7 @@ function Stop({ agent, act }: { agent: AgentState; act: ReturnType<typeof useAct
 export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
-  const { act, error, setError } = useAct();
+  const { act, busy, error, setError } = useAct();
   const send = async () => {
     const text = draft.trim();
     if (!text) return;
@@ -241,7 +241,7 @@ export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => v
         </span>
         <div className="flex-1" />
         <Stop agent={agent} act={act} />
-        <Button variant="primary" onClick={send} disabled={!draft.trim()}>
+        <Button variant="primary" onClick={send} disabled={!draft.trim() || busy}>
           Send
         </Button>
       </div>

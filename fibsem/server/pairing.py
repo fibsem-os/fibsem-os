@@ -41,6 +41,9 @@ __all__ = [
 ]
 
 PAIRED_FILE = DISCOVERY_DIR / "paired.json"
+# A write moved into place while the other process reads the file (Windows).
+REPLACE_TRIES = 20
+REPLACE_WAIT_S = 0.05
 CODE_DIGITS = 4
 CODE_TTL_S = 300.0
 MAX_TRIES = 5
@@ -101,51 +104,72 @@ class PairedTokens:
     def __init__(self, path: Optional[Path] = None):
         self._path = Path(path) if path is not None else PAIRED_FILE
         self._lock = threading.Lock()
-        self._stamp = self._stat()
-        self._computers: Dict[str, PairedComputer] = self._load()
-
-    def _stat(self) -> Optional[tuple]:
         try:
-            found = os.stat(self._path)
+            self._raw = self._read()
         except OSError:
+            logging.warning("Paired computers file %s unreadable", self._path)
+            self._raw = None
+        self._computers: Dict[str, PairedComputer] = self._parse(self._raw)
+
+    def _read(self) -> Optional[bytes]:
+        """The file's bytes, or None when there is no file."""
+        try:
+            return self._path.read_bytes()
+        except FileNotFoundError:
             return None
-        return found.st_mtime_ns, found.st_size
 
     def _fresh(self) -> None:
-        """Read the file again if it changed since we last did (under the lock)."""
-        stamp = self._stat()
-        if stamp != self._stamp:
-            self._stamp = stamp
-            self._computers = self._load()
-
-    def _load(self) -> Dict[str, PairedComputer]:
+        """Read the file again if another process changed it (under the lock).
+        Its bytes are compared, not its time and size: two writes within one
+        clock tick can leave both the same. A read that fails (the other
+        process moving its write into place, on Windows) keeps what we have."""
         try:
-            with open(self._path) as f:
-                rows = json.load(f).get("computers", [])
+            raw = self._read()
+        except OSError:
+            return
+        if raw != self._raw:
+            self._raw = raw
+            self._computers = self._parse(raw)
+
+    def _parse(self, raw: Optional[bytes]) -> Dict[str, PairedComputer]:
+        if raw is None:
+            return {}
+        try:
+            rows = json.loads(raw).get("computers", [])
             return {
                 row["id"]: PairedComputer(
                     **{**row, "grants": tuple(row.get("grants", ()))}
                 )
                 for row in rows
             }
-        except FileNotFoundError:
-            return {}
-        except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        except (ValueError, TypeError, KeyError, AttributeError):
             logging.warning(
                 "Paired computers file %s unreadable; none paired", self._path
             )
             return {}
 
     def _save(self) -> None:
+        """Write the file whole, then move it into place, so a reader in the
+        other process never sees half of it."""
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._path, "w") as f:
-            json.dump(
-                {"computers": [asdict(c) for c in self._computers.values()]},
-                f,
-                indent=2,
-            )
-        os.chmod(self._path, 0o600)
-        self._stamp = self._stat()
+        raw = json.dumps(
+            {"computers": [asdict(c) for c in self._computers.values()]}, indent=2
+        ).encode("utf-8")
+        partial = self._path.with_name(f"{self._path.name}.{secrets.token_hex(4)}")
+        fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+        for attempt in range(REPLACE_TRIES):
+            try:
+                os.replace(partial, self._path)
+                break
+            except PermissionError:
+                # Windows: the other process is reading it this instant.
+                if attempt == REPLACE_TRIES - 1:
+                    partial.unlink(missing_ok=True)
+                    raise
+                time.sleep(REPLACE_WAIT_S)
+        self._raw = raw
 
     def add(
         self,

@@ -168,10 +168,12 @@ class EventBuffer:
         }
 
     def wait_for(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]:
-        """events_since, but park up to ``timeout`` seconds for something new."""
+        """events_since, but park up to ``timeout`` seconds for something new.
+        A *since* past the latest counts from another stream (the app
+        restarted): answered at once, so the reader starts again."""
         deadline = time.monotonic() + max(0.0, timeout)
         with self._cond:
-            while self._seq <= since:
+            while self._seq == since:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
