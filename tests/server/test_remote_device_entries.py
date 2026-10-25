@@ -24,6 +24,7 @@ from fibsem.devices.entries import (  # noqa: E402
     build_device_entries,
     resolve_device_entries,
 )
+from fibsem.drivers.demo.devices import bind_demo_fm  # noqa: E402
 from fibsem.drivers.registry import device_builder  # noqa: E402
 from fibsem.drivers.remote.devices import (  # noqa: E402
     RemoteBeam,
@@ -33,7 +34,6 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
 from fibsem.server.devices import (  # noqa: E402
     DeviceServer,
     demo_devices,
-    demo_fm_devices,
 )
 from fibsem.structures.settings import BeamType  # noqa: E402
 from fibsem.structures.system import DeviceEntry  # noqa: E402
@@ -41,7 +41,7 @@ from fibsem.structures.system import DeviceEntry  # noqa: E402
 
 @pytest.fixture
 def server():
-    server = DeviceServer([*demo_devices(), *demo_fm_devices()]).start()
+    server = DeviceServer([*demo_devices(), *bind_demo_fm().values()]).start()
     yield server
     server.stop()
 

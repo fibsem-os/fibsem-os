@@ -12,6 +12,7 @@ from tests.server.test_remote_fm import _unreachable  # noqa: E402
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
+from fibsem.drivers.demo.devices import bind_demo_fm  # noqa: E402
 from fibsem.drivers.remote.devices import (  # noqa: E402
     DeviceClient,
     RemoteDeviceUnreachable,
@@ -24,7 +25,7 @@ from fibsem.fm.structures import (  # noqa: E402
     EmissionFilter,
     FluorescenceImage,
 )
-from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
+from fibsem.server.devices import DeviceServer  # noqa: E402
 
 
 def _far_group(fm):
@@ -34,7 +35,7 @@ def _far_group(fm):
 
 @pytest.fixture
 def served():
-    local = {d.name: d for d in demo_fm_devices()}
+    local = {d.name: d for d in bind_demo_fm().values()}
     server = DeviceServer(local.values()).start()
     client = DeviceClient("127.0.0.1", server.port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect("127.0.0.1", server.port, client=client)
@@ -317,7 +318,7 @@ def test_a_configuration_naming_a_remote_fm_connects_to_it(tmp_path):
     import fibsem.config as cfg
     from fibsem import utils
 
-    server = DeviceServer(demo_fm_devices()).start()
+    server = DeviceServer(bind_demo_fm().values()).start()
     try:
         settings = utils.load_yaml(
             os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
@@ -382,7 +383,7 @@ def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
         with pytest.raises(RemoteDeviceUnreachable):
             fm.acquire_image()
 
-        local = {d.name: d for d in demo_fm_devices()}
+        local = {d.name: d for d in bind_demo_fm().values()}
         server = DeviceServer(local.values(), port=port).start()
 
         # On came_online too: the client marks itself connected and then emits
@@ -432,7 +433,7 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
         assert not fm.online
         microscope.get_stage_position()  # the beams' side works meanwhile
 
-        local = {d.name: d for d in demo_fm_devices()}
+        local = {d.name: d for d in bind_demo_fm().values()}
         server = DeviceServer(local.values(), port=port).start()
 
         far = FluorescenceMicroscope(local)
