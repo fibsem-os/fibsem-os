@@ -1,12 +1,13 @@
-"""The gateway's modes and the one process each runs.
+"""The gateway's app: **off** (nothing holds the microscope) or **running**,
+the app's host with its window at this PC (started here or claimed by a
+desktop launch) or without one (`fibsem.gateway.child`).
 
-One mode at a time: **off** (nothing holds the microscope), **window** (the
-app's Qt window, started here or claimed by a desktop launch) or **headless**
-(the app's App Server with no window, `fibsem.gateway.child`). Every switch is
-recorded with who made it and from where. A switch away from a running
-workflow is refused unless the operator forces it, and an App Server the
-gateway didn't start (a hand-run ``fibsem-autolamella-server``) blocks every
-switch until it goes: two things never hold the microscope at once.
+The host starts with no microscope unless the gateway was given connection
+flags; the operator connects one in the window or on a page. Every start and
+stop is recorded with who made it and from where. A stop during a workflow is
+refused unless the operator forces it, and a host the gateway didn't start (a
+hand-run ``fibsem-autolamella-server``) blocks every start until it goes: two
+things never hold the microscope at once.
 """
 
 from __future__ import annotations
@@ -30,10 +31,9 @@ from fibsem.tools.apps import App, apps
 __all__ = [
     "GATEWAY_FILE",
     "GATEWAY_PORT",
-    "HEADLESS",
     "MODES",
     "OFF",
-    "WINDOW",
+    "RUNNING",
     "Gateway",
     "GatewayRefused",
     "GatewayState",
@@ -41,9 +41,8 @@ __all__ = [
 ]
 
 OFF = "off"
-WINDOW = "window"
-HEADLESS = "headless"
-MODES = (OFF, WINDOW, HEADLESS)
+RUNNING = "running"
+MODES = (OFF, RUNNING)
 
 GATEWAY_PORT = 8010
 GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
@@ -55,7 +54,8 @@ HISTORY_SHOWN = 50
 
 
 class GatewayRefused(Exception):
-    """A switch the gateway won't make, with the HTTP status the route answers."""
+    """A start or stop the gateway won't make, with the HTTP status the route
+    answers."""
 
     def __init__(self, status: int, error_type: str, message: str):
         super().__init__(message)
@@ -73,7 +73,7 @@ class Holder:
 
 @dataclass
 class LastExit:
-    mode: str
+    window: bool
     app: Optional[str]
     code: Optional[int]
     at: float
@@ -90,21 +90,13 @@ class GatewayApp:
 
 
 @dataclass
-class Configuration:
-    """A microscope configuration the window offers too (user-configurations.yaml)."""
-
-    name: str
-    path: str
-    default: bool = False
-
-
-@dataclass
 class GatewayState:
     mode: str
     version: str
     app: Optional[str] = None
+    window: bool = False
+    """Whether the running app shows its window at this PC."""
     experiment: Optional[str] = None
-    configuration: Optional[str] = None
     pid: Optional[int] = None
     since: Optional[float] = None
     who: Optional[str] = None
@@ -113,8 +105,9 @@ class GatewayState:
     holder: Optional[Holder] = None
     last_exit: Optional[LastExit] = None
     apps: List[GatewayApp] = field(default_factory=list)
-    configurations: List[Configuration] = field(default_factory=list)
     last_experiment: Optional[str] = None
+    connection: List[str] = field(default_factory=list)
+    """The flags the app connects with as it starts; none: the operator connects."""
 
 
 @dataclass
@@ -129,6 +122,7 @@ class Switch:
     result: str
     app: Optional[str] = None
     experiment: Optional[str] = None
+    window: Optional[bool] = None
 
 
 @dataclass
@@ -146,28 +140,6 @@ def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
     if not isinstance(data, dict) or "url" not in data:
         return None
     return data if _pid_alive(data.get("pid")) else None
-
-
-def configurations() -> List[Configuration]:
-    """The microscope configurations saved on this PC, read afresh so one
-    added in the window shows without restarting the gateway."""
-    import yaml
-
-    from fibsem import config as cfg
-
-    try:
-        with open(cfg.USER_CONFIGURATIONS_PATH) as f:
-            saved = yaml.safe_load(f)
-    except (OSError, ValueError, yaml.YAMLError):
-        saved = cfg.DEFAULT_USER_CONFIGURATION_YAML
-    default = saved.get("default")
-    found = []
-    for name, entry in (saved.get("configurations") or {}).items():
-        path = (entry or {}).get("path") or cfg.MICROSCOPE_CONFIGURATION_PATH
-        found.append(Configuration(name=name, path=str(path), default=name == default))
-    if found and not any(c.default for c in found):
-        found[0].default = True
-    return found
 
 
 def last_experiment() -> Optional[str]:
@@ -206,18 +178,17 @@ def workflow_running(url: str, token: Optional[str]) -> bool:
 
 
 class Gateway:
-    """The mode, its process, and the history of switches.
+    """The app, its process, and the history of starts and stops.
 
-    *connection* is the flags the headless app connects with (`fibsem.server.
-    headless.connection_parser`); *home* holds the history, logs and stop
-    files."""
+    *connection* is the flags the app connects with as it starts
+    (`fibsem.server.headless.connection_parser`); without them it starts with
+    no microscope. *home* holds the history, logs and stop files."""
 
     def __init__(
         self,
         connection: Optional[List[str]] = None,
         home: Optional[Path] = None,
         app_registry: Callable[[], Dict[str, App]] = apps,
-        saved_configurations: Callable[[], List[Configuration]] = configurations,
         last: Callable[[], Optional[str]] = last_experiment,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         running: Callable[[str, Optional[str]], bool] = workflow_running,
@@ -227,7 +198,6 @@ class Gateway:
         self._connection = list(connection or [])
         self._home = Path(home) if home is not None else DISCOVERY_DIR
         self._apps = app_registry
-        self._configurations = saved_configurations
         self._last = last
         self._discovery = discovery
         self._running = running
@@ -242,7 +212,7 @@ class Gateway:
         self._state = GatewayState(mode=OFF, version=fibsem.__version__)
         self._watcher: Optional[threading.Thread] = None
         self._closed = threading.Event()
-        # Run before a headless app stops, once the stop is sure (the agent's end).
+        # Run before the app stops, once the stop is sure (the agent's end).
         self.before_stop: List[Callable[[], None]] = []
         # Called on the watcher's thread after each poll.
         self.watchers: List[Callable[[], None]] = []
@@ -261,8 +231,8 @@ class Gateway:
             GatewayApp(key=key, name=app.name, headless=app.serve is not None)
             for key, app in self._apps().items()
         ]
-        state.configurations = self._configurations()
         state.last_experiment = self._last()
+        state.connection = list(self._connection)
         return state
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
@@ -291,29 +261,22 @@ class Gateway:
         found = self._discovery()
         return found is not None and self._running(found["url"], read_operator_token())
 
-    # -- switching ---------------------------------------------------------
+    # -- starting and stopping ---------------------------------------------
 
-    def switch(
+    def start_app(
         self,
-        mode: str,
         who: str,
         via: str,
         app: Optional[str] = None,
+        window: bool = True,
         experiment: Optional[str] = None,
         last: bool = False,
         force: bool = False,
-        configuration: Optional[str] = None,
     ) -> GatewayState:
-        """Go to *mode*, stopping the current one first; a headless app
-        connects with *configuration* (a saved one's name; the default when
-        left out). Raises `GatewayRefused` when the switch can't be made."""
-        if mode not in MODES:
-            raise GatewayRefused(422, "bad_mode", f"Modes are {list(MODES)}.")
-        if mode == OFF:
-            return self.stop(who, via, force)
-        chosen = self._app(app, mode)
-        config = self._configuration(configuration) if mode == HEADLESS else None
-        with self._take(who, via, mode, app, experiment):
+        """Start *app*'s host, with its window at this PC or without, stopping
+        the running one first. Raises `GatewayRefused` when it can't."""
+        chosen = self._app(app, window)
+        with self._take(who, via, RUNNING, app, experiment, window):
             if self._state.mode != OFF:
                 self._stop_current(force)
             holder = self._holder()
@@ -321,18 +284,11 @@ class Gateway:
                 raise GatewayRefused(
                     409,
                     "held",
-                    f"Another App Server (pid {holder.pid}) holds the microscope: "
+                    f"Another fibsem host (pid {holder.pid}) holds the microscope: "
                     "close it at the PC first.",
                 )
-            self._start(
-                mode,
-                key=app,
-                app=chosen,
-                experiment=experiment,
-                last=last,
-                config=config,
-            )
-            self._record(OFF, mode, who, via, "started", app, experiment)
+            self._start(app, chosen, window, experiment, last)
+            self._record(OFF, RUNNING, who, via, "started", app, experiment, window)
             with self._lock:
                 self._state.who, self._state.via = who, via
             return self.state()
@@ -340,59 +296,49 @@ class Gateway:
     def stop(self, who: str, via: str, force: bool = False) -> GatewayState:
         """Back to off. A window is closed only by the operator at the PC."""
         with self._take(who, via, OFF, None, None):
-            before = self._state.mode
-            if before == OFF:
+            if self._state.mode == OFF:
                 return self.state()
             app, experiment = self._state.app, self._state.experiment
+            window = self._state.window
             self._stop_current(force)
-            self._record(before, OFF, who, via, "stopped", app, experiment)
+            self._record(RUNNING, OFF, who, via, "stopped", app, experiment, window)
             return self.state()
 
     def claim(self, pid: int, app: str, who: str, via: str) -> GatewayState:
-        """A desktop launch takes window mode for its own process *pid*."""
-        self._app(app, WINDOW)
-        with self._take(who, via, WINDOW, app, None):
+        """A desktop launch takes the app's place with its own process *pid*."""
+        self._app(app, True)
+        with self._take(who, via, RUNNING, app, None, True):
             if self._state.mode != OFF:
                 raise GatewayRefused(
-                    409, "not_off", f"The gateway is in {self._state.mode} mode."
+                    409, "not_off", "The gateway is already running the app."
                 )
             with self._lock:
                 self._claimed = pid
                 self._state = GatewayState(
-                    mode=WINDOW,
+                    mode=RUNNING,
                     version=self._state.version,
                     app=app,
+                    window=True,
                     pid=pid,
                     since=time.time(),
                     who=who,
                     via=via,
                     last_exit=self._state.last_exit,
                 )
-            self._record(OFF, WINDOW, who, via, "claimed", app, None)
+            self._record(OFF, RUNNING, who, via, "claimed", app, None, True)
             return self.state()
 
-    def _configuration(self, name: Optional[str]) -> Optional[Configuration]:
-        saved = self._configurations()
-        if name is None:
-            return next((c for c in saved if c.default), None)
-        found = next((c for c in saved if c.name == name), None)
-        if found is None:
-            raise GatewayRefused(
-                422, "bad_configuration", f"No configuration {name!r}."
-            )
-        return found
-
-    def _app(self, key: Optional[str], mode: str) -> App:
+    def _app(self, key: Optional[str], window: bool) -> App:
         found = self._apps().get(key or "")
         if found is None:
             raise GatewayRefused(422, "bad_app", f"No app {key!r}.")
-        if mode == HEADLESS and found.serve is None:
+        if not window and found.serve is None:
             raise GatewayRefused(
-                422, "no_headless", f"{found.name} has no headless mode."
+                422, "no_headless", f"{found.name} runs only with its window."
             )
         return found
 
-    def _take(self, who, via, mode, app, experiment):
+    def _take(self, who, via, mode, app, experiment, window=None):
         gateway = self
 
         class _Busy:
@@ -400,7 +346,9 @@ class Gateway:
                 with gateway._lock:
                     if gateway._busy:
                         raise GatewayRefused(
-                            409, "busy", "The gateway is already switching."
+                            409,
+                            "busy",
+                            "The gateway is already starting or stopping the app.",
                         )
                     gateway._busy = True
                     gateway._state.switching = True
@@ -418,6 +366,7 @@ class Gateway:
                         f"refused: {error}",
                         app,
                         experiment,
+                        window,
                     )
                 return False
 
@@ -425,27 +374,28 @@ class Gateway:
 
     def _start(
         self,
-        mode: str,
         key: str,
         app: App,
+        window: bool,
         experiment: Optional[str],
         last: bool,
-        config: Optional[Configuration] = None,
     ) -> None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
         logs.mkdir(parents=True, exist_ok=True)
-        log = logs / f"{mode}-{key}-{stamp}.log"
+        log = logs / f"{'window' if window else 'headless'}-{key}-{stamp}.log"
         env = dict(os.environ)
         stop_file = None
-        if mode == WINDOW:
-            command = [self._python, "-m", "fibsem.tools.desktop_launch", key]
-            env[CHILD_ENV] = WINDOW
+        # An app with neither starts with no experiment open, if it can.
+        args = [experiment] if experiment else ["--last"] if last else []
+        if window:
+            # An app with a headless command has the host's flags; others none.
+            host = [*args, *self._connection] if app.serve else []
+            command = [self._python, "-m", "fibsem.tools.desktop_launch", key, *host]
+            env[CHILD_ENV] = "1"
         else:
             stop_file = self._home / f"gateway-stop-{stamp}"
             stop_file.unlink(missing_ok=True)
-            # An app with neither starts with no experiment open, if it can.
-            args = [experiment] if experiment else ["--last"] if last else []
             command = [
                 self._python,
                 "-m",
@@ -453,8 +403,7 @@ class Gateway:
                 str(stop_file),
                 app.serve,
                 *args,
-                *(["--config", config.path] if config else []),
-                *self._connection,
+                *(self._connection or ["--no-connect"]),
             ]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         with open(log, "w") as out:
@@ -466,25 +415,24 @@ class Gateway:
                 env=env,
                 creationflags=flags,
             )
-        logging.info("Gateway started %s %s (pid %d)", mode, key, proc.pid)
+        logging.info("Gateway started %s (window: %s, pid %d)", key, window, proc.pid)
         with self._lock:
             self._proc, self._stop_file, self._log = proc, stop_file, log
             self._claimed = None
             self._state = GatewayState(
-                mode=mode,
+                mode=RUNNING,
                 version=self._state.version,
                 app=key,
+                window=window,
                 experiment=experiment or ("last" if last else None),
-                configuration=config.name if config else None,
                 pid=proc.pid,
                 since=time.time(),
                 last_exit=self._state.last_exit,
             )
 
     def _stop_current(self, force: bool) -> None:
-        """Stop the current mode's process, or raise `GatewayRefused`."""
-        mode = self._state.mode
-        if mode == WINDOW:
+        """Stop the running app's process, or raise `GatewayRefused`."""
+        if self._state.window:
             raise GatewayRefused(
                 409,
                 "window_open",
@@ -494,7 +442,7 @@ class Gateway:
             raise GatewayRefused(
                 409,
                 "run_in_progress",
-                "A workflow is running. Stop it first, or force the switch at the PC.",
+                "A workflow is running. Stop it first, or force the stop at the PC.",
             )
         for hook in self.before_stop:
             hook()
@@ -524,7 +472,7 @@ class Gateway:
                 mode=OFF,
                 version=state.version,
                 last_exit=LastExit(
-                    mode=state.mode,
+                    window=state.window,
                     app=state.app,
                     code=code,
                     at=time.time(),
@@ -535,7 +483,9 @@ class Gateway:
             self._proc = self._stop_file = self._log = None
             self._claimed = None
 
-    def _record(self, from_mode, to_mode, who, via, result, app, experiment) -> None:
+    def _record(
+        self, from_mode, to_mode, who, via, result, app, experiment, window=None
+    ) -> None:
         line = Switch(
             at=time.time(),
             to_mode=to_mode,
@@ -545,6 +495,7 @@ class Gateway:
             result=result,
             app=app,
             experiment=experiment,
+            window=window,
         )
         try:
             self.history_file.parent.mkdir(parents=True, exist_ok=True)
@@ -561,6 +512,7 @@ class Gateway:
             if self._busy:
                 return
             mode, proc, claimed = self._state.mode, self._proc, self._claimed
+            window = self._state.window
         if mode == OFF:
             return
         if proc is not None:
@@ -574,8 +526,10 @@ class Gateway:
         with self._lock:
             app, experiment = self._state.app, self._state.experiment
         self._ended(code)
-        result = "closed" if mode == WINDOW else f"exited ({code})"
-        self._record(mode, OFF, "gateway", "gateway", result, app, experiment)
+        result = "closed" if window else f"exited ({code})"
+        self._record(
+            RUNNING, OFF, "gateway", "gateway", result, app, experiment, window
+        )
 
     def start(self) -> None:
         """Watch the running mode's process on a daemon thread."""
@@ -592,6 +546,6 @@ class Gateway:
         self._watcher.start()
 
     def close(self) -> None:
-        """Stop watching. A headless app keeps running; a new gateway shows it
-        as a holder until it ends."""
+        """Stop watching. An app without its window keeps running; a new
+        gateway shows it as a holder until it ends."""
         self._closed.set()

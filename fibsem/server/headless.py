@@ -27,9 +27,10 @@ __all__ = [
 def connection_parser() -> argparse.ArgumentParser:
     """The flags that name the microscope a headless command connects to, as a
     parent parser: ``--manufacturer``, ``--ip-address``, ``--config``,
-    ``--debug``. A configuration file's manufacturer and address stand unless
-    a flag names another; with no file, the default configuration's, as the
-    app's own Connect uses (``--manufacturer Demo`` for the Demo microscope)."""
+    ``--no-connect``, ``--debug``. A configuration file's manufacturer and
+    address stand unless a flag names another; with no file, the default
+    configuration's, as the app's own Connect uses (``--manufacturer Demo``
+    for the Demo microscope)."""
     from fibsem.drivers import registry
 
     p = argparse.ArgumentParser(add_help=False)
@@ -55,6 +56,13 @@ def connection_parser() -> argparse.ArgumentParser:
         type=Path,
         metavar="PATH",
         help="Path to microscope config YAML (default: the default configuration)",
+    )
+    p.add_argument(
+        "--no-connect",
+        action="store_true",
+        dest="no_connect",
+        help="Start with no microscope; the operator connects one from the "
+        "web app's Microscope page (a flag naming a microscope still connects)",
     )
     p.add_argument("--debug", action="store_true", help="Enable debug logging")
     return p
@@ -91,11 +99,12 @@ def open_session(
     args: argparse.Namespace, experiment=None, windowed: bool = False
 ) -> AppSession:
     """A session connected as *args* say, with *experiment* open (when given).
-    Headless it always connects (the default configuration without a flag);
-    *windowed*, only when a flag names a microscope (otherwise the window's
-    Connect does)."""
+    Headless it connects unless ``--no-connect`` (the default configuration
+    without a flag); *windowed*, only when a flag names a microscope
+    (otherwise the window's Connect does)."""
     session = AppSession()
-    if not windowed or names_a_microscope(args):
+    waits = windowed or args.no_connect
+    if not waits or names_a_microscope(args):
         connect(session, args)
     if experiment is not None:
         session.adopt(experiment)

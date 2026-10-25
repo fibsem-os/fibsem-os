@@ -45,3 +45,9 @@ def test_with_the_window_it_connects_only_when_a_flag_names_one(monkeypatch):
     assert connected(monkeypatch, ["--debug"], windowed=True) == []
     (call,) = connected(monkeypatch, ["--manufacturer", "Demo"], windowed=True)
     assert call["manufacturer"] == "Demo"
+
+
+def test_no_connect_starts_with_no_microscope_unless_a_flag_names_one(monkeypatch):
+    assert connected(monkeypatch, ["--no-connect"]) == []
+    (call,) = connected(monkeypatch, ["--no-connect", "--manufacturer", "Demo"])
+    assert call["manufacturer"] == "Demo"

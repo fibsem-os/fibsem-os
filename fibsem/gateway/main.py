@@ -1,8 +1,10 @@
 """``fibsem-gateway``: run the gateway (with its tray icon when Qt is there),
-install it to start at logon, open pairing, or show its mode.
+install it to start at logon, open pairing, or show whether the app runs.
 
 Microscope connection flags (``--manufacturer``, ``--ip-address``,
-``--config``) after ``run`` are passed to the headless app as they are.
+``--config``) after ``run`` are passed to the app as it starts, which then
+connects at once; without them the operator connects in the window or on the
+gateway's page.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from fibsem.gateway.gateway import (
     GatewayRefused,
     read_gateway_file,
 )
+from fibsem.gateway.host import HostMicroscope
 from fibsem.server import missing_server_extra
 from fibsem.server.operator_token import read_operator_token
 
@@ -57,7 +60,7 @@ def call(method: str, route: str, body: Optional[dict] = None, timeout: float = 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fibsem-gateway",
-        description="Run apps on this microscope PC for a hub, one mode at a time.",
+        description="Start and stop the app on this microscope PC, here or for a hub.",
     )
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run the gateway (the default).")
@@ -75,12 +78,12 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="The hub may start and stop apps.",
     )
-    commands.add_parser("status", help="Show the gateway's mode.")
+    commands.add_parser("status", help="Show whether the app runs.")
     return parser
 
 
 def _connection(extra: List[str]) -> List[str]:
-    """*extra* checked as headless connection flags, passed on as given."""
+    """*extra* checked as connection flags, passed on as given."""
     from fibsem.server.headless import connection_parser
 
     argparse.ArgumentParser(parents=[connection_parser()]).parse_args(extra)
@@ -101,7 +104,7 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
     agent = GatewayAgent(gateway, auth.pairing.tokens)
     server = uvicorn.Server(
         uvicorn.Config(
-            build_gateway_app(gateway, auth, agent),
+            build_gateway_app(gateway, auth, agent, HostMicroscope()),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -133,8 +136,9 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
 
 
 def quit_gateway(gateway: Gateway) -> None:
-    """Stop a headless app that isn't running a workflow, so nothing is left
-    holding the microscope without a gateway; a running one is left alone."""
+    """Stop an app without its window that isn't running a workflow, so
+    nothing is left holding the microscope without a gateway; a window, or
+    a running workflow, is left alone."""
     try:
         gateway.stop("operator", "quit")
     except GatewayRefused as refusal:

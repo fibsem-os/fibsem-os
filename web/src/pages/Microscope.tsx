@@ -221,12 +221,14 @@ const CONNECTING_EVERY_MS = 1000;
 const FIELD = "min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
 
 /** Connect and disconnect the microscope: the operator's, so a token that may
- * not (the agent's, the dashboard's) gets no card. */
-function ConnectionCard() {
+ * not (the agent's, the dashboard's) gets no card. The gateway's page passes
+ * its own routes to the host's (`base` "/gateway"). */
+export function ConnectionCard({ base = "" }: { base?: string }) {
   const client = useQueryClient();
+  const key = `${base}/microscope/connection`;
   const state = useQuery({
-    queryKey: ["microscope/connection"],
-    queryFn: () => api<Connection>("/microscope/connection"),
+    queryKey: [key],
+    queryFn: () => api<Connection>(key),
     retry: false,
     refetchInterval: (query) =>
       query.state.data?.connecting || query.state.data?.run?.state === "running" ? CONNECTING_EVERY_MS : 5000,
@@ -234,7 +236,7 @@ function ConnectionCard() {
   const [chosen, setChosen] = useState<string | null>(null);
   const act = useMutation({
     mutationFn: (path: string) =>
-      api<Connection>(path, {
+      api<Connection>(base + path, {
         method: "POST",
         body: JSON.stringify(path.endsWith("/connect") ? { configuration: chosen ?? undefined } : {}),
       }),
@@ -244,8 +246,8 @@ function ConnectionCard() {
   // The rest of the page reads the microscope again once it comes or goes.
   const connected = data?.connected;
   useEffect(() => {
-    if (connected !== undefined) void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "microscope/connection" });
-  }, [connected, client]);
+    if (connected !== undefined) void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== key });
+  }, [connected, client, key]);
   if (!data) return null;
   const busy = act.isPending || !!data.connecting || data.run?.state === "running";
   const fallback = data.configurations.find((c) => c.default)?.name ?? data.configurations[0]?.name ?? "";
