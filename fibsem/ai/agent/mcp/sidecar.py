@@ -45,6 +45,7 @@ from fibsem.ai.agent.catalog import (
 )
 from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
+from fibsem.extras import missing_extra_message
 
 # How long start-up looks for the server before answering the MCP client anyway:
 # a client gives a server only so long to start.
@@ -1473,12 +1474,9 @@ def main(argv=None):
         from fibsem.ai.agent.mcp.watch import main as watch_main
 
         sys.exit(watch_main(watch_argv))
-    try:
-        import mcp  # noqa: F401
-    except ImportError:
-        sys.exit(
-            "fibsem-mcp needs the [mcp] extra (Python 3.10+): pip install fibsem[mcp]"
-        )
+    missing = missing_extra_message("mcp", "fibsem-mcp")
+    if missing:
+        sys.exit(missing)
     parser = argparse.ArgumentParser(
         description="MCP sidecar for a fibsem server",
         epilog="fibsem-mcp watch: print one line per app event worth waking "

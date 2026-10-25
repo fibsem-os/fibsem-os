@@ -27,13 +27,18 @@ def find_entry_point(name: str = AUTOLAMELLA.command) -> Optional[Path]:
     the environment root with entry points in a ``Scripts/`` subdirectory. On
     POSIX both live in ``bin/`` beside the interpreter. Falls back to PATH,
     which only helps when the launching shell had the environment activated.
+
+    The interpreter's own path comes first, unresolved: in a venv or uv environment
+    on POSIX it is a symlink to a shared Python, and resolving it leaves the
+    environment.
     """
     exe_name = name + ".exe" if os.name == "nt" else name
-    interpreter_dir = Path(sys.executable).resolve().parent
-    for directory in (interpreter_dir, interpreter_dir / "Scripts"):
-        candidate = directory / exe_name
-        if candidate.is_file():
-            return candidate
+    interpreter = Path(sys.executable)
+    for interpreter_dir in (interpreter.parent, interpreter.resolve().parent):
+        for directory in (interpreter_dir, interpreter_dir / "Scripts"):
+            candidate = directory / exe_name
+            if candidate.is_file():
+                return candidate
 
     import shutil
 
