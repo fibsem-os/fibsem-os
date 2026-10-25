@@ -9,9 +9,13 @@ fastapi transitively, which is exactly what bit the ui-tests CI leg (no
 fastapi installed, preview silently degraded to None).
 """
 
-from typing import TYPE_CHECKING
+from importlib.util import find_spec
+from typing import TYPE_CHECKING, Optional
 
-__all__ = ["AuthConfig", "build_server"]
+__all__ = ["AuthConfig", "build_server", "missing_server_extra"]
+
+# What serving needs beyond the base install: the [server] extra.
+SERVER_EXTRA = ("fastapi", "uvicorn")
 
 _EXPORTS = {
     "AuthConfig": "fibsem.server.auth",
@@ -21,6 +25,17 @@ _EXPORTS = {
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from fibsem.server.auth import AuthConfig  # noqa: F401
     from fibsem.server.server import build_server  # noqa: F401
+
+
+def missing_server_extra() -> Optional[str]:
+    """Why this install can't serve, or None when the [server] extra is in."""
+    missing = [name for name in SERVER_EXTRA if find_spec(name) is None]
+    if not missing:
+        return None
+    return (
+        f"the [server] extra ({', '.join(missing)} not installed): "
+        "pip install fibsem[server]"
+    )
 
 
 def __getattr__(name):

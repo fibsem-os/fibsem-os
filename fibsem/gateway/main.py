@@ -25,6 +25,7 @@ from fibsem.gateway.gateway import (
     GatewayRefused,
     read_gateway_file,
 )
+from fibsem.server import missing_server_extra
 from fibsem.server.operator_token import read_operator_token
 
 __all__ = ["call", "main", "shortcut_command"]
@@ -206,6 +207,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv = ["run", *argv]
     args, extra = _parser().parse_known_args(argv)
     if args.command == "run":
+        missing = missing_server_extra()
+        if missing is not None:
+            print(f"error: fibsem-gateway needs {missing}")
+            return 1
         return run(args.port, not args.no_tray, _connection(extra))
     if extra:
         _parser().error(f"unrecognized arguments: {' '.join(extra)}")
