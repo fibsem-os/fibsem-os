@@ -129,6 +129,20 @@ def test_tokens_are_kept_hashed_and_unpairing_revokes(tmp_path, pairing):
     assert again.match(token) is None
 
 
+def test_a_change_from_the_other_process_is_seen_within_one_clock_tick(tmp_path):
+    # The App Server and the gateway share the file. Two writes of the same
+    # size within one coarse mtime tick (Windows) must still be seen.
+    path = tmp_path / "paired.json"
+    mine, theirs = PairedTokens(path), PairedTokens(path)
+    mine.add("Claude Code on lab-mac", role=AGENT)
+    stamp = os.stat(path)
+    theirs.add("fibsem-agent (gateway)", role=AGENT)
+    os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+    assert os.stat(path).st_size == stamp.st_size
+    assert mine.agent().name == "fibsem-agent (gateway)"
+    assert [p.name for p in tmp_path.iterdir()] == ["paired.json"]
+
+
 def test_a_browser_asks_for_a_code_only_where_it_is_announced(pairing, clock):
     assert not pairing.request()  # nowhere to show it
     said = []
