@@ -1018,3 +1018,37 @@ def test_a_ticked_device_is_written_with_its_keys_and_role(
     finally:
         widget.reject()
         widget.deleteLater()
+
+
+def test_the_connection_step_asks_for_a_drivers_library_folder(
+    dialog, monkeypatch, tmp_path
+):
+    from fibsem.drivers import registry
+    from fibsem.drivers.registry import DriverEntry, register_driver
+
+    monkeypatch.setattr(
+        registry.DRIVER_PLUGINS, "registered", dict(registry.DRIVER_PLUGINS.registered)
+    )
+    register_driver(
+        DriverEntry(
+            manufacturer="Foldered",
+            microscope_class="foldered:Microscope",
+            setup="tests.test_guided_setup:_LIBRARY_SETUP",
+        )
+    )
+    folder = tmp_path / "vendor"
+    folder.mkdir()
+    (folder / "fclient.py").write_text("")
+
+    dialog._select_manufacturer("Tescan")
+    dialog._show_step(STEP_CONNECTION)
+    dialog._update_connection_controls()
+    assert dialog._library_box.isHidden()
+
+    dialog._select_manufacturer("Foldered")
+    dialog._update_connection_controls()
+    assert not dialog._library_box.isHidden()
+    assert "not found" in dialog._library_hint.text().lower()
+    dialog._library_edit.setText(str(folder))
+    assert dialog.choices.library_folder == str(folder)
+    assert dialog._library_hint.text() == "Found the Foldered client library."

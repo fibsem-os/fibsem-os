@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem import update_check
+from fibsem import update_check, vendor_libraries
 from fibsem.config import (
     CARD_MODES,
     QtPreferences,
@@ -183,6 +183,28 @@ class PreferencesDialog(QDialog):
         movement_form.addRow(_LBL_ACQ_FIB, self._chk_acquire_fib)
         self._stack.addWidget(movement_page)
 
+        # --- Libraries: where each driver's vendor library is on this PC ---
+        self._library_edits = {}
+        libraries = vendor_libraries.libraries()
+        if libraries:
+            libraries_page = QWidget()
+            libraries_form = QFormLayout(libraries_page)
+            for driver, library in libraries.items():
+                edit = QDirectoryLineEdit()
+                edit.setToolTip(
+                    f"The folder that holds {', '.join(library.packages)}, for "
+                    f"{driver}. Kept for this computer only."
+                )
+                found = vendor_libraries.resolve(driver, library)
+                if found.folder and found.source != vendor_libraries.SOURCE_PREFERENCE:
+                    edit.setPlaceholderText(f"{found.folder} ({found.source})")
+                self._library_edits[driver] = edit
+                libraries_form.addRow(
+                    library.label[:1].upper() + library.label[1:], edit
+                )
+            self._sidebar.addItem("Libraries")
+            self._stack.addWidget(libraries_page)
+
         self._sidebar.currentRowChanged.connect(self._stack.setCurrentIndex)
 
         # Buttons
@@ -219,6 +241,9 @@ class PreferencesDialog(QDialog):
         self._chk_acquire_fib.setChecked(q.acquire_fib_after_stage_movement)
 
         self._chk_update_check.setChecked(prefs.install.update_check_enabled)
+        folders = prefs.install.vendor_libraries or {}
+        for driver, edit in self._library_edits.items():
+            edit.setText(folders.get(driver, ""))
 
         e = prefs.shared
         self._dir_experiment.setText(e.default_experiment_directory)
@@ -262,6 +287,12 @@ class PreferencesDialog(QDialog):
         q.acquire_fib_after_stage_movement = self._chk_acquire_fib.isChecked()
 
         prefs.install.update_check_enabled = self._chk_update_check.isChecked()
+        folders = dict(prefs.install.vendor_libraries or {})
+        for driver, edit in self._library_edits.items():
+            folders.pop(driver, None)
+            if edit.text().strip():
+                folders[driver] = edit.text().strip()
+        prefs.install.vendor_libraries = folders
 
         e = prefs.shared
         e.default_experiment_directory = self._dir_experiment.text()

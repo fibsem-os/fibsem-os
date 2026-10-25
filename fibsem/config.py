@@ -309,6 +309,9 @@ class InstallPreferences:
     # installs regardless of this setting (see fibsem.update_check.is_enabled).
     update_check_enabled: bool = False
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
+    # The folder of each driver's vendor library on this PC, by driver name
+    # (``fibsem.vendor_libraries``).
+    vendor_libraries: Dict[str, str] = field(default_factory=dict)
 
 
 # Keys an older file kept under its sections (display, movement, experiment,
