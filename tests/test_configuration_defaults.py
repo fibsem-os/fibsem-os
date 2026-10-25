@@ -74,6 +74,8 @@ def test_the_split_changed_no_configuration_s_meaning(filename: str):
     if others:
         flat["hardware"] = {"devices": others}
     calibration = flat.pop("calibration")
+    if "devices" in calibration:
+        flat["stage"]["device_calibration"] = calibration.pop("devices")
     flat["stage"].update(calibration)
     defaults = flat.pop("defaults")
     for block in ("electron", "ion"):

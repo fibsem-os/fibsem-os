@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from copy import deepcopy
-from dataclasses import InitVar, dataclass, field
+from dataclasses import InitVar, dataclass, field, replace
 from datetime import tzinfo
 from enum import Enum
 from typing import (
@@ -317,6 +317,76 @@ class StageDeviceSettings:
         )
 
 
+def _stage_position_to_dict(position: FibsemStagePosition) -> Dict[str, float]:
+    return {
+        axis: float(getattr(position, axis))
+        for axis in ("x", "y", "z", "r", "t")
+        if getattr(position, axis) is not None
+    }
+
+
+@dataclass
+class DeviceCalibration:
+    """Where the stage travels between the beams and an offset FM, measured.
+
+    Both origins are the centre of the holder's slot 1: ``fibsem`` with it at the
+    beams' coincidence point, in the pose the FM images from, and ``fm`` with it
+    under the objective, read at the FM. The stage travels by ``fm - fibsem``, in
+    place of the FM entry's nominal ``origin``, which stays for the calibration's
+    own first trip. ``holder`` is the holder it was measured on (None: any, as
+    the simulator's file states); ``sites`` are each site's measurements.
+    """
+
+    fibsem: FibsemStagePosition
+    fm: FibsemStagePosition
+    holder: Optional[str] = None
+    when: Optional[str] = None
+    sites: List[Dict[str, Any]] = field(default_factory=list)
+
+    def translation(self) -> FibsemStagePosition:
+        """The stage move from the beams to the FM, on the device axes."""
+        return FibsemStagePosition(
+            **{
+                axis: getattr(self.fm, axis) - getattr(self.fibsem, axis)
+                for axis in DEVICE_AXES
+                if getattr(self.fm, axis) is not None
+                and getattr(self.fibsem, axis) is not None
+            }
+        )
+
+    def holds_for(self, holder: str) -> bool:
+        """Was it measured on *holder*, or on no holder in particular?"""
+        return self.holder is None or self.holder == holder
+
+    def to_dict(self) -> dict:
+        ddict: Dict[str, Any] = {
+            "fibsem": {"origin": _stage_position_to_dict(self.fibsem)},
+            "fm": {"origin": _stage_position_to_dict(self.fm)},
+            "holder": self.holder,
+        }
+        if self.when is not None:
+            ddict["when"] = self.when
+        if self.sites:
+            ddict["sites"] = list(self.sites)
+        return ddict
+
+    @staticmethod
+    def from_dict(ddict: dict) -> "DeviceCalibration":
+        def origin(name: str) -> FibsemStagePosition:
+            values = (ddict.get(name) or {}).get("origin")
+            if not values:
+                raise ValueError(f"calibration.devices.{name} states no origin.")
+            return FibsemStagePosition(**{k: float(v) for k, v in values.items()})
+
+        return DeviceCalibration(
+            fibsem=origin("fibsem"),
+            fm=origin("fm"),
+            holder=ddict.get("holder"),
+            when=ddict.get("when"),
+            sites=list(ddict.get("sites") or []),
+        )
+
+
 # What a configured device's range is when it states none: 1 mm on each axis its origin
 # sets.
 DEFAULT_DEVICE_RANGE_EXTENT: float = 1.0e-3
@@ -504,6 +574,31 @@ class StageSystemSettings(Configurable):
     # two positions less the instrument's centre is this value. Stage moves and image
     # reprojection both add it.
     rotation_centre_correction: Tuple[float, float] = (0.0, 0.0)
+    # The SEM to FM calibration of an offset FM (`calibration.devices`), or None
+    # until it is run.
+    device_calibration: Optional[DeviceCalibration] = None
+
+    def fm_calibrated(self) -> bool:
+        """Is there an SEM to FM calibration that holds for the fitted holder?"""
+        calibration = self.device_calibration
+        return calibration is not None and calibration.holds_for(self.active_holder)
+
+    def calibrated_device(self, name: str) -> StageDeviceSettings:
+        """The device *name*, with the FM's origin from the SEM to FM calibration
+        when it holds: the beams' origin plus the measured travel, on the axes the
+        FM's entry sets. Raises KeyError for a device there is not."""
+        device = self.devices[name]
+        if name != "FM" or not self.fm_calibrated():
+            return device
+        beams = self.devices.get(BEAMS_STAGE_DEVICE)
+        travel = self.device_calibration.translation()
+        origin = deepcopy(device.origin)
+        for axis in DEVICE_AXES:
+            start = None if beams is None else getattr(beams.origin, axis)
+            if getattr(origin, axis) is None or getattr(travel, axis) is None:
+                continue
+            setattr(origin, axis, (start or 0.0) + getattr(travel, axis))
+        return replace(device, origin=origin)
 
     @property
     def rotation_180(self) -> float:
@@ -581,6 +676,11 @@ class StageSystemSettings(Configurable):
                 slot["loaded_grid"] = None
         if not any(self.rotation_centre_correction):
             del data["rotation_centre_correction"]
+        # Written under `calibration.devices` (`SystemSettings`).
+        if self.device_calibration is None:
+            del data["device_calibration"]
+        else:
+            data["device_calibration"] = self.device_calibration.to_dict()
         # The pre-tilt has one home: the holder once one is named, this key until then.
         if not self.holders:
             data["shuttle_pre_tilt"] = self.shuttle_pre_tilt
@@ -593,7 +693,9 @@ class StageSystemSettings(Configurable):
             for name, holder in (settings.get("holders") or {}).items()
         }
         active = holders.get(settings.get("active_holder", ""))
-        return decode(
+        settings = dict(settings)
+        calibrated = settings.pop("device_calibration", None)
+        stage = decode(
             cls,
             {
                 "rotation_reference": 0.0,
@@ -607,6 +709,9 @@ class StageSystemSettings(Configurable):
                 or (0.0, 0.0),
             },
         )
+        if calibrated:
+            stage.device_calibration = DeviceCalibration.from_dict(calibrated)
+        return stage
 
 
 def _detector_block_from(settings: dict) -> dict:
@@ -1126,6 +1231,8 @@ class SystemSettings:
             calibration["rotation_centre_correction"] = stage.pop(
                 "rotation_centre_correction"
             )
+        if "device_calibration" in stage:
+            calibration["devices"] = stage.pop("device_calibration")
         calibration["objective"] = self.fm.objective_to_dict()
 
         electron = self.electron.to_dict()
@@ -1215,6 +1322,8 @@ class SystemSettings:
         ):
             if key in calibration:
                 stage[key] = calibration[key]
+        if calibration.get("devices"):
+            stage["device_calibration"] = calibration["devices"]
         electron = {**block("electron"), **(defaults.get("electron") or {})}
         ion = {**block("ion"), **(defaults.get("ion") or {})}
         electron["beam_type"] = BeamType.ELECTRON.name

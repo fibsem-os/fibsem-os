@@ -513,7 +513,11 @@ def written_configuration_keys() -> Set[str]:
     `hardware.devices.<name>`, with its keys under that.
     """
     written = MicroscopeSettings.from_dict({}).to_dict()
-    keys: Set[str] = {"info.port"}  # written only when it is set
+    # Written only when they are set.
+    keys: Set[str] = {"info.port", "calibration.devices"}
+    keys.update(
+        f"calibration.devices.{k}" for k in ("fibsem", "fm", "holder", "when", "sites")
+    )
     for block, value in written.items():
         keys.add(block)
         if not isinstance(value, dict):
@@ -800,6 +804,24 @@ def write_holder_calibration(
         calibration = config["calibration"] = {}
     calibration["holders"] = holders
     calibration["active_holder"] = active_holder
+    _write_configuration_file(path, config)
+
+
+def write_device_calibration(
+    path: Union[str, Path],
+    devices: dict,
+    rotation_centre_correction: Tuple[float, float],
+) -> None:
+    """Record the SEM to FM calibration (`calibration.devices`) and the rotation
+    centre it was measured with in the configuration at *path*."""
+    config = _read_for_writing(path)
+    calibration = config.get("calibration")
+    if not isinstance(calibration, dict):
+        calibration = config["calibration"] = {}
+    calibration["devices"] = devices
+    calibration["rotation_centre_correction"] = [
+        float(v) for v in rotation_centre_correction
+    ]
     _write_configuration_file(path, config)
 
 
