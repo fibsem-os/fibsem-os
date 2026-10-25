@@ -15,6 +15,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.imaging.export import (
     CROSSHAIR_COLOR,
+    ChannelLook,
     ExportOptions,
     adjust_contrast,
     auto_contrast_limits,
@@ -29,7 +30,9 @@ from fibsem.imaging.export import (
     image_summary,
     load_export_image,
     render_export,
+    restacked,
     save_export,
+    z_value,
 )
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
@@ -477,6 +480,102 @@ def test_hiding_a_channel_does_not_stick():
     before = render_export(export, ExportOptions(scalebar=False))
     render_export(export, ExportOptions(scalebar=False, hidden_channels=[0, 1]))
     assert np.array_equal(render_export(export, ExportOptions(scalebar=False)), before)
+
+
+def test_looks_draw_each_channel_as_the_web_viewer_set_it():
+    export = from_fluorescence_image(_fm_image())
+    looks = [
+        ChannelLook(clim=(0.0, 20000.0), color="magenta"),
+        ChannelLook(clim=(0.0, 40000.0), opacity=0.5),
+    ]
+    out = render_export(
+        export, ExportOptions(scalebar=False, legend=False, looks=looks)
+    )
+    assert tuple(out[110, 110]) == (255, 0, 255)  # DAPI saturated, recoloured
+    assert tuple(out[15, 15]) == (0, 127, 0)  # GFP at half opacity
+    # the legend takes the new colour
+    with_legend = render_export(export, ExportOptions(scalebar=False, looks=looks))
+    assert not np.array_equal(
+        with_legend[:40, -120:],
+        render_export(export, ExportOptions(scalebar=False))[:40, -120:],
+    )
+
+
+def test_a_beam_image_s_look_takes_limits_in_its_own_values():
+    image = _gradient_image()
+    ramp = (np.linspace(0, 255, 1536) * 4).astype(np.uint16)
+    image.data = np.repeat(ramp[None, :], image.data.shape[0], axis=0)
+    export = from_fibsem_image(image)
+    looked = render_export(
+        export,
+        ExportOptions(scalebar=False, looks=[ChannelLook(clim=(255.0, 765.0))]),
+    )
+    contrast = render_export(
+        export, ExportOptions(scalebar=False, contrast_min=0.25, contrast_max=0.75)
+    )
+    assert np.abs(looked.astype(int) - contrast.astype(int)).max() <= 1
+
+
+def _stepped_stack(tmp_path):
+    """Two channels whose planes read 1000, 2000 and 3000: a projection is plain."""
+    image = _fm_image()
+    image.data[:] = 0
+    for z in range(3):
+        image.data[:, z, 50:60, 50:60] = 1000 * (z + 1)
+    path = str(tmp_path / "stack.ome.tiff")
+    image.save(path)
+    return load_export_image(path)
+
+
+@pytest.mark.parametrize(
+    "options, value, z",
+    [
+        (ExportOptions(plane=1), 2000, "2 of 3 × 500 nm"),
+        (
+            ExportOptions(projection="mean", first=0, last=1),
+            1500,
+            "Mean · 1–2 of 3 × 500 nm",
+        ),
+        (ExportOptions(projection="min"), 1000, "Min · 3 × 500 nm"),
+        (
+            ExportOptions(projection="max", first=0, last=0),
+            1000,
+            "Max · 1–1 of 3 × 500 nm",
+        ),
+    ],
+)
+def test_a_stack_exports_the_planes_on_screen(tmp_path, options, value, z):
+    export = _stepped_stack(tmp_path)
+    shown = restacked(export, options)
+    assert shown.layers[0].data[55, 55] == value
+    assert _values(shown.fields)["z"] == z
+    # the stack as read is the max projection, untouched
+    assert export.layers[0].data[55, 55] == 3000
+    assert restacked(export, ExportOptions()) is export
+
+
+def test_a_plane_the_stack_does_not_have_is_refused(tmp_path):
+    export = _stepped_stack(tmp_path)
+    for options in (
+        ExportOptions(plane=3),
+        ExportOptions(first=2, last=1),
+        ExportOptions(projection="median"),
+    ):
+        with pytest.raises(ValueError):
+            restacked(export, options)
+
+
+@pytest.mark.parametrize(
+    "args, expected",
+    [
+        ((), "MIP · 21 × 568 nm"),
+        ((10,), "11 of 21 × 568 nm"),
+        ((None, "mean"), "Mean · 21 × 568 nm"),
+        ((None, "max", 4, 11), "Max · 5–12 of 21 × 568 nm"),
+    ],
+)
+def test_the_z_field_names_the_planes_drawn(args, expected):
+    assert z_value(21, 568e-9, *args) == expected
 
 
 def test_every_channel_hidden_is_a_black_image():
