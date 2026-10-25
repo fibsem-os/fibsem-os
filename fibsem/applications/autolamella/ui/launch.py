@@ -8,6 +8,7 @@ from typing import Callable, List, Optional
 
 from PyQt5.QtCore import QTimer
 
+from fibsem.applications.autolamella import launch
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.tools.apps import AUTOLAMELLA
 from fibsem.tools.desktop_launch import Splash
@@ -66,8 +67,12 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
-    """Run the AutoLamella UI.
+def run_ui(
+    argv: Optional[List[str]] = None,
+    splash: Optional[Splash] = None,
+    session=None,
+):
+    """Run the AutoLamella UI on *session*, the host's (a new one when None).
 
     ``splash`` is the launcher's splash screen (fibsem.tools.desktop_launch), closed once the
     main window is up.
@@ -91,7 +96,7 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
     app = start_qt_app(AUTOLAMELLA, autolamella_icon())
-    window = AutoLamellaWindow()
+    window = AutoLamellaWindow(session=session)
     window.show()
     if splash is not None:
         splash.finish(window)
@@ -103,7 +108,19 @@ def run_ui(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
         # fires as soon as the window system's queue, that first paint included,
         # has drained.
         QTimer.singleShot(0, lambda: window.quickstart(load_experiment=args.quickload))
-    sys.exit(app.exec_())
+    code = app.exec_()
+    # The window has stopped the recording and let the microscope go.
+    window.session.stop_app_server()
+    sys.exit(code)
+
+
+def host(argv: Optional[List[str]] = None, splash: Optional[Splash] = None) -> int:
+    """``fibsem-autolamella-ui``: the AutoLamella host with the window. The
+    host's flags connect the session first (none: the window's Connect does);
+    the window's own (``--quickstart``) pass on to it."""
+    return launch.main(
+        argv, window=lambda session, rest: run_ui(rest, splash=splash, session=session)
+    )
 
 
 if __name__ == "__main__":

@@ -212,7 +212,7 @@ function ModeSection({ state }: { state: GatewayState }) {
           {body}
           {state.holder && (
             <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-              Another App Server runs here (pid {state.holder.pid}) that the gateway didn't start: close it at the PC
+              Another fibsem host runs here (pid {state.holder.pid}) that the gateway didn't start: close it at the PC
               before switching.
             </p>
           )}

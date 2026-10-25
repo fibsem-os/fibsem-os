@@ -3,7 +3,7 @@
 The web page is bookmarked with it, so it outlives the App Server, unlike the
 agent's token. ``~/.fibsem/operator-token.json``, written ``0600`` (on Windows
 the profile folder's ACLs are the real protection, as for the discovery file).
-"New operator token" in Tools → App Server replaces it, which revokes the old.
+"New operator token" in Tools → Host replaces it, which revokes the old.
 
 ``person`` is kept for per-person logins later; nothing reads it yet.
 """

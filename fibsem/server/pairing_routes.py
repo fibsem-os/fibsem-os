@@ -99,7 +99,7 @@ def build_pairing_router(auth: AuthConfig) -> APIRouter:
             raise refusal_error(
                 404,
                 "pairing_off",
-                "Open pairing at the microscope PC: Tools → App Server → Pair a computer.",
+                "Open pairing at the microscope PC: Tools → Host → Pair a computer.",
             )
         return {"opened": pairing.request()}
 

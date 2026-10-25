@@ -102,8 +102,8 @@ class AutoLamellaWindow(AppWindow):
     open windows of their own.
     """
 
-    def __init__(self):
-        super().__init__("AutoLamella")
+    def __init__(self, session=None):
+        super().__init__("AutoLamella", session=session)
         self._protocol_lock = threading.RLock()
 
         # create menus, status bar, and tabs
@@ -137,6 +137,7 @@ class AutoLamellaWindow(AppWindow):
         self.create_tabs()
         self._apply_preferences()
         self._update_instructions()
+        self._catch_up()
 
     def _on_preferences_saved(self, preferences) -> None:
         self._preferences = preferences
