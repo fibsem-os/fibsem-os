@@ -904,6 +904,7 @@ class StageMovement(Service):
         move: it is the one place a backend's raw stage move is recorded and its
         position published, and what every existing pin of these moves records.
         """
+        self._refuse_moving_with_the_objective_in(position, relative)
         if relative:
             return self.parent.move_stage_relative(position)
         return self.parent.move_stage_absolute(position)
@@ -993,6 +994,7 @@ class StageMovement(Service):
         with recording_move(
             self.session, self.stage, "move_absolute", position=position
         ):
+            self._refuse_moving_with_the_objective_in(position)
             self.stage.move_absolute(position)
             return self._position()
 
@@ -1000,6 +1002,7 @@ class StageMovement(Service):
     def move_relative(self, delta: FibsemStagePosition) -> FibsemStagePosition:
         """Move the stage by an offset, within its limits. Axes that are None stay."""
         with recording_move(self.session, self.stage, "move_relative", position=delta):
+            self._refuse_moving_with_the_objective_in(delta, relative=True)
             self.stage.move_relative(delta)
             return self._position()
 
@@ -1392,6 +1395,55 @@ class StageMovement(Service):
             "the sample across the chamber under the objective. Move to the beams "
             "first (move_to_device('FIBSEM')), re-pose there, and travel back -- "
             "or ask move_to_device for the pose and let it order the legs."
+        )
+
+    def _refuse_moving_with_the_objective_in(
+        self, position: FibsemStagePosition, relative: bool = False
+    ) -> None:
+        """Refuse one stage move that would leave the current device, or rotate at the
+        FM, while the FM objective is inserted.
+
+        Every move in this service reaches the stage through here, so a relative move
+        or a saved position cannot carry the inserted objective across the chamber.
+        `move_to_device` and the safe move retract the objective before they travel,
+        so their own legs pass. The objective state is read live, every move. Moves
+        within the FM's range (tiles, focus, stable moves) are left alone, and a stage
+        that reaches the FM by re-posing has `blocked_axes` instead.
+        """
+        fm = self.parent.fm
+        if fm is None or self.fm_is_a_pose():
+            return
+        if fm.objective.state is not InsertableDeviceState.INSERTED:
+            return
+
+        current = self._position()
+        if relative:
+            target = current + position
+        else:
+            target = deepcopy(position)
+            for axis in DEVICE_AXES + ("r", "t"):
+                if getattr(target, axis) is None:
+                    setattr(target, axis, getattr(current, axis))
+
+        source = self.current_device(current)
+        rotates = (
+            source == "FM"
+            and target.r is not None
+            and current.r is not None
+            and not rotation_angle_is_smaller(target.r, current.r, atol=5)
+        )
+        leaves = self.current_device(target) != source
+        if not (rotates or leaves):
+            return
+        raise ValueError(
+            "The fluorescence objective is inserted, and this move would "
+            + (
+                "rotate the stage under it"
+                if rotates
+                else f"take the stage away from the {source}"
+            )
+            + f" (to {target}). Retract the objective, or use move_to_device, which "
+            "retracts it before travelling."
         )
 
     # -- saved positions -------------------------------------------------------------------
