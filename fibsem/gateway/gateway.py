@@ -242,6 +242,10 @@ class Gateway:
         self._state = GatewayState(mode=OFF, version=fibsem.__version__)
         self._watcher: Optional[threading.Thread] = None
         self._closed = threading.Event()
+        # Run before a headless app stops, once the stop is sure (the agent's end).
+        self.before_stop: List[Callable[[], None]] = []
+        # Called on the watcher's thread after each poll.
+        self.watchers: List[Callable[[], None]] = []
 
     @property
     def history_file(self) -> Path:
@@ -492,6 +496,8 @@ class Gateway:
                 "run_in_progress",
                 "A workflow is running. Stop it first, or force the switch at the PC.",
             )
+        for hook in self.before_stop:
+            hook()
         with self._lock:
             proc, stop_file = self._proc, self._stop_file
         if proc is None:
@@ -576,10 +582,11 @@ class Gateway:
 
         def loop():
             while not self._closed.wait(POLL_S):
-                try:
-                    self.poll()
-                except Exception:  # noqa: BLE001 - the watcher never dies
-                    logging.exception("Gateway watcher failed")
+                for watch in [self.poll, *self.watchers]:
+                    try:
+                        watch()
+                    except Exception:  # noqa: BLE001 - the watcher never dies
+                        logging.exception("Gateway watcher failed")
 
         self._watcher = threading.Thread(target=loop, name="gateway", daemon=True)
         self._watcher.start()

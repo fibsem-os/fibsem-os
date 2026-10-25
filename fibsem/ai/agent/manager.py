@@ -229,7 +229,8 @@ class AgentSessionManager:
     answers; a session whose app went away is resumed only once it does.
     *env_for(microscope)* gives the environment to resume with when the
     agent was started by an earlier manager (its token): the environment is
-    never written down.
+    never written down. *on_resume(microscope, about)* runs before each
+    resume, with what the host recorded at start.
     """
 
     def __init__(
@@ -240,6 +241,7 @@ class AgentSessionManager:
         clock: Callable[[], float] = time.time,
         end_wait_s: float = END_WAIT_S,
         env_for: Callable[[str], Dict[str, str]] = lambda microscope: {},
+        on_resume: Callable[[str, dict], None] = lambda microscope, about: None,
     ) -> None:
         self._root = root or sessions_dir()
         self._command = command or agent_command()
@@ -247,6 +249,7 @@ class AgentSessionManager:
         self._clock = clock
         self._end_wait_s = end_wait_s
         self._env_for = env_for
+        self._on_resume = on_resume
         self._lock = threading.RLock()
         self._agents: Dict[str, Agent] = {}
         self._adopt()
@@ -258,11 +261,13 @@ class AgentSessionManager:
         args: List[str],
         goal: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
+        about: Optional[dict] = None,
     ) -> Agent:
         """Start a new session *session_id* for *microscope*. *args* are
         ``fibsem-agent``'s flags (``--url``, ``--profile``, ...), passed again
         on each resume; *env* is added to this process's environment (the
-        server token: never on the command line)."""
+        server token: never on the command line); *about* is the host's own
+        record of the start (who, the level), kept in ``manager.json``."""
         with self._lock:
             current = self._agents.get(microscope)
             if current is not None and current.state != "ended":
@@ -272,6 +277,7 @@ class AgentSessionManager:
                 "microscope": microscope,
                 "args": list(args),
                 "restarts": [],
+                **({"about": about} if about else {}),
             }
             write_json(folder / MANAGED, managed)
             launch = args + ["--session-id", session_id]
@@ -409,6 +415,10 @@ class AgentSessionManager:
         managed = read_json(agent.folder / MANAGED)
         args = list(managed.get("args", [])) + ["--resume", agent.session_id]
         env = agent.env if agent.env is not None else self._env_for(agent.microscope)
+        try:
+            self._on_resume(agent.microscope, managed.get("about") or {})
+        except Exception:  # noqa: BLE001 - the host's step never stops the resume
+            log.exception("Before resuming the agent for %s", agent.microscope)
         agent.process = self._spawn(args, env)
         agent.state = "running"
         log.info(
