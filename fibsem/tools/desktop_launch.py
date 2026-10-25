@@ -323,24 +323,25 @@ def launch(key: str, argv: Optional[List[str]] = None) -> None:
 
 def gateway_allows(key: str, app: App) -> bool:
     """Whether the window may open, asking the gateway on this PC when one runs
-    (fibsem.gateway): with it off, the window takes window mode; with the app
-    running remotely, the operator chooses Take over (it is stopped) or Cancel.
-    No gateway, or one that doesn't answer, changes nothing."""
+    (fibsem.gateway): with it off, the window takes the app's place; with the
+    app running without its window, the operator chooses Take over (it is
+    stopped) or Cancel. No gateway, or one that doesn't answer, changes
+    nothing."""
     from urllib.error import HTTPError
 
-    from fibsem.gateway.gateway import CHILD_ENV, HEADLESS, OFF, STOP_WAIT_S, WINDOW
+    from fibsem.gateway.gateway import CHILD_ENV, OFF, STOP_WAIT_S
     from fibsem.gateway.main import call
 
-    if os.environ.get(CHILD_ENV) == WINDOW:
+    if os.environ.get(CHILD_ENV):
         return True
     try:
         state = call("GET", "/gateway")
     except (OSError, ValueError) as e:
         logging.warning("Gateway didn't answer (%s); opening as usual", e)
         return True
-    if state is None or state["mode"] not in (OFF, HEADLESS):
+    if state is None or state.get("window"):
         return True
-    if state["mode"] == HEADLESS:
+    if state["mode"] != OFF:
         if not _take_over(app, state):
             return False
         try:
