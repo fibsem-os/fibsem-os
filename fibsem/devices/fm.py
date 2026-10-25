@@ -200,6 +200,14 @@ class Objective(Device):
         return position
 
     @command
+    def clear_focus_position(self) -> None:
+        """Forget the saved focus position."""
+        self._clear_focus_position()
+
+    def _clear_focus_position(self) -> None:
+        self.focus_position.write_through(None)
+
+    @command
     def insert(self) -> Optional[bool]:
         """Move the objective in, to its imaging position.
 
