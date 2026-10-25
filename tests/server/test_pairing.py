@@ -6,6 +6,7 @@ Skipped when the [server] extra is not installed.
 
 import json
 import os
+import time
 
 import pytest
 
@@ -129,9 +130,12 @@ def test_tokens_are_kept_hashed_and_unpairing_revokes(tmp_path, pairing):
     assert again.match(token) is None
 
 
-def test_a_change_from_the_other_process_is_seen_within_one_clock_tick(tmp_path):
+def test_a_change_from_the_other_process_is_seen_within_one_clock_tick(
+    tmp_path, monkeypatch
+):
     # The App Server and the gateway share the file. Two writes of the same
     # size within one coarse mtime tick (Windows) must still be seen.
+    monkeypatch.setattr(time, "time", lambda: 1792966434.5)
     path = tmp_path / "paired.json"
     mine, theirs = PairedTokens(path), PairedTokens(path)
     mine.add("Claude Code on lab-mac", role=AGENT)
