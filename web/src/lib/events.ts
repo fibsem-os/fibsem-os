@@ -1,11 +1,12 @@
 import { useQueryClient, type Query } from "@tanstack/react-query";
-import { useEffect } from "react";
-import { api, getToken } from "./api";
+import { useEffect, useSyncExternalStore } from "react";
+import { api, ApiError, getToken } from "./api";
 import type { AppEvent } from "./eventText";
 
 export interface EventsAnswer {
   available?: boolean;
   latest_seq?: number;
+  stream?: string | null;
   oldest_available?: number | null;
   events?: AppEvent[];
 }
@@ -70,6 +71,25 @@ function stale(query: Query, items: Set<string>, records: boolean, grids: boolea
   return false;
 }
 
+// Whether the long-poll last reached the App Server: the top line says when it can't.
+let reachable = true;
+const reachListeners = new Set<() => void>();
+function setReachable(now: boolean) {
+  if (now === reachable) return;
+  reachable = now;
+  reachListeners.forEach((listener) => listener());
+}
+
+export function useReachable(): boolean {
+  return useSyncExternalStore(
+    (listener) => {
+      reachListeners.add(listener);
+      return () => void reachListeners.delete(listener);
+    },
+    () => reachable,
+  );
+}
+
 /** The app's one clock: a long-poll on /app/events. Each answer marks stale only
  * the reads its events touch, and the pages on screen read those again. */
 export function useEventLoop() {
@@ -77,11 +97,25 @@ export function useEventLoop() {
   useEffect(() => {
     let stopped = false;
     let since = 0;
+    let stream: string | null | undefined;
+    // After a failure, a quick read: a server back with no news answers at once.
+    let wait = 25;
     (async () => {
       while (!stopped && getToken()) {
         try {
-          const answer = await api<EventsAnswer>(`/app/events?since=${since}&timeout=25`);
+          const answer = await api<EventsAnswer>(`/app/events?since=${since}&timeout=${wait}`);
+          // Back after a failure: what was read before it may be stale.
+          if (wait === 0) void client.invalidateQueries();
+          setReachable(true);
+          wait = 25;
           const latest = answer.latest_seq ?? 0;
+          const restarted = stream !== undefined && answer.stream !== stream;
+          stream = answer.stream;
+          if (since && (latest < since || restarted)) {
+            // The app restarted with a fresh buffer: all of it is news.
+            since = 0;
+            continue;
+          }
           if (latest === since) continue;
           const oldest = answer.oldest_available;
           const missed = since && oldest != null && oldest > since + 1 ? oldest - since - 1 : 0;
@@ -94,7 +128,10 @@ export function useEventLoop() {
           const records = news.length > 0 || events.length === 0;
           const grids = news.some((e) => e.kind.startsWith("grid"));
           await client.invalidateQueries({ predicate: (query) => stale(query, items, records, grids) });
-        } catch {
+        } catch (error) {
+          // An answer, even a refusal, is the server reached.
+          setReachable(error instanceof ApiError && error.status > 0);
+          wait = 0;
           await new Promise((resolve) => setTimeout(resolve, 3000));
         }
       }

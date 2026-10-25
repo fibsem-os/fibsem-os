@@ -15,6 +15,16 @@ import { Replay } from "./experiment/Replay";
 
 const ICON = { folder: Folder, image: FileImage, text: FileText, other: FileIcon };
 
+// The folder and the view are in the address, so a reload or a link opens them again.
+const param = (key: string) => new URLSearchParams(location.search).get(key);
+function setParam(key: string, value: string) {
+  const params = new URLSearchParams(location.search);
+  if (value) params.set(key, value);
+  else params.delete(key);
+  const search = params.toString();
+  history.replaceState(null, "", `${location.pathname}${search ? `?${search}` : ""}`);
+}
+
 /** The file as it is, through the token: a link can't carry the header. */
 async function download(entry: FileEntry) {
   const response = await fetch(`/app/experiment/files/${encodePath(entry.path)}?raw=true`, {
@@ -122,7 +132,7 @@ function Preview({ entry }: { entry: FileEntry }) {
 }
 
 function Files() {
-  const [dir, setDir] = useState("");
+  const [dir, setDir] = useState(() => param("dir") ?? "");
   const [picked, setPicked] = useState<FileEntry | null>(null);
   const [filter, setFilter] = useState("");
   const listing = useQuery({
@@ -132,6 +142,7 @@ function Files() {
   const parts = dir && dir !== "." ? dir.split("/") : [];
   const go = (to: string) => {
     setDir(to);
+    setParam("dir", to === "." ? "" : to);
     setPicked(null);
   };
   const shown = (listing.data?.entries ?? []).filter((e) => e.name.toLowerCase().includes(filter.toLowerCase()));
@@ -221,7 +232,7 @@ const VIEWS = [
 export function ExperimentPage() {
   const { status, open } = useOpenExperiment();
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
-  const [view, setView] = useState<"files" | "replay">("files");
+  const [view, setView] = useState<"files" | "replay">(() => (param("view") === "replay" ? "replay" : "files"));
   if (status.data && !open)
     return <div className="p-5 text-muted-foreground">No experiment is open.</div>;
   const replay = caps.data?.parts?.includes("replay");
@@ -235,7 +246,10 @@ export function ExperimentPage() {
               key={key}
               role="tab"
               aria-selected={shown === key}
-              onClick={() => setView(key)}
+              onClick={() => {
+                setView(key);
+                setParam("view", key === "files" ? "" : key);
+              }}
               className={cn(
                 "cursor-pointer border-0 bg-transparent px-2.5 py-1 text-[13px]",
                 shown === key
