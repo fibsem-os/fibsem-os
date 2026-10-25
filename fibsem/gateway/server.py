@@ -1,12 +1,14 @@
 """The gateway's routes, on its own port, localhost only.
 
 ``GET /gateway`` and ``/gateway/history`` for anyone paired; ``POST
-/gateway/mode`` and ``/gateway/stop`` for the operator, or a hub the operator
+/gateway/start`` and ``/gateway/stop`` for the operator, or a hub the operator
 granted "may start and stop apps" (`SWITCH_MODES`); forcing past a running
 workflow, and ``/gateway/claim`` (a desktop launch on this PC), for the
-operator only. ``/gateway/agent`` reads, starts and ends this PC's agent
-(`fibsem.gateway.agent`), with the same rules as the modes. Pairing is the App Server's (`fibsem.server.pairing_routes`),
-with the hub role, and the page is the web app's ``/ui/gateway``.
+operator only. ``/gateway/microscope/...`` connects and disconnects the
+running host's microscope, and ``/gateway/agent`` reads, starts and ends this
+PC's agent (`fibsem.gateway.agent`), with the same rules as starting the app.
+Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
+role, and the page is the web app's ``/ui/gateway``.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from fibsem.gateway.gateway import (
     GatewayState,
     History,
 )
+from fibsem.gateway.host import HostMicroscope
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import (
@@ -102,7 +105,10 @@ def _refused(status: int, error_type: str, message: str) -> HTTPException:
 
 
 def build_gateway_app(
-    gateway: Gateway, auth: GatewayAuth, agent: Optional[GatewayAgent] = None
+    gateway: Gateway,
+    auth: GatewayAuth,
+    agent: Optional[GatewayAgent] = None,
+    microscope: Optional[HostMicroscope] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
     app.state.auth = auth
@@ -133,7 +139,7 @@ def build_gateway_app(
     def _act(found: Caller, body: Dict[str, Any], act):
         force = bool(body.get("force", False))
         if force and not found.operator:
-            raise _refused(403, "operator_only", "Only the operator forces a switch.")
+            raise _refused(403, "operator_only", "Only the operator forces a stop.")
         via = str(body.get("via") or "") if found.operator else "hub"
         try:
             return act(force, via or "page")
@@ -150,31 +156,32 @@ def build_gateway_app(
 
     @app.get("/gateway", response_model=GatewayState)
     def get_gateway(found: Caller = Depends(caller)):
-        """The mode, its app and process, a holder the gateway didn't start,
-        and the last exit."""
+        """Off or running, the app and its process, a holder the gateway
+        didn't start, and the last exit."""
         return gateway.state()
 
     @app.get("/gateway/history", response_model=History)
     def get_history(found: Caller = Depends(caller)):
-        """The latest switches first, each with who made it and from where."""
+        """The latest starts and stops first, each with who made it and from
+        where."""
         return gateway.history()
 
-    @app.post("/gateway/mode", response_model=GatewayState)
-    def set_mode(body: Dict[str, Any], found: Caller = Depends(switcher)):
-        """``{mode, app, experiment | last, configuration, force}``: stop the
-        current mode and start this one."""
+    @app.post("/gateway/start", response_model=GatewayState)
+    def start(body: Dict[str, Any], found: Caller = Depends(switcher)):
+        """``{app, window, experiment | last, force}``: stop the running app
+        and start this one, with its window at this PC (the default) or
+        without."""
         return _act(
             found,
             body,
-            lambda force, via: gateway.switch(
-                str(body.get("mode", "")),
+            lambda force, via: gateway.start_app(
                 who=found.who,
                 via=via,
                 app=body.get("app"),
+                window=bool(body.get("window", True)),
                 experiment=body.get("experiment"),
                 last=bool(body.get("last", False)),
                 force=force,
-                configuration=body.get("configuration"),
             ),
         )
 
@@ -186,7 +193,7 @@ def build_gateway_app(
 
     @app.post("/gateway/claim", response_model=GatewayState)
     def claim(body: Dict[str, Any], found: Caller = Depends(caller)):
-        """``{pid, app}``: a desktop launch on this PC takes window mode."""
+        """``{pid, app}``: a desktop launch on this PC takes the app's place."""
         if not found.operator:
             raise _refused(403, "operator_only", "Only a launch at the PC claims.")
         try:
@@ -203,6 +210,26 @@ def build_gateway_app(
                 str(body.get("via") or "desktop launch"),
             ),
         )
+
+    if microscope is not None:
+
+        @app.get("/gateway/microscope/connection")
+        def get_connection(found: Caller = Depends(caller)) -> dict:
+            """The running host's ``/microscope/connection``."""
+            return _act(found, {}, lambda force, via: microscope.connection())
+
+        @app.post("/gateway/microscope/connect", status_code=202)
+        def connect(
+            body: Optional[Dict[str, Any]] = None, found: Caller = Depends(switcher)
+        ) -> dict:
+            """``{configuration}``: the host connects it (the default without)."""
+            name = (body or {}).get("configuration")
+            return _act(found, {}, lambda force, via: microscope.connect(name))
+
+        @app.post("/gateway/microscope/disconnect")
+        def disconnect(found: Caller = Depends(switcher)) -> dict:
+            """The host lets the microscope go; refused while a run is on."""
+            return _act(found, {}, lambda force, via: microscope.disconnect())
 
     if agent is not None:
 
