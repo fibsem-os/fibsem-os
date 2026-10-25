@@ -34,7 +34,7 @@ import os
 import re
 import sys
 from contextvars import ContextVar
-from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
+from typing import Annotated, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
 from fibsem.ai.agent.calls import headers_for
@@ -241,7 +241,7 @@ _calling: "ContextVar[Optional[Tuple[str, dict]]]" = ContextVar(
 # it (`_with_evidence`).
 _citing: "ContextVar[Optional[str]]" = ContextVar("fibsem_mcp_citing", default=None)
 
-# fibsem.structures.MillingState by value, without importing it: the sidecar
+# fibsem.structures.settings.MillingState by value, without importing it: the sidecar
 # stays light. tests/server/test_sidecar.py pins the two in step.
 _MILLING_STATES = ("IDLE", "RUNNING", "STOPPING", "PAUSED", "ERROR", "UNKNOWN")
 
@@ -450,16 +450,6 @@ def build_sidecar(client, capabilities):
             return data
         return [json.dumps(data), *images]
 
-    # Explicit signatures so FastMCP derives a real parameter schema per tool.
-    def server_get_capabilities():
-        return _tool("server_get_capabilities")
-
-    def server_set_constraints(constraints: List[Dict[str, Any]]):
-        return _tool("server_set_constraints", constraints=constraints)
-
-    def server_set_checklist(checklist: List[Dict[str, Any]]):
-        return _tool("server_set_checklist", checklist=checklist)
-
     def server_report_session(
         session_id: Optional[str] = None,
         model: Optional[str] = None,
@@ -484,29 +474,9 @@ def build_sidecar(client, capabilities):
             ),
         )
 
-    def microscope_get_info():
-        return _tool("microscope_get_info")
-
     def stage_get_position():
         data, err = _route("stage_get_position")
         return err if err else {"position": data["value"]}
-
-    def _service_call(name, key):
-        """A stage movement query as a named tool: *key* holds its result."""
-        data, err = _route(name)
-        return err if err else {key: data["result"]}
-
-    def stage_get_orientation():
-        return _service_call("stage_get_orientation", "orientation")
-
-    def microscope_get_state():
-        return _tool("microscope_get_state")
-
-    def stage_get_current_milling_angle():
-        return _service_call("stage_get_current_milling_angle", "milling_angle_deg")
-
-    def stage_get_geometry():
-        return _service_call("stage_get_geometry", "geometry")
 
     def milling_get_state():
         data, err = _route("milling_get_state")
@@ -525,96 +495,6 @@ def build_sidecar(client, capabilities):
         # Answers seconds, milling_current and warning itself.
         data, err = _route("milling_estimate_time", stages=stages)
         return err if err else data["result"]
-
-    def milling_preview_patterns(image_path: str, stages: Optional[list] = None):
-        return _routed("milling_preview_patterns", image_path=image_path, stages=stages)
-
-    def alignment_align_to_reference(
-        reference_path: str,
-        steps: int = 3,
-        subsystem: str = "beam-shift",
-        use_autofocus: bool = False,
-        method: str = "cross-correlation",
-        validate: bool = True,
-        use_autocontrast: bool = False,
-        path: Optional[str] = None,
-    ):
-        return _routed(
-            "alignment_align_to_reference",
-            "run",
-            reference_path=reference_path,
-            steps=steps,
-            subsystem=subsystem,
-            use_autofocus=use_autofocus,
-            method=method,
-            validate=validate,
-            use_autocontrast=use_autocontrast,
-            path=path,
-        )
-
-    def alignment_compare_methods(
-        reference_path: str, image_path: str, agreement_px: float = 2.0
-    ):
-        return _routed(
-            "alignment_compare_methods",
-            "comparison",
-            reference_path=reference_path,
-            image_path=image_path,
-            agreement_px=agreement_px,
-        )
-
-    def milling_check_stages(stages: list, aspect: float = 2 / 3):
-        return _routed("milling_check_stages", "stages", stages=stages, aspect=aspect)
-
-    def milling_list_options():
-        return _routed("milling_list_options", "options")
-
-    def alignment_measure_shift(
-        reference_path: str, image_path: str, method: str = "cross-correlation"
-    ):
-        return _routed(
-            "alignment_measure_shift",
-            "shift",
-            reference_path=reference_path,
-            image_path=image_path,
-            method=method,
-        )
-
-    def alignment_check_coincidence(
-        x: float = 0.0,
-        y: float = 0.0,
-        hfw: float = 150e-6,
-        autocontrast: bool = True,
-        path: Optional[str] = None,
-        beam: str = "ELECTRON",
-    ):
-        return _routed(
-            "alignment_check_coincidence",
-            "coincidence",
-            x=x,
-            y=y,
-            hfw=hfw,
-            autocontrast=autocontrast,
-            path=path,
-            beam=beam,
-        )
-
-    def alignment_measure_coincidence(
-        sem_path: str,
-        fib_path: str,
-        x: float = 0.0,
-        y: float = 0.0,
-        beam: str = "ELECTRON",
-    ):
-        return _routed(
-            "alignment_measure_coincidence",
-            "coincidence",
-            sem_path=sem_path,
-            fib_path=fib_path,
-            x=x,
-            y=y,
-            beam=beam,
-        )
 
     def correlation_correlate(
         fib_image_path: str,
@@ -651,32 +531,6 @@ def build_sidecar(client, capabilities):
             arguments["fib_image_path"] = fib_image_path
         return _routed("correlation_find_spot_burns", "spot_burns", **arguments)
 
-    def correlation_refine_point(
-        image_path: str,
-        x: float,
-        y: float,
-        z: float = 0.0,
-        beam: str = "fib",
-        method: str = "",
-        channel: int = 0,
-    ):
-        return _routed(
-            "correlation_refine_point",
-            "point",
-            image_path=image_path,
-            x=x,
-            y=y,
-            z=z,
-            beam=beam,
-            method=method,
-            channel=channel,
-        )
-
-    def correlation_predict(run_path: str, fm_points: list):
-        return _routed(
-            "correlation_predict", "prediction", run_path=run_path, fm_points=fm_points
-        )
-
     def milling_stop(reason: str):
         data, err = _route("milling_stop", reason=reason)
         return err if err else {"status": "ok"}
@@ -693,9 +547,6 @@ def build_sidecar(client, capabilities):
         data, err = _route("milling_resume")
         return err if err else {"status": "ok"}
 
-    def milling_follow_readings(since: int = 0, timeout: float = 0.0):
-        return _routed("milling_follow_readings", since=since, timeout=timeout)
-
     def beam_acquire_image(
         beam_type: str = "ELECTRON",
         image_settings: Optional[dict] = None,
@@ -711,125 +562,8 @@ def build_sidecar(client, capabilities):
         )
         return err if err else _with_images(data["result"])
 
-    def stage_move_relative(dx: float = 0.0, dy: float = 0.0, dz: float = 0.0):
-        return _routed("stage_move_relative", "position", dx=dx, dy=dy, dz=dz)
-
-    def stage_stable_move(
-        dx: float, dy: float, beam_type: str = "ELECTRON", static_wd: bool = False
-    ):
-        return _routed(
-            "stage_stable_move",
-            "position",
-            dx=dx,
-            dy=dy,
-            beam_type=beam_type,
-            static_wd=static_wd,
-        )
-
-    def stage_get_saved_positions():
-        return _service_call("stage_get_saved_positions", "saved_positions")
-
-    def stage_save_position(name: str):
-        return _routed("stage_save_position", "position", name=name)
-
-    def stage_move_to_saved_position(name: str):
-        return _routed("stage_move_to_saved_position", "position", name=name)
-
-    def stage_remove_saved_position(name: str):
-        return _routed("stage_remove_saved_position", name=name)
-
-    def stage_move_to_device(device: str, orientation: Optional[str] = None):
-        return _routed("stage_move_to_device", device=device, orientation=orientation)
-
-    def stage_fm_stable_move(dx: float, dy: float):
-        return _routed("stage_fm_stable_move", "position", dx=dx, dy=dy)
-
-    def stage_vertical_move(
-        dy: float,
-        dx: float = 0.0,
-        beam_type: Optional[str] = None,
-        relaxation: Optional[float] = None,
-    ):
-        return _routed(
-            "stage_vertical_move",
-            "position",
-            dy=dy,
-            dx=dx,
-            beam_type=beam_type,
-            relaxation=relaxation,
-        )
-
-    def stage_move_to_orientation(orientation: str):
-        return _routed("stage_move_to_orientation", "position", orientation=orientation)
-
-    def stage_move_absolute(x: float, y: float, z: float, r: float, t: float):
-        return _routed("stage_move_absolute", "position", x=x, y=y, z=z, r=r, t=t)
-
-    def stage_move_to_milling_angle(
-        milling_angle_deg: float, rotation_deg: Optional[float] = None
-    ):
-        return _routed(
-            "stage_move_to_milling_angle",
-            "success",
-            milling_angle_deg=milling_angle_deg,
-            rotation_deg=rotation_deg,
-        )
-
-    def device_list():
-        return _tool("device_list")
-
-    def device_get_parameter(device: str, parameter: str):
-        return _routed("device_get_parameter", device=device, parameter=parameter)
-
-    def device_set_parameter(device: str, parameter: str, value: Any):
-        return _routed(
-            "device_set_parameter", device=device, parameter=parameter, value=value
-        )
-
-    def device_call_command(
-        device: str,
-        command: str,
-        kwargs: Optional[dict] = None,
-        reason: Optional[str] = None,
-    ):
-        return _routed(
-            "device_call_command",
-            device=device,
-            command=command,
-            kwargs=kwargs,
-            reason=reason,
-        )
-
-    def device_call_query(device: str, query: str, kwargs: Optional[dict] = None):
-        return _routed("device_call_query", device=device, query=query, kwargs=kwargs)
-
     def microscope_set_state(microscope_state: dict):
         return _routed("microscope_set_state", microscope_state=dict(microscope_state))
-
-    def service_list():
-        return _tool("service_list")
-
-    def service_get_parameter(service: str, parameter: str):
-        return _routed("service_get_parameter", service=service, parameter=parameter)
-
-    def service_set_parameter(service: str, parameter: str, value: Any):
-        return _routed(
-            "service_set_parameter", service=service, parameter=parameter, value=value
-        )
-
-    def service_call_command(
-        service: str,
-        command: str,
-        kwargs: Optional[dict] = None,
-        reason: Optional[str] = None,
-    ):
-        return _routed(
-            "service_call_command",
-            service=service,
-            command=command,
-            kwargs=kwargs,
-            reason=reason,
-        )
 
     def service_wait_for_run(
         service: str, run_id: Optional[str] = None, wait: float = 60.0
@@ -839,253 +573,9 @@ def build_sidecar(client, capabilities):
         )
         return err if err else _with_images(data)
 
-    def service_call_query(service: str, query: str, kwargs: Optional[dict] = None):
-        return _routed(
-            "service_call_query", service=service, query=query, kwargs=kwargs
-        )
-
-    def beam_auto_contrast(
-        beam_type: str = "ELECTRON", reduced_area: Optional[dict] = None
-    ):
-        return _routed(
-            "beam_auto_contrast", beam_type=beam_type, reduced_area=reduced_area
-        )
-
-    def beam_auto_focus(
-        beam_type: str = "ELECTRON",
-        method: str = "sweep",
-        hfw: Optional[float] = None,
-        settings: Optional[dict] = None,
-        path: Optional[str] = None,
-        name: Optional[str] = None,
-    ):
-        return _routed(
-            "beam_auto_focus",
-            "result",
-            beam_type=beam_type,
-            method=method,
-            hfw=hfw,
-            settings=settings,
-            path=path,
-            name=name,
-        )
-
-    def fm_auto_focus(
-        channel_name: Optional[str] = None,
-        settings: Optional[dict] = None,
-        channel: Optional[dict] = None,
-        path: Optional[str] = None,
-        name: str = "autofocus",
-    ):
-        return _routed(
-            "fm_auto_focus",
-            "run",
-            channel_name=channel_name,
-            settings=settings,
-            channel=channel,
-            path=path,
-            name=name,
-        )
-
-    def beam_acquire_overview(
-        settings: dict,
-        path: str,
-        name: str = "overview",
-        centre_position: Optional[dict] = None,
-    ):
-        return _routed(
-            "beam_acquire_overview",
-            "run",
-            settings=settings,
-            path=path,
-            name=name,
-            centre_position=centre_position,
-        )
-
-    def beam_estimate_overview(settings: dict):
-        return _routed("beam_estimate_overview", "estimate", settings=settings)
-
-    def beam_acquire_focus_stack(
-        image_settings: dict, path: str, n_steps: int = 3, auto_focus: bool = True
-    ):
-        return _routed(
-            "beam_acquire_focus_stack",
-            "run",
-            image_settings=image_settings,
-            path=path,
-            n_steps=n_steps,
-            auto_focus=auto_focus,
-        )
-
-    def beam_turn_on(beam_type: str):
-        return _routed("beam_turn_on", beam_type=beam_type)
-
-    def beam_turn_off(beam_type: str):
-        return _routed("beam_turn_off", beam_type=beam_type)
-
-    def fm_insert_objective(tilt: Optional[float] = None):
-        return _routed("fm_insert_objective", tilt=tilt)
-
-    def fm_retract_objective():
-        return _routed("fm_retract_objective")
-
-    def fm_save_focus_position():
-        return _routed("fm_save_focus_position")
-
-    def fm_acquire_image(
-        channels: List[dict],
-        path: str,
-        name: str = "image",
-        zparams: Optional[dict] = None,
-    ):
-        return _routed(
-            "fm_acquire_image",
-            "run",
-            channels=channels,
-            path=path,
-            name=name,
-            zparams=zparams,
-        )
-
-    def grid_get_inventory():
-        return _routed("grid_get_inventory", "inventory")
-
-    def grid_get_current():
-        return _routed("grid_get_current", "current")
-
-    def grid_get_holder_slots():
-        return _routed("grid_get_holder_slots", "slots")
-
-    def grid_run_inventory():
-        return _routed("grid_run_inventory", "run")
-
-    def grid_load(grid_name: str):
-        return _routed("grid_load", "run", grid_name=grid_name)
-
-    def grid_unload():
-        return _routed("grid_unload", "run")
-
-    def grid_move_to(grid_name: str):
-        return _routed("grid_move_to", "position", grid_name=grid_name)
-
-    def grid_move_to_slot(slot_name: str):
-        return _routed("grid_move_to_slot", "position", slot_name=slot_name)
-
-    def milling_run_stage(stage: dict, path: Optional[str] = None):
-        return _routed("milling_run_stage", "run", stage=stage, path=path)
-
-    def milling_run_spot_burn(settings: dict):
-        return _routed("milling_run_spot_burn", "run", settings=settings)
-
-    def milling_estimate_spot_burn(settings: dict):
-        return _routed("milling_estimate_spot_burn", "seconds", settings=settings)
-
-    def coating_deposit(seconds: float):
-        return _routed("coating_deposit", "run", seconds=seconds)
-
-    def coating_sputter(
-        seconds: float,
-        current: Optional[float] = None,
-        grids: Optional[List[int]] = None,
-    ):
-        return _routed(
-            "coating_sputter", "run", seconds=seconds, current=current, grids=grids
-        )
-
-    def milling_run_task(config: dict, path: Optional[str] = None):
-        return _routed("milling_run_task", "run", config=config, path=path)
-
-    def fm_acquire_overview(
-        channels: List[dict],
-        parameters: dict,
-        path: str,
-        name: str = "overview",
-        zparams: Optional[dict] = None,
-        autofocus_settings: Optional[dict] = None,
-        centre_position: Optional[dict] = None,
-    ):
-        return _routed(
-            "fm_acquire_overview",
-            "run",
-            channels=channels,
-            parameters=parameters,
-            path=path,
-            name=name,
-            zparams=zparams,
-            autofocus_settings=autofocus_settings,
-            centre_position=centre_position,
-        )
-
-    def fm_estimate_overview(
-        channels: List[dict],
-        parameters: dict,
-        zparams: Optional[dict] = None,
-        autofocus_settings: Optional[dict] = None,
-    ):
-        return _routed(
-            "fm_estimate_overview",
-            "estimate",
-            channels=channels,
-            parameters=parameters,
-            zparams=zparams,
-            autofocus_settings=autofocus_settings,
-        )
-
-    def beam_auto_brightness_contrast(
-        beam_type: str = "ELECTRON",
-        settings: Optional[dict] = None,
-        path: Optional[str] = None,
-        name: Optional[str] = None,
-    ):
-        return _routed(
-            "beam_auto_brightness_contrast",
-            "result",
-            beam_type=beam_type,
-            settings=settings,
-            path=path,
-            name=name,
-        )
-
     def _given(**params):
         """The *params* that are given (not None): a body that leaves out the rest."""
         return {k: v for k, v in params.items() if v is not None}
-
-    def app_get_status():
-        return _tool("app_get_status")
-
-    def workflow_get_queue():
-        return _tool("workflow_get_queue")
-
-    def item_list():
-        return _tool("item_list")
-
-    def experiment_get_task_history():
-        return _tool("experiment_get_task_history")
-
-    def workflow_get_summary():
-        return _tool("workflow_get_summary")
-
-    def protocol_get():
-        return _tool("protocol_get")
-
-    def app_get_log(
-        task_id: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-        level: Optional[str] = None,
-        lines: int = 200,
-    ):
-        return _tool(
-            "app_get_log",
-            task_id=task_id,
-            since=since,
-            until=until,
-            level=level,
-            lines=lines,
-        )
-
-    def item_list_outputs(item_name: str):
-        return _routed("item_list_outputs", item_name=item_name)
 
     def item_get_history(
         item_name: str,
@@ -1099,9 +589,6 @@ def build_sidecar(client, capabilities):
         if task:
             arguments["task"] = task
         return _routed("item_get_history", item_name=item_name, **arguments)
-
-    def item_get_stack(item_name: str, role: str):
-        return _routed("item_get_stack", item_name=item_name, role=role)
 
     def _image_header(resp):
         # The image's scale and state ride on the JPEG answer as a header
@@ -1137,9 +624,6 @@ def build_sidecar(client, capabilities):
             path=path,
             **_given(width_um=width_um, height_um=height_um),
         )
-
-    def experiment_get_image_metadata(path: str):
-        return _tool("experiment_get_image_metadata", path=path)
 
     def experiment_get_image_stage_position(
         path: str,
@@ -1269,11 +753,6 @@ def build_sidecar(client, capabilities):
             experiment=experiment,
         )
 
-    def experiment_list_files(
-        dir: Optional[str] = None, experiment: Optional[str] = None
-    ):
-        return _tool("experiment_list_files", dir=dir, experiment=experiment)
-
     def experiment_read_file(
         path: str,
         z: Optional[int] = None,
@@ -1364,15 +843,6 @@ def build_sidecar(client, capabilities):
                 raise ResourceError(err)
             return data
 
-    def item_get(item_name: str):
-        return _routed("item_get", item_name=item_name)
-
-    def grid_list():
-        return _tool("grid_list")
-
-    def grid_get(grid_name: str):
-        return _routed("grid_get", grid_name=grid_name)
-
     def grid_get_output_image(
         grid_name: str, filename: str, cells: Optional[bool] = None
     ):
@@ -1389,33 +859,6 @@ def build_sidecar(client, capabilities):
             return _refusal(resp)
         meta = {"grid_name": grid_name, "filename": filename, **_image_header(resp)}
         return [json.dumps(meta), Image(data=resp.content, format="jpeg")]
-
-    def grid_get_stage_position(
-        grid_name: str,
-        filename: str,
-        x: Optional[float] = None,
-        y: Optional[float] = None,
-        fx: Optional[float] = None,
-        fy: Optional[float] = None,
-    ):
-        return _tool(
-            "grid_get_stage_position",
-            grid_name=grid_name,
-            filename=filename,
-            x=x,
-            y=y,
-            fx=fx,
-            fy=fy,
-        )
-
-    def grid_get_markers(grid_name: str, filename: str):
-        return _routed("grid_get_markers", grid_name=grid_name, filename=filename)
-
-    def protocol_get_task_config(task_name: str):
-        return _routed("protocol_get_task_config", task_name=task_name)
-
-    def item_get_task_config(item_name: str, task_name: str):
-        return _routed("item_get_task_config", item_name=item_name, task_name=task_name)
 
     def experiment_add_note(text: str, item_name: Optional[str] = None):
         return _tool("experiment_add_note", text=str(text), item_name=item_name)
@@ -1435,55 +878,9 @@ def build_sidecar(client, capabilities):
     def request_withdraw(request_id: str, reason: str):
         return _routed("request_withdraw", request_id=request_id, reason=str(reason))
 
-    def request_get(request_id: str):
-        # An applied image action carries its preview: an image, not base64 text.
-        return _routed("request_get", request_id=request_id)
-
     def request_list():
         data, err = _route("request_list")
         return err if err else _with_images(data)
-
-    def item_add(
-        name: Optional[str] = None,
-        stage_position: Optional[dict] = None,
-        overview: Optional[dict] = None,
-    ):
-        return _tool(
-            "item_add", name=name, stage_position=stage_position, overview=overview
-        )
-
-    def item_remove(item_name: str):
-        return _routed("item_remove", item_name=item_name)
-
-    def item_move_to_objective_position(item_name: str):
-        return _routed("item_move_to_objective_position", item_name=item_name)
-
-    def item_move_to_pose(item_name: str, pose: str):
-        return _routed("item_move_to_pose", item_name=item_name, pose=pose)
-
-    def item_set_pose(item_name: str, pose: str):
-        return _routed("item_set_pose", item_name=item_name, pose=pose)
-
-    def item_apply_correlation(item_name: str, run_path: str):
-        return _routed("item_apply_correlation", item_name=item_name, run_path=run_path)
-
-    def item_set_objective_position(item_name: str):
-        return _routed("item_set_objective_position", item_name=item_name)
-
-    def item_set_objective_position_on_all(item_name: str):
-        return _routed("item_set_objective_position_on_all", item_name=item_name)
-
-    def item_set_position(
-        item_name: str,
-        stage_position: Optional[dict] = None,
-        overview: Optional[dict] = None,
-    ):
-        return _routed(
-            "item_set_position",
-            item_name=item_name,
-            stage_position=stage_position,
-            overview=overview,
-        )
 
     def item_apply_protocol(item_name: str, task_names: Optional[List[str]] = None):
         return _routed(
@@ -1515,11 +912,6 @@ def build_sidecar(client, capabilities):
             version=version,
         )
 
-    def protocol_set_schedule(task_name: str, scheduled_at: Optional[str] = None):
-        return _tool(
-            "protocol_set_schedule", task_name=task_name, scheduled_at=scheduled_at
-        )
-
     def item_update(item_name: str, patch: dict, version: str):
         return _routed(
             "item_update", item_name=item_name, patch=dict(patch), version=str(version)
@@ -1543,56 +935,6 @@ def build_sidecar(client, capabilities):
             patch=dict(patch),
             version=str(version),
         )
-
-    def experiment_list_recent():
-        return _tool("experiment_list_recent")
-
-    def experiment_list_all(
-        instrument: Optional[str] = None,
-        operator: Optional[str] = None,
-        since: Optional[str] = None,
-        until: Optional[str] = None,
-    ):
-        return _tool(
-            "experiment_list_all",
-            instrument=instrument,
-            operator=operator,
-            since=since,
-            until=until,
-        )
-
-    def protocol_list():
-        return _tool("protocol_list")
-
-    def experiment_create(
-        name: str, protocol: Optional[str] = None, description: Optional[str] = None
-    ):
-        return _tool(
-            "experiment_create", name=name, protocol=protocol, description=description
-        )
-
-    def grid_add():
-        return _tool("grid_add")
-
-    def grid_rename(grid_name: str, name: str):
-        return _routed("grid_rename", grid_name=grid_name, name=name)
-
-    def grid_set_quality(grid_name: str, verdict: str, reason: str = ""):
-        return _routed(
-            "grid_set_quality", grid_name=grid_name, verdict=verdict, reason=reason
-        )
-
-    def grid_set_note(grid_name: str, note: str):
-        return _routed("grid_set_note", grid_name=grid_name, note=note)
-
-    def grid_remove(grid_name: str):
-        return _routed("grid_remove", grid_name=grid_name)
-
-    def protocol_add_task(task_type: str, task_name: str):
-        return _tool("protocol_add_task", task_type=task_type, task_name=task_name)
-
-    def protocol_remove_task(task_name: str):
-        return _routed("protocol_remove_task", task_name=task_name)
 
     def protocol_reorder_tasks(order: list):
         return _tool("protocol_reorder_tasks", order=list(order))
@@ -1628,17 +970,6 @@ def build_sidecar(client, capabilities):
     def protocol_save(name: str, overwrite: bool = False):
         return _tool("protocol_save", name=name, overwrite=bool(overwrite))
 
-    def protocol_get_grid_task_config(task_name: str):
-        return _routed("protocol_get_grid_task_config", task_name=task_name)
-
-    def protocol_update_grid_task_config(task_name: str, patch: dict, version: str):
-        return _routed(
-            "protocol_update_grid_task_config",
-            task_name=task_name,
-            patch=patch,
-            version=version,
-        )
-
     def protocol_reorder_grid_tasks(order: list):
         return _tool("protocol_reorder_grid_tasks", order=list(order))
 
@@ -1649,26 +980,6 @@ def build_sidecar(client, capabilities):
             requires=list(requires),
         )
 
-    def experiment_load(path: str):
-        return _tool("experiment_load", path=path)
-
-    def protocol_load(protocol: str):
-        return _tool("protocol_load", protocol=protocol)
-
-    def app_get_events(since: int = 0, timeout: float = 0.0):
-        return _tool("app_get_events", since=since, timeout=timeout)
-
-    def workflow_stop(reason: str):
-        return _tool("workflow_stop", reason=reason)
-
-    def workflow_stop_task(item_name: str, task_name: str, reason: str):
-        return _tool(
-            "workflow_stop_task",
-            item_name=item_name,
-            task_name=task_name,
-            reason=reason,
-        )
-
     def workflow_queue_grids(task_names: list, grid_names: list):
         return _tool(
             "workflow_queue_grids",
@@ -1676,7 +987,7 @@ def build_sidecar(client, capabilities):
             grid_names=list(grid_names),
         )
 
-    def workflow_start(task_names: list, item_names: list = None):  # noqa: RUF013
+    def workflow_start(task_names: list, item_names: Optional[list] = None):
         payload = {"task_names": list(task_names)}
         if item_names is not None:
             payload["item_names"] = list(item_names)
@@ -1684,7 +995,7 @@ def build_sidecar(client, capabilities):
 
     def workflow_plan(
         task_names: list,
-        item_names: list = None,  # noqa: RUF013
+        item_names: Optional[list] = None,
         add: bool = False,
         run_next: bool = False,
     ):
@@ -1698,8 +1009,8 @@ def build_sidecar(client, capabilities):
         return _tool("workflow_plan", **payload)
 
     def workflow_plan_grids(
-        task_names: list, grid_names: list = None, screen_all: bool = False
-    ):  # noqa: RUF013
+        task_names: list, grid_names: Optional[list] = None, screen_all: bool = False
+    ):
         payload = {"task_names": list(task_names), "screen_all": bool(screen_all)}
         if grid_names is not None:
             payload["grid_names"] = list(grid_names)
@@ -1707,7 +1018,7 @@ def build_sidecar(client, capabilities):
 
     def workflow_start_grids(
         task_names: list,
-        grid_names: list = None,  # noqa: RUF013
+        grid_names: Optional[list] = None,
         screen_all: bool = False,
         unload_at_end: bool = False,
         report_at_end: bool = False,
@@ -1744,14 +1055,6 @@ def build_sidecar(client, capabilities):
             item_name=item_name,
             task_name=task_name,
             front=bool(front),
-        )
-
-    def workflow_edit_queue(item_name: str, task_name: str, action: str):
-        return _tool(
-            "workflow_edit_queue",
-            item_name=item_name,
-            task_name=task_name,
-            action=action,
         )
 
     def app_get_display_images():
@@ -1834,29 +1137,31 @@ def build_sidecar(client, capabilities):
             body["action"] = str(action)
         return _tool("proposal_suggest", **body)
 
-    implementations = {
+    def _answered(spec):
+        """A tool that answers its route's answer as it stands, or its
+        ``result`` under `ToolSpec.result_key`; a preview in it as an image."""
+
+        def tool(**arguments):
+            data, err = _route(spec.name, **arguments)
+            if err:
+                return err
+            key = spec.result_key
+            return _with_images({key: data["result"]} if key else data)
+
+        tool.__name__ = spec.name
+        tool.__signature__ = spec.signature
+        return tool
+
+    # The tools that reshape their answer or do more than call their route;
+    # every other tool is its catalog entry (`_answered`).
+    overrides = {
         fn.__name__: fn
         for fn in (
-            server_get_capabilities,
-            microscope_get_info,
             stage_get_position,
-            stage_get_orientation,
-            microscope_get_state,
-            stage_get_current_milling_angle,
-            stage_get_geometry,
             milling_get_state,
             milling_estimate_time,
-            milling_preview_patterns,
-            alignment_align_to_reference,
-            alignment_measure_shift,
-            alignment_compare_methods,
             correlation_correlate,
-            correlation_refine_point,
-            correlation_predict,
             correlation_find_spot_burns,
-            milling_check_stages,
-            milling_list_options,
-            device_call_query,
             microscope_set_state,
             experiment_get_image_stage_position,
             experiment_render_markers,
@@ -1864,163 +1169,64 @@ def build_sidecar(client, capabilities):
             experiment_draw_pair,
             item_draw_milling,
             experiment_get_image_pixels,
-            grid_set_quality,
-            grid_set_note,
-            grid_remove,
-            protocol_add_task,
-            protocol_remove_task,
             protocol_reorder_tasks,
             protocol_set_task_requirements,
             protocol_set_lamella_defaults,
             protocol_save,
-            protocol_get_grid_task_config,
-            protocol_update_grid_task_config,
             protocol_reorder_grid_tasks,
             protocol_set_grid_task_requirements,
-            workflow_stop_task,
             workflow_queue_grids,
-            item_move_to_objective_position,
-            alignment_check_coincidence,
-            alignment_measure_coincidence,
             milling_stop,
             milling_end,
             milling_pause,
             milling_resume,
-            milling_follow_readings,
             beam_acquire_image,
-            stage_move_relative,
-            stage_stable_move,
-            stage_fm_stable_move,
-            stage_get_saved_positions,
-            stage_save_position,
-            stage_move_to_saved_position,
-            stage_remove_saved_position,
-            stage_move_to_device,
-            stage_vertical_move,
-            stage_move_to_orientation,
-            stage_move_absolute,
-            stage_move_to_milling_angle,
-            device_list,
-            device_get_parameter,
-            device_set_parameter,
-            device_call_command,
-            service_list,
-            service_get_parameter,
-            service_set_parameter,
-            service_call_command,
-            service_call_query,
             service_wait_for_run,
-            beam_auto_contrast,
-            beam_auto_focus,
-            fm_auto_focus,
-            beam_acquire_overview,
-            beam_estimate_overview,
-            beam_acquire_focus_stack,
-            beam_turn_on,
-            beam_turn_off,
-            fm_insert_objective,
-            fm_retract_objective,
-            fm_save_focus_position,
-            fm_acquire_image,
-            milling_run_stage,
-            milling_run_task,
-            milling_run_spot_burn,
-            milling_estimate_spot_burn,
-            coating_deposit,
-            coating_sputter,
-            fm_acquire_overview,
-            fm_estimate_overview,
-            beam_auto_brightness_contrast,
-            app_get_status,
-            workflow_get_queue,
-            item_list,
-            experiment_get_task_history,
-            workflow_get_summary,
-            app_get_log,
-            protocol_get,
-            item_list_outputs,
             item_get_history,
-            item_get_stack,
             item_get_output_image,
             item_measure_thickness,
-            experiment_get_image_metadata,
-            experiment_list_files,
             experiment_read_file,
             experiment_crop_image,
             experiment_fetch_file,
-            item_get,
-            grid_list,
-            grid_get,
             grid_get_output_image,
-            grid_get_markers,
-            grid_get_stage_position,
-            grid_add,
-            grid_rename,
-            grid_get_inventory,
-            grid_get_current,
-            grid_get_holder_slots,
-            grid_run_inventory,
-            grid_load,
-            grid_unload,
-            grid_move_to,
-            grid_move_to_slot,
-            protocol_get_task_config,
-            item_get_task_config,
             item_update_task_config,
             protocol_update_task_config,
             item_update,
-            protocol_set_schedule,
             item_apply_protocol,
-            item_add,
-            item_remove,
-            item_move_to_pose,
-            item_set_pose,
-            item_apply_correlation,
-            item_set_objective_position,
-            item_set_objective_position_on_all,
-            item_set_position,
             experiment_add_note,
             experiment_message_operator,
             server_report_session,
-            server_set_constraints,
-            server_set_checklist,
             request_create,
             request_withdraw,
-            request_get,
             request_list,
             item_reorder_milling_stages,
             protocol_reorder_milling_stages,
-            experiment_list_recent,
-            experiment_list_all,
-            protocol_list,
-            experiment_create,
-            experiment_load,
-            protocol_load,
-            app_get_events,
             app_get_display_images,
             proposal_list,
             proposal_decide,
             proposal_suggest,
-            workflow_stop,
             workflow_plan,
             workflow_plan_grids,
             workflow_start_grids,
             protocol_set_supervision,
             workflow_set_options,
             workflow_requeue,
-            workflow_edit_queue,
             workflow_start,
         )
     }
-    # The catalog is the contract: refuse to start with an implementation gap.
-    missing = {t.name for t in CATALOG} - set(implementations)
-    if missing:
-        raise RuntimeError(f"sidecar is missing implementations for: {sorted(missing)}")
+    unknown = set(overrides) - set(by_name)
+    if unknown:
+        raise RuntimeError(
+            f"sidecar overrides tools not in the catalog: {sorted(unknown)}"
+        )
+    implementations = {
+        spec.name: overrides.get(spec.name) or _answered(spec) for spec in CATALOG
+    }
 
     for name, fn in implementations.items():
         if name in offered:
             spec = by_name[name]
-            params = dict(spec.params)
+            params = {n: a.doc for n, a in spec.arguments.items()}
             if spec.takes_evidence:
                 fn = _with_evidence(fn, client)
                 params["evidence"] = EVIDENCE_PARAM

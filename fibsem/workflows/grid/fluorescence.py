@@ -23,12 +23,9 @@ from fibsem.imaging.thumbnail import write_thumbnail
 from fibsem.imaging.tiled import stamped_overview_name
 from fibsem.imaging.tiling.reach import reachable_fluorescence_overview
 from fibsem.services.sample_handling import uncalibrated_message
-from fibsem.structures import (
-    Display,
-    FibsemStagePosition,
-    InsertableDeviceState,
-    param,
-)
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.grid.base import (
     GridTask,
     GridTaskConfig,

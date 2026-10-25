@@ -24,7 +24,8 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.fm.structures import EmissionFilter
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 from fibsem.ui.correlation.widgets.correlation_setup_section import (
     SEED_NONE,
     SEED_PREVIOUS,
@@ -32,6 +33,7 @@ from fibsem.ui.correlation.widgets.correlation_setup_section import (
     CorrelationSetupSection,
     format_run_timestamp,
 )
+from tests.fixtures.fm_images import fm_image, gfp
 
 OLD = "2026-07-20_09-00-00"
 NEW = "2026-07-24_14-32-00"
@@ -228,34 +230,23 @@ def test_manual_edits_prompt_before_reseeding(qapp, monkeypatch):
 
 
 def _fm_image(nz=11, pixel_size_z=200e-9):
-    from datetime import datetime
-
     import numpy as np
 
-    from fibsem.fm.structures import (
-        FluorescenceChannelMetadata,
-        FluorescenceImage,
-        FluorescenceImageMetadata,
-    )
-
-    ch = FluorescenceChannelMetadata(
-        name="GFP",
-        excitation_wavelength=488.0,
+    channel = gfp(
         emission_filter=EmissionFilter.band("520 nm", 520.0),
         power=0.3,
         exposure_time=0.05,
         gain=1.5,
         offset=50.0,
     )
-    meta = FluorescenceImageMetadata(
-        acquisition_datetime=datetime(2026, 7, 24).isoformat(),
-        pixel_size_x=40e-9,
-        pixel_size_y=40e-9,
+    return fm_image(
+        np.zeros((1, nz, 64, 64), np.uint16),
+        [channel],
+        pixel_size=40e-9,
+        acquired="2026-07-24T00:00:00",
         pixel_size_z=pixel_size_z,
         resolution=(64, 64),
-        channels=[ch],
     )
-    return FluorescenceImage(data=np.zeros((1, nz, 64, 64), np.uint16), metadata=meta)
 
 
 def test_fm_pixel_size_reports_xy_z_and_anisotropy(qapp):

@@ -32,7 +32,8 @@ from fibsem.applications.autolamella.ui.lamella.history import (  # noqa: E402
     _ClickableRow,
 )
 from fibsem.session_state import user_state  # noqa: E402
-from fibsem.structures import FibsemImage, MicroscopeState  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from fibsem.util.timestamps import format_time  # noqa: E402
 from fibsem.workflows.event_recording import (  # noqa: E402
     EVENTS_FILENAME,
@@ -383,8 +384,8 @@ def test_the_filter_menu_has_the_apps_menu_background(widget, qapp):
     """The header row sets an unscoped `background: transparent`, which reached
     the menu through the filter button, its parent: the menu drew see-through
     over the runs. Parentless, it gets the app's menu style like every other."""
+    from fibsem.theme.tokens import SURFACE_COLOR
     from fibsem.ui import stylesheets
-    from fibsem.ui.tokens import SURFACE_COLOR
 
     before = qapp.styleSheet()
     qapp.setStyleSheet(stylesheets.NAPARI_STYLE)

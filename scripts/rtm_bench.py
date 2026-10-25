@@ -26,8 +26,8 @@ from autoscript_sdb_microscope_client.structures import (
 )
 
 from fibsem import utils
-from fibsem.structures import CrossSectionPattern as CS
-from fibsem.structures import FibsemMillingSettings, FibsemRectangleSettings
+from fibsem.structures.settings import CrossSectionPattern as CS
+from fibsem.structures.settings import FibsemMillingSettings, FibsemRectangleSettings
 
 # name: (RTM mode, patterning mode, layout, wait_for_next_data)
 CASES = {

@@ -23,10 +23,14 @@ observer with a doorbell, not a second driver.
 
 ## Turning it on
 
-1. **Tools → App Server**: tick *Run the App Server*. It is saved, so the
-   next launch starts the same way.
-2. Connect a microscope. The server starts with the session and stops with it.
-3. **Tools → App Server** also shows the server: whether it is running, which
+1. **Tools → Host**: tick *Serve this session*. It is saved, so the
+   next launch starts the same way. The host (the fibsem host, one process
+   per microscope) serves with or without a microscope; until one is
+   connected, `/microscope` answers *not connected* and the web app's
+   Microscope page shows a Connect card.
+2. Connect a microscope, from the window or the web app. The server follows
+   the connection; it does not restart.
+3. **Tools → Host** also shows the server: whether it is running, which
    services it serves, when the agent was last heard from, and the
    event log. *Serve the microscope* there also serves the routes that
    reach the instrument, everything under `/microscope`: who it is, its
@@ -205,7 +209,7 @@ you. At Drive it may decide it.
 
 ## The event log
 
-**Event log** in Tools → App Server, and on the agent card, opens the web
+**Event log** in Tools → Host, and on the agent card, opens the web
 app's Events page in your browser: what the agent, the operator and the run
 did, as one filterable table that follows the event stream live. The page is
 also under Events in the web app's rail.
@@ -291,8 +295,8 @@ bearer token — the sidecar is convenience, not a requirement.
 
 ## When something is off
 
-- *The dialog says "Not running"* — *Run the App Server* is off, or it is on
-  but no microscope is connected yet; it starts when one connects.
+- *The dialog says "Not running"* — *Serve this session* is off, or the
+  server did not start (the dialog says so; see the log).
 - *The sidecar exits with "no server found"* — it waited for a server that
   never appeared; start AutoLamella (with the feature on) first, or pass
   `--url` explicitly.

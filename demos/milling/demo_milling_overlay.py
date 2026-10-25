@@ -22,7 +22,8 @@ from fibsem.milling.patterning.patterns import (
     RectanglePattern,
     TrenchPattern,
 )
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.milling_overlay import MillingPatternOverlay

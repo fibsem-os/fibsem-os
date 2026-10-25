@@ -17,11 +17,11 @@ from PyQt5.QtWidgets import QAction, QDialog, QMainWindow, QMessageBox
 
 import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.ui.coincidence.menu import CoincidenceMenu
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
+from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.tools.apps import AUTOLAMELLA, App, apps
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.sound import play_notification_sound
-from fibsem.ui.stylesheets import GRAY_ICON_COLOR
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
 from fibsem.ui.widgets.run_border import RunBorder
 
@@ -300,10 +300,10 @@ class MainMenuBar(QObject):
         # event log. The agent's level and connecting one are the agent chip's.
         # Always visible: it is where the server is turned on. Next
         # to Scripts.
-        self.action_app_server = QAction("App Server...", self._host)
+        self.action_app_server = QAction("Host...", self._host)
         self.action_app_server.setMenuRole(QAction.NoRole)
         self.action_app_server.setToolTip(
-            "The App Server: whether it is running, its services, and the event log"
+            "The fibsem host: whether it is serving, its services, and the event log"
         )
         self.action_app_server.triggered.connect(self._actions.app_server)
         tools_menu.addAction(self.action_app_server)
@@ -556,28 +556,9 @@ class MainMenuBar(QObject):
         ), ""
 
     def connect_microscope(self):
-        """Connect from the dialog, then hand the session to the system widget.
-
-        The widget stays the one place that owns the connection: everything else in
-        the application follows its `connected_signal`, so routing through it means
-        the dialog needs to know nothing about who cares.
-        """
-        system_widget = self._system_widget()
-        result = connect_to_microscope_dialog(
-            parent=self._host,
-            microscope=system_widget.microscope,
-            settings=system_widget.settings,
-            workflow_running=self._session.runner.is_running,
-        )
-        if not result.changed:
-            return
-
-        # Including a disconnect, where the new session is None. Handing that back
-        # through the widget is what tells the rest of the application, which
-        # follows its signals rather than knowing about this dialog.
-        system_widget.microscope = result.microscope
-        system_widget.settings = result.settings
-        system_widget.update_ui()
+        """Connect or disconnect the session from the dialog: everything else
+        in the application follows the session's ``changed``."""
+        connect_to_microscope_dialog(self._session, parent=self._host)
 
     def _on_export_image(self):
         """Handle Export Image action: pick an image, starting in the experiment."""

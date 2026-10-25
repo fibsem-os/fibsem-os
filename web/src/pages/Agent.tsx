@@ -1,14 +1,15 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, ListFilter } from "lucide-react";
+import { ChevronDown, ChevronRight, ListChecks, ListFilter } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
-import type { AgentState, RecentRow, TranscriptLine } from "@/lib/types";
+import type { AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { Composer } from "./agent/Composer";
 import { EvidenceImage } from "./agent/Pictures";
+import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // Last heard moves with no events, so the agent is read again on a clock.
 const AGENT_EVERY_MS = 10000;
@@ -264,6 +265,13 @@ export function AgentPage() {
     queryKey: ["app/agent/recent"],
     queryFn: () => api<{ rows: RecentRow[] }>("/app/agent/recent"),
   });
+  // Under "app/agent", so news about the agent reads it again; the checklist
+  // changes without news, so it is also read on the agent's clock.
+  const reported = useQuery({
+    queryKey: ["app/agent", "session"],
+    queryFn: () => api<{ session: ReportedSession | null }>("/app/agent/session"),
+    refetchInterval: AGENT_EVERY_MS,
+  });
   const rowsNow = recent.data?.rows ?? [];
   const since = rowsNow.find((r) => r.at)?.at;
   const transcript = useQuery({
@@ -301,92 +309,116 @@ export function AgentPage() {
   const request = a.request && ["pending", "applying"].includes(a.request.status) ? a.request : null;
   const suggestion = a.suggestion && a.request?.status !== "pending" ? a.suggestion : null;
   const label = SHOWS.find(([key]) => key === show)![1];
+  const session = reported.data?.session;
+  const panel = hasPanel(session) ? <SidePanel session={session} budgetLow={a.budget_low} /> : null;
   return (
-    <div className="mx-auto flex h-full w-full max-w-[880px] flex-col px-4 md:px-5">
-      <div className="flex items-center justify-end gap-3 pt-2.5">
-        <Popup
-          label="Show"
-          align="right"
-          className="top-[calc(100%+4px)] bottom-auto w-44"
-          trigger={(open, toggle) => (
-            <button
-              className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-haspopup="menu"
-              aria-expanded={open}
-              onClick={toggle}
-            >
-              <ListFilter size={14} />
-              {label}
-            </button>
-          )}
-        >
-          {(close) => (
-            <div role="menu" className="flex flex-col">
-              {SHOWS.map(([key, word]) => (
-                <button
-                  key={key}
-                  role="menuitemradio"
-                  aria-checked={key === show}
-                  className={cn(
-                    "cursor-pointer rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
-                    key === show && "bg-accent",
-                  )}
-                  onClick={() => {
-                    setShow(key);
-                    close();
-                  }}
-                >
-                  {word}
-                </button>
-              ))}
-            </div>
-          )}
-        </Popup>
-      </div>
-      <section
-        aria-label="Record"
-        ref={list}
-        className="min-h-0 flex-1 overflow-y-auto py-1"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-        }}
-      >
-        <div>
-          {a.session && (
-            <div
-              className={cn(
-                "py-1.5 pl-2.5 text-[13px]",
-                a.budget_low ? "text-[var(--fibsem-warn-color)]" : "text-muted-foreground",
-              )}
-            >
-              {a.session}
-            </div>
-          )}
-          {rows.length ? (
-            <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
-          ) : (
-            <div className="py-8 text-center text-[13px] text-muted-foreground">
-              No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
-              connects.
+    <div className="flex h-full justify-center gap-8 lg:pr-6">
+      <div className="flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5">
+        <div className="flex items-center justify-end gap-3 pt-2.5">
+          <Popup
+            label="Show"
+            align="right"
+            className="top-[calc(100%+4px)] bottom-auto w-44"
+            trigger={(open, toggle) => (
+              <button
+                className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={toggle}
+              >
+                <ListFilter size={14} />
+                {label}
+              </button>
+            )}
+          >
+            {(close) => (
+              <div role="menu" className="flex flex-col">
+                {SHOWS.map(([key, word]) => (
+                  <button
+                    key={key}
+                    role="menuitemradio"
+                    aria-checked={key === show}
+                    className={cn(
+                      "cursor-pointer rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
+                      key === show && "bg-accent",
+                    )}
+                    onClick={() => {
+                      setShow(key);
+                      close();
+                    }}
+                  >
+                    {word}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Popup>
+          {panel && (
+            <div className="lg:hidden">
+              <Popup
+                label="Goal and to do"
+                align="right"
+                className="top-[calc(100%+4px)] bottom-auto w-[min(18rem,calc(100vw-2rem))] p-3"
+                trigger={(open, toggle) => (
+                  <button
+                    className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                    aria-expanded={open}
+                    onClick={toggle}
+                  >
+                    <ListChecks size={14} />
+                    Goal and to do
+                  </button>
+                )}
+              >
+                {() => panel}
+              </Popup>
             </div>
           )}
         </div>
-      </section>
-      <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
-        {/* Kept while a session runs, so the composer doesn't move as commands start and end. */}
-        {(a.session || a.now) && <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>}
-        {a.waiting && (
-          <div className="text-[13px]">
-            <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}
-            <span className="text-muted-foreground">· {a.waiting.who}</span>
+        <section
+          aria-label="Record"
+          ref={list}
+          className="min-h-0 flex-1 overflow-y-auto py-1"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          }}
+        >
+          <div>
+            {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
+            {rows.length ? (
+              <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
+            ) : (
+              <div className="py-8 text-center text-[13px] text-muted-foreground">
+                No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
+                connects.
+              </div>
+            )}
           </div>
-        )}
-        {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} />}
-        {request && <RequestCard key={request.request_id} request={request} agent={a} />}
-        {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
-        <Composer agent={a} onSent={() => (pinned.current = true)} />
+        </section>
+        <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
+          {/* Kept while a session runs, so the composer doesn't move as commands start and end. */}
+          {(a.session || a.now) && <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>}
+          {a.waiting && (
+            <div className="text-[13px]">
+              <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}
+              <span className="text-muted-foreground">· {a.waiting.who}</span>
+            </div>
+          )}
+          {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} />}
+          {request && <RequestCard key={request.request_id} request={request} agent={a} />}
+          {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
+          <Composer agent={a} onSent={() => (pinned.current = true)} />
+        </div>
       </div>
+      {panel && (
+        <aside
+          aria-label="Goal and to do"
+          className="hidden w-[232px] shrink-0 overflow-y-auto pt-[38px] pb-4 lg:block"
+        >
+          {panel}
+        </aside>
+      )}
     </div>
   );
 }

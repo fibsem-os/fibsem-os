@@ -27,13 +27,9 @@ from fibsem.drivers.tescan import connection as tescan_connection
 from fibsem.drivers.tescan import sdk
 from fibsem.drivers.tescan.images import image_from_tescan
 from fibsem.drivers.tescan.microscope import TescanMicroscope
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    ImageSettings,
-    MillingState,
-    SystemSettings,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings, MillingState
+from fibsem.structures.system import SystemSettings
 
 
 def _plain(value):

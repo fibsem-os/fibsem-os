@@ -36,14 +36,15 @@ from fibsem.applications.autolamella.ui.common.lamella_display import (
     not_on_stage_reason,
     status_look,
 )
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
-from fibsem.ui.qt.connections import connect_for_lifetime
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     CANVAS_BG,
     NEUTRAL_550,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
+from fibsem.ui.qt.connections import connect_for_lifetime
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.lists import (
@@ -184,7 +185,7 @@ class LamellaRow(QWidget):
             + " QToolButton::menu-indicator { image: none; }"
         )
         self.btn_actions.setIcon(
-            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_actions.setToolTip("Actions")
         self.btn_actions.setPopupMode(QToolButton.InstantPopup)
@@ -193,11 +194,11 @@ class LamellaRow(QWidget):
         self.action_update: Optional[QAction] = None
         if stage_actions:
             self.action_move_to = menu.addAction(
-                fibsem_icon(ICON_MOVE_TO_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+                fibsem_icon(ICON_MOVE_TO_POSITION, color=tokens.GRAY_ICON_COLOR),
                 "Move to Position",
             )
             self.action_update = menu.addAction(
-                fibsem_icon(ICON_UPDATE_POSITION, color=stylesheets.GRAY_ICON_COLOR),
+                fibsem_icon(ICON_UPDATE_POSITION, color=tokens.GRAY_ICON_COLOR),
                 "Update Position",
             )
             self.action_move_to.triggered.connect(
@@ -207,10 +208,10 @@ class LamellaRow(QWidget):
                 lambda: self.update_clicked.emit(self.lamella)
             )
         self.action_edit = menu.addAction(
-            fibsem_icon("mdi:pencil", color=stylesheets.GRAY_ICON_COLOR), "Edit"
+            fibsem_icon("mdi:pencil", color=tokens.GRAY_ICON_COLOR), "Edit"
         )
         self.action_remove = menu.addAction(
-            fibsem_icon("mdi:trash-can-outline", color=stylesheets.GRAY_ICON_COLOR),
+            fibsem_icon("mdi:trash-can-outline", color=tokens.GRAY_ICON_COLOR),
             "Remove",
         )
         self.defect_menu = add_defect_menu(menu, lamella, self._on_defect_written)
@@ -391,7 +392,7 @@ class _GridFilterButton(QToolButton):
         self.setIcon(
             fibsem_icon(
                 "mdi:filter-variant",
-                color=ACCENT_COLOR if on else stylesheets.GRAY_ICON_COLOR,
+                color=ACCENT_COLOR if on else tokens.GRAY_ICON_COLOR,
             )
         )
         self.setToolTip(
@@ -632,9 +633,11 @@ class LamellaNameListWidget(QWidget):
     """
 
     lamella_selected = pyqtSignal(object)
+    # the list as the ItemSelection the Image and Fluorescence tabs follow
+    item_selected = lamella_selected
+    item_noun = "Lamella"
     add_requested = pyqtSignal()
     move_to_requested = pyqtSignal(object)
-    edit_requested = pyqtSignal(object)
     update_requested = pyqtSignal(object)
     remove_requested = pyqtSignal(object)
     defect_changed = pyqtSignal(object)
@@ -645,7 +648,6 @@ class LamellaNameListWidget(QWidget):
         self._btn_visible = {
             "defect": False,
             "move_to": False,
-            "edit": False,
             "update": False,
             "remove": False,
         }
@@ -697,6 +699,10 @@ class LamellaNameListWidget(QWidget):
         return item.data(Qt.UserRole) if item is not None else None  # type: ignore
 
     @property
+    def selected_item(self) -> Any:
+        return self.selected_lamella
+
+    @property
     def selected_name(self) -> str:
         """Return the display name of the current item, or ``""``."""
         lamella = self.selected_lamella
@@ -728,7 +734,6 @@ class LamellaNameListWidget(QWidget):
             row = LamellaRow(pos, stage_actions=True)
             row.set_grid_context(getattr(self, "_grid_context", None))
             row.move_to_clicked.connect(self.move_to_requested)
-            row.edit_clicked.connect(self.edit_requested)
             row.update_clicked.connect(self.update_requested)
             row.remove_clicked.connect(self.remove_requested)
             row.defect_changed.connect(self.defect_changed)
@@ -776,9 +781,6 @@ class LamellaNameListWidget(QWidget):
     def enable_move_to_action(self, visible: bool) -> None:
         self._set_visible("move_to", visible)
 
-    def enable_edit_action(self, visible: bool) -> None:
-        self._set_visible("edit", visible)
-
     def enable_update_action(self, visible: bool) -> None:
         self._set_visible("update", visible)
 
@@ -801,11 +803,11 @@ class LamellaNameListWidget(QWidget):
         v = self._btn_visible
         row.defect_menu.menuAction().setVisible(v["defect"])
         row.action_move_to.setVisible(v["move_to"])
-        row.action_edit.setVisible(v["edit"])
+        row.action_edit.setVisible(False)
         row.action_update.setVisible(v["update"])
         row.action_remove.setVisible(v["remove"])
         row.btn_actions.setVisible(
-            any(v[k] for k in ("defect", "move_to", "edit", "update", "remove"))
+            any(v[k] for k in ("defect", "move_to", "update", "remove"))
         )
         row.refresh()
 

@@ -15,7 +15,7 @@ from fibsem.imaging.tiling.registration import (
     compose_mosaic,
     measure_registration,
 )
-from fibsem.structures import OverviewAcquisitionSettings
+from fibsem.structures.settings import OverviewAcquisitionSettings
 
 H, W = 200, 300
 OVERLAP = 0.15

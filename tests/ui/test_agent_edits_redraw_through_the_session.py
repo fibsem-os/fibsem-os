@@ -26,7 +26,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.applications.autolamella.ui import window as window_module
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
-from fibsem.structures import MicroscopeState
+from fibsem.structures.settings import MicroscopeState
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.session import EXPERIMENT
 from tests.fixtures.main_window import close_window

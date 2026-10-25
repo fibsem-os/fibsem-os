@@ -2,13 +2,14 @@
 
 import os
 from dataclasses import fields as dataclass_fields
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.ai.agent.catalog.spec import (
     RETRACT_FIRST,
     RETRACT_FIRST_SAFE_MOVE,
     ToolSpec,
     absolute_position,
+    arg,
     command_body,
     kwargs_body,
     stage_position,
@@ -16,7 +17,7 @@ from fibsem.ai.agent.catalog.spec import (
 from fibsem.util import wording
 
 if TYPE_CHECKING:
-    from fibsem.structures import Parameter
+    from fibsem.structures.params import Parameter
 
 
 _ALIGN_WITH = {
@@ -31,7 +32,7 @@ def _parameter_spec(info: Any) -> Optional["Parameter"]:
     its unit and how it is shown."""
     if not isinstance(info, dict):
         return None
-    from fibsem.structures import Display, Parameter
+    from fibsem.structures.params import Display, Parameter
 
     display = info.get("display")
     shown = None
@@ -246,10 +247,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "session_id": "your session's id, as your harness names it",
             "model": "the model you run as",
             "goal": "what you were asked to do, in a sentence",
-            "budget_usd": "what this session may spend, in US dollars",
-            "spent_usd": "what it has spent so far",
-            "turns": "how many turns it has taken",
-            "ended": "true when the session ends",
+            "budget_usd": arg("what this session may spend, in US dollars", float),
+            "spent_usd": arg("what it has spent so far", float),
+            "turns": arg("how many turns it has taken", int),
+            "ended": arg("true when the session ends", bool),
             "reason": "why it ended",
         },
         optional=(
@@ -272,7 +273,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         router="app",
         params={
-            "constraints": "the whole list, each {text, by?}: text in the operator's words, by the time it must be done by",
+            "constraints": arg(
+                "the whole list, each {text, by?}: text in the operator's words, by the time it must be done by",
+                List[Dict[str, Any]],
+            ),
         },
     ),
     ToolSpec(
@@ -284,7 +288,10 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         router="app",
         params={
-            "checklist": "the whole list, each {text, state}: state open, done or always",
+            "checklist": arg(
+                "the whole list, each {text, state}: state open, done or always",
+                List[Dict[str, Any]],
+            ),
         },
     ),
     ToolSpec(
@@ -306,6 +313,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description="Named stage orientation (SEM, FIB, MILLING, FM or NONE).",
         method="POST",
         path="/microscope/services/stage_movement/queries/stage_orientation",
+        result_key="orientation",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
     ),
@@ -344,6 +352,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description="Current milling angle in degrees: the angle between the ion beam and the sample surface at the stage's rotation and tilt (90 at the FIB pose).",
         method="POST",
         path="/microscope/services/stage_movement/queries/current_milling_angle",
+        result_key="milling_angle_deg",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
     ),
@@ -352,6 +361,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description="The instrument's geometry in one read: column tilts, pre-tilt, rotation reference and centre, the orientation table, device origins, and what they mean at the stage's pose now: which way raw +z goes in the chamber, the milling angle here and the pose for the stored one, and per beam the stage move a +1 µm stable move along each image axis makes at the current scan rotation. Read it first on a new instrument, then confirm once with one small move. Angles in degrees.",
         method="POST",
         path="/microscope/services/stage_movement/queries/geometry",
+        result_key="geometry",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
     ),
@@ -370,16 +380,36 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/alignment/commands/align_to_reference",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
             "reference_path": "a saved image inside the open experiment",
-            "steps": "how many measure-and-correct steps (default 3)",
-            "subsystem": "beam-shift (default), stage or stage-vertical",
-            "use_autofocus": "true to auto focus before each acquisition (default false)",
-            "method": "how the shift is measured: cross-correlation (default), phase-correlation or skimage-phase-correlation",
-            "validate": "take a final image and check the methods agree on what is left (default true)",
-            "use_autocontrast": "true to autocontrast before each acquisition (default false)",
+            "steps": arg(
+                "how many measure-and-correct steps (default 3)", int, default=3
+            ),
+            "subsystem": arg(
+                "beam-shift (default), stage or stage-vertical", default="beam-shift"
+            ),
+            "use_autofocus": arg(
+                "true to auto focus before each acquisition (default false)",
+                bool,
+                default=False,
+            ),
+            "method": arg(
+                "how the shift is measured: cross-correlation (default), phase-correlation or skimage-phase-correlation",
+                default="cross-correlation",
+            ),
+            "validate": arg(
+                "take a final image and check the methods agree on what is left (default true)",
+                bool,
+                default=True,
+            ),
+            "use_autocontrast": arg(
+                "true to autocontrast before each acquisition (default false)",
+                bool,
+                default=False,
+            ),
             "path": "a folder inside the open experiment to save the run to (default Alignment, next to the reference)",
         },
         optional=(
@@ -416,11 +446,15 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/alignment/queries/measure_shift",
+        result_key="shift",
         level="watch",
         params={
             "reference_path": "the saved reference image",
             "image_path": "the saved image to measure against it",
-            "method": "cross-correlation (default), phase-correlation or skimage-phase-correlation",
+            "method": arg(
+                "cross-correlation (default), phase-correlation or skimage-phase-correlation",
+                default="cross-correlation",
+            ),
         },
         optional=("method",),
         call=lambda a: (
@@ -443,11 +477,16 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/alignment/queries/compare_methods",
+        result_key="comparison",
         level="watch",
         params={
             "reference_path": "the saved reference image",
             "image_path": "the saved image to measure against it",
-            "agreement_px": "the most the methods may differ and agree, in pixels (default 2)",
+            "agreement_px": arg(
+                "the most the methods may differ and agree, in pixels (default 2)",
+                float,
+                default=2.0,
+            ),
         },
         optional=("agreement_px",),
         call=lambda a: (
@@ -482,15 +521,33 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/alignment/commands/check_coincidence",
+        result_key="coincidence",
         level="drive",
         hardware=True,
         params={
-            "x": "target x, metres from that beam's image centre (default 0)",
-            "y": "target y, metres from that beam's image centre, +y up (default 0)",
-            "hfw": "field width of both images in metres (default 150e-6)",
-            "autocontrast": "autocontrast each beam first (default true)",
+            "x": arg(
+                "target x, metres from that beam's image centre (default 0)",
+                float,
+                default=0.0,
+            ),
+            "y": arg(
+                "target y, metres from that beam's image centre, +y up (default 0)",
+                float,
+                default=0.0,
+            ),
+            "hfw": arg(
+                "field width of both images in metres (default 150e-6)",
+                float,
+                default=0.00015,
+            ),
+            "autocontrast": arg(
+                "autocontrast each beam first (default true)", bool, default=True
+            ),
             "path": "optional folder inside the open experiment to save into",
-            "beam": "the beam the target is centred in: ELECTRON (default) or ION",
+            "beam": arg(
+                "the beam the target is centred in: ELECTRON (default) or ION",
+                default="ELECTRON",
+            ),
         },
         optional=("x", "y", "hfw", "autocontrast", "path", "beam"),
         line=_alignment_check_coincidence,
@@ -520,13 +577,25 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/alignment/queries/measure_coincidence",
+        result_key="coincidence",
         level="watch",
         params={
             "sem_path": "the saved SEM image",
             "fib_path": "the saved FIB image of the same place",
-            "x": "target x, metres from that beam's image centre (default 0)",
-            "y": "target y, metres from that beam's image centre, +y up (default 0)",
-            "beam": "the beam the target is centred in: ELECTRON (default) or ION",
+            "x": arg(
+                "target x, metres from that beam's image centre (default 0)",
+                float,
+                default=0.0,
+            ),
+            "y": arg(
+                "target y, metres from that beam's image centre, +y up (default 0)",
+                float,
+                default=0.0,
+            ),
+            "beam": arg(
+                "the beam the target is centred in: ELECTRON (default) or ION",
+                default="ELECTRON",
+            ),
         },
         optional=("x", "y", "beam"),
         call=lambda a: (
@@ -571,14 +640,30 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "fib_image_path": "the saved FIB image the fib_points are in",
             "fm_image_path": "the saved FM stack the fm_points and poi_points are in",
-            "fib_points": "fiducials as [[x, y], ...] FIB pixels",
-            "fm_points": "the same fiducials as [[x, y, z], ...] FM pixels and slices",
-            "poi_points": "targets as [[x, y, z], ...] FM pixels and slices",
-            "lamella_path": "the lamella's folder, to start from previous runs and save the run there",
-            "fm_surface_point": "[x, y, z] the sample surface in the FM stack: RI pre-correction",
-            "fib_surface_point": "[x, y] the sample surface in the FIB image: RI post-correction",
-            "ri": "RI settings over the protocol's: any of tilt_deg, depth_um, na, n2, wavelength_um",
-            "ri_factor": "the RI correction factor itself, instead of the lookup table's",
+            "fib_points": arg("fiducials as [[x, y], ...] FIB pixels", list),
+            "fm_points": arg(
+                "the same fiducials as [[x, y, z], ...] FM pixels and slices", list
+            ),
+            "poi_points": arg("targets as [[x, y, z], ...] FM pixels and slices", list),
+            "lamella_path": arg(
+                "the lamella's folder, to start from previous runs and save the run there",
+                default="",
+            ),
+            "fm_surface_point": arg(
+                "[x, y, z] the sample surface in the FM stack: RI pre-correction",
+                List[float],
+            ),
+            "fib_surface_point": arg(
+                "[x, y] the sample surface in the FIB image: RI post-correction",
+                List[float],
+            ),
+            "ri": arg(
+                "RI settings over the protocol's: any of tilt_deg, depth_um, na, n2, wavelength_um",
+                Dict[str, float],
+            ),
+            "ri_factor": arg(
+                "the RI correction factor itself, instead of the lookup table's", float
+            ),
         },
         optional=(
             "lamella_path",
@@ -605,7 +690,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="watch",
         params={
             "lamella_path": "the lamella's folder",
-            "fib_image_path": "a saved FIB image to give the burns' pixels in",
+            "fib_image_path": arg(
+                "a saved FIB image to give the burns' pixels in", default=""
+            ),
         },
         optional=("fib_image_path",),
         call=lambda a: ({}, kwargs_body(**a)),
@@ -622,16 +709,21 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/services/correlation/queries/refine_point",
+        result_key="point",
         router="services",
         level="watch",
         params={
             "image_path": "the saved FIB image or FM stack, inside the open experiment",
-            "x": "the picked x, pixels",
-            "y": "the picked y, pixels",
-            "z": "the picked slice, for an FM point (default 0)",
-            "beam": "fib or fm (default fib)",
-            "method": "Hole or Gaussian (default Hole for fib, Gaussian for fm)",
-            "channel": "the FM channel index (default 0)",
+            "x": arg("the picked x, pixels", float),
+            "y": arg("the picked y, pixels", float),
+            "z": arg(
+                "the picked slice, for an FM point (default 0)", float, default=0.0
+            ),
+            "beam": arg("fib or fm (default fib)", default="fib"),
+            "method": arg(
+                "Hole or Gaussian (default Hole for fib, Gaussian for fm)", default=""
+            ),
+            "channel": arg("the FM channel index (default 0)", int, default=0),
         },
         optional=("z", "beam", "method", "channel"),
         call=lambda a: ({}, kwargs_body(**a)),
@@ -647,11 +739,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/services/correlation/queries/predict",
+        result_key="prediction",
         router="services",
         level="watch",
         params={
             "run_path": "a correlation run folder inside the open experiment",
-            "fm_points": "[[x, y, z], ...] FM pixels and slices",
+            "fm_points": arg("[[x, y, z], ...] FM pixels and slices", list),
         },
         call=lambda a: ({}, kwargs_body(**a)),
     ),
@@ -675,13 +768,27 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/stable_move",
+        result_key="position",
         level="drive",
         hardware=True,
         params={
-            "dx": "the feature's offset from the image centre along x, metres, right positive",
-            "dy": "the feature's offset from the image centre along y, metres, up positive",
-            "beam_type": "the beam whose image the offset was measured in: ELECTRON or ION",
-            "static_wd": "true to put the electron working distance at its eucentric height after, rather than where it was (default false)",
+            "dx": arg(
+                "the feature's offset from the image centre along x, metres, right positive",
+                float,
+            ),
+            "dy": arg(
+                "the feature's offset from the image centre along y, metres, up positive",
+                float,
+            ),
+            "beam_type": arg(
+                "the beam whose image the offset was measured in: ELECTRON or ION",
+                default="ELECTRON",
+            ),
+            "static_wd": arg(
+                "true to put the electron working distance at its eucentric height after, rather than where it was (default false)",
+                bool,
+                default=False,
+            ),
         },
         optional=("beam_type", "static_wd"),
         line=_stage_stable_move,
@@ -709,11 +816,18 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/fm_stable_move",
+        result_key="position",
         level="drive",
         hardware=True,
         params={
-            "dx": "the feature's offset from the image centre along x, metres, right positive",
-            "dy": "the feature's offset from the image centre along y, metres, up positive",
+            "dx": arg(
+                "the feature's offset from the image centre along x, metres, right positive",
+                float,
+            ),
+            "dy": arg(
+                "the feature's offset from the image centre along y, metres, up positive",
+                float,
+            ),
         },
         line=_stage_fm_stable_move,
         call=lambda a: ({}, kwargs_body(dx=float(a["dx"]), dy=float(a["dy"]))),
@@ -723,6 +837,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description="The named stage positions saved with this microscope configuration, as the Saved Positions panel lists them (metres and radians).",
         method="POST",
         path="/microscope/services/stage_movement/queries/saved_positions",
+        result_key="saved_positions",
         level="watch",
         call=lambda a: ({}, kwargs_body()),
     ),
@@ -731,6 +846,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         description="Save the stage position now under name, as the Saved Positions panel's add and update do: a position already saved under that name is replaced. Kept with the microscope configuration.",
         method="POST",
         path="/microscope/services/stage_movement/commands/save_position",
+        result_key="position",
         level="drive",
         params={"name": "the name to save it under"},
         line=_stage_save_position,
@@ -742,6 +858,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         + RETRACT_FIRST_SAFE_MOVE,
         method="POST",
         path="/microscope/services/stage_movement/commands/move_to_saved_position",
+        result_key="position",
         level="drive",
         hardware=True,
         params={"name": "the saved position's name"},
@@ -804,13 +921,24 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/vertical_move",
+        result_key="position",
         level="drive",
         hardware=True,
         params={
-            "dy": "the feature's offset from the image centre along y, metres, up positive",
-            "dx": "the offset along x, metres, right positive (usually 0)",
+            "dy": arg(
+                "the feature's offset from the image centre along y, metres, up positive",
+                float,
+            ),
+            "dx": arg(
+                "the offset along x, metres, right positive (usually 0)",
+                float,
+                default=0.0,
+            ),
             "beam_type": "the view the offset was measured in: ION (default) or ELECTRON",
-            "relaxation": "fraction of the exact move to make, 0-1 (default 1); below 1 undershoots, to keep a repeated look-and-correct loop from overshooting",
+            "relaxation": arg(
+                "fraction of the exact move to make, 0-1 (default 1); below 1 undershoots, to keep a repeated look-and-correct loop from overshooting",
+                float,
+            ),
         },
         optional=("dx", "beam_type", "relaxation"),
         line=_stage_vertical_move,
@@ -835,6 +963,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/move_to_orientation",
+        result_key="position",
         level="drive",
         hardware=True,
         params={"orientation": "SEM, FIB, MILLING or FM"},
@@ -854,14 +983,15 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/safe_absolute_stage_movement",
+        result_key="position",
         level="drive",
         hardware=True,
         params={
-            "x": "x in metres",
-            "y": "y in metres",
-            "z": "z in metres",
-            "r": "rotation in radians",
-            "t": "tilt in radians",
+            "x": arg("x in metres", float),
+            "y": arg("y in metres", float),
+            "z": arg("z in metres", float),
+            "r": arg("rotation in radians", float),
+            "t": arg("tilt in radians", float),
         },
         line=_stage_move_absolute,
         call=lambda a: ({}, kwargs_body(stage_position=absolute_position(a))),
@@ -877,12 +1007,13 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/move_relative",
+        result_key="position",
         level="drive",
         hardware=True,
         params={
-            "dx": "relative x in metres",
-            "dy": "relative y in metres",
-            "dz": "relative z in metres",
+            "dx": arg("relative x in metres", float, default=0.0),
+            "dy": arg("relative y in metres", float, default=0.0),
+            "dz": arg("relative z in metres", float, default=0.0),
         },
         optional=("dx", "dy", "dz"),
         line=_stage_move_relative,
@@ -899,11 +1030,14 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/stage_movement/commands/move_to_milling_angle",
+        result_key="success",
         level="drive",
         hardware=True,
         params={
-            "milling_angle_deg": "target milling angle in degrees",
-            "rotation_deg": "stage rotation in degrees; the current rotation if left out",
+            "milling_angle_deg": arg("target milling angle in degrees", float),
+            "rotation_deg": arg(
+                "stage rotation in degrees; the current rotation if left out", float
+            ),
         },
         optional=("rotation_deg",),
         line=_stage_move_to_milling_angle,
@@ -931,7 +1065,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "device": "device name from device_list",
             "parameter": "parameter name",
-            "value": "the new value",
+            "value": arg("the new value", Any),
         },
         line=_device_set_parameter,
     ),
@@ -945,7 +1079,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "device": "device name from device_list",
             "command": "command name",
-            "kwargs": "the command's arguments, by name",
+            "kwargs": arg("the command's arguments, by name", dict),
             "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
         optional=("kwargs", "reason"),
@@ -963,7 +1097,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "device": "device name from device_list",
             "query": "query name",
-            "kwargs": "the query's arguments, by name",
+            "kwargs": arg("the query's arguments, by name", dict),
         },
         optional=("kwargs",),
         call=lambda a: (
@@ -984,7 +1118,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={
-            "microscope_state": "a MicroscopeState dict, as microscope_get_state answers"
+            "microscope_state": arg(
+                "a MicroscopeState dict, as microscope_get_state answers", dict
+            )
         },
         line=_microscope_set_state,
     ),
@@ -1028,7 +1164,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "service": "service name from service_list",
             "parameter": "parameter name",
-            "value": "the new value",
+            "value": arg("the new value", Any),
         },
         line=_service_set_parameter,
     ),
@@ -1053,7 +1189,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "service": "service name from service_list",
             "command": "command name",
-            "kwargs": "the command's arguments, by name",
+            "kwargs": arg("the command's arguments, by name", dict),
             "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
         },
         optional=("kwargs", "reason"),
@@ -1083,7 +1219,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "service": "required: the service the command ran on, e.g. milling, imaging or alignment",
             "run_id": "the run_id the command answered with, or a milling_run_id",
-            "wait": "seconds to wait for the end, at most 60 (default 60)",
+            "wait": arg(
+                "seconds to wait for the end, at most 60 (default 60)",
+                float,
+                default=60.0,
+            ),
         },
         optional=("run_id", "wait"),
     ),
@@ -1102,7 +1242,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         params={
             "service": "service name from service_list",
             "query": "query name",
-            "kwargs": "the query's arguments, by name",
+            "kwargs": arg("the query's arguments, by name", dict),
         },
         optional=("kwargs",),
         call=lambda a: (

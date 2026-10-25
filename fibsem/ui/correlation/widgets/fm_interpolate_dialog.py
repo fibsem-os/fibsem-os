@@ -24,9 +24,7 @@ from PyQt5.QtWidgets import (
 
 from fibsem.fm.interpolation import INTERPOLATION_METHODS
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     BODY_MUTED_STYLE,
     BODY_STYLE,
     BORDER_COLOR,
@@ -36,6 +34,8 @@ from fibsem.ui.tokens import (
     WARN_COLOR,
     state_style,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox
 
 

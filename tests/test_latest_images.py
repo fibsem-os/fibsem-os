@@ -1,7 +1,8 @@
 """The latest image of each beam, kept on the session (FIB-1451)."""
 
 from fibsem.imaging.latest import LatestImages
-from fibsem.structures import BeamType, FibsemImage
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 
 
 def _image(beam_type):
@@ -33,7 +34,7 @@ def test_a_named_beam_wins_over_the_metadata():
 
 def test_the_image_widget_reads_and_writes_the_session_s_images(qapp):
     from fibsem import utils
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
     from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 
     microscope, _ = utils.setup_session(manufacturer="Demo")
@@ -56,7 +57,7 @@ def test_the_image_widget_reads_and_writes_the_session_s_images(qapp):
 
 def test_an_image_widget_without_a_session_follows_the_microscope(qapp):
     from fibsem import utils
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
     from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 
     microscope, _ = utils.setup_session(manufacturer="Demo")

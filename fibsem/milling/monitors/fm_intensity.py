@@ -27,7 +27,8 @@ from fibsem.milling.monitors.base import (
     MillingStreamMonitor,
 )
 from fibsem.milling.monitors.intensity import IntensityDropRule
-from fibsem.structures import Display, FibsemRectangle, RangeLimit, param
+from fibsem.structures.params import Display, RangeLimit, param
+from fibsem.structures.settings import FibsemRectangle
 
 # The numbers each reading carries, from the drop rule.
 _READING = (

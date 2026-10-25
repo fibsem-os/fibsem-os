@@ -31,9 +31,10 @@ from fibsem.applications.volume.position_milling import (
 from fibsem.applications.volume.tasks.milling import VolumeFIBMillingTaskConfig
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import BeamType, FibsemImage, FibsemMillingSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemMillingSettings
+from fibsem.theme.tokens import SEMANTIC_WARNING_COLOR
 from fibsem.ui import stylesheets
-from fibsem.ui.tokens import SEMANTIC_WARNING_COLOR
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.canvas.canvas_state import MillingSpec
 from fibsem.ui.widgets.canvas.quad_view import ItemEditorView, MicroscopeViewController

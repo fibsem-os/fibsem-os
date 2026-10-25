@@ -36,7 +36,7 @@ from fibsem.applications.autolamella.tools.grid_report import (
 )
 from fibsem.applications.autolamella.tools.report_v2 import REPORT_DIRNAME, html_page
 from fibsem.fm.preview import is_fluorescence_image, load_projection
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 from fibsem.util.timestamps import to_datetime, zone_label
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskStatus

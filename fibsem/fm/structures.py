@@ -72,22 +72,26 @@ from fibsem.codec import NamedEnum, Timestamp, decode, encode
 # the enum, and core cannot import from this package -- this module imports from it, so
 # the reverse is a cycle. Imported (and so re-exported) here, which is where every
 # consumer of them still is.
-from fibsem.structures import (  # noqa: F401
-    AutoFocusMode,
-    CameraImageTransform,
+from fibsem.structures.params import (  # noqa: F401
     Configurable,
     Display,
-    FibsemExperimentRef,
-    FibsemHardwareGeometry,
-    FibsemRectangle,
-    FibsemStagePosition,
-    InsertableDeviceState,
     Parameter,
     RangeLimit,
-    TileOrderStrategy,
-    _parse_image_transform,
     distance_param,
     param,
+)
+from fibsem.structures.settings import (  # noqa: F401
+    AutoFocusMode,
+    FibsemRectangle,
+    FibsemStagePosition,
+    TileOrderStrategy,
+)
+from fibsem.structures.system import (  # noqa: F401
+    CameraImageTransform,
+    FibsemExperimentRef,
+    FibsemHardwareGeometry,
+    InsertableDeviceState,
+    _parse_image_transform,
 )
 from fibsem.util.timestamps import (
     acquisition_datetime_of,

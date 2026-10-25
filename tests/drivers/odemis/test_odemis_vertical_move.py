@@ -26,7 +26,7 @@ from fibsem import utils
 from fibsem.drivers.autoscript.microscope import ThermoMicroscope
 from fibsem.microscope import FibsemMicroscope
 from fibsem.services.stage_movement import StageMovement
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 ODEMIS_CONFIG_PATH = os.path.join(cfg.SHIPPED_CONFIG_PATH, "odemis-configuration.yaml")
 

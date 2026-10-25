@@ -952,8 +952,8 @@ class Runner:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 log.error(
-                    "No App Server answered within %.0f s; fibsem-agent stops. "
-                    "Start it again once the app's App Server is on.",
+                    "No fibsem host answered within %.0f s; fibsem-agent stops. "
+                    "Start it again once the host is serving.",
                     self._server_wait_s,
                 )
                 self._code = 1
@@ -1562,6 +1562,7 @@ def main(argv=None) -> int:
             "effort": args.effort,
             "skills": skills_for(profile),
             "resumed": args.resume is not None,
+            **(_profile_report(profile) if profile else {}),
         },
     )
 
@@ -1619,6 +1620,22 @@ def _about(
         "checkout": str(checkout),
         "profile": profile.name if profile else None,
         "profile_hash": profile.hash if profile else None,
+    }
+
+
+def _profile_report(profile: profiles.Profile) -> dict:
+    """The profile for the Agent page: its name, hash and reminders."""
+    return {
+        "profile": profile.name,
+        "profile_hash": profile.hash,
+        "hooks": [
+            {
+                "when": hook.when,
+                "label": profiles.HOOK_OPTIONS[hook.when].label,
+                "say": hook.say,
+            }
+            for hook in profile.hooks
+        ],
     }
 
 

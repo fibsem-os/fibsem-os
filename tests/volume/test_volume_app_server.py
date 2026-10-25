@@ -15,7 +15,7 @@ from fibsem.applications.volume.experiment import VolumeExperiment  # noqa: E402
 from fibsem.applications.volume.server import VolumeAppContext  # noqa: E402
 from fibsem.applications.volume.tasks import VolumeFIBMillingTaskConfig  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import FibsemStagePosition, Point  # noqa: E402
+from fibsem.structures.settings import FibsemStagePosition, Point  # noqa: E402
 from fibsem.workflows.attention import Attention  # noqa: E402
 from fibsem.workflows.events import EventBuffer  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402

@@ -16,7 +16,7 @@ uvicorn = pytest.importorskip("uvicorn")
 from fibsem import cli  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
 from fibsem.server.app_context import AppContext  # noqa: E402
-from fibsem.structures import FibsemImage  # noqa: E402
+from fibsem.structures.image import FibsemImage  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402
 from tests.fixtures.app_server import serving  # noqa: E402
 
@@ -299,7 +299,7 @@ def test_a_server_not_serving_the_microscope_says_where_to_turn_it_on(
     from fibsem.client.transport import error_for
 
     said = cli._said(error_for("GET /microscope/devices", 404, detail["detail"]))
-    assert "Tools > App Server" in said
+    assert "Tools > Host" in said
 
 
 def test_lengths_are_um_on_the_command_line():

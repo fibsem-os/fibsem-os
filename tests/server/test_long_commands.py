@@ -23,7 +23,7 @@ from fibsem.control import MicroscopeBusy  # noqa: E402
 from fibsem.devices.core import DeviceFault  # noqa: E402
 from fibsem.imaging.spot import SpotBurnSettings  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import Point  # noqa: E402
+from fibsem.structures.settings import Point  # noqa: E402
 from tests.server.test_client import in_process  # noqa: E402
 
 TOKEN = "test-token"

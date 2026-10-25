@@ -31,7 +31,7 @@ from fibsem.applications.autolamella.structures import (  # noqa: E402
 )
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import MicroscopeState  # noqa: E402
+from fibsem.structures.settings import MicroscopeState  # noqa: E402
 from fibsem.workflows.event_recording import (  # noqa: E402
     EventRecorder,
 )

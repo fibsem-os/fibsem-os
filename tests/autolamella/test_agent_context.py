@@ -6,7 +6,6 @@ TaskQueue mechanics, the Demo microscope — held by a session with no window
 
 import json
 import os
-from types import SimpleNamespace
 
 import pytest
 from psygnal.containers import EventedDict
@@ -18,7 +17,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.codec import encode
 from fibsem.server.responses import Refusal
-from fibsem.structures import MicroscopeState
+from fibsem.structures.settings import MicroscopeState
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.status import TaskStatus
 from tests.protocols import add_planned, planned
@@ -223,7 +222,7 @@ def test_item_detail_serves_the_durable_item_facts(experiment):
     """One read for what a supervisor judges an item by — the exemplar-mode
     seam: after the operator answers, the accepted POI/alignment area are
     readable here rather than raced out of the live prompt mirror."""
-    from fibsem.structures import FibsemRectangle, MicroscopeState, Point
+    from fibsem.structures.settings import FibsemRectangle, MicroscopeState, Point
 
     host = stub_session()
     host.experiment = experiment
@@ -433,14 +432,12 @@ def test_recent_experiments_is_json_safe():
 
 def test_edit_queue_removes_or_moves_a_waiting_pair(experiment, microscope):
     from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-    from fibsem.workflows.events import EventBuffer
 
     host = stub_session()
     host.experiment = experiment
-    buffer = EventBuffer()
-    # The App Server's stream, which the runner records queue edits to.
-    host.app_server = SimpleNamespace(event_buffer=buffer, running=False)
-    ctx = AutoLamellaAppContext(host, event_buffer=buffer)
+    # The session's stream, which the runner records queue edits to.
+    buffer = host.event_buffer
+    ctx = AutoLamellaAppContext(host)
     first, second = (p.name for p in experiment.positions[:2])
 
     # No run, no queue: a structured refusal.

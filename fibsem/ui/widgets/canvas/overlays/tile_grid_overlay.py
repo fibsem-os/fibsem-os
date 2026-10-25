@@ -379,21 +379,12 @@ class TileGridOverlay(QObject, CanvasOverlay):
         return self._visible
 
     @property
-    def is_resizing(self) -> bool:
-        """True while an edge is being dragged.
-
-        The host needs this: resizing changes the grid's footprint, and refitting the
-        view on every step of a drag would zoom the canvas out from under the cursor.
-        """
-        return self._resize_axes is not None
-
-    @property
     def is_dragging(self) -> bool:
         """True while any grid gesture is in flight — a resize *or* a move.
 
         Both emit on every motion event, so anything the host does in response has to
         be cheap and must not move the camera. Moving was missed when this was only
-        :attr:`is_resizing`: dragging the grid re-declared the canvas's working area on
+        the resize check: dragging the grid re-declared the canvas's working area on
         each step, and re-declaring refits, so the view snapped onto the grid.
         """
         return self._resize_axes is not None or self._move_active

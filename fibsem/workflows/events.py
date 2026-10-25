@@ -33,16 +33,16 @@ once-at-startup registration silently goes deaf after the first run. That is
 disk; the App Server reads the same buffer when it runs.
 """
 
-import dataclasses
 import logging
 import secrets
 import threading
 import time
 from collections import deque
-from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.structures import BeamType, InsertableDeviceState
+from fibsem.devices.wire import to_wire
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import InsertableDeviceState
 from fibsem.util.timestamps import iso_from_posix
 
 __all__ = [
@@ -54,32 +54,12 @@ __all__ = [
 
 
 def to_plain(value: Any) -> Any:
-    """Recursively convert a typed record into JSON-able plain data."""
-    # Enum before str: str-enums (MillingProgressStatus et al.) must serialize
-    # as their wire value ("stage-update"), the vocabulary consumers already
-    # parse — not the Python member name.
-    if isinstance(value, Enum):
-        return value.value if isinstance(value.value, str) else value.name
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {
-            f.name: to_plain(getattr(value, f.name)) for f in dataclasses.fields(value)
-        }
-    if isinstance(value, dict):
-        return {str(k): to_plain(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [to_plain(v) for v in value]
-    if hasattr(value, "to_dict"):
-        return to_plain(value.to_dict())
-    if hasattr(value, "isoformat"):
-        return value.isoformat()
-    if hasattr(value, "item") and not isinstance(value, bytes):
-        try:  # numpy scalars
-            return to_plain(value.item())
-        except (AttributeError, ValueError):
-            pass
-    return str(value)
+    """*value* as JSON-ready data, as ``fibsem.codec`` writes it; one the codec has
+    no form for, as its text."""
+    try:
+        return to_wire(value)
+    except Exception:
+        return str(value)
 
 
 # (kind, payload, actor) -> the stamp's fields; actor is the one the writer named.

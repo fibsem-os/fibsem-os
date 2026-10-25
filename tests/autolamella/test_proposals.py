@@ -22,7 +22,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskC
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
-from fibsem.structures import (
+from fibsem.structures.settings import (
     FibsemRectangle,
     FibsemStagePosition,
     MicroscopeState,

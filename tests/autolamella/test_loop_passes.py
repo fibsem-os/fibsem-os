@@ -20,7 +20,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskC
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemStagePosition, MicroscopeState, Point
+from fibsem.structures.settings import FibsemStagePosition, MicroscopeState, Point
 from fibsem.workflows.proposals import (
     ACTION_ACCEPT,
     ACTION_EDIT,

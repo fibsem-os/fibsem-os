@@ -10,10 +10,8 @@ from fibsem.milling.patterning.utils import (
     get_pattern_bounding_box,
     get_patterns_bounding_box,
 )
-from fibsem.structures import (
-    FibsemImage,
-    Point,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 
 
 # Pixel sizes are chosen so each pattern spans tens to hundreds of pixels. The

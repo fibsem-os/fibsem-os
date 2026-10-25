@@ -21,7 +21,8 @@ from fibsem.applications.autolamella.workflows.tasks.setup_coincidence_milling i
     SetupCoincidenceMillingTaskConfig,
 )
 from fibsem.fm.structures import ChannelSettings, EmissionFilter
-from fibsem.structures import FibsemRectangle, InsertableDeviceState, Point
+from fibsem.structures.settings import FibsemRectangle, Point
+from fibsem.structures.system import InsertableDeviceState
 from tests.protocols import planned, task_protocol
 
 SIM_ARCTIS_CONFIG_PATH = os.path.join(

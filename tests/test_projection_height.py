@@ -33,7 +33,7 @@ from fibsem.geometry.movement import (
     inverse_view_corrected_dy,
     view_corrected_stage_movement,
 )
-from fibsem.structures import FibsemHardwareGeometry
+from fibsem.structures.system import FibsemHardwareGeometry
 
 # The two geometries the app actually runs: the compustage (Arctis) and the
 # pre-tilted autoloader shuttle. The autoloader matters even though the reported

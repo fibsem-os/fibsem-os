@@ -33,17 +33,12 @@ import numpy as np
 from fibsem.fm.reprojection import project_image_point
 from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.projection import BeamStageProjection
-from fibsem.structures import (
-    BeamType,
-    CameraImageTransform,
-    FibsemHardwareGeometry,
-    FibsemStagePosition,
-    Point,
-)
+from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
+from fibsem.structures.system import CameraImageTransform, FibsemHardwareGeometry
 
 if TYPE_CHECKING:  # pragma: no cover - annotations only
     from fibsem.fm.structures import FluorescenceImage
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
 
 class NominalTransformError(ValueError):

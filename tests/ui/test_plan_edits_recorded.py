@@ -38,7 +38,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (  # noqa: E40
 from fibsem.applications.autolamella.workflows.tasks.tasks import (  # noqa: E402
     SpotBurnFiducialTaskConfig,
 )
-from fibsem.structures import MicroscopeState, Point  # noqa: E402
+from fibsem.structures.settings import MicroscopeState, Point  # noqa: E402
 from fibsem.ui.edit_recording import (
     SETTLE_MS,  # noqa: E402  # noqa: E402
 )

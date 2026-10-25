@@ -35,7 +35,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.autofunctions.autofocus import AutoFocusResult
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 from tests.protocols import planned, task_protocol

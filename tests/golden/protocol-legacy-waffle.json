@@ -33,7 +33,9 @@
   },
   "id": "pinned-protocol-id",
   "lamella_defaults": {
+    "alignment_area": null,
     "name_prefix": "",
+    "poi": null,
     "use_petname": true
   },
   "name": "autolamella-waffle-scan-rotation-0deg",
@@ -112,7 +114,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 20 nA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 7.6e-09,
@@ -239,7 +245,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si-ccs",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 50 pA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 6e-11,
@@ -274,7 +284,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si-ccs",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 50 pA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 6e-11,
@@ -405,7 +419,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si-ccs",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 2.5 nA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 2e-09,
@@ -440,7 +458,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si-ccs",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 1 nA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 7.4e-10,
@@ -538,7 +560,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si-ccs",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 2.5 nA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 2e-09,
@@ -711,7 +737,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 2.5 nA"
+                  }
+                },
                 "hfw": 0.00018,
                 "milling_channel": "ION",
                 "milling_current": 7.6e-09,
@@ -842,7 +872,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 2.5 nA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 7.6e-09,
@@ -876,7 +910,11 @@
               "enabled": true,
               "milling": {
                 "application_file": "Si",
-                "driver": {},
+                "driver": {
+                  "Tescan": {
+                    "preset": "30 keV; 2.5 nA"
+                  }
+                },
                 "hfw": 8e-05,
                 "milling_channel": "ION",
                 "milling_current": 7.6e-09,
@@ -910,8 +948,8 @@
         }
       },
       "milling_angles": [
-        25,
-        20
+        25.0,
+        20.0
       ],
       "orientation": "SEM",
       "reference_imaging": {

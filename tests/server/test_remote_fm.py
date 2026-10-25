@@ -21,7 +21,7 @@ from fibsem.fm.structures import (
     EmissionFilter,  # noqa: E402
 )
 from fibsem.server.devices import DeviceServer, demo_fm_devices  # noqa: E402
-from fibsem.structures import InsertableDeviceState  # noqa: E402
+from fibsem.structures.system import InsertableDeviceState  # noqa: E402
 
 
 def _unreachable(client):

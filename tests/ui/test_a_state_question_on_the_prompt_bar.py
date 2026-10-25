@@ -27,7 +27,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import STATE, Decision, DecisionOutcome
 from fibsem.workflows.site_tasks.reference_image import (
@@ -68,10 +68,7 @@ def window(qapp, tmp_path):
     for manager, thread in win._started:
         manager.stop()
         _pump(qapp, lambda: not thread.is_alive())
-    microscope = ui.microscope
-    ui.disconnect_from_microscope()
-    if microscope is not None:
-        microscope.disconnect()
+    ui.session.disconnect()
     close_window(win)
     win.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

@@ -12,10 +12,7 @@ pytest.importorskip("httpx")  # TestClient transport
 from fastapi.testclient import TestClient  # noqa: E402
 
 from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures import (  # noqa: E402
-    BeamType,
-    FibsemStagePosition,
-)
+from fibsem.structures.settings import BeamType, FibsemStagePosition  # noqa: E402
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -53,8 +50,8 @@ def test_a_command_lists_its_arguments_as_json_schema(read_client):
 
     assert arguments["type"] == "object"
     (position,) = arguments["required"][:1]
-    assert arguments["properties"][position] == {"$ref": "#/$defs/FibsemStagePosition"}
-    assert arguments["$defs"]["FibsemStagePosition"]["type"] == "object"
+    schema = arguments["properties"][position]
+    assert schema["title"] == "FibsemStagePosition" and schema["type"] == "object"
 
 
 def test_device_routes_need_the_token(microscope):

@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import QApplication
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning.patterns import RectanglePattern
 from fibsem.milling.tasks import FibsemMillingTaskConfig
-from fibsem.structures import FibsemMillingSettings, Point
+from fibsem.structures.settings import FibsemMillingSettings, Point
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -220,13 +220,8 @@ def fib_image():
     """
     import numpy as np
 
-    from fibsem.structures import (
-        BeamType,
-        FibsemImage,
-        FibsemImageMetadata,
-        ImageSettings,
-        MicroscopeState,
-    )
+    from fibsem.structures.image import FibsemImage, FibsemImageMetadata
+    from fibsem.structures.settings import BeamType, ImageSettings, MicroscopeState
 
     return FibsemImage(
         data=np.zeros((512, 512), dtype=np.uint8),

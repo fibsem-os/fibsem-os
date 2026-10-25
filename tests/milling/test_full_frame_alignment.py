@@ -11,7 +11,7 @@ from fibsem import alignment
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.core import setup_milling
 from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
-from fibsem.structures import MillingAlignment
+from fibsem.structures.settings import MillingAlignment
 from tests.fixtures.microscopes import demo_microscope
 
 

@@ -89,9 +89,9 @@ def test_with_no_folder_none_is_open_and_last_opens_the_most_recent(
     assert launch.main([str(places / "grid-2"), "--create"], _stopped()) == 0
     capsys.readouterr()
     assert launch.main([], _stopped()) == 0
-    assert "Serving no experiment at" in capsys.readouterr().out
+    assert "is serving no experiment at" in capsys.readouterr().out
     assert launch.main(["--last"], _stopped()) == 0
-    assert "Serving grid-2 at" in capsys.readouterr().out
+    assert "is serving grid-2 at" in capsys.readouterr().out
 
 
 def test_the_agent_creates_the_experiment_in_the_named_folder(discovery, places):
@@ -150,3 +150,8 @@ def _stopped():
     stop = threading.Event()
     stop.set()
     return stop
+
+
+def test_a_window_flag_without_the_window_is_refused(places):
+    with pytest.raises(SystemExit):
+        launch.main(["--quickstart"])

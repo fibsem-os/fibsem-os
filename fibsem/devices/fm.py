@@ -28,12 +28,8 @@ import numpy as np
 from fibsem.devices.core import Device, DeviceParameter, Role, command
 from fibsem.devices.wire import Frame, to_wire
 from fibsem.fm.structures import EmissionFilter
-from fibsem.structures import (
-    CameraImageTransform,
-    Display,
-    InsertableDeviceState,
-    RangeLimit,
-)
+from fibsem.structures.params import Display, RangeLimit
+from fibsem.structures.system import CameraImageTransform, InsertableDeviceState
 from fibsem.util.timestamps import now_iso, zone_known
 
 

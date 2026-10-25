@@ -11,7 +11,7 @@ from fibsem.imaging.overview_session import (
     SELECTION,
     OverviewSession,
 )
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.session import AppSession
 
 

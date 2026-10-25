@@ -64,7 +64,7 @@ def test_a_simulated_stage_move_takes_time(monkeypatch):
     """
     from fibsem.drivers.demo import devices as demo
     from fibsem.drivers.demo import simulator
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     # The Demo's stage is a device, and its driver takes the delay.
     slept = []
@@ -92,7 +92,7 @@ def test_a_relative_move_takes_time_too(monkeypatch):
     path would leave the two gestures that drive coincidence instant."""
     from fibsem.drivers.demo import devices as demo
     from fibsem.drivers.demo import simulator
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     # The Demo's stage is a device, and its driver takes the delay.
     slept = []
@@ -115,7 +115,7 @@ def test_the_delay_is_off_under_the_test_flag():
     import os
     import time
 
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     assert os.environ.get("FIBSEM_SIM_NO_DELAY") == "1", (
         "the suite is running with simulator delays enabled"

@@ -23,7 +23,7 @@ from PyQt5.QtWidgets import QApplication
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
 
 _app = QApplication.instance() or QApplication([])

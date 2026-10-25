@@ -537,7 +537,7 @@ def take_control(request: Request):
         request.state.control_entry = caller_lease(request, lease_id).entry
         yield
         return
-    control = request.app.state.microscope.control
+    control = request.app.state.served.require().control
     taking = control.take(current_actor() or AGENT, described_action(request))
     try:
         entry = taking.__enter__()
@@ -573,7 +573,7 @@ def busy_refusal(busy: MicroscopeBusy) -> HTTPException:
 
 def caller_lease(request: Request, lease_id: str):
     """The caller's live lease *lease_id*, or 409: given up, or another's."""
-    lease = request.app.state.leases.get(lease_id)
+    lease = request.app.state.served.leases.get(lease_id)
     if lease is None or lease.entry.by != (current_actor() or AGENT):
         raise refusal_error(
             409,
@@ -591,7 +591,7 @@ def adopt_control(request: Request) -> Optional[Callable[[], None]]:
     Its starter may act beside it while it runs (`Control.let_act_beside`)."""
     release = getattr(request.state, "release_control", None)
     if release is not None:
-        control = request.app.state.microscope.control
+        control = request.app.state.served.require().control
         running = control.beside_of(request.state.control_entry)
         if running is not None:
             # Beside a long command, act once at a time; never start another.

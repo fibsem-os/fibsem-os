@@ -1,12 +1,14 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { ImageInfoBar, ScaleBar } from "@/components/image-info";
+import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import type {
   Capabilities,
+  Connection,
   DeviceListing,
   DeviceSpec,
   DeviceValues,
@@ -214,6 +216,86 @@ function LastAcquired() {
   );
 }
 
+// Read often while a connect runs, so its steps show as they happen.
+const CONNECTING_EVERY_MS = 1000;
+const FIELD = "min-w-0 flex-1 rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
+
+/** Connect and disconnect the microscope: the operator's, so a token that may
+ * not (the agent's, the dashboard's) gets no card. */
+function ConnectionCard() {
+  const client = useQueryClient();
+  const state = useQuery({
+    queryKey: ["microscope/connection"],
+    queryFn: () => api<Connection>("/microscope/connection"),
+    retry: false,
+    refetchInterval: (query) =>
+      query.state.data?.connecting || query.state.data?.run?.state === "running" ? CONNECTING_EVERY_MS : 5000,
+  });
+  const [chosen, setChosen] = useState<string | null>(null);
+  const act = useMutation({
+    mutationFn: (path: string) =>
+      api<Connection>(path, {
+        method: "POST",
+        body: JSON.stringify(path.endsWith("/connect") ? { configuration: chosen ?? undefined } : {}),
+      }),
+    onSettled: () => client.invalidateQueries(),
+  });
+  const data = state.data;
+  // The rest of the page reads the microscope again once it comes or goes.
+  const connected = data?.connected;
+  useEffect(() => {
+    if (connected !== undefined) void client.invalidateQueries({ predicate: (q) => q.queryKey[0] !== "microscope/connection" });
+  }, [connected, client]);
+  if (!data) return null;
+  const busy = act.isPending || !!data.connecting || data.run?.state === "running";
+  const fallback = data.configurations.find((c) => c.default)?.name ?? data.configurations[0]?.name ?? "";
+  const configuration = chosen ?? fallback;
+  const c = data.configuration;
+  const failed = (act.error as Error | null)?.message ?? (!data.connected && !busy ? data.error : null);
+  return (
+    <Card className="flex flex-col gap-2.5">
+      <CardTitle>Connection</CardTitle>
+      {data.connected && c ? (
+        <>
+          <Facts
+            rows={[
+              ["Configuration", c.name ?? c.path ?? ""],
+              ["Microscope", [c.manufacturer, c.model].filter(Boolean).join(" ")],
+              ["Address", c.address ?? ""],
+            ]}
+          />
+          <div className="flex justify-end">
+            <Button disabled={busy} onClick={() => act.mutate("/microscope/disconnect")}>
+              Disconnect
+            </Button>
+          </div>
+        </>
+      ) : (
+        <div className="flex items-center gap-2">
+          <select
+            value={configuration}
+            disabled={busy}
+            onChange={(event) => setChosen(event.target.value)}
+            className={FIELD}
+            aria-label="Configuration"
+          >
+            {data.configurations.map((option) => (
+              <option key={option.name} value={option.name}>
+                {option.name}
+              </option>
+            ))}
+          </select>
+          <Button variant="primary" disabled={busy || !configuration} onClick={() => act.mutate("/microscope/connect")}>
+            {busy ? "Connecting…" : "Connect"}
+          </Button>
+        </div>
+      )}
+      {busy && data.connecting && <p className="m-0 text-[13px] text-muted-foreground">{data.connecting}</p>}
+      {failed && <p className="m-0 text-[13px] text-destructive">{failed}</p>}
+    </Card>
+  );
+}
+
 function MicroscopePanel({ info }: { info: MicroscopeInfo }) {
   const s = info.system.info;
   return (
@@ -244,7 +326,7 @@ function MicroscopePanel({ info }: { info: MicroscopeInfo }) {
 
 export function MicroscopePage() {
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
-  const served = caps.data?.routers.microscope;
+  const served = caps.data?.routers.microscope && caps.data?.connected !== false;
   const info = useQuery({
     queryKey: ["microscope"],
     queryFn: () => api<MicroscopeInfo>("/microscope"),
@@ -271,10 +353,10 @@ export function MicroscopePage() {
     <div className="mx-auto flex w-full max-w-[1400px] flex-wrap gap-5 p-5">
       <main className="flex min-w-0 flex-[999_1_640px] flex-col gap-5">
         <LastAcquired />
-        {caps.data && !served && (
+        {caps.data && !caps.data.routers.microscope && (
           <Card>
             <p className="m-0 text-[13px] text-muted-foreground">
-              This App Server does not serve the microscope's own routes, so its devices are not shown.
+              This host does not serve the microscope's own routes, so its devices are not shown.
             </p>
           </Card>
         )}
@@ -285,11 +367,10 @@ export function MicroscopePage() {
           ))}
         </div>
       </main>
-      {info.data && (
-        <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-5 lg:max-w-[400px]">
-          <MicroscopePanel info={info.data} />
-        </aside>
-      )}
+      <aside className="flex min-w-0 flex-[1_1_300px] flex-col gap-5 lg:max-w-[400px]">
+        <ConnectionCard />
+        {info.data && <MicroscopePanel info={info.data} />}
+      </aside>
     </div>
   );
 }

@@ -40,7 +40,11 @@ from fibsem.correlation.structures import (  # noqa: E402
     CorrelationResult,
     CorrelationState,
 )
-from fibsem.structures import FibsemRectangle, MicroscopeState, Point  # noqa: E402
+from fibsem.structures.settings import (  # noqa: E402
+    FibsemRectangle,
+    MicroscopeState,
+    Point,
+)
 from fibsem.ui.widgets.canvas.canvas_state import AlignmentSpec  # noqa: E402
 from fibsem.workflows.quality import Verdict  # noqa: E402
 

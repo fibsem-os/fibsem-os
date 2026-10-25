@@ -36,7 +36,7 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 _SHAPE = (512, 1024)  # (height, width) — deliberately not square
 _ODD_SHAPE = (511, 1023)  # the only case where the centre rounding shows

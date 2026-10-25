@@ -150,7 +150,7 @@ def beam_image_ome(data: np.ndarray, metadata: Optional[Any]) -> str:
         UnitsLength,
     )
 
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     ny, nx = data.shape[-2:]
     values = {FORMAT_KEY: str(FORMAT_VERSION)}
@@ -253,3 +253,34 @@ def read_level(
                 break
             chosen = level
     return chosen.asarray(), tuple(series.shape)
+
+
+def read_region(page: Any, top: int, left: int, height: int, width: int) -> np.ndarray:
+    """The (*height*, *width*) of a single-sample *page* from (*top*, *left*),
+    reading and decoding only the tiles or strips it covers: a viewer's patch of
+    a large plane costs the patch, not the plane."""
+    page = page.aspage() if hasattr(page, "aspage") else page
+    if len(page.shape) != 2 or not page.dataoffsets:
+        return page.asarray()[top : top + height, left : left + width]
+    ch, cw = page.chunks[-2:]
+    cols = page.chunked[-1]
+    out = np.zeros((height, width), page.dtype)
+    fh = page.parent.filehandle
+    for row in range(top // ch, (top + height - 1) // ch + 1):
+        for col in range(left // cw, (left + width - 1) // cw + 1):
+            i = row * cols + col
+            if not page.databytecounts[i]:
+                continue  # a sparse file's empty segment reads as zeros
+            with fh.lock:
+                fh.seek(page.dataoffsets[i])
+                raw = fh.read(page.databytecounts[i])
+            segment, index, _ = page.decode(raw, i)
+            segment = segment[0, :, :, 0]
+            y, x = index[2], index[3]
+            y0, x0 = max(top, y), max(left, x)
+            y1 = min(top + height, y + segment.shape[0], page.shape[0])
+            x1 = min(left + width, x + segment.shape[1], page.shape[1])
+            out[y0 - top : y1 - top, x0 - left : x1 - left] = segment[
+                y0 - y : y1 - y, x0 - x : x1 - x
+            ]
+    return out

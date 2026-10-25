@@ -31,7 +31,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
     load_correlation_file,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 
 CORRELATION_DIRNAME = "Correlation"
 CORRELATION_FILENAME = "correlation.json"

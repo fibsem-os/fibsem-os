@@ -26,7 +26,7 @@ from fibsem.imaging.tiling.progress import (
     TiledStatus,
     report_tiled_progress,
 )
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     ImageSettings,
     OverviewAcquisitionSettings,

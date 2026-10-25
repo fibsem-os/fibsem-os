@@ -7,6 +7,7 @@ from fibsem.ai.agent.catalog.spec import (
     NEAR_FOCUS,
     OVERVIEW_CENTRE,
     ToolSpec,
+    arg,
     beam_kwargs,
     command_body,
     kwargs_body,
@@ -197,7 +198,7 @@ def _tiles_on(rows: Any, cols: Any, mask: Any) -> str:
 
 def _overview_size(settings: Dict[str, Any]) -> Optional[str]:
     """What an overview covers, as its estimate says: "about 420 × 280 µm"."""
-    from fibsem.structures import OverviewAcquisitionSettings
+    from fibsem.structures.settings import OverviewAcquisitionSettings
 
     try:
         parsed = OverviewAcquisitionSettings.from_dict(settings)
@@ -450,8 +451,11 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={
-            "beam_type": "ELECTRON or ION",
-            "image_settings": 'optional: ImageSettings fields, e.g. {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}',
+            "beam_type": arg("ELECTRON or ION", default="ELECTRON"),
+            "image_settings": arg(
+                'optional: ImageSettings fields, e.g. {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}',
+                dict,
+            ),
             "path": "optional folder inside the open experiment to save into",
             "filename": "optional file name, without the _eb/_ib suffix (default: the time)",
         },
@@ -478,8 +482,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
         level="drive",
         hardware=True,
         params={
-            "beam_type": "ELECTRON or ION",
-            "reduced_area": REDUCED_AREA,
+            "beam_type": arg("ELECTRON or ION", default="ELECTRON"),
+            "reduced_area": arg(REDUCED_AREA, dict),
         },
         optional=("beam_type", "reduced_area"),
         line=_beam_auto_contrast,
@@ -505,18 +509,22 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/commands/{command}",
+        result_key="result",
         level="drive",
         hardware=True,
         params={
-            "beam_type": "ELECTRON or ION",
-            "method": "sweep (default) or instrument",
-            "hfw": "the probe images' field of view in metres (default the beam's)",
-            "settings": (
+            "beam_type": arg("ELECTRON or ION", default="ELECTRON"),
+            "method": arg("sweep (default) or instrument", default="sweep"),
+            "hfw": arg(
+                "the probe images' field of view in metres (default the beam's)", float
+            ),
+            "settings": arg(
                 "AutoFocusSettings dict, for the sweep: passes [{search_range, "
                 "step_size}] in metres, method (tenengrad, laplacian, sobel or "
                 "variance: how an image is scored), probe_resolution [w, h], "
                 "probe_dwell_time (s), reduced_area {left, top, width, height} "
-                "(0-1), use_autocontrast"
+                "(0-1), use_autocontrast",
+                dict,
             ),
             "path": "a folder inside the open experiment to save the sweep to, for the sweep",
             "name": "the sweep's file name (default autofocus)",
@@ -548,19 +556,24 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/commands/acquire_overview",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
-            "settings": (
+            "settings": arg(
                 "OverviewAcquisitionSettings dict: image_settings, nrows, ncols, "
                 "overlap, autofocus_mode, autocontrast_mode, focus_stack_settings, "
                 "register_tiles (experimental: place each tile where its picture "
                 "says it is, not where the stage step put it, when no tile moves "
-                "more than 15 µm; default false)"
+                "more than 15 µm; default false)",
+                dict,
             ),
             "path": "a folder inside the open experiment to save it in",
-            "name": "the file name, stamped with the time (default overview)",
-            "centre_position": OVERVIEW_CENTRE,
+            "name": arg(
+                "the file name, stamped with the time (default overview)",
+                default="overview",
+            ),
+            "centre_position": arg(OVERVIEW_CENTRE, dict),
         },
         optional=("name", "centre_position"),
         line=_beam_acquire_overview,
@@ -587,9 +600,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/queries/estimate_overview",
+        result_key="estimate",
         level="watch",
         params={
-            "settings": "OverviewAcquisitionSettings dict, as beam_acquire_overview"
+            "settings": arg(
+                "OverviewAcquisitionSettings dict, as beam_acquire_overview", dict
+            )
         },
         call=lambda a: ({}, kwargs_body(settings=dict(a["settings"]))),
     ),
@@ -607,13 +623,19 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/commands/acquire_focus_stack",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
-            "image_settings": "ImageSettings dict: beam_type, hfw, resolution, dwell_time, filename",
+            "image_settings": arg(
+                "ImageSettings dict: beam_type, hfw, resolution, dwell_time, filename",
+                dict,
+            ),
             "path": "a folder inside the open experiment to save it in",
-            "n_steps": "how many strips (default 3)",
-            "auto_focus": "focus each strip first (default true)",
+            "n_steps": arg("how many strips (default 3)", int, default=3),
+            "auto_focus": arg(
+                "focus each strip first (default true)", bool, default=True
+            ),
         },
         optional=("n_steps", "auto_focus"),
         line=_beam_acquire_focus_stack,
@@ -643,18 +665,22 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/commands/fm_auto_focus",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
             "channel_name": "the channel to focus on; left out, the current one",
-            "settings": FM_FOCUS_SETTINGS,
-            "channel": (
+            "settings": arg(FM_FOCUS_SETTINGS, dict),
+            "channel": arg(
                 "ChannelSettings dict to focus in, as fm_acquire_image's channels "
                 "take (excitation_wavelength, emission_filter, power, "
-                "exposure_time); left out, the channel's own"
+                "exposure_time); left out, the channel's own",
+                dict,
             ),
             "path": "a folder inside the open experiment to save the sweep to",
-            "name": "the sweep's file name (default autofocus)",
+            "name": arg(
+                "the sweep's file name (default autofocus)", default="autofocus"
+            ),
         },
         optional=("channel_name", "settings", "channel", "path", "name"),
         line=_fm_auto_focus,
@@ -708,7 +734,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
         path="/microscope/services/stage_movement/commands/insert_objective",
         level="drive",
         hardware=True,
-        params={"tilt": "optional stage tilt to insert at, radians (0 or -pi)"},
+        params={
+            "tilt": arg("optional stage tilt to insert at, radians (0 or -pi)", float)
+        },
         optional=("tilt",),
         line=_fm_insert_objective,
         call=lambda a: (
@@ -765,19 +793,24 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/commands/fm_acquire_image",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
-            "channels": (
+            "channels": arg(
                 "list of ChannelSettings dicts: name, excitation_wavelength (nm), "
                 "emission_filter ({name}, a name from the filter set's choices), "
-                "power (fraction of full, 0-1), exposure_time (s)"
+                "power (fraction of full, 0-1), exposure_time (s)",
+                List[dict],
             ),
             "path": "a folder inside the open experiment to save it in",
-            "name": "the file name, stamped with the time (default image)",
-            "zparams": (
+            "name": arg(
+                "the file name, stamped with the time (default image)", default="image"
+            ),
+            "zparams": arg(
                 "ZParameters dict (zmin, zmax, zstep, metres about the objective's "
-                "position) for a z-stack; left out, one plane"
+                "position) for a z-stack; left out, one plane",
+                dict,
             ),
         },
         optional=("name", "zparams"),
@@ -813,26 +846,34 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/commands/fm_acquire_overview",
+        result_key="run",
         level="drive",
         hardware=True,
         params={
-            "channels": (
+            "channels": arg(
                 "list of ChannelSettings dicts: name, excitation_wavelength (nm), "
                 "emission_filter ({name}, a name from the filter set's choices), "
-                "power (fraction of full, 0-1), exposure_time (s)"
+                "power (fraction of full, 0-1), exposure_time (s)",
+                List[dict],
             ),
-            "parameters": (
+            "parameters": arg(
                 "OverviewParameters dict: rows, cols, overlap, autofocus_mode "
                 "(none, once, each_row, each_tile), use_zstack, register_tiles "
-                "(experimental, as beam_acquire_overview's; default false)"
+                "(experimental, as beam_acquire_overview's; default false)",
+                dict,
             ),
             "path": "a folder inside the open experiment to save it in",
-            "name": "the file name, stamped with the time (default overview)",
-            "zparams": "ZParameters dict (zmin, zmax, zstep), with use_zstack",
-            "autofocus_settings": (
-                "the sweep for parameters.autofocus_mode: " + FM_FOCUS_SETTINGS
+            "name": arg(
+                "the file name, stamped with the time (default overview)",
+                default="overview",
             ),
-            "centre_position": OVERVIEW_CENTRE,
+            "zparams": arg(
+                "ZParameters dict (zmin, zmax, zstep), with use_zstack", dict
+            ),
+            "autofocus_settings": arg(
+                "the sweep for parameters.autofocus_mode: " + FM_FOCUS_SETTINGS, dict
+            ),
+            "centre_position": arg(OVERVIEW_CENTRE, dict),
         },
         optional=("name", "zparams", "autofocus_settings", "centre_position"),
         line=_fm_acquire_overview,
@@ -860,12 +901,17 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/queries/fm_estimate_overview",
+        result_key="estimate",
         level="watch",
         params={
-            "channels": "list of ChannelSettings dicts, as fm_acquire_overview",
-            "parameters": "OverviewParameters dict, as fm_acquire_overview",
-            "zparams": "ZParameters dict, as fm_acquire_overview",
-            "autofocus_settings": "AutoFocusSettings dict, as fm_acquire_overview",
+            "channels": arg(
+                "list of ChannelSettings dicts, as fm_acquire_overview", List[dict]
+            ),
+            "parameters": arg("OverviewParameters dict, as fm_acquire_overview", dict),
+            "zparams": arg("ZParameters dict, as fm_acquire_overview", dict),
+            "autofocus_settings": arg(
+                "AutoFocusSettings dict, as fm_acquire_overview", dict
+            ),
         },
         optional=("zparams", "autofocus_settings"),
         call=lambda a: (
@@ -892,16 +938,18 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
         method="POST",
         path="/microscope/services/imaging/commands/auto_brightness_contrast",
+        result_key="result",
         level="drive",
         hardware=True,
         params={
-            "beam_type": "ELECTRON or ION",
-            "settings": (
+            "beam_type": arg("ELECTRON or ION", default="ELECTRON"),
+            "settings": arg(
                 "BrightnessContrastSettings dict: max_images (default 6), "
                 "max_clipped (fraction at either limit, default 0.01), "
                 "target_centre and target_spread (0-1), probe_resolution [w, h], "
                 "probe_dwell_time (s), reduced_area {left, top, width, height} "
-                "(0-1), start_from_last (default true)"
+                "(0-1), start_from_last (default true)",
+                dict,
             ),
             "path": "a folder inside the open experiment to save the images to",
             "name": "the file name (default brightness_contrast)",

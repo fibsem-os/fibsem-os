@@ -76,7 +76,7 @@ export function Pair({ note }: { note?: string }) {
           </Button>
         ) : (
           <p className="m-0 text-[13px] text-muted-foreground">
-            At the microscope PC: Tools → App Server → Pair a computer.
+            At the microscope PC: Tools → Host → Pair a computer.
           </p>
         )}
         <label className="flex flex-col gap-1.5 text-[13px]">

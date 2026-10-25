@@ -8,6 +8,7 @@ FM composite in stage space — which is the point of a real-space canvas.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python tests/ui/test_fm_real_space_canvas.py
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -101,9 +102,12 @@ def test_greyscale_images_share_the_canvas_with_the_composite():
     """The reason there is no FM/FIBSEM split at the display layer."""
     w = _widget()
     w.set_channel("GFP", _plane(), "#00ff00")
-    w.canvas.add_image(_plane(256, 256), centre=(40e-6, 0.0), pixel_size=2e-7, key="fib")
-    w.canvas.add_image(_plane(512, 512), centre=(0.0, 0.0), pixel_size=4e-7,
-                       key="sem", zorder=-5)
+    w.canvas.add_image(
+        _plane(256, 256), centre=(40e-6, 0.0), pixel_size=2e-7, key="fib"
+    )
+    w.canvas.add_image(
+        _plane(512, 512), centre=(0.0, 0.0), pixel_size=4e-7, key="sem", zorder=-5
+    )
 
     assert set(w.canvas.placed_keys) == {w.COMPOSITE_KEY, "fib", "sem"}
     # each at its own scale: 256 px at 2x the reference covers 512 canvas px
@@ -115,7 +119,9 @@ def test_greyscale_images_share_the_canvas_with_the_composite():
 def test_a_layer_change_leaves_other_images_alone():
     w = _widget()
     w.set_channel("GFP", _plane(), "#00ff00")
-    w.canvas.add_image(_plane(256, 256), centre=(40e-6, 0.0), pixel_size=2e-7, key="fib")
+    w.canvas.add_image(
+        _plane(256, 256), centre=(40e-6, 0.0), pixel_size=2e-7, key="fib"
+    )
     before = w.canvas._placed["fib"].artist
 
     w.set_channel("GFP", _plane(), "#00ffff")  # recolour the FM channel
@@ -167,7 +173,9 @@ def test_a_layer_change_restyles_every_overview_not_just_the_newest():
     w._recomposite()
 
     def red_mean(key):
-        return float(np.asarray(w.canvas._placed[key].artist.get_array())[..., 0].mean())
+        return float(
+            np.asarray(w.canvas._placed[key].artist.get_array())[..., 0].mean()
+        )
 
     assert red_mean("a") == pytest.approx(red_mean("b"))
     assert red_mean("a") > 0  # actually recoloured, not merely equal at zero
@@ -280,9 +288,9 @@ def test_a_dropped_channel_does_not_bleed_into_the_next_overview():
     _place(widget, "second", ["Channel-01"], centre=(300e-6, 0.0))
 
     assert "Channel-02" not in widget._held["second"]
-    assert not any(
-        plane is stale for plane in widget._held["second"].values()
-    ), "the second overview was composited from the first's pixels"
+    assert not any(plane is stale for plane in widget._held["second"].values()), (
+        "the second overview was composited from the first's pixels"
+    )
 
 
 def test_the_earlier_overview_keeps_the_channel_it_was_acquired_with():

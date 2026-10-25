@@ -17,7 +17,8 @@ from fibsem.imaging.tiling.plotting import (
     plot_minimap,
     plot_stage_positions_on_image,
 )
-from fibsem.structures import BeamType, FibsemImage, ImageSettings
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings
 
 matplotlib = pytest.importorskip("matplotlib")
 matplotlib.use("Agg")

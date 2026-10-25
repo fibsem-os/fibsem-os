@@ -6,11 +6,8 @@ from typing import List
 
 from fibsem import acquire, alignment, utils
 from fibsem.milling.base import get_milling_stages
-from fibsem.structures import (
-    BeamType,
-    FibsemImage,
-    MicroscopeState,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, MicroscopeState
 
 PROTOCOL_PATH = os.path.join(os.path.dirname(__file__), "protocol_autolamella.yaml")
 

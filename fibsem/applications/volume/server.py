@@ -29,7 +29,7 @@ from fibsem.server.responses import (
     no_experiment,
     refused,
 )
-from fibsem.structures import FibsemRectangle, FibsemStagePosition, Point
+from fibsem.structures.settings import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.util.records import content_hash
 from fibsem.workflows.item import item_pose_positions
 from fibsem.workflows.outputs import item_output_named, saved_file
@@ -372,6 +372,4 @@ class VolumeAppContext(AppContext):
 def serve(session) -> bool:
     """Host the App Server over a volume *session*, window or not. Whether it
     is serving (see ``AppSession.start_app_server``)."""
-    return session.start_app_server(
-        lambda buffer: VolumeAppContext(session, event_buffer=buffer)
-    )
+    return session.start_app_server(lambda: VolumeAppContext(session))

@@ -1,16 +1,18 @@
 from fibsem import constants
-from fibsem.structures import (  # noqa: F401  (distance_param, DISTANCE_LIMITS: re-exported)
+from fibsem.structures.params import (  # noqa: F401  (distance_param, DISTANCE_LIMITS: re-exported)
     DISTANCE_LIMITS,
-    CrossSectionPattern,
     Display,
     Parameter,
     RangeLimit,
     distance_param,
 )
+from fibsem.structures.settings import (
+    CrossSectionPattern,  # noqa: F401  (distance_param, DISTANCE_LIMITS: re-exported)
+)
 from fibsem.utils import format_resolution_as_str
 
 # Shared metadata for the parameters that recur across patterns and strategies,
-# as a field's Parameter (for fibsem.structures.param): SI limits
+# as a field's Parameter (for fibsem.structures.params.param): SI limits
 # and a Display. Each is a function of what differs between the fields that use it
 # (the label and the doc, sometimes the range), so a field says it in one call.
 

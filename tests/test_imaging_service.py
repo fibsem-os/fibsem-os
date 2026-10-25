@@ -16,7 +16,7 @@ from fibsem.autofunctions.autofocus import (
     FocusSweepPass,
 )
 from fibsem.services.imaging import Imaging
-from fibsem.structures import BeamType, FibsemRectangle
+from fibsem.structures.settings import BeamType, FibsemRectangle
 from tests.fixtures.microscopes import demo_microscope
 
 microscope = demo_microscope(scope="function")
@@ -190,7 +190,8 @@ def test_a_failed_beam_autofocus_is_recorded_and_raised(microscope, monkeypatch)
 def test_the_beam_commands_pass_through_by_beam_type(microscope, monkeypatch):
     """FIB-1261: acquire, autocontrast and live view are the beam's commands,
     reached through the service by beam type."""
-    from fibsem.structures import FibsemImage, ImageSettings
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import ImageSettings
 
     imaging = microscope.imaging
     image = imaging.acquire(BeamType.ION)
@@ -240,7 +241,7 @@ def test_the_microscope_images_through_the_service(microscope, monkeypatch):
 
 def test_acquire_image_saves_and_records(microscope, tmp_path):
     """FIB-1261: acquire.py's image (new_image, now acquire_image) moved onto the service."""
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     recorded = []
     microscope.session.record_signal.connect(
@@ -263,7 +264,7 @@ def test_acquire_image_saves_and_records(microscope, tmp_path):
 
 def test_reference_images_leave_the_settings_alone(microscope, tmp_path):
     from fibsem import acquire
-    from fibsem.structures import ImageSettings
+    from fibsem.structures.settings import ImageSettings
 
     settings = ImageSettings(
         beam_type=BeamType.ION,

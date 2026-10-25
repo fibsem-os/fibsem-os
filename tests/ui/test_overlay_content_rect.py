@@ -12,6 +12,7 @@ receiving updates.
 Run directly (no display needed):
     QT_QPA_PLATFORM=offscreen python fibsem/ui/widgets/tests/test_overlay_content_rect.py
 """
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -102,7 +103,12 @@ def test_image_content_rect_is_pixel_space_not_the_mpl_extent():
     c.set_array(_img(32, 64))
     rect = c._content_rect()
     assert (rect.x0, rect.y0, rect.width, rect.height) == (0.0, 0.0, 64, 32)
-    assert tuple(c._content_extent()) == (-0.5, 63.5, 31.5, -0.5)  # deliberately differs
+    assert tuple(c._content_extent()) == (
+        -0.5,
+        63.5,
+        31.5,
+        -0.5,
+    )  # deliberately differs
     assert (rect.cx, rect.cy) == (32.0, 16.0)  # what an overlay centres on
 
 

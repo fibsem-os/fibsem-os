@@ -39,7 +39,7 @@ from fibsem.services.coating import (
 )
 from fibsem.services.milling import BeamMilling, bind_milling, progress_update
 from fibsem.services.spot_burn import SpotBurn, bind_spot_burn
-from fibsem.structures import (
+from fibsem.structures.settings import (
     ACTIVE_MILLING_STATES,
     FibsemCircleSettings,
     FibsemLineSettings,

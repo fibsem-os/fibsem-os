@@ -16,12 +16,8 @@ from fibsem.devices.beam import (  # noqa: E402
     STANDARD_RESOLUTIONS,
 )
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
-from fibsem.structures import (  # noqa: E402
-    BeamType,
-    ImageSettings,
-    Parameter,
-    RangeLimit,
-)
+from fibsem.structures.params import Parameter, RangeLimit  # noqa: E402
+from fibsem.structures.settings import BeamType, ImageSettings  # noqa: E402
 from fibsem.ui.utils import beam_spec  # noqa: E402
 from fibsem.ui.widgets.beam_settings_widget import (
     FibsemBeamSettingsWidget,  # noqa: E402

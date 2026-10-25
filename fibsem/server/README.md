@@ -12,7 +12,7 @@ pip install -e .[server]
 
 ## Starting the Server
 
-The App Server runs inside AutoLamella: turn it on in Tools → App Server,
+The App Server runs inside AutoLamella: turn it on in Tools → Host,
 which also shows its address and the event log. With
 *Serve the microscope* on, it also serves the `/microscope` routes below. While it runs it writes `~/.fibsem/app-server.json` (url and
 a connect token), so local clients find it without copying anything.
@@ -36,7 +36,7 @@ objective's `limit_position`; the FM's `cancel` (the agent stops a z-stack with
 `agent: false`. A command's `path` argument must be inside the open experiment. A hardware
 command takes control of the microscope while it runs: when a workflow, a script or
 another command is in control it gets `409 microscope_busy`, naming who.
-The **operator token** (Tools → App Server → Copy operator token; one per
+The **operator token** (Tools → Host → Copy operator token; one per
 install, kept in `~/.fibsem/operator-token.json`) is the operator from outside
 the window. It reads what the dashboard reads and reaches the operator's routes,
 whatever the level: `GET /app/agent` (level, last heard, the waiting request),
@@ -49,7 +49,7 @@ take control as the operator and a stop needs no reason; the blocklist still
 applies (venting, the manipulator and the GIS stay at the microscope).
 To connect from another computer: open an SSH tunnel to the App Server port
 (`ssh -N -L 8001:localhost:8001 <pc>`), copy the operator token at the PC
-(Tools → App Server → Copy operator token), and pass it in:
+(Tools → Host → Copy operator token), and pass it in:
 `RemoteMicroscope.connect("http://localhost:8001", token)`, or set
 `FIBSEM_SERVER_URL` and `FIBSEM_SERVER_TOKEN`. The remote computer keeps no copy;
 "New operator token" revokes it.
@@ -65,7 +65,7 @@ header run inside the lease; anyone else is refused, naming it. `PUT
 `DELETE /microscope/control/{lease}` gives it up at any level. `GET
 /microscope/control` says who is in control. `RemoteMicroscope.control` does all
 of this: a remote run holds the microscope as a local run does.
-Or **pair** the computer, with no token to copy: Tools → App Server → *Pair a
+Or **pair** the computer, with no token to copy: Tools → Host → *Pair a
 computer* (or the web app's Settings page) shows a 4-digit code for 5
 minutes, and `RemoteMicroscope.pair("1234")` sends it (to the tunnel's end,
 `http://localhost:8001`, unless given a url), keeps the token in
@@ -141,7 +141,7 @@ client change. Values and results come back as the types the server declares.
 
 ```python
 from fibsem.client import FibsemClient
-from fibsem.structures import BeamType, FibsemStagePosition
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 # With no url and token, the App Server on this machine (~/.fibsem/app-server.json),
 # else FIBSEM_SERVER_URL and FIBSEM_SERVER_TOKEN.

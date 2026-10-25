@@ -34,12 +34,8 @@ from fibsem import utils
 from fibsem.constants import METRE_TO_MICRON
 from fibsem.devices.beam import STANDARD_RESOLUTIONS, Beam
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamSystemSettings,
-    BeamType,
-    ImageSettings,
-    Resolution,
-)
+from fibsem.structures.settings import BeamType, ImageSettings, Resolution
+from fibsem.structures.system import BeamSystemSettings
 from fibsem.ui import notification_service
 from fibsem.ui.icon import ICON_READ_FROM_ACQUIRE_TAB, ICON_READ_FROM_MICROSCOPE
 from fibsem.ui.utils import beam_choices, beam_spec

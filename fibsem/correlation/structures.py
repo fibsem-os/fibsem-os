@@ -2,26 +2,28 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass, field, replace
 from enum import Enum
-from typing import Optional
+from typing import Annotated, Any, Dict, Optional, Tuple
 
 import numpy as np
+from pydantic import Field
 
-from fibsem.conversions import image_to_microscope_image_coordinates_px
-from fibsem.correlation.upgrade import (
+from fibsem.codec import NamedEnum, NotSaved, Timestamp, decode, encode
+from fibsem.codec.upgrades.correlation import (
     CORRELATION_FILE_VERSION,
     upgrade,
     upgrade_input_data,
     upgrade_result,
 )
+from fibsem.conversions import image_to_microscope_image_coordinates_px
 from fibsem.fm.structures import FluorescenceImage
-from fibsem.structures import FibsemImage, Point
-from fibsem.util.timestamps import now, to_datetime, to_iso
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
+from fibsem.util.timestamps import now, to_datetime
 
 
-class PointType(Enum):
+class PointType(NamedEnum, Enum):
     FIB = "FIB"
     FM = "FM"
     POI = "POI"
@@ -40,11 +42,11 @@ class PointXYZ:
     z: float = field(default=0.0)
 
     def to_dict(self):
-        return {"x": self.x, "y": self.y, "z": self.z}
+        return encode(self)
 
     @staticmethod
     def from_dict(data: dict) -> PointXYZ:
-        return PointXYZ(x=data["x"], y=data["y"], z=data["z"])
+        return decode(PointXYZ, data)
 
 
 class PointStatus:
@@ -100,7 +102,9 @@ class Coordinate:
     provenance: str = ""
     # UI emphasis, not state: one of the predictions worth dragging first.
     # Never saved; recomputed by the projection.
-    suggested: bool = field(default=False, compare=False)
+    suggested: Annotated[bool, Field(exclude=True)] = field(
+        default=False, compare=False
+    )
 
     @property
     def usable(self) -> bool:
@@ -108,23 +112,11 @@ class Coordinate:
         return self.status in PointStatus.USABLE
 
     def to_dict(self):
-        return {
-            "point": self.point.to_dict(),
-            "point_type": self.point_type.name,
-            "fitted": self.fitted,
-            "status": self.status,
-            "provenance": self.provenance,
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(data: dict) -> Coordinate:
-        return Coordinate(
-            point=PointXYZ.from_dict(data["point"]),
-            point_type=PointType[data["point_type"]],
-            fitted=data.get("fitted", False),
-            status=data.get("status", ""),
-            provenance=data.get("provenance", ""),
-        )
+        return decode(Coordinate, data)
 
 
 def _loaded_filename(image) -> Optional[str]:
@@ -152,8 +144,8 @@ _PIXEL_SIZE_RTOL = 0.01
 
 @dataclass
 class CorrelationInputData:
-    fib_image: Optional[FibsemImage] = None
-    fm_image: Optional[FluorescenceImage] = None
+    fib_image: Annotated[Optional[FibsemImage], NotSaved] = None
+    fm_image: Annotated[Optional[FluorescenceImage], NotSaved] = None
     fib_coordinates: list[Coordinate] = field(default_factory=list)
     fm_coordinates: list[Coordinate] = field(default_factory=list)
     poi_coordinates: list[Coordinate] = field(default_factory=list)
@@ -168,13 +160,13 @@ class CorrelationInputData:
     # ("computed") or was typed, reset or restored instead.
     # The factor alone could not be traced back to its settings, so a reopened
     # run could not say why it used the depth correction it did.
-    ri_pre_correction_params: Optional[dict] = None
+    ri_pre_correction_params: Optional[Dict[str, Any]] = None
     method: str = "multi-point"
     # Fallbacks restored from serialized files, so a result loaded from JSON
     # (images absent) can still convert corrected pixels to px / px_m. Each is
     # written as what the matching property reads -- the live image's value
     # when there is one -- so a file records the images it was saved with.
-    stored_fib_image_shape: Optional[tuple] = None
+    stored_fib_image_shape: Optional[Tuple[int, ...]] = None
     stored_fib_image_pixel_size: Optional[float] = None
     # FM z-step, likewise restored from JSON: lets a seed's FM z be rescaled to a
     # re-acquired volume with a different z-sampling.
@@ -189,25 +181,18 @@ class CorrelationInputData:
     stored_fm_image_filename: Optional[str] = None
 
     def to_dict(self):
-        return {
-            "fib_coordinates": [coord.to_dict() for coord in self.fib_coordinates],
-            "fm_coordinates": [coord.to_dict() for coord in self.fm_coordinates],
-            "poi_coordinates": [coord.to_dict() for coord in self.poi_coordinates],
-            "surface_coordinate": self.surface_coordinate.to_dict()
-            if self.surface_coordinate
-            else None,
-            "fm_surface_coordinate": self.fm_surface_coordinate.to_dict()
-            if self.fm_surface_coordinate
-            else None,
-            "ri_pre_correction_factor": self.ri_pre_correction_factor,
-            "ri_pre_correction_params": self.ri_pre_correction_params,
-            "method": self.method,
-            "stored_fib_image_shape": self.fib_image_shape,
-            "stored_fib_image_pixel_size": self.fib_image_pixel_size,
-            "stored_fm_pixel_size_z": self.fm_pixel_size_z,
-            "stored_fib_image_filename": self.fib_image_filename,
-            "stored_fm_image_filename": self.fm_image_filename,
-        }
+        # The stored values as the properties read them: the live images' when
+        # there are images, so a file records the images it was saved with.
+        return encode(
+            replace(
+                self,
+                stored_fib_image_shape=self.fib_image_shape,
+                stored_fib_image_pixel_size=self.fib_image_pixel_size,
+                stored_fm_pixel_size_z=self.fm_pixel_size_z,
+                stored_fib_image_filename=self.fib_image_filename,
+                stored_fm_image_filename=self.fm_image_filename,
+            )
+        )
 
     @property
     def fib_image_pixel_size(self) -> Optional[float]:
@@ -306,45 +291,7 @@ class CorrelationInputData:
                 "Not a correlation coordinates file: no 'fib_coordinates' key." + hint
             )
 
-        fib_coordinates = [
-            Coordinate.from_dict(coord) for coord in data["fib_coordinates"]
-        ]
-        # Sibling keys are written by the same writer, so tolerate their absence
-        # in a hand-edited file now that the file type itself is established.
-        fm_coordinates = [
-            Coordinate.from_dict(coord) for coord in data.get("fm_coordinates", [])
-        ]
-        poi_coordinates = [
-            Coordinate.from_dict(coord) for coord in data.get("poi_coordinates", [])
-        ]
-        surface_coordinate = (
-            Coordinate.from_dict(data["surface_coordinate"])
-            if data.get("surface_coordinate")
-            else None
-        )
-        fm_surface_coordinate = (
-            Coordinate.from_dict(data["fm_surface_coordinate"])
-            if data.get("fm_surface_coordinate")
-            else None
-        )
-        stored_shape = data.get("stored_fib_image_shape")
-        return CorrelationInputData(
-            fib_coordinates=fib_coordinates,
-            fm_coordinates=fm_coordinates,
-            poi_coordinates=poi_coordinates,
-            surface_coordinate=surface_coordinate,
-            fm_surface_coordinate=fm_surface_coordinate,
-            ri_pre_correction_factor=data.get("ri_pre_correction_factor"),
-            ri_pre_correction_params=data.get("ri_pre_correction_params"),
-            # Has a dataclass default and sits between two .get() calls; the hard
-            # subscript was the second key that could throw out of this function.
-            method=data.get("method", "multi-point"),
-            stored_fib_image_shape=tuple(stored_shape) if stored_shape else None,
-            stored_fib_image_pixel_size=data.get("stored_fib_image_pixel_size"),
-            stored_fm_pixel_size_z=data.get("stored_fm_pixel_size_z"),
-            stored_fib_image_filename=data.get("stored_fib_image_filename"),
-            stored_fm_image_filename=data.get("stored_fm_image_filename"),
-        )
+        return decode(CorrelationInputData, data)
 
     def save(self, filename: str):
         with open(filename, "w") as f:
@@ -395,19 +342,11 @@ class CorrelationPointOfInterest:
     px_m: Point = field(default_factory=Point)  # microscope image coords (metres)
 
     def to_dict(self) -> dict:
-        return {
-            "image_px": self.image_px.to_dict(),
-            "px": self.px.to_dict(),
-            "px_m": self.px_m.to_dict(),
-        }
+        return encode(self)
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationPointOfInterest:
-        return CorrelationPointOfInterest(
-            image_px=Point.from_dict(data["image_px"]),
-            px=Point.from_dict(data["px"]),
-            px_m=Point.from_dict(data["px_m"]),
-        )
+        return decode(CorrelationPointOfInterest, data)
 
 
 @dataclass
@@ -445,7 +384,7 @@ class CorrelationResult:
     refractive_index_correction_mode: Optional[str] = None
     # Aware, written as ISO 8601 with its offset; older results hold a
     # POSIX float, which reads as this machine's zone.
-    updated_at: Optional[datetime] = field(default_factory=now)
+    updated_at: Optional[Timestamp] = field(default_factory=now)
 
     # Geometry seeding. `fm_z_scale` is the factor the FM z (slices) was
     # multiplied by for the fit -- the slice thickness in xy pixels -- so the
@@ -454,11 +393,11 @@ class CorrelationResult:
     # `branch_check` how the fit relates to its mirror branch; both plain dicts,
     # written for the status line and the saved file rather than for code.
     fm_z_scale: float = 1.0
-    seed: Optional[dict] = None
-    branch_check: Optional[dict] = None
+    seed: Optional[Dict[str, Any]] = None
+    branch_check: Optional[Dict[str, Any]] = None
     # The fit verdict's evidence: fibsem.correlation.verdict
     # FitEvidence.to_dict(), computed after the fit when it was seeded.
-    diagnostics: Optional[dict] = None
+    diagnostics: Optional[Dict[str, Any]] = None
     # Where the fiducials put FM pixel (0, 0) minus where the stage metadata
     # put it, in microns in the FIB image's frame (x, y). The next lamella's
     # first projection adds it to its own metadata translation.
@@ -484,30 +423,9 @@ class CorrelationResult:
         return [float(col[0]), float(col[1])]
 
     def to_dict(self) -> dict:
-        return {
-            "poi": [p.to_dict() for p in self.poi],
-            "poi_uncorrected": [p.to_dict() for p in self.poi_uncorrected],
-            "scale": self.scale,
-            "rotation_eulers": self.rotation_eulers,
-            "rotation_matrix": self.rotation_matrix,
-            "translation": self.translation,
-            "translation_custom": self.translation_custom,
-            "rms_error": self.rms_error,
-            "mean_absolute_error": self.mean_absolute_error,
-            "delta_2d": [p.to_dict() for p in self.delta_2d],
-            "reprojected_3d": [p.to_dict() for p in self.reprojected_3d],
-            # The snapshot of the points this transform was fitted to, not the
-            # current inputs: correlation.json carries those beside the result.
-            "input_data": self.input_data.to_dict() if self.input_data else None,
-            "refractive_index_correction_factor": self.refractive_index_correction_factor,
-            "refractive_index_correction_mode": self.refractive_index_correction_mode,
-            "updated_at": to_iso(self.updated_at),
-            "fm_z_scale": self.fm_z_scale,
-            "seed": self.seed,
-            "diagnostics": self.diagnostics,
-            "branch_check": self.branch_check,
-            "placement_offset": self.placement_offset,
-        }
+        # ``input_data`` is the snapshot of the points this transform was fitted
+        # to, not the current inputs: correlation.json carries those beside it.
+        return encode(self)
 
     @staticmethod
     def from_dict(data: dict) -> CorrelationResult:
@@ -520,39 +438,7 @@ class CorrelationResult:
                 "Not a correlation result file: no 'poi' key. This looks like a"
                 " coordinates file — load it with Load Coordinates instead."
             )
-        return CorrelationResult(
-            poi=[CorrelationPointOfInterest.from_dict(p) for p in data.get("poi", [])],
-            poi_uncorrected=[
-                CorrelationPointOfInterest.from_dict(p)
-                for p in data.get("poi_uncorrected", [])
-            ],
-            scale=data.get("scale", 0.0),
-            rotation_eulers=data.get("rotation_eulers", []),
-            rotation_matrix=data.get("rotation_matrix", []),
-            translation=data.get("translation", []),
-            translation_custom=data.get("translation_custom", []),
-            rms_error=data.get("rms_error", 0.0),
-            mean_absolute_error=data.get("mean_absolute_error", []),
-            delta_2d=[Point.from_dict(p) for p in data.get("delta_2d", [])],
-            reprojected_3d=[
-                PointXYZ.from_dict(p) for p in data.get("reprojected_3d", [])
-            ],
-            input_data=CorrelationInputData.from_dict(snapshot)
-            if (snapshot := data.get("input_data"))
-            else None,
-            refractive_index_correction_factor=data.get(
-                "refractive_index_correction_factor"
-            ),
-            refractive_index_correction_mode=data.get(
-                "refractive_index_correction_mode"
-            ),
-            updated_at=to_datetime(data.get("updated_at", now())),
-            fm_z_scale=data.get("fm_z_scale", 1.0),
-            seed=data.get("seed"),
-            branch_check=data.get("branch_check"),
-            diagnostics=data.get("diagnostics"),
-            placement_offset=data.get("placement_offset"),
-        )
+        return decode(CorrelationResult, data)
 
     def apply_refractive_index_correction(
         self,
@@ -798,14 +684,9 @@ class CorrelationState:
         """Parse a container dict in the current format.
 
         Files are read with :func:`load_correlation_file`, which brings any older
-        spelling to this one first (:mod:`fibsem.correlation.upgrade`).
+        spelling to this one first (:mod:`fibsem.codec.upgrades.correlation`).
         """
-        result_data = data.get("result")
-        return CorrelationState(
-            input_data=CorrelationInputData.from_dict(data["input_data"]),
-            result=CorrelationResult.from_dict(result_data) if result_data else None,
-            version=data.get("version", CORRELATION_FILE_VERSION),
-        )
+        return decode(CorrelationState, data)
 
     def save(self, filename: str) -> None:
         with open(filename, "w") as f:

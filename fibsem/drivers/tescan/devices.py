@@ -30,22 +30,22 @@ from fibsem.devices.core import ParameterMetadata, Resources
 from fibsem.devices.entries import beam_type_of
 from fibsem.devices.stage import AXIS_UNITS, UNLIMITED, Stage
 from fibsem.drivers.tescan import images, sdk
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.settings import (
     BeamSettings,
     BeamType,
-    FibsemImage,
     FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
     Point,
-    RangeLimit,
 )
 
 if TYPE_CHECKING:
     from fibsem.drivers.registry import BuildContext
     from fibsem.drivers.tescan.connection import TescanConnection
     from fibsem.drivers.tescan.microscope import TescanMicroscope
-    from fibsem.structures import DeviceEntry
+    from fibsem.structures.system import DeviceEntry
 
 # The "current" choices, a fixed list.
 _CURRENT_CHOICES: Dict[BeamType, List[float]] = {

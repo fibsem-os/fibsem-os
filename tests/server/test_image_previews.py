@@ -179,7 +179,7 @@ def test_a_camera_frame_answers_the_same_shape():
 
 def test_a_saved_image_answers_its_path(tmp_path):
     from fibsem.server.images import image_answer
-    from fibsem.structures import FibsemImage
+    from fibsem.structures.image import FibsemImage
 
     image = FibsemImage(data=np.zeros((64, 96), dtype=np.uint8), metadata=None)
     written = image.save(path=str(tmp_path / "frame.tif"))

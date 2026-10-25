@@ -69,7 +69,7 @@ def test_toggle_on_seeds_and_activates():
     assert r._visible is True
     assert r._p1 is not None and r._p2 is not None
     assert r._line is not None and r._dots is not None and r._label is not None
-    assert c.active_overlay is r
+    assert c._active_overlay is r
     seed_len = abs(r._p2[0] - r._p1[0])
     assert abs(seed_len - 0.25 * _W) < 1e-6
     assert abs(r.measurement() - seed_len * _PX) < 1e-18
@@ -140,13 +140,13 @@ def test_ruler_off_restores_active_mode():
     mode_ov = RulerOverlay()  # stands in for a workflow overlay (POI / spot burn)
     c.add_overlay(mode_ov)
     c.enter_overlay_mode(mode_ov, "Edit")
-    assert c.active_overlay is mode_ov
+    assert c._active_overlay is mode_ov
     r = _ruler_on(c)
-    assert c.active_overlay is r
+    assert c._active_overlay is r
     c.btn_toggle_ruler.setChecked(False)
     c.toggle_ruler()
     assert r._line is None and r._visible is False
-    assert c.active_overlay is mode_ov  # mode restored, not a stale snapshot
+    assert c._active_overlay is mode_ov  # mode restored, not a stale snapshot
 
 
 def test_ruler_off_after_mode_exit_returns_to_move():
@@ -160,7 +160,7 @@ def test_ruler_off_after_mode_exit_returns_to_move():
     c.exit_overlay_mode(mode_ov)  # the workflow ends the step while measuring
     c.btn_toggle_ruler.setChecked(False)
     c.toggle_ruler()
-    assert c.active_overlay is None  # Move, not the stale mode_ov
+    assert c._active_overlay is None  # Move, not the stale mode_ov
 
 
 def test_ruler_off_after_mode_overlay_removed_returns_to_move():
@@ -175,7 +175,7 @@ def test_ruler_off_after_mode_overlay_removed_returns_to_move():
     c.remove_overlay(mode_ov)  # e.g. controller.remove_overlay / clear()
     c.btn_toggle_ruler.setChecked(False)
     c.toggle_ruler()
-    assert c.active_overlay is None
+    assert c._active_overlay is None
     assert mode_ov not in c._overlays
 
 
@@ -183,10 +183,10 @@ def test_ruler_off_with_no_mode_returns_to_move():
     """No overlay mode active: ruler off returns to Move (None)."""
     c = _canvas()
     r = _ruler_on(c)
-    assert c.active_overlay is r
+    assert c._active_overlay is r
     c.btn_toggle_ruler.setChecked(False)
     c.toggle_ruler()
-    assert c.active_overlay is None
+    assert c._active_overlay is None
 
 
 def test_inert_while_hidden():

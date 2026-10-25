@@ -24,15 +24,9 @@ from fibsem.milling import (
 from fibsem.milling.monitors.intensity import IntensityDropRule
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.services.milling import report_progress
-from fibsem.structures import (
-    BeamType,
-    Display,
-    FibsemImage,
-    FibsemRectangle,
-    MillingState,
-    RangeLimit,
-    param,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import Display, RangeLimit, param
+from fibsem.structures.settings import BeamType, FibsemRectangle, MillingState
 from fibsem.utils import save_json
 
 if TYPE_CHECKING:
@@ -95,16 +89,6 @@ class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
         None, display=Display(hidden=True)
     )  # reduced area for intensity monitoring
     # oscillation parameters
-
-    @classmethod
-    def from_dict(cls, d: dict) -> "CoincidenceMillingStrategyConfig":
-        # asdict() flattens bbox to a plain dict; reconstruct it back into a
-        # FibsemRectangle so config.bbox is a usable object after a round-trip.
-        d = dict(d)
-        bbox = d.get("bbox")
-        if bbox is not None and not isinstance(bbox, FibsemRectangle):
-            d["bbox"] = FibsemRectangle.from_dict(bbox)
-        return cls(**d)
 
 
 # ASSUMPTIONS:

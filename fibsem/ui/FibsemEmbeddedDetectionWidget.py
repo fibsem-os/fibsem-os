@@ -9,10 +9,7 @@ from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 from fibsem import conversions
 from fibsem.detection.detection import DetectedFeatures
-from fibsem.structures import (
-    BeamType,
-    Point,
-)
+from fibsem.structures.settings import BeamType, Point
 from fibsem.ui.widgets.canvas.canvas_state import MaskSpec, PointsSpec
 
 

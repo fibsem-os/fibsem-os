@@ -18,7 +18,8 @@ import pytest
 import yaml
 
 from fibsem import utils
-from fibsem.structures import CONFIGURATION_VERSION
+from fibsem.codec import encode
+from fibsem.structures.system import CONFIGURATION_VERSION
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures", "configuration_v0")
 
@@ -141,9 +142,7 @@ def test_an_old_file_is_saved_upgraded_and_kept_as_it_was(filename, tmp_path):
 def test_an_old_file_saved_by_this_version_still_reads_the_same(filename, tmp_path):
     saved = tmp_path / "saved" / filename
     saved.parent.mkdir()
-    saved.write_text(
-        yaml.safe_dump(utils._plain(_load(_copy(filename, tmp_path)).to_dict()))
-    )
+    saved.write_text(yaml.safe_dump(encode(_load(_copy(filename, tmp_path)).to_dict())))
 
     assert _reads_as(_load(saved)) == READS_AS[filename]
 

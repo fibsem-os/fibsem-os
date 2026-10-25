@@ -31,7 +31,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTask,
     MillRoughTaskConfig,
 )
-from fibsem.structures import Point
+from fibsem.structures.settings import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import (
     DETECTION,
@@ -79,10 +79,7 @@ def window(qapp, tmp_path):
     for manager, thread in win._started:
         manager.stop()
         _pump(qapp, lambda: not thread.is_alive())
-    microscope = ui.microscope
-    ui.disconnect_from_microscope()
-    if microscope is not None:
-        microscope.disconnect()
+    ui.session.disconnect()
     close_window(win)
     win.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
@@ -259,7 +256,8 @@ def test_a_point_asked_with_no_frame_to_show_it_on_is_confirmed_as_proposed(
 
 def _swap_view_frame(ui, hfw):
     """Put another FIB frame on the view, as a new image would, and say so."""
-    from fibsem.structures import BeamType, FibsemImage
+    from fibsem.structures.image import FibsemImage
+    from fibsem.structures.settings import BeamType
 
     frame = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=hfw)
     frame.metadata.image_settings.beam_type = BeamType.ION
@@ -273,7 +271,7 @@ def test_the_poi_marker_follows_the_view_to_another_frame(window, qapp):
     point waits. The marker moves to the same point on it, and Continue
     decides the point the operator saw, not a pixel read on the wrong frame."""
     from fibsem import conversions
-    from fibsem.structures import BeamType
+    from fibsem.structures.settings import BeamType
 
     ui = window
     _swap_view_frame(ui, 150e-6)

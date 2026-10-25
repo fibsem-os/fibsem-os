@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.structures import Configurable, Display, RangeLimit, param
+from fibsem.structures.params import Configurable, Display, RangeLimit, param
 
 
 class HookEvent(str, Enum):

@@ -23,7 +23,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures import StageSystemSettings
+from fibsem.structures.system import StageSystemSettings
 
 
 def _stage(**overrides) -> StageSystemSettings:

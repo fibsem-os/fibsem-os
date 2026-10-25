@@ -16,7 +16,8 @@ from fibsem.alignment import (
 )
 from fibsem.autofunctions.autofocus import AutoFocusIteration, AutoFocusResult
 from fibsem.autofunctions.plotting import plot_autofocus_result
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 from fibsem.theme.plots import DARK
 
 

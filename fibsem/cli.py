@@ -18,9 +18,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
-    FibsemImage,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
@@ -30,13 +30,13 @@ from fibsem.structures import (
 BEAMS = {"electron": BeamType.ELECTRON, "ion": BeamType.ION}
 
 NO_SERVER = (
-    "no App Server found. Open the app with the App Server on, or run "
+    "no fibsem host found. Open the app with Tools > Host serving, or run "
     "fibsem-autolamella-server; or give --url and --token (the operator token: "
-    "Tools > App Server > Copy operator token)."
+    "Tools > Host > Copy operator token)."
 )
 MICROSCOPE_OFF = (
-    "the App Server doesn't serve the microscope: turn on its microscope setting "
-    "in Tools > App Server."
+    "the host doesn't serve the microscope: turn on its microscope setting "
+    "in Tools > Host."
 )
 STOP_REASON = "stopped from fibsem-cli"
 

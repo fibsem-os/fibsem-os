@@ -21,7 +21,7 @@ from fibsem.applications.autolamella.server.context import (  # noqa: E402
 )
 from fibsem.server import AuthConfig  # noqa: E402
 from fibsem.server.hosting import AppServerHost  # noqa: E402
-from fibsem.structures import BeamType  # noqa: E402
+from fibsem.structures.settings import BeamType  # noqa: E402
 from fibsem.workflows.attention import Attention  # noqa: E402
 from fibsem.workflows.proposals import POINT_OF_INTEREST  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402
@@ -52,7 +52,7 @@ def agent(microscope, tmp_path):  # noqa: F811
     session.agent_auth = AuthConfig.generate(level=AgentLevel.DRIVE)
     session.app_server = AppServerHost(
         session,
-        lambda buffer: AutoLamellaAppContext(session, event_buffer=buffer),
+        lambda: AutoLamellaAppContext(session),
         port=_free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )

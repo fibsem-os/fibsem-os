@@ -90,8 +90,38 @@ def test_each_argument_carries_its_catalog_description():
     }
     for spec in CATALOG:
         properties = schemas[spec.name].get("properties", {})
-        for name, text in spec.params.items():
-            assert properties[name].get("description") == text, (spec.name, name)
+        for name, argument in spec.arguments.items():
+            assert properties[name].get("description") == argument.doc, (
+                spec.name,
+                name,
+            )
+
+
+def test_each_tool_takes_the_types_and_defaults_its_catalog_entry_declares():
+    """The catalog declares each argument's type and default once
+    (`ToolSpec.signature`): a tool the sidecar writes by hand takes exactly
+    those, as one made from its entry does."""
+    from mcp.server.mcpserver.utilities.func_metadata import func_metadata
+
+    client = _make_client("drive")
+    listed = asyncio.run(build_sidecar(client, None).list_tools())
+    schemas = {
+        t.name: getattr(t, "input_schema", None) or t.inputSchema
+        for t in getattr(listed, "tools", listed)
+    }
+    for spec in CATALOG:
+        properties = dict(schemas[spec.name]["properties"])
+        properties.pop("evidence", None)
+
+        def declared():
+            pass
+
+        declared.__name__ = spec.name
+        declared.__signature__ = spec.signature
+        expected = func_metadata(declared).arg_model.model_json_schema()
+        for name, schema in properties.items():
+            schema = {k: v for k, v in schema.items() if k != "description"}
+            assert schema == expected["properties"][name], (spec.name, name)
 
 
 def test_hardware_tools_are_offered_at_watch():
@@ -358,7 +388,7 @@ def test_a_command_that_images_answers_the_agent_an_image(armed_sidecar, device)
 def test_the_milling_state_is_answered_by_name(armed_sidecar):
     """The tool says IDLE, RUNNING, ...; the wire carries the enum's number."""
     from fibsem.ai.agent.mcp.sidecar import _MILLING_STATES
-    from fibsem.structures import MillingState
+    from fibsem.structures.settings import MillingState
 
     assert _MILLING_STATES == tuple(state.name for state in MillingState)
     assert [MillingState[name].value for name in _MILLING_STATES] == list(
@@ -433,7 +463,7 @@ def test_an_acting_tool_names_itself_to_the_server():
     from the tool and arguments the sidecar names; a read names nothing."""
     client = _make_client("drive")
     sidecar = build_sidecar(client, _capabilities(client))
-    microscope = client.app.state.microscope
+    microscope = client.app.state.served.current
     recorded = []
 
     def record(kind, payload):

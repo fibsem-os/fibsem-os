@@ -15,7 +15,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.devices.stage import flip_stage_poses, rotating_stage_poses
 from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 
 IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")

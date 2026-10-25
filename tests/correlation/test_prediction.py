@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from fibsem.codec.upgrades.correlation import OLD_STATUS, upgrade_input_data
 from fibsem.correlation.geometry import NominalTransform
 from fibsem.correlation.prediction import (
     build_projection,
@@ -29,7 +30,6 @@ from fibsem.correlation.structures import (
     PointType,
     PointXYZ,
 )
-from fibsem.correlation.upgrade import OLD_STATUS, upgrade_input_data
 
 FIXTURE = Path(__file__).parent / "fixtures" / "nominal_transform.json"
 ENTRIES = json.loads(FIXTURE.read_text())["entries"]

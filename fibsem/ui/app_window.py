@@ -1,6 +1,6 @@
 """What an app's main window is built on: its session, the run border round its
-tabs, the status bar, the run's responder and executor, the connection and the
-App Server. The app adds its tabs, its panel and its menus.
+tabs, the status bar, the run's responder and executor, the connection widget
+and the App Server. The app adds its tabs, its panel and its menus.
 """
 
 from __future__ import annotations
@@ -8,15 +8,15 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
-from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import MicroscopeSettings
+from fibsem.structures.system import MicroscopeSettings
 from fibsem.ui.agent.chip_host import AgentChipHost
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
+from fibsem.ui.qt.connections import connect_on_gui_thread
 from fibsem.ui.qt.run_bridge import GuiExecutor, RunRelay
 from fibsem.ui.run.proposals import ProposalPresenter
 from fibsem.ui.run.responder import QtResponder
@@ -26,7 +26,7 @@ from fibsem.ui.widgets.run_border import RunBorder
 from fibsem.ui.widgets.status_bar import FibsemStatusBar
 from fibsem.ui.widgets.workflow.controls import WorkflowControls
 from fibsem.versioning import get_version_string
-from fibsem.workflows.session import AppSession
+from fibsem.workflows.session import EXPERIMENT, MICROSCOPE, AppSession
 
 if TYPE_CHECKING:
     from fibsem.server.app_context import AppContext
@@ -40,9 +40,6 @@ class AppWindow(QMainWindow):
     ``view_controller`` and ``run_view``, and say what the App Server serves
     (:meth:`app_context`)."""
 
-    # The session's `changed`, carried to the GUI thread.
-    _session_changed = pyqtSignal(str, object)
-
     @property
     def microscope(self) -> Optional[FibsemMicroscope]:
         return self.session.microscope
@@ -52,6 +49,10 @@ class AppWindow(QMainWindow):
         self.session.microscope = microscope
 
     @property
+    def settings(self) -> Optional[MicroscopeSettings]:
+        return self.session.settings
+
+    @property
     def experiment(self) -> Optional[Any]:
         return self.session.experiment
 
@@ -59,12 +60,13 @@ class AppWindow(QMainWindow):
     def experiment(self, experiment: Optional[Any]) -> None:
         self.session.experiment = experiment
 
-    def __init__(self, title: str):
+    def __init__(self, title: str, session: Optional[AppSession] = None):
         super().__init__()
         # The microscope, the open experiment and the connection's event
-        # stream are the session's; this window is one client of it.
-        self.session = AppSession()
-        self.settings: Optional[MicroscopeSettings] = None
+        # stream are the session's; this window is one client of it. The
+        # host process makes the session (fibsem.server.headless), connected
+        # or not, and the window opens on it.
+        self.session = session if session is not None else AppSession()
         self.setWindowTitle(f"{title} v{get_version_string()} ")
         self.resize(1600, 1000)
 
@@ -81,7 +83,7 @@ class AppWindow(QMainWindow):
         self._preferences = fibsem_cfg.load_user_preferences()
         self.run_border.set_on(self._preferences.qt.border_enabled)
 
-    def app_context(self, event_buffer) -> "AppContext":
+    def app_context(self) -> "AppContext":
         """What the App Server serves over this window's session."""
         raise NotImplementedError
 
@@ -126,8 +128,29 @@ class AppWindow(QMainWindow):
         self.workflow_controls = WorkflowControls(self.status_bar)
         self.status_bar.add_action(self.workflow_controls)
 
+    def _follow_session(self) -> None:
+        """Call `_on_session_changed` on the GUI thread for each of the
+        session's changes, until the window closes."""
+        self._stop_following_session = connect_on_gui_thread(
+            self, self.session.changed, self._hear_session
+        )
+
     def _hear_session(self, what: str, detail: Any = None) -> None:
-        self._session_changed.emit(what, detail)
+        # The connection first: the app's views are built for the microscope
+        # by the time it hears one.
+        self._follow_connection(what, detail)
+        self._on_session_changed(what, detail)
+
+    def _on_session_changed(self, what: str, detail: Any = None) -> None:
+        """The session's microscope, experiment or protocol changed."""
+
+    def _catch_up(self) -> None:
+        """Hear what the session had before this window opened on it: the
+        host connects the microscope and opens the experiment first."""
+        if self.session.microscope is not None:
+            self._hear_session(MICROSCOPE)
+        if self.session.experiment is not None:
+            self._hear_session(EXPERIMENT)
 
     def _attach_run(self, panel: "MicroscopePanel") -> None:
         """The session's run, responder and executor, shown on *panel*, and the
@@ -153,9 +176,7 @@ class AppWindow(QMainWindow):
         # from elsewhere to the same config then finds it changed.
         self.session.executor = GuiExecutor(self.flush_editors, parent=self)
 
-        self.system_widget = FibsemSystemSetupWidget(parent=self)
-        self.system_widget.connected_signal.connect(self.connect_to_microscope)
-        self.system_widget.disconnected_signal.connect(self.disconnect_from_microscope)
+        self.system_widget = FibsemSystemSetupWidget(session=self.session, parent=self)
         self.run_relay.status.connect(panel.handle_workflow_status)
 
     def flush_editors(self) -> None:
@@ -173,30 +194,14 @@ class AppWindow(QMainWindow):
         if self.microscope is not None:
             self.experiment.register_metadata(self.microscope)
 
-    def connect_to_microscope(self):
-        # The window hears the new microscope once its views here are built.
-        with self.session.changed.paused():
-            self.microscope = self.system_widget.microscope
-            self.settings = self.system_widget.settings
-            if self.experiment is not None:
-                self.settings.image.path = self.experiment.path
-            self._show_microscope()
-            if self.experiment is not None:
-                self._setup_experiment_connections()
-            self._start_event_recorder()
-            self._start_app_server()
-
-    def _start_event_recorder(self) -> None:
-        """Start recording events for this microscope connection, whatever else runs.
-
-        This is the slot for the system widget's ``connected_signal``, which fires
-        whenever that widget refreshes while connected -- not once per connection
-        -- so it can run again for a microscope that already has a stream, and
-        that microscope keeps it. A different microscope (the connection dialog can
-        hand one back) gets a new stream, and the session stops a running App
-        Server so it restarts on the new buffer.
-        """
-        self.session.start_recording()
+    def _follow_connection(self, what: str, detail: Any = None) -> None:
+        """Another microscope, or none, whoever connected it: the panel's
+        microscope tabs for it, pointed at the open experiment."""
+        if what != MICROSCOPE:
+            return
+        self._show_microscope()
+        if self.experiment is not None:
+            self._setup_experiment_connections()
 
     def _start_app_server(self) -> None:
         """Host the App Server over this session, if the preference asks for it.
@@ -207,23 +212,19 @@ class AppWindow(QMainWindow):
         preference = fibsem_cfg.load_user_preferences().install.app_server
         if preference.enabled:
             if self.session.serve_microscope is None:
-                # the operator's choice in Tools → App Server is per session,
+                # the operator's choice in Tools → Host is per session,
                 # like the agent level; it starts at the preference's default
                 self.session.serve_microscope = preference.microscope
             self.session.start_app_server(self.app_context)
 
     def sync_app_server_with_preference(self) -> None:
-        """Start or stop the embedded server to match the saved preference.
-
-        Called when Tools → App Server saves the switch, so it acts now rather
-        than at the next connect. Starting needs a connected microscope (the
-        server wraps it); without one this is a no-op and the connect path
-        picks the preference up as before.
-        """
+        """Start or stop the embedded server to match the saved preference:
+        at launch, with or without a microscope, and when Tools → Host
+        saves the switch."""
         host = self.session.app_server
         preference = fibsem_cfg.load_user_preferences().install.app_server
         if preference.enabled:
-            if self.microscope is not None and (host is None or not host.running):
+            if host is None or not host.running:
                 self._start_app_server()
         elif host is not None and host.running:
             host.stop()
@@ -243,11 +244,11 @@ class AppWindow(QMainWindow):
             "App Server: the microscope %s by the operator",
             "served" if serve else "no longer served",
         )
-        if self.session.set_serve_microscope(serve) and self.microscope is not None:
+        if self.session.set_serve_microscope(serve):
             self._start_app_server()
 
     def _on_app_server_dialog(self) -> None:
-        """Open Tools → App Server: status, services, clients, the event log."""
+        """Open Tools → Host: status, services, clients, the event log."""
         from fibsem.ui.agent.app_server_dialog import (
             AppServerDialog,
         )
@@ -264,27 +265,19 @@ class AppWindow(QMainWindow):
         dialog.exec_()
 
     def _set_app_server_enabled(self, enabled: bool) -> None:
-        """Tools → App Server: save whether the server runs, and act on it now."""
+        """Tools → Host: save whether the server runs, and act on it now."""
         self._preferences = fibsem_cfg.update_user_preferences(
             lambda p: setattr(p.install.app_server, "enabled", bool(enabled))
         )
         self.sync_app_server_with_preference()
 
     def _set_app_server_microscope(self, serve: bool) -> None:
-        """Tools → App Server: save whether the microscope is served, and act on it
+        """Tools → Host: save whether the microscope is served, and act on it
         now (a running server restarts)."""
         self._preferences = fibsem_cfg.update_user_preferences(
             lambda p: setattr(p.install.app_server, "microscope", bool(serve))
         )
         self.set_app_server_microscope(serve)
-
-    def disconnect_from_microscope(self):
-        with self.session.changed.paused():
-            self.session.stop_app_server()
-            self.session.stop_recording()
-            self.microscope = None
-            self.settings = None
-            self._show_microscope()
 
     def _show_microscope(self) -> None:
         """The panel's microscope tabs for the connected microscope, or none."""
@@ -335,7 +328,7 @@ class AppWindow(QMainWindow):
         # instrument go rather than leave the client open until the process ends.
         if self.microscope is not None:
             self.microscope.try_disconnect()
-        self.session.changed.disconnect(self._hear_session)
+        self._stop_following_session()
         super().closeEvent(event)
         # Force the event loop to exit even if another top-level window (e.g. a
         # stray matplotlib pyplot figure) would otherwise keep the app alive once

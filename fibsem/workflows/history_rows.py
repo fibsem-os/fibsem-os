@@ -23,10 +23,11 @@ import os
 import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Tuple
 
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
+from fibsem.codec import decode, encode
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows.status import TaskState, TaskStatus
@@ -150,6 +151,12 @@ class HistoryRun:
         return max(0.0, (self.ended_at - self.started_at).total_seconds())
 
 
+HistoryShow = Literal["all", "images", "operations"]
+HistoryStatus = Literal["all", "failed", "cancelled"]
+HistoryDecidedBy = Literal["anyone", "agent", "operator"]
+HistoryOrder = Literal["oldest", "newest"]
+
+
 @dataclass
 class HistoryFilter:
     """What the tab shows. Remembered per user, so it round-trips as a dict.
@@ -162,11 +169,11 @@ class HistoryFilter:
     or ``newest`` first.
     """
 
-    show: str = "all"
-    status: str = "all"
+    show: HistoryShow = "all"
+    status: HistoryStatus = "all"
     task: Optional[str] = None
-    decided_by: str = "anyone"
-    order: str = "oldest"
+    decided_by: HistoryDecidedBy = "anyone"
+    order: HistoryOrder = "oldest"
 
     @property
     def active(self) -> bool:
@@ -174,31 +181,13 @@ class HistoryFilter:
         return replace(self, order="oldest") != HistoryFilter()
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "show": self.show,
-            "status": self.status,
-            "task": self.task,
-            "decided_by": self.decided_by,
-            "order": self.order,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]) -> "HistoryFilter":
-        """Anything unrecognised falls back to showing everything: a filter saved
-        by another version must not hide runs without the operator knowing."""
-        data = data or {}
-        show = data.get("show")
-        status = data.get("status")
-        task = data.get("task")
-        decided_by = data.get("decided_by")
-        order = data.get("order")
-        return cls(
-            show=show if show in ("all", "images", "operations") else "all",
-            status=status if status in ("all", "failed", "cancelled") else "all",
-            task=task if isinstance(task, str) and task else None,
-            decided_by=decided_by if decided_by in ("agent", "operator") else "anyone",
-            order=order if order == "newest" else "oldest",
-        )
+        """Raises:
+        ValueError: a value the filter doesn't have."""
+        return decode(cls, data or {})
 
 
 _STATUS_OF_FILTER = {

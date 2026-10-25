@@ -43,7 +43,7 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, command, query
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.services.core import Service, save_beam_conditions
-from fibsem.structures import BeamType, Point
+from fibsem.structures.settings import BeamType, Point
 from fibsem.util import wording
 
 _S = TypeVar("_S", bound="SpotBurn")

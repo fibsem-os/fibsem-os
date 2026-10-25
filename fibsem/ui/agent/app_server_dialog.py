@@ -1,4 +1,4 @@
-"""Tools → App Server: the server itself -- status, services, the operator's
+"""Tools → Host: the server itself -- status, services, the operator's
 token and paired computers, and a link to the event log.
 
 The App Server is the API inside AutoLamella that the agent, the event log and
@@ -25,15 +25,15 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.server.hosting import event_log_url
-from fibsem.ui import stylesheets
-from fibsem.ui.agent.level_chip import last_heard_text
-from fibsem.ui.agent.pairing_widgets import PairedList, PairingCode
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     OK_COLOR,
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui import stylesheets
+from fibsem.ui.agent.level_chip import last_heard_text
+from fibsem.ui.agent.pairing_widgets import PairedList, PairingCode
 
 __all__ = ["AppServerDialog"]
 
@@ -41,10 +41,10 @@ __all__ = ["AppServerDialog"]
 # once the switches have been still this long: a double click restarts nothing.
 SETTLE_MS = 600
 
-ENABLED_LABEL = "Run the App Server"
+ENABLED_LABEL = "Serve this session"
 ENABLED_TIP = (
-    "Run the App Server while a microscope is connected: a local, token-protected "
-    "API over this session that an AI agent (through the fibsem-mcp sidecar) and "
+    "Serve this session, with or without a microscope connected: a local, "
+    "token-protected API over this session that an AI agent (through the fibsem-mcp sidecar) and "
     "the event log can reach. Kept for the next launch. What the agent may do "
     "is its level, set from the Agent chip in the status bar, which resets to "
     "Watch at every launch."
@@ -53,7 +53,7 @@ MICROSCOPE_LABEL = "Serve the microscope"
 MICROSCOPE_TIP = (
     "Also serve the routes that reach the instrument: its devices, stage, beams "
     "and milling state, reads included. Off, clients see the session but cannot "
-    "query the microscope. Changing this restarts a running App Server; a "
+    "query the microscope. Changing this restarts the host's server; a "
     "connected agent carries on. Kept for the next launch."
 )
 
@@ -106,7 +106,7 @@ class AppServerDialog(QDialog):
         serve_microscope: bool = False,
     ):
         super().__init__(parent)
-        self.setWindowTitle("App Server")
+        self.setWindowTitle("Host")
         self.setMinimumWidth(440)
         self._host_provider = host_provider
         # Each saves the operator's choice and starts, stops or restarts the server.
@@ -268,13 +268,13 @@ class AppServerDialog(QDialog):
         if not running:
             self._status_dot.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._status_label.setText(
-                "Not running. It starts when a microscope connects."
+                "Not running. It did not start; see the log."
                 if self._chk_enabled.isChecked()
                 else "Not running."
             )
             self._status_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._services_label.setText("")
-            self._agent_label.setText("No clients while the App Server is off.")
+            self._agent_label.setText("No clients while the host is not serving.")
             self._agent_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             return
         self._status_dot.setStyleSheet(f"color: {OK_COLOR};")

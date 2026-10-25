@@ -90,6 +90,7 @@ from fibsem.devices.core import (
     query,
 )
 from fibsem.devices.runs import RUNNING, current_run, current_run_id
+from fibsem.devices.wire import to_wire
 from fibsem.milling.base import FibsemMillingStage, estimate_milling_time
 from fibsem.milling.progress import MillingProgress, MillingProgressStatus
 from fibsem.milling.readings import MillingReadings
@@ -104,21 +105,20 @@ from fibsem.milling.steps import (
     MillingStepEnd,
 )
 from fibsem.services.core import Service, save_beam_conditions
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.params import Parameter, field_specs
+from fibsem.structures.settings import (
     ACTIVE_MILLING_STATES,
     BeamType,
     DriverMillingSettings,
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemImage,
     FibsemLineSettings,
     FibsemMillingSettings,
     FibsemPatternSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
     MillingState,
-    Parameter,
-    field_specs,
 )
 from fibsem.util import wording
 from fibsem.util.timestamps import now_iso
@@ -690,7 +690,7 @@ class Milling(Service):
         by its path, in the shape a monitor config's ``describe()`` has. A number the
         beam lists values for (the milling current) keeps any value, so its listed
         ones are its ``examples``."""
-        from fibsem.schema import _plain, parameter_schema
+        from fibsem.schema import parameter_schema
 
         specs = self._setting_specs()
         properties: Dict[str, Any] = {}
@@ -702,7 +702,7 @@ class Milling(Service):
                 reported = dataclasses.replace(reported, choices=None)
             schema = parameter_schema(spec.with_reported(reported), {})
             if listed:
-                schema["examples"] = [_plain(choice) for choice in listed]
+                schema["examples"] = [to_wire(choice) for choice in listed]
             properties[name] = schema
         return {
             "type": "object",

@@ -4,7 +4,8 @@ from dataclasses import dataclass
 from typing import ClassVar, List
 
 from fibsem.milling.patterning.base import BasePattern
-from fibsem.structures import Display, FibsemRectangleSettings, param
+from fibsem.structures.params import Display, param
+from fibsem.structures.settings import FibsemRectangleSettings
 from fibsem_test_plugin import CLASHING_PATTERN_NAME, PATTERN_NAME
 
 

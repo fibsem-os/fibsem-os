@@ -46,7 +46,7 @@ import tifffile
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.task_outputs import latest_final_reference_images
 from fibsem.conversions import microscope_image_to_image_coordinates
-from fibsem.structures import FibsemImage
+from fibsem.structures.image import FibsemImage
 
 # Tasks whose final FIB reference image can serve as the training input, in order of
 # preference. All of them image at the milling position, so the POI is valid in any of

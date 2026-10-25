@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from fibsem.structures import (
+from fibsem.structures.settings import (
     BeamType,
     FibsemCircleSettings,
     FibsemLineSettings,

@@ -32,19 +32,19 @@ from fibsem.correlation.structures import (
     PointStatus,
     PointType,
 )
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import (
-    DRAG_HANDLE_HEIGHT,
-    DRAG_HANDLE_WIDTH,
-    drag_handle_pixmap,
-)
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     CAPTION_STYLE,
     CAPTION_VALUE_STYLE,
     NUMBER_STYLE,
     ROW_ALT_COLOR,
     WARN_COLOR,
     state_style,
+)
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import (
+    DRAG_HANDLE_HEIGHT,
+    DRAG_HANDLE_WIDTH,
+    drag_handle_pixmap,
 )
 from fibsem.ui.widgets.custom_widgets import IconToolButton, ValueSpinBox
 from fibsem.ui.widgets.lists import ReorderableListWidget
@@ -769,14 +769,3 @@ class CoordinateListWidget(QWidget):
                 if isinstance(w, CoordinateRowWidget):
                     w.refresh()
                 break
-
-    def select_coordinate_silent(self, coord: Optional[Coordinate]) -> None:
-        """Highlight a row without emitting ``coordinate_selected`` (avoids sync loops)."""
-        if coord is not None and coord not in self._store:
-            coord = None
-        if coord is None:
-            # only this list's: the selection may be another list's
-            self._store.deselect(self.selected_coordinate)
-        else:
-            # beside the other canvas's selection, as a verdict's pair link asks
-            self._store.select(coord, extend=True)

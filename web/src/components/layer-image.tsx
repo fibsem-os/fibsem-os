@@ -4,10 +4,11 @@ import { ImageInfoBar } from "@/components/image-info";
 import { LayersPanel, type PanelLayer } from "@/components/layers-panel";
 import { LayerView, type Snapshot, type Tools, type View, fitView, roundLength, zoomed } from "@/components/layer-view";
 import { PROJECTIONS, type StackShown, ZRow } from "@/components/z-row";
-import { type DrawLayer, LayerRenderer } from "@/lib/gl-layers";
+import { download } from "@/lib/api";
+import type { DrawLayer } from "@/lib/gl-layers";
 import * as fmt from "@/lib/format";
 import { type Look, autoClim, cssColor, storeLook, storedLook, tint } from "@/lib/layers";
-import { type Planes, type PlanesAsk, type Values, planeOf, project, readPlanes, usePlanes } from "@/lib/planes";
+import { type Box, type Planes, type PlanesAsk, type Values, planeOf, project, usePlanes } from "@/lib/planes";
 import type { FileRead, ImageInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -48,6 +49,23 @@ function askFor(shown: StackShown, factor: number): PlanesAsk {
 
 const sameAsk = (a: PlanesAsk | null, b: PlanesAsk | null) => JSON.stringify(a) === JSON.stringify(b);
 
+// The region read at full size, padded so a small pan stays inside it and snapped
+// to the file's 256 px tiles so a pan back reads the same region again.
+const TILE = 256;
+const REGION_PIXELS = 4096 * 4096;
+
+/** The region to read at full size for *sight* of a (Y, X) *full* image, or null
+ * when it would be larger than a read allows. */
+function regionFor(sight: Box, full: [number, number]): Box | null {
+  const [x, y, w, h] = sight;
+  const snap = (v: number) => Math.floor(v / TILE) * TILE;
+  const x0 = Math.max(0, snap(x - w / 4));
+  const y0 = Math.max(0, snap(y - h / 4));
+  const x1 = Math.min(full[1], snap(x + w * 1.25) + TILE);
+  const y1 = Math.min(full[0], snap(y + h * 1.25) + TILE);
+  return (x1 - x0) * (y1 - y0) > REGION_PIXELS ? null : [x0, y0, x1 - x0, y1 - y0];
+}
+
 /** A toolbar button over the image, as the Qt canvas's. */
 function Tool({
   label,
@@ -78,12 +96,11 @@ function Tool({
   );
 }
 
-/** The image as a PNG: the part in view as drawn, or the whole image at full size,
- * with the scalebar and the bar's text when asked. */
+/** The part of the image in view as drawn, as a PNG, with the scalebar and the
+ * bar's text when asked. */
 async function exportPng({
   name,
   snapshot,
-  full,
   draw,
   pixelSize,
   info,
@@ -92,8 +109,7 @@ async function exportPng({
   bar,
 }: {
   name: string;
-  snapshot: Snapshot | null;
-  full: (() => Promise<HTMLCanvasElement>) | null;
+  snapshot: Snapshot;
   draw: [number, number];
   pixelSize: number | null | undefined;
   info: ImageInfo | null | undefined;
@@ -101,31 +117,19 @@ async function exportPng({
   scalebar: boolean;
   bar: boolean;
 }) {
-  let source: CanvasImageSource;
-  let sx = 0;
-  let sy = 0;
-  let w: number;
-  let h: number;
-  let metresPerPx = pixelSize ?? null;
-  if (full) {
-    source = await full();
-    [w, h] = [source.width, source.height];
-  } else {
-    const s = snapshot!;
-    source = s.canvas;
-    sx = Math.max(0, s.x);
-    sy = Math.max(0, s.y);
-    w = Math.round(Math.min(s.canvas.width, s.x + s.width) - sx);
-    h = Math.round(Math.min(s.canvas.height, s.y + s.height) - sy);
-    if (metresPerPx) metresPerPx = (metresPerPx * draw[1]) / s.width;
-  }
+  const s = snapshot;
+  const sx = Math.max(0, s.x);
+  const sy = Math.max(0, s.y);
+  const w = Math.round(Math.min(s.canvas.width, s.x + s.width) - sx);
+  const h = Math.round(Math.min(s.canvas.height, s.y + s.height) - sy);
+  const metresPerPx = pixelSize ? (pixelSize * draw[1]) / s.width : null;
   const barHeight = bar && info ? Math.max(18, Math.round(h * 0.04)) : 0;
   const out = document.createElement("canvas");
   out.width = w;
   out.height = h + barHeight;
   const g = out.getContext("2d")!;
   g.imageSmoothingEnabled = false;
-  g.drawImage(source, sx, sy, w, h, 0, 0, w, h);
+  g.drawImage(s.canvas, sx, sy, w, h, 0, 0, w, h);
   if (scalebar && metresPerPx) {
     const length = roundLength((metresPerPx * w) / 5);
     const px = length / metresPerPx;
@@ -171,6 +175,7 @@ function ExportMenu({
   const [bar, setBar] = useState(true);
   const [full, setFull] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   return (
     <div
       className="absolute top-8 right-2 z-20 flex w-[240px] flex-col gap-[7px] rounded-lg border bg-card px-3 pt-2.5 pb-3 text-[12px] shadow-[0_6px_24px_rgba(0,0,0,0.45)]"
@@ -215,14 +220,18 @@ function ExportMenu({
         />
         Full resolution, whole image
       </label>
+      {error && <span className="text-[11px] text-destructive">{error}</span>}
       <button
         className="mt-1 cursor-pointer rounded-md border-0 bg-primary p-1.5 text-[12px] text-white hover:bg-primary-hover disabled:opacity-50"
         disabled={saving}
         onClick={async () => {
           setSaving(true);
+          setError(null);
           try {
             await save({ scalebar, bar, full });
             close();
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
           } finally {
             setSaving(false);
           }
@@ -317,6 +326,31 @@ export function LayerImage({
   if (current) last.current = current;
   const showing = current ?? (last.current as typeof current);
 
+  // Zoomed into a large image until its copy shows each pixel twice over or more,
+  // the region in sight is read at full size and drawn over it, once the view rests.
+  const [sight, setSight] = useState<{ box: Box; scale: number } | null>(null);
+  const sightTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => () => clearTimeout(sightTimer.current), []);
+  const onSight = (box: Box, scale: number) => {
+    clearTimeout(sightTimer.current);
+    sightTimer.current = setTimeout(() => setSight({ box, scale }), SETTLE_MS);
+  };
+  const region = sharp > 1 && sight && sight.scale * sharp >= 2 ? regionFor(sight.box, full) : null;
+  const regionAsk = region ? { ...askFor(settled, 1), box: region } : null;
+  const fullRead = usePlanes(path, regionAsk);
+  const lastRegion = useRef<{ of: string; box: Box; planes: Values[]; width: number } | null>(null);
+  if (fullRead.data && !fullRead.isFetching) {
+    const p = fullRead.data;
+    lastRegion.current = {
+      of: JSON.stringify(askFor(settled, 1)),
+      box: p.box!,
+      planes: channels.map((_, c) => planeOf(p, c)),
+      width: p.shape[3],
+    };
+  }
+  // the last region read stays while the next is, if it is of the planes drawn
+  const sharpRegion = region && lastRegion.current?.of === JSON.stringify(askFor(drawn, 1)) ? lastRegion.current : null;
+
   // Auto contrast while stepping planes holds each channel's projection contrast, as Qt does.
   const held = useMemo(() => {
     const p = all.data;
@@ -341,6 +375,8 @@ export function LayerImage({
   const climOf = (c: number): [number, number] | null => {
     if (looks[c].clim) return looks[c].clim;
     if (stack && !drawn.projection && held) return held[c];
+    // zoomed in, auto contrast fits the full-size pixels in sight, not the copy's averages
+    if (sharpRegion) return autoOf(sharpRegion.planes[c], sharpRegion.width);
     return showing ? autoOf(showing.planes[c], showing.width) : null;
   };
   const setLook = (c: number, look: Look) => {
@@ -365,6 +401,9 @@ export function LayerImage({
       ];
     });
   const layers = showing ? drawLayers(showing.planes, showing.width) : [];
+  const detail = sharpRegion
+    ? { layers: drawLayers(sharpRegion.planes, sharpRegion.width), box: sharpRegion.box }
+    : null;
 
   // Z as the server's bar says it (fibsem.imaging.export.z_value), for what is drawn
   const step = fm?.z_step ? ` × ${fmt.length(fm.z_step)}` : "";
@@ -380,6 +419,14 @@ export function LayerImage({
           }${step}`;
   const values: Record<string, string> = zValue ? { z: zValue } : {};
 
+  // a pixel's value from the full-size region where it covers the cursor, else the copy
+  const valueAt = (c: number, [x, y]: [number, number]) => {
+    const r = sharpRegion;
+    if (r && x >= r.box[0] && y >= r.box[1] && x < r.box[0] + r.box[2] && y < r.box[1] + r.box[3])
+      return r.planes[c][Math.floor(y - r.box[1]) * r.width + Math.floor(x - r.box[0])];
+    const f = showing!.factor;
+    return showing!.planes[c][Math.floor(y / f) * showing!.width + Math.floor(x / f)];
+  };
   const readout =
     cursor && showing ? (
       <>
@@ -390,8 +437,7 @@ export function LayerImage({
         )}
         {channels.map((ch, c) => {
           if (!visible[c]) return null;
-          const f = showing.factor;
-          const v = showing.planes[c][Math.floor(cursor[1] / f) * showing.width + Math.floor(cursor[0] / f)];
+          const v = valueAt(c, cursor);
           return (
             <span key={ch.name} className="inline-flex items-center gap-1" title={ch.name}>
               <span className="inline-block size-2 rounded-[2px]" style={{ background: cssColor(looks[c].color) }} />
@@ -403,37 +449,35 @@ export function LayerImage({
     ) : null;
 
   const save = async (o: { scalebar: boolean; bar: boolean; full: boolean }) => {
-    const whole = async () => {
-      const planes = await readPlanes(path, askFor(drawn, 1));
-      const canvas = document.createElement("canvas");
-      canvas.width = planes.shape[3];
-      canvas.height = planes.shape[2];
-      const renderer = LayerRenderer.create(canvas);
-      if (!renderer) throw new Error("WebGL2 is not available");
-      const w = planes.shape[3];
-      renderer.draw(
-        drawLayers(
-          channels.map((_, c) => planeOf(planes, c)),
-          w,
-        ),
-        { x: 0, y: 0, scale: 1 },
-        canvas.width,
-        canvas.height,
-        true,
-      );
-      return canvas;
-    };
-    await exportPng({
-      name: path.split("/").pop() ?? "image",
-      snapshot: snapshot.current?.() ?? null,
-      full: o.full ? whole : null,
-      draw: full,
-      pixelSize,
-      info,
-      values,
-      scalebar: o.scalebar,
-      bar: o.bar,
-    });
+    const name = path.split("/").pop() ?? "image";
+    if (o.full) {
+      // the whole image at full size, drawn by the server's export as Qt's dialog
+      // draws it, with the planes, contrast and colours on screen
+      const sent = channels.map((_, c) => {
+        const { color, gamma, opacity } = looks[c];
+        const clim = climOf(c);
+        return { clim, color, gamma, opacity };
+      });
+      const options: Record<string, unknown> = {
+        scalebar: o.scalebar,
+        crosshair: tools.crosshair,
+        hidden_channels: channels.flatMap((_, c) => (visible[c] ? [] : [c])),
+        looks: sent,
+      };
+      if (!o.bar) Object.assign(options, { fields: [], provenance: [] });
+      if (stack)
+        Object.assign(
+          options,
+          drawn.projection
+            ? { projection: drawn.projection, first: drawn.first, last: drawn.last }
+            : { plane: drawn.z },
+        );
+      await download("/app/experiment/export/image", { path, options }, `${name}_export.png`);
+      return;
+    }
+    const s = snapshot.current?.();
+    if (!s) return;
+    await exportPng({ name, snapshot: s, draw: full, pixelSize, info, values, scalebar: o.scalebar, bar: o.bar });
   };
 
   const toggleTool = (key: keyof Tools) => setTools({ ...tools, [key]: !tools[key] });
@@ -486,6 +530,8 @@ export function LayerImage({
           dim={dim}
           onCursor={setCursor}
           onRenderer={(r) => r || onNoWebGL()}
+          onSight={onSight}
+          detail={detail}
           snapshot={snapshot}
         >
           {marking ? marks : null}

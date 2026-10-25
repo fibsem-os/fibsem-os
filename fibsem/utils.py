@@ -12,15 +12,16 @@ import yaml
 
 from fibsem import config as cfg
 from fibsem import state_move
+from fibsem.codec import encode
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.constants import DATETIME_LOG, MICRON_SYMBOL, MU_SYMBOL
-from fibsem.structures import (
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.system import (
     CONFIGURATION_VERSION,
     CONFIGURED_DEVICES,
     DEVICES_KEEPING_DRIVER_KEYS,
     STAGE_POSITION_KEYS,
     DeviceEntry,
-    FibsemStagePosition,
     MicroscopeSettings,
 )
 
@@ -802,27 +803,6 @@ def write_holder_calibration(
     _write_configuration_file(path, config)
 
 
-def _plain(value):
-    """*value* with numpy scalars, tuples and numpy arrays as YAML-native types.
-
-    `yaml.safe_load` refuses a document that `yaml.dump` wrote a numpy scalar into
-    -- it comes out as a `!!python/object/apply:numpy...` tag -- so one instrument
-    value of the wrong type would leave a site with a configuration that no longer
-    loads. Everything written to the file goes through here first.
-    """
-    if isinstance(value, dict):
-        return {str(k): _plain(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_plain(v) for v in value]
-    if hasattr(value, "tolist"):  # numpy scalar or array
-        return _plain(value.tolist())
-    if isinstance(value, (bool, int, float, str)) or value is None:
-        return value
-    if isinstance(value, Path):
-        return str(value)
-    return value
-
-
 def _write_configuration_file(path: Union[str, Path], config: dict) -> None:
     """Write a configuration dict to exactly *path*.
 
@@ -835,7 +815,7 @@ def _write_configuration_file(path: Union[str, Path], config: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        yaml.safe_dump(_plain(config), f, sort_keys=False, indent=4)
+        yaml.safe_dump(encode(config), f, sort_keys=False, indent=4)
 
 
 def load_protocol(protocol_path: Path = None) -> dict:
@@ -934,7 +914,7 @@ def _register_metadata(
     made two fields tautologically equal -- and ``info.fibsem_revision`` already
     pins the exact commit doing the work.
     """
-    from fibsem.structures import FibsemExperimentRef, FibsemUser
+    from fibsem.structures.system import FibsemExperimentRef, FibsemUser
 
     microscope.user = FibsemUser.from_environment()
     microscope.experiment = FibsemExperimentRef(

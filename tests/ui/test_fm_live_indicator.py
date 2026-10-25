@@ -30,7 +30,7 @@ from PyQt5.QtWidgets import QApplication
 
 import fibsem.config as _fibsem_config
 from fibsem import utils
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.ui.widgets.canvas.quad_view import MicroscopeViewController, QuadViewWidget
 
 _app = QApplication.instance() or QApplication(sys.argv)

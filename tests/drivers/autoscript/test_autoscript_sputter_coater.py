@@ -16,7 +16,7 @@ from fibsem import utils
 from fibsem.drivers.autoscript import devices as autoscript_devices
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
 from fibsem.drivers.registry import device_builder
-from fibsem.structures import DeviceEntry
+from fibsem.structures.system import DeviceEntry
 
 
 class FakeBeam:

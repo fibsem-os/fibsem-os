@@ -9,7 +9,8 @@ from typing import ClassVar
 from fibsem import acquire
 from fibsem.applications.volume.position import SEM_POSE, SEM_REFERENCE
 from fibsem.applications.volume.tasks.base import VolumeTask
-from fibsem.structures import BeamType, FibsemRectangle, ImageSettings, param
+from fibsem.structures.params import param
+from fibsem.structures.settings import BeamType, FibsemRectangle, ImageSettings
 from fibsem.workflows.task_config import TaskConfig
 
 # The output role a slice's image is recorded under.

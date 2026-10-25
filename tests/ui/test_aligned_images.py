@@ -20,21 +20,13 @@ pytest.importorskip("PyQt5")
 
 import fibsem.config as fibsem_config
 from fibsem import utils
-from fibsem.fm.structures import (
-    FluorescenceChannelMetadata,
-    FluorescenceImage,
-    FluorescenceImageMetadata,
-)
 from fibsem.imaging.overview_session import OverviewSession
-from fibsem.structures import (
-    BeamType,
-    CameraImageTransform,
-    FibsemImage,
-    FibsemStagePosition,
-    ImageSettings,
-)
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
+from fibsem.structures.system import CameraImageTransform
 from fibsem.ui.widgets.canvas.aligned_images import decompose
 from fibsem.ui.widgets.overview_widget import FibsemOverviewWidget
+from tests.fixtures.fm_images import fm_image, gfp, noise
 
 
 @pytest.fixture(scope="module")
@@ -78,27 +70,12 @@ def _beam_image(scope, orientation, beam_type):
 
 
 def _fm_image(scope, position, size=64, pixel_size=1e-6):
-    image = FluorescenceImage(
-        data=(np.random.default_rng(2).random((1, 1, size, size)) * 4000).astype(
-            np.uint16
-        ),
-        metadata=FluorescenceImageMetadata(
-            acquisition_datetime="2026-09-23T10:00:00",
-            pixel_size_x=pixel_size,
-            pixel_size_y=pixel_size,
-            stage_position=position,
-            channels=[
-                FluorescenceChannelMetadata(
-                    name="GFP",
-                    excitation_wavelength=488.0,
-                    power=0.5,
-                    exposure_time=0.1,
-                    gain=1.0,
-                    offset=0.0,
-                    color="cyan",
-                )
-            ],
-        ),
+    image = fm_image(
+        noise(size, seed=2),
+        [gfp(color="cyan")],
+        pixel_size=pixel_size,
+        acquired="2026-09-23T10:00:00",
+        stage_position=position,
     )
     image.metadata.geometry = scope.fm_image_geometry()
     return image
@@ -340,10 +317,10 @@ class TestTheControls:
         overlay = widget.aligned_images.get(key).overlay
 
         widget.aligned_image_panel.btn_align.setChecked(True)
-        assert widget.canvas.active_overlay is overlay
+        assert widget.canvas._active_overlay is overlay
 
         widget.aligned_image_panel.btn_align.setChecked(False)
-        assert widget.canvas.active_overlay is None
+        assert widget.canvas._active_overlay is None
 
     def test_one_thing_owns_the_canvas_at_a_time(self, widget, microscope):
         _show(widget, SQUARE)
@@ -354,7 +331,7 @@ class TestTheControls:
         widget.aligned_image_panel.btn_align.setChecked(True)
 
         assert not widget.btn_align_gridbars.isChecked()
-        assert widget.canvas.active_overlay is not widget.gridbar_overlay
+        assert widget.canvas._active_overlay is not widget.gridbar_overlay
 
     def test_remove_takes_the_image_off_the_canvas_and_the_list(
         self, widget, microscope
@@ -367,7 +344,7 @@ class TestTheControls:
 
         assert widget.aligned_images.keys() == []
         assert widget.aligned_image_panel.combo.count() == 0
-        assert widget.canvas.active_overlay is None
+        assert widget.canvas._active_overlay is None
         assert not widget.aligned_image_panel.btn_align.isEnabled()
         assert key not in widget.aligned_images.keys()
 
@@ -571,6 +548,6 @@ class TestTargetingThroughTheAlignedImage:
         down, so dragging the image cannot also drive the stage."""
         self._spot(widget, microscope)
         widget.aligned_image_panel.btn_align.setChecked(True)
-        assert widget.canvas.active_overlay is not None
+        assert widget.canvas._active_overlay is not None
         assert not widget.canvas._overlay_input_allowed(None)
         widget.aligned_image_panel.btn_align.setChecked(False)

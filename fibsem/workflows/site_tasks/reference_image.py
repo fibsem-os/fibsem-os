@@ -5,7 +5,7 @@ from typing import ClassVar, Literal, Optional, Type
 
 from fibsem import utils
 from fibsem.constants import TIME_FILE
-from fibsem.structures import param
+from fibsem.structures.params import param
 from fibsem.workflows.proposals import STATE
 from fibsem.workflows.site_task import SiteTask, SiteTaskConfig
 

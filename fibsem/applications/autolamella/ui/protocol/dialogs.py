@@ -28,11 +28,8 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.constants import SI_TO_MICRO
-from fibsem.structures import (
-    FibsemMillingSettings,
-    ReferenceImageParameters,
-)
-from fibsem.ui.tokens import NEUTRAL_200, TEXT_MUTED_COLOR
+from fibsem.structures.settings import FibsemMillingSettings, ReferenceImageParameters
+from fibsem.theme.tokens import NEUTRAL_200, TEXT_MUTED_COLOR
 from fibsem.ui.utils import beam_spec
 from fibsem.ui.widgets.checklist import ApplyDialog, TaskChecklist
 from fibsem.ui.widgets.custom_widgets import (

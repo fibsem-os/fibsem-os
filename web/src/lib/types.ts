@@ -8,9 +8,26 @@ export interface Capabilities {
   routers: { microscope: boolean; services: boolean; app: boolean };
   app_name?: string;
   level?: string;
+  connected?: boolean;
   // the optional /app parts the app serves (fibsem.server.parts)
   parts?: string[];
   fibsem?: { version: string; path: string };
+}
+
+/** The microscope connection, as the operator sees it (`/microscope/connection`). */
+export interface Connection {
+  connected: boolean;
+  connecting: string | null;
+  error: string | null;
+  configuration: {
+    name: string | null;
+    path: string | null;
+    manufacturer: string | null;
+    model: string | null;
+    address: string | null;
+  } | null;
+  configurations: { name: string; default: boolean }[];
+  run: { state: string; error: { message?: string } | null } | null;
 }
 
 /** Measurable progress on the microscope, as the Qt status bar says it. */
@@ -201,10 +218,25 @@ export interface AgentState {
   asking: ConnectAsk | null;
   /** What the agent said it can do, as [name, value] rows. */
   facts: [string, string][];
-  /** The agent has spent most of its budget: the session line warns. */
+  /** The agent has spent most of its budget: the side panel warns. */
   budget_low: boolean;
   /** The chip's words: the level, or what the agent asks for. */
   chip: string;
+}
+
+/** GET /app/agent/session: what the agent reported of its session. */
+export interface ReportedSession {
+  /** The fibsem-agent profile it runs with, and its reminders. */
+  profile?: string;
+  profile_hash?: string;
+  hooks?: { when: string; label: string; say: string }[];
+  goal?: string;
+  budget_usd?: number;
+  spent_usd?: number;
+  /** `by`, when given, is an ISO time with its offset. */
+  constraints?: { text: string; by?: string }[];
+  checklist?: { text: string; state: "open" | "done" | "always" }[];
+  ended?: boolean;
 }
 
 /** One row of GET /app/agent/recent. */

@@ -41,7 +41,8 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
     MillUndercutTask,
     MillUndercutTaskConfig,
 )
-from fibsem.structures import FibsemImage, Point
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
@@ -100,10 +101,7 @@ def window(qapp, tmp_path, checkpoint):
     for manager, thread in win._started:
         manager.stop()
         _pump(qapp, lambda: not thread.is_alive())
-    microscope = ui.microscope
-    ui.disconnect_from_microscope()
-    if microscope is not None:
-        microscope.disconnect()
+    ui.session.disconnect()
     close_window(win)
     win.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

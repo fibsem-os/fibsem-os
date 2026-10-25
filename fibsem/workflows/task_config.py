@@ -1,8 +1,8 @@
 """A task's settings, the tasks a protocol offers, and the plan a run follows:
 shared by every app.
 
-Flat on disk: every field at the top level, nested dataclasses through their own
-``to_dict`` / ``from_dict``, enums by name. An app's config classes extend
+Flat on disk: every field at the top level, written by `fibsem.codec`. An app's
+config classes extend
 :class:`TaskConfig`; its protocol extends :class:`TaskProtocol` and says how a
 saved config becomes a typed one (its task registry). Older shapes are read
 through `fibsem.codec.upgrades.protocol`.
@@ -13,10 +13,8 @@ from __future__ import annotations
 import logging
 import uuid
 from abc import ABC
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import dataclass, field, fields
 from datetime import datetime, timedelta
-from enum import Enum
-from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -25,17 +23,16 @@ from typing import (
     FrozenSet,
     List,
     Optional,
-    Union,
-    get_type_hints,
 )
 
 import yaml
 from psygnal import evented
 
+from fibsem.codec import Timestamp, decode, encode
 from fibsem.codec.upgrades import protocol as upgrade
-from fibsem.structures import Configurable, param
+from fibsem.structures.params import Configurable, param
 from fibsem.util.timestamps import now
-from fibsem.workflows.attention import Attention, attention_from
+from fibsem.workflows.attention import Attention
 
 if TYPE_CHECKING:
     from fibsem.plugins.loader import PluginRegistry
@@ -72,29 +69,11 @@ class TaskConfig(Configurable, ABC):
         return tuple(f.name for f in fields(self) if f.name not in WORKFLOW_FIELDS)
 
     def to_dict(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {
-            "task_type": self.task_type,
-            "task_name": self.task_name,
-        }
-        # the form's parameters first, then what is saved beside them
-        names = list(self.parameters)
-        names += [
-            f.name
-            for f in fields(self)
-            if f.name not in WORKFLOW_FIELDS and f.name not in names
-        ]
-        for name in names:
-            data[name] = _serialise(getattr(self, name))
-        return data
+        return {"task_type": self.task_type, **encode(self)}
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TaskConfig":
-        hints = get_type_hints(cls)
-        kwargs: Dict[str, Any] = {}
-        for f in fields(cls):
-            if f.name not in data:
-                continue
-            kwargs[f.name] = _deserialise(hints.get(f.name), data[f.name])
+        """Read a config saved by any version (`fibsem.codec.upgrades.protocol`)."""
         unknown = (
             set(data)
             - {f.name for f in fields(cls)}
@@ -103,74 +82,12 @@ class TaskConfig(Configurable, ABC):
         )
         for key in sorted(unknown):
             logging.warning(f"Unknown field '{key}' in {cls.__name__}; ignored.")
-        return cls(**kwargs)
+        return decode(cls, upgrade.typed_fields(cls, data))
 
 
 # The field that names a task, not how it runs: not a form parameter, and
 # serialised by the base.
 WORKFLOW_FIELDS = ("task_name",)
-
-
-def _requires(value: Any, task_name: str) -> List[str]:
-    """Stored requirements as task names, or none with a warning: a malformed
-    value must not drop the task from the protocol."""
-    if isinstance(value, list) and all(isinstance(v, str) for v in value):
-        return list(value)
-    logging.warning(
-        f"Task '{task_name}' has requires {value!r}, not a list of task "
-        "names; read as none."
-    )
-    return []
-
-
-def _serialise(value: Any) -> Any:
-    if hasattr(value, "to_dict"):
-        return value.to_dict()
-    if isinstance(value, Enum):
-        return value.name
-    if isinstance(value, Path):
-        return str(value)
-    if isinstance(value, (list, tuple)):
-        return [_serialise(v) for v in value]
-    if isinstance(value, dict):
-        return {k: _serialise(v) for k, v in value.items()}
-    return value
-
-
-def _deserialise(hint: Any, value: Any) -> Any:
-    """Rebuild a field from its serialised form, guided by the annotation."""
-    if value is None or hint is None:
-        return value
-    origin = getattr(hint, "__origin__", None)
-    if origin is Union:  # Optional[X]
-        inner = [a for a in hint.__args__ if a is not type(None)]
-        return _deserialise(inner[0], value) if len(inner) == 1 else value
-    if origin in (list, List) and isinstance(value, list):  # List[X]
-        (item_hint,) = getattr(hint, "__args__", (None,))
-        return [_deserialise(item_hint, v) for v in value]
-    if origin in (dict, Dict) and isinstance(value, dict):  # Dict[str, X]
-        _, item_hint = getattr(hint, "__args__", (None, None))
-        return {k: _deserialise(item_hint, v) for k, v in value.items()}
-    if isinstance(hint, type):
-        if issubclass(hint, Enum) and isinstance(value, str):
-            return hint[value]
-        if hasattr(hint, "from_dict") and isinstance(value, dict):
-            return hint.from_dict(value)
-        if hint in (int, float) and not isinstance(value, bool):
-            return _number(hint, value)
-    return value
-
-
-def _number(hint: type, value: Any) -> Any:
-    """A number field's value as its type: older files hold some as strings,
-    and an int field written as 10.0. Left as it is, with a warning, when it
-    is not a number."""
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        logging.warning(f"{value!r} is not a number; kept as it is.")
-        return value
-    return int(number) if hint is int else number
 
 
 def load_task_config(
@@ -217,14 +134,11 @@ class WorkflowOptions:
     show_run_summary: bool = True
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "WorkflowOptions":
-        data = dict(data)
-        # How long a run waited on reviews, before nothing waited on one.
-        data.pop("review_wait", None)
-        return cls(**data)
+        return decode(cls, data)
 
 
 @dataclass
@@ -242,34 +156,14 @@ class TaskPlan:
     # not complete. Empty: it runs whatever happened before it on the item.
     requires: List[str] = field(default_factory=list)
     required: bool = True
-    scheduled_at: Optional[datetime] = None
+    scheduled_at: Optional[Timestamp] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
-            "name": self.name,
-            "attention": self.attention.value,
-            "requires": list(self.requires),
-            "required": self.required,
-            "scheduled_at": self.scheduled_at.isoformat()
-            if self.scheduled_at is not None
-            else None,
-        }
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TaskPlan":
-        scheduled_at = data.get("scheduled_at")
-        name = data.get("name", "")
-        return cls(
-            name=name,
-            attention=attention_from(
-                data.get("attention", Attention.automated.value), f"task '{name}'"
-            ),
-            requires=_requires(data.get("requires") or [], name),
-            required=bool(data.get("required", True)),
-            scheduled_at=datetime.fromisoformat(scheduled_at)
-            if isinstance(scheduled_at, str)
-            else scheduled_at,
-        )
+        return decode(cls, data)
 
 
 @dataclass
@@ -336,12 +230,12 @@ class RunPlan:
         return ""
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"tasks": [task.to_dict() for task in self.tasks]}
+        return encode(self)
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]):
-        data = upgrade.run_plan(data or {})
-        return cls(tasks=[TaskPlan.from_dict(task) for task in data["tasks"]])
+        """Read a plan saved by any version (`fibsem.codec.upgrades.protocol`)."""
+        return decode(cls, upgrade.run_plan(data or {}))
 
 
 @dataclass

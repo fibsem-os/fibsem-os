@@ -17,16 +17,13 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.microscope import FibsemMicroscope
-from fibsem.structures import (
-    BeamType,
-    ImageSettings,
-    Parameter,
-    Resolution,
-)
-from fibsem.ui import stylesheets
-from fibsem.ui.tokens import (
+from fibsem.structures.params import Parameter
+from fibsem.structures.settings import BeamType, ImageSettings, Resolution
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     NEUTRAL_400,
 )
+from fibsem.ui import stylesheets
 from fibsem.ui.utils import beam_spec, find_data, install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import (
     IconToolButton,
@@ -102,7 +99,7 @@ class ImageSettingsWidget(QWidget):
             icon="mdi:tune",
             color=NEUTRAL_400,
             checked_icon="mdi:tune-variant",
-            checked_color=stylesheets.GRAY_WHITE_COLOR,
+            checked_color=tokens.GRAY_WHITE_COLOR,
             tooltip="Show advanced settings",
             checked_tooltip="Hide advanced settings",
         )

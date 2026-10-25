@@ -20,7 +20,7 @@ pip install -e ".[server,mcp]"
 
 ## 1. Start the App Server
 
-In AutoLamella, turn the App Server on in Tools → App Server (the guide,
+In AutoLamella, turn the App Server on in Tools → Host (the guide,
 [docs/app-server.md](../../../../docs/app-server.md), walks through it). *Serve the
 microscope* there serves the routes the microscope tools reach; the Agent chip
 sets what the agent may do with them.

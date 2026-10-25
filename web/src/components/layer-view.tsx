@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { type DrawLayer, LayerRenderer, type Placement } from "@/lib/gl-layers";
 import * as fmt from "@/lib/format";
+import type { Box } from "@/lib/planes";
 import { cn } from "@/lib/utils";
 
 /** Where the view looks: the image pixel at its centre, and how far in from fitting. */
@@ -75,6 +76,8 @@ export function LayerView({
   dim,
   onCursor,
   onRenderer,
+  onSight,
+  detail,
   snapshot,
   children,
 }: {
@@ -91,6 +94,10 @@ export function LayerView({
   dim?: boolean;
   onCursor: (at: Point | null) => void;
   onRenderer?: (renderer: LayerRenderer | null) => void;
+  /** The part of the image in sight, in its full-size pixels, and canvas pixels per image pixel. */
+  onSight?: (box: Box, scale: number) => void;
+  /** Layers of a region at full size, drawn over *layers* where it is. */
+  detail?: { layers: DrawLayer[]; box: Box } | null;
   snapshot?: MutableRefObject<(() => Snapshot) | null>;
   children?: ReactNode;
 }) {
@@ -132,8 +139,24 @@ export function LayerView({
       c.height = h;
     }
     const scaled = { x: at.x * dpr, y: at.y * dpr, scale: at.scale * dpr * factor };
-    renderer.current.draw(layers, scaled, w, h, at.scale * dpr > 2);
+    const pixelated = at.scale * dpr > 2;
+    renderer.current.draw(layers, scaled, w, h, pixelated);
+    if (detail?.layers.length) {
+      const [bx, by] = detail.box;
+      const there = { x: (at.x + bx * at.scale) * dpr, y: (at.y + by * at.scale) * dpr, scale: at.scale * dpr };
+      renderer.current.draw(detail.layers, there, w, h, pixelated, false);
+    }
   });
+
+  useEffect(() => {
+    if (!onSight || !size[0]) return;
+    const x0 = Math.max(0, -at.x / at.scale);
+    const y0 = Math.max(0, -at.y / at.scale);
+    const x1 = Math.min(full[1], (size[0] - at.x) / at.scale);
+    const y1 = Math.min(full[0], (size[1] - at.y) / at.scale);
+    if (x1 > x0 && y1 > y0) onSight([x0, y0, x1 - x0, y1 - y0], at.scale * (devicePixelRatio || 1));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view.zoom, view.cx, view.cy, size[0], size[1], full[0], full[1]]);
 
   useEffect(() => {
     const c = overlay.current;

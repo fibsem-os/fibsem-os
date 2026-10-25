@@ -234,7 +234,7 @@ def test_the_last_step_offers_to_save(dialog):
 
 def test_exactly_one_model_card_is_selected(dialog):
     dialog._select_model("tescan")
-    selected = [key for key, card in dialog._model_cards.items() if card.is_selected()]
+    selected = [key for key, card in dialog._model_cards.items() if card._selected]
     assert selected == ["tescan"]
 
 
@@ -359,7 +359,7 @@ def test_a_card_can_be_chosen_from_the_keyboard(dialog, qapp):
 def test_the_support_pc_is_selected_and_prefilled(dialog):
     dialog._show_step(STEP_CONNECTION)
     assert dialog.choices.location_key == wizard.LOCATION_SUPPORT
-    assert dialog._location_cards[wizard.LOCATION_SUPPORT].is_selected()
+    assert dialog._location_cards[wizard.LOCATION_SUPPORT]._selected
     assert dialog._address_edit.text() == cfg.DEFAULT_IP_ADDRESS
 
 
@@ -466,7 +466,7 @@ def test_reading_the_stage_fills_in_the_reference_rotation(dialog, demo_microsco
     """
     import numpy as np
 
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     demo_microscope.move_stage_absolute(
         FibsemStagePosition(r=np.radians(250.0), t=np.radians(17.0))
@@ -512,7 +512,7 @@ def test_the_diagram_follows_the_number_that_was_entered(dialog):
 def test_the_diagram_stays_flat_until_a_stage_is_read(dialog, demo_microscope):
     import numpy as np
 
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     dialog._select_model("tfs-other")
     dialog._show_step(STEP_STAGE)

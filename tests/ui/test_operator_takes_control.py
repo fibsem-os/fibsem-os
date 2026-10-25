@@ -18,7 +18,7 @@ from PyQt5.QtWidgets import QApplication
 from fibsem import utils
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW
 from fibsem.control import Control, MicroscopeBusy
-from fibsem.structures import BeamType
+from fibsem.structures.settings import BeamType
 from fibsem.ui import control as ui_control
 from fibsem.ui.control import control_of, operator_acts
 from fibsem.ui.qt.threading import FunctionWorker

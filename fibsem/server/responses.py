@@ -15,11 +15,11 @@ from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
 from fibsem.control import InControl
 from fibsem.geometry.stage_places import StageMapPlaces
-from fibsem.structures import (
-    FibsemImageMetadata,
+from fibsem.structures.image import FibsemImageMetadata
+from fibsem.structures.params import Limits
+from fibsem.structures.settings import (
     FibsemRectangle,
     FibsemStagePosition,
-    Limits,
     MicroscopeState,
     Point,
 )
@@ -256,6 +256,41 @@ class RunAnswer:
 @dataclass
 class RunEnvelope:
     run: RunAnswer
+
+
+# --- The microscope connection (the operator's) ---
+
+
+@dataclass
+class ConnectedConfiguration:
+    """The configuration the microscope was connected with."""
+
+    name: Optional[str] = None
+    path: Optional[str] = None
+    manufacturer: Optional[str] = None
+    model: Optional[str] = None
+    address: Optional[str] = None
+
+
+@dataclass
+class ConfigurationOption:
+    name: str
+    default: bool = False
+
+
+@dataclass
+class ConnectionView:
+    """Whether a microscope is connected, what a connect is doing now
+    (``connecting``) or why the last one failed (``error``), and the
+    configurations it can connect with."""
+
+    connected: bool
+    connecting: Optional[str] = None
+    error: Optional[str] = None
+    configuration: Optional[ConnectedConfiguration] = None
+    configurations: List[ConfigurationOption] = field(default_factory=list)
+    # The last connect started here, as a long command's run.
+    run: Optional[RunAnswer] = None
 
 
 @dataclass
@@ -1319,7 +1354,7 @@ class AgentView:
     stopped: bool
     last_heard_s: Optional[float]
     client: Optional[str]
-    # its session as it reported it, in the card's words
+    # its model, mode and start, as the Agent page's session line shows them
     session: Optional[str]
     request: Optional[AgentRequestView]
     suggestion: Optional[SuggestionCard]
@@ -1331,7 +1366,7 @@ class AgentView:
     asking: Optional[ConnectAskView] = None
     # what it said it can do, as [name, value] rows
     facts: List[List[str]] = field(default_factory=list)
-    # whether it has spent most of its budget: the session line warns
+    # whether it has spent most of its budget: the card and the side panel warn
     budget_low: bool = False
     # the chip's word: what it asks for or is applying, or its level
     chip: str = ""

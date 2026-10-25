@@ -26,7 +26,7 @@ from fibsem.drivers.demo.simulator import (
     STAGE_LIMITS_COMPUSTAGE,
     STAGE_LIMITS_DEFAULT,
 )
-from fibsem.structures import ManipulatorSystemSettings, StageSystemSettings
+from fibsem.structures.system import ManipulatorSystemSettings, StageSystemSettings
 
 # Named rather than globbed. `fibsem/config/*.yaml` is gitignored with an allowlist
 # for the shipped files, so a configuration the developer saved from the wizard sits

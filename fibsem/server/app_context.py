@@ -56,7 +56,8 @@ from fibsem.server.responses import (
     refusal_of,
     refused,
 )
-from fibsem.structures import BeamType, FibsemImage, FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.util.records import dataframe_records
 from fibsem.util.timestamps import to_iso, wall_time_of
 from fibsem.workflows import workflow_edits
@@ -175,13 +176,21 @@ class AppContext:
 
     def __init__(self, session, event_buffer=None):
         self._session = session
-        self._event_buffer = event_buffer
+        # A fixed stream (tests), else the session's at each call: it changes
+        # as a microscope connects.
+        self._fixed_buffer = event_buffer
         # The microscope's progress, followed from the first status read.
         self._progress = ProgressLines()
         self._progress_microscope = None
         self._stop_progress: Optional[Callable[[], None]] = None
 
     # --- call-time resolution: never cache what the app rebinds ---------------
+
+    @property
+    def _event_buffer(self):
+        if self._fixed_buffer is not None:
+            return self._fixed_buffer
+        return getattr(self._session, "event_buffer", None)
 
     @property
     def _experiment(self):
@@ -597,7 +606,9 @@ class AppContext:
             self.history_images(experiment, item),
             folder=str(experiment.item_path(item)),
         )
-        shown = HistoryFilter.from_dict(flt)
+        shown = HistoryFilter.from_dict(
+            {key: value for key, value in flt.items() if value not in (None, "")}
+        )
         return {
             "item_name": item.name,
             "filter": shown.to_dict(),

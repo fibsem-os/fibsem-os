@@ -22,19 +22,18 @@ from fibsem.milling import FibsemMillingStage
 from fibsem.milling.patterning.patterns import PolygonPattern
 from fibsem.milling.progress import MillingProgressStatus
 from fibsem.milling.tasks import FibsemMillingTask, FibsemMillingTaskConfig
-from fibsem.structures import (
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
     FibsemBitmapSettings,
     FibsemCircleSettings,
-    FibsemExperimentRef,
-    FibsemImage,
     FibsemMillingSettings,
     FibsemPolygonSettings,
     FibsemRectangleSettings,
-    FibsemUser,
     ImageSettings,
     MillingState,
 )
+from fibsem.structures.system import FibsemExperimentRef, FibsemUser
 from tests.fm import _odemis_stubs as stubs
 
 ODEMIS_CONFIG_PATH = os.path.join(cfg.SHIPPED_CONFIG_PATH, "odemis-configuration.yaml")

@@ -125,7 +125,7 @@ def stack_slices(
     (runs without one last, in run order), each with its image's scale and
     time, and its path in *experiment_root* when given. A file whose metadata
     can't be read keeps those None."""
-    from fibsem.structures import FibsemImageMetadata
+    from fibsem.structures.image import FibsemImageMetadata
     from fibsem.util.timestamps import to_iso
 
     slices = []

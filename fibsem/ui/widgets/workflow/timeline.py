@@ -21,23 +21,23 @@ from PyQt5.QtWidgets import (
 )
 
 from fibsem.constants import TIME_DISPLAY_AMPM_SHORT
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.tokens import (
+from fibsem.theme import tokens
+from fibsem.theme.tokens import (
     DISABLED_TEXT_COLOR,
     NEUTRAL_500,
     NEUTRAL_700,
 )
+from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.preflight import format_clock
 from fibsem.util.durations import format_duration_rounded
 from fibsem.workflows.estimate import estimate_queue
 
 # ── Colours ───────────────────────────────────────────────────────────────────
-_DOT_COMPLETED = stylesheets.GREEN_COLOR
-_DOT_ACTIVE = stylesheets.ORANGE_COLOR
+_DOT_COMPLETED = tokens.GREEN_COLOR
+_DOT_ACTIVE = tokens.ORANGE_COLOR
 _DOT_PENDING = NEUTRAL_700
-_DOT_FAILED = stylesheets.RED_COLOR
+_DOT_FAILED = tokens.RED_COLOR
 _DOT_SKIPPED = NEUTRAL_500
 # Slate, not amber: amber is indistinguishable from the active orange,
 # so a cancelled row would read as still running — especially when it was the last thing
@@ -60,12 +60,12 @@ _SKIP_REASON_LABELS = {
 # PRIMARY_COLOR is what selection means across the app — the lamella cards mark
 # themselves with a 2px border in it, so the timeline agrees rather than
 # inventing a second selection blue.
-_SELECTED_BG = QColor(stylesheets.PRIMARY_COLOR)
+_SELECTED_BG = QColor(tokens.PRIMARY_COLOR)
 _SELECTED_BG.setAlpha(30)
-_SELECTED_BAR = QColor(stylesheets.PRIMARY_COLOR)
+_SELECTED_BAR = QColor(tokens.PRIMARY_COLOR)
 _SELECTED_BAR_W = 2
-_LABEL_COLOR = stylesheets.GRAY_TEXT_COLOR
-_SUBTITLE_COLOR = stylesheets.GRAY_SECONDARY_COLOR
+_LABEL_COLOR = tokens.GRAY_TEXT_COLOR
+_SUBTITLE_COLOR = tokens.GRAY_SECONDARY_COLOR
 
 _ADD_BTN_STYLE = (
     "QToolButton { background: transparent; border: none; border-radius: 3px;"
@@ -356,7 +356,7 @@ class _OuterRow(QWidget):
         self._btn_actions.setSizePolicy(policy)
         self._btn_actions.setStyleSheet(_ACTIONS_STYLE)
         self._btn_actions.setIcon(
-            fibsem_icon("mdi:dots-horizontal", color=stylesheets.GRAY_ICON_COLOR)
+            fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self._btn_actions.setToolTip("Queue actions")
         self._btn_actions.setVisible(False)
@@ -606,11 +606,6 @@ class WorkflowTimelineWidget(QWidget):
             self._contents_layout.addWidget(row)
         self._contents_layout.addStretch(1)
 
-    def set_step_status(self, index: int, status: StepStatus) -> None:
-        if 0 <= index < len(self._steps):
-            self._steps[index].status = status
-            self._rows[index].refresh(self._steps[index])
-
     def show_first(self, status: StepStatus) -> Optional[int]:
         """Select the first row in *status* and scroll it into view; its index, or
         None when no row is in it."""
@@ -649,7 +644,7 @@ class WorkflowTimelineWidget(QWidget):
 
 # ── WorkflowProgressWidget ────────────────────────────────────────────────────
 _HEADER_STYLE = (
-    f"color: {stylesheets.GRAY_SECONDARY_COLOR};"
+    f"color: {tokens.GRAY_SECONDARY_COLOR};"
     "font-size: 11px; font-weight: bold; padding: 4px 8px 2px 8px;"
     "text-transform: uppercase; letter-spacing: 1px;"
 )
@@ -725,9 +720,7 @@ class WorkflowProgressWidget(QWidget):
         self._btn_add = QToolButton()
         self._btn_add.setStyleSheet(_ADD_BTN_STYLE)
         self._btn_add.setText("Add to Queue")
-        self._btn_add.setIcon(
-            fibsem_icon("mdi:plus", color=stylesheets.GRAY_ICON_COLOR)
-        )
+        self._btn_add.setIcon(fibsem_icon("mdi:plus", color=tokens.GRAY_ICON_COLOR))
         self._btn_add.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self._btn_add.setVisible(False)
         # Nothing is selected until the owner says otherwise.
@@ -1019,18 +1012,6 @@ class WorkflowProgressWidget(QWidget):
         self._summary.setVisible(False)
         self._outer.clear()
 
-    def set_active_outer(self, index: int) -> None:
-        """Show the inner container for *index*, hide all others.
-
-        Convenience method for test scripts that drive the widget directly
-        rather than through update_from_status().
-        """
-        self._outer_index = index
-        self._active_id = (
-            self._items[index].id if 0 <= index < len(self._items) else None
-        )
-        self._show_inner_at(index)
-
     # ── Internal ──────────────────────────────────────────────────────────
     _FINISHED = (
         StepStatus.COMPLETED,
@@ -1072,7 +1053,7 @@ class WorkflowProgressWidget(QWidget):
             colour: Optional[str] = None,
         ):
             act = menu.addAction(
-                fibsem_icon(icon, color=colour or stylesheets.GRAY_ICON_COLOR), label
+                fibsem_icon(icon, color=colour or tokens.GRAY_ICON_COLOR), label
             )
             act.setEnabled(enabled)
             act.setData(action_id)

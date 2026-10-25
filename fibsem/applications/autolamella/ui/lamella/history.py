@@ -32,16 +32,7 @@ from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.imaging.drawing import draw_image_overlays
 from fibsem.imaging.export import ImageFields, image_caption, image_summary
 from fibsem.session_state import user_state
-from fibsem.ui import stylesheets
-from fibsem.ui.icon import fibsem_icon
-from fibsem.ui.thumbnails import (
-    PLACEHOLDER_HEIGHT,
-    TARGET_WIDTH,
-    ClickableLabel,
-    file_stamp,
-    load_and_resize,
-)
-from fibsem.ui.tokens import (
+from fibsem.theme.tokens import (
     ACCENT_COLOR,
     GRAY_ICON_COLOR,
     NEUTRAL_200,
@@ -51,6 +42,15 @@ from fibsem.ui.tokens import (
     NUMBER_FONT,
     PANEL_COLOR,
     SURFACE_COLOR,
+)
+from fibsem.ui import stylesheets
+from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.thumbnails import (
+    PLACEHOLDER_HEIGHT,
+    TARGET_WIDTH,
+    ClickableLabel,
+    file_stamp,
+    load_and_resize,
 )
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
@@ -447,9 +447,15 @@ class LamellaTaskImageWidget(QWidget):
         self._content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._filter_button = _HistoryFilterButton(self)
-        self._filter_button.set_filter(
-            HistoryFilter.from_dict(user_state().load_section(HISTORY_FILTER, {}) or {})
-        )
+        try:
+            saved = HistoryFilter.from_dict(
+                user_state().load_section(HISTORY_FILTER, {}) or {}
+            )
+        except ValueError:
+            # A filter this version doesn't have shows everything rather than
+            # hiding runs.
+            saved = HistoryFilter()
+        self._filter_button.set_filter(saved)
         self._filter_button.changed.connect(self._on_filter_changed)
         self._filter_button.hide()
 

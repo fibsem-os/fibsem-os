@@ -116,3 +116,59 @@ def test_a_beam_image_has_no_planes_to_pick(tmp_path):
     shutil.copy(os.path.join(V0, "fib_v0_ion_uint16.tif"), tmp_path / "ref_ib.tif")
     with pytest.raises(FileRefusal):
         planes.read(str(tmp_path), "ref_ib.tif", z=3)
+
+
+def test_a_region_reads_at_full_size(tmp_path):
+    # past 2048 px the stack is saved in tiles: the region reads only those it covers
+    data = _stack(str(tmp_path / "s.ome.tiff"), planes_=3, size=2304)
+    root = str(tmp_path)
+    box = (300, 2000, 700, 260)  # x, y, width, height across tile edges
+    header, out = planes.read(root, "s.ome.tiff", z=1, box=box)
+    assert header["shape"] == [2, 1, 260, 700] and header["box"] == list(box)
+    assert header["full_shape"] == [2304, 2304]
+    np.testing.assert_array_equal(out[:, 0], data[:, 1, 2000:2260, 300:1000])
+    _, low = planes.read(root, "s.ome.tiff", z="min", first=0, last=1, box=box)
+    np.testing.assert_array_equal(
+        low[:, 0], data[:, :2, 2000:2260, 300:1000].min(axis=1)
+    )
+
+
+def test_a_region_of_a_large_beam_image(tmp_path):
+    from fibsem.structures.image import FibsemImage
+
+    image = FibsemImage.generate_blank_image(resolution=(3072, 2048), hfw=100e-6)
+    image.data[:] = np.random.default_rng(1).integers(0, 255, image.data.shape)
+    image.save(str(tmp_path / "ref_eb.tif"))
+    header, out = planes.read(str(tmp_path), "ref_eb.tif", box=(3000, 10, 72, 50))
+    assert header["shape"] == [1, 1, 50, 72]
+    np.testing.assert_array_equal(out[0, 0], image.data[10:60, 3000:3072])
+    # an older file, in strips or whole, reads the same region
+    shutil.copy(os.path.join(V0, "fib_v0_ion_uint16.tif"), tmp_path / "ref_ib.tif")
+    import tifffile
+
+    old = tifffile.imread(tmp_path / "ref_ib.tif")
+    _, part = planes.read(str(tmp_path), "ref_ib.tif", box=(5, 7, 20, 9))
+    np.testing.assert_array_equal(part[0, 0], old[7:16, 5:25])
+
+
+@pytest.mark.parametrize(
+    "ask",
+    [
+        {"z": 1, "box": (0, 0, 10, 10), "factor": 4},
+        {"z": 1, "box": (60, 0, 10, 10)},
+        {"z": 1, "box": (0, 0, 0, 10)},
+        {"z": "all", "box": (0, 0, 10, 10)},
+    ],
+)
+def test_a_region_outside_the_image_is_refused(tmp_path, ask):
+    _stack(str(tmp_path / "s.ome.tiff"))
+    with pytest.raises(FileRefusal) as refused:
+        planes.read(str(tmp_path), "s.ome.tiff", **ask)
+    assert refused.value.status == 422
+
+
+def test_a_region_is_at_most_a_large_screen(tmp_path, monkeypatch):
+    _stack(str(tmp_path / "s.ome.tiff"))
+    monkeypatch.setattr(planes, "BOX_PIXELS", 99)
+    with pytest.raises(FileRefusal):
+        planes.read(str(tmp_path), "s.ome.tiff", z=0, box=(0, 0, 10, 10))

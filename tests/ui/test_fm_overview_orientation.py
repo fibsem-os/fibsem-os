@@ -55,7 +55,7 @@ def _pose(widget, orientation: str) -> None:
     """Put the stage at *orientation*, then tell the widget as a real move would."""
     import numpy as np
 
-    from fibsem.structures import FibsemStagePosition
+    from fibsem.structures.settings import FibsemStagePosition
 
     widget.microscope.move_stage_absolute(
         FibsemStagePosition(

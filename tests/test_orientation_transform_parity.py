@@ -40,7 +40,7 @@ from copy import deepcopy
 import numpy as np
 import pytest
 
-from fibsem.structures import FibsemStagePosition
+from fibsem.structures.settings import FibsemStagePosition
 from tests.fixtures.demo_stage import demo_session
 
 ORIENTATIONS = ["SEM", "FIB", "MILLING", "FM"]
