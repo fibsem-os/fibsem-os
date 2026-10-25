@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
+import { ImageViewer } from "@/components/images";
 import { MarkLayer } from "@/components/marks";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api } from "@/lib/api";
@@ -27,8 +28,10 @@ function Enlargeable({ title, children }: { title: string; children: (big: boole
   );
 }
 
-/** The image the agent judged from, with its marks drawn over it. */
+/** The image the agent judged from, with its marks drawn over it. The agent's can
+ * be answered by marking the image it came from, in the viewer over the chat. */
 export function EvidenceImage({ id }: { id: string }) {
+  const [replying, setReplying] = useState(false);
   const answer = useQuery({
     queryKey: ["app/agent/evidence", id],
     queryFn: () => api<EvidenceAnswer>(`/app/agent/evidence/${encodeURIComponent(id)}`),
@@ -38,24 +41,40 @@ export function EvidenceImage({ id }: { id: string }) {
   if (!p) return null;
   const w = p.full_width ?? p.width;
   const h = p.full_height ?? p.height;
+  const { by, source, path, plane } = answer.data!;
+  const marks = listMarks(answer.data?.marks);
   return (
-    <Enlargeable title="Evidence">
-      {() => (
-        <div className="relative">
-          <img
-            className="block w-full rounded"
-            alt="The image the agent judged from"
-            src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
+    <>
+      <Enlargeable title="Evidence">
+        {() => (
+          <div className="relative">
+            <img
+              className="block w-full rounded"
+              alt="The image the agent judged from"
+              src={`data:image/jpeg;base64,${p.image_b64_jpeg}`}
+            />
+            <MarkLayer marks={marks} width={w} height={h} color={by === "operator" ? OPERATOR_MARK : AGENT_MARK} />
+          </div>
+        )}
+      </Enlargeable>
+      {by !== "operator" && source && (
+        <>
+          <button
+            className="mt-1 block cursor-pointer border-0 bg-transparent p-0 text-[12px] text-link"
+            onClick={() => setReplying(true)}
+          >
+            Mark on this image
+          </button>
+          <ImageViewer
+            paths={[source]}
+            at={replying ? 0 : null}
+            onClose={() => setReplying(false)}
+            // an upload's marks are on its own pixels, not the image it was drawn from
+            reply={{ marks: source === path ? marks : [], plane }}
           />
-          <MarkLayer
-            marks={listMarks(answer.data?.marks)}
-            width={w}
-            height={h}
-            color={answer.data?.by === "operator" ? OPERATOR_MARK : AGENT_MARK}
-          />
-        </div>
+        </>
       )}
-    </Enlargeable>
+    </>
   );
 }
 

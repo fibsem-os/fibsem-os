@@ -271,6 +271,9 @@ export interface EvidenceAnswer {
   path: string;
   by?: "operator" | "agent";
   channels?: string[] | null;
+  plane?: number | null;
+  /** The experiment image to mark in reply, when there is one. */
+  source?: string | null;
 }
 
 /** One experiment in /app/experiment/recent. */

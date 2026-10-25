@@ -46,6 +46,7 @@ function Message({ row }: { row: RecentRow }) {
         <div className="min-w-0 flex-1">
           <div className="text-[12px] font-semibold text-muted-foreground">You</div>
           <div className="whitespace-pre-wrap break-words">{row.text}</div>
+          {row.evidence && <EvidenceImage id={row.evidence.evidence_id} />}
         </div>
       </div>
     );

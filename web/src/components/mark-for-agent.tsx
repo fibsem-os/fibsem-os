@@ -275,11 +275,12 @@ function where(m: Mark, pixelSize?: number | null): string {
   return `${n(m.x1)}, ${n(m.y1)} → ${n(m.x2)}, ${n(m.y2)} px`;
 }
 
-/** What a stack's marks were made on, for the Send line: "max projection", "plane 12", or both. */
-function madeOn(marks: Mark[]): string {
+/** What a stack's marks were made on, for the Send line: "max projection", "plane 12", or both; before any, what is on screen. */
+function madeOn(marks: Mark[], plane?: number | null): string {
+  if (!marks.length) return plane != null ? `plane ${plane + 1}` : "max projection";
   const planes = [...new Set(marks.filter((m) => m.z != null).map((m) => m.z! + 1))].sort((a, b) => a - b);
   const on = planes.length ? `plane${planes.length > 1 ? "s" : ""} ${planes.join(", ")}` : "";
-  const flat = !marks.length || marks.some((m) => m.z == null) ? "max projection" : "";
+  const flat = marks.some((m) => m.z == null) ? "max projection" : "";
   return [flat, on].filter(Boolean).join(", ");
 }
 
@@ -391,7 +392,9 @@ export function MarkPanel({
       {error && <p className="m-0 text-[12px] text-destructive">{error}</p>}
       <div className="flex items-center gap-2">
         <span className="flex-1 text-[12px] text-muted-foreground">
-          {channels ? `Sent with: ${channels.join(", ")} · ${madeOn(marks)}` : "Goes to the agent like any message"}
+          {channels
+            ? `Sent with: ${channels.join(", ")} · ${madeOn(marks, editor.plane)}`
+            : "Goes to the agent like any message"}
         </span>
         <Button onClick={editor.clear} disabled={!marks.length}>
           Clear

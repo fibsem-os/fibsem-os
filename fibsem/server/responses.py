@@ -1401,6 +1401,9 @@ class EvidenceView:
     channels: Optional[List[str]] = None
     # The stack's plane shown (0 the first), when the marks are on one.
     plane: Optional[int] = None
+    # The experiment image to mark in reply: this one, or the one an upload
+    # was drawn from. None for a picture with no image behind it.
+    source: Optional[str] = None
 
 
 @dataclass
