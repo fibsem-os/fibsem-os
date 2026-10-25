@@ -15,7 +15,7 @@ answer is the experiment's decision, not the service's.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fibsem.devices.core import query
 from fibsem.services.core import Service
@@ -177,10 +177,10 @@ class Correlation(Service):
         image_path: str,
         x: float,
         y: float,
-        z: float = 0.0,
+        z: Optional[float] = None,
         beam: str = "fib",
         method: str = "",
-        channel: int = 0,
+        channel: Union[int, str] = 0,
     ) -> Dict[str, Any]:
         """Move a picked point onto the feature under it, as the tab's point fit
         does, and answer where it lands. Moves nothing: the answer is a proposal.
@@ -188,8 +188,9 @@ class Correlation(Service):
         *beam* ``fib``: a hole in the FIB image at *image_path* (*method*
         ``Hole``), at pixel ``(x, y)``. *beam* ``fm``: a reflection hole
         (``Hole``) or a fluorescent target (``Gaussian``, the default) in
-        *channel* of the FM stack at *image_path*, at ``(x, y)`` pixels and
-        slice *z*. Answers the status (ok, unchanged, error), the fitted
+        *channel* (its index or name) of the FM stack at *image_path*, at
+        ``(x, y)`` pixels and slice *z*, by default that channel's sharpest
+        plane (a hole's fit searches only the planes around it). Answers the status (ok, unchanged, error), the fitted
         ``(x, y, z)``, how far it moved in pixels, and why it failed.
         """
         from fibsem.correlation.point_fit import refine_point
@@ -199,23 +200,32 @@ class Correlation(Service):
             raise ValueError(f"beam is fib or fm, not {beam!r}")
         method = method or DEFAULT_METHOD[beam]
         kind = PointType.FIB if beam == "fib" else PointType.FM
-        coord = Coordinate(PointXYZ(x, y, z), kind)
         if beam == "fib":
             from fibsem.structures.image import FibsemImage
 
+            coord = Coordinate(PointXYZ(x, y, z or 0.0), kind)
             result = refine_point(
                 coord, "fib", method, fib_image=FibsemImage.load(image_path)
             )
         else:
+            from fibsem.fm.preview import plane_sharpness
             from fibsem.fm.structures import FluorescenceImage
 
-            result = refine_point(
-                coord,
-                "fm",
-                method,
-                fm_image=FluorescenceImage.load(image_path),
-                channel=channel,
-            )
+            fm = FluorescenceImage.load(image_path)
+            names = [c.name for c in fm.metadata.channels]
+            if isinstance(channel, str):
+                if channel not in names:
+                    raise ValueError(
+                        f"no channel {channel!r}: the stack has {', '.join(names)}"
+                    )
+                channel = names.index(channel)
+            elif not 0 <= channel < len(names):
+                raise ValueError(f"channel is 0 to {len(names) - 1}, or a name")
+            if z is None:
+                sharpness = plane_sharpness(fm.data[channel])
+                z = float(sharpness.index(max(sharpness)))
+            coord = Coordinate(PointXYZ(x, y, z), kind)
+            result = refine_point(coord, "fm", method, fm_image=fm, channel=channel)
         if result is None:
             raise ValueError(f"no {method!r} fit applies to a {beam} point")
         fitted = result.fitted

@@ -1377,6 +1377,17 @@ def test_fm_overview_previews_in_colour_and_places_markers(
     ).json()["stage_position"]
     assert (converted["x"], converted["y"]) == pytest.approx((centre.x, centre.y))
 
+    # The agent's markers picture draws on the max projection.
+    drawn = client.post(
+        "/app/experiment/images/markers",
+        headers=AUTH,
+        json={"path": str(outdir / "overview.ome.tiff"), "grid_name": "grid-aspen"},
+    )
+    assert drawn.status_code == 200, drawn.text
+    assert drawn.json()["path"] == str(outdir / "markers" / "overview.png")
+    assert os.path.getsize(drawn.json()["path"]) > 0
+    assert len(drawn.json()["items"]) == 2
+
     listed = client.get("/app/experiment/grids", headers=AUTH).json()["items"][0][
         "overviews"
     ]

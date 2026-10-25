@@ -507,14 +507,14 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_render_markers",
         returns="MarkersDrawn",
-        description="Any saved SEM or FIB image in the experiment (an overview, yours or a grid task's, or a single image) with the experiment's items drawn on it: each item's number, green, red for a failed one, placed clear of the others, with the scale bar and metadata bar. fov draws each item's field of view box, as the Overview canvas does; current, where the stage is now. grid_name draws only that grid's items; without it, every item with a pose. Saved beside the image as markers/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the items drawn and a preview. Fluorescence images are refused.",
+        description="Any saved SEM or FIB image in the experiment (an overview, yours or a grid task's, or a single image), or a fluorescence overview (its max projection), with the experiment's items drawn on it: each item's number, green, red for a failed one, placed clear of the others, with the scale bar and metadata bar. fov draws each item's field of view box, as the Overview canvas does; current, where the stage is now. grid_name draws only that grid's items; without it, every item with a pose. Saved beside the image as markers/<image>.png (replaced when drawn again): cite that path as evidence ({image: path}) when you report on the items, so the operator sees it in your note. Answers the path, the items drawn and a preview. Fluorescence images are refused.",
         method="POST",
         path="/app/experiment/images/markers",
         level="watch",
         router="app",
         part=LAMELLAE,
         params={
-            "path": "a beam image file path inside the experiment folder",
+            "path": "a beam image or fluorescence overview file path inside the experiment folder",
             "grid_name": "draw only this grid's items",
             "fov": arg("optional: each item's field of view box (default false)", bool),
             "current": arg(
