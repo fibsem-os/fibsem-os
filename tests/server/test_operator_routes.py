@@ -15,7 +15,7 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
-from fibsem.server import AuthConfig
+from fibsem.server import AuthConfig, operator_token
 from fibsem.server.hosting import AppServerHost
 from fibsem.server.operator_token import (
     load_operator_token,
@@ -79,6 +79,22 @@ def test_the_token_is_kept_between_launches(tmp_path):
     assert load_operator_token(path) == token
     assert new_operator_token(path) != token
     assert load_operator_token(path) != token
+
+
+def test_two_launches_making_the_token_at_once_get_the_same_one(tmp_path, monkeypatch):
+    # The other launch saved its token after this one looked for one.
+    path = tmp_path / "operator-token.json"
+    theirs = new_operator_token(path)
+    read = operator_token.read_operator_token
+    looked = []
+
+    def read_before_it_was_saved(p=None):
+        looked.append(p)
+        return None if len(looked) == 1 else read(p)
+
+    monkeypatch.setattr(operator_token, "read_operator_token", read_before_it_was_saved)
+    assert load_operator_token(path) == theirs
+    assert read(path) == theirs
 
 
 def test_the_server_takes_the_install_token(server, tmp_path):
