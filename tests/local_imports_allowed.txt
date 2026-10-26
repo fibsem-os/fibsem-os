@@ -84,7 +84,7 @@ fibsem/fm/reader.py 2
 fibsem/fm/remote.py 1
 fibsem/fm/structures.py 8
 fibsem/gateway/gateway.py 2
-fibsem/gateway/main.py 3
+fibsem/gateway/main.py 4
 fibsem/geometry/orientations.py 1
 fibsem/geometry/projection.py 2
 fibsem/geometry/saved_images.py 10
@@ -119,7 +119,7 @@ fibsem/server/discovery.py 2
 fibsem/server/exports.py 7
 fibsem/server/files.py 13
 fibsem/server/headless.py 1
-fibsem/server/hosting.py 12
+fibsem/server/hosting.py 13
 fibsem/server/image_payloads.py 10
 fibsem/server/images.py 5
 fibsem/server/planes.py 5
