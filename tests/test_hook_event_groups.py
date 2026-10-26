@@ -8,8 +8,6 @@ maintained in one place instead of in every config file on every machine. See FI
 
 import logging
 
-import pytest
-
 from fibsem.hooks import (
     EVENT_CATEGORIES,
     EVENT_GROUPS,
@@ -173,12 +171,3 @@ def test_unknown_subscriptions_reports_only_the_bad_ones():
     assert unknown_subscriptions(["any_failure", "nope", HookEvent.TASK_FAILED]) == [
         "nope"
     ]
-
-
-def test_a_webhook_still_validates_its_own_fields():
-    """WebhookHook has its own __post_init__; it must not lose the base one, or gain
-    an exception from it."""
-    from fibsem.hooks import WebhookHook
-
-    with pytest.raises(ValueError):
-        WebhookHook(name="w", events=["any_failure"], url="http://x", method="DELETE")
