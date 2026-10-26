@@ -33,12 +33,16 @@ class _Picked:
         return QDialog.Accepted
 
 
-@pytest.fixture
-def widget(monkeypatch):
+class _NeverAsked:
+    """The tilt dialog, which an offset FM must not show."""
+
+    def __init__(self, tilt_deg, parent=None):
+        raise AssertionError("the tilt dialog was shown on an offset FM")
+
+
+def _widget(monkeypatch, config: str):
     microscope, _ = utils.setup_session(
-        config_path=os.path.join(
-            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
-        )
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, config)
     )
     microscope.fm.objective.retract()
     calls = []
@@ -55,6 +59,21 @@ def widget(monkeypatch):
     monkeypatch.setattr(module, "message_box_ui", lambda *a, **k: True)
     w = module.ObjectiveControlWidget(microscope.fm, microscope=microscope)
     w.calls = calls
+    return w
+
+
+@pytest.fixture
+def widget(monkeypatch):
+    w = _widget(monkeypatch, "sim-arctis-configuration.yaml")
+    yield w
+    w.cleanup()
+    w.close()
+
+
+@pytest.fixture
+def offset_widget(monkeypatch):
+    w = _widget(monkeypatch, "sim-iflm-configuration.yaml")
+    monkeypatch.setattr(module, "_InsertObjectiveDialog", _NeverAsked)
     yield w
     w.cleanup()
     w.close()
@@ -72,6 +91,15 @@ def test_insert_asks_the_service_for_the_picked_tilt(widget):
     _drain(widget)
 
     assert widget.calls == [("insert", pytest.approx(np.radians(-180.0)))]
+
+
+def test_an_offset_fm_inserts_in_place_with_no_tilt(offset_widget):
+    """A METEOR images in the pose the stage travelled out in: the Arctis's 0° /
+    -180° choice would tilt the stage out of it, under the objective."""
+    offset_widget.insert_objective()
+    _drain(offset_widget)
+
+    assert offset_widget.calls == [("insert", None)]
 
 
 def test_retract_goes_through_the_service(widget):
