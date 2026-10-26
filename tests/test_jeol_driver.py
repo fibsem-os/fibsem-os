@@ -472,7 +472,8 @@ def test_a_recipe_without_a_jeol_block_mills_at_the_default_rate(connected):
     )
     _draw_rectangle(microscope, depth=1e-6)
     default = JeolMillingSettings().milling_rate
-    assert fake.fib.items[-1].fields["dose"] == pytest.approx(default * 1e-9)
+    assert default == pytest.approx(1e9)  # 1 nC/um3, the CryoLameller default
+    assert fake.fib.items[-1].fields["dose"] == pytest.approx(1.0)
 
 
 def test_the_jeol_block_round_trips_through_a_saved_recipe():
