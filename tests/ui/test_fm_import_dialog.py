@@ -16,6 +16,7 @@ import tifffile
 pytest.importorskip("PyQt5")
 
 from fibsem.fm.reader import read_source
+from fibsem.ui.widgets import fm_import_dialog
 from fibsem.ui.widgets.fm_import_dialog import MANY_CHANNELS, ImportImageDialog
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
@@ -113,6 +114,32 @@ class TestThePreviewIsTheImage:
         before = dialog.preview.layers[0].data.copy()
         dialog.check_flip.setChecked(True)
         np.testing.assert_array_equal(dialog.preview.layers[0].data, before[:, ::-1])
+
+
+class TestALargeImageIsPreviewedSmall:
+    """Compositing costs per pixel and reruns on every change to the form, so a
+    mosaic is previewed from a subsample; Import still takes every pixel."""
+
+    @pytest.fixture(autouse=True)
+    def _small_previews(self, monkeypatch):
+        monkeypatch.setattr(fm_import_dialog, "PREVIEW_SIDE", 6)  # 16 x 18: every 3rd
+
+    def test_the_preview_takes_every_nth_pixel_at_the_scale_that_matches(
+        self, hyperstack
+    ):
+        dialog = _open(hyperstack)
+        expected = planes(3, 8)[1].max(axis=0)[::3, ::3]
+        np.testing.assert_array_equal(dialog.preview.layers[1].data, expected)
+        assert dialog.preview._pixel_size == pytest.approx(3 * 0.325e-6)
+        assert "1/3" in dialog.label_axes.text()
+
+    def test_import_keeps_every_pixel(self, hyperstack):
+        dialog = _open(hyperstack)
+        dialog.check_flip.setChecked(True)
+        image = dialog.build()
+        assert image.data.shape == (3, 8, 16, 18)
+        assert image.metadata.pixel_size_x == pytest.approx(0.325e-6)
+        np.testing.assert_array_equal(image.data, planes(3, 8)[..., ::-1])
 
 
 class TestCorrectingTheAxes:

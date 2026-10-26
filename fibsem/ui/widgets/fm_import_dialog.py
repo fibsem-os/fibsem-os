@@ -13,6 +13,7 @@ builds the image with the placement it chooses (:meth:`ImportImageDialog.build`)
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List, Optional
 
 from PyQt5.QtCore import Qt
@@ -53,6 +54,10 @@ from fibsem.ui.widgets.canvas.overlay_controls import panel_hint, panel_section
 MANY_CHANNELS = 6
 # What an unknown pixel size starts at: a guess, said to be one.
 GUESSED_PIXEL_SIZE_UM = 1.0
+# The preview is drawn from at most this many pixels a side. Compositing costs per
+# pixel and runs again on every change to the form: a 9424 x 9422 mosaic previewed
+# whole took 3 s to open and 2.5 s a click. Import still builds from every pixel.
+PREVIEW_SIDE = 1024
 _ROW_HEIGHT = 28
 
 
@@ -325,14 +330,45 @@ class ImportImageDialog(QDialog):
                 WARN_COLOR,
             )
         else:
-            self._say("", None)
+            step = self._preview_step()
+            self._say(
+                f"Previewed at 1/{step} size; Import keeps every pixel."
+                if step > 1
+                else "",
+                None,
+            )
         try:
-            image = self.build()
+            image = self._build_preview()
         except Exception as e:  # noqa: BLE001 - said in the form; raising in a slot aborts PyQt5
             self._say(f"Cannot read the image this way: {e}", ERROR_COLOR)
             self.btn_import.setEnabled(False)
             return
         self.preview.set_fm_image(image)
+
+    def _preview_step(self) -> int:
+        """Every how many pixels the preview takes along Y and X."""
+        roles, shape = self.roles, self.source.data.shape
+        side = max(shape[roles.index("Y")], shape[roles.index("X")])
+        return max(1, -(-side // PREVIEW_SIDE))
+
+    def _build_preview(self) -> FluorescenceImage:
+        """The image as confirmed, from every `_preview_step`-th pixel, at the
+        pixel size that keeps its scale."""
+        step = self._preview_step()
+        if step == 1:
+            return self.build()
+        index = tuple(
+            slice(None, None, step) if role in "YX" else slice(None)
+            for role in self.roles
+        )
+        return build_image(
+            replace(self.source, data=self.source.data[index]),
+            self.roles,
+            self.pixel_size * step,
+            self.channel_names,
+            self.channel_colors,
+            flip=self.flip,
+        )
 
     def _say(self, text: str, colour: Optional[str]) -> None:
         self.label_axes.setText(text)

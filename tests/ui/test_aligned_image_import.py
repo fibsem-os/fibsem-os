@@ -290,6 +290,23 @@ class TestLoadAsksOnlyWhenItMustAndKeepsACopy:
         assert accept.seen == []
         assert any("overview first" in text for text in toasts)
 
+    def test_with_nowhere_to_keep_the_copy_it_says_so_and_does_not_ask(
+        self, widget, tmp_path, accept, toasts, monkeypatch
+    ):
+        """No experiment, or no grid on the stage: the copy would have gone to the
+        system's temporary folder, where no record could find it again."""
+        monkeypatch.setattr(widget, "aligned_image_folder", lambda: None)
+        assert widget.open_aligned_image(_foreign_tiff(str(tmp_path))) is None
+        assert accept.seen == []
+        assert any("experiment" in text for text in toasts)
+
+    def test_our_own_image_needs_no_folder(
+        self, widget, microscope, tmp_path, accept, monkeypatch
+    ):
+        monkeypatch.setattr(widget, "aligned_image_folder", lambda: None)
+        path = _placeable_fm(microscope, str(tmp_path))
+        assert widget.open_aligned_image(path) is not None
+
     def test_a_restore_never_asks(self, widget, tmp_path, accept, toasts):
         assert widget.load_aligned_image(_foreign_tiff(str(tmp_path))) is None
         assert accept.seen == []
