@@ -163,6 +163,7 @@ class AutoLamellaTask(SiteTask):
         self.lamella.fluorescence_pose.objective_position = (
             configured_objective_position
         )
+        self.lamella.fluorescence_pose_set_at_fm = True
 
     def set_fluorescence_channels_ui(
         self, channel_settings: List[ChannelSettings]

@@ -31,6 +31,7 @@ import numpy as np
 
 from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
 from fibsem.structures.system import DeviceImagingState, InsertableDeviceState
+from fibsem.workflows.item import FLUORESCENCE_POSE
 from fibsem.workflows.proposals import ItemPoses
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
@@ -157,8 +158,13 @@ def _refuse_unless_fm_sees(
         )
 
 
-def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
+def sync_fluorescence_pose(
+    microscope: "FibsemMicroscope", lamella, force: bool = False
+) -> bool:
     """Bring a lamella's fluorescence pose back in line with its milling pose.
+
+    A pose set at the FM (`Lamella.fluorescence_pose_set_at_fm`) is somebody's
+    centring under the objective, not a guess, and stays unless *force*.
 
     For the callers that move a lamella on the beam side. They set the milling pose;
     stopping there would leave the fluorescence pose describing where the lamella *was*
@@ -179,6 +185,12 @@ def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
     """
     pose = getattr(lamella, "fluorescence_pose", None)
     if pose is None:
+        return False
+    if getattr(lamella, "fluorescence_pose_set_at_fm", False) and not force:
+        logging.info(
+            f"Kept the fluorescence pose of {getattr(lamella, 'name', '?')}: it was "
+            f"set at the FM."
+        )
         return False
 
     milling = getattr(lamella, "milling_pose", None)
@@ -208,6 +220,7 @@ def sync_fluorescence_pose(microscope: "FibsemMicroscope", lamella) -> bool:
         return False
 
     pose.stage_position = position
+    lamella.fluorescence_pose_set_at_fm = False
     return True
 
 
@@ -326,9 +339,14 @@ def add_lamella(
     `ExperimentTab.add_new_lamella` without the redraw: see it for the arguments.
     The current stage position when *stage_position* is None.
     """
+    marked = (
+        stage_position
+        if stage_position is not None
+        else microscope.get_stage_position()
+    )
     poses = build_lamella_poses(
         microscope=microscope,
-        position=stage_position,
+        position=marked,
         objective_position=objective_position,
         marked_at=marked_at,
     )
@@ -348,6 +366,9 @@ def add_lamella(
     )
     lamella = experiment.positions[-1]
     lamella.update_milling_angle(microscope)  # from the milling-pose stage tilt
+    lamella.fluorescence_pose_set_at_fm = poses.fluorescence is not None and (
+        not _is_beam_side(microscope, marked)
+    )
     experiment.save()
     return lamella
 
@@ -375,6 +396,8 @@ def set_lamella_pose(
     if existing is not None and existing.objective_position is not None:
         state.objective_position = existing.objective_position
     lamella.poses[pose_name] = state
+    if pose_name == FLUORESCENCE_POSE:
+        lamella.fluorescence_pose_set_at_fm = True
     followed = False
     if pose_name == "MILLING":
         lamella.update_milling_angle(microscope)
@@ -437,6 +460,7 @@ def move_lamella(
             lamella.fluorescence_pose = poses.fluorescence
         else:
             lamella.fluorescence_pose.stage_position = poses.fluorescence.stage_position
+        lamella.fluorescence_pose_set_at_fm = True
     experiment.save()
     experiment.positions.events.changed.emit()
 

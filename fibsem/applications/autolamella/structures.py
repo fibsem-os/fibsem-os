@@ -311,6 +311,10 @@ class Lamella(SiteItem):
     # task is deferred until one is appended. See proposals.py and
     # Experiment.decide.
     proposals: List[Proposal] = field(default_factory=list)
+    # Whether the fluorescence pose was set at the FM (marked, dragged or recorded
+    # there) rather than worked out from the milling pose. One set at the FM stays
+    # when the milling pose moves (`poses.sync_fluorescence_pose`).
+    fluorescence_pose_set_at_fm: bool = False
 
     def __post_init__(self):
         # Deliberately does not create ``path``. Constructing a Lamella is not a
