@@ -246,8 +246,10 @@ def test_the_acquire_level_takes_a_frame_through_the_app_server(
         monkeypatch.setenv("FIBSEM_OPERATOR_TOKEN", "operator")
         with pytest.raises(SystemExit) as exit:
             cli.main(argv)
-    assert exit.value.code == 0, capsys.readouterr()
-    assert json.loads((tmp_path / "report.json").read_text())["passed"] is True
+    report = json.loads((tmp_path / "report.json").read_text())
+    failed = [f for f in report["findings"] if f["result"] == "fail"]
+    assert exit.value.code == 0, json.dumps(failed)
+    assert report["passed"] is True
 
 
 def test_same_compares_small_si_values_relatively():

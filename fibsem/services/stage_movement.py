@@ -2161,15 +2161,17 @@ def bind_stage_movement(service: Type[_S], microscope: Any) -> Optional[_S]:
 
 def fm_camera_tilt(microscope: Any) -> float:
     """Tilt of the FM camera's optical axis from the SEM column, in degrees: the FM
-    entry's ``camera_tilt``, else 180 where the FM is a stage pose, else the ion
-    column's tilt. See `StageMovement.camera_tilt`."""
+    entry's ``camera_tilt``, else the sample normal's tilt in its declared ``pose``,
+    else 180 where the FM is a stage pose, else the ion column's tilt. See
+    `StageMovement.camera_tilt`."""
     configured = microscope.system.fm.camera_tilt
     if configured is not None:
         return float(configured)
     movement = microscope.stage_movement
-    if movement is not None and movement._declared_fm_pose() is not None:
+    stage = microscope.system.stage
+    device = stage.devices.get("FM")
+    if movement is not None and device is not None and device.pose is not None:
         pose = movement.orientation("FM")
-        stage = microscope.system.stage
         model = StageModel(
             shuttle_pre_tilt=float(np.radians(stage.shuttle_pre_tilt)),
             rotation_reference=float(np.radians(stage.rotation_reference)),
