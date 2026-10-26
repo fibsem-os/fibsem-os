@@ -1139,7 +1139,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             return
         if installed:
             self._api_note.setText(
-                f"{manufacturer.api_label} is installed on this computer."
+                f"{wizard.api_label(manufacturer)} is installed on this computer."
             )
             self._api_note.setStyleSheet(_label_style(10, TEXT_MUTED_COLOR))
             return
@@ -1148,7 +1148,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         # afterwards. What it must not do is let the connection fail later with nothing
         # pointing back at this step.
         self._api_note.setText(
-            f"{manufacturer.api_label} was not found on this computer. "
+            f"{wizard.api_label(manufacturer)} was not found on this computer. "
             f"Connecting to a {manufacturer.label} instrument needs it installed; "
             "setup can still be finished, and the configuration saved, without it."
         )
@@ -1237,6 +1237,25 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         self._address_hint.setContentsMargins(148, 0, 0, 0)
         column.addWidget(self._address_hint)
 
+        # Only for a driver whose vendor library lives in a folder of its own.
+        self._library_box = QtWidgets.QWidget()
+        library_column = QtWidgets.QVBoxLayout(self._library_box)
+        library_column.setContentsMargins(0, 6, 0, 0)
+        library_column.setSpacing(3)
+        library_row = QtWidgets.QHBoxLayout()
+        library_row.setSpacing(8)
+        self._library_caption = _label("", 11, TEXT_COLOR)
+        self._library_caption.setFixedWidth(140)
+        self._library_edit = QDirectoryLineEdit()
+        self._library_edit.textChanged.connect(self._on_library_folder_changed)
+        library_row.addWidget(self._library_caption)
+        library_row.addWidget(self._library_edit, 1)
+        library_column.addLayout(library_row)
+        self._library_hint = _label("", 10, TEXT_MUTED_COLOR, wrap=True)
+        self._library_hint.setContentsMargins(148, 0, 0, 0)
+        library_column.addWidget(self._library_hint)
+        column.addWidget(self._library_box)
+
         self._connection_status = StatusCard()
         self._connection_status.setVisible(False)
         column.addWidget(self._connection_status)
@@ -1283,6 +1302,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             "would be localhost."
         )
         self.button_test.setEnabled(not simulated and self._external_microscope is None)
+        self._update_library_controls()
 
         if simulated:
             self._connection_status.show_status(
@@ -1313,6 +1333,44 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             self._connection_status.setVisible(False)
         self._update_rail()
 
+    def _update_library_controls(self) -> None:
+        """Ask for the vendor library's folder, prefilled with where this PC has it."""
+        library = self.choices.manufacturer.library
+        self._library_box.setVisible(library is not None)
+        if library is None:
+            return
+        self._library_caption.setText(library.label[:1].upper() + library.label[1:])
+        found = wizard.library_status(self.choices.manufacturer)
+        self._library_edit.setText(found.folder or "")
+        self._show_library_status()
+
+    def _on_library_folder_changed(self, text: str) -> None:
+        self.choices.library_folder = text.strip()
+        self._show_library_status()
+
+    def _show_library_status(self) -> None:
+        library = self.choices.manufacturer.library
+        if library is None:
+            return
+        folder = self.choices.library_folder
+        if not folder:
+            self._library_hint.setText(
+                f"Not found on this computer. Choose the folder that contains the "
+                f"{library.label}."
+            )
+            self._library_hint.setStyleSheet(_label_style(10, WARN_COLOR))
+            return
+        found = wizard.library_status(self.choices.manufacturer, folder)
+        if found.ok:
+            version = f", version {found.version}" if found.version else ""
+            self._library_hint.setText(f"Found the {library.label}{version}.")
+            self._library_hint.setStyleSheet(_label_style(10, OK_GREEN))
+        else:
+            self._library_hint.setText(
+                f"This folder doesn't contain the {library.label}."
+            )
+            self._library_hint.setStyleSheet(_label_style(10, WARN_COLOR))
+
     def _on_test_connection(self) -> None:
         """Open a connection with the answers so far, off the GUI thread."""
         if self._worker is not None and self._worker.is_alive():
@@ -1320,6 +1378,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         self._disconnect_own()
 
         self.choices.address = self._address_edit.text().strip()
+        # The driver reads its library folder from this PC's preferences at connect.
+        wizard.save_library_folder(self.choices)
         self.button_test.setEnabled(False)
         self._connection_status.show_status(
             "mdi:progress-clock",

@@ -11,7 +11,6 @@ import threading
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from fibsem.server import missing_server_extra
 from fibsem.server.agent_setup import setup_text
 from fibsem.workflows.session import AppSession
 
@@ -85,14 +84,6 @@ def connect(session: AppSession, args: argparse.Namespace) -> Any:
         ip_address=args.ip_address,
         debug=args.debug,
     )
-
-
-def cannot_serve(prog: str) -> bool:
-    """Whether this install can't serve, said on the terminal when so."""
-    missing = missing_server_extra()
-    if missing is not None:
-        print(f"error: {prog} needs {missing}")
-    return missing is not None
 
 
 def open_session(

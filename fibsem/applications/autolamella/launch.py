@@ -120,8 +120,6 @@ def main(
     args, window_args = _parser().parse_known_args(argv)
     if window_args and window is None:
         _parser().parse_args(argv)  # says what is unknown, and exits
-    if window is None and headless.cannot_serve("fibsem-autolamella-server"):
-        return 1
     if args.experiments is not None and not args.experiments.is_dir():
         print(f"error: {args.experiments} is not a folder.")
         return 1

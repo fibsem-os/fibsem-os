@@ -23,7 +23,6 @@ FIBSEM = Path(__file__).resolve().parents[1] / "fibsem"
 
 # extra: (its top-level import names, the folders under fibsem/ that may import them)
 HOMES = {
-    "server": (("fastapi", "starlette", "uvicorn"), ("server/", "gateway/")),
     "ml": (
         ("torch", "segmentation_models_pytorch", "transformers", "onnx", "onnxruntime"),
         ("segmentation/",),
@@ -86,7 +85,8 @@ def test_every_module_outside_the_homes_imports():
     modules = [
         "fibsem." + rel[: -len(".py")].replace("/", ".").removesuffix(".__init__")
         for rel in MODULES
-        if not _in_a_home(rel)
+        # A __main__ module runs its program when imported.
+        if not _in_a_home(rel) and not rel.endswith("__main__.py")
     ]
     assert len(modules) > 300, f"only found {len(modules)} modules"
     script = (

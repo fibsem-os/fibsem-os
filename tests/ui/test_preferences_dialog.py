@@ -135,6 +135,7 @@ def _every_field_changed() -> UserPreferences:
     n.run_finished = True
     n.images = True
     n.link = "http://localhost:8001/ui"
+    prefs.install.vendor_libraries = {"Vendor": "/opt/vendor/site-packages"}
     return prefs
 
 

@@ -340,6 +340,9 @@ class InstallPreferences:
     notifications: NotificationPreferences = field(
         default_factory=NotificationPreferences
     )
+    # The folder of each driver's vendor library on this PC, by driver name
+    # (``fibsem.vendor_libraries``).
+    vendor_libraries: Dict[str, str] = field(default_factory=dict)
 
 
 # Keys an older file kept under its sections (display, movement, experiment,

@@ -682,3 +682,72 @@ def _elsewhere_setup():
 
 
 _ELSEWHERE_SETUP = _elsewhere_setup()
+
+
+def _library_setup():
+    from fibsem.drivers.setup import DriverSetup, SetupLibrary, SetupModel
+
+    return DriverSetup(
+        label="Foldered",
+        summary="A driver whose library lives in a folder of its own.",
+        library=SetupLibrary(label="Foldered client library", packages=("fclient",)),
+        models=(
+            SetupModel(
+                key="foldered-one",
+                label="One",
+                summary="The only one.",
+                filename="microscope-configuration.yaml",
+            ),
+        ),
+    )
+
+
+_LIBRARY_SETUP = _library_setup()
+
+
+@pytest.fixture
+def foldered(monkeypatch, tmp_path):
+    """A plugin driver that declares a vendor library, and a folder holding it."""
+    from fibsem.drivers import registry
+    from fibsem.drivers.registry import DriverEntry, register_driver
+
+    monkeypatch.setattr(
+        registry.DRIVER_PLUGINS, "registered", dict(registry.DRIVER_PLUGINS.registered)
+    )
+    register_driver(
+        DriverEntry(
+            manufacturer="Foldered",
+            microscope_class="foldered:Microscope",
+            setup=f"{__name__}:_LIBRARY_SETUP",
+        )
+    )
+    folder = tmp_path / "vendor"
+    folder.mkdir()
+    (folder / "fclient.py").write_text("")
+    return folder
+
+
+def test_a_library_is_checked_in_its_folder(isolated_registry, foldered):
+    manufacturer = wizard.get_manufacturer("Foldered")
+    assert wizard.api_label(manufacturer) == "Foldered client library"
+    assert wizard.api_is_installed(manufacturer) is False
+    assert wizard.library_status(manufacturer, str(foldered)).found == ("fclient",)
+    assert not wizard.library_status(manufacturer, str(foldered.parent)).ok
+
+
+def test_the_library_folder_is_kept_for_this_pc_not_the_configuration(
+    isolated_registry, foldered
+):
+    choices = wizard.SetupChoices(
+        manufacturer_key="Foldered",
+        model_key="foldered-one",
+        name="foldered",
+        configuration_directory=str(isolated_registry),
+        library_folder=str(foldered),
+    )
+    result = wizard.apply_setup(choices)
+    preferences = cfg.load_user_preferences()
+    assert preferences.install.vendor_libraries == {"Foldered": str(foldered)}
+    with open(result.path) as f:
+        assert str(foldered) not in f.read()
+    assert wizard.api_is_installed(wizard.get_manufacturer("Foldered")) is True

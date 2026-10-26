@@ -10,7 +10,7 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("websockets")
 
-import requests  # noqa: E402
+import httpx  # noqa: E402
 
 from fibsem.devices.core import (  # noqa: E402
     ParameterReadOnly,
@@ -226,7 +226,7 @@ def test_a_frozen_server_is_noticed_without_a_read(served):
     dropped = []
     client.disconnected.connect(lambda: dropped.append(True))
     threading.Thread(
-        target=requests.get, args=(f"{client.base_url}/freeze",), daemon=True
+        target=httpx.get, args=(f"{client.base_url}/freeze",), daemon=True
     ).start()
     try:
         assert wait_for(lambda: dropped == [True], timeout=2.5)

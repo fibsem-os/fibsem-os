@@ -349,8 +349,8 @@ def _safe_url(url: str) -> str:
 def _redact_url(text: str, url: str) -> str:
     """Strip a webhook URL, and its bare path, out of ``text``.
 
-    requests reports the path on its own -- "Max retries exceeded with url:
-    /services/T.../B.../TOKEN" -- so replacing the whole URL is not enough.
+    An HTTP library can report the path on its own -- "Max retries exceeded with
+    url: /services/T.../B.../TOKEN" -- so replacing the whole URL is not enough.
     """
     from urllib.parse import urlparse
 
@@ -442,9 +442,9 @@ class WebhookHook(Hook):
 
     def _post(self, context: HookContext) -> None:
         try:
-            import requests
+            import httpx
 
-            response = requests.request(
+            response = httpx.request(
                 self.method, self.url, json=self._payload(context), timeout=self.timeout
             )
             # A rejected request is not an exception, so without this check an endpoint
@@ -453,13 +453,13 @@ class WebhookHook(Hook):
             # The hook sits in the configuration looking connected and delivers nothing.
             # The response body is where the reason lives, so include it, truncated
             # because an error page can be arbitrarily long.
-            if not response.ok:
+            if not response.is_success:
                 logging.warning(
                     f"{type(self).__name__} '{self.name}' was rejected: "
                     f"HTTP {response.status_code} {response.text[:200]}"
                 )
         except Exception as exc:
-            # Deliberately not logging.exception. requests puts the full URL in its
+            # Deliberately not logging.exception. The HTTP library puts the full URL in its
             # message -- and the bare path separately -- and for an incoming webhook
             # that path *is* the credential. Logfiles are the first thing a user sends
             # when something goes wrong, so a DNS blip must not put a working Slack

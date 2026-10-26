@@ -230,14 +230,6 @@ class AppServerDialog(QDialog):
             return None
         return host
 
-    def _not_running_text(self) -> str:
-        if not self._chk_enabled.isChecked():
-            return "Not running."
-        error = getattr(self._host_provider(), "start_error", None)
-        if error:
-            return f"Not running: it needs {error}."
-        return "Not running. It did not start; see the log."
-
     @staticmethod
     def _status_text(host) -> str:
         return f"Running on {host.url}"
@@ -275,7 +267,11 @@ class AppServerDialog(QDialog):
         )
         if not running:
             self._status_dot.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
-            self._status_label.setText(self._not_running_text())
+            self._status_label.setText(
+                "Not running. It did not start; see the log."
+                if self._chk_enabled.isChecked()
+                else "Not running."
+            )
             self._status_label.setStyleSheet(f"color: {TEXT_MUTED_COLOR};")
             self._services_label.setText("")
             self._agent_label.setText("No clients while the host is not serving.")

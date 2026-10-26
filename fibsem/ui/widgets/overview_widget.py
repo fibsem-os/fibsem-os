@@ -1522,6 +1522,13 @@ class FibsemOverviewWidget(OverviewWidgetBase):
                 "warning",
             )
             return None
+        if not self.aligned_image_folder():
+            notification_service.show_toast(
+                "Load an experiment with a grid on the stage first: an imported "
+                "image is kept in the grid's folder.",
+                "warning",
+            )
+            return None
         try:
             source = read_source(path)
         except Exception as e:  # noqa: BLE001 - said, not fatal
@@ -1577,11 +1584,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
     def _write_imported(self, image, name: str) -> str:
         """Save an imported image as our own OME-TIFF: a new file beside, never
         over, anything already there."""
-        import tempfile
-
-        folder = self.aligned_image_folder() or os.path.join(
-            tempfile.gettempdir(), "fibsem-imported-images"
-        )
+        folder = self.aligned_image_folder()
         os.makedirs(folder, exist_ok=True)
         stem = name
         for suffix in (".tiff", ".tif", ".png", ".jpeg", ".jpg", ".ome"):
