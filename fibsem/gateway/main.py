@@ -93,6 +93,7 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
     import uvicorn
 
     from fibsem.gateway.server import GatewayAuth, build_gateway_app
+    from fibsem.server.uvicorn_server import Server
 
     running = read_gateway_file()
     if running is not None:
@@ -101,7 +102,7 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
     gateway = Gateway(connection)
     auth = GatewayAuth.from_disk()
     agent = GatewayAgent(gateway, auth.pairing.tokens)
-    server = uvicorn.Server(
+    server = Server(
         uvicorn.Config(
             build_gateway_app(gateway, auth, agent, HostMicroscope()),
             host="127.0.0.1",
