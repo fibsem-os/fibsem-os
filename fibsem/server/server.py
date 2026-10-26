@@ -69,6 +69,7 @@ from fibsem.server.devices import (
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.models import ControlRequest, MicroscopeStateRequest
+from fibsem.server.notifications import build_notifications_router
 from fibsem.server.operator import build_operator_router
 from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.server.parts import served_parts
@@ -898,6 +899,7 @@ def build_server(
         )
     if operator is not None:
         app.include_router(build_operator_router(operator))
+        app.include_router(build_notifications_router())
     return app
 
 

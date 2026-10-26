@@ -391,3 +391,10 @@ def test_the_settings_round_trip_and_never_hold_the_token():
     assert again.install.notifications.channel == "#microscope-alerts"
     assert again.install.notifications.enabled is False
     assert "token" not in json.dumps(preferences.to_dict()["install"]["notifications"])
+
+
+def test_with_no_token_nothing_runs():
+    alerts = Alerts(FakeSession(), settings=_settings, token="")
+    alerts.start()
+    assert alerts._thread is None
+    alerts.stop()

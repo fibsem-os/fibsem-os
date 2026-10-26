@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar
 
 from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
+from fibsem.config import NotificationPreferences
 from fibsem.control import InControl
 from fibsem.geometry.stage_places import StageMapPlaces
 from fibsem.structures.image import FibsemImageMetadata
@@ -1404,6 +1405,23 @@ class EvidenceView:
     # The experiment image to mark in reply: this one, or the one an upload
     # was drawn from. None for a picture with no image behind it.
     source: Optional[str] = None
+
+
+@dataclass
+class NotificationSettings:
+    """This instrument's Slack notifications, and whether the bot token is
+    set (it is never served)."""
+
+    settings: NotificationPreferences
+    token_set: bool
+    # Where the token is read from: an environment variable on this PC.
+    token_from: str
+
+
+@dataclass
+class NotificationTest:
+    # The ID Slack answered for the channel, now kept in the settings.
+    channel_id: str
 
 
 @dataclass
