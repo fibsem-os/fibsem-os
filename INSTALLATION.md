@@ -23,6 +23,27 @@ https://www.fibsemos.org/docs/installation/. Change both when you change one.
 - No microscope is needed. Everything here also runs against the built-in
   simulator, so you can install and try fibsemOS on a laptop first.
 
+## One-click install
+
+On Windows 10 or newer, or macOS, a script does steps 1 to 4 for you. It
+needs an internet connection but no admin rights, and no Python or conda
+beforehand.
+
+1. Download `install.bat` (Windows) or `install.command` (macOS) from the
+   `installer` folder of the repository.
+2. Double-click it. Windows may say it protected your PC: choose More info,
+   then Run anyway. macOS may say the file can't be opened: right-click it
+   and choose Open.
+3. Wait for the window to say fibsemOS is installed. AutoLamella opens, and
+   there is an AutoLamella shortcut on the desktop.
+
+It installs [uv](https://docs.astral.sh/uv/), which downloads Python 3.11
+and puts the environment in a `fibsem` folder in your home folder. Run the
+script again to upgrade. On Linux, run `bash install.command`.
+
+Then go to [5. Microscope software](#5-microscope-software). The steps below
+are the same install by hand.
+
 ## 1. Create an environment
 
 Open a terminal (on Windows, the Miniforge Prompt) and create an environment
