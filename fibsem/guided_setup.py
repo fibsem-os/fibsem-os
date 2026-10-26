@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from fibsem import config as cfg
+from fibsem import vendor_libraries
 from fibsem.codec.upgrades.configuration import upgrade
 from fibsem.session_state import user_state
 
@@ -135,6 +136,9 @@ class Manufacturer:
     # present, and importing a vendor SDK to find out is slow and has side effects.
     api_module: Optional[str] = None
     api_label: str = ""
+    # A vendor library imported from a folder (``DriverSetup.library``), which the
+    # connection step asks for.
+    library: Optional[Any] = None
     simulated: bool = False
     # The driver's device entries merged into the written file (``DriverSetup.devices``).
     devices: Tuple[Mapping[str, Any], ...] = ()
@@ -220,6 +224,7 @@ def manufacturers() -> List[Manufacturer]:
             control_software=setup.control_software,
             api_module=setup.api_module,
             api_label=setup.api_label,
+            library=setup.library,
             simulated=setup.simulated,
             devices=setup.devices,
         )
@@ -265,6 +270,8 @@ def api_is_installed(manufacturer: Manufacturer) -> Optional[bool]:
     Never raises: a broken package on the path is a reason to say "not found", not a
     reason to take the wizard down before it has asked anything.
     """
+    if manufacturer.library is not None:
+        return library_status(manufacturer).ok
     if not manufacturer.api_module:
         return None
     from importlib.util import find_spec
@@ -274,6 +281,29 @@ def api_is_installed(manufacturer: Manufacturer) -> Optional[bool]:
     except Exception as e:  # pragma: no cover - a package that breaks on inspection
         logger.warning(f"Could not check for {manufacturer.api_label}: {e}")
         return False
+
+
+def api_label(manufacturer: Manufacturer) -> str:
+    """What the wizard calls the software the driver needs here."""
+    if manufacturer.library is not None:
+        return manufacturer.library.label
+    return manufacturer.api_label
+
+
+def library_status(
+    manufacturer: Manufacturer, folder: Optional[str] = None
+) -> vendor_libraries.LibraryFolder:
+    """What *folder* holds of the manufacturer's library, or, without one, where this
+    PC has it (``fibsem.vendor_libraries.resolve``)."""
+    if folder is not None:
+        return vendor_libraries.check(folder, manufacturer.library)
+    return vendor_libraries.resolve(manufacturer.key, manufacturer.library)
+
+
+def save_library_folder(choices: SetupChoices) -> None:
+    """Keep the library folder typed into the connection step for this PC."""
+    if choices.manufacturer.library is not None and choices.library_folder.strip():
+        vendor_libraries.save_folder(choices.manufacturer.key, choices.library_folder)
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +432,9 @@ class SetupChoices:
     # The other devices ticked, by `OfferedDevice.key`. Empty unless a plugin offers
     # one and it was chosen.
     devices: Dict[str, DeviceChoice] = field(default_factory=dict)
+    # The folder of the manufacturer's vendor library, where its driver declares one.
+    # Kept for this PC (the install preferences), never in the configuration.
+    library_folder: str = ""
 
     @property
     def model(self) -> MicroscopeModel:
@@ -698,6 +731,7 @@ def _save_folder_preferences(choices: SetupChoices, warnings: List[str]) -> bool
         if choices.protocol_path:
             preferences.shared.default_protocol_path = choices.protocol_path
         cfg.save_user_preferences(preferences)
+        save_library_folder(choices)
         return os.path.exists(cfg.USER_PREFERENCES_PATH)
     except Exception as e:  # pragma: no cover - defensive
         logger.warning(f"Could not save the folder preferences: {e}")

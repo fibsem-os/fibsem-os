@@ -124,6 +124,7 @@ def _every_field_changed() -> UserPreferences:
     prefs.install.app_server.enabled = True
     prefs.install.app_server.microscope = False
     prefs.install.app_server.allow_local_agents = True
+    prefs.install.vendor_libraries = {"Vendor": "/opt/vendor/site-packages"}
     return prefs
 
 

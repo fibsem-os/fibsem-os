@@ -49,6 +49,25 @@ class SetupModel:
 
 
 @dataclass(frozen=True)
+class SetupLibrary:
+    """A vendor library the driver may import from a folder outside this Python
+    environment (``fibsem.vendor_libraries``)."""
+
+    label: str
+    """What the wizard and Preferences call it ("JEOL client library")."""
+
+    packages: Tuple[str, ...]
+    """The top-level packages and modules imported from the folder; nothing else in
+    it is."""
+
+    candidates: Tuple[str, ...] = ()
+    """Folders to look in when this PC has none set, as glob patterns."""
+
+    env: Optional[str] = None
+    """An environment variable that, when set, names the folder over the preference."""
+
+
+@dataclass(frozen=True)
 class DriverSetup:
     """How the wizard offers a driver as a manufacturer, and its instruments."""
 
@@ -69,6 +88,10 @@ class DriverSetup:
 
     simulated: bool = False
     """No instrument: nothing to reach, so the connection step has nothing to ask."""
+
+    library: Optional[SetupLibrary] = None
+    """A vendor library imported from a folder rather than installed here, which the
+    wizard's connection step asks for."""
 
     devices: Tuple[Mapping[str, Any], ...] = ()
     """Device entries in the configuration file's layout (``name`` and the keys to
