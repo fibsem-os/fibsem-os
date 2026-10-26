@@ -255,6 +255,18 @@ def test_an_fm_tilted_from_fib_needs_three_sites_spread_in_y(tmp_path, monkeypat
     assert "must be at least 3 mm off" in " ".join(steps.summary()["problems"])
 
 
+@pytest.mark.parametrize("t, refused", [(30.0, False), (33.0, True)])
+def test_an_fm_up_to_15_degrees_from_fib_can_be_calibrated(tmp_path, t, refused):
+    microscope, path = _uncalibrated(tmp_path, fm_pose={"t": t})
+    steps = SemToFmCalibration(microscope, configuration_path=path)
+
+    if refused:
+        with pytest.raises(CalibrationRefused, match="more than 15°"):
+            steps.fm_tilt_difference()
+    else:
+        assert steps.fm_tilt_difference() == pytest.approx(t - 17.0)
+
+
 def test_a_capture_away_from_the_fm_pose_is_refused(calibration):
     microscope, steps, _ = calibration
     microscope.move_to_orientation("SEM")

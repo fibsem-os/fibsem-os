@@ -32,7 +32,7 @@ from fibsem.util.timestamps import now, now_iso
 
 # How far the FM's pose may differ from FIB's in tilt and still be calibrated by
 # tilting at the beams; more is a configuration error. Degrees.
-MAX_FM_TILT_DIFFERENCE = 5.0
+MAX_FM_TILT_DIFFERENCE = 15.0
 # Below this, in degrees, the FM's pose is FIB's in tilt and the travel is one
 # translation.
 SAME_TILT = 0.05
@@ -122,7 +122,8 @@ class SemToFmCalibration:
 
     def fm_tilt_difference(self) -> float:
         """How far the FM's pose is tilted from FIB's, in degrees, refused when it
-        can't be calibrated: another rotation, or more than a few degrees of tilt."""
+        can't be calibrated: another rotation, or more than
+        `MAX_FM_TILT_DIFFERENCE` of tilt."""
         fib = self.microscope.get_orientation("FIB")
         fm = self.microscope.get_orientation(self.fm_orientation())
         dr = np.degrees(abs(np.arctan2(np.sin(fm.r - fib.r), np.cos(fm.r - fib.r))))
@@ -130,13 +131,12 @@ class SemToFmCalibration:
         if dr > 1.0:
             raise CalibrationRefused(
                 f"The FM's pose is {dr:.1f}° from FIB's in rotation. An offset FM "
-                "images in the FIB pose: check the FM entry's available_orientations."
+                "images at FIB's rotation: check the FM entry's pose."
             )
         if abs(dt) > MAX_FM_TILT_DIFFERENCE:
             raise CalibrationRefused(
                 f"The FM's pose is {dt:.1f}° from FIB's in tilt, more than "
-                f"{MAX_FM_TILT_DIFFERENCE:.0f}°: check the FM entry's "
-                "available_orientations."
+                f"{MAX_FM_TILT_DIFFERENCE:.0f}°: check the FM entry's pose."
             )
         return dt
 
