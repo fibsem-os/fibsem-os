@@ -313,7 +313,7 @@ class Harness:
             al_cfg.TASK_PROTOCOL_PATH
         )
         experiment.task_protocol.save(os.path.join(experiment.path, "protocol.yaml"))
-        self.ui.adopt_experiment(experiment)
+        self.ui.session.adopt(experiment)
         self.pump(1500)
         return experiment
 
@@ -694,7 +694,7 @@ def render_getting_started(h: Harness) -> None:
             Box(h.window.view_controller.widget),
             Box(h.ui.panel.tabWidget.tabBar()),
             Box(h.window.status_bar),
-            h.window.run_workflow_btn,
+            h.window.workflow_controls.run_btn,
         ],
         numbered=True,
     )
@@ -951,7 +951,7 @@ def render_milling(h: Harness) -> None:
     iw.image_settings_widget.hfw_spinbox.setValue(80.0)
     iw.acquire_reference_images()
     h.wait_acquisition(iw)
-    h.ui.panel.tabWidget.setCurrentWidget(mv)
+    h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.milling_tab)
     cw.field_of_view_spinbox.setValue(80.0)
     h.pump(300)
 
@@ -1441,7 +1441,9 @@ def render_fluorescence(h: Harness) -> None:
     h.shot(
         "view-menu",
         target=view,
-        callout_rects=[view.actionGeometry(h.window.action_open_fm_image_viewer)],
+        callout_rects=[
+            view.actionGeometry(h.window.menu_bar.action_open_fm_image_viewer)
+        ],
     )
     view.close()
     h.pump(200)
@@ -1571,9 +1573,6 @@ def render_experiments(h: Harness) -> None:
         EXAMPLE_EXPERIMENT_METADATA["organisation"]
     )
     dialog.lineEdit_experiment_directory.setText(EXAMPLE_EXPERIMENT_DIR)
-    # the shipped protocol loaded by default; its path is this checkout's, so
-    # show where it would be on the example machine
-    dialog.lineEdit_protocol_path.setText(EXAMPLE_CONFIG_DIR + r"\task-protocol.yaml")
     h.pump(300)
     h.shot(
         "create-experiment",
@@ -1597,9 +1596,9 @@ def render_experiments(h: Harness) -> None:
         callouts=[Box(h.window.tab_widget.tabBar()), Box(h.window.status_bar)],
         numbered=True,
     )
-    h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.tab)
+    h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.experiment_tab)
     h.pump(300)
-    h.shot("experiment-tab", target=h.ui.panel.tab, crop=True)
+    h.shot("experiment-tab", target=h.ui.panel.experiment_tab, crop=True)
 
 
 @page("protocols")
@@ -1722,7 +1721,7 @@ def render_overview(h: Harness) -> None:
     # three positions marked on it, on cells (what "Add New Position Here"
     # does at a right-click)
     for position in h.cell_positions(3):
-        ow.position_add_requested.emit(position)
+        ow.position_add_requested.emit(position, None)
         h.pump(400)
     h.pump(500)
     h.shot("positions-marked")
@@ -1773,19 +1772,20 @@ def render_lamella(h: Harness) -> None:
     # the Experiment tab: the list, + to add at the current position, and the
     # selected lamella's details
     h.show_main_tab("Microscope")
-    h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.tab)
+    h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.experiment_tab)
     h.ui.panel.experiment_tab.lamella_list.select(lamellae[0].name) if hasattr(
         h.ui.panel.experiment_tab.lamella_list, "select"
     ) else None
     h.pump(400)
-    h.shot("experiment-tab", target=h.ui.panel.tab, crop=True, height=520)
+    h.shot("experiment-tab", target=h.ui.panel.experiment_tab, crop=True, height=520)
 
     # the Lamella tab: cards on the left, the selected lamella's own task
     # configuration and its images on the right
     h.show_main_tab("Lamella")
-    cards = h.window.lamella_card_container
-    editor = h.window.lamella_widget
-    editor.select_lamella(lamellae[0].name)
+    cards = h.window.lamella_tab.cards
+    editor = h.window.lamella_tab.editor
+    h.window.lamella_tab.select(lamellae[0])
+    h.window.lamella_tab.show_lamella(lamellae[0])
     h.pump(600)
     editor.listWidget_selected_task.select("Rough Milling")
     h.pump(600)
@@ -1814,19 +1814,17 @@ def render_lamella(h: Harness) -> None:
     h.shot(
         "card",
         target=card,
-        callouts=[card._btn_actions, card._btn_defect],
+        callouts=[card._btn_actions],
         numbered=True,
     )
 
     # the Review sub-tab: task images, empty before a task has run
-    right_tabs = h.window.lamella_task_image_widget.parentWidget()
+    right_tabs = h.window.lamella_tab.history.parentWidget()
     while right_tabs is not None and not hasattr(right_tabs, "setCurrentWidget"):
         right_tabs = right_tabs.parentWidget()
-    right_tabs.setCurrentWidget(h.window.lamella_task_image_widget)
+    right_tabs.setCurrentWidget(h.window.lamella_tab.history)
     h.pump(400)
-    h.shot(
-        "review-tab", target=h.window.lamella_task_image_widget, crop=True, height=300
-    )
+    h.shot("review-tab", target=h.window.lamella_tab.history, crop=True, height=300)
     right_tabs.setCurrentIndex(0)
     h.pump(200)
 
@@ -1866,29 +1864,29 @@ def render_tasks(h: Harness) -> None:
 
     # the shipped protocol's workflow as the Workflow tab lists it
     h.show_main_tab("Workflow")
-    ww = h.window.lamella_workflow_widget
+    ww = h.window.workflow_tab.lamella_workflow_widget
     h.pump(400)
     h.shot("starting-workflow", target=ww.workflow, crop=True)
 
 
-@page("workflows")
-def _proposal_up(ui) -> Tuple[str, Optional[str]]:
+def _proposal_up(proposals) -> Tuple[str, Optional[str]]:
     """The kind of proposal the prompt bar shows now, and which milling config
     when it is a pass of a loop (``milling``, ``spot_burn``)."""
-    shown = getattr(ui, "_loop_proposal", None)
+    shown = getattr(proposals, "_loop_proposal", None)
     if shown is not None:
         proposal = shown[2]
         config = proposal.values.get("milling_config")
         return proposal.kind, getattr(config, "name", None)
-    shown = getattr(ui, "_widget_proposal", None)
+    shown = getattr(proposals, "_widget_proposal", None)
     if shown is not None:
         return shown[2].kind, None
     return "state", None
 
 
+@page("workflows")
 def render_workflows(h: Harness) -> None:
     """The Workflow tab, a supervised run with its prompts, and the Grids view."""
-    from fibsem.applications.autolamella.ui import window as main_module
+    from fibsem.applications.autolamella.ui.workflow import tab as main_module
 
     h.first_run(False)
     h.show_tab(0)
@@ -1899,7 +1897,7 @@ def render_workflows(h: Harness) -> None:
     h.wait_move(ctrl, iw)
     lamellae = h.ensure_lamellae(3)
     h.show_main_tab("Workflow")
-    ww = h.window.lamella_workflow_widget
+    ww = h.window.workflow_tab.lamella_workflow_widget
 
     # one lamella, the first two tasks
     ww.lamella_list.set_all_selected(False)
@@ -1912,9 +1910,9 @@ def render_workflows(h: Harness) -> None:
         "workflow-tab",
         callouts=[
             Box(ww.lamella_list),
-            Box(ww.info),
+            ww.btn_settings,
             Box(ww.workflow),
-            h.window.run_workflow_btn,
+            h.window.workflow_controls.run_btn,
         ],
         numbered=True,
     )
@@ -1924,10 +1922,8 @@ def render_workflows(h: Harness) -> None:
         target=row,
         callouts=[
             row.checkbox,
-            row.btn_schedule,
             row.btn_attention,
             row.btn_edit,
-            row.btn_remove,
         ],
         numbered=True,
     )
@@ -1936,7 +1932,7 @@ def render_workflows(h: Harness) -> None:
     # photographed on the way and then answered
     main_module.confirm_run_workflow_dialog = lambda *_args, **_kwargs: True
     # the completion summary is modal; it is shown by hand below instead
-    h.ui._show_workflow_summary = lambda: None
+    h.ui.run_view.show_summary = lambda: None
     seen = set()
 
     def run_selected(task_indices, queue_shots=False):
@@ -1948,13 +1944,13 @@ def render_workflows(h: Harness) -> None:
             ww.workflow._row(i).checkbox.setChecked(True)
         h.pump(300)
         h.show_main_tab("Workflow")
-        h.window.run_workflow_btn.click()
+        h.window.workflow_controls.run_btn.click()
         answered_milling = set()
         waited = 0
         h.pump(1500)
-        if not h.ui.is_workflow_running:
+        if not h.ui.session.runner.is_running:
             raise RuntimeError(f"workflow did not start for tasks {task_indices}")
-        while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
+        while (h.ui.session.runner.is_running or waited < 2000) and waited < 1200000:
             h.pump(250)
             waited += 250
             if h.ui.run_relay.hold is None:
@@ -1968,10 +1964,10 @@ def render_workflows(h: Harness) -> None:
                 h.pump(400)
                 h.shot(
                     "queue-running",
-                    callouts=[Box(h.window.workflow_timeline)],
+                    callouts=[Box(h.window.workflow_tab.timeline)],
                     numbered=True,
                 )
-                progress = h.window.workflow_timeline
+                progress = h.window.workflow_tab.timeline
                 pending = None
                 for i in range(len(progress._outer._steps)):
                     menu = progress.build_row_menu(i)
@@ -1988,7 +1984,7 @@ def render_workflows(h: Harness) -> None:
                     h.shot("queue-row-menu", target=menu)
                     menu.close()
                     h.pump(200)
-            kind, key = _proposal_up(h.ui)
+            kind, key = _proposal_up(h.ui.proposals)
             # a milling prompt is one image per task, the others one each
             shot_name = f"prompt-{kind.lower()}"
             if kind == "milling" and key:
@@ -1997,40 +1993,41 @@ def render_workflows(h: Harness) -> None:
                 if not seen:
                     h.shot(
                         "attention-required",
-                        callouts=[h.window.user_attention_btn],
+                        callouts=[h.window.workflow_controls.attention_btn],
                         numbered=True,
                     )
                 seen.add(shot_name)
                 h.show_main_tab("Microscope")
-                h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.tab)
+                h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.experiment_tab)
                 h.pump(500)
                 buttons = [
                     b
-                    for b in (h.ui.pushButton_yes, h.ui.pushButton_no)
+                    for b in (h.ui.panel.prompt_bar.yes, h.ui.panel.prompt_bar.no)
                     if b.isVisible()
                 ]
                 h.shot(
                     shot_name,
-                    callouts=[Box(h.ui.label_instructions), *buttons],
+                    callouts=[Box(h.ui.panel.prompt_bar.message), *buttons],
                     numbered=True,
                 )
             # a milling prompt comes back after the run (Yes = Run Milling
             # again, No = Continue): Yes once per task, then Continue
             if kind == "milling" and key in answered_milling:
-                h.ui.pushButton_no.click()
+                h.ui.panel.prompt_bar.no.click()
             else:
                 if kind == "milling":
                     answered_milling.add(key)
-                h.ui.pushButton_yes.click()
+                h.ui.panel.prompt_bar.yes.click()
             h.pump(800)
-        if h.ui.is_workflow_running:
+        if h.ui.session.runner.is_running:
             raise RuntimeError("workflow did not finish")
         h.pump(1500)
 
     def lamella_tab_shot(name, task):
         h.show_main_tab("Lamella")
-        editor = h.window.lamella_widget
-        editor.select_lamella(lamellae[0].name)
+        editor = h.window.lamella_tab.editor
+        h.window.lamella_tab.select(lamellae[0])
+        h.window.lamella_tab.show_lamella(lamellae[0])
         h.pump(500)
         editor.listWidget_selected_task.select(task)
         h.pump(800)
@@ -2040,7 +2037,9 @@ def render_workflows(h: Harness) -> None:
     run_selected((0, 1))
     from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
 
-    summary_dialog = WorkflowSummaryDialog(h.ui._last_run_summary, parent=h.window)
+    summary_dialog = WorkflowSummaryDialog(
+        h.ui.session.runner.last_summary, parent=h.window
+    )
     summary_dialog.show()
     h.pump(500)
     h.shot("workflow-summary", target=summary_dialog)
@@ -2066,7 +2065,6 @@ def render_grid_workflow(h: Harness) -> None:
     from PyQt5.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
 
     from fibsem.applications.autolamella.tools import grid_report_html
-    from fibsem.applications.autolamella.ui import window as main_module
     from fibsem.applications.autolamella.ui.common.lamella_display import (
         add_verdict_actions,
         mark_current_verdict,
@@ -2074,6 +2072,7 @@ def render_grid_workflow(h: Harness) -> None:
     from fibsem.applications.autolamella.ui.workflow import (
         preflight as preflight_module,
     )
+    from fibsem.applications.autolamella.ui.workflow import tab as main_module
     from fibsem.ui.widgets.workflow.timeline import StepStatus
     from fibsem.ui.widgets.workflow_summary_dialog import WorkflowSummaryDialog
     from fibsem.workflows.grid.imaging import (
@@ -2201,8 +2200,8 @@ def render_grid_workflow(h: Harness) -> None:
 
     # -- selecting grids and tasks, on the Workflow tab's Grids view ---------
     h.show_main_tab("Workflow")
-    left = h.window.workflow_left_tabs
-    gw = h.window.grid_workflow_widget
+    left = h.window.workflow_tab.left_tabs
+    gw = h.window.workflow_tab.grid_workflow_widget
     left.setCurrentWidget(gw)
     h.pump(400)
     gw.refresh()
@@ -2218,7 +2217,7 @@ def render_grid_workflow(h: Harness) -> None:
             Box(gw.grid_list),
             Box(gw.task_list),
             gw.btn_screen_all,
-            h.window.run_workflow_btn,
+            h.window.workflow_controls.run_btn,
         ],
         numbered=True,
     )
@@ -2245,36 +2244,38 @@ def render_grid_workflow(h: Harness) -> None:
         return QDialog.Rejected if screen_all else QDialog.Accepted
 
     preflight_module.GridRunPreflightDialog.exec_ = preflight
-    h.ui._show_workflow_summary = lambda: None
-    h.window.run_workflow_btn.click()
+    h.ui.run_view.show_summary = lambda: None
+    h.window.workflow_controls.run_btn.click()
     h.pump(1500)
-    if not h.ui.is_workflow_running:
+    if not h.ui.session.runner.is_running:
         raise RuntimeError("grid workflow did not start")
     # the queue mid-run: the first grid done, the second exchanged in and
     # its first task under way (steps: load + 2 tasks per grid)
     waited = 0
     queue_shot = False
-    while h.ui.is_workflow_running and waited < 1200000:
+    while h.ui.session.runner.is_running and waited < 1200000:
         h.pump(250)
         waited += 250
         if queue_shot:
             continue
-        steps = h.window.workflow_timeline._outer._steps
+        steps = h.window.workflow_tab.timeline._outer._steps
         if len(steps) > 4 and steps[4].status is StepStatus.ACTIVE:
             h.pump(1500)
             h.shot(
                 "queue-running",
-                callouts=[Box(h.window.workflow_timeline)],
+                callouts=[Box(h.window.workflow_tab.timeline)],
                 numbered=True,
             )
             queue_shot = True
-    if h.ui.is_workflow_running:
+    if h.ui.session.runner.is_running:
         raise RuntimeError("grid workflow did not finish")
     if not queue_shot:
         raise RuntimeError("the run never showed its second grid active")
     h.pump(1500)
     h.shot("run-finished")
-    summary_dialog = WorkflowSummaryDialog(h.ui._last_run_summary, parent=h.window)
+    summary_dialog = WorkflowSummaryDialog(
+        h.ui.session.runner.last_summary, parent=h.window
+    )
     summary_dialog.show()
     h.pump(500)
     h.shot("run-summary", target=summary_dialog)
@@ -2392,7 +2393,7 @@ def render_grid_workflow(h: Harness) -> None:
     grid_report_html.collect_grid_report = collect
     gt.open_report = written.append
     try:
-        h.window.action_generate_grid_report.trigger()
+        h.window.menu_bar.action_generate_grid_report.trigger()
         waited = 0
         while not written and waited < 120000:
             h.pump(250)
@@ -2438,7 +2439,7 @@ def render_correlation(h: Harness) -> None:
     import numpy as np
     from scipy import ndimage as ndi
 
-    from fibsem.applications.autolamella.ui import window as main_module
+    from fibsem.applications.autolamella.ui.workflow import tab as main_module
     from fibsem.applications.autolamella.workflows.tasks.acquire_fluorescence import (
         AcquireFluorescenceImageConfig,
     )
@@ -2495,14 +2496,10 @@ def render_correlation(h: Harness) -> None:
         burn = SpotBurnFiducialTaskConfig(
             task_name=SPOT,
             coordinates=points,
-            attention=Attention.supervised,
-            requires=[setup],
         )
-        burn.reference_imaging.field_of_view1 = 50e-6
-        burn.reference_imaging.field_of_view2 = 100e-6
+        burn.reference_imaging.field_of_view1 = 100e-6
         acquire = AcquireFluorescenceImageConfig(
             task_name=FMTASK,
-            requires=[fiducial],
             channel_settings=channels,
             zparams=ZParameters(zmin=-2e-6, zmax=2e-6, zstep=1e-6),
         )
@@ -2519,9 +2516,17 @@ def render_correlation(h: Harness) -> None:
         ]:
             configs[setup].sync_fluorescence_pose = True
         # after the setup task, before the milling: burn, then image
-        tasks.insert(1, TaskPlan(name=SPOT, required=False))
+        tasks.insert(
+            1,
+            TaskPlan(
+                name=SPOT,
+                attention=Attention.supervised,
+                requires=[setup],
+                required=False,
+            ),
+        )
         # the fluorescence stack after the fiducial, so both are in it
-        tasks.insert(3, TaskPlan(name=FMTASK, required=False))
+        tasks.insert(3, TaskPlan(name=FMTASK, requires=[fiducial], required=False))
         experiment.save()
         editor = h.window.task_widget
         editor._initialise_widgets()
@@ -2554,7 +2559,7 @@ def render_correlation(h: Harness) -> None:
     )
 
     # -- the run: setup, burn (supervised), fluorescence stack ---------------
-    ww = h.window.lamella_workflow_widget
+    ww = h.window.workflow_tab.lamella_workflow_widget
     ww.lamella_list.set_all_selected(False)
     ww.lamella_list._row(0).checkbox.setChecked(True)
     ww.workflow.set_all_selected(False)
@@ -2564,40 +2569,40 @@ def render_correlation(h: Harness) -> None:
     h.show_main_tab("Workflow")
     h.shot(
         "workflow-selection",
-        callouts=[Box(ww.workflow), h.window.run_workflow_btn],
+        callouts=[Box(ww.workflow), h.window.workflow_controls.run_btn],
         numbered=True,
     )
     main_module.confirm_run_workflow_dialog = lambda *_args, **_kwargs: True
-    h.ui._show_workflow_summary = lambda: None
-    h.window.run_workflow_btn.click()
+    h.ui.run_view.show_summary = lambda: None
+    h.window.workflow_controls.run_btn.click()
     h.pump(1500)
-    if not h.ui.is_workflow_running:
+    if not h.ui.session.runner.is_running:
         raise RuntimeError("workflow did not start")
     burn_shot_taken = False
     burn_ran = False
     milled = set()
     waited = 0
-    while (h.ui.is_workflow_running or waited < 2000) and waited < 1200000:
+    while (h.ui.session.runner.is_running or waited < 2000) and waited < 1200000:
         h.pump(250)
         waited += 250
         if h.ui.run_relay.hold is None:
             continue
         h.pump(1200)
-        kind, key = _proposal_up(h.ui)
+        kind, key = _proposal_up(h.ui.proposals)
         if kind == "spot_burn":
             if not burn_shot_taken:
                 # the question, on the Experiment tab, and the points on the FIB
                 # view with the Spot Burn tab open
                 burn_shot_taken = True
                 h.show_main_tab("Microscope")
-                h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.tab)
+                h.ui.panel.tabWidget.setCurrentWidget(h.ui.panel.experiment_tab)
                 h.pump(500)
                 h.shot(
                     "prompt-spot-burn",
                     callouts=[
-                        Box(h.ui.label_instructions),
-                        h.ui.pushButton_yes,
-                        h.ui.pushButton_no,
+                        Box(h.ui.panel.prompt_bar.message),
+                        h.ui.panel.prompt_bar.yes,
+                        h.ui.panel.prompt_bar.no,
                     ],
                     numbered=True,
                 )
@@ -2617,20 +2622,20 @@ def render_correlation(h: Harness) -> None:
                 )
             if not burn_ran:
                 burn_ran = True
-                h.ui.pushButton_yes.click()  # Run Spot Burn; re-asks when done
+                h.ui.panel.prompt_bar.yes.click()  # Run Spot Burn; re-asks when done
             else:
-                h.ui.pushButton_no.click()  # Continue
+                h.ui.panel.prompt_bar.no.click()  # Continue
         elif kind == "milling":
             # Run Milling once per task, then Accept when it re-asks
             if key in milled:
-                h.ui.pushButton_no.click()
+                h.ui.panel.prompt_bar.no.click()
             else:
                 milled.add(key)
-                h.ui.pushButton_yes.click()
+                h.ui.panel.prompt_bar.yes.click()
         else:
-            h.ui.pushButton_yes.click()
+            h.ui.panel.prompt_bar.yes.click()
         h.pump(800)
-    if h.ui.is_workflow_running:
+    if h.ui.session.runner.is_running:
         raise RuntimeError("workflow did not finish")
     h.pump(1500)
 
@@ -2656,14 +2661,15 @@ def render_correlation(h: Harness) -> None:
 
     # -- the Lamella tab: the marks in the FIB reference, the FM stack -------
     h.show_main_tab("Lamella")
-    led = h.window.lamella_widget
-    led.select_lamella(lamellae[0].name)
+    led = h.window.lamella_tab.editor
+    h.window.lamella_tab.select(lamellae[0])
+    h.window.lamella_tab.show_lamella(lamellae[0])
     h.pump(800)
     led.listWidget_selected_task.select(SPOT)
     h.pump(600)
-    # the reference taken after the fiducial was milled, at the smaller of its
-    # fields, so the FIB image carries the marks and the fiducial the stack
-    # shows too (the final set is numbered largest field first)
+    # the reference taken after the fiducial was milled, at the field the burns
+    # were placed at, so the FIB image carries the marks and the fiducial the
+    # stack shows too; correlation refuses to seed burns onto another field
     fib_combo = led.combobox_fib_filenames
     finals = [
         i
@@ -2671,8 +2677,12 @@ def render_correlation(h: Harness) -> None:
         if "Mill Fiducial" in str(fib_combo.itemData(i))
         and "final" in str(fib_combo.itemData(i))
     ]
-    if finals:
-        fib_combo.setCurrentIndex(max(finals))
+    burn_field = protocol.task_config[SPOT].reference_imaging.field_of_view1
+    for i in finals:
+        fib_combo.setCurrentIndex(i)
+        h.pump(400)
+        if abs(float(led.image.metadata.image_settings.hfw) - burn_field) < 1e-9:
+            break
     h.pump(800)
     h.shot(
         "lamella-after-burn",
@@ -2841,7 +2851,11 @@ def render_correlation(h: Harness) -> None:
         # current (what the milling-current alignment corrects), so the marks
         # land a little off the points. Refine each seed onto its mark in the
         # reference image, as the dialog asks the user to.
-        from fibsem.correlation.structures import Coordinate, PointXYZ
+        from fibsem.correlation.structures import (
+            Coordinate,
+            CorrelationInputData,
+            PointXYZ,
+        )
 
         fib_list = widget._coords_tab.fib_list
         marks = fib_marks(led.image)
@@ -2868,9 +2882,14 @@ def render_correlation(h: Harness) -> None:
                 [(c.point.x, c.point.y) for c in fib_list.coordinates], marks
             )
         ]
-        fib_list.coordinates = refined
-        widget._refresh_canvas(widget._point_specs[PointType.FIB].adapter)
-        widget._coords_tab.update_headers()
+        data = widget.data
+        widget.set_data(
+            CorrelationInputData(
+                fib_coordinates=refined,
+                fib_image=data.fib_image,
+                fm_image=data.fm_image,
+            )
+        )
         widget.data_changed.emit(widget.data)
         seeded = [(c.point.x, c.point.y) for c in refined]
         arr = fm_image.data

@@ -235,6 +235,9 @@ class AutoLamellaOverviewTabBase(QWidget):
         # In the settings column rather than beside it: the positions are the subject of
         # this tab, and a column of their own would read as a third pane.
         self.overview.add_settings_section("Lamella Positions", self.lamella_list)
+        # Shown again: dropping the last overview hid it, and a layout does not
+        # show a widget that was hidden on purpose.
+        self.lamella_list.show()
 
         self._microscope = microscope
         self.layout().addWidget(self.overview)
