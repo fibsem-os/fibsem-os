@@ -4,21 +4,17 @@ position edit made by the experiment's own method."""
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.acting import AGENT  # noqa: E402
-from fibsem.applications.volume.experiment import VolumeExperiment  # noqa: E402
-from fibsem.applications.volume.server import VolumeAppContext  # noqa: E402
-from fibsem.applications.volume.tasks import VolumeFIBMillingTaskConfig  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import FibsemStagePosition, Point  # noqa: E402
-from fibsem.workflows.attention import Attention  # noqa: E402
-from fibsem.workflows.events import EventBuffer  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
+from fibsem.acting import AGENT
+from fibsem.applications.volume.experiment import VolumeExperiment
+from fibsem.applications.volume.server import VolumeAppContext
+from fibsem.applications.volume.tasks import VolumeFIBMillingTaskConfig
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import FibsemStagePosition, Point
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.events import EventBuffer
+from fibsem.workflows.session import AppSession
 
 TOKEN = "volume-token"
 

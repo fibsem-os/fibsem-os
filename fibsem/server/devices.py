@@ -158,6 +158,7 @@ from fibsem.server.responses import (
     Values,
     answer,
 )
+from fibsem.server.uvicorn_server import Server
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.params import Limits
 from fibsem.structures.system import read_device_entries
@@ -933,7 +934,7 @@ class DeviceServer:
             ws=WS_PROTOCOL,
         )
         self.app = config.app
-        self._server = uvicorn.Server(config)
+        self._server = Server(config)
         self._thread: Optional[threading.Thread] = None
 
     @property

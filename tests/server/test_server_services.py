@@ -1,19 +1,13 @@
 """The App Server's /services routes (FIB-1280): the microscope's services, served by
 the device routes, behind the same token, scopes and control.
-
-Skipped when the [server] extra is not installed.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.devices.wire import to_wire  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import (  # noqa: E402
+from fibsem.devices.wire import to_wire
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     MillingState,

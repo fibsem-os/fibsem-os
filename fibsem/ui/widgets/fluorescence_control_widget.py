@@ -30,7 +30,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.microscope import FibsemMicroscope
 from fibsem.session_state import session_state_for
-from fibsem.structures.settings import Point
+from fibsem.structures.settings import FibsemStagePosition, Point
 from fibsem.structures.system import DeviceImagingState
 from fibsem.ui import notification_service
 from fibsem.ui.control import control_of, operator_acts
@@ -295,6 +295,11 @@ class FMControlWidget(QWidget):
         self.fm.acquisition_progress_signal.connect(self._on_acquisition_progress)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_changed)
         self.fm.acquisition_failed.connect(self._on_live_view_failed)
+        # An offset FM's controls follow the stage to the FM and back: a travel made
+        # anywhere else (the Movement tab, the calibration, a task) only says so here.
+        stage = getattr(self.microscope, "stage", None)
+        if stage is not None:
+            stage.position.changed.connect(self._on_stage_moved)
 
         # live parameter updates from channel list
         self.acquisitionSettingsWidget.channels_widget.channel_field_changed.connect(
@@ -369,6 +374,12 @@ class FMControlWidget(QWidget):
             try:
                 signal.disconnect(slot)
             except (TypeError, RuntimeError):
+                pass
+        stage = getattr(self.microscope, "stage", None)
+        if stage is not None:
+            try:
+                stage.position.changed.disconnect(self._on_stage_moved)
+            except (TypeError, RuntimeError, ValueError):
                 pass
 
         if self._fm_canvas is not None:
@@ -655,6 +666,13 @@ class FMControlWidget(QWidget):
             f"Live view stopped: {reason}", notification_type="error"
         )
 
+    @ensure_main_thread
+    def _on_stage_moved(self, stage_position: FibsemStagePosition) -> None:
+        """The stage moved: on an offset FM that is the difference between the
+        controls on (at the FM) and off (at the beams). Marshalled, as the position is
+        reported on whichever thread moved or read the stage."""
+        self._update_acquisition_button_states(stage_position)
+
     def start_acquisition(self):
         """Start the fluorescence acquisition."""
 
@@ -903,8 +921,13 @@ class FMControlWidget(QWidget):
         finally:
             self.acquisition_finished_signal.emit()
 
-    def _update_acquisition_button_states(self):
-        """Update acquisition button states and control widgets based on live acquisition or specific acquisition status."""
+    def _update_acquisition_button_states(
+        self, stage_position: Optional[FibsemStagePosition] = None
+    ):
+        """Update acquisition button states and control widgets based on live acquisition or specific acquisition status.
+
+        *stage_position* is where the stage is, when the caller already knows: a stage
+        move passes the position it reported, so this reads nothing from the stage."""
         # Every control below answers one of three questions, and the microscope owns
         # all three.
         acquiring = self.fm.is_acquiring  # anything running, here or anywhere
@@ -919,7 +942,9 @@ class FMControlWidget(QWidget):
         # compustage keeps its buttons everywhere (it can never need
         # travel); an offset mount loses them at the beams, where the objective is
         # 48.8 mm from the sample.
-        posed = self.microscope.get_device_imaging_state("FM").allows_acquisition
+        posed = self.microscope.get_device_imaging_state(
+            "FM", stage_position
+        ).allows_acquisition
         may_start = posed and not acquiring
         may_touch = posed and interactive
 

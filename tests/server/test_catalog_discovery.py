@@ -7,18 +7,15 @@ import re
 
 import pytest
 
-fastapi = pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fibsem import utils  # noqa: E402
-from fibsem.ai.agent.catalog import (  # noqa: E402
+from fibsem import utils
+from fibsem.ai.agent.catalog import (
     CATALOG,
     GROUP_TITLES,
     NOT_TOOLS,
     route_call,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.discovery import (  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.discovery import (
     read_discovery_file,
     remove_discovery_file,
     write_discovery_file,

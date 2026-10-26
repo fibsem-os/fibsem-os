@@ -10,6 +10,7 @@ actions along the bottom.
 
 import logging
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -41,6 +42,7 @@ from fibsem.fm.structures import (
     ObjectiveStartPosition,
     OverviewParameters,
 )
+from fibsem.geometry.stage_places import sample_height
 from fibsem.imaging.overview_session import (
     FLUORESCENCE,
     OverviewSession,
@@ -122,6 +124,11 @@ def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget
 # Key the in-progress mosaic is drawn under. Distinct from a finished overview's
 # position-derived key, so the preview can be dropped when the real stitch lands.
 PREVIEW_KEY = "fm-preview"
+
+# How far a point picked on the canvas may be from the stage's height, on an offset FM:
+# an overview spans well under a millimetre of sample, and a click further off in z is
+# a wrong frame driving the sample at the inserted objective. Metres.
+MAX_CLICK_DZ = 1.0e-3
 
 # The three position markers (`CURRENT_`/`SAVED_`/`SELECTED_POSITION_COLOUR`) are
 # imported from `tokens` rather than defined here: all three are crosshairs, so colour
@@ -1311,11 +1318,19 @@ class FMOverviewWidget(OverviewWidgetBase):
         device origin is the objective's offset from the beams' coincidence point (zero
         unless configured), so zero is the holder's centre as the objective sees it.
 
-        Only a *place*. The configuration declares x, and may declare y and z; an
-        axis it leaves out reads as 0. The pose is not part of the anchor at all --
-        `_posed` restates it from the stage on every draw, which is what keeps a
-        click after Move to FM resolving through the FIB tilt rather than the one the
-        stage had when the tab was built.
+        Only a *place*. The configuration declares x, and may declare y and z; on a
+        compustage an axis it leaves out reads as 0. The pose is not part of the anchor
+        at all -- `_posed` restates it from the stage on every draw, which is what
+        keeps a click after Move to FM resolving through the FIB tilt rather than the
+        one the stage had when the tab was built.
+
+        On an offset FM the place is `StageMovement.device_position`: the FM's
+        (calibrated) origin, with the axes it leaves out taken from the sample -- the
+        holder's slot height when the holder is calibrated, else the stage's own. A
+        METEOR's entry gives x and y only (odemis's CALIB dx, dy), and reading the
+        missing z as 0 put the sample plane 32 mm below the sample: a double-click
+        near an overview's corner drove the stage 15 mm in y and 21 mm in z under the
+        inserted objective (odemis simulator, 2026-10-26).
 
         Falls back to the stage's position for a microscope with no FM device
         declared, which is how widget tests built on a bare FM arrive here.
@@ -1327,6 +1342,16 @@ class FMOverviewWidget(OverviewWidgetBase):
             return current
         if current is None:
             return None
+        movement = self.microscope.stage_movement
+        if movement.travels_to_fm():
+            sample = deepcopy(current)
+            height = sample_height(self.microscope)
+            if height is not None:
+                sample.z = height
+            place = movement.device_position("FM", sample)
+            place.r, place.t = current.r, current.t  # `_posed` restates the pose
+            place.coordinate_system = current.coordinate_system
+            return place
         return FibsemStagePosition(
             name="FM",
             x=origin.x or 0.0,
@@ -1835,7 +1860,33 @@ class FMOverviewWidget(OverviewWidgetBase):
             logging.debug(f"Could not resolve the clicked position: {e}")
             return None
 
+        if not self._within_click_height(target):
+            return None
         return target if self._within_limits(target) else None
+
+    def _within_click_height(self, target: FibsemStagePosition) -> bool:
+        """Whether *target* keeps the sample at about the height it is now, and say
+        if not.
+
+        On an offset FM a point picked on this canvas is somewhere across the sample
+        under the inserted objective; anything on an overview is within a millimetre
+        of the stage's height. A target further off in z means the frame is wrong,
+        and following it would drive the sample towards or away from the objective.
+        """
+        if not self.microscope.stage_movement.travels_to_fm():
+            return True
+        current = self._current_stage_position()
+        if current is None or current.z is None or target.z is None:
+            return True
+        dz = target.z - current.z
+        if abs(dz) <= MAX_CLICK_DZ:
+            return True
+        notification_service.show_toast(
+            f"Refused: that point is {dz * 1e3:+.1f} mm from the stage's height, "
+            f"more than {MAX_CLICK_DZ * 1e3:.0f} mm under the objective.",
+            "error",
+        )
+        return False
 
     def _on_grid_move(self, x: float, y: float) -> None:
         """The grid was dragged: plan the next overview around the point it landed on.

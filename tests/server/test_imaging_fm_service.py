@@ -9,21 +9,17 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-import fibsem.config as fconfig  # noqa: E402
-from fibsem import utils  # noqa: E402
-from fibsem.autofunctions.autofocus import (  # noqa: E402
+import fibsem.config as fconfig
+from fibsem import utils
+from fibsem.autofunctions.autofocus import (
     AutoFocusSettings,
     FocusSweepPass,
 )
-from fibsem.fm.microscope import AcquisitionRefused  # noqa: E402
-from fibsem.fm.structures import ChannelSettings, ZParameters  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.fm.microscope import AcquisitionRefused
+from fibsem.fm.structures import ChannelSettings, ZParameters
+from fibsem.server import AuthConfig, build_server
 
 TOKEN = "test-token"
 IMAGING = "/microscope/services/imaging"

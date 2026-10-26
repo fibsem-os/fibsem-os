@@ -199,7 +199,6 @@ def test_the_command_checks_through_the_app_server_and_fails_on_a_failed_step(
     microscope, monkeypatch, tmp_path, capsys
 ):
     """``fibsem-cli hardware-check`` checks the server's devices, as the operator."""
-    pytest.importorskip("uvicorn")
     from fibsem.server import AuthConfig, build_server
     from tests.fixtures.app_server import serving
 

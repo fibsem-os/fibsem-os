@@ -1,7 +1,5 @@
 """Pairing a computer with a 4-digit code: the code's rules, the routes, and
 `RemoteMicroscope.pair` over a real server.
-
-Skipped when the [server] extra is not installed.
 """
 
 import json
@@ -9,25 +7,20 @@ import os
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
-from tests.fixtures.app_server import serving
-
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.client import pairing as client_pairing  # noqa: E402
-from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.pairing import (  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.client import pairing as client_pairing
+from fibsem.client.remote_microscope import RemoteMicroscope
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.pairing import (
     AGENT,
     MAX_TRIES,
     PairedTokens,
     Pairing,
     PairingRefused,
 )
+from tests.fixtures.app_server import serving
 
 TOKEN = "agent-token"
 

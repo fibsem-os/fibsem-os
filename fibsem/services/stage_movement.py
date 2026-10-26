@@ -499,6 +499,42 @@ class StageMovement(Service):
         return deepcopy(self._device(device).origin)
 
     @query
+    def device_position(
+        self, device: str, stage_position: Optional[FibsemStagePosition] = None
+    ) -> FibsemStagePosition:
+        """Where *stage_position*'s sample sits when the stage is at `device`: the
+        device's origin as a whole position, for drawing or anchoring at it.
+
+        The origin is partial on purpose (`device_origin`): a METEOR's FM is odemis's
+        CALIB dx, dy and nothing more, as odemis keeps it. What it leaves out is the
+        sample's, as odemis takes z from each grid's SAMPLE_CENTERS: x, y and z the
+        origin does not set come from *stage_position* (a holder slot for "where is this
+        grid at the FM", the stage for "where am I"; the current stage when omitted).
+        r and t are the device's imaging pose, its first available orientation.
+
+        Reading a missing axis as 0 instead put the FM overview's sample plane 32 mm
+        below the sample on a METEOR (odemis simulator, 2026-10-26).
+        """
+        target = self._device(device)
+        reference = stage_position if stage_position is not None else self._position()
+        origin = deepcopy(target.origin)
+        position = FibsemStagePosition(name=device, coordinate_system="RAW")
+        for axis in DEVICE_AXES:
+            value = getattr(origin, axis)
+            setattr(
+                position, axis, getattr(reference, axis) if value is None else value
+            )
+        orientations = target.available_orientations or []
+        pose = (
+            self.orientations.get(orientations[0])
+            if orientations and orientations[0] in self.orientations
+            else None
+        )
+        position.r = reference.r if pose is None else pose.r
+        position.t = reference.t if pose is None else pose.t
+        return position
+
+    @query
     def is_at_device(
         self, device: str, stage_position: Optional[FibsemStagePosition] = None
     ) -> bool:

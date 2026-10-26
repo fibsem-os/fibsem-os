@@ -6,8 +6,6 @@ hint, so a client with no copy of the class (an agent) reads both. A plugin impo
 everything it needs from `fibsem.devices`.
 """
 
-import pytest
-
 from fibsem.devices import Device, DeviceParameter, Display
 from fibsem.structures.params import display_to_dict
 from fibsem.structures.settings import BeamType
@@ -48,7 +46,6 @@ def test_a_composite_hint_is_one_dict_per_field():
 
 
 def test_the_device_server_describes_the_driver_and_the_hints(microscope):
-    pytest.importorskip("fastapi")
     from fibsem.server.devices import describe_device
 
     described = describe_device(microscope.beams[BeamType.ELECTRON])

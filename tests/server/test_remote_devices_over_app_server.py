@@ -1,26 +1,22 @@
 """The remote driver's devices over a running App Server's ``/microscope`` routes,
 with its token and no event stream: what a drop-in microscope off the PC builds on.
-
-Skipped when the [server] extra is not installed.
 """
 
 import threading
 
+import httpx
 import pytest
+import uvicorn
 
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-requests = pytest.importorskip("requests")
-
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem.drivers.remote.devices import (
     DeviceClient,
     RemoteBeam,
     RemoteDeviceError,
     connect_remote_beams,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.image import FibsemImage  # noqa: E402
-from fibsem.structures.settings import BeamType  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
 
 TOKEN = "test-token"
 
@@ -95,7 +91,7 @@ def test_the_devices_send_the_token(beams, remote, port):
     beams["electron"].parameters["current"].get_value()
     assert remote._transport.bearer == f"Bearer {TOKEN}"
     url = f"http://127.0.0.1:{port}/microscope/devices/electron/current"
-    assert requests.get(url, timeout=5).status_code == 401
+    assert httpx.get(url, timeout=5).status_code == 401
     tokenless = DeviceClient("127.0.0.1", port, events=False, root="/microscope")
     try:
         with pytest.raises(RemoteDeviceError, match="401"):

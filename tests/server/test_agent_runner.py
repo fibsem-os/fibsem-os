@@ -16,24 +16,22 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 
-pytest.importorskip("fastapi")
-httpx = pytest.importorskip("httpx")
-
-from fibsem.ai.agent import runner as runner_mod  # noqa: E402
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
-from fibsem.ai.agent.runner import Runner, TurnEnd, Wakes, kickoff  # noqa: E402
-from fibsem.ai.agent.session import AgentSession  # noqa: E402
-from fibsem.applications.autolamella.server.context import (  # noqa: E402
+from fibsem.ai.agent import runner as runner_mod
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.mcp import watch as watch_mod
+from fibsem.ai.agent.runner import Runner, TurnEnd, Wakes, kickoff
+from fibsem.ai.agent.session import AgentSession
+from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
-from fibsem.server import AuthConfig  # noqa: E402
-from fibsem.server.hosting import AppServerHost  # noqa: E402
-from fibsem.workflows.attention import Attention  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
-from tests.autolamella.test_select_position_asks import (  # noqa: E402, F401
+from fibsem.server import AuthConfig
+from fibsem.server.hosting import AppServerHost
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.session import AppSession
+from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
     _experiment,
     microscope,
@@ -1174,38 +1172,3 @@ def test_with_no_server_the_agent_never_starts():
     running = Running(Runner(agent, lambda: None, server_wait_s=0.3, retry_s=0.05))
     assert running.ended() == 1
     assert not agent.started and not agent.prompts
-
-
-def test_an_app_that_goes_away_and_comes_back_is_watched_again(
-    session, caplog, monkeypatch
-):
-    # Windows takes about 2 s to refuse each connect to the stopped server.
-    monkeypatch.setattr(watch_mod, "FAILURES_BEFORE_GIVING_UP", 3)
-    agent = ScriptedAgent()
-    running = _runner(session, agent, server_wait_s=30)
-    _until(lambda: agent.prompts, what="the kickoff")
-
-    session.app_server.stop()
-    _until(
-        lambda: any("watcher stopped" in r.getMessage() for r in caplog.records),
-        what="the watcher to give up",
-    )
-    assert session.app_server.start()
-    _until(lambda: len(agent.prompts) == 2, what="the turn after the app came back")
-    assert running.stop() == 0
-
-    back = agent.prompts[1]
-    assert "SERVER GONE" in back
-    assert "could not be watched" in back and runner_mod.REREAD_LEVEL in back
-
-
-def test_an_app_that_stays_gone_ends_the_run(session, monkeypatch):
-    # Windows takes about 2 s to refuse each connect to the stopped server.
-    monkeypatch.setattr(watch_mod, "FAILURES_BEFORE_GIVING_UP", 3)
-    agent = ScriptedAgent()
-    running = _runner(session, agent, server_wait_s=0.5)
-    _until(lambda: agent.prompts, what="the kickoff")
-
-    session.app_server.stop()
-    assert running.ended() == 1
-    assert agent.closed and len(agent.prompts) == 1

@@ -10,19 +10,15 @@ import inspect
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.ai.agent.catalog import CATALOG, route_call  # noqa: E402
-from fibsem.ai.agent.catalog.describe import describe_action  # noqa: E402
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from tests.fixtures.demo_stage import demo_grid_loader, demo_session  # noqa: E402
-from tests.run_state import stub_session  # noqa: E402
-from tests.server.test_agent_requests import RecordingContext  # noqa: E402
+from fibsem.ai.agent.catalog import CATALOG, route_call
+from fibsem.ai.agent.catalog.describe import describe_action
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.server import AuthConfig, build_server
+from tests.fixtures.demo_stage import demo_grid_loader, demo_session
+from tests.run_state import stub_session
+from tests.server.test_agent_requests import RecordingContext
 
 TOKEN = "agent"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

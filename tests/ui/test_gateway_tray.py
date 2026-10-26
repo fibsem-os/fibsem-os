@@ -3,7 +3,6 @@
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("fastapi")
 
 from fibsem.gateway.gateway import (  # noqa: E402
     OFF,

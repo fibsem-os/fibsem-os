@@ -5,26 +5,22 @@ microscope (FIB-1267). The dashboard's token ignores the level."""
 import json
 
 import pytest
+from fastapi.testclient import TestClient
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.acting import AGENT as AGENT_ACTOR  # noqa: E402
+from fibsem.acting import AGENT as AGENT_ACTOR
 from fibsem.acting import (
     WORKFLOW,
-    current_actor,  # noqa: E402
+    current_actor,
 )
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import MicroscopeState  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import MicroscopeState
 from tests.run_state import stub_session
 
 AGENT = {"Authorization": "Bearer agent"}

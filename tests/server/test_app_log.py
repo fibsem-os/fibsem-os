@@ -159,9 +159,6 @@ def host(tmp_path):
 
 @pytest.fixture
 def client(microscope, host):
-    # The route tests need the [server] extra; the reader tests above do not.
-    pytest.importorskip("fastapi")
-    pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
     from fibsem.applications.autolamella.server import AutoLamellaAppContext

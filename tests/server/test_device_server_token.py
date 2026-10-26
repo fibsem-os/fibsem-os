@@ -1,30 +1,24 @@
 """A Device Server needs a token on every route and stream (FIB-1264): this
 install's, which a client on the same computer reads, or one paired by command.
-
-Skipped when the [server] extra is not installed.
 """
 
 import pytest
+from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
-pytest.importorskip("fastapi")
-pytest.importorskip("uvicorn")
-
-from fastapi.testclient import TestClient  # noqa: E402
-from starlette.websockets import WebSocketDisconnect  # noqa: E402
-
-from fibsem import cli  # noqa: E402
-from fibsem.client import pairing as client_pairing  # noqa: E402
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem import cli
+from fibsem.client import pairing as client_pairing
+from fibsem.drivers.remote.devices import (
     DeviceClient,
     RemoteDeviceNotPaired,
 )
-from fibsem.server.device_auth import DeviceAuth  # noqa: E402
-from fibsem.server.devices import (  # noqa: E402
+from fibsem.server.device_auth import DeviceAuth
+from fibsem.server.devices import (
     DeviceServer,
     build_device_app,
     demo_devices,
 )
-from fibsem.server.pairing import PairedTokens, Pairing  # noqa: E402
+from fibsem.server.pairing import PairedTokens, Pairing
 
 
 @pytest.fixture(scope="module")
