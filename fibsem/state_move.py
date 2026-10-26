@@ -32,6 +32,7 @@ SHIPPED_CONFIGURATIONS = frozenset(
         "tfs-aquilos2-configuration.yaml",
         "tfs-arctis-configuration.yaml",
         "tfs-hydra-configuration.yaml",
+        "tfs-hydra-meteor-configuration.yaml",
     }
 )
 SHIPPED_FM_FILES = frozenset({"fm-configuration-default.yaml"})
