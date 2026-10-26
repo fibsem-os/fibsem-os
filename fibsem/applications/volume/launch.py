@@ -73,8 +73,6 @@ def main(
     """Serve until Ctrl-C (or *stop* is set), then stop the run and the
     server; with *window*, ``window(session)`` until it closes."""
     args = _parser().parse_args(argv)
-    if window is None and headless.cannot_serve("fibsem-volume"):
-        return 1
     folder = args.experiment
     if folder is None and window is None:
         print("error: name the volume experiment's folder.")

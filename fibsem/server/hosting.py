@@ -38,7 +38,6 @@ from typing import Any, Callable, Optional
 
 from fibsem.acting import AGENT
 from fibsem.cancellation import NothingToStop
-from fibsem.server import missing_server_extra
 from fibsem.workflows.events import EventBuffer
 
 __all__ = ["AppServerHost", "chat_url", "event_log_url"]
@@ -123,8 +122,6 @@ class AppServerHost:
         self._thread: Optional[threading.Thread] = None
         self._wrote_discovery = False
         self.auth = None
-        # Why the last start served nothing, when the operator can act on it.
-        self.start_error: Optional[str] = None
 
     @property
     def event_buffer(self) -> Optional[EventBuffer]:
@@ -255,10 +252,6 @@ class AppServerHost:
     def start(self) -> bool:
         """Serve the session, connected or not. Returns False (and logs)
         rather than ever raising."""
-        self.start_error = missing_server_extra()
-        if self.start_error is not None:
-            logging.warning(f"The host is not serving: it needs {self.start_error}")
-            return False
         try:
             return self._start()
         except Exception:

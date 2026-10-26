@@ -12,6 +12,7 @@ pointing a plain WebhookHook at a Slack URL could never have worked.
 
 import logging
 
+import httpx
 import pytest
 
 from fibsem.hooks import (
@@ -21,8 +22,6 @@ from fibsem.hooks import (
     WebhookHook,
 )
 
-requests = pytest.importorskip("requests")
-
 
 class _Response:
     def __init__(self, status_code=200, text=""):
@@ -30,8 +29,8 @@ class _Response:
         self.text = text
 
     @property
-    def ok(self) -> bool:
-        return self.status_code < 400
+    def is_success(self) -> bool:
+        return 200 <= self.status_code < 300
 
 
 @pytest.fixture
@@ -43,7 +42,7 @@ def posted(monkeypatch):
         calls.append({"method": method, "url": url, "json": json, "timeout": timeout})
         return calls[-1].get("_response") or _Response()
 
-    monkeypatch.setattr(requests, "request", fake_request)
+    monkeypatch.setattr(httpx, "request", fake_request)
     return calls
 
 
@@ -83,7 +82,7 @@ def test_a_rejected_post_warns_with_the_reason(monkeypatch, caplog):
     def fake_request(method, url, json=None, timeout=None):
         return _Response(400, "invalid_payload")
 
-    monkeypatch.setattr(requests, "request", fake_request)
+    monkeypatch.setattr(httpx, "request", fake_request)
     hook = WebhookHook(name="slack-ish", events=["any_failure"], url="https://x/y")
 
     with caplog.at_level(logging.WARNING):
@@ -99,7 +98,7 @@ def test_a_long_error_body_is_truncated(monkeypatch, caplog):
     def fake_request(method, url, json=None, timeout=None):
         return _Response(500, "x" * 5000)
 
-    monkeypatch.setattr(requests, "request", fake_request)
+    monkeypatch.setattr(httpx, "request", fake_request)
     hook = WebhookHook(name="w", events=["any_failure"], url="https://x/y")
 
     with caplog.at_level(logging.WARNING):
@@ -123,7 +122,7 @@ def test_a_connection_failure_is_still_logged(monkeypatch, caplog):
     def boom(method, url, json=None, timeout=None):
         raise OSError("no route to host")
 
-    monkeypatch.setattr(requests, "request", boom)
+    monkeypatch.setattr(httpx, "request", boom)
     hook = WebhookHook(name="w", events=["any_failure"], url="https://x/y")
 
     with caplog.at_level(logging.ERROR):
@@ -146,7 +145,7 @@ SECRET_URL = f"https://hooks.slack.com/services/T00000000/B00000000/{FAKE_TOKEN}
 
 def test_a_failure_does_not_write_the_url_into_the_log(monkeypatch, caplog):
     """For an incoming webhook the path *is* the credential, and logfiles are the first
-    thing a user sends when something goes wrong. requests puts the full URL in its
+    thing a user sends when something goes wrong. The HTTP library puts the full URL in its
     exception message, so logging.exception here leaked a working Slack credential on
     every DNS blip."""
 
@@ -156,7 +155,7 @@ def test_a_failure_does_not_write_the_url_into_the_log(monkeypatch, caplog):
             f"exceeded with url: /services/T00000000/B00000000/{FAKE_TOKEN}"
         )
 
-    monkeypatch.setattr(requests, "request", boom)
+    monkeypatch.setattr(httpx, "request", boom)
     hook = SlackHook(name="slack", events=["any_failure"], url=SECRET_URL)
 
     with caplog.at_level(logging.DEBUG):
@@ -174,7 +173,7 @@ def test_the_host_is_still_named_so_the_failure_is_diagnosable(monkeypatch, capl
     def boom(method, url, json=None, timeout=None):
         raise OSError("Failed to resolve 'hooks.slack.com'")
 
-    monkeypatch.setattr(requests, "request", boom)
+    monkeypatch.setattr(httpx, "request", boom)
     hook = SlackHook(name="slack", events=["any_failure"], url=SECRET_URL)
 
     with caplog.at_level(logging.ERROR):
@@ -187,7 +186,7 @@ def test_the_host_is_still_named_so_the_failure_is_diagnosable(monkeypatch, capl
 
 
 def test_redaction_catches_the_bare_path_too():
-    """requests reports the path on its own, not only the whole URL."""
+    """An HTTP library can report the path on its own, not only the whole URL."""
     from fibsem.hooks import _redact_url
 
     text = f"Max retries exceeded with url: /services/T00000000/B00000000/{FAKE_TOKEN}"
