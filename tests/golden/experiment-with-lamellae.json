@@ -24,6 +24,7 @@
         "verdict": "UNASSESSED"
       },
       "description": "",
+      "fluorescence_pose_set_at_fm": false,
       "grid_id": null,
       "id": "lamella-1",
       "milling_angle": null,
@@ -569,6 +570,7 @@
         "verdict": "UNASSESSED"
       },
       "description": "",
+      "fluorescence_pose_set_at_fm": false,
       "grid_id": null,
       "id": "lamella-2",
       "milling_angle": null,
