@@ -300,6 +300,34 @@ class AppServerPreferences:
 
 
 @dataclass
+class NotificationPreferences:
+    """Messages to Slack for someone away from this instrument
+    (``fibsem.alerts``): what needs an answer, the agent's messages, what
+    failed and, when asked for, a finished run.
+
+    Off unless enabled and the ``FIBSEM_SLACK_TOKEN`` environment variable is
+    set; the token is never stored here. A section that can't be read is these
+    defaults, so nothing is sent.
+    """
+
+    enabled: bool = False
+    # As typed (``#microscope-alerts``), and the ID Slack answered for it,
+    # which survives a rename. The ID wins when both are set.
+    channel: str = ""
+    channel_id: str = ""
+    # How long an ask waits for someone at the PC before anyone is told.
+    wait_minutes: float = 5.0
+    answers: bool = True
+    messages: bool = True
+    failures: bool = True
+    run_finished: bool = False
+    images: bool = False
+    # The web app's address as the reader reaches it, for the Open button;
+    # empty sends no button.
+    link: str = ""
+
+
+@dataclass
 class InstallPreferences:
     """About the program on this PC rather than how it looks."""
 
@@ -309,6 +337,9 @@ class InstallPreferences:
     # installs regardless of this setting (see fibsem.update_check.is_enabled).
     update_check_enabled: bool = False
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
+    notifications: NotificationPreferences = field(
+        default_factory=NotificationPreferences
+    )
 
 
 # Keys an older file kept under its sections (display, movement, experiment,
@@ -392,8 +423,10 @@ class UserPreferences:
         for name in sections:
             sections[name].update(d.get(name) or {})
         app_server.update(sections["install"].pop("app_server", None) or {})
+        notifications = sections["install"].pop("notifications", None) or {}
         install = _sub_from_dict(InstallPreferences, sections["install"])
         install.app_server = _sub_from_dict(AppServerPreferences, app_server)
+        install.notifications = _sub_from_dict(NotificationPreferences, notifications)
         return cls(
             shared=_sub_from_dict(SharedPreferences, sections["shared"]),
             qt=_sub_from_dict(QtPreferences, sections["qt"]),
