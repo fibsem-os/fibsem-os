@@ -7,23 +7,19 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.correlation.history import (  # noqa: E402
+from fibsem.correlation.history import (
     LamellaCorrelation,
     correlation_dir,
 )
-from fibsem.fm.structures import (  # noqa: E402
+from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
     FluorescenceImageMetadata,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import BeamType, ImageSettings  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import BeamType, ImageSettings
 
 TOKEN = "test-token"
 CORRELATION = "/services/correlation"

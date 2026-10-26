@@ -1,15 +1,10 @@
 """The App Server's devices service (FIB-1035): off, nothing that reaches the
 instrument is registered; on, everything is."""
 
-import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.ai.agent.catalog import tools_for_capabilities  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.ai.agent.catalog import tools_for_capabilities
+from fibsem.server import AuthConfig, build_server
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

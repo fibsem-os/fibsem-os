@@ -1,28 +1,21 @@
 """Control held across requests (PR C): a lease on the App Server's control. A
 remote run holds the microscope for its whole length, its calls run inside it,
 anyone else is refused naming it, and it lends during a question.
-
-Skipped when the [server] extra is not installed.
 """
 
 import os
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
+from fibsem.acting import AGENT, OPERATOR, WORKFLOW
+from fibsem.client.remote_microscope import RemoteMicroscope
+from fibsem.control import MicroscopeBusy, lending
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.leases import LEASE_HEADER, Leases
+from fibsem.structures.settings import FibsemStagePosition
 from tests.fixtures.app_server import serving
-
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.acting import AGENT, OPERATOR, WORKFLOW  # noqa: E402
-from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
-from fibsem.control import MicroscopeBusy, lending  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.leases import LEASE_HEADER, Leases  # noqa: E402
-from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 
 TOKEN = "test-token"
 OPERATOR_TOKEN = "operator-token"

@@ -12,8 +12,6 @@ import threading
 import time
 from datetime import datetime
 
-import pytest
-
 from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows import event_recording
 from fibsem.workflows.event_recording import (
@@ -518,8 +516,6 @@ def test_a_move_made_beside_a_running_task_is_the_operator_s(
 
 
 def test_a_request_to_the_app_server_is_the_agent_s(tmp_path, microscope):
-    pytest.importorskip("fastapi")
-    pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
     from fibsem.acting import OPERATOR

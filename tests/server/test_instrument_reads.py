@@ -1,17 +1,11 @@
 """Instrument reads an agent needs at Watch (agent surface map, step 5): whether
 a beam is live, and where the stage is among the holder's slots.
-
-Skipped when the [server] extra is not installed.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.server import AuthConfig, build_server
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

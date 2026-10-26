@@ -1,19 +1,13 @@
 """The App Server's blocklist: what the agent may never touch, at any level
 (Patrick, 2026-10-14). The level decides how it acts; the blocklist names what
 it never may, and allows everything else.
-
-Skipped when the [server] extra is not installed.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.ai.agent.blocklist import blocked, path_outside  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.ai.agent.blocklist import blocked, path_outside
+from fibsem.server import AuthConfig, build_server
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

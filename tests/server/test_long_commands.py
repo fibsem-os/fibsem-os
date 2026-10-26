@@ -10,21 +10,17 @@ for the test, so "still running" is a state the test holds, not a race.
 import threading
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.acting import OPERATOR  # noqa: E402
-from fibsem.cancellation import OperationCancelledError  # noqa: E402
-from fibsem.client import ServerError  # noqa: E402
-from fibsem.control import MicroscopeBusy  # noqa: E402
-from fibsem.devices.core import DeviceFault  # noqa: E402
-from fibsem.imaging.spot import SpotBurnSettings  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import Point  # noqa: E402
-from tests.server.test_client import in_process  # noqa: E402
+from fibsem.acting import OPERATOR
+from fibsem.cancellation import OperationCancelledError
+from fibsem.client import ServerError
+from fibsem.control import MicroscopeBusy
+from fibsem.devices.core import DeviceFault
+from fibsem.imaging.spot import SpotBurnSettings
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import Point
+from tests.server.test_client import in_process
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

@@ -7,23 +7,19 @@ import os
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
+from psygnal.containers import EventedDict
 
-fastapi = pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.files import list_folder  # noqa: E402
-from fibsem.structures.settings import MicroscopeState  # noqa: E402
-from fibsem.workflows.actions import ACTION  # noqa: E402
-from tests.protocols import add_planned, planned  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.files import list_folder
+from fibsem.structures.settings import MicroscopeState
+from fibsem.workflows.actions import ACTION
+from tests.protocols import add_planned, planned
 from tests.run_state import run_working_on, stub_session
 
 TOKEN = "test-token"

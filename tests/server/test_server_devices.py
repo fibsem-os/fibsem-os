@@ -1,18 +1,12 @@
 """The server's /microscope/devices routes (every device in microscope.devices),
 behind the server's token, level and control of the microscope.
-
-Skipped when the [server] extra is not installed.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
-fastapi = pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import BeamType, FibsemStagePosition  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

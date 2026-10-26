@@ -6,23 +6,20 @@ gateway."""
 import json
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.gateway import main as gateway_main  # noqa: E402
-from fibsem.gateway.gateway import (  # noqa: E402
+from fibsem.gateway import main as gateway_main
+from fibsem.gateway.gateway import (
     OFF,
     RUNNING,
     GatewayRefused,
     GatewayState,
 )
-from fibsem.gateway.host import HostMicroscope  # noqa: E402
-from fibsem.gateway.server import GatewayAuth, build_gateway_app  # noqa: E402
-from fibsem.server.pairing import HUB, SWITCH_MODES, PairedTokens  # noqa: E402
-from fibsem.tools import desktop_launch  # noqa: E402
-from fibsem.tools.apps import AUTOLAMELLA  # noqa: E402
+from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.server import GatewayAuth, build_gateway_app
+from fibsem.server.pairing import HUB, SWITCH_MODES, PairedTokens
+from fibsem.tools import desktop_launch
+from fibsem.tools.apps import AUTOLAMELLA
 
 OPERATOR_TOKEN = "operator-token"
 

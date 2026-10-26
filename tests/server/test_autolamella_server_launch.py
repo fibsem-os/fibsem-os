@@ -5,17 +5,15 @@ starts at Watch and the operator raises it from the chat page's routes."""
 import os
 import shutil
 
+import httpx
 import pytest
 
-pytest.importorskip("fastapi")
-httpx = pytest.importorskip("httpx")
-
-import fibsem.config as fibsem_cfg  # noqa: E402
-from fibsem.applications.autolamella import config as cfg  # noqa: E402
-from fibsem.applications.autolamella import launch  # noqa: E402
-from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
-from fibsem.server.operator_token import load_operator_token  # noqa: E402
-from tests.fixtures.headless import (  # noqa: E402
+import fibsem.config as fibsem_cfg
+from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella import launch
+from fibsem.applications.autolamella.structures import Experiment
+from fibsem.server.operator_token import load_operator_token
+from tests.fixtures.headless import (
     allowed_agent,
     confine_host,
     run_in_background,

@@ -10,8 +10,6 @@ import os
 
 import pytest
 
-fastapi = pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
 pytest.importorskip("mcp")
 
 from fastapi.testclient import TestClient  # noqa: E402

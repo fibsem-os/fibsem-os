@@ -405,7 +405,6 @@ class _Store:
 
 @pytest.fixture
 def host(main_ui):
-    pytest.importorskip("fastapi")
     ui = main_ui
     previous = ui.session.app_server, ui.session.agent_auth
     ui.session.app_server = _Host()

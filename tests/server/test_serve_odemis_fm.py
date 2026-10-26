@@ -9,12 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("fastapi")
-
-from fibsem.server import devices as server_devices  # noqa: E402
-from fibsem.server.devices import device_health  # noqa: E402
-from fibsem.server.responses import DeviceHealth  # noqa: E402
-from tests.fm import _odemis_stubs as stubs  # noqa: E402
+from fibsem.server import devices as server_devices
+from fibsem.server.devices import device_health
+from fibsem.server.responses import DeviceHealth
+from tests.fm import _odemis_stubs as stubs
 
 
 @pytest.fixture
@@ -99,7 +97,6 @@ def test_the_command_line_stops_with_the_reason(odemis_stubs, caplog):
 def test_a_remote_fm_shows_power_and_gain_in_the_hardwares_units(odemis_stubs):
     """Power and gain are fractions everywhere; the hardware's own full scale crosses
     the wire with their metadata, for a display to show beside them."""
-    pytest.importorskip("websockets")
     from fibsem.drivers.remote.devices import DeviceClient
     from fibsem.fm.remote import RemoteFluorescenceMicroscope
     from fibsem.server.devices import DeviceServer
@@ -124,7 +121,6 @@ def test_a_remote_fm_shows_power_and_gain_in_the_hardwares_units(odemis_stubs):
 def test_a_remote_fm_brings_how_its_camera_is_mounted(odemis_stubs):
     """The METEOR's server states the mount; a client applies it to every frame
     before the user's own transform, without being told it separately."""
-    pytest.importorskip("websockets")
     import numpy as np
 
     from fibsem.drivers.remote.devices import DeviceClient
