@@ -4,8 +4,9 @@ between the beams and the objective, measured against the centre of slot 1.
 Two parts, in the order the move that matters makes them: SEM to FIB is a half
 turn at the beams, so the rotation centre comes first
 (`StageSystemSettings.rotation_centre_correction`); FIB to FM is a travel, measured
-at up to three sites as where the same point sits at the beams and under the
-objective (`DeviceCalibration`). The stage then travels by what was measured, and
+as where the same point sits at the beams and under the objective
+(`DeviceCalibration`). One site measures it when the FM images in the FIB pose;
+more sites are its check. An FM tilted from FIB needs three, spread in y. The stage then travels by what was measured, and
 travel to the FM is refused until it is (`StageMovement.fm_calibration_needed`).
 
 The steps are here, Qt-free; `fibsem.ui.widgets.sem_to_fm_dialog` walks the
@@ -32,8 +33,11 @@ from fibsem.util.timestamps import now, now_iso
 # How far the FM's pose may differ from FIB's in tilt and still be calibrated by
 # tilting at the beams; more is a configuration error. Degrees.
 MAX_FM_TILT_DIFFERENCE = 5.0
-# The sites must spread at least this far in y for a travel that varies with
-# position to show. Metres.
+# Below this, in degrees, the FM's pose is FIB's in tilt and the travel is one
+# translation.
+SAME_TILT = 0.05
+# With a tilt, the sites must spread at least this far in y for a travel that
+# varies with position to show. Metres.
 MIN_SITE_SPREAD_Y = 3.0e-3
 # Sites whose travels differ by more than this disagree: the rotation centre is
 # wrong, and the calibration is not offered for saving. Metres.
@@ -135,6 +139,10 @@ class SemToFmCalibration:
                 "available_orientations."
             )
         return dt
+
+    def sites_needed(self) -> int:
+        """1 when the FM images in FIB's tilt, else `SITES`."""
+        return 1 if abs(self.fm_tilt_difference()) < SAME_TILT else SITES
 
     def _require_at_beams(self, orientation: Optional[str] = None) -> None:
         if self.movement.current_device() != BEAMS_STAGE_DEVICE:
@@ -247,8 +255,8 @@ class SemToFmCalibration:
         return site
 
     def return_to_beams(self) -> None:
-        """Back to the beams by what this site measured, so the residual there is
-        this site's error."""
+        """Back to the beams in the FM's pose, by what this site measured, so the
+        residual there is this site's error."""
         site = self.sites[-1] if self.sites else None
         if site is None or site.fm is None:
             raise CalibrationRefused("Capture the site under the objective first.")
@@ -256,7 +264,9 @@ class SemToFmCalibration:
         saved = stage.device_calibration
         stage.device_calibration = DeviceCalibration(fibsem=site.beams, fm=site.fm)
         try:
-            self.movement.move_to_device(BEAMS_STAGE_DEVICE)
+            self.movement.move_to_device(
+                BEAMS_STAGE_DEVICE, orientation=self.fm_orientation()
+            )
         finally:
             stage.device_calibration = saved
 
@@ -281,17 +291,24 @@ class SemToFmCalibration:
     # -- 6. check and save --------------------------------------------------------
 
     def summary(self) -> Dict[str, Any]:
-        """The sites' travels, their mean and spread, and whether it can be saved."""
+        """The sites' travels, their mean and spread, and whether it can be saved.
+        ``checked`` is whether a second site agreed with the first."""
         done = [site for site in self.sites if site.fm is not None]
         travels = np.array(
             [[getattr(site.travel(), axis) for axis in DEVICE_AXES] for site in done]
         )
         problems: List[str] = []
         mean = spread = None
+        try:
+            needed = self.sites_needed()
+        except CalibrationRefused as e:
+            problems.append(str(e))
+            needed = SITES
         if len(done) == 0:
             problems.append("No site is captured at both ends.")
         else:
             mean = travels.mean(axis=0)
+        if len(done) > 1:
             spread = float(np.abs(travels - mean)[:, :2].max())
             if spread > MAX_TRAVEL_SPREAD:
                 problems.append(
@@ -299,9 +316,10 @@ class SemToFmCalibration:
                     f"than {MAX_TRAVEL_SPREAD * 1e6:.0f} µm: the rotation centre is "
                     "likely wrong. Recalibrate it and capture the sites again."
                 )
-        if len(done) < SITES:
-            problems.append(f"{len(done)} of {SITES} sites are captured.")
-        else:
+        if len(done) < needed:
+            if done:
+                problems.append(f"{len(done)} of {needed} sites are captured.")
+        elif needed > 1:
             ys = [site.beams.y for site in done]
             if max(ys) - min(ys) < MIN_SITE_SPREAD_Y:
                 problems.append(
@@ -314,6 +332,7 @@ class SemToFmCalibration:
             if mean is None
             else {axis: float(v) for axis, v in zip(DEVICE_AXES, mean)},
             "spread": spread,
+            "checked": len(done) > 1,
             "problems": problems,
             "can_save": not problems,
         }
@@ -335,6 +354,7 @@ class SemToFmCalibration:
             holder=stage.active_holder or None,
             when=now_iso(),
             sites=summary["sites"],
+            checked=summary["checked"],
         )
 
     def save(self) -> DeviceCalibration:
@@ -351,7 +371,8 @@ class SemToFmCalibration:
         stage.device_calibration = calibration
         self._correction_before = tuple(stage.rotation_centre_correction)
         logging.info(
-            f"Saved the SEM to FM calibration: travel {calibration.translation()}."
+            f"Saved the SEM to FM calibration: travel {calibration.translation()}"
+            + ("." if calibration.checked else ", from one site, not cross-checked.")
         )
         return calibration
 

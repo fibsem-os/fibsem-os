@@ -366,7 +366,8 @@ class DeviceCalibration:
     under the objective, read at the FM. The stage travels by ``fm - fibsem``, in
     place of the FM entry's nominal ``origin``, which stays for the calibration's
     own first trip. ``holder`` is the holder it was measured on (None: any, as
-    the simulator's file states); ``sites`` are each site's measurements.
+    the simulator's file states); ``sites`` are each site's measurements, and
+    ``checked`` is False when one site measured it, with none to agree.
     """
 
     fibsem: FibsemStagePosition
@@ -374,6 +375,7 @@ class DeviceCalibration:
     holder: Optional[str] = None
     when: Optional[str] = None
     sites: List[Dict[str, Any]] = field(default_factory=list)
+    checked: bool = True
 
     def translation(self) -> FibsemStagePosition:
         """The stage move from the beams to the FM, on the device axes."""
@@ -400,6 +402,8 @@ class DeviceCalibration:
             ddict["when"] = self.when
         if self.sites:
             ddict["sites"] = list(self.sites)
+        if not self.checked:
+            ddict["checked"] = False
         return ddict
 
     @staticmethod
@@ -416,6 +420,7 @@ class DeviceCalibration:
             holder=ddict.get("holder"),
             when=ddict.get("when"),
             sites=list(ddict.get("sites") or []),
+            checked=bool(ddict.get("checked", True)),
         )
 
 
