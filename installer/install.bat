@@ -8,12 +8,15 @@ setlocal
 if not defined FIBSEM_ENV set "FIBSEM_ENV=%USERPROFILE%\fibsem"
 if not defined FIBSEM_PACKAGE set "FIBSEM_PACKAGE=fibsem[ui]"
 set "PYTHON_VERSION=3.11"
+rem A fixed uv release, so the installer it runs never changes under it.
+set "UV_VERSION=0.11.32"
 set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 
 where uv >nul 2>nul
 if errorlevel 1 (
     echo Installing uv...
-    powershell -NoProfile -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/install.ps1 | iex"
+    set "UV_NO_MODIFY_PATH=1"
+    powershell -NoProfile -ExecutionPolicy ByPass -Command "irm https://astral.sh/uv/%UV_VERSION%/install.ps1 | iex"
     if errorlevel 1 goto failed
 )
 

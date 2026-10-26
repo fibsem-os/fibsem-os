@@ -9,6 +9,8 @@ set -euo pipefail
 ENV_DIR="${FIBSEM_ENV:-$HOME/fibsem}"
 PACKAGE="${FIBSEM_PACKAGE:-fibsem[ui]}"
 PYTHON_VERSION="3.11"
+# A fixed uv release, so the installer it runs never changes under it.
+UV_VERSION="0.11.32"
 
 failed() {
     echo
@@ -22,7 +24,7 @@ trap failed ERR
 export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv >/dev/null 2>&1; then
     echo "Installing uv..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf "https://astral.sh/uv/$UV_VERSION/install.sh" | UV_NO_MODIFY_PATH=1 sh
 fi
 
 if [ ! -x "$ENV_DIR/bin/python" ]; then
