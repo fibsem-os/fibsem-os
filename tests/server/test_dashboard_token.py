@@ -1,21 +1,17 @@
 """The dashboard's own token (FIB-1035): monitoring reads, and nothing else."""
 
 import pytest
+from fastapi.testclient import TestClient
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.discovery import write_discovery_file  # noqa: E402
-from fibsem.structures.settings import MicroscopeState  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.discovery import write_discovery_file
+from fibsem.structures.settings import MicroscopeState
 from tests.run_state import stub_session
 
 AGENT = "agent-token"

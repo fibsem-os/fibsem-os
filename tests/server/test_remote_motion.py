@@ -6,45 +6,41 @@ says about itself beyond its parameters (its facts) comes across with it."""
 import math
 
 import pytest
+import yaml
 
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-import yaml  # noqa: E402
-
-import fibsem.config as cfg  # noqa: E402
-from fibsem import utils  # noqa: E402
-from fibsem.codec import encode  # noqa: E402
-from fibsem.devices.core import ParameterMetadata  # noqa: E402
-from fibsem.devices.entries import (  # noqa: E402
+import fibsem.config as cfg
+from fibsem import utils
+from fibsem.codec import encode
+from fibsem.devices.core import ParameterMetadata
+from fibsem.devices.entries import (
     DeviceBuildError,
     build_device_entries,
     resolve_device_entries,
 )
-from fibsem.devices.manipulator import Manipulator  # noqa: E402
-from fibsem.devices.stage import UNLIMITED, StageLimitError  # noqa: E402
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem.devices.manipulator import Manipulator
+from fibsem.devices.stage import UNLIMITED, StageLimitError
+from fibsem.drivers.remote.devices import (
     DeviceClient,
     RemoteChamber,
     RemoteChamberCamera,
     RemoteManipulator,
     RemoteStage,
 )
-from fibsem.server.devices import (  # noqa: E402
+from fibsem.server.devices import (
     DeviceServer,
     demo_devices,
     describe_device,
 )
-from fibsem.structures.settings import (  # noqa: E402
+from fibsem.structures.settings import (
     FibsemManipulatorPosition,
     FibsemStagePosition,
 )
-from fibsem.structures.system import (  # noqa: E402
+from fibsem.structures.system import (
     ChamberState,
     DeviceEntry,
     InsertableDeviceState,
 )
-from tests.fixtures.demo_stage import demo_session  # noqa: E402
+from tests.fixtures.demo_stage import demo_session
 
 
 @pytest.fixture

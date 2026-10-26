@@ -2,8 +2,6 @@
 
 import pytest
 
-fastapi = pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
 pytest.importorskip("mcp")
 
 from fibsem.ai.agent.mcp import sidecar  # noqa: E402

@@ -8,9 +8,6 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server.hosting import AppServerHost
 from tests.fixtures.microscopes import demo_microscope
 
-pytest.importorskip("fastapi")
-
-
 microscope = demo_microscope(scope="function")
 
 

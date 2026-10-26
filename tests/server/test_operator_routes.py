@@ -7,25 +7,23 @@ import re
 import socket
 import time
 
+import httpx
 import pytest
 
-pytest.importorskip("fastapi")
-httpx = pytest.importorskip("httpx")
-
-from fibsem.acting import OPERATOR  # noqa: E402
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.applications.autolamella.server.context import (  # noqa: E402
+from fibsem.acting import OPERATOR
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
-from fibsem.server import AuthConfig  # noqa: E402
-from fibsem.server.hosting import AppServerHost  # noqa: E402
-from fibsem.server.operator_token import (  # noqa: E402
+from fibsem.server import AuthConfig
+from fibsem.server.hosting import AppServerHost
+from fibsem.server.operator_token import (
     load_operator_token,
     new_operator_token,
 )
-from fibsem.workflows.actions import NOTE  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
-from tests.autolamella.test_select_position_asks import (  # noqa: E402, F401
+from fibsem.workflows.actions import NOTE
+from fibsem.workflows.session import AppSession
+from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
     _experiment,
     microscope,

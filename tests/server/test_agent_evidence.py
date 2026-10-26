@@ -8,31 +8,27 @@ import io
 import os
 
 import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-from PIL import Image  # noqa: E402
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.ai.agent.calls import (  # noqa: E402
+from fibsem.ai.agent.calls import (
     EVIDENCE_HEADER,
     from_headers,
     headers_for,
 )
-from fibsem.ai.agent.catalog import CATALOG  # noqa: E402
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.ai.agent.catalog import CATALOG
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import MicroscopeState  # noqa: E402
-from fibsem.workflows import evidence  # noqa: E402
-from fibsem.workflows.actions import ACTION, NOTE  # noqa: E402
-from fibsem.workflows.proposals import (  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import MicroscopeState
+from fibsem.workflows import evidence
+from fibsem.workflows.actions import ACTION, NOTE
+from fibsem.workflows.proposals import (
     Decision,
     DecisionOutcome,
     Suggestion,

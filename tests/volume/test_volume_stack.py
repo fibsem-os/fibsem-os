@@ -2,19 +2,15 @@
 order, with the FIB image its milling kept, and its History like any item's."""
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
+from fibsem.applications.volume.manager import VolumeTaskManager
+from fibsem.applications.volume.server import VolumeAppContext
+from fibsem.server import AuthConfig, build_server
+from fibsem.workflows.events import EventBuffer
+from fibsem.workflows.session import AppSession
 
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.applications.volume.manager import VolumeTaskManager  # noqa: E402
-from fibsem.applications.volume.server import VolumeAppContext  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.workflows.events import EventBuffer  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
-
-from .conftest import set_up_position  # noqa: E402
+from .conftest import set_up_position
 
 TOKEN = "volume-token"
 MILL = "Volume FIB Milling"

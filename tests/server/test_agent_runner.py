@@ -16,24 +16,22 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import httpx
 import pytest
 
-pytest.importorskip("fastapi")
-httpx = pytest.importorskip("httpx")
-
-from fibsem.ai.agent import runner as runner_mod  # noqa: E402
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
-from fibsem.ai.agent.runner import Runner, TurnEnd, Wakes, kickoff  # noqa: E402
-from fibsem.ai.agent.session import AgentSession  # noqa: E402
-from fibsem.applications.autolamella.server.context import (  # noqa: E402
+from fibsem.ai.agent import runner as runner_mod
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.mcp import watch as watch_mod
+from fibsem.ai.agent.runner import Runner, TurnEnd, Wakes, kickoff
+from fibsem.ai.agent.session import AgentSession
+from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
-from fibsem.server import AuthConfig  # noqa: E402
-from fibsem.server.hosting import AppServerHost  # noqa: E402
-from fibsem.workflows.attention import Attention  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
-from tests.autolamella.test_select_position_asks import (  # noqa: E402, F401
+from fibsem.server import AuthConfig
+from fibsem.server.hosting import AppServerHost
+from fibsem.workflows.attention import Attention
+from fibsem.workflows.session import AppSession
+from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
     _experiment,
     microscope,

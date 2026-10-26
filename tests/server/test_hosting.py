@@ -2,16 +2,14 @@
 
 import socket
 
+import httpx
 import pytest
 
-fastapi = pytest.importorskip("fastapi")
-httpx = pytest.importorskip("httpx")
-
-from fibsem.applications.autolamella.server.context import (  # noqa: E402
+from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
-from fibsem.server.hosting import AppServerHost  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
+from fibsem.server.hosting import AppServerHost
+from fibsem.workflows.session import AppSession
 
 
 def _session(microscope):

@@ -4,18 +4,14 @@ not_connected, and the operator connects and disconnects through the session."""
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.applications.autolamella.server.context import (  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.workflows.session import AppSession
 
 AGENT = "agent-token"
 OPERATOR = "operator-token"

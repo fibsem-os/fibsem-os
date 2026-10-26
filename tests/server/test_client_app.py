@@ -1,26 +1,20 @@
 """The client's ``app``: the session of the app the App Server hosts, its calls the
 agent's tools, offered by the parts the server serves.
-
-Skipped when the [server] extra is not installed.
 """
 
 import pytest
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.client import FibsemClient, ServerError  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import MicroscopeState  # noqa: E402
-from tests.run_state import stub_session  # noqa: E402
-from tests.server.test_client import TOKEN, InProcess  # noqa: E402
+from fibsem.client import FibsemClient, ServerError
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import MicroscopeState
+from tests.run_state import stub_session
+from tests.server.test_client import TOKEN, InProcess
 
 
 @pytest.fixture

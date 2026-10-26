@@ -8,25 +8,22 @@ import threading
 import time
 
 import pytest
+import uvicorn
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.mcp import watch as watch_mod
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.client.pairing import keep_agent_token  # noqa: E402
-from fibsem.client.transport import Transport  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.discovery import write_discovery_file  # noqa: E402
-from fibsem.structures.settings import MicroscopeState  # noqa: E402
-from fibsem.workflows.events import EventBuffer  # noqa: E402
+from fibsem.client.pairing import keep_agent_token
+from fibsem.client.transport import Transport
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.discovery import write_discovery_file
+from fibsem.structures.settings import MicroscopeState
+from fibsem.workflows.events import EventBuffer
 from tests.run_state import stub_session
 
 TOKEN = "test-token"

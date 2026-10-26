@@ -14,30 +14,27 @@ import numpy as np
 import pytest
 import yaml
 
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-from fibsem.devices import Device, DeviceParameter  # noqa: E402
-from fibsem.devices.entries import (  # noqa: E402
+from fibsem.devices import Device, DeviceParameter
+from fibsem.devices.entries import (
     ResolvedEntry,
     build_device_entries,
     disconnect_devices,
 )
-from fibsem.drivers import registry  # noqa: E402
-from fibsem.drivers.demo.devices import DemoScanGenerator  # noqa: E402
-from fibsem.drivers.registry import DriverEntry, register_driver  # noqa: E402
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem.drivers import registry
+from fibsem.drivers.demo.devices import DemoScanGenerator
+from fibsem.drivers.registry import DriverEntry, register_driver
+from fibsem.drivers.remote.devices import (
     RemoteDevice,
     RemoteScanner,
     remote_class,
 )
-from fibsem.server.devices import (  # noqa: E402
+from fibsem.server.devices import (
     DeviceServer,
     configured_devices,
     describe_device,
 )
-from fibsem.structures.params import RangeLimit  # noqa: E402
-from fibsem.structures.system import DeviceEntry  # noqa: E402
+from fibsem.structures.params import RangeLimit
+from fibsem.structures.system import DeviceEntry
 
 DWELL = RangeLimit(min=100e-9, max=10e-6)
 
