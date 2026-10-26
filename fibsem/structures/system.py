@@ -219,6 +219,13 @@ class StageDeviceSettings:
     # origin sets (`default_device_range`).
     range: Optional[FibsemStagePosition] = None
 
+    # The pose an offset FM images in, r and t in radians, each left out taking the
+    # FIB pose's: the one orientation a site states rather than derives, because how
+    # the objective is bolted on decides it and nothing else does. Stated, it is the
+    # "FM" orientation and the camera's tilt follows from it
+    # (`StageMovement.camera_tilt`). None is the FIB pose, as every offset FM has been.
+    pose: Optional[FibsemStagePosition] = None
+
     def contains(self, stage_position: FibsemStagePosition) -> bool:
         """Is `stage_position` within this device's `range` of its origin?
 
@@ -270,6 +277,12 @@ class StageDeviceSettings:
         }
         if self.range is not None:
             ddict["range"] = device_axes_to_dict(self.range)
+        if self.pose is not None:
+            ddict["pose"] = {
+                axis: float(np.degrees(getattr(self.pose, axis)))
+                for axis in ("r", "t")
+                if getattr(self.pose, axis) is not None
+            }
         return ddict
 
     @staticmethod
@@ -291,8 +304,16 @@ class StageDeviceSettings:
                     f"orientation. Name at least one of {list(KNOWN_ORIENTATIONS)}, "
                     "or leave the key out for the device's default."
                 )
+        elif "pose" in ddict:
+            orientations = ["FM"]
         else:
             orientations = list(default_orientations) or list(BEAM_ORIENTATIONS)
+        pose = _device_pose_from_dict(ddict.get("pose"))
+        if pose is not None and "FM" not in orientations:
+            raise ValueError(
+                f"pose is the FM orientation, but available_orientations is "
+                f"{orientations}: list FM there, or leave it out."
+            )
         # Validated here, at the one place configuration enters, because a typo would
         # otherwise be perfectly quiet: the conjunction that reads this list would
         # simply never be true, and the instrument would be dead with no error.
@@ -313,8 +334,19 @@ class StageDeviceSettings:
             if getattr(origin, axis) is not None and getattr(range_, axis) is None:
                 setattr(range_, axis, DEFAULT_DEVICE_RANGE_EXTENT)
         return StageDeviceSettings(
-            origin=origin, available_orientations=orientations, range=range_
+            origin=origin, available_orientations=orientations, range=range_, pose=pose
         )
+
+
+def _device_pose_from_dict(ddict: Optional[dict]) -> Optional[FibsemStagePosition]:
+    """A device entry's ``pose``: r and t in degrees, read into radians."""
+    if ddict is None:
+        return None
+    if not isinstance(ddict, dict) or not set(ddict) <= {"r", "t"} or not ddict:
+        raise ValueError(f"pose takes r and t, in degrees: {ddict!r}")
+    return FibsemStagePosition(
+        **{axis: float(np.radians(float(value))) for axis, value in ddict.items()}
+    )
 
 
 def _stage_position_to_dict(position: FibsemStagePosition) -> Dict[str, float]:
@@ -1137,7 +1169,7 @@ class DeviceEntry:
 
 
 # The keys a device entry carries for where the stage travels for it to see the sample.
-STAGE_POSITION_KEYS = ("origin", "available_orientations", "range")
+STAGE_POSITION_KEYS = ("origin", "available_orientations", "range", "pose")
 
 
 def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
@@ -1355,6 +1387,13 @@ class SystemSettings:
             )
 
         fm = FluorescenceSystemSettings.from_dict(block("fm"))
+        fm_device = stage_settings.devices.get("FM")
+        if fm.camera_tilt is not None and fm_device is not None and fm_device.pose:
+            # One fact, stated once: the camera sees the sample face on in the pose.
+            raise ValueError(
+                "hardware.devices: 'fm' states both pose and camera_tilt. The camera's "
+                "tilt follows from the pose; leave camera_tilt out."
+            )
         objective = calibration.get("objective") or {}
         fm.focus_position = objective.get("focus_position")
         fm.limit_position = objective.get("limit_position")

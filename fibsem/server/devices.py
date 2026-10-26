@@ -984,6 +984,7 @@ HOST_FM_KEYS = (
     "origin",
     "range",
     "available_orientations",
+    "pose",
     "focus_position",
     "limit_position",
     "camera_tilt",
