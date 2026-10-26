@@ -62,18 +62,18 @@
         "milling_angle": 15.0,
         "name": "stage",
         "rotation": true,
-        "rotation_reference": 0,
+        "rotation_reference": 0.0,
         "type": "stage"
       },
       {
-        "column_tilt": 0,
+        "column_tilt": 0.0,
         "enabled": true,
         "eucentric_height": 0.007,
         "name": "electron",
         "type": "beam"
       },
       {
-        "column_tilt": 52,
+        "column_tilt": 52.0,
         "enabled": true,
         "eucentric_height": 0.0165,
         "name": "ion",
@@ -82,10 +82,21 @@
       },
       {
         "address": null,
+        "available_orientations": [
+          "FIB"
+        ],
         "driver": null,
-        "enabled": null,
+        "enabled": true,
         "name": "fm",
+        "origin": {
+          "x": 0.0506252,
+          "y": 0.0049832
+        },
         "port": null,
+        "range": {
+          "x": 0.01,
+          "y": 0.03
+        },
         "required": null,
         "type": "fm"
       }
@@ -99,7 +110,7 @@
     "ip_address": "192.168.0.1",
     "manufacturer": "Odemis",
     "model": "Unknown",
-    "name": "odemis-microscope-configuration",
+    "name": "odemis-tfs-hydra-meteor-configuration",
     "port": null,
     "serial_number": "Unknown",
     "software_version": "Unknown"
