@@ -1,0 +1,69 @@
+# A Hydra with a METEOR beside it (deployment B): fibsemOS drives the beams and the
+# stage through AutoScript on this PC, and the FM comes from a Device Server on the
+# METEOR's own Linux PC. See INSTALLATION.md, METEOR.
+#
+# The FM entry assumes odemis's tfs_3 geometry: the FM images in the FIB pose
+# (r 180, t 17 here) and sits a pure translation from the beams. Its origin is
+# odemis's CALIB dx, dy for this stage (`odemis-cli --list-prop stage-bare` on the
+# METEOR PC); the values below are the meteor-tfs3-sim's, so replace them with this
+# site's. They are nominal: the SEM to FM calibration measures the real offset, and
+# travel to the FM is refused until it has been saved.
+version: 2                                                  # configuration schema version
+info:
+    name: tfs-hydra-meteor-configuration                    # a descriptive name for your configuration                     [SPECIFIED]
+    ip_address: 192.168.0.1                                 # the ip address of the microscope PC                           [SPECIFIED]
+    manufacturer: Thermo                                    # the microscope manufactuer                                    [SPECIFIED]        
+hardware:                                                   # what the instrument is; cannot be asked
+    devices:
+      - name: stage
+        type: stage
+        enabled:                    true                        # the stage is enabled                                          [USER]
+        rotation_reference:         0                           # the reference rotation value                                  [SPECIFIED] 
+      - name: electron
+        type: beam
+        enabled:                    true                        # the electron beam is enabled                                  [USER]
+        column_tilt:                0                           # the column tilt of the electron beam                          [DERIVED - manufactuer]
+        eucentric_height:           4.0e-3                      # the eucentric height of the electron beam                     [SPECIFIED]
+      - name: ion
+        type: beam
+        enabled:                    true                        # the ion beam is enabled                                       [USER]
+        column_tilt:                52                          # the column tilt of the electron beam                          [SPECIFIED]
+        eucentric_height:           16.5e-3                     # the eucentric height of the ion beam                          [SPECIFIED]
+        plasma_gas:                 null                        # the plasma gas for the ion beam (plasma fib only)             [USER]
+      - name: fm
+        type: fm
+        enabled:                    true                        # this site has a fluorescence microscope                       [USER]
+        driver:                     remote                      # served from the METEOR PC by a Device Server                  [SPECIFIED]
+        address:                    127.0.0.1                   # through the SSH tunnel, else the METEOR PC's address         [USER]
+        port:                       8765                        # the Device Server's port                                      [USER]
+        origin:                     {x: 50.6252e-3, y: 4.9832e-3}  # the FM from the beams: odemis's CALIB dx, dy      [metres][SPECIFIED]
+        available_orientations:     [FIB]                       # the objective images the sample in the FIB pose              [SPECIFIED]
+        range:                      {x: 10.0e-3, y: 30.0e-3}    # the FM's window, a half-width from its origin         [metres][SPECIFIED]
+calibration:                                                # measured at this instrument
+    shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
+defaults:                                                   # what a session starts from
+    beams_on_at_connect:        false                       # turn each column on at connect, before the defaults
+    apply_on_connect:           false                       # set the columns to these defaults at connect
+    electron:
+        voltage:                    2000                        # the voltage of the electron beam                              [USER]
+        current:                    50.0e-12                    # the current of the electron beam                              [USER]
+        resolution:                 [1536, 1024]                # the default electron resolution                       [pixel] [USER]
+        hfw:                        150.0e-6                    # the default electron hfw                              [metres][USER]
+        dwell_time:                 1.0e-06                     # the default electron dwell time
+        detector_mode:              SecondaryElectrons          # the detector mode of the electron beam                        [USER]
+        detector_type:              ETD                         # the detector type of the electron beam                        [USER]
+    ion:
+        voltage:                    30000                       # the voltage of the ion beam                                   [USER]
+        current:                    2.0e-11                     # the current of the ion beam                                   [USER]
+        resolution:                 [1536, 1024]                # the default ion resolution                            [pixel] [USER]
+        hfw:                        150.0e-6                    # the default ion hfw                                   [metres][USER]
+        dwell_time:                 1.0e-06                     # the default ion dwell time
+        detector_mode:              SecondaryElectrons          # the detector mode of the ion beam                             [USER]
+        detector_type:              ETD                         # the detector type of the ion beam                             [USER]
+    imaging:
+        beam_type:                  ELECTRON                    # the default imaging beam type (ELECTRON, or ION)              [USER]
+        resolution:                 [1536, 1024]                # the default imaging resolution                        [pixel] [USER]
+        hfw:                        150.0e-6                    # the default imaging hfw                               [metres][USER]
+        dwell_time:                 1.0e-06                     # the default imaging dwell time                        [second][USER]
+        autocontrast:               true                        # use autocontrast                                              [USER]
+        save:                       false                       # auto save images                                              [USER]

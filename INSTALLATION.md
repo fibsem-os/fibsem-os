@@ -284,13 +284,15 @@ On the support PC:
            address:    127.0.0.1         # through the tunnel, else the METEOR PC
            port:       8765
            origin:     {x: 50.63e-3, y: 4.98e-3}   # the FM from the beams: odemis's CALIB dx, dy
-           range:      {x: 20.0e-3}      # the FM's window, a half-width from its origin
+           range:      {x: 10.0e-3, y: 30.0e-3}   # the FM's window, a half-width from its origin
            available_orientations: [FIB] # the objective images in the FIB pose
    ```
 
    `origin` is the nominal offset, from odemis's `CALIB` dx and dy for the
-   stage. See [Devices](docs/developers/devices.md#configuring-devices) for the
-   other keys.
+   stage. A Hydra with a METEOR can start from
+   `fibsem/config/tfs-hydra-meteor-configuration.yaml`, which has this entry.
+   See [Devices](docs/developers/devices.md#configuring-devices) for the other
+   keys.
 
 Two things to know:
 
