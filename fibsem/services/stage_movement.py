@@ -237,6 +237,7 @@ class StageMovement(Service):
         stage = self.parent.stage_device
         return False if stage is None else stage.turned_over(tilt)
 
+    @query
     def stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name, from the configured geometry.
 
@@ -252,6 +253,7 @@ class StageMovement(Service):
             fib_column_tilt=system.ion.column_tilt,
         )
 
+    @query
     def fm_is_a_pose(self) -> bool:
         """Does the stage reach the FM by re-posing rather than by travelling?
 
