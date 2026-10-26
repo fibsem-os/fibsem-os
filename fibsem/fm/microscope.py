@@ -246,6 +246,23 @@ class ObjectiveLens:
         return self._device.save_focus_position()
 
     @property
+    def insert_position(self) -> Optional[float]:
+        """Where `insert` puts the objective, in metres, or None where the driver
+        can't say."""
+        return self._known_position("insert_position")
+
+    @property
+    def retract_position(self) -> Optional[float]:
+        """Where `retract` puts the objective, in metres, or None where the driver
+        can't say."""
+        return self._known_position("retract_position")
+
+    def _known_position(self, name: str) -> Optional[float]:
+        if self._device is None or name not in _param(self._device, "parameters"):
+            return None
+        return _param(self._device, name).get_value()
+
+    @property
     def limit_position(self) -> float:
         """The user-defined z position limit of the objective lens, in metres."""
         return _param(self._device, "limit_position").get_value()
