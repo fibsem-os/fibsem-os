@@ -112,6 +112,7 @@ from fibsem.devices.entries import (
     disconnect_devices,
     resolve_device_entries,
 )
+from fibsem.devices.fm import FM
 from fibsem.devices.runs import RUNNING, Run
 from fibsem.devices.sample_loader import GridExchangeError
 from fibsem.devices.wire import (
@@ -984,6 +985,7 @@ HOST_FM_KEYS = (
     "origin",
     "range",
     "available_orientations",
+    "pose",
     "focus_position",
     "limit_position",
     "camera_tilt",
@@ -1062,6 +1064,18 @@ def configured_devices(
         else:
             built[name] = device
     return built, cleanups
+
+
+def switch_off_fms(devices: Iterable[Device]) -> None:
+    """Every FM group among *devices* idle with its light off (`FM.switch_off`), as
+    the server binds them and as it stops. A failure is logged, not raised: the
+    server still starts, and still closes the rest."""
+    for device in devices:
+        if isinstance(device, FM):
+            try:
+                device.switch_off()
+            except Exception as e:
+                logging.error(f"{device.name}: could not switch the light off: {e}")
 
 
 def main(argv: Optional[List[str]] = None) -> None:
@@ -1151,6 +1165,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         logging.error("Nothing to serve: no device was built.")
         raise SystemExit(1)
     devices: Mapping[str, Device] = {d.name: d for d in served}
+    switch_off_fms(devices.values())
     server = settings.get("server") or {}
     host = args.host or server.get("host") or "127.0.0.1"
     port = args.port or server.get("port") or 8765
@@ -1173,8 +1188,12 @@ def main(argv: Optional[List[str]] = None) -> None:
             host=host,
             port=port,
             ws=WS_PROTOCOL,
+            # Ctrl-C or SIGTERM: stop waiting on a running acquisition, so the light
+            # goes off below rather than when it ends.
+            timeout_graceful_shutdown=5,
         )
     finally:
+        switch_off_fms(devices.values())
         disconnect_devices(built, cleanups)
 
 

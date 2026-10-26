@@ -91,8 +91,8 @@ class FMControlWidget(QWidget):
 
         self.field_of_view = self.fm.camera.field_of_view
 
-        # default settings
-        self.channel_settings = ChannelSettings()
+        # default settings, on wavelengths this FM has
+        self.channel_settings = self.fm.default_channel()
 
         # Consolidated acquisition threading
         self._acquisition_thread: Optional[FunctionWorker] = None
@@ -294,6 +294,7 @@ class FMControlWidget(QWidget):
         self.acquisition_finished_signal.connect(self._on_acquisition_finished)
         self.fm.acquisition_progress_signal.connect(self._on_acquisition_progress)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_changed)
+        self.fm.acquisition_failed.connect(self._on_live_view_failed)
         # An offset FM's controls follow the stage to the FM and back: a travel made
         # anywhere else (the Movement tab, the calibration, a task) only says so here.
         stage = getattr(self.microscope, "stage", None)
@@ -357,7 +358,7 @@ class FMControlWidget(QWidget):
         MUST come down or a stale double-click/scroll drives the stage or objective
         through a destroyed widget — and PyQt turns that into qFatal.
 
-        The three ``fm`` signals are psygnal, not Qt, so nothing disconnects them for
+        The four ``fm`` signals are psygnal, not Qt, so nothing disconnects them for
         us when the widget dies: psygnal's weak ref is to the *Python* object, and
         ``deleteLater`` destroys the C++ one underneath it while that stays alive. The
         host tears down without stopping the acquisition first
@@ -368,6 +369,7 @@ class FMControlWidget(QWidget):
             (self.fm.acquisition_signal, self.update_image),
             (self.fm.acquisition_progress_signal, self._on_acquisition_progress),
             (self.fm.acquiring_changed, self._on_fm_acquiring_changed),
+            (self.fm.acquisition_failed, self._on_live_view_failed),
         ):
             try:
                 signal.disconnect(slot)
@@ -659,6 +661,11 @@ class FMControlWidget(QWidget):
         """
         self._update_acquisition_button_states()
 
+    def _on_live_view_failed(self, reason: str) -> None:
+        notification_service.show_toast(
+            f"Live view stopped: {reason}", notification_type="error"
+        )
+
     @ensure_main_thread
     def _on_stage_moved(self, stage_position: FibsemStagePosition) -> None:
         """The stage moved: on an offset FM that is the difference between the
@@ -900,10 +907,16 @@ class FMControlWidget(QWidget):
             if result["status"] == "cancelled":
                 logging.info("image acquisition was cancelled")
                 return
-            logging.info(f"Image saved to {result['image']['path']}")
+            saved = result["image"]["path"]
+            if not os.path.exists(saved):
+                raise RuntimeError(f"the image was not written to {saved}")
+            logging.info(f"Image saved to {saved}")
 
         except Exception as e:
             logging.error(f"Error during image acquisition: {e}")
+            notification_service.show_toast(
+                f"Image not acquired: {e}", notification_type="error"
+            )
 
         finally:
             self.acquisition_finished_signal.emit()
@@ -1034,6 +1047,9 @@ class FMControlWidget(QWidget):
 
         except Exception as e:
             logging.error(f"Auto-focus failed: {e}")
+            notification_service.show_toast(
+                f"Auto-focus failed: {e}", notification_type="error"
+            )
         finally:
             self.acquisition_finished_signal.emit()
 

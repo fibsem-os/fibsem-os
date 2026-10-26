@@ -171,3 +171,24 @@ def test_the_command_line_names_the_mount(odemis_stubs, monkeypatch):
     (entry,) = sources[0]["hardware"]["devices"]
     assert entry["driver"] == "Odemis"
     assert entry["mount_transform"] == "flip-y"
+
+
+def test_the_light_is_off_while_the_server_starts_and_after_it_stops(
+    odemis_stubs, monkeypatch
+):
+    """B2: odemis keeps the light's power when the stream that set it goes away, so
+    a server that died mid-acquisition left it on, and a restarted one too."""
+    light = odemis_stubs.use_components(odemis_stubs.default_components())["light"]
+    light.power.value = [0.26]  # left on by a server that died
+    at_start = []
+
+    def run(app, host, port, **_):
+        at_start.append(list(light.power.value))
+        light.power.value = [0.26]  # on again when the server is stopped
+
+    monkeypatch.setattr(server_devices.uvicorn, "run", run)
+
+    server_devices.main(["--serve", "odemis-fm"])
+
+    assert at_start == [[0.0]]
+    assert light.power.value == [0.0]

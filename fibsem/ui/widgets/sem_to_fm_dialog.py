@@ -1,13 +1,14 @@
 """Guided SEM to FM calibration for an offset FM (METEOR, iFLM).
 
 Walks the operator through `fibsem.fm.sem_to_fm.SemToFmCalibration`: the
-rotation centre, then slot 1 (and two more sites) at the beams and under the
-objective, each with a round trip back, then the check and save. The steps are
+rotation centre, then slot 1 (and more sites, as a check or when the FM is
+tilted from FIB) at the beams and under the objective, each with a round trip
+back, then the check and save. The steps are
 the calibration's; this dialog shows the images and passes on the clicks.
 
 Images are in the dialog: the reference on the left, the current one on the
-right. A click on the right image marks the point a step asks for and moves
-nothing. A double-click is a stable move (an FM stable move on an FM image), and
+right. A click on the right image marks the point a step asks for, drawn
+there, and moves nothing. A double-click is a stable move (an FM stable move on an FM image), and
 Alt + double-click a vertical move, through the same service calls as the
 Microscope tab. Non-modal, like the holder calibration.
 """
@@ -21,7 +22,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import pyqtSignal
 
 from fibsem import conversions
-from fibsem.fm.sem_to_fm import SITES, SemToFmCalibration
+from fibsem.fm.sem_to_fm import SITES, CalibrationRefused, SemToFmCalibration
 from fibsem.structures.settings import BeamType, Point
 from fibsem.theme.tokens import (
     BORDER_COLOR,
@@ -37,6 +38,7 @@ from fibsem.ui import stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
+from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
 from fibsem.ui.widgets.holder_calibration_dialog import _label, _RailRow
 
 STEP_TITLES = [
@@ -44,7 +46,7 @@ STEP_TITLES = [
     "Slot 1 at the beams",
     "Slot 1 at the FM",
     "Round trip",
-    "Sites 2 and 3",
+    "More sites",
     "Check & save",
 ]
 STEP_ROTATION, STEP_BEAMS, STEP_FM, STEP_RETURN, STEP_SITES, STEP_SAVE = range(6)
@@ -136,6 +138,18 @@ class SemToFmDialog(QtWidgets.QDialog):
         right.addLayout(images, 1)
         self.current_canvas.canvas_clicked.connect(self._on_click)
         self.current_canvas.canvas_double_clicked.connect(self._on_double_click)
+        # Where a click marked the point; modal, so it never takes the clicks.
+        self.click_marker = PointOverlay(
+            color="magenta",
+            selected_color="magenta",
+            marker="+",
+            size=14,
+            edge_width=1.2,
+            add_on_right_click=False,
+            removable=False,
+            modal=True,
+        )
+        self.current_canvas.add_overlay(self.click_marker)
 
         self.measure_label = _label("", 12, TEXT_COLOR, wrap=True)
         right.addWidget(self.measure_label)
@@ -208,11 +222,12 @@ class SemToFmDialog(QtWidgets.QDialog):
             )
             self.button_next.setText("Skip")
         elif step in (STEP_BEAMS, STEP_SITES):
-            where = (
-                "slot 1"
-                if step == STEP_BEAMS
-                else f"site {site + 1} of {SITES}, at least 3 mm from slot 1 in y"
-            )
+            if step == STEP_BEAMS:
+                where = "slot 1"
+            elif self._sites_needed() > 1:
+                where = f"site {site + 1} of {SITES}, at least 3 mm from slot 1 in y"
+            else:
+                where = f"site {site + 1}, a check on slot 1's travel"
             self._subtitle.setText(
                 f"At the beams in FIB, centre {where} in both images (Alt + "
                 "double-click for a vertical move), then Capture beams. The "
@@ -226,6 +241,7 @@ class SemToFmDialog(QtWidgets.QDialog):
             )
             self.measure_label.setText(self._fm_pose_text())
             self.button_next.setText("Next")
+            self._acquire_both()
         elif step == STEP_FM:
             self._subtitle.setText(
                 "Travel retracts the objective, travels to the FM and inserts it. "
@@ -251,8 +267,15 @@ class SemToFmDialog(QtWidgets.QDialog):
                 "The sites, their mean travel and spread. Save writes the "
                 "calibration to the configuration; Check then runs SEM to FM to SEM."
             )
-            self._set_actions([("Check", self._check), ("Save", self._save)])
+            self._set_actions(
+                [
+                    ("Add a site", lambda: self._show_step(STEP_SITES)),
+                    ("Check", self._check),
+                    ("Save", self._save),
+                ]
+            )
             self.action_buttons["Check"].setEnabled(False)
+            self.action_buttons["Add a site"].setEnabled(self._can_add_site())
             self._show_summary()
             self.button_next.setText("Close")
         self._update_next()
@@ -279,7 +302,7 @@ class SemToFmDialog(QtWidgets.QDialog):
         elif step == STEP_FM:
             self._show_step(STEP_RETURN)
         elif step == STEP_RETURN:
-            done = len(self.calibration.sites) >= SITES
+            done = len(self.calibration.sites) >= self._sites_needed()
             self._show_step(STEP_SAVE if done else STEP_SITES)
         else:
             self.accept()
@@ -414,6 +437,7 @@ class SemToFmDialog(QtWidgets.QDialog):
 
     def _show_current(self, image, view: Optional[BeamType], name: str) -> None:
         self._current_image, self._current_view = image, view
+        self.click_marker.clear_points()
         self._show_on(self.current_canvas, image, name, current=True)
 
     def _show_on(self, canvas, image, name: str, current: bool = False) -> None:
@@ -452,6 +476,9 @@ class SemToFmDialog(QtWidgets.QDialog):
         if point is None or self._busy():
             return
         try:
+            marks = self._step in (STEP_ROTATION, STEP_RETURN, STEP_SAVE)
+            if marks and self._current_view is not None:
+                self.click_marker.set_points([(x, y)])
             if self._step == STEP_ROTATION and self._current_view is BeamType.ELECTRON:
                 if self.calibration.rotation_reference is None:
                     return
@@ -536,6 +563,7 @@ class SemToFmDialog(QtWidgets.QDialog):
                 not self._saved and self.calibration.summary()["can_save"]
             )
             self.action_buttons["Check"].setEnabled(self._saved)
+            self.action_buttons["Add a site"].setEnabled(self._can_add_site())
         self._update_next()
 
     def _set_status(self, text: str, colour: str = TEXT_MUTED_COLOR) -> None:
@@ -543,6 +571,15 @@ class SemToFmDialog(QtWidgets.QDialog):
         self.status_label.setStyleSheet(
             f"background: transparent; color: {colour}; font-size: 12px;"
         )
+
+    def _sites_needed(self) -> int:
+        try:
+            return self.calibration.sites_needed()
+        except CalibrationRefused:
+            return SITES
+
+    def _can_add_site(self) -> bool:
+        return not self._saved and len(self.calibration.sites) < SITES
 
     def _fm_pose_text(self) -> str:
         try:
@@ -577,10 +614,14 @@ class SemToFmDialog(QtWidgets.QDialog):
                 )
             )
         if summary["travel"] is not None:
+            travel = (
+                f"{summary['travel']['x'] * 1e3:.4f}, "
+                f"{summary['travel']['y'] * 1e3:.4f} mm"
+            )
             lines.append(
-                f"Mean travel {summary['travel']['x'] * 1e3:.4f}, "
-                f"{summary['travel']['y'] * 1e3:.4f} mm; spread "
-                f"{summary['spread'] * 1e6:.1f} µm."
+                f"Mean travel {travel}; spread {summary['spread'] * 1e6:.1f} µm."
+                if summary["checked"]
+                else f"Travel {travel}, from one site. Add a site to check it."
             )
         lines += summary["problems"]
         self.measure_label.setText("\n".join(lines))

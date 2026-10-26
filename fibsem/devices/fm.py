@@ -359,6 +359,18 @@ class FM(Device):
     def is_live(self) -> bool:
         return self._live
 
+    def switch_off(self) -> None:
+        """Leave the hardware idle with the light off: a running z-stack cancelled,
+        live view stopped, and the source switched off where the driver can
+        (`_light_off`). For a server starting and stopping with the FM."""
+        self.cancel()
+        self.stop_live()
+        self._light_off()
+
+    def _light_off(self) -> None:
+        """Switch the light source off at the hardware. Without a hook the light is
+        off between exposures already."""
+
     def _start_live(self, channel: Optional[Dict[str, Any]]) -> None:
         """Start acquiring continuously. Without a hook a driver takes each frame on
         demand, which is still live view, only slower."""

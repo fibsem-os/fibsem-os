@@ -25,11 +25,16 @@ ARCTIS_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.
 NOMINAL_X = 48.8e-3
 
 
-def _uncalibrated(tmp_path, **sim):
-    """The offset simulator with no SEM to FM calibration, from a file of its own."""
+def _uncalibrated(tmp_path, fm_pose=None, **sim):
+    """The offset simulator with no SEM to FM calibration, from a file of its own;
+    with *fm_pose* (degrees), its FM images in that pose."""
     settings = utils.load_yaml(IFLM_CONFIG)
     del settings["calibration"]["devices"]
     settings["sim"].update(sim)
+    if fm_pose is not None:
+        (fm,) = [d for d in settings["hardware"]["devices"] if d["name"] == "fm"]
+        fm["pose"] = fm_pose
+        fm["available_orientations"] = ["FM"]
     path = tmp_path / "configuration.yaml"
     utils.save_yaml(path, settings)
     microscope, _ = utils.setup_session(config_path=str(path))
@@ -187,6 +192,37 @@ def test_three_sites_measure_the_travel_and_lift_the_gate(calibration):
     on_disk = utils.load_yaml(path)["calibration"]["devices"]
     assert on_disk["fm"]["origin"]["x"] == pytest.approx(NOMINAL_X + 40.0e-6)
     assert len(on_disk["sites"]) == 3
+    assert "checked" not in on_disk
+
+
+def test_one_site_saves_as_an_unchecked_travel(calibration):
+    """In the FIB pose the travel is one translation: one site measures it, and a
+    second is its check."""
+    microscope, steps, path = calibration
+    microscope.move_to_orientation("FIB")
+    _site(microscope, steps, found_x=40.0e-6)
+
+    summary = steps.summary()
+    assert summary["problems"] == []
+    assert summary["checked"] is False
+    saved = steps.save()
+
+    assert microscope.stage_movement.fm_calibration_needed() is False
+    assert saved.translation().x == pytest.approx(NOMINAL_X + 40.0e-6)
+    on_disk = utils.load_yaml(path)["calibration"]["devices"]
+    assert on_disk["checked"] is False
+    assert DeviceCalibration.from_dict(on_disk).checked is False
+
+
+def test_a_second_site_is_the_check(calibration):
+    microscope, steps, _ = calibration
+    microscope.move_to_orientation("FIB")
+    _site(microscope, steps, found_x=40e-6)
+    _site(microscope, steps, found_x=100e-6)
+
+    summary = steps.summary()
+    assert summary["checked"] is True
+    assert "rotation centre is likely wrong" in " ".join(summary["problems"])
 
 
 def test_sites_that_disagree_are_not_offered_for_saving(calibration):
@@ -204,13 +240,31 @@ def test_sites_that_disagree_are_not_offered_for_saving(calibration):
         steps.save()
 
 
-def test_sites_close_together_are_not_enough(calibration):
-    microscope, steps, _ = calibration
-    microscope.move_to_orientation("FIB")
-    for _ in range(3):
-        _site(microscope, steps, found_x=40e-6)
+def test_an_fm_tilted_from_fib_needs_three_sites_spread_in_y(tmp_path, monkeypatch):
+    microscope, path = _uncalibrated(tmp_path, fm_pose={"t": 20.0})
+    steps = SemToFmCalibration(microscope, configuration_path=path)
+    monkeypatch.setattr(steps, "measure_coincidence", lambda name: {})
+    microscope.move_to_orientation("FM")
+    assert steps.sites_needed() == 3
+
+    _site(microscope, steps, found_x=0.0)
+    assert "1 of 3 sites are captured." in steps.summary()["problems"]
+    for _ in range(2):
+        _site(microscope, steps, found_x=0.0)
 
     assert "must be at least 3 mm off" in " ".join(steps.summary()["problems"])
+
+
+@pytest.mark.parametrize("t, refused", [(30.0, False), (33.0, True)])
+def test_an_fm_up_to_15_degrees_from_fib_can_be_calibrated(tmp_path, t, refused):
+    microscope, path = _uncalibrated(tmp_path, fm_pose={"t": t})
+    steps = SemToFmCalibration(microscope, configuration_path=path)
+
+    if refused:
+        with pytest.raises(CalibrationRefused, match="more than 15°"):
+            steps.fm_tilt_difference()
+    else:
+        assert steps.fm_tilt_difference() == pytest.approx(t - 17.0)
 
 
 def test_a_capture_away_from_the_fm_pose_is_refused(calibration):
