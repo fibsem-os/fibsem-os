@@ -143,7 +143,7 @@ def test_a_large_upload_is_saved_at_most_2048_px(client):
         ({"upload": base64.b64encode(b"GIF89a").decode()}, 422),
         ({"upload": _png(), "marks": {"points": [{"x": "a"}]}}, 422),
         ({"upload": _png(), "item_name": "nope"}, 404),
-        ({"image": "/etc/hostname"}, 403),
+        ({"image": os.path.abspath(__file__)}, 403),  # outside the experiment
         # A crop is of an image in the experiment.
         ({"upload": _png(), "marks": {"crop": "A1", "points": []}}, 422),
     ],

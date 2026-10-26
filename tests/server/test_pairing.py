@@ -122,7 +122,8 @@ def test_tokens_are_kept_hashed_and_unpairing_revokes(tmp_path, pairing):
     computer, token = pairing.pair(pairing.open(), "laptop")
     saved = (tmp_path / "paired.json").read_text()
     assert token not in saved and computer.name in saved
-    assert oct(os.stat(tmp_path / "paired.json").st_mode & 0o777) == "0o600"
+    if os.name != "nt":  # Windows file modes have no group or other bits
+        assert oct(os.stat(tmp_path / "paired.json").st_mode & 0o777) == "0o600"
     # Another start reads the same file.
     again = PairedTokens(tmp_path / "paired.json")
     assert again.match(token).id == computer.id
@@ -262,7 +263,8 @@ def test_a_remote_microscope_pairs_and_later_connects_with_no_code(
         remote.disconnect()
     (saved,) = (tmp_path / "remote").iterdir()
     assert json.loads(saved.read_text())["url"] == url
-    assert oct(saved.stat().st_mode & 0o777) == "0o600"
+    if os.name != "nt":
+        assert oct(saved.stat().st_mode & 0o777) == "0o600"
     again = RemoteMicroscope.connect(url)
     try:
         assert auth.paired(again._token).name == "laptop"
