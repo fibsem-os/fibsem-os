@@ -46,6 +46,12 @@ dependencies = [
     # The App Server's one transport (fibsem.client): the client, the MCP
     # sidecar and fibsem-mcp watch.
     "httpx>=0.27.0",
+    # The App Server, the Device Server and the gateway, and the clients' event
+    # streams and live frames. Plain uvicorn: its [standard] extras are speedups the
+    # host does not need.
+    "fastapi>=0.121.0",
+    "uvicorn>=0.35.0",
+    "websockets>=15.0",
     # fibsem.extras reads which extras are installed from the package metadata.
     "packaging",
 ]
@@ -58,9 +64,10 @@ Homepage = "https://github.com/fibsem-os/fibsem-os"
 ml = [
     "torch>=2.0.0,<=2.3.0",
     "segmentation-models-pytorch>=0.3.2",
-    "plotly>=5.14.1",
-    "kaleido==0.2.0",
     "transformers>=4.36.2",
+    # The ONNX backend, for an .onnx checkpoint.
+    "onnx",
+    "onnxruntime",
 ]
 # The application UI. napari is not here: the main window imports none of it, and it
 # costs ~100 packages and 116 MB. It lives in [labelling] below, for the two widgets
@@ -83,7 +90,8 @@ labelling = [
     "napari>=0.5.1,<=0.5.6", # NumPy 2 well supported from 0.5.1
 ]
 
-server = ["fastapi>=0.121.0", "uvicorn[standard]>=0.35.0", "requests>=2.28.0", "websockets>=15.0"]
+# Empty: the server is in the base install. Kept so `pip install fibsem[server]` works.
+server = []
 
 # The MCP sidecar (fibsem-mcp). The fibsem package itself never imports mcp.
 mcp = [
@@ -94,8 +102,11 @@ mcp = [
 # Claude Code CLI, running the sidecar above. Nothing else imports it.
 agent = [
     "fibsem[mcp]",
-    "claude-agent-sdk>=0.2.168,<0.3",
+    "claude-agent-sdk>=0.2.168",
 ]
+
+# Everything a development machine runs except the METEOR's odemis packages.
+all = ["fibsem[labelling,agent]"]
 
 # Test tooling. Install with `pip install .[test]` (CI does this).
 test = [
@@ -103,6 +114,7 @@ test = [
     "pytest-xdist>=3.0",   # parallel execution (-n auto --dist worksteal)
     "pytest-timeout>=2.1", # fail a hung test instead of blocking the whole run
     "jsonschema>=4",       # checks encoded structures against their JSON schema
+    "httpx2",              # starlette's TestClient, which warns when it falls back to httpx
 ]
 
 # Lint tooling. Install with `pip install .[dev]`.

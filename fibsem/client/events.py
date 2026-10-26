@@ -10,18 +10,8 @@ import logging
 import threading
 from typing import Any, Callable, Dict, Mapping, Optional
 
-from fibsem.server import missing_server_extra
-
 HEARTBEAT = 5.0  # seconds between pings; a server silent for as long again is gone
 OPEN_TIMEOUT = 5.0
-
-
-def require_websockets(what: str) -> None:
-    """Raise, saying what to install, when websockets (in the [server] extra)
-    is not installed: *what* needs it."""
-    missing = missing_server_extra(("websockets",))
-    if missing is not None:
-        raise ImportError(f"{what} needs {missing}")
 
 
 class EventStream:
@@ -59,7 +49,6 @@ class EventStream:
         """Start following, once. With *wait*, until the first try opened or failed,
         so no event is missed from here on."""
         if self._thread is None:
-            require_websockets(f"following {self.url}")
             self._thread = threading.Thread(target=self._listen, daemon=True)
             self._thread.start()
         if wait:

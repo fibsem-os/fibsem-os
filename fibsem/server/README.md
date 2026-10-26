@@ -6,8 +6,10 @@ Server). Its client is `fibsem.client.FibsemClient`. The user guide is
 
 ## Installation
 
+The server is part of the base install:
+
 ```bash
-pip install -e .[server]
+pip install -e .
 ```
 
 ## Starting the Server
