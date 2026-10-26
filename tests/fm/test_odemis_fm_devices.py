@@ -1090,3 +1090,18 @@ def test_numpy_values_reach_odemis_as_plain_python(odemis):
 
     assert type(camera.exposureTime.value) is float
     assert type(focuser.position.value["z"]) is float
+
+
+def test_the_objective_says_where_insert_and_retract_put_it(odemis):
+    devices = _bound(odemis, "inserted")
+    objective = devices["objective"]
+    favourites = _unwrap(objective._focuser).getMetadata()
+
+    active = favourites[stubs.MD_FAV_POS_ACTIVE]["z"]
+    deactive = favourites[stubs.MD_FAV_POS_DEACTIVE]["z"]
+    assert objective.insert_position.get_value() == active
+    assert objective.retract_position.get_value() == deactive
+    objective.retract()
+    assert objective.position.get_value() == objective.retract_position.get_value()
+    objective.insert()
+    assert objective.position.get_value() == objective.insert_position.get_value()

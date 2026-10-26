@@ -4698,28 +4698,14 @@
   }
  },
  "iflm|FIB@FM|move_to_device(FIBSEM,FM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "relative",
-    {
-     "r": null,
-     "t": null,
-     "x": -0.0488,
-     "y": 0.0,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
+  "commands": [],
+  "device": "FM",
+  "objective": "Inserted",
   "orientation": "FIB",
   "position": {
    "r": 3.141592653589793,
    "t": 0.29670597283903605,
-   "x": 0.00010000000000000286,
+   "x": 0.048900000000000006,
    "y": 5e-05,
    "z": 0.0
   },
@@ -4927,28 +4913,14 @@
   }
  },
  "iflm|FIB@FM|move_to_device(FM,FM)": {
-  "commands": [
-   [
-    "retract"
-   ],
-   [
-    "relative",
-    {
-     "r": null,
-     "t": null,
-     "x": -0.0488,
-     "y": 0.0,
-     "z": null
-    }
-   ]
-  ],
-  "device": "FIBSEM",
-  "objective": "Retracted",
+  "commands": [],
+  "device": "FM",
+  "objective": "Inserted",
   "orientation": "FIB",
   "position": {
    "r": 3.141592653589793,
    "t": 0.29670597283903605,
-   "x": 0.00010000000000000286,
+   "x": 0.048900000000000006,
    "y": 5e-05,
    "z": 0.0
   },
@@ -5257,11 +5229,7 @@
   }
  },
  "iflm|FIB|move_to_device(FIBSEM,FM)": {
-  "commands": [
-   [
-    "retract"
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "FIB",
@@ -5432,11 +5400,7 @@
   }
  },
  "iflm|FIB|move_to_device(FM,FM)": {
-  "commands": [
-   [
-    "retract"
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "FIB",
@@ -5928,11 +5892,7 @@
   }
  },
  "iflm|MILLING|move_to_device(FIBSEM,FM)": {
-  "commands": [
-   [
-    "retract"
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "MILLING",
@@ -6093,11 +6053,7 @@
   }
  },
  "iflm|MILLING|move_to_device(FM,FM)": {
-  "commands": [
-   [
-    "retract"
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "MILLING",
@@ -6599,11 +6555,7 @@
   }
  },
  "iflm|SEM|move_to_device(FIBSEM,FM)": {
-  "commands": [
-   [
-    "retract"
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "SEM",
@@ -6764,11 +6716,7 @@
   }
  },
  "iflm|SEM|move_to_device(FM,FM)": {
-  "commands": [
-   [
-    "retract"
-   ]
-  ],
+  "commands": [],
   "device": "FIBSEM",
   "objective": "Retracted",
   "orientation": "SEM",

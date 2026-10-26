@@ -1986,6 +1986,9 @@ ARCTIS_CONFIGURATION = {
     "pixel_size": (2.74822695035461e-08, 2.74822695035461e-08),
     "resolution": (4512, 4512),
     "focus_position": 8.0e-3,  # 8000 microns
+    # Where the detector's own insert and retract put it; AutoScript can't say.
+    "insert_position": 6.0e-3,  # 6000 microns
+    "retract_position": -12.0e-3,  # -12000 microns
     "limit_position": 8.6e-3,  # 8600 microns
 }
 
@@ -1997,6 +2000,9 @@ ARCTIS_LWD_CONFIGURATION = {
     "pixel_size": (2.74822695035461e-08 * 2, 2.74822695035461e-08 * 2),
     "resolution": (4512, 4512),
     "focus_position": 7.6e-3,  # 7600 microns
+    # Where the detector's own insert and retract put it; AutoScript can't say.
+    "insert_position": 6.0e-3,  # 6000 microns
+    "retract_position": -12.0e-3,  # -12000 microns
     "limit_position": 8.6e-3,  # 8600 microns
 }
 
@@ -2427,6 +2433,12 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
 
     def read_numerical_aperture(self) -> float:
         return self._numerical_aperture
+
+    def read_insert_position(self) -> float:
+        return DEFAULT_CONFIGURATION["insert_position"]
+
+    def read_retract_position(self) -> float:
+        return DEFAULT_CONFIGURATION["retract_position"]
 
     def read_limit_position(self) -> float:
         return self._limit_position

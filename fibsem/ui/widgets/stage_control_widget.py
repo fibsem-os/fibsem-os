@@ -29,16 +29,17 @@ the process aborts. Whatever else changes here, registration and
 from __future__ import annotations
 
 import logging
-import math
 from functools import partial
 from typing import Any, Callable, Optional
 
 from PyQt5.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QGridLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
+    QVBoxLayout,
     QWidget,
 )
 from superqt import ensure_main_thread
@@ -80,35 +81,16 @@ FM_NEEDS_CALIBRATION = (
 
 
 def travel_route(microscope: FibsemMicroscope, device: str, orientation: str) -> list:
-    """What `move_to_device` does to reach *device* in *orientation*, step by step;
-    empty when the stage is already at *device* and only turns there."""
-    movement = microscope.stage_movement
-    source = movement.current_device()
-    if source is None or source == device:
+    """The lines of `plan_move_to_device`'s route to *device* in *orientation*;
+    empty when the stage doesn't travel (a turn at the beams), or when the move
+    is refused, which the move itself then reports."""
+    try:
+        steps = microscope.stage_movement.plan_move_to_device(device, orientation)
+    except ValueError:
         return []
-    turn = movement.stage_orientation() != orientation
-    origin, target = movement.device_origin(source), movement.device_origin(device)
-    legs = [
-        getattr(target, a) - getattr(origin, a)
-        for a in ("x", "y", "z")
-        if getattr(target, a) is not None and getattr(origin, a) is not None
-    ]
-    distance = f" {math.hypot(*legs) * 1e3:.1f} mm" if legs else ""
-    travel = (
-        f"Travel{distance} to the FM"
-        if device == "FM"
-        else f"Travel{distance} back to the beams"
-    )
-    steps = ["Retract the objective"]
-    if device == "FM":
-        if turn:
-            steps.append(f"Turn to the {orientation} orientation at the beams")
-        steps += [travel, "Insert the objective"]
-    else:
-        steps.append(travel)
-        if turn:
-            steps.append(f"Turn to the {orientation} orientation")
-    return steps
+    if not any(step["step"] == "travel" for step in steps):
+        return []
+    return [step["text"] for step in steps]
 
 
 class StageControlWidget(QWidget):
@@ -678,15 +660,20 @@ class StageControlWidget(QWidget):
         self._move_to_device("FM", orientation)
 
     def _confirm_travel(self, steps: list) -> bool:
-        answer = QMessageBox.question(
-            self,
-            "Move the stage",
-            "The stage will:\n\n"
-            + "\n".join(f"{i}. {step}" for i, step in enumerate(steps, 1)),
-            QMessageBox.Ok | QMessageBox.Cancel,
-            QMessageBox.Ok,
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Move the stage")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(
+            QLabel(
+                "The stage will:\n\n"
+                + "\n".join(f"{i}. {step}" for i, step in enumerate(steps, 1))
+            )
         )
-        return answer == QMessageBox.Ok
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        return dialog.exec_() == QDialog.Accepted
 
     def _move_to_device(self, device: str, orientation: str) -> None:
         """Move by `move_to_device`, asking first when the stage travels."""

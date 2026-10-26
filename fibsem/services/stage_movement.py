@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from copy import deepcopy
+from dataclasses import dataclass
 from typing import Any, Dict, Iterator, List, Optional, Tuple, Type, TypeVar
 
 import numpy as np
@@ -91,6 +92,76 @@ ROTATION_FRAME_DEVICE = "FIBSEM"
 
 # How near the stage's tilt must be to the tilt an insert asks for to stay put.
 SAFE_INSERT_TILT_TOLERANCE_DEG = 0.5
+
+
+@dataclass
+class RouteStep:
+    """One step of `StageMovement.move_to_device`'s route, with where it ends.
+
+    ``step`` is retract, turn, travel or insert. A retract or insert carries the
+    objective's z there (None where the driver can't say); a turn its orientation,
+    r and t; a travel the device it goes to and its translation. ``position`` is
+    the stage position the step ends at, where it is known.
+    """
+
+    step: str
+    objective_z: Optional[float] = None
+    moves_objective: bool = True
+    orientation: Optional[str] = None
+    r: Optional[float] = None
+    t: Optional[float] = None
+    device: Optional[str] = None
+    translation: Optional[FibsemStagePosition] = None
+    position: Optional[FibsemStagePosition] = None
+
+    @property
+    def text(self) -> str:
+        """The step as an operator reads it in a confirmation."""
+        if self.step in ("retract", "insert"):
+            verb = "Retract" if self.step == "retract" else "Insert"
+            z = "" if self.objective_z is None else f" to z = {_mm(self.objective_z)}"
+            return f"{verb} the objective{z}"
+        if self.step == "turn":
+            pose = ", ".join(
+                f"{name} = {np.degrees(value):.1f}°"
+                for name, value in (("r", self.r), ("t", self.t))
+                if value is not None
+            )
+            return f"Turn to the {self.orientation} orientation at the beams ({pose})"
+        place = (
+            "back to the beams"
+            if self.device == BEAMS_STAGE_DEVICE
+            else f"to the {self.device}"
+        )
+        legs = [
+            getattr(self.translation, axis)
+            for axis in DEVICE_AXES
+            if getattr(self.translation, axis) is not None
+        ]
+        text = f"Travel {float(np.hypot.reduce(legs)) * 1e3:.1f} mm {place}"
+        if self.position is not None:
+            text += ", to " + ", ".join(
+                f"{axis} = {_mm(getattr(self.position, axis))}"
+                for axis in DEVICE_AXES
+                if getattr(self.position, axis) is not None
+            )
+        return text
+
+    def to_dict(self) -> Dict[str, Any]:
+        values: Dict[str, Any] = {"step": self.step, "text": self.text}
+        if self.step in ("retract", "insert"):
+            values["objective_z"] = self.objective_z
+        if self.step == "turn":
+            values.update(orientation=self.orientation, r=self.r, t=self.t)
+        if self.step == "travel":
+            values.update(device=self.device, translation=self.translation.to_dict())
+        if self.position is not None:
+            values["position"] = self.position.to_dict()
+        return values
+
+
+def _mm(metres: float) -> str:
+    return f"{metres * 1e3:.3f} mm"
 
 
 class StageMovement(Service):
@@ -1322,9 +1393,11 @@ class StageMovement(Service):
         device there and `orientations["FM"]` is a copy of the FIB entry -- so that half
         is naturally confined to the stages that declare an FM pose.
 
-        The **objective** half applies on every mount: while the objective is
-        inserted, the axes it names (`ObjectiveLens.blocked_axes`, z and t as
-        measured) are left alone. The objective state is read live, every move: a stale
+        The **objective** half: while the objective is inserted, the axes it names
+        (`ObjectiveLens.blocked_axes`, z and t as measured) are left alone. Only a
+        driver whose absolute move asks (`without_blocked_axes`, AutoScript's) drops
+        them; an odemis stage moves z with the objective in, as an FM stable move
+        must. The objective state is read live, every move: a stale
         "Retracted" here moves the stage with the objective in the chamber.
         """
         blocked = []
@@ -1813,6 +1886,135 @@ class StageMovement(Service):
         finally:
             self._calibrating = False
 
+    @query
+    def plan_move_to_device(
+        self, device: str, orientation: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """The steps `move_to_device` would take, in order, with where each one ends,
+        without moving: what a confirmation lists before a travel. Each step has
+        ``step`` (retract, turn, travel or insert), ``text`` (one line for an
+        operator) and its values. Refuses what `move_to_device` refuses."""
+        return [step.to_dict() for step in self._route(device, orientation)]
+
+    def _route(self, device: str, orientation: Optional[str]) -> List[RouteStep]:
+        """`move_to_device`'s steps: every check it makes before anything moves, then
+        the moves. One list for the move and for `plan_move_to_device`, so a
+        confirmation can't list a route the stage doesn't take."""
+        target_device = self._device(device)  # refuses by name
+
+        if device == "FM" and self._fm_device() is None:
+            raise ValueError("FM module is not available. Cannot move to FM position.")
+
+        stage_position = self._position()
+        source = self.current_device(stage_position)
+        if source is None:
+            raise ValueError(
+                f"The stage is not at any configured device "
+                f"({sorted(self.parent.system.stage.devices)}), so there is nothing to "
+                f"travel from. Position: {stage_position}."
+            )
+
+        # The pose to arrive in. An explicit ask is honoured as asked; otherwise the
+        # pose is carried across, unless the target device cannot image from it --
+        # then its first declared acquisition orientation stands in.
+        desired = self._arrival_orientation(device, stage_position, orientation)
+        if desired is not None and orientation is None:
+            logging.info(
+                f"The {device} device images from "
+                f"{target_device.available_orientations}; re-posing to {desired} "
+                f"at the beams before travelling."
+            )
+
+        if device == "FM" and source != "FM":
+            self._refuse_uncalibrated_fm_travel()
+
+        steps: List[RouteStep] = []
+        if desired is None and source == device:
+            logging.info(f"Already at {device} position, no need to move.")
+        else:
+            # Both ends checked before anything moves: the source by finding it, the
+            # target by converting to where the stage will arrive.
+            arrival = self._planned_arrival(device, stage_position, desired)
+            if arrival is not None:
+                self._check_arrival(device, arrival)
+
+            if desired is not None:
+                # The bracketing order: every re-pose happens at the beams, where the
+                # rotation is about the sample rather than a 48.8 mm arm.
+                #
+                # Driven to the *converted* position, not to the orientation by name.
+                # `move_to_orientation` rewrites r and t where the stage stands; a half
+                # turn there is compucentric about a centre that is not the sample, so the
+                # point that was under the beam is swung away and the traverse carries the
+                # wrong piece of sample out. The transform is what every pose derivation
+                # and overview marker uses, so arriving where it says is what puts the
+                # stage on the marked point. Falls back to the bare re-pose only from a
+                # pose the classifier cannot name: there is no point to keep there, and
+                # the fallback is how a stage in an unsupported pose gets back to a
+                # supported one.
+                try:
+                    at_the_beams = self.target_position(
+                        stage_position, desired, target_device=ROTATION_FRAME_DEVICE
+                    )
+                except ValueError as e:
+                    logging.warning(
+                        f"Re-posing to {desired} without keeping the sample point: {e}"
+                    )
+                    at_the_beams = None
+
+                steps.append(self._retract_step())
+                steps += self._travel_steps(
+                    source, ROTATION_FRAME_DEVICE, stage_position
+                )
+                pose = self.orientation(desired)
+                steps.append(
+                    RouteStep(
+                        "turn",
+                        orientation=desired,
+                        position=at_the_beams,
+                        r=pose.r,
+                        t=pose.t,
+                    )
+                )
+                steps += self._travel_steps(ROTATION_FRAME_DEVICE, device, at_the_beams)
+            elif _moves(self._device_translation(source, device)):
+                steps.append(self._retract_step())
+                steps += self._travel_steps(source, device, stage_position)
+
+        # Unconditional, so that the postcondition is the device *and* the objective
+        # state together: asking again for a device the stage is already at cannot
+        # leave the FM blind.
+        if device == "FM":
+            steps.append(
+                RouteStep("insert", objective_z=self._objective().insert_position)
+            )
+        return steps
+
+    def _retract_step(self) -> RouteStep:
+        fm = self._fm_device()
+        return RouteStep(
+            "retract",
+            objective_z=None if fm is None else self._objective().retract_position,
+            moves_objective=fm is not None,
+        )
+
+    def _travel_steps(
+        self, source: str, target: str, start: Optional[FibsemStagePosition]
+    ) -> List[RouteStep]:
+        """The traverse from one device to another, or none where they share a place.
+        Ends at *start* moved by it, where *start* is known."""
+        translation = self._device_translation(source, target)
+        if not _moves(translation):
+            return []
+        return [
+            RouteStep(
+                "travel",
+                device=target,
+                translation=translation,
+                position=None if start is None else start + translation,
+            )
+        ]
+
     @command
     def move_to_device(self, device: str, orientation: Optional[str] = None) -> None:
         """Travel to `device`, re-posing on the way when the pose has to change.
@@ -1820,7 +2022,8 @@ class StageMovement(Service):
         One call that owns the safe order -- retract the objective, re-pose at the
         beams, travel out -- so a rotation never happens with the stage parked under
         an objective. The rotation guard stays underneath as the last-line
-        assert; the route this composes never trips it.
+        assert; the route this composes never trips it. `plan_move_to_device` lists
+        the same route without moving.
 
         `orientation` names the pose to arrive in. Omitted, the pose is carried
         across untouched whenever the target device can image from it -- that is the
@@ -1838,94 +2041,18 @@ class StageMovement(Service):
             device=device,
             orientation=orientation,
         ):
-            target_device = self._device(device)  # refuses by name
-
-            if device == "FM" and self._fm_device() is None:
-                raise ValueError(
-                    "FM module is not available. Cannot move to FM position."
-                )
-
-            stage_position = self._position()
-            source = self.current_device(stage_position)
-            if source is None:
-                raise ValueError(
-                    f"The stage is not at any configured device "
-                    f"({sorted(self.parent.system.stage.devices)}), so there is nothing to "
-                    f"travel from. Position: {stage_position}."
-                )
-
-            # The pose to arrive in. An explicit ask is honoured as asked; otherwise the
-            # pose is carried across, unless the target device cannot image from it --
-            # then its first declared acquisition orientation stands in.
-            desired = self._arrival_orientation(device, stage_position, orientation)
-            if desired is not None and orientation is None:
-                logging.info(
-                    f"The {device} device images from "
-                    f"{target_device.available_orientations}; re-posing to {desired} "
-                    f"at the beams before travelling."
-                )
-
-            if device == "FM" and source != "FM":
-                self._refuse_uncalibrated_fm_travel()
-
-            if desired is None and source == device:
-                logging.info(f"Already at {device} position, no need to move.")
-            else:
-                # Both ends checked before anything moves: the source by finding it, the
-                # target by converting to where the stage will arrive.
-                arrival = self._planned_arrival(device, stage_position, desired)
-                if arrival is not None:
-                    self._check_arrival(device, arrival)
-
-                if desired is not None:
-                    # The bracketing order: every re-pose happens at the beams, where the
-                    # rotation is about the sample rather than a 48.8 mm arm.
-                    #
-                    # Driven to the *converted* position, not to the orientation by name.
-                    # `move_to_orientation` rewrites r and t where the stage stands; a half
-                    # turn there is compucentric about a centre that is not the sample, so the
-                    # point that was under the beam is swung away and the traverse carries the
-                    # wrong piece of sample out. The transform is what every pose derivation
-                    # and overview marker uses, so arriving where it says is what puts the
-                    # stage on the marked point. Falls back to the bare re-pose only from a
-                    # pose the classifier cannot name: there is no point to keep there, and
-                    # the fallback is how a stage in an unsupported pose gets back to a
-                    # supported one.
-                    try:
-                        at_the_beams = self.target_position(
-                            stage_position, desired, target_device="FIBSEM"
-                        )
-                    except ValueError as e:
-                        logging.warning(
-                            f"Re-posing to {desired} without keeping the sample point: {e}"
-                        )
-                        at_the_beams = None
-
+            for step in self._route(device, orientation):
+                if step.step == "retract":
                     self._retract_objective_to_move(device)
-                    self._travel(source, "FIBSEM")
-                    if at_the_beams is not None:
-                        self.safe_absolute_stage_movement(at_the_beams)
+                elif step.step == "travel":
+                    self._move_stage(step.translation, relative=True)
+                elif step.step == "turn":
+                    if step.position is not None:
+                        self.safe_absolute_stage_movement(step.position)
                     else:
-                        self.move_to_orientation(desired)
-                    self._travel("FIBSEM", device)
-                elif _moves(self._device_translation(source, device)):
-                    self._retract_objective_to_move(device)
-                    self._travel(source, device)
-
-            # Unconditional, so that the postcondition is the device *and* the objective
-            # state together: asking again for a device the stage is already at cannot
-            # leave the FM blind.
-            if device == "FM":
-                self._objective().insert()
-
-    def _travel(self, source: str, target: str) -> None:
-        """Move the stage by the translation from one device to another, if any.
-
-        Nothing is commanded between two devices at one place (a compustage's beams
-        and an FM without an origin of its own)."""
-        translation = self._device_translation(source, target)
-        if _moves(translation):
-            self._move_stage(translation, relative=True)
+                        self.move_to_orientation(step.orientation)
+                elif step.step == "insert":
+                    self._objective().insert()
 
     def _retract_objective_to_move(self, device: str) -> None:
         """Retract the objective immediately before the stage moves, and only then.
