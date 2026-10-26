@@ -1,12 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, forgetToken } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { setNoticePrefs, systemNotices, useNoticePrefs } from "@/lib/notify";
-import type { Capabilities, Pairing, PairingRole } from "@/lib/types";
+import type { Capabilities, NotificationSettings, Pairing, PairingRole } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = { connections: "Connections", notifications: "Notifications", about: "About" } as const;
@@ -187,6 +187,140 @@ export function Connections({ roles = ["operator", "agent"] }: { roles?: Pairing
   );
 }
 
+type Slack = NotificationSettings["settings"];
+
+const FIELD = "rounded border border-input bg-background px-2 py-1 text-[13px] text-foreground";
+
+/** A text setting, saved when the field is left. */
+function SlackText({ value, save, ...rest }: { value: string; save: (v: string) => void } & Record<string, unknown>) {
+  return (
+    <input
+      key={value}
+      defaultValue={value}
+      className={cn(FIELD, "w-64")}
+      onBlur={(e) => e.target.value.trim() !== value && save(e.target.value.trim())}
+      onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+      {...rest}
+    />
+  );
+}
+
+/** This instrument's Slack messages, sent by the host for everyone: the operator's to set. */
+function SlackCard() {
+  const client = useQueryClient();
+  const slack = useQuery({
+    queryKey: ["app/notifications"],
+    queryFn: () => api<NotificationSettings>("/app/notifications"),
+    retry: false,
+  });
+  const put = useMutation({
+    mutationFn: (change: Partial<Slack>) =>
+      api<NotificationSettings>("/app/notifications", { method: "PUT", body: JSON.stringify(change) }),
+    onSuccess: (answer) => client.setQueryData(["app/notifications"], answer),
+  });
+  const test = useMutation({
+    mutationFn: () => api<{ channel_id: string }>("/app/notifications/test", { method: "POST" }),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["app/notifications"] }),
+  });
+  // Not the operator (a dashboard, an agent), or a host without the routes.
+  if (!slack.data) return null;
+  const { settings: s, token_set, token_from } = slack.data;
+  const set = (change: Partial<Slack>) => {
+    test.reset();
+    put.mutate(change);
+  };
+  const check = (key: keyof Slack, label: ReactNode) => (
+    <label className="flex items-center gap-2">
+      <input
+        type="checkbox"
+        className="accent-primary"
+        checked={Boolean(s[key])}
+        onChange={(e) => set({ [key]: e.target.checked })}
+      />
+      {label}
+    </label>
+  );
+  return (
+    <div className="flex flex-col gap-3 text-[13px]">
+      <h3 className="m-0 border-t border-border pt-4 text-[13px] font-semibold text-muted-foreground">
+        This instrument: Slack <span className="font-normal">· for everyone, sent by the host</span>
+      </h3>
+      {check("enabled", "Send notifications to Slack")}
+      <div className="grid grid-cols-[110px_minmax(0,1fr)] items-center gap-x-3 gap-y-2">
+        <span className="text-muted-foreground">Bot token</span>
+        <span>
+          {token_set ? "Set" : "Not set"}
+          <span className="text-muted-foreground">
+            {" "}
+            · {token_set ? "from" : "set"} {token_from} on this PC{token_set ? "" : ", then start the host again"}
+          </span>
+        </span>
+        <span className="text-muted-foreground">Channel</span>
+        <span className="flex items-center gap-2">
+          <SlackText
+            value={s.channel}
+            save={(channel: string) => set({ channel })}
+            placeholder="#microscope-alerts"
+            aria-label="Channel"
+          />
+          <span className="text-muted-foreground">add the bot to it first</span>
+        </span>
+        <span className="text-muted-foreground">Open links at</span>
+        <span className="flex items-center gap-2">
+          <SlackText
+            value={s.link}
+            save={(link: string) => set({ link })}
+            placeholder={`${location.origin}/ui`}
+            aria-label="Open links at"
+          />
+          <span className="text-muted-foreground">your end of the SSH tunnel</span>
+        </span>
+      </div>
+      <span className="text-xs font-semibold text-muted-foreground">Send</span>
+      <label className="flex items-center gap-2">
+        <input
+          type="checkbox"
+          className="accent-primary"
+          checked={s.answers}
+          onChange={(e) => set({ answers: e.target.checked })}
+        />
+        Unanswered for
+        <input
+          key={s.wait_minutes}
+          type="number"
+          min={0}
+          aria-label="Minutes"
+          defaultValue={s.wait_minutes}
+          className={cn(FIELD, "w-16 tabular-nums")}
+          onBlur={(e) => {
+            const minutes = Number(e.target.value);
+            if (e.target.value !== "" && minutes >= 0 && minutes !== s.wait_minutes) set({ wait_minutes: minutes });
+          }}
+        />
+        min
+      </label>
+      {check("messages", "The agent's messages")}
+      {check("failures", "Something failed")}
+      {check("run_finished", "A run finished")}
+      {check(
+        "images",
+        <span>
+          Include images <span className="text-muted-foreground">· they leave this network</span>
+        </span>,
+      )}
+      <span className="flex items-center gap-3">
+        <Button disabled={!token_set || !s.channel || test.isPending} onClick={() => test.mutate()}>
+          Send test
+        </Button>
+        {test.isSuccess && <span className="text-muted-foreground">Sent to {s.channel}</span>}
+        {(test.error || put.error) && (
+          <span className="text-destructive">{((test.error || put.error) as Error).message}</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
 /** How this browser tells the operator, beyond its toasts, that the agent needs an answer. */
 function Notifications() {
   const prefs = useNoticePrefs();
@@ -201,6 +335,9 @@ function Notifications() {
         : "The browser asks for permission when you turn it on.";
   return (
     <div className="flex flex-col gap-3 text-[13px]">
+      <h3 className="m-0 text-[13px] font-semibold text-muted-foreground">
+        This browser <span className="font-normal">· only you, here</span>
+      </h3>
       <label className="flex items-start gap-2">
         <input
           type="checkbox"
@@ -251,6 +388,7 @@ function Notifications() {
         />
         Play a sound when the agent asks
       </label>
+      <SlackCard />
     </div>
   );
 }
