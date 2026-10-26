@@ -42,6 +42,7 @@ from fibsem.geometry.stage_places import (
     StagePlane,
     device_stations,
     holder_square,
+    sample_height,
     slot_points,
 )
 from fibsem.structures.settings import BeamType, FibsemStagePosition
@@ -142,11 +143,15 @@ class StageMap(QWidget):
                 scan_rotation=0.0,
             )
             sem = microscope.get_orientation("SEM")
-            # Fixed once, as a frame's origin must be. z is taken from the first
-            # position the map is given (see `set_stage`): the electron view of a
-            # pre-tilted stage moves with z, and an origin a few millimetres off in z
-            # would shift everything by a comparable amount in y.
-            self._origin = FibsemStagePosition(x=0.0, y=0.0, z=None, r=sem.r, t=sem.t)
+            # Fixed once, as a frame's origin must be. z is the sample's: the holder's
+            # slot height when it is calibrated, else the first position the map is
+            # given (see `set_stage`). The electron view of a pre-tilted stage moves
+            # with z, and an origin a few millimetres off in z would shift everything
+            # by a comparable amount in y -- a stage first seen at z 0 drew a METEOR's
+            # FM station off to one side of the stage standing at it (2026-10-26).
+            self._origin = FibsemStagePosition(
+                x=0.0, y=0.0, z=sample_height(microscope), r=sem.r, t=sem.t
+            )
         except Exception:
             logger.debug("The stage map could not read its geometry", exc_info=True)
         self.update()
