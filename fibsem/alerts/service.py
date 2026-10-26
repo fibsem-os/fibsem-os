@@ -106,12 +106,15 @@ class Alerts:
         self._make_channel = channel
         self._rules = AlertRules(session, clock=clock)
         self._now = now
-        # What happened before this started is history, not news.
-        self._started = now()
         self._poll_s = poll_s
         # The last record read from each stream (the idle one and each
         # microscope's), so a reconnect reads on from where it was.
         self._seen: Dict[str, int] = {}
+        # What happened before this started is history, not news: the stream
+        # there is now is read as history here, and a stream first seen
+        # later only from this moment on.
+        self._started = now()
+        self._read(news=False)
         self._poster: Optional[Any] = None
         self._poster_for: Optional[tuple] = None
         self._stop = threading.Event()
@@ -148,12 +151,14 @@ class Alerts:
 
     # --- one pass ------------------------------------------------------------
 
-    def _read(self) -> None:
+    def _read(self, news: bool = True) -> None:
         buffer = self._session.event_buffer
         stream = buffer.stream
+        known = stream in self._seen
         page = buffer.events_since(self._seen.get(stream, 0))
         for record in page["events"]:
-            self._rules.feed(record, news=record.get("timestamp", 0) >= self._started)
+            new = news and (known or record.get("timestamp", 0) >= self._started)
+            self._rules.feed(record, news=new)
         self._seen[stream] = page["latest_seq"]
 
     def tick(self) -> List[Alert]:
