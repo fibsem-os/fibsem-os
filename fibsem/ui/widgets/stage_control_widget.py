@@ -80,6 +80,24 @@ FM_NEEDS_CALIBRATION = (
 )
 
 
+AT_THE_FM = (
+    "At the FM the beams can't see the sample: travel back to the beams to move "
+    "from a SEM or FIB image."
+)
+
+
+def beam_move_refusal(microscope: FibsemMicroscope) -> Optional[str]:
+    """Why a move picked from a beam image may not be made, or None.
+
+    On an offset FM, at the FM the beams look at a point about 50 mm from the sample,
+    so a move worked out from their pixels lands nowhere in particular, under an
+    inserted objective."""
+    movement = microscope.stage_movement
+    if movement.travels_to_fm() and movement.current_device() == "FM":
+        return AT_THE_FM
+    return None
+
+
 def travel_route(microscope: FibsemMicroscope, device: str, orientation: str) -> list:
     """The lines of `plan_move_to_device`'s route to *device* in *orientation*;
     empty when the stage doesn't travel (a turn at the beams), or when the move
@@ -603,6 +621,10 @@ class StageControlWidget(QWidget):
             notification_service.show_toast(
                 "Cannot move stage while milling is in progress."
             )
+            return
+        refusal = beam_move_refusal(self.microscope)
+        if refusal is not None:
+            notification_service.show_toast(refusal, "warning")
             return
         image = (
             self.image_widget.eb_image
