@@ -642,7 +642,10 @@ class FluorescenceImage:
         # first use. An offline microscope PC (the normal case) blocked on the
         # socket timeout and then raised on every FM save. Outbound network
         # calls are opt-in and must never sit on the acquisition path.
-        ome_xml = ome_md.to_xml()
+        # A TIFF description is 7-bit ASCII, and a METEOR names its filters with an
+        # en dash ("579.5–610.5 nm"): written as XML character references, which every
+        # XML reader turns back into the same text.
+        ome_xml = ome_md.to_xml().encode("ascii", "xmlcharrefreplace").decode("ascii")
 
         # Reshape image to 5D for tifffile (CZYX -> TCZYX)
         if self.data.ndim != 5:
