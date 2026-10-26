@@ -539,6 +539,9 @@ class FluorescenceMicroscope:
     # start it can grey its controls out. Emitted from whichever thread set the flag --
     # connect with `@ensure_main_thread` if the slot touches widgets.
     acquiring_changed = Signal(bool)
+    # Raised with the reason when the live view stops on an error. Same threading
+    # contract as the signals above.
+    acquisition_failed = Signal(str)
     # Raised when the user's image transform changes. It is part of
     # `fm_image_geometry()`, so it is an input to every projection between stage space
     # and a canvas -- a display that keeps one has to be told, and had no way to know.
@@ -762,6 +765,31 @@ class FluorescenceMicroscope:
         acquisition inside an outer run costs nothing.
         """
         yield
+
+    def default_channel(self) -> ChannelSettings:
+        """A new channel on wavelengths this FM has: the excitation nearest the
+        default's, and the default's emission filter, else the lowest band above that
+        excitation, else the first filter."""
+        channel = ChannelSettings()
+        excitations = self.filter_set.available_excitation_wavelengths
+        if excitations:
+            wanted = channel.excitation_wavelength
+            channel.excitation_wavelength = min(
+                excitations, key=lambda nm: abs(nm - wanted)
+            )
+        filters = self.filter_set.available_emission_filters
+        if filters:
+            try:
+                found = matching_emission_filter(channel.emission_filter, filters)
+            except ValueError:
+                above = [
+                    f
+                    for f in filters
+                    if f.low is not None and f.low > channel.excitation_wavelength
+                ]
+                found = min(above, key=lambda f: f.low) if above else filters[0]
+            channel.emission_filter = found
+        return channel
 
     def set_channel(self, channel_settings: ChannelSettings):
         """Configure the microscope for a specific fluorescence channel.
@@ -1236,6 +1264,7 @@ class FluorescenceMicroscope:
                 group.stop_live()
         except Exception as e:
             logging.error(f"Error in acquisition worker: {e}")
+            self.acquisition_failed.emit(str(e))
         finally:
             self._streaming.clear()
             self.acquiring_changed.emit(self.is_acquiring)

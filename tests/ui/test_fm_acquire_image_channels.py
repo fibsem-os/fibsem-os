@@ -131,3 +131,45 @@ def test_cancel_stops_the_service_run(widget, monkeypatch):
     widget.cancel_acquisition()
 
     assert stopped == [1]
+
+
+def _toasts(monkeypatch):
+    shown = []
+    monkeypatch.setattr(
+        module.notification_service,
+        "show_toast",
+        lambda message, notification_type="info", **_: shown.append(
+            (notification_type, message)
+        ),
+    )
+    return shown
+
+
+def test_a_failed_image_says_so_and_is_not_reported_saved(widget, monkeypatch, caplog):
+    """B10: the worker's errors only reached the log."""
+    shown = _toasts(monkeypatch)
+    monkeypatch.setattr(
+        widget.microscope.imaging,
+        "fm_acquire_image",
+        lambda *a, **k: {"status": "ok", "image": {"path": "/nowhere/image.ome.tiff"}},
+    )
+
+    widget._image_acquistion_worker([ChannelSettings()], None, "/nowhere", "image")
+
+    assert shown == [
+        (
+            "error",
+            "Image not acquired: the image was not written to /nowhere/image.ome.tiff",
+        )
+    ]
+    assert "Image saved" not in caplog.text
+
+
+def test_a_live_view_that_stops_on_an_error_says_why(widget, monkeypatch):
+    shown = _toasts(monkeypatch)
+
+    widget.fm.acquisition_failed.emit("No emission filter for 'Reflection'")
+
+    assert shown == [
+        ("error", "Live view stopped: No emission filter for 'Reflection'")
+    ]

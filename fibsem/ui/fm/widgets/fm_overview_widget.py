@@ -312,7 +312,8 @@ class FMOverviewWidget(OverviewWidgetBase):
                 return list(config.channel_settings)
         except Exception as e:
             logging.debug(f"Could not load the saved FM configuration: {e}")
-        return [ChannelSettings(name="Channel-01")]
+        fm = self.microscope.fm
+        return [fm.default_channel() if fm is not None else ChannelSettings()]
 
     # ── layout ───────────────────────────────────────────────────────────
 
