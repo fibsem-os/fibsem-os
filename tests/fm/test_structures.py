@@ -528,6 +528,37 @@ def test_fluorescence_image_creation():
     assert image.metadata.channels[0].name == "GFP"
 
 
+def test_a_filter_named_with_an_en_dash_saves_and_loads_back(tmp_path):
+    """A METEOR names its filters "579.5–610.5 nm". A TIFF description is 7-bit
+    ASCII, so the save failed with "TIFF strings must be 7-bit ASCII", and
+    acquire_image logged the failure and went on, losing the stack."""
+    name = "579.5–610.5 nm"
+    channel = FluorescenceChannelMetadata(
+        name="Channel-01",
+        excitation_wavelength=500.0,
+        emission_filter=EmissionFilter(name=name, bands=((579.5, 610.5),)),
+        power=0.5,
+        exposure_time=0.1,
+        gain=1.0,
+        offset=0.0,
+    )
+    metadata = FluorescenceImageMetadata(
+        acquisition_datetime=datetime.now().isoformat(),
+        pixel_size_x=100e-9,
+        pixel_size_y=100e-9,
+        resolution=(16, 16),
+        channels=[channel],
+    )
+    filename = str(tmp_path / "stack.ome.tiff")
+
+    FluorescenceImage(
+        data=np.zeros((1, 1, 16, 16), dtype=np.uint16), metadata=metadata
+    ).save(filename)
+
+    loaded = FluorescenceImage.load(filename)
+    assert loaded.metadata.channels[0].emission_filter.name == name
+
+
 def test_fluorescence_image_save_creates_the_directory(tmp_path):
     """save() names a file, so it owns the directory that file lands in.
 
