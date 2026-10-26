@@ -1349,6 +1349,12 @@ class DemoObjective(Objective):
     def read_numerical_aperture(self) -> float:
         return self.sim_numerical_aperture
 
+    def read_insert_position(self) -> float:
+        return self.sim_insert_position
+
+    def read_retract_position(self) -> float:
+        return self.sim_retract_position
+
     def read_limit_position(self) -> float:
         return self.sim_limit_position
 

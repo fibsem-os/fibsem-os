@@ -1024,7 +1024,7 @@ class AppContext:
         image = frame_path(evidence)
         if image:
             root = self.experiment_path
-            image = os.path.relpath(image, root) if root else image
+            image = os.path.relpath(image, root).replace(os.sep, "/") if root else image
         suggestion = Suggestion(
             actor=Actor.agent(actor or "remote"),
             reason=reason,

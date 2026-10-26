@@ -71,7 +71,8 @@ def test_discovery_file_lives_and_dies_with_the_server(host, microscope, tmp_pat
     host.stop()
     assert not host.running
     assert read_discovery_file(path) is None
-    with pytest.raises(httpx.ConnectError):
+    # Windows answers a closed port with a timeout, not a refusal.
+    with pytest.raises((httpx.ConnectError, httpx.ConnectTimeout)):
         httpx.get(f"{host.url}/health", timeout=2)
 
 

@@ -351,10 +351,12 @@ def test_the_drivers_are_the_fm_devices(facts):
     ]
     assert facts["parameters"]["objective"] == [
         "focus_position",
+        "insert_position",
         "limit_position",
         "magnification",
         "numerical_aperture",
         "position",
+        "retract_position",
         "state",
     ]
     assert {"acquire_frame", "start_live", "stop_live"} <= set(facts["commands"]["fm"])

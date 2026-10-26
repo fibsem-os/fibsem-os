@@ -139,10 +139,10 @@ def test_the_route_is_listed_for_a_travel_and_not_for_a_turn(stage_control):
     microscope.move_to_orientation("SEM")
 
     assert travel_route(microscope, "FM", "FIB") == [
-        "Retract the objective",
-        "Turn to the FIB orientation at the beams",
-        "Travel 48.8 mm to the FM",
-        "Insert the objective",
+        "Retract the objective to z = -10.000 mm",
+        "Turn to the FIB orientation at the beams (r = 180.0°, t = 17.0°)",
+        "Travel 48.8 mm to the FM, to x = 48.800 mm, y = 0.000 mm, z = 0.000 mm",
+        "Insert the objective to z = 6.000 mm",
     ]
     assert travel_route(microscope, "FIBSEM", "FIB") == []
 
@@ -155,16 +155,19 @@ def test_the_fm_button_travels_and_sem_brings_the_stage_back(stage_control):
     _press(control, control.pushButton_move_to_fm)
     assert movement.current_device() == "FM"
     assert microscope.fm.objective.state is InsertableDeviceState.INSERTED
-    assert asked[-1][-2:] == ["Travel 48.8 mm to the FM", "Insert the objective"]
+    assert asked[-1][-2:] == [
+        "Travel 48.8 mm to the FM, to x = 48.800 mm, y = 0.000 mm, z = 0.000 mm",
+        "Insert the objective to z = 6.000 mm",
+    ]
 
     _press(control, control.pushButton_move_to_sem_orientation)
     assert movement.current_device() == "FIBSEM"
     assert movement.stage_orientation() == "SEM"
     assert microscope.fm.objective.state is InsertableDeviceState.RETRACTED
     assert asked[-1] == [
-        "Retract the objective",
-        "Travel 48.8 mm back to the beams",
-        "Turn to the SEM orientation",
+        "Retract the objective to z = -10.000 mm",
+        "Travel 48.8 mm back to the beams, to x = 0.000 mm, y = 0.000 mm, z = 0.000 mm",
+        "Turn to the SEM orientation at the beams (r = 0.0°, t = 35.0°)",
     ]
 
 

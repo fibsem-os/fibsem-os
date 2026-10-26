@@ -893,6 +893,18 @@ class OdemisFMObjective(Objective):
             "deactive_position", model.MD_FAV_POS_DEACTIVE, "deactive"
         )
 
+    def available_insert_position(self) -> bool:
+        return self.active_position is not None
+
+    def read_insert_position(self) -> float:
+        return self.active_position["z"]
+
+    def available_retract_position(self) -> bool:
+        return self.deactive_position is not None
+
+    def read_retract_position(self) -> float:
+        return self.deactive_position["z"]
+
     def _limits(self) -> Tuple[float, float]:
         rng = self._focuser.axes["z"].range
         return (rng[0], rng[1])

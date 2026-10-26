@@ -251,7 +251,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         # of microns off the marks it is meant to show. Opt-in: the
         # default leaves the pose alone, as the task always has.
         if self.config.sync_fluorescence_pose:
-            sync_fluorescence_pose(self.microscope, self.lamella)
+            sync_fluorescence_pose(self.microscope, self.lamella, force=True)
 
     def _select_poi(self) -> None:
         """Ask for the point of interest on the FIB image the reference
