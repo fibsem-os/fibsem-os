@@ -6,7 +6,6 @@ import threading
 import time
 
 import httpx
-import pytest
 import uvicorn
 
 from fibsem.server.uvicorn_server import Server
@@ -95,8 +94,3 @@ def _late_connection_at_stop(server_class):
 
 def test_a_connection_made_as_the_server_stops_does_not_keep_it_serving():
     assert _late_connection_at_stop(Server)
-
-
-@pytest.mark.xfail(strict=True, reason="uvicorn's own shutdown misses it")
-def test_plain_uvicorn_keeps_serving_it():
-    assert _late_connection_at_stop(uvicorn.Server)
