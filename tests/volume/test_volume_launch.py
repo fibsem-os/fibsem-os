@@ -52,6 +52,7 @@ def test_an_experiment_must_exist_unless_created(tmp_path, capsys):
 
 
 def test_with_the_window_no_experiment_is_needed(monkeypatch):
+    pytest.importorskip("PyQt5")
     import fibsem.applications.volume.ui.window as window
 
     opened = []

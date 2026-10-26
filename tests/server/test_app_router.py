@@ -910,7 +910,7 @@ def test_grid_markers_take_a_saved_image_by_its_path(client, host, grid_with_ove
     path = os.path.relpath(
         host.experiment.grid_path(grid_with_overview) / "overview_sem" / "overview.tif",
         str(host.experiment.path),
-    )
+    ).replace(os.sep, "/")
     assert "/" in path
     response = client.get(
         f"/app/experiment/grids/grid-aspen/outputs/{quote(path, safe='')}/markers",
@@ -1118,12 +1118,12 @@ def test_draw_image_shows_a_stack_s_plane(client, host):
     poi = {"points": [{"x": 80, "y": 20, "z": 2, "label": "POI"}]}
     resp = client.post(url, headers=AUTH, json={"path": path, "marks": poi})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["path"].endswith("drawn/stack-plane-3.png")
+    assert resp.json()["path"].replace(os.sep, "/").endswith("drawn/stack-plane-3.png")
     assert resp.json()["marks"]["points"][0]["z"] == 2
     asked = client.post(url, headers=AUTH, json={"path": path, "plane": 0})
-    assert asked.json()["path"].endswith("drawn/stack-plane-1.png")
+    assert asked.json()["path"].replace(os.sep, "/").endswith("drawn/stack-plane-1.png")
     flat = client.post(url, headers=AUTH, json={"path": path})
-    assert flat.json()["path"].endswith("drawn/stack.png")
+    assert flat.json()["path"].replace(os.sep, "/").endswith("drawn/stack.png")
     for body in ({"plane": -1}, {"plane": "2"}, {"plane": 3}):
         refused = client.post(url, headers=AUTH, json={"path": path, **body})
         assert refused.status_code == 422, body
@@ -1143,7 +1143,11 @@ def test_draw_image_shows_a_stack_s_plane(client, host):
         },
     )
     assert pair.status_code == 200, pair.text
-    assert pair.json()["path"].endswith("drawn/stack-plane-3-stack-plane-1.png")
+    assert (
+        pair.json()["path"]
+        .replace(os.sep, "/")
+        .endswith("drawn/stack-plane-3-stack-plane-1.png")
+    )
 
 
 def test_draw_pair_puts_two_images_side_by_side_at_one_scale(
@@ -1706,7 +1710,7 @@ OVERVIEW = "grids/grid-aspen/overview_sem/overview.tif"
 
 
 def test_experiment_files_list_one_folder_at_watch(client, host, grid_with_overview):
-    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    (Path(host.experiment.path) / "notes.md").write_bytes(b"# notes\n")
     top = client.get("/app/experiment/files", headers=AUTH)
     assert top.status_code == 200
     entries = {e["name"]: e for e in top.json()["entries"]}
@@ -1743,7 +1747,7 @@ def test_experiment_files_list_numbered_folders_in_number_order(tmp_path):
 def test_experiment_files_read_text_and_image_previews(
     client, host, grid_with_overview
 ):
-    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    (Path(host.experiment.path) / "notes.md").write_bytes(b"# notes\n")
     text = client.get("/app/experiment/files/notes.md", headers=AUTH).json()
     assert text["text"] == "# notes\n"
     assert text["truncated"] is False
@@ -1941,7 +1945,7 @@ def test_experiment_files_stay_inside_the_experiment(client, host, tmp_path):
     outside = tmp_path / "elsewhere.md"
     outside.write_text("secret")
     (Path(host.experiment.path) / "link.md").symlink_to(outside)
-    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    (Path(host.experiment.path) / "notes.md").write_bytes(b"# notes\n")
     for path in ("..%2Felsewhere.md", "link.md", str(outside)):
         refused = client.get(f"/app/experiment/files/{path}", headers=AUTH)
         assert refused.status_code == 403, path
@@ -1970,7 +1974,7 @@ def test_sidecar_reads_experiment_files_as_tools_and_resources(
     pytest.importorskip("mcp")
     from fibsem.ai.agent.mcp.sidecar import build_sidecar
 
-    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    (Path(host.experiment.path) / "notes.md").write_bytes(b"# notes\n")
     client.headers["Authorization"] = f"Bearer {TOKEN}"
     sidecar = build_sidecar(client, client.get("/capabilities").json())
 
@@ -2160,7 +2164,7 @@ def test_a_fluorescence_stack_reads_one_plane_in_some_channels(client, host):
     )
     path = Path(host.experiment.path) / "stack.ome.tiff"
     FluorescenceImage(data=data, metadata=metadata).save(str(path))
-    (Path(host.experiment.path) / "notes.md").write_text("# notes\n")
+    (Path(host.experiment.path) / "notes.md").write_bytes(b"# notes\n")
     url = "/app/experiment/files/stack.ome.tiff"
 
     whole = client.get(url, headers=AUTH).json()

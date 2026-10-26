@@ -497,6 +497,7 @@ def test_files_mode_works_on_windows_but_still_needs_a_folder_of_its_own(
     from fibsem.ai.agent import code_mode
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     checkout = tmp_path / "fibsem-os"
     work = tmp_path / "home" / "fibsem-work"
     monkeypatch.setattr(code_mode.sys, "platform", "win32")
@@ -570,6 +571,7 @@ def test_code_mode_needs_a_folder_of_its_own(tmp_path, monkeypatch):
     from fibsem.ai.agent import code_mode
 
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     checkout = tmp_path / "fibsem-os"
     work = tmp_path / "home" / "fibsem-work"
     monkeypatch.setattr(code_mode.sys, "platform", "darwin")
@@ -1174,7 +1176,11 @@ def test_with_no_server_the_agent_never_starts():
     assert not agent.started and not agent.prompts
 
 
-def test_an_app_that_goes_away_and_comes_back_is_watched_again(session, caplog):
+def test_an_app_that_goes_away_and_comes_back_is_watched_again(
+    session, caplog, monkeypatch
+):
+    # Windows takes about 2 s to refuse each connect to the stopped server.
+    monkeypatch.setattr(watch_mod, "FAILURES_BEFORE_GIVING_UP", 3)
     agent = ScriptedAgent()
     running = _runner(session, agent, server_wait_s=30)
     _until(lambda: agent.prompts, what="the kickoff")
@@ -1193,7 +1199,9 @@ def test_an_app_that_goes_away_and_comes_back_is_watched_again(session, caplog):
     assert "could not be watched" in back and runner_mod.REREAD_LEVEL in back
 
 
-def test_an_app_that_stays_gone_ends_the_run(session):
+def test_an_app_that_stays_gone_ends_the_run(session, monkeypatch):
+    # Windows takes about 2 s to refuse each connect to the stopped server.
+    monkeypatch.setattr(watch_mod, "FAILURES_BEFORE_GIVING_UP", 3)
     agent = ScriptedAgent()
     running = _runner(session, agent, server_wait_s=0.5)
     _until(lambda: agent.prompts, what="the kickoff")

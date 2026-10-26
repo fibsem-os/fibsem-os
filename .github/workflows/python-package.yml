@@ -148,34 +148,36 @@ jobs:
         echo "Qt test files in tests/correlation and tests/fm: $(echo "$qt_files" | grep -c .)"
         pytest tests/ui/ $qt_files -q --timeout=300
 
-  server-tests:
-    # The one job that installs the [server] and [mcp] extras, and the only
-    # place tests/server/ runs with them present. Every file there opens with
-    # `pytest.importorskip("fastapi")`, so the matrix job's green says nothing
-    # about that directory — the same silent-skip failure mode the ui-tests job
-    # above exists to end.
+  agent-tests:
+    # The one job that installs the [agent] extra (and [mcp] with it): the MCP
+    # sidecar and the fibsem-agent runner. The files that need them open with
+    # `pytest.importorskip("mcp")` or `("claude_agent_sdk")`, so they skip in the
+    # matrix job above; they run here, found at run time rather than listed.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
     - name: Set up Python
       uses: actions/setup-python@v7
       with:
-        # One version, not the matrix: what this job answers — does the server
-        # behave with its real dependencies — does not vary across versions.
+        # One version, not the matrix: what this job answers -- does the agent side
+        # behave with its real dependencies -- does not vary across versions.
         python-version: "3.11"
         cache: 'pip'
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install ".[test,server,mcp]"
+        python -m pip install ".[test,agent]"
     - name: Fail if the extras did not actually install
       # Same rationale as the ui-tests guard: every test file skips on missing
       # imports, so a broken install empties the run instead of reddening it.
-      # Pillow is asserted too — the preview endpoints need it, and it only
-      # arrives transitively.
-      run: python -c "import fastapi, uvicorn, httpx, mcp, PIL, websockets.sync.client"
+      run: python -c "import mcp, claude_agent_sdk"
     - name: Test with pytest
-      run: pytest tests/server/ -q --timeout=300
+      run: |
+        set -euo pipefail
+        agent_files=$(grep -rlE --include='test_*.py' 'importorskip\("(mcp|claude_agent_sdk)"' tests | sort)
+        # Echoed so an empty or shrunken list is visible rather than silently green.
+        echo "Agent test files: $(echo "$agent_files" | grep -c .)"
+        pytest $agent_files -q --timeout=300
 
   lint:
     # Its own job, not a step inside the matrix above: ruff's result does not

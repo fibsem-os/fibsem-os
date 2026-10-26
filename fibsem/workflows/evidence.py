@@ -367,13 +367,17 @@ def _inside(path: Any, root: str, name: str, item_name: Optional[str] = None) ->
         )
     path = found
     target = os.path.realpath(path)
-    if os.path.commonpath([root, target]) != root:
+    try:
+        inside = os.path.commonpath([root, target]) == root
+    except ValueError:  # another drive, on Windows
+        inside = False
+    if not inside:
         raise EvidenceRefused(
             403,
             "not_allowed",
             f"{name}: give a path inside the open experiment ({root}), not {path}.",
         )
-    return os.path.relpath(target, root)
+    return os.path.relpath(target, root).replace(os.sep, "/")
 
 
 def _save_upload(data: Any, target: str) -> None:
@@ -448,7 +452,7 @@ def save(
             raise EvidenceRefused(422, "invalid", _NOT_A_STACK)
         os.makedirs(where, exist_ok=True)
         _save_upload(upload, os.path.join(where, f"{evidence_id}.png"))
-        path = os.path.join(FOLDER, f"{evidence_id}.png")
+        path = f"{FOLDER}/{evidence_id}.png"
     else:
         path = _inside(image, root, "image", item_name)
         if checked_channels is not None:
@@ -488,7 +492,7 @@ def _absolute(record: Dict[str, Any], root: str) -> Dict[str, Any]:
     record = dict(record)
     for name in ("image", "source"):
         if record.get(name):
-            record[name] = os.path.join(root, record[name])
+            record[name] = os.path.normpath(os.path.join(root, record[name]))
     return record
 
 

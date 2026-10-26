@@ -169,6 +169,18 @@ class Objective(Device):
     limit_position = DeviceParameter(
         float, unit="m", doc="The furthest a move may go in."
     )
+    insert_position = DeviceParameter(
+        float,
+        unit="m",
+        doc="Where insert puts the objective. Absent where the driver can't say.",
+        display=Display("Insert Position", scale=1e6, step=1.0, decimals=1),
+    )
+    retract_position = DeviceParameter(
+        float,
+        unit="m",
+        doc="Where retract puts the objective. Absent where the driver can't say.",
+        display=Display("Retract Position", scale=1e6, step=1.0, decimals=1),
+    )
     focus_position = DeviceParameter(
         float,
         unit="m",
