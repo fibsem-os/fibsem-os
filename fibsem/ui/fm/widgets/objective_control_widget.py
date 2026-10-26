@@ -415,26 +415,39 @@ class ObjectiveControlWidget(QWidget):
             )
             return
 
-        stage_pos = self.microscope.get_stage_position()
-        tilt_deg = np.degrees(stage_pos.t)
-
-        dlg = _InsertObjectiveDialog(tilt_deg=tilt_deg, parent=self)
-        if dlg.exec_() != QDialog.Accepted or dlg.selected_tilt is None:
-            logging.info("Objective insertion cancelled by user.")
-            return
+        tilt_deg = np.degrees(self.microscope.get_stage_position().t or 0.0)
+        if self.microscope._fm_is_a_pose():
+            # A compustage images the FM at one of two tilts, so the operator picks.
+            dlg = _InsertObjectiveDialog(tilt_deg=tilt_deg, parent=self)
+            if dlg.exec_() != QDialog.Accepted or dlg.selected_tilt is None:
+                logging.info("Objective insertion cancelled by user.")
+                return
+            tilt: Optional[float] = np.radians(dlg.selected_tilt)
+        else:
+            # An offset FM (a METEOR) images in the pose the stage travelled out in,
+            # so the objective goes in where the stage stands: a tilt here would take
+            # the stage out of that pose under the objective.
+            ret = message_box_ui(
+                title="Insert Objective",
+                text=f"Insert the objective at the current stage tilt ({tilt_deg:.1f}°)?",
+                buttons=QMessageBox.Ok | QMessageBox.Cancel,
+                parent=self,
+            )
+            if ret is False:
+                logging.info("Objective insertion cancelled by user.")
+                return
+            tilt = None
 
         self._set_objective_actions_enabled(False)
-        self._action_worker = worker = self._insert_objective_worker(
-            np.radians(dlg.selected_tilt)
-        )
+        self._action_worker = worker = self._insert_objective_worker(tilt)
         worker.returned.connect(self._on_objective_action_finished)
         worker.errored.connect(self._on_objective_action_error)
         worker.start(control=control_of(self.microscope), action="insert objective")
 
     @thread_worker
-    def _insert_objective_worker(self, tilt: float) -> None:
-        """Worker: tilt the stage there if it isn't, then insert, through the
-        stage movement service the App Server's route calls."""
+    def _insert_objective_worker(self, tilt: Optional[float]) -> None:
+        """Worker: tilt the stage to *tilt* if one is given and it isn't there, then
+        insert, through the stage movement service the App Server's route calls."""
         self.microscope.stage_movement.insert_objective(tilt=tilt)
 
     def retract_objective(self):
