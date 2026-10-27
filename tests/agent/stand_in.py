@@ -1,5 +1,5 @@
 """A stand-in for ``fibsem-agent``, run by the manager's tests: it keeps its
-session's record the way the runner does and ends as ``STAND_IN_PLAN`` says,
+session's record the way the harness does and ends as ``STAND_IN_PLAN`` says,
 one entry per run: an exit code, ``crash`` (exits without recording), ``fatal``
 (1, not resumable), ``wait`` (until its stop file, then 0) or ``ignore``
 (never stops by itself)."""

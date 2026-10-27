@@ -60,7 +60,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
-    "POST /app/agent/transcript": "fibsem-agent's runner sends what it printed; not the agent's to call.",
+    "POST /app/agent/transcript": "fibsem-agent's harness sends what it printed; not the agent's to call.",
     "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",
     "GET /ui": "The operator's web app, HTML; it calls the operator's routes.",
     "GET /ui/{}": "The web app's pages and assets, served like GET /ui.",

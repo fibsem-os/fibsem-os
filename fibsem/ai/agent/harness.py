@@ -1,9 +1,9 @@
 """``fibsem-agent``: an AutoLamella agent with nobody at a terminal.
 
 The Claude Agent SDK runs one long session with the ``fibsem-mcp`` sidecar as
-its only MCP server, and the runner runs ``fibsem-mcp watch`` itself: each
+its only MCP server, and the harness runs ``fibsem-mcp watch`` itself: each
 batch of the watcher's lines is the agent's next turn. The App Server still
-decides what the agent may do, and the runner never sets the level. Needs the
+decides what the agent may do, and the harness never sets the level. Needs the
 [agent] extra; nothing else in fibsem imports ``claude_agent_sdk``.
 
     fibsem-agent
@@ -53,9 +53,9 @@ SPECIALISTS = (
     "autolamella-investigator",
     "autolamella-auditor",
 )
-# The runner's own tools, in-process: the wake-up timer (`Alarm`).
-RUNNER_SERVER = "fibsem_agent"
-WAKE_TOOL = f"mcp__{RUNNER_SERVER}__wake_after"
+# The harness's own tools, in-process: the wake-up timer (`Alarm`).
+HARNESS_SERVER = "fibsem_agent"
+WAKE_TOOL = f"mcp__{HARNESS_SERVER}__wake_after"
 # The longest a wake-up can be set for, in minutes.
 WAKE_MAX_MIN = 240
 # A constraint's time wakes the agent this long before it, and again at it.
@@ -118,7 +118,7 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 MAX_TURNS = 40  # tool calls per wake-up
 MAX_BUDGET_USD = 5.0  # what one run spends
 SERVER_WAIT_S = 600.0
-# The transcript (`Runner._send_transcript`): sent this often while a turn
+# The transcript (`Harness._send_transcript`): sent this often while a turn
 # runs and as it ends, at most this many lines at once, at most this many kept
 # while the server can't take them.
 TRANSCRIPT_EVERY_S = 10.0
@@ -126,7 +126,7 @@ TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
 RETRY_MAX_S = 60.0
 
-RUNNER_PROMPT = """\
+HARNESS_PROMPT = """\
 You are running under fibsem-agent, a program on the microscope PC, not an \
 interactive Claude Code session. Nobody is at a terminal.
 
@@ -165,12 +165,12 @@ you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do."""
 
 
-def runner_prompt(work: Optional[Path] = None, code: bool = True) -> str:
-    """What the runner tells the agent about itself; with a work folder (code
+def harness_prompt(work: Optional[Path] = None, code: bool = True) -> str:
+    """What the harness tells the agent about itself; with a work folder (code
     mode, or files only), about it too."""
     if work is None:
-        return RUNNER_PROMPT.format(tools=NO_CODE)
-    return RUNNER_PROMPT.format(tools=code_mode.prompt(work, code))
+        return HARNESS_PROMPT.format(tools=NO_CODE)
+    return HARNESS_PROMPT.format(tools=code_mode.prompt(work, code))
 
 
 def system_prompt(
@@ -178,8 +178,8 @@ def system_prompt(
     code: bool = True,
     profile: Optional[profiles.Profile] = None,
 ) -> str:
-    """The runner's prompt, and the profile's instructions after it."""
-    prompt = runner_prompt(work, code)
+    """The harness's prompt, and the profile's instructions after it."""
+    prompt = harness_prompt(work, code)
     if profile is not None and profile.prompt:
         prompt += (
             f"\n\nInstructions from the {profile.name} profile you run with:\n"
@@ -204,7 +204,7 @@ REREAD_LEVEL = (
     "proposal_list."
 )
 
-log = logging.getLogger("fibsem.agent.runner")
+log = logging.getLogger("fibsem.agent.harness")
 
 
 def kickoff(resumed: bool = False, goal: Optional[str] = None) -> str:
@@ -240,7 +240,7 @@ def _kickoff(resumed: bool) -> str:
         "the operator sees it in the app. The level is the operator's.\n"
         "3. Read where things stand, as the base skill's Session setup says. "
         "The watcher is already running: don't start one.\n"
-        "Then end your turn. The runner wakes you with the watcher's lines."
+        "Then end your turn. The harness wakes you with the watcher's lines."
     )
 
 
@@ -292,7 +292,7 @@ class Alarm:
         self.reason: Optional[str] = None
 
     def bind(self, loop: asyncio.AbstractEventLoop, ring: Callable[[str], None]):
-        """Ring through *ring* on *loop* (`Runner.run`)."""
+        """Ring through *ring* on *loop* (`Harness.run`)."""
         self._loop, self._ring = loop, ring
 
     def set(self, minutes: float, reason: str) -> str:
@@ -301,7 +301,7 @@ class Alarm:
         if minutes <= 0:
             return "No wake-up is set."
         if self._loop is None:
-            return "The runner can't wake you yet; the watcher's lines still will."
+            return "The harness can't wake you yet; the watcher's lines still will."
         minutes = min(float(minutes), WAKE_MAX_MIN)
         self.reason = reason.strip() or "you asked to be woken"
         line = f"WAKE {self.reason} (you asked {minutes:g} min ago)"
@@ -378,7 +378,7 @@ class Deadlines:
 
 
 def wake_server(alarm: Alarm):
-    """The runner's in-process MCP server: the ``wake_after`` tool on *alarm*."""
+    """The harness's in-process MCP server: the ``wake_after`` tool on *alarm*."""
     from claude_agent_sdk import create_sdk_mcp_server, tool
 
     @tool(
@@ -394,7 +394,7 @@ def wake_server(alarm: Alarm):
         said = alarm.set(float(args.get("minutes", 0)), str(args.get("reason", "")))
         return {"content": [{"type": "text", "text": said}]}
 
-    return create_sdk_mcp_server(RUNNER_SERVER, tools=[wake_after])
+    return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after])
 
 
 @dataclass
@@ -409,7 +409,7 @@ class TurnEnd:
 
 
 class _Stopped(Exception):
-    """The runner is stopping: raised inside ``watch()`` to end it."""
+    """The harness is stopping: raised inside ``watch()`` to end it."""
 
 
 class _Seeded:
@@ -523,7 +523,7 @@ class Watcher:
 
 
 def _close(client) -> None:
-    """Close a client the runner is done with, and its pooled connections."""
+    """Close a client the harness is done with, and its pooled connections."""
     try:
         client.close()
     except Exception:
@@ -549,7 +549,7 @@ def _reachable(client) -> bool:
     return response.status_code != 401 and response.status_code < 500
 
 
-class Runner:
+class Harness:
     """The wake loop: the kickoff, then one turn per batch of watcher lines,
     until the operator stops it, the budget is spent or the app is gone.
 
@@ -558,7 +558,7 @@ class Runner:
     or None while no server is known. ``run()`` returns the exit code: 0
     when stopped, 1 when the app or the agent is gone, 2 when the budget is.
 
-    After every turn, and as it ends, the runner reports the session to the
+    After every turn, and as it ends, the harness reports the session to the
     App Server (``POST /app/agent/session``): its id, model, goal, budget and
     spend, so the operator sees them in the app.
     """
@@ -930,7 +930,7 @@ class Runner:
         self._wakes = Wakes()
         back = (
             f"The app could not be watched for {time.monotonic() - started:.0f} s "
-            "and the runner is watching it again: events in between were not "
+            "and the harness is watching it again: events in between were not "
             "seen. " + REREAD_LEVEL
         )
         return f"{prompt}\n\n{back}" if prompt else back
@@ -981,7 +981,7 @@ class SdkAgent:
         self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
-        # The lines printed, until the runner sends them (`Runner._send_transcript`).
+        # The lines printed, until the harness sends them (`Harness._send_transcript`).
         self.transcript: List[dict] = []
         self._seq = 0
         # A tool call's line, by the call's id: its result may say it failed.
@@ -1244,7 +1244,7 @@ def build_options(
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
     servers = {SERVER: server}
     if alarm is not None:
-        servers[RUNNER_SERVER] = wake_server(alarm)
+        servers[HARNESS_SERVER] = wake_server(alarm)
     return ClaudeAgentOptions(
         cwd=str(work or checkout),
         # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
@@ -1544,7 +1544,7 @@ def main(argv=None) -> int:
         profile=profile,
     )
     agent = SdkAgent(options)
-    runner = Runner(
+    harness = Harness(
         agent,
         lambda: watch_mod.connect(args.url, token),
         resumed=args.resume is not None,
@@ -1566,14 +1566,14 @@ def main(argv=None) -> int:
     def on_interrupt(signum, frame):
         # A second Ctrl-C ends it at once.
         signal.signal(signal.SIGINT, signal.default_int_handler)
-        runner.stop()
+        harness.stop()
 
     previous = signal.signal(signal.SIGINT, on_interrupt)
     # A manager stops it with a file, which works where a signal can't reach.
-    sessions.watch_for_stop(session, runner.stop)
+    sessions.watch_for_stop(session, harness.stop)
     outcome = None
     try:
-        code = asyncio.run(runner.run())
+        code = asyncio.run(harness.run())
     except KeyboardInterrupt:
         code = 130
     except Exception as error:
@@ -1583,7 +1583,7 @@ def main(argv=None) -> int:
         code, outcome = 1, {"reason": f"the agent failed: {error}"}
     finally:
         signal.signal(signal.SIGINT, previous)
-    session.end(code, **(outcome or runner.outcome()))
+    session.end(code, **(outcome or harness.outcome()))
     return code
 
 

@@ -198,7 +198,7 @@ jobs:
 
   agent-tests:
     # The one job that installs the [agent] extra (and [mcp] with it): the MCP
-    # sidecar and the fibsem-agent runner. The files that need them open with
+    # sidecar and the fibsem-agent harness. The files that need them open with
     # `pytest.importorskip("mcp")` or `("claude_agent_sdk")`, so they skip in the
     # matrix job above; they run here, found at run time rather than listed.
     runs-on: ubuntu-latest
