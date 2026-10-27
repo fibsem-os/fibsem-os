@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, ListChecks, ListFilter } from "lucide-react";
+import { ArrowDown, ChevronDown, ChevronRight, ListChecks, ListFilter } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
@@ -292,6 +292,19 @@ export function AgentPage() {
   const pinned = useRef(true);
   const rows = recent.data?.rows ?? [];
   const a = agent.data;
+  // A row that arrives while the reader is scrolled up shows the way down to it.
+  const [newer, setNewer] = useState(false);
+  const newest = rows.length ? rows[rows.length - 1].at : "";
+  const seen = useRef(newest);
+  useEffect(() => {
+    if (newest === seen.current) return;
+    seen.current = newest;
+    if (!pinned.current) setNewer(true);
+  }, [newest]);
+  const toNewest = () => {
+    const el = list.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  };
   useLayoutEffect(() => {
     if (pinned.current && list.current) list.current.scrollTop = list.current.scrollHeight;
   });
@@ -376,27 +389,39 @@ export function AgentPage() {
             </div>
           )}
         </div>
-        <section
-          aria-label="Record"
-          ref={list}
-          className="min-h-0 flex-1 overflow-y-auto py-1"
-          onScroll={(e) => {
-            const el = e.currentTarget;
-            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-          }}
-        >
-          <div>
-            {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
-            {rows.length ? (
-              <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
-            ) : (
-              <div className="py-8 text-center text-[13px] text-muted-foreground">
-                No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
-                connects.
-              </div>
-            )}
-          </div>
-        </section>
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <section
+            aria-label="Record"
+            ref={list}
+            className="min-h-0 flex-1 overflow-y-auto py-1"
+            onScroll={(e) => {
+              const el = e.currentTarget;
+              pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+              if (pinned.current) setNewer(false);
+            }}
+          >
+            <div>
+              {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
+              {rows.length ? (
+                <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
+              ) : (
+                <div className="py-8 text-center text-[13px] text-muted-foreground">
+                  No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one
+                  connects.
+                </div>
+              )}
+            </div>
+          </section>
+          {newer && (
+            <button
+              className="absolute bottom-3 left-1/2 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-popover px-3 py-1.5 text-[12px] text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:bg-accent"
+              onClick={toNewest}
+            >
+              <ArrowDown size={14} />
+              Newer messages
+            </button>
+          )}
+        </div>
         <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
           {/* Kept while a session runs, so the composer doesn't move as commands start and end. */}
           {(a.session || a.now) && <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>}
