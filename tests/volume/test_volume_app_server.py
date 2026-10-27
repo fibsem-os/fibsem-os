@@ -249,6 +249,7 @@ def test_turning_the_beams_off_is_saved_with_the_protocol(agent, experiment):
     assert VolumeExperiment.load(experiment.path).turns_beams_off
 
 
+@pytest.mark.slow
 def test_an_agent_runs_a_position_from_set_up_to_its_last_slice(
     agent, session, experiment, microscope, milled
 ):
