@@ -24,7 +24,7 @@ import sys
 from pathlib import Path, PurePath
 from typing import List, Mapping, Optional
 
-# The file tools on top of the runner's own, and the code tools: those and a
+# The file tools on top of the harness's own, and the code tools: those and a
 # shell.
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 CODE_TOOLS = ["Bash"] + FILE_TOOLS

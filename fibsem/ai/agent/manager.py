@@ -217,7 +217,7 @@ def _detached() -> dict:
 
 
 def agent_command() -> List[str]:
-    return [sys.executable, "-m", "fibsem.ai.agent.runner"]
+    return [sys.executable, "-m", "fibsem.ai.agent.harness"]
 
 
 class AgentSessionManager:

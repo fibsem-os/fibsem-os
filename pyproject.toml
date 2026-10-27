@@ -134,7 +134,7 @@ fibsem-mcp = "fibsem.ai.agent.mcp.sidecar:main"
 fibsem-volume = "fibsem.applications.volume.launch:main"
 fibsem-volume-ui = "fibsem.tools.desktop_launch:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
-fibsem-agent = "fibsem.ai.agent.runner:main"
+fibsem-agent = "fibsem.ai.agent.harness:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
