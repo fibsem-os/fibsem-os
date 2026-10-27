@@ -84,10 +84,28 @@ jobs:
         # leave the build green -- the exact silent breakage they exist to catch.
         FIBSEM_REQUIRE_PLUGIN_FIXTURE: "1"
       # Tests marked `slow` (simulated alignment and FM acquisition, 15 to 120 s each)
-      # run on one leg of a pull request, Linux, and on every leg of the nightly and
-      # release runs. They exercise the simulator rather than anything
-      # platform-specific, so the leg that skips them is Windows, the slowest.
-      run: pytest tests/ -n auto --dist worksteal --timeout=300 ${{ (github.event_name == 'pull_request' && runner.os == 'Windows') && '-m "not slow"' || '' }}
+      # run once on a pull request, in the slow-tests job below, beside this one
+      # rather than inside it; the nightly and release runs keep them on every leg.
+      run: pytest tests/ -n auto --dist worksteal --timeout=300 ${{ github.event_name == 'pull_request' && '-m "not slow"' || '' }}
+
+  slow-tests:
+    # A pull request's `slow` tests, on Linux 3.10 only. They exercise the simulator
+    # rather than anything platform-specific. In their own job they run alongside the
+    # rest of the suite instead of adding their ~7 minutes to the Linux leg.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.10"
+        cache: 'pip'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ".[test]"
+    - name: Test with pytest
+      run: pytest tests/ -m slow -n auto --dist worksteal --timeout=300
 
   ui-tests:
     # The one job that installs the [ui] extra, and the only place the Qt tests
