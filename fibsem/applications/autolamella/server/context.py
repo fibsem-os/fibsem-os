@@ -732,11 +732,15 @@ class AutoLamellaAppContext(AppContext):
 
         history = list(grid.task_history)
         completed = [t.name for t in history if t.status is TaskStatus.Completed]
-        overviews = {}
+        overviews, overview_paths = {}, {}
+        root = os.path.realpath(experiment.path)
         for role in GRID_OVERVIEW_ROLES:
             path = latest_item_output(experiment, grid, role)
             if path is not None:
                 overviews[role] = os.path.basename(path)
+                relative = os.path.relpath(os.path.realpath(path), root)
+                if not relative.startswith(".."):
+                    overview_paths[role] = relative.replace(os.sep, "/")
         return {
             "name": grid.name,
             "id": grid.id,
@@ -749,6 +753,7 @@ class AutoLamellaAppContext(AppContext):
             "last_completed_task": completed[-1] if completed else None,
             "num_items": len(experiment.get_lamellae_for_grid(grid)),
             "overviews": overviews,
+            "overview_paths": overview_paths,
         }
 
     @staticmethod

@@ -734,6 +734,11 @@ def test_grids_list_and_detail_over_http(client, host, grid_with_overview):
     assert summary["last_completed_task"] == "overview_sem"
     assert summary["num_items"] == 2
     assert summary["overviews"] == {"overview_sem": "overview.tif"}
+    # the path the files and planes routes take, for the image viewer
+    path = summary["overview_paths"]["overview_sem"]
+    assert path.endswith("/overview_sem/overview.tif")
+    read = client.get(f"/app/experiment/files/{path}?width=64", headers=AUTH)
+    assert read.json()["summary"]["shape"]
 
     detail = client.get("/app/experiment/grids/grid-aspen", headers=AUTH).json()
     assert detail["tasks"] == [
