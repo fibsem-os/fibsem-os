@@ -631,6 +631,8 @@ class GridSummary:
     num_items: int = 0
     # each overview role's latest file (a basename)
     overviews: Dict[str, str] = field(default_factory=dict)
+    # the same files' paths in the experiment, as the files routes take them
+    overview_paths: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

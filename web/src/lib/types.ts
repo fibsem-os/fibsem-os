@@ -462,6 +462,8 @@ export interface GridSummary {
   last_completed_task: string | null;
   num_items: number;
   overviews: Record<string, string>;
+  /** The same overviews' paths in the experiment, for the image viewer. */
+  overview_paths: Record<string, string>;
 }
 
 /** GET /app/experiment/grids/{name} */
