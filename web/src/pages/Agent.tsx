@@ -308,12 +308,14 @@ export function AgentPage() {
   useLayoutEffect(() => {
     if (pinned.current && list.current) list.current.scrollTop = list.current.scrollHeight;
   });
-  // Pictures land after the rows are drawn: keep the newest in view.
+  // Pictures land after the rows are drawn, and a card or the composer growing
+  // below shrinks the record: keep the newest in view.
   useEffect(() => {
     const el = list.current;
     if (!el) return;
     const keep = () => pinned.current && (el.scrollTop = el.scrollHeight);
     const watcher = new ResizeObserver(keep);
+    watcher.observe(el);
     for (const child of el.children) watcher.observe(child);
     return () => watcher.disconnect();
   });
