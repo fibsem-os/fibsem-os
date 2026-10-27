@@ -21,7 +21,10 @@ on:
   workflow_dispatch:
   # No `branches:` filter: it matches the *base* branch, so scoping it to main gave a
   # stacked PR -- one based on another feature branch -- no checks at all.
+  # ready_for_review on top of the default types: a draft skips Windows (below), so
+  # marking it ready is what runs Windows before merge.
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 # A PR's runs share one group, and a new push to the PR cancels the run in progress:
 # only its latest commit matters. Any other run is the record of one commit on main or a
@@ -46,9 +49,12 @@ jobs:
         # A pull request runs a subset: Linux 3.10 and Windows 3.10, the floor on both
         # platforms. The account gets about 20 concurrent hosted jobs, so the full
         # matrix runs nightly on main and on every push to a release branch.
+        #
+        # A draft runs Linux only. Windows is the slowest leg (about 20 minutes) and
+        # drafts are pushed many times; it runs once the pull request is ready.
         os: [ubuntu-latest]
         python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.10"]' || '["3.10", "3.11", "3.12", "3.13"]') }}
-        include: ${{ fromJSON(github.event_name == 'pull_request' && '[{"os":"windows-latest","python-version":"3.10"}]' || '[{"os":"windows-latest","python-version":"3.10"}, {"os":"windows-latest","python-version":"3.13"}]') }}
+        include: ${{ fromJSON(github.event_name == 'pull_request' && (github.event.pull_request.draft && '[]' || '[{"os":"windows-latest","python-version":"3.10"}]') || '[{"os":"windows-latest","python-version":"3.10"}, {"os":"windows-latest","python-version":"3.13"}]') }}
 
     steps:
     - uses: actions/checkout@v7
@@ -78,10 +84,28 @@ jobs:
         # leave the build green -- the exact silent breakage they exist to catch.
         FIBSEM_REQUIRE_PLUGIN_FIXTURE: "1"
       # Tests marked `slow` (simulated alignment and FM acquisition, 15 to 120 s each)
-      # run on one leg of a pull request, Linux, and on every leg of the nightly and
-      # release runs. They exercise the simulator rather than anything
-      # platform-specific, so the leg that skips them is Windows, the slowest.
-      run: pytest tests/ -n auto --dist worksteal --timeout=300 ${{ (github.event_name == 'pull_request' && runner.os == 'Windows') && '-m "not slow"' || '' }}
+      # run once on a pull request, in the slow-tests job below, beside this one
+      # rather than inside it; the nightly and release runs keep them on every leg.
+      run: pytest tests/ -n auto --dist worksteal --timeout=300 ${{ github.event_name == 'pull_request' && '-m "not slow"' || '' }}
+
+  slow-tests:
+    # A pull request's `slow` tests, on Linux 3.10 only. They exercise the simulator
+    # rather than anything platform-specific. In their own job they run alongside the
+    # rest of the suite instead of adding their ~7 minutes to the Linux leg.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.10"
+        cache: 'pip'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install ".[test]"
+    - name: Test with pytest
+      run: pytest tests/ -m slow -n auto --dist worksteal --timeout=300
 
   ui-tests:
     # The one job that installs the [ui] extra, and the only place the Qt tests
@@ -134,19 +158,43 @@ jobs:
     - name: Test with pytest
       env:
         QT_QPA_PLATFORM: offscreen
-      # Deliberately serial, unlike the matrix job above. These tests share one
-      # QApplication and leak top-level widgets across files, so some of them
-      # depend on what the files before them left behind. `-n auto --dist
-      # worksteal` would shuffle that order differently on every run and turn a
-      # deterministic failure into a flake; `--dist loadfile` does not help either,
-      # since it only holds order *within* a file. The extra minutes are a fair
-      # price for a result that means the same thing twice in a row.
+      # Four fixed shards, each serial, not xdist. These tests share one QApplication
+      # and leak top-level widgets across files, so some depend on what the files
+      # before them left behind. xdist hands files to workers in a different order
+      # on every run and would turn a deterministic failure into a flake. Here a
+      # file's shard and its place in it are set by the sorted list alone, so a
+      # failure reproduces with `pytest <that shard's files>`, which the log prints.
       run: |
         set -euo pipefail
         qt_files=$(grep -rlE --include='test_*.py' 'PyQt5' tests/correlation tests/fm | sort)
         # Echoed so an empty or shrunken list is visible rather than silently green.
         echo "Qt test files in tests/correlation and tests/fm: $(echo "$qt_files" | grep -c .)"
-        pytest tests/ui/ $qt_files -q --timeout=300
+        files=$( (find tests/ui -name 'test_*.py'; echo "$qt_files") | grep . | sort)
+        echo "Qt test files in all: $(echo "$files" | grep -c .)"
+        shards=4
+        logs=$(mktemp -d)
+        pids=()
+        for i in $(seq 0 $((shards - 1))); do
+          shard=$(echo "$files" | awk -v n=$shards -v i=$i 'NR % n == i')
+          echo "$shard" > "$logs/files-$i"
+          pytest $shard -q --timeout=300 -p no:cacheprovider > "$logs/log-$i" 2>&1 &
+          pids+=($!)
+        done
+        failed=0
+        for i in $(seq 0 $((shards - 1))); do
+          status=0
+          wait "${pids[$i]}" || status=$?
+          echo "::group::Shard $((i + 1)) of $shards (exit $status)"
+          echo "Files:"; sed 's/^/  /' "$logs/files-$i"
+          cat "$logs/log-$i"
+          echo "::endgroup::"
+          if [ "$status" -ne 0 ]; then
+            failed=1
+            echo "::error::Qt shard $((i + 1)) failed:"
+            grep -E '^(FAILED|ERROR) ' "$logs/log-$i" || tail -40 "$logs/log-$i"
+          fi
+        done
+        exit $failed
 
   agent-tests:
     # The one job that installs the [agent] extra (and [mcp] with it): the MCP

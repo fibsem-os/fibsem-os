@@ -912,6 +912,29 @@ def _write_holds_the_lock():
     return held == [True]
 
 
+def _grabs_hold_the_lock():
+    """Whether the lock is held at each grab, from either view and inside a scope
+    held across frames, as a z-stack holds it."""
+    held = []
+    for view in (FM_VIEW, BEAM_VIEW):
+        parent = Parent(make_connection("Inserted", CameraFilterType.FLUORESCENCE))
+        devices = bind_autoscript_fm(parent)
+        STATE["view"] = view
+        imaging = parent._connection.sdk.imaging
+        grab = imaging.grab_frame
+
+        def watched(settings, grab=grab, lock=parent._threading_lock):
+            held.append(lock._is_owned())
+            return grab(settings)
+
+        imaging.grab_frame = watched
+        devices["camera"].acquire()
+        with devices["fm"]._channel.scope():
+            devices["camera"].acquire()
+            devices["camera"].acquire()
+    return held == [True] * 6
+
+
 def _writes_while_live():
     """Whether objective moves and gain writes go through while another thread pulls
     live frames as fast as the fake gives them, re-taking the lock each frame."""
@@ -1020,6 +1043,7 @@ def facts():
         ),
         "read_after_a_beam_takes_the_view": _read_after_a_beam_takes_the_view(),
         "writes_hold_the_lock": _write_holds_the_lock(),
+        "grabs_hold_the_lock": _grabs_hold_the_lock(),
         "writes_go_through_while_live": _writes_while_live(),
         "emission_filter_after_writes": _emission_filter_after_writes(),
     }
