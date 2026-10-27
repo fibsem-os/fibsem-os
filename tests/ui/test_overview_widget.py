@@ -1314,7 +1314,8 @@ class TestViews:
 
         widget.show_view(sem_view)
         widget.set_positions([mark])
-        assert widget.position_overlay._points == pytest.approx(in_sem), (
+        flat = [v for point in widget.position_overlay._points for v in point]
+        assert flat == pytest.approx([v for point in in_sem for v in point]), (
             "coming back to a view did not restore where its markers sit"
         )
 
