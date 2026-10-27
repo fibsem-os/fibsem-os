@@ -81,7 +81,6 @@ from fibsem.structures.settings import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
-from fibsem.structures.system import DeviceImagingState
 from fibsem.util import timestamps
 
 # Two beam currents closer than this, relatively, are the same current: a
@@ -525,21 +524,21 @@ class Imaging(Service):
         (`fibsem.fm.calibration.run_coarse_fine_autofocus`).
 
         Refused while the FM is in use (live view, the device's own included, a
-        tileset, the tab's own sweep), and unless the stage is at the FM's pose:
-        from any other pose the objective sweeps where it cannot see the sample,
-        so the scores mean nothing. ``stop`` ends it between
-        steps, ``cancelled``, with the objective where the passes left it. A
-        sweep whose scores are flat answers ``no_focus``, with the objective back
-        where it started. Given a ``path``, the result is saved to
-        ``<path>/<name>``. Answers the best objective position and the sweep's
-        scores.
+        tileset, the tab's own sweep), and wherever an acquisition is refused
+        (`DeviceImagingState.allows_acquisition`): it moves only the objective, so
+        it runs where the FM images in place, the Arctis milling pose included.
+        ``stop`` ends it between steps, ``cancelled``, with the objective where
+        the passes left it. A sweep whose scores are flat answers ``no_focus``,
+        with the objective back where it started. Given a ``path``, the result is
+        saved to ``<path>/<name>``. Answers the best objective position and the
+        sweep's scores.
         """
         from fibsem.fm.calibration import NO_FOCUS, run_coarse_fine_autofocus
 
         fm = self.parent.fm
         self._refuse_while_fm_live("auto-focus")
         state = self.parent.get_device_imaging_state("FM")
-        if state is not DeviceImagingState.READY:
+        if not state.allows_acquisition:
             raise AcquisitionRefused(
                 "Cannot start auto-focus. "
                 f"{self.parent.explain_imaging_state('FM', state)}"
