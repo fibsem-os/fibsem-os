@@ -935,6 +935,75 @@ def _grabs_hold_the_lock():
     return held == [True] * 6
 
 
+def _moves_hold_the_lock():
+    """Whether the lock is held at each read of the focus limits a move makes, from
+    either view: a beam taking the view before them fails the move."""
+    held = []
+    for view in (FM_VIEW, BEAM_VIEW):
+        parent = Parent(make_connection("Inserted", CameraFilterType.FLUORESCENCE))
+        devices = bind_autoscript_fm(parent)
+        STATE["view"] = view
+        settings = parent._connection.sdk.detector.camera_settings
+        focus, lock = settings.focus, parent._threading_lock
+
+        class Watched(Setting):
+            @property
+            def limits(self):
+                held.append(lock._is_owned())
+                return Setting.limits.fget(self)
+
+        settings.focus = Watched(focus._path, focus._value, limits=focus._limits)
+        devices["objective"].move_absolute(1e-3)
+    return bool(held) and all(held)
+
+
+def _is_homed_after_a_beam_takes_the_view():
+    """Whether the homed read is tried again holding the lock when a beam takes the
+    view from the first try."""
+    from fibsem.drivers.autoscript.devices import ThermoFisherObjectiveLens
+
+    parent = Parent(make_connection("Inserted", CameraFilterType.FLUORESCENCE))
+    devices = bind_autoscript_fm(parent)
+    STATE["view"] = FM_VIEW
+    channel = devices["fm"]._channel
+    detector, lock, tries = parent._connection.sdk.detector, parent._threading_lock, []
+
+    class Detector(type(detector)):
+        @property
+        def is_homed(self):
+            tries.append(lock._is_owned())
+            if len(tries) == 1:
+                raise RuntimeError("The active detector does not support homing")
+            return True
+
+    detector.__class__ = Detector
+    try:
+        homed = ThermoFisherObjectiveLens(devices["objective"], channel).is_homed()
+    except RuntimeError:
+        homed = None
+    return {"homed": homed, "tries_holding_the_lock": tries}
+
+
+def _stopping_live_holds_the_lock():
+    """Whether the lock is held when stopping FM live view stops the acquisition,
+    which acts on whichever view is active."""
+    parent = Parent(make_connection("Inserted", CameraFilterType.FLUORESCENCE))
+    devices = bind_autoscript_fm(parent)
+    STATE["view"] = FM_VIEW
+    imaging, lock, held = parent._connection.sdk.imaging, parent._threading_lock, []
+    stop = imaging.stop_acquisition
+
+    def watched():
+        held.append(lock._is_owned())
+        return stop()
+
+    group = devices["fm"]
+    group.start_live(None)
+    imaging.stop_acquisition = watched
+    group.stop_live()
+    return held == [True]
+
+
 def _writes_while_live():
     """Whether objective moves and gain writes go through while another thread pulls
     live frames as fast as the fake gives them, re-taking the lock each frame."""
@@ -1044,6 +1113,9 @@ def facts():
         "read_after_a_beam_takes_the_view": _read_after_a_beam_takes_the_view(),
         "writes_hold_the_lock": _write_holds_the_lock(),
         "grabs_hold_the_lock": _grabs_hold_the_lock(),
+        "moves_hold_the_lock": _moves_hold_the_lock(),
+        "is_homed_after_a_beam_takes_the_view": _is_homed_after_a_beam_takes_the_view(),
+        "stopping_live_holds_the_lock": _stopping_live_holds_the_lock(),
         "writes_go_through_while_live": _writes_while_live(),
         "emission_filter_after_writes": _emission_filter_after_writes(),
     }

@@ -748,7 +748,6 @@ class AutoscriptBeam(Beam):
     # signal (which forwards it) and the stop event the beam gives.
 
     def _live(self, stop: threading.Event) -> None:
-        self.connection.set_channel(self.beam_type)
         try:
             while True:
                 if stop.is_set():
@@ -766,14 +765,15 @@ class AutoscriptBeam(Beam):
         from fibsem.drivers.autoscript import microscope as thermo
 
         imaging = self.connection.sdk.imaging
+        # Every call is on this beam's view, held: the state and the stop act on
+        # whichever view is active, and stopping the FM's would end its acquisition.
         try:
             with self.claim_channel():
                 imaging.start_acquisition()
-            while imaging.state == thermo.ImagingState.ACQUIRING:
-                if stop.is_set():
-                    imaging.stop_acquisition()
-                    break
+            while not stop.is_set():
                 with self.claim_channel():
+                    if imaging.state != thermo.ImagingState.ACQUIRING:
+                        break
                     adorned_image = imaging.get_image(
                         thermo.GetImageSettings(wait_for_frame=True)
                     )
@@ -783,7 +783,8 @@ class AutoscriptBeam(Beam):
         except Exception as e:
             logging.error(f"Exception occurred during fast acquisition: {e}")
         finally:
-            imaging.stop_acquisition()
+            with self.claim_channel():
+                imaging.stop_acquisition()
 
     def _image_from_adorned(self, adorned_image: Any) -> FibsemImage:
         """A live frame as a FibsemImage, with the beam's current state."""
@@ -2453,18 +2454,20 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
         )
 
     def _move_absolute(self, position: float) -> None:
-        # The hardware limits are read for each bound.
-        if not self._focus_limits()[0] <= position <= self._focus_limits()[1]:
-            raise ValueError(
-                f"Position {position} out of limits {self._focus_limits()}"
-            )
-        if not position <= self._limit_position:
-            logging.warning(
-                f"Clipping position {position} to user-defined limits "
-                f"{self._limit_position}"
-            )
-            position = np.clip(position, 0, self._limit_position)
+        # Held from the limits on: a beam taking the view before the limits are read
+        # fails the move, as during a z-stack.
         with self._channel.held():
+            # The hardware limits are read for each bound.
+            if not self._focus_limits()[0] <= position <= self._focus_limits()[1]:
+                raise ValueError(
+                    f"Position {position} out of limits {self._focus_limits()}"
+                )
+            if not position <= self._limit_position:
+                logging.warning(
+                    f"Clipping position {position} to user-defined limits "
+                    f"{self._limit_position}"
+                )
+                position = np.clip(position, 0, self._limit_position)
             self._channel.settings().focus.value = position
 
     def _move_relative(self, delta: float) -> None:
@@ -2569,8 +2572,10 @@ class AutoscriptFM(FM):
         raise RuntimeError("The FM acquisition stopped; live view has ended.")
 
     def _stop_live(self) -> None:
-        self.light_source.stop_emission()
-        self.camera._stop_acquisition()
+        # Locked as starting is: stopping acts on whichever view is active.
+        with self._channel.lock:
+            self.light_source.stop_emission()
+            self.camera._stop_acquisition()
 
 
 class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
@@ -2582,7 +2587,9 @@ class ThermoFisherObjectiveLens(fm_api.ObjectiveLens):
 
     def is_homed(self) -> bool:
         with self._channel.scope():
-            return self._channel.connection.detector.is_homed
+            return self._channel.read(
+                lambda: self._channel.connection.detector.is_homed
+            )
 
     def home(self) -> None:
         with self._channel.held():
