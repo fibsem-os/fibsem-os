@@ -54,8 +54,12 @@ PINS = json.loads(
 )
 
 PARTS = ("camera", "light", "filter", "objective")
-# The setters that check before writing, so hold the view across the check.
-CHECKED_WRITES = ("camera set exposure_time", "camera set binning")
+# The setters and moves that check before writing, so hold the view across the check.
+CHECKED_WRITES = (
+    "camera set exposure_time",
+    "camera set binning",
+    "objective move_",
+)
 FM_VIEW = 3
 # The old class read the filter type back; the driver holds the filter instead.
 FILTER_READ = "detector.camera_settings.filter.type.value"
@@ -391,6 +395,24 @@ def test_a_grab_holds_the_lock_beams_take(facts):
     """A beam read takes the view under the lock; one landing mid-grab fails the
     grab, as when the web Microscope page polled during an FM z-stack."""
     assert facts["grabs_hold_the_lock"]
+
+
+def test_an_objective_move_holds_the_lock_from_its_limits_on(facts):
+    """A beam taking the view between the limits and the move fails the move, as
+    each plane of a z-stack moves the objective."""
+    assert facts["moves_hold_the_lock"]
+
+
+def test_the_homed_read_is_tried_again_holding_the_lock(facts):
+    assert facts["is_homed_after_a_beam_takes_the_view"] == {
+        "homed": True,
+        "tries_holding_the_lock": [False, True],
+    }
+
+
+def test_stopping_live_view_holds_the_lock(facts):
+    """Stopping acts on whichever view is active: a beam's, without the lock."""
+    assert facts["stopping_live_holds_the_lock"]
 
 
 def test_writes_are_not_starved_by_live_view(facts):
