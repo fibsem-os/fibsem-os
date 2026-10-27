@@ -2322,10 +2322,12 @@ class AutoscriptFMCamera(_OnTheFMChannel, Camera):
 
     def _acquire(self) -> np.ndarray:
         # The grab holds the channel itself: inside an acquisition that is the same
-        # calls, and a bare grab can't leave the connection on the FM.
+        # calls, and a bare grab can't leave the connection on the FM. It holds the
+        # lock too, for this frame only: a beam read takes the view under the lock,
+        # and one landing mid-grab fails the grab.
         from autoscript_sdb_microscope_client.structures import GrabFrameSettings
 
-        with self._channel.scope():
+        with self._channel.held():
             frame_settings = GrabFrameSettings(
                 emission_type=self._filter_set.emission_type
             )

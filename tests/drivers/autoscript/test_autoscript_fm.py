@@ -387,6 +387,12 @@ def test_a_write_holds_the_lock_beams_take(facts):
     assert facts["writes_hold_the_lock"]
 
 
+def test_a_grab_holds_the_lock_beams_take(facts):
+    """A beam read takes the view under the lock; one landing mid-grab fails the
+    grab, as when the web Microscope page polled during an FM z-stack."""
+    assert facts["grabs_hold_the_lock"]
+
+
 def test_writes_are_not_starved_by_live_view(facts):
     """Live view re-takes the lock every frame; a write holding it still gets in."""
     assert facts["writes_go_through_while_live"]
