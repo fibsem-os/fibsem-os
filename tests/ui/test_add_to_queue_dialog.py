@@ -41,7 +41,9 @@ PAIRS = [(ln, tn) for tn in TASKS for ln in LAMELLA]
 
 @pytest.fixture
 def app(qapp):
-    qapp.setStyleSheet(NAPARI_STYLE)
+    # Setting it restyles every live top-level widget in the process, so set it once.
+    if qapp.styleSheet() != NAPARI_STYLE:
+        qapp.setStyleSheet(NAPARI_STYLE)
     return qapp
 
 

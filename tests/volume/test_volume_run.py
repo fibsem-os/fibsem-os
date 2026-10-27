@@ -56,6 +56,7 @@ def _slices(position):
     return [(s.name, s.iteration, s.status) for s in position.task_history]
 
 
+@pytest.mark.slow
 def test_each_position_cuts_and_images_every_slice(
     microscope, experiment, positions, milled
 ):
@@ -74,6 +75,7 @@ def test_each_position_cuts_and_images_every_slice(
     )
 
 
+@pytest.mark.slow
 def test_a_stopped_run_resumes_without_cutting_a_slice_twice(
     microscope, experiment, positions, milled, monkeypatch
 ):
