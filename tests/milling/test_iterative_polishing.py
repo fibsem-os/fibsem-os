@@ -1,9 +1,10 @@
-"""One Coincidence Polishing pass on the Demo microscope.
+"""One Iterative Polishing pass on the Demo microscope.
 
 The FIB image is a synthetic band and the fluorescence frames carry a target
 spot and a control spot, so the pass's measurements can be checked against
 what was drawn: the band's edges and width, the target refitted where it is,
-and its signal against the control and against an earlier pass.
+and its signal against the control and against an earlier pass. Without a
+fluorescence module a pass looks with the SEM instead.
 """
 
 import json
@@ -18,11 +19,11 @@ import fibsem.config as fconfig
 from fibsem import utils
 from fibsem.fm.structures import ChannelSettings, EmissionFilter
 from fibsem.milling.base import FibsemMillingStage
-from fibsem.milling.patterning.patterns import RectanglePattern
+from fibsem.milling.patterning.patterns import RectanglePattern, TrenchPattern
 from fibsem.milling.strategy import get_strategy_names
-from fibsem.milling.strategy.coincidence_polishing import (
-    CoincidencePolishingConfig,
-    CoincidencePolishingStrategy,
+from fibsem.milling.strategy.iterative_polishing import (
+    IterativePolishingConfig,
+    IterativePolishingStrategy,
 )
 from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
 from fibsem.structures.image import FibsemImage
@@ -109,8 +110,8 @@ def scene(fm_microscope, monkeypatch):
     return state
 
 
-def _task(path, **config) -> FibsemMillingTaskConfig:
-    strategy = CoincidencePolishingStrategy(config=CoincidencePolishingConfig(**config))
+def _task(path, pattern=None, **config) -> FibsemMillingTaskConfig:
+    strategy = IterativePolishingStrategy(config=IterativePolishingConfig(**config))
     task = FibsemMillingTaskConfig(
         name="Polish",
         field_of_view=50e-6,
@@ -118,7 +119,8 @@ def _task(path, **config) -> FibsemMillingTaskConfig:
             FibsemMillingStage(
                 name="Polish Top 01",
                 milling=FibsemMillingSettings(milling_current=100e-12, hfw=50e-6),
-                pattern=RectanglePattern(width=9e-6, height=0.5e-6, depth=0.5e-6),
+                pattern=pattern
+                or RectanglePattern(width=9e-6, height=0.5e-6, depth=0.5e-6),
                 strategy=strategy,
             )
         ],
@@ -140,7 +142,7 @@ def _gfp() -> ChannelSettings:
     )
 
 
-def _pass(microscope, path, **config):
+def _pass(microscope, path, pattern=None, **config):
     """Run one pass; the stage's strategy record, as the milling event has it."""
     records = []
 
@@ -150,7 +152,7 @@ def _pass(microscope, path, **config):
 
     microscope.session.record_signal.connect(keep)
     try:
-        run_milling_task(microscope, _task(path, **config))
+        run_milling_task(microscope, _task(path, pattern, **config))
     finally:
         microscope.session.record_signal.disconnect(keep)
     (record,) = records
@@ -171,7 +173,7 @@ def test_the_config_round_trips_on_a_stage():
     )
     stage = FibsemMillingStage.from_dict(task.stages[0].to_dict())
     config = stage.strategy
-    assert isinstance(config, CoincidencePolishingConfig)
+    assert isinstance(config, IterativePolishingConfig)
     assert config.face == "bottom"
     assert config.targets == [[1.5, 2.5]]
     assert config.control == [3.0, 4.0]
@@ -181,8 +183,8 @@ def test_the_config_round_trips_on_a_stage():
 
 
 def test_it_is_found_by_name_but_kept_out_of_the_protocol_selectors():
-    assert "Coincidence Polishing" not in get_strategy_names()
-    assert CoincidencePolishingStrategy.selectable is False
+    assert "Iterative Polishing" not in get_strategy_names()
+    assert IterativePolishingStrategy.selectable is False
 
 
 def test_a_pass_mills_images_and_measures(fm_microscope, scene, tmp_path):
@@ -195,7 +197,7 @@ def test_a_pass_mills_images_and_measures(fm_microscope, scene, tmp_path):
         control=list(CONTROL),
     )
     facts = said["facts"]
-    assert said["name"] == "Coincidence Polishing"
+    assert said["name"] == "Iterative Polishing"
     assert facts["Face"] == "top"
 
     # The band: its width, and its edges either side of the image centre, in
@@ -268,14 +270,76 @@ def test_each_look_can_be_switched_off(fm_microscope, scene, tmp_path):
         tmp_path,
         acquire_fib_image=False,
         acquire_reflection_stack=False,
+        acquire_sem_image=True,
     )
     facts = said["facts"]
     assert facts["Face"] == "top"
     assert not any(
         key in facts for key in ("FIB image", "Reflection stack", "Target stack")
     )
+    assert os.path.isfile(facts["SEM image"])
     assert os.path.isfile(facts["Pass data"])
-    assert "figure" not in said
+
+
+def test_without_fluorescence_a_pass_looks_with_the_sem(
+    fm_microscope, scene, tmp_path, monkeypatch
+):
+    """A system with no coincident FM: the FIB band and an SEM image of the
+    lamella, both in the result and the figure."""
+    monkeypatch.setattr(fm_microscope, "fm", None)
+    said = _pass(
+        fm_microscope,
+        tmp_path,
+        acquire_reflection_stack=False,
+        acquire_sem_image=True,
+    )
+    facts = said["facts"]
+    assert facts["Band FWHM (nm)"] == pytest.approx(BAND_NM, abs=2 * FIB_PIXEL * 1e9)
+    assert os.path.basename(facts["SEM image"]) == "sem.tif"
+    assert os.path.isfile(facts["SEM image"])
+    assert os.path.isfile(said["figure"])
+    with open(facts["Pass data"]) as f:
+        assert json.load(f)["files"]["sem_image"] == facts["SEM image"]
+
+
+def test_a_pass_with_nothing_to_look_at_is_refused(fm_microscope, tmp_path):
+    strategy = IterativePolishingStrategy(
+        IterativePolishingConfig(acquire_reflection_stack=False)
+    )
+    with pytest.raises(ValueError, match="SEM image, fluorescence stacks"):
+        strategy.run(fm_microscope, _task(tmp_path).stages[0])
+
+
+def test_stacks_without_a_fluorescence_module_are_refused(
+    fm_microscope, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(fm_microscope, "fm", None)
+    strategy = IterativePolishingStrategy(IterativePolishingConfig())
+    with pytest.raises(ValueError, match="need a fluorescence module"):
+        strategy.run(fm_microscope, _task(tmp_path).stages[0])
+
+
+def test_a_trench_polishes_both_faces_in_one_pass(fm_microscope, scene, tmp_path):
+    trench = TrenchPattern(
+        width=9e-6,
+        depth=0.5e-6,
+        spacing=1.0e-6,
+        upper_trench_height=0.5e-6,
+        lower_trench_height=0.5e-6,
+    )
+    said = _pass(
+        fm_microscope,
+        tmp_path,
+        trench,
+        face="both",
+        acquire_reflection_stack=False,
+        acquire_sem_image=True,
+    )
+    assert said["facts"]["Face"] == "both"
+    with open(said["facts"]["Pass data"]) as f:
+        data = json.load(f)
+    assert data["face"] == "both"
+    assert data["pattern"] == trench.name
 
 
 def test_the_objective_is_put_back_before_the_stacks(fm_microscope, scene, tmp_path):
@@ -292,10 +356,10 @@ def test_the_objective_is_put_back_before_the_stacks(fm_microscope, scene, tmp_p
     assert objective.position == pytest.approx(home)
 
 
-def test_a_face_that_is_neither_top_nor_bottom_is_refused(fm_microscope, tmp_path):
-    strategy = CoincidencePolishingStrategy(CoincidencePolishingConfig(face="left"))
+def test_a_face_that_is_not_top_bottom_or_both_is_refused(fm_microscope, tmp_path):
+    strategy = IterativePolishingStrategy(IterativePolishingConfig(face="left"))
     stage = _task(tmp_path).stages[0]
-    with pytest.raises(ValueError, match="top or bottom"):
+    with pytest.raises(ValueError, match="top, bottom or both"):
         strategy.run(fm_microscope, stage)
 
 

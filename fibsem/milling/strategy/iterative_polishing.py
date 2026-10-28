@@ -1,10 +1,11 @@
-"""Coincidence Polishing: one polishing pass toward a fluorescent target.
+"""Iterative Polishing: one polishing pass, then a look at the lamella.
 
 A pass mills the stage exactly as it is given, then looks: a FIB image of the
-band, the objective put back where it should be, a reflection stack and a
-target-channel stack, and the measurements an operator or an agent judges the
-pass by. Where to mill, how hard, and when to stop are the caller's to decide;
-the strategy decides nothing and answers with what it measured.
+band, an SEM image of the lamella, and, with a coincident fluorescence module,
+the objective put back where it should be, a reflection stack and a
+target-channel stack. It answers with the measurements and files an operator or
+an agent judges the pass by. Where to mill, how hard, and when to stop are the
+caller's to decide; the strategy decides nothing.
 """
 
 from __future__ import annotations
@@ -47,19 +48,19 @@ from fibsem.structures.image import FibsemImage
 from fibsem.structures.params import Display, param
 from fibsem.structures.settings import BeamType, ImageSettings, Point
 
-FACES = ("top", "bottom")
+FACES = ("top", "bottom", "both")
 PASS_FILE = "pass.json"
 
 
 @dataclass
-class CoincidencePolishingConfig(MillingStrategyConfig):
+class IterativePolishingConfig(MillingStrategyConfig):
     """One polishing pass: the face it mills, and how it looks afterwards. The
     pattern and the milling settings are the stage's own."""
 
     face: str = param(
         "top",
         choices=list(FACES),
-        doc="The face this pass mills, top or bottom. The pass is recorded under it.",
+        doc="The face this pass mills: top, bottom, or both (a trench). The pass is recorded under it.",
         display=Display("Face"),
     )
     acquire_fib_image: bool = param(
@@ -82,6 +83,16 @@ class CoincidencePolishingConfig(MillingStrategyConfig):
         unit="m",
         doc="The window the band is measured in: [width along the band, height across it].",
         display=Display("Band Window", advanced=True),
+    )
+    acquire_sem_image: bool = param(
+        False,
+        doc="Take an SEM image after the mill, to judge the lamella by: its protective layer, cracks, breaks, curtaining.",
+        display=Display("Acquire SEM Image"),
+    )
+    sem_image: Optional[ImageSettings] = param(
+        None,
+        doc="The SEM image's settings (resolution, dwell, field of view). None takes it with the electron beam as it is set.",
+        display=Display("SEM Image", advanced=True),
     )
     objective_position: Optional[float] = param(
         None,
@@ -136,12 +147,12 @@ class CoincidencePolishingConfig(MillingStrategyConfig):
     )
 
 
-class CoincidencePolishingStrategy(MillingStrategy[CoincidencePolishingConfig]):
+class IterativePolishingStrategy(MillingStrategy[IterativePolishingConfig]):
     """Mill one pass as given, then image and measure the band and the targets."""
 
-    name: str = "Coincidence Polishing"
-    fullname: str = "Coincidence Polishing (one pass)"
-    config_class = CoincidencePolishingConfig
+    name: str = "Iterative Polishing"
+    fullname: str = "Iterative Polishing (one pass)"
+    config_class = IterativePolishingConfig
     # Its settings are a pass's, chosen pass by pass: not a protocol's stage.
     selectable: bool = False
 
@@ -155,14 +166,21 @@ class CoincidencePolishingStrategy(MillingStrategy[CoincidencePolishingConfig]):
         images and ``pass.json``, and draws the pass."""
         config = self.config
         if config.face not in FACES:
-            raise ValueError(f"face is top or bottom, not {config.face!r}")
+            raise ValueError(f"face is top, bottom or both, not {config.face!r}")
+        stacks_wanted = (
+            config.acquire_reflection_stack or config.target_channel is not None
+        )
+        if not (stacks_wanted or config.acquire_sem_image):
+            raise ValueError(
+                "A pass looks at the lamella after the mill: take an SEM image, "
+                "fluorescence stacks, or both"
+            )
         if microscope.fm is None and (
-            config.acquire_reflection_stack
-            or config.target_channel is not None
-            or config.objective_position is not None
+            stacks_wanted or config.objective_position is not None
         ):
             raise ValueError(
-                "Coincidence Polishing needs a fluorescence module for its stacks"
+                "The fluorescence stacks need a fluorescence module; "
+                "take an SEM image instead"
             )
         folder = _pass_folder(stage)
         logging.info(f"{self.name}: {stage.name} ({config.face}) into {folder}")
@@ -181,9 +199,16 @@ class CoincidencePolishingStrategy(MillingStrategy[CoincidencePolishingConfig]):
 
         fib = None
         if config.acquire_fib_image:
-            fib = _fib_image(microscope, config.fib_image, folder)
+            fib = _image(microscope, BeamType.ION, config.fib_image, folder)
             record["files"]["fib_image"] = fib.filepath
             facts["FIB image"] = str(fib.filepath)
+            raise_if_cancelled(stop_event)
+
+        sem = None
+        if config.acquire_sem_image:
+            sem = _image(microscope, BeamType.ELECTRON, config.sem_image, folder)
+            record["files"]["sem_image"] = sem.filepath
+            facts["SEM image"] = str(sem.filepath)
             raise_if_cancelled(stop_event)
 
         if config.objective_position is not None:
@@ -220,7 +245,7 @@ class CoincidencePolishingStrategy(MillingStrategy[CoincidencePolishingConfig]):
         record["files"]["pass"] = pass_file
         facts["Pass data"] = pass_file
 
-        figure = _figure(band, planes, intensity, stacks.get("reflection"), folder)
+        figure = _figure(band, sem, planes, intensity, stacks.get("reflection"), folder)
         return MillingStrategyResult(facts=facts, figure=figure)
 
 
@@ -234,25 +259,29 @@ def _pass_folder(stage: FibsemMillingStage) -> str:
     return folder
 
 
-def _fib_image(
-    microscope: FibsemMicroscope, settings: Optional[ImageSettings], folder: str
+def _image(
+    microscope: FibsemMicroscope,
+    beam_type: BeamType,
+    settings: Optional[ImageSettings],
+    folder: str,
 ) -> FibsemImage:
+    filename = "fib" if beam_type is BeamType.ION else "sem"
     if settings is None:
         return acquire.acquire_current_image(
-            microscope, BeamType.ION, path=os.path.join(folder, "fib.tif")
+            microscope, beam_type, path=os.path.join(folder, f"{filename}.tif")
         )
     settings = deepcopy(settings)
-    settings.beam_type = BeamType.ION
+    settings.beam_type = beam_type
     settings.save = True
     settings.path = folder
-    settings.filename = "fib"
+    settings.filename = filename
     return acquire.acquire_image(microscope, settings)
 
 
 def _stack(
     microscope: FibsemMicroscope,
     channel: ChannelSettings,
-    config: CoincidencePolishingConfig,
+    config: IterativePolishingConfig,
     folder: str,
     stop_event: Optional[threading.Event],
 ) -> str:
@@ -268,7 +297,7 @@ def _stack(
 
 def _measure_band(
     fib: FibsemImage,
-    config: CoincidencePolishingConfig,
+    config: IterativePolishingConfig,
     folder: str,
     record: Dict[str, Any],
     facts: Dict[str, Any],
@@ -311,7 +340,7 @@ def _measure_band(
 
 def _measure_targets(
     planes: Planes,
-    config: CoincidencePolishingConfig,
+    config: IterativePolishingConfig,
     record: Dict[str, Any],
     facts: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -388,37 +417,41 @@ def _baseline(path: Optional[str]) -> Optional[List[Optional[float]]]:
 
 def _figure(
     band: Optional[LamellaThicknessResult],
+    sem: Optional[FibsemImage],
     planes: Optional[Planes],
     intensity: Optional[Dict[str, Any]],
     reflection: Optional[str],
     folder: str,
 ) -> Optional[str]:
-    """The pass on one image: the band with its edges, each target's strip,
-    and the reflection stack's sharpest plane."""
+    """The pass on one image: the band with its edges, the SEM image, each
+    target's strip, and the reflection stack's sharpest plane."""
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
     from PIL import Image
+
+    def panel(image: np.ndarray, title: str) -> np.ndarray:
+        figure = Figure(figsize=(6, 4.2), facecolor="#16181d")
+        FigureCanvasAgg(figure)
+        axes = figure.add_subplot(1, 1, 1)
+        axes.imshow(image, cmap="gray")
+        axes.set_title(title, color="#d8dce4", fontsize=10)
+        axes.axis("off")
+        return rgb_of(figure)
 
     parts: List[np.ndarray] = []
     if band is not None:
         figure = band.plot()
         FigureCanvasAgg(figure)
         parts.append(rgb_of(figure))
+    if sem is not None:
+        parts.append(panel(sem.data, "SEM"))
     if planes is not None and intensity is not None:
         parts.append(intensity_figure(planes, intensity))
     if reflection is not None:
         _, stack = load_planes(reflection).layer(None)
         sharpness = [float(np.var(plane)) for plane in stack]
         best = int(np.argmax(sharpness))
-        figure = Figure(figsize=(6, 4.2), facecolor="#16181d")
-        FigureCanvasAgg(figure)
-        axes = figure.add_subplot(1, 1, 1)
-        axes.imshow(stack[best], cmap="gray")
-        axes.set_title(
-            f"Reflection, plane {best} of {len(stack)}", color="#d8dce4", fontsize=10
-        )
-        axes.axis("off")
-        parts.append(rgb_of(figure))
+        parts.append(panel(stack[best], f"Reflection, plane {best} of {len(stack)}"))
     if not parts:
         return None
     width = max(part.shape[1] for part in parts)
