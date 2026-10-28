@@ -221,6 +221,39 @@ def test_refine_point_answers_a_proposal(client, images):
     assert result["initial"] == [50.0, 50.0, 5.0]
 
 
+def test_refine_point_saves_its_fit_figure_and_answers_the_z_fit(client, images):
+    """The agent sees the fit as the tab's confirm dialog shows it, and how
+    strong and wide the target is in z."""
+    import base64
+    import os
+
+    from fibsem.fm.structures import FluorescenceImage
+
+    # A bead at (50, 50) in plane 5, sigma 1.5 planes, on a background of 100.
+    fm = FluorescenceImage.load(images.fm)
+    zz, yy, xx = np.mgrid[:10, :100, :100]
+    bead = np.exp(-((xx - 50) ** 2 + (yy - 50) ** 2) / 8 - (zz - 5) ** 2 / 4.5)
+    fm.data = (100 + 2000 * bead)[None].astype(np.uint16)
+    path = fm.save(os.path.join(images.lamella, "bead.ome.tiff"))
+
+    url = f"{CORRELATION}/queries/refine_point"
+    point = {"image_path": path, "x": 50.0, "y": 50.0, "z": 4.0, "beam": "fm"}
+    resp = client.post(url, json={"kwargs": point})
+    assert resp.status_code == 200, resp.text
+    result = resp.json()["result"]
+    assert result["status"] != "error", result["message"]
+    assert result["fitted"][2] == pytest.approx(5, abs=0.2)
+    figure = result["figure_path"].replace(os.sep, "/")
+    assert figure.endswith("/drawn/bead-fit-50-50.png")
+    assert os.path.getsize(result["figure_path"]) > 0
+    assert base64.b64decode(result["plot"]["image_b64_jpeg"])[:2] == b"\xff\xd8"
+    z_fit = result["z_fit"]
+    # The ROI mean dilutes the bead's height; its width in z is the bead's.
+    assert z_fit["fwhm_planes"] == pytest.approx(2.3548 * 1.5, rel=0.15)
+    assert z_fit["amplitude"] > 0 and not z_fit["inverted"]
+    assert z_fit["background"] == pytest.approx(100, abs=20)
+
+
 def test_refine_point_starts_on_the_sharpest_plane_and_takes_a_channel_name(
     client, images
 ):
@@ -327,6 +360,19 @@ def test_an_fm_surface_point_corrects_the_targets_depth_before_the_fit(client, i
     assert result["ri_correction"]["mode"] == "pre"
     assert result["ri_correction"]["factor"] == pytest.approx(1.3)
     assert np.allclose(result["poi"][0]["image_px"], _expected_pre(1.3), atol=0.05)
+
+
+def test_without_a_surface_point_the_answer_says_there_was_no_ri_correction(
+    client, images
+):
+    result = _correlate(client, images).json()["result"]
+    assert result["ri_correction"] is None
+    assert result["ri_note"].startswith("No refractive-index correction")
+
+    corrected = _correlate(
+        client, images, fm_surface_point=[50.0, 50.0, SURFACE_Z], ri_factor=1.3
+    ).json()["result"]
+    assert "ri_note" not in corrected
 
 
 def test_without_a_factor_the_lookup_table_gives_it_at_tilt_0(client, images):

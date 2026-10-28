@@ -21,6 +21,7 @@ import re
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from fibsem.ai.agent.catalog import (
+    analysis,
     app,
     coating,
     grids,
@@ -49,6 +50,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     + grids.TOOLS
     + items.TOOLS
     + app.TOOLS
+    + analysis.TOOLS
 )
 
 # Every route the server serves is a tool above or here, with why it is not one

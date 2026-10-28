@@ -35,8 +35,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.ai.agent import code_mode, profiles
 from fibsem.ai.agent import manager as sessions
+from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.levels import LEVEL_SKILLS
-from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
 from fibsem.extras import missing_extra_message
 from fibsem.logo import print_fibsem_logo

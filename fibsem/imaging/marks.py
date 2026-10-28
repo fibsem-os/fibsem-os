@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import io
 import math
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -26,6 +27,7 @@ from fibsem.imaging.export import (
     render_export,
 )
 from fibsem.imaging.labels import Box, LabelPlacer
+from fibsem.imaging.looks import cropped, layer_names, layer_stats, looks_for
 from fibsem.theme.tokens import ACCENT_COLOR, AGENT_MARK_COLOR
 
 _DPI = 100
@@ -511,6 +513,64 @@ def save_drawn(rgb: np.ndarray, path: str) -> Dict[str, str]:
 DRAWN_WIDTH = 1024
 
 
+@dataclass
+class Drawn:
+    """A drawn picture, and per layer drawn the look and what it holds
+    (`fibsem.imaging.looks.layer_stats`; empty for a plain picture)."""
+
+    rgb: np.ndarray
+    layers: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
+    def looks(self) -> Dict[str, Dict[str, Any]]:
+        """The looks drawn with, auto limits as the numbers they came to."""
+        return {name: dict(layer["look"]) for name, layer in self.layers.items()}
+
+
+def draw(
+    path: str,
+    marks: Optional[Dict[str, Any]],
+    colour: str = AGENT_MARK_COLOR,
+    crosshair: bool = False,
+    metadata_bar: bool = True,
+    channels: Optional[Sequence[str]] = None,
+    max_width: int = DRAWN_WIDTH,
+    plane: Optional[int] = None,
+    looks: Optional[Dict[str, Dict[str, Any]]] = None,
+    box: Optional[Sequence[float]] = None,
+    shared: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Drawn:
+    """The image at *path* with *marks* (its pixels) drawn on it, at most
+    *max_width* wide: the centre *crosshair*, the scale bar and, when
+    *metadata_bar*, the metadata bar, as the export dialog draws them. Only
+    the region *box* (x, y, width, height in its pixels) when given, each
+    fluorescence channel contrasted to that region. Each layer drawn with its
+    look from *looks* (by layer name, `fibsem.imaging.looks`), else from
+    *shared* where it names the layer. Raises ValueError for a file that is
+    not an image, a box outside it or a look that doesn't apply. On a
+    fluorescence stack, the *plane* `plane_shown` picks for the marks."""
+
+    plane, marks = plane_shown(marks, plane, is_fluorescence_image(path))
+    image, options = load_marked_image(path, channels, plane)
+    if image is None:
+        raise ValueError(f"{path} is not an image")
+    options.crosshair = crosshair
+    if not metadata_bar:
+        options.fields, options.provenance = (), ()
+    names = layer_names(image)
+    given = {n: look for n, look in (shared or {}).items() if n in names}
+    given.update(looks or {})
+    if box is not None:
+        image = cropped(image, box)
+        x0, y0 = max(0, int(round(box[0]))), max(0, int(round(box[1])))
+        marks = scaled_marks(marks, 1.0, 1.0, -x0, -y0)
+        if image.layers:
+            # each channel contrasted to the region, as a crop is
+            given = {**{n: {} for n in names}, **given}
+    options.looks = looks_for(image, given)
+    stats = layer_stats(image, options) if names else {}
+    return Drawn(marked_picture(image, marks, colour, options, max_width), stats)
+
+
 def drawn_picture(
     path: str,
     marks: Optional[Dict[str, Any]],
@@ -521,28 +581,100 @@ def drawn_picture(
     max_width: int = DRAWN_WIDTH,
     plane: Optional[int] = None,
 ) -> np.ndarray:
-    """The image at *path* with *marks* (its pixels) drawn on it, at most
-    *max_width* wide: the centre *crosshair*, the scale bar and, when
-    *metadata_bar*, the metadata bar, as the export dialog draws them. Raises
-    ValueError for a file that is not an image. On a fluorescence stack, the
-    *plane* `plane_shown` picks for the marks."""
-    plane, marks = plane_shown(marks, plane, is_fluorescence_image(path))
-    image, options = load_marked_image(path, channels, plane)
-    if image is None:
-        raise ValueError(f"{path} is not an image")
-    options.crosshair = crosshair
-    if not metadata_bar:
-        options.fields, options.provenance = (), ()
-    return marked_picture(image, marks, colour, options, max_width)
+    """`draw`'s picture alone."""
+    return draw(
+        path, marks, colour, crosshair, metadata_bar, channels, max_width, plane
+    ).rgb
 
 
-def _field_width(path: str, channels) -> Tuple[Optional[float], Tuple[int, int]]:
-    """The image's field width (metres; None unknown) and ``(height, width)``."""
+def _geometry(path: str, channels) -> Tuple[Optional[float], Tuple[int, int]]:
+    """The image's pixel size (metres; None unknown) and ``(height, width)``."""
     image, _ = load_marked_image(path, channels)
     if image is None:
         raise ValueError(f"{path} is not an image")
-    height, width = image.rgb.shape[:2]
-    return (image.pixel_size * width if image.pixel_size else None), (height, width)
+    return image.pixel_size or None, image.rgb.shape[:2]
+
+
+def _box_marks(box: Sequence[float]) -> Dict[str, Any]:
+    x, y, width, height = box
+    return {"areas": [{"x": x, "y": y, "width": width, "height": height}]}
+
+
+def draw_pair(
+    before: str,
+    after: str,
+    marks: Optional[Dict[str, Any]],
+    colour: str = AGENT_MARK_COLOR,
+    metadata_bar: bool = True,
+    channels: Optional[Sequence[str]] = None,
+    before_plane: Optional[int] = None,
+    after_plane: Optional[int] = None,
+    looks: Optional[Dict[str, Dict[str, Any]]] = None,
+    box: Optional[Sequence[float]] = None,
+    share_looks: bool = True,
+) -> Tuple[Drawn, Drawn]:
+    """*before* and *after* side by side at one scale (the wider field at
+    most `DRAWN_WIDTH` wide), each with its own bars, *marks* (*before*'s pixels)
+    on both: on *after* at the same place on the sample, the two taken
+    centred on one point (at the same place of its frame when either does not
+    say its pixel size). A stack shows its *before_plane* / *after_plane* (as
+    `draw` picks when None): two planes of one stack side by side. *box* (in
+    *before*'s pixels) draws that region of each, the same place on *after*.
+    Both take *looks*; with *share_looks*, a layer *looks* leaves out is drawn
+    on *after* as it came out on *before*, so a fade reads as one. Answers
+    each half."""
+    px_before, full_before = _geometry(before, channels)
+    px_after, full_after = _geometry(after, channels)
+    if px_before and px_after:
+        f = px_before / px_after
+        fx = fy = f
+        offset = (
+            (full_after[1] - full_before[1] * f) / 2,
+            (full_after[0] - full_before[0] * f) / 2,
+        )
+    else:
+        fx, fy = full_after[1] / full_before[1], full_after[0] / full_before[0]
+        offset = (0.0, 0.0)
+    moved = scaled_marks(marks, fx, fy, *offset)
+    shape_before, shape_after, box_after = full_before, full_after, None
+    if box is not None:
+        area = scaled_marks(_box_marks(box), fx, fy, *offset)["areas"][0]
+        box_after = [area["x"], area["y"], area["width"], area["height"]]
+        shape_before = (max(1, round(box[3])), max(1, round(box[2])))
+        shape_after = (max(1, round(area["height"])), max(1, round(area["width"])))
+    widths = [DRAWN_WIDTH, DRAWN_WIDTH]
+    if px_before and px_after:
+        fields = (px_before * shape_before[1], px_after * shape_after[1])
+        # Pixels per metre: the wider field at most DRAWN_WIDTH, and neither
+        # image drawn larger than it is.
+        per_metre = min(DRAWN_WIDTH / max(fields), 1 / px_before, 1 / px_after)
+        widths = [max(1, round(per_metre * f)) for f in fields]
+    left = draw(
+        before,
+        marks,
+        colour,
+        False,
+        metadata_bar,
+        channels,
+        widths[0],
+        before_plane,
+        looks,
+        box,
+    )
+    right = draw(
+        after,
+        moved,
+        colour,
+        False,
+        metadata_bar,
+        channels,
+        widths[1],
+        after_plane,
+        looks,
+        box_after,
+        left.looks() if share_looks else None,
+    )
+    return left, right
 
 
 def drawn_pair(
@@ -555,45 +687,16 @@ def drawn_pair(
     before_plane: Optional[int] = None,
     after_plane: Optional[int] = None,
 ) -> np.ndarray:
-    """*before* and *after* side by side at one scale (the wider field at
-    most `DRAWN_WIDTH` wide), each with its own bars, *marks* (*before*'s pixels)
-    on both: on *after* at the same place on the sample, the two taken
-    centred on one point (at the same place of its frame when either does not
-    say its pixel size). A stack shows its *before_plane* / *after_plane* (as
-    `drawn_picture` picks when None): two planes of one stack side by side."""
-    field_before, shape_before = _field_width(before, channels)
-    field_after, shape_after = _field_width(after, channels)
-    widths = [DRAWN_WIDTH, DRAWN_WIDTH]
-    if field_before and field_after:
-        fields = (field_before, field_after)
-        # Pixels per metre: the wider field at most DRAWN_WIDTH, and neither
-        # image drawn larger than it is.
-        per_metre = min(
-            DRAWN_WIDTH / max(fields),
-            shape_before[1] / field_before,
-            shape_after[1] / field_after,
-        )
-        widths = [max(1, round(per_metre * f)) for f in fields]
-    if field_before and field_after:
-        # The same place on the sample, both images centred on one point.
-        f = (field_before / shape_before[1]) / (field_after / shape_after[1])
-        moved = scaled_marks(
-            marks,
-            f,
-            f,
-            (shape_after[1] - shape_before[1] * f) / 2,
-            (shape_after[0] - shape_before[0] * f) / 2,
-        )
-    else:
-        moved = scaled_marks(
-            marks,
-            shape_after[1] / shape_before[1],
-            shape_after[0] / shape_before[0],
-        )
-    left = drawn_picture(
-        before, marks, colour, False, metadata_bar, channels, widths[0], before_plane
+    """`draw_pair`'s picture: both halves side by side, sharing nothing."""
+    left, right = draw_pair(
+        before,
+        after,
+        marks,
+        colour,
+        metadata_bar,
+        channels,
+        before_plane,
+        after_plane,
+        share_looks=False,
     )
-    right = drawn_picture(
-        after, moved, colour, False, metadata_bar, channels, widths[1], after_plane
-    )
-    return side_by_side(left, right)
+    return side_by_side(left.rgb, right.rgb)

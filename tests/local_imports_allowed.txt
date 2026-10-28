@@ -11,9 +11,9 @@ fibsem/ai/agent/drawing.py 3
 fibsem/ai/agent/harness.py 3
 fibsem/ai/agent/manager.py 1
 fibsem/ai/agent/mcp/sidecar.py 4
-fibsem/ai/agent/mcp/watch.py 1
 fibsem/ai/agent/pictures.py 17
 fibsem/ai/agent/session.py 8
+fibsem/ai/agent/watch.py 1
 fibsem/alignment/coincidence.py 10
 fibsem/alignment/methods.py 1
 fibsem/alignment/plotting.py 5
@@ -90,6 +90,7 @@ fibsem/geometry/projection.py 2
 fibsem/geometry/saved_images.py 10
 fibsem/guided_setup.py 6
 fibsem/image_format.py 2
+fibsem/imaging/analysis.py 2
 fibsem/imaging/cells.py 6
 fibsem/imaging/export.py 1
 fibsem/imaging/marks.py 1
@@ -116,7 +117,7 @@ fibsem/segmentation/onnx_model.py 1
 fibsem/segmentation/utils.py 1
 fibsem/server/devices.py 7
 fibsem/server/discovery.py 2
-fibsem/server/exports.py 7
+fibsem/server/exports.py 8
 fibsem/server/files.py 13
 fibsem/server/headless.py 1
 fibsem/server/hosting.py 13
@@ -126,7 +127,7 @@ fibsem/server/planes.py 5
 fibsem/server/server.py 1
 fibsem/services/alignment.py 7
 fibsem/services/analysis.py 1
-fibsem/services/correlation.py 20
+fibsem/services/correlation.py 22
 fibsem/services/imaging.py 14
 fibsem/services/milling.py 12
 fibsem/services/stage_movement.py 5

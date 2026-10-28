@@ -1183,6 +1183,115 @@ def test_draw_pair_puts_two_images_side_by_side_at_one_scale(
     assert width == 128 + 8 + 64
 
 
+def test_draw_answers_each_layer_s_look_and_stats_and_draws_a_region(
+    client, host, grid_with_overview
+):
+    """The agent sees how a picture was drawn and what its pixels hold, sets
+    limits from those numbers and draws again; a box draws one region."""
+    from PIL import Image
+
+    overview = host.experiment.grid_path(grid_with_overview) / "overview_sem"
+    path = str(overview / "overview.tif")
+    url = "/app/experiment/images/drawn"
+    resp = client.post(url, headers=AUTH, json={"path": path})
+    assert resp.status_code == 200, resp.text
+    ((name, stats),) = resp.json()["layers"].items()
+    assert name == "SEM" and stats["auto"]
+    assert (
+        stats["min"] <= stats["p1"] <= stats["median"] <= stats["p99"] <= stats["max"]
+    )
+
+    clim = [stats["p1"], stats["median"]]
+    looked = client.post(
+        url,
+        headers=AUTH,
+        json={"path": path, "looks": {"SEM": {"clim": clim, "gamma": 0.8}}},
+    ).json()["layers"]["SEM"]
+    assert looked["look"]["clim"] == clim and not looked["auto"]
+    assert looked["clipped_high"] >= 49
+
+    boxed = client.post(
+        url, headers=AUTH, json={"path": path, "box": [32, 32, 64, 64]}
+    ).json()
+    assert boxed["path"].endswith("overview-box-32-32-64-64.png")
+    with Image.open(boxed["path"]) as saved:
+        assert saved.size[0] == 64
+
+    for body in (
+        {"looks": {"FIB": {}}},
+        {"looks": {"SEM": {"clim": [5, 1]}}},
+        {"looks": {"SEM": {"brightness": 1}}},
+        {"box": [0, 0, 0, 10]},
+        {"box": [500, 500, 10, 10]},
+    ):
+        refused = client.post(url, headers=AUTH, json={"path": path, **body})
+        assert refused.status_code == 422, body
+
+
+def test_a_pair_draws_after_with_before_s_limits(client, host):
+    """A fade between two stacks shows as a fade: after is drawn with before's
+    auto limits unless share_looks is off."""
+    from tests.fixtures.fm_stacks import planes_stack
+
+    first = str(Path(host.experiment.path) / "first.ome.tiff")
+    second = str(Path(host.experiment.path) / "second.ome.tiff")
+    planes_stack(first)
+    planes_stack(second)
+    url = "/app/experiment/images/pair"
+    body = {"before": first, "after": second}
+    shared = client.post(url, headers=AUTH, json=body).json()
+    before, after = shared["before_layers"]["GFP"], shared["after_layers"]["GFP"]
+    assert after["look"]["clim"] == before["look"]["clim"]
+    alone = client.post(url, headers=AUTH, json={**body, "share_looks": False})
+    assert alone.status_code == 200 and alone.json()["after_layers"]["GFP"]["auto"]
+
+
+def test_analysis_measures_a_stack_s_points_profile_and_quality(client, host):
+    from tests.fixtures.fm_stacks import planes_stack
+
+    path = str(Path(host.experiment.path) / "stack.ome.tiff")
+    planes_stack(path)
+    # Plane z holds a 16 px bright block centred on (z * 32 + 16, 48).
+    resp = client.post(
+        "/app/experiment/analysis/intensity",
+        headers=AUTH,
+        json={"path": path, "points": [[16, 48], [48, 48]], "radius_px": 6},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["measurement"] == "intensity" and os.path.isfile(body["path"])
+    assert [p["best_plane"] for p in body["result"]["points"]] == [0, 1]
+
+    profile = client.post(
+        "/app/experiment/analysis/profile",
+        headers=AUTH,
+        json={"path": path, "start": [16, 30], "end": [16, 70], "plane": 0},
+    )
+    assert profile.status_code == 200, profile.text
+    result = profile.json()["result"]
+    assert result["fwhm_px"] == pytest.approx(16, abs=1.5)
+    assert result["fwhm_m"] == pytest.approx(result["fwhm_px"] * 1e-7)
+    assert profile.json()["path"].endswith("stack-profile-16-30-16-70.png")
+
+    quality = client.get(
+        "/app/experiment/analysis/quality", headers=AUTH, params={"path": path}
+    )
+    assert quality.status_code == 200, quality.text
+    assert len(quality.json()["result"]["plane_sharpness"]) == 3
+    assert quality.json()["result"]["saturated"] == 0
+    assert quality.json()["path"] is None
+
+    for url, bad in (
+        ("intensity", {"path": path, "points": [[500, 1]]}),
+        ("intensity", {"path": path, "points": "16,48"}),
+        ("intensity", {"path": path, "points": [[16, 48]], "channel": "RFP"}),
+        ("profile", {"path": path, "start": [1, 1]}),
+        ("profile", {"path": path, "start": [1, 1], "end": [9, 9], "plane": 7}),
+    ):
+        refused = client.post(f"/app/experiment/analysis/{url}", headers=AUTH, json=bad)
+        assert refused.status_code == 422, bad
+
+
 def _milling_item(host):
     """The first item with the shipped protocol's milling tasks."""
     import copy
@@ -2097,6 +2206,38 @@ def test_thickness_reads_a_saved_fib_image_over_http_and_mcp(client, host):
     text = json.loads(contents[0].text)
     assert text["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
     assert text["plot"]["image_index"] == 0
+
+
+def test_thickness_is_read_around_a_given_centre(client, host):
+    """An image taken off the item's POI: the agent centres the window on the
+    band it sees, and the answer says it did."""
+    from fibsem.structures.settings import BeamType
+    from tests.test_lamella_thickness import FINE, HEIGHT, WIDTH, band_image
+
+    lamella = host.experiment.positions[0]
+    os.makedirs(lamella.path, exist_ok=True)
+    image = band_image(235, offset_px=100)
+    image.metadata.microscope_state = MicroscopeState()  # a saved image has one
+    image.metadata.image_settings.beam_type = BeamType.ION
+    image.save(os.path.join(lamella.path, "off_centre_ib.tif"))
+    route = f"/app/experiment/items/{lamella.name}/thickness"
+    path = os.path.join(lamella.name, "off_centre_ib.tif")
+
+    at_poi = client.post(route, json={"path": path}, headers=AUTH).json()
+    assert at_poi["centre_from"] in ("poi", "image_centre")
+    assert at_poi["centre_offset_nm"] == pytest.approx(100 * FINE * 1e9, abs=15)
+
+    centre = [WIDTH / 2, HEIGHT / 2 - 100]
+    given = client.post(
+        route, json={"path": path, "centre": centre}, headers=AUTH
+    ).json()
+    assert given["centre_from"] == "given"
+    assert given["poi"]["y"] == pytest.approx(100 * FINE, rel=0.02)
+    assert given["centre_offset_nm"] == pytest.approx(0, abs=15)
+    assert given["thickness_nm"]["mean"] == pytest.approx(235, abs=10)
+
+    bad = client.post(route, json={"path": path, "centre": [1]}, headers=AUTH)
+    assert bad.status_code == 422
 
 
 def test_the_thickness_window_comes_from_the_trench_patterns():

@@ -4,7 +4,13 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from fibsem.ai.agent.catalog.spec import MARKS_PARAM, ToolSpec, arg
+from fibsem.ai.agent.catalog.spec import (
+    BOX_PARAM,
+    LOOKS_PARAM,
+    MARKS_PARAM,
+    ToolSpec,
+    arg,
+)
 from fibsem.server.parts import GRIDS, LAMELLAE, MILLING_STAGES
 from fibsem.util import wording
 
@@ -527,7 +533,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="experiment_draw_image",
         returns="ImageDrawn",
-        description="Draw marks on any saved image in the experiment (a beam image, or a fluorescence stack's max projection or one plane: plane, else the plane your marks' z share) and look at them before you act or cite them: the same marks as evidence takes, drawn as the operator sees them, in your purple, each label in a box placed clear of the others. crosshair adds the centre crosshair; the scale bar and metadata bar are under it. Saved beside the image as drawn/<image>.png (drawn/<image>-plane-<n>.png for a plane; replaced when drawn again): cite that path as evidence ({image: path}). Answers the path, the marks (measured lines with their length, each place with its stage position when the image says where it was taken) and a preview.",
+        description="Draw marks on any saved image in the experiment (a beam image, or a fluorescence stack's max projection or one plane: plane, else the plane your marks' z share) and look at them before you act or cite them: the same marks as evidence takes, drawn as the operator sees them, in your purple, each label in a box placed clear of the others. crosshair adds the centre crosshair; the scale bar and metadata bar are under it. Saved beside the image as drawn/<image>.png (drawn/<image>-plane-<n>.png for a plane; replaced when drawn again): cite that path as evidence ({image: path}). looks sets each layer's contrast limits, gamma, opacity and colour; box draws one region. Answers the path, the marks (measured lines with their length, each place with its stage position when the image says where it was taken), a preview, and per layer the look it was drawn with (auto limits as numbers) and its stats: min, p1, median, p99, max, clipped_low / clipped_high (% of pixels at the limits) and saturated (% at the file's full value). Too dark or saturated: set clim from those numbers and draw again.",
         method="POST",
         path="/app/experiment/images/drawn",
         level="watch",
@@ -549,13 +555,23 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 "optional: for a fluorescence stack, the plane to show (0 the first; default the plane your marks' z share, else the max projection): marks on other planes are left out",
                 int,
             ),
+            "looks": arg(LOOKS_PARAM, dict),
+            "box": arg(BOX_PARAM, List[float]),
         },
-        optional=("marks", "crosshair", "metadata_bar", "channels", "plane"),
+        optional=(
+            "marks",
+            "crosshair",
+            "metadata_bar",
+            "channels",
+            "plane",
+            "looks",
+            "box",
+        ),
     ),
     ToolSpec(
         name="experiment_draw_pair",
         returns="ImagePairDrawn",
-        description="Two saved images of the experiment side by side at one scale, each with its own scale bar and metadata bar: before and after a mill, before and after an alignment, SEM next to FIB of one site, two planes of one fluorescence stack (before_plane, after_plane: the target's plane next to the surface's, each with only its own marks). marks (in before's pixels) are drawn on both, at the same place of each frame, so a shift or a missing feature shows. Saved beside before as drawn/<before>-<after>.png: cite that path as evidence. Answers the path, the marks and a preview.",
+        description="Two saved images of the experiment side by side at one scale, each with its own scale bar and metadata bar: before and after a mill, before and after an alignment, SEM next to FIB of one site, two planes of one fluorescence stack (before_plane, after_plane: the target's plane next to the surface's, each with only its own marks). marks (in before's pixels) are drawn on both, at the same place of each frame, so a shift or a missing feature shows. box (before's pixels) draws that region of each, the same place on after. looks applies to both; share_looks (default true) draws after with before's limits wherever looks leaves a layer on auto, so a fade shows as a fade. Saved beside before as drawn/<before>-<after>.png: cite that path as evidence. Answers the path, the marks, a preview and each half's layers (look and stats, as experiment_draw_image).",
         method="POST",
         path="/app/experiment/images/pair",
         level="watch",
@@ -579,6 +595,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 "optional: after's plane, when a fluorescence stack (0 the first; default as experiment_draw_image picks)",
                 int,
             ),
+            "looks": arg(LOOKS_PARAM, dict),
+            "box": arg(BOX_PARAM + "; in before's pixels", List[float]),
+            "share_looks": arg(
+                "optional: draw after with before's limits wherever looks leaves a layer on auto (default true)",
+                bool,
+            ),
         },
         optional=(
             "marks",
@@ -586,6 +608,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "channels",
             "before_plane",
             "after_plane",
+            "looks",
+            "box",
+            "share_looks",
         ),
     ),
     ToolSpec(

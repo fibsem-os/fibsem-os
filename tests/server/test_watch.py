@@ -11,8 +11,8 @@ import pytest
 import uvicorn
 from psygnal.containers import EventedDict
 
+from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -242,7 +242,7 @@ def test_the_message_writes_out_the_operator_s_marks(app):
 
 
 def test_marks_on_a_stack_s_planes_say_their_z():
-    from fibsem.ai.agent.mcp.watch import _marks_part
+    from fibsem.ai.agent.watch import _marks_part
 
     marks = {
         "points": [{"x": 812, "y": 440, "z": 11, "label": "POI"}],

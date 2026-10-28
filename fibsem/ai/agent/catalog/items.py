@@ -319,7 +319,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="item_measure_thickness",
         returns="Thickness",
-        description="The lamella's thickness, read off any saved FIB image of the item inside the experiment (full resolution): a task's reference (item_list_outputs names them; they sit in the item's folder, <item_name>/<file>) or one you took at the item's milling position. The bright band between the trenches, its width at half its peak brightness column by column, in a window around the item's POI (a point in the image's own frame, so the image must be centred where the item's tasks image it), sized from the item's own trench patterns (window_from says; width_um / height_um override). Answers thickness in nm (mean, median, min, max, by thirds), wedge (nm per um along the lamella), angle_deg (the band's rotation, counter-clockwise), straightness, centre_offset_nm (band above the POI is positive), continuity (columns dropped and where: holes or breaks), contrast (band vs trench brightness), other_bands (other bright lines in the window, e.g. trench residue, with their offsets from the POI), resolution (band_px, flagged under 8 px with a suggested field width), uncertainty_nm (one pixel) and warnings (low_contrast under a 2x ratio, several_bands, under_resolved, no_band: check the image before using the numbers), plus a plot: the window with the band's edges, and thickness along the lamella. A top-down estimate. Nothing moves; the result (data.json, window.tif, plot.png) is saved in a thickness folder beside the image, at saved_to, and replaced when the same image is measured again.",
+        description="The lamella's thickness, read off any saved FIB image of the item inside the experiment (full resolution): a task's reference (item_list_outputs names them; they sit in the item's folder, <item_name>/<file>) or one you took at the item's milling position. The bright band between the trenches, its width at half its peak brightness column by column, in a window around the item's POI (a point in the image's own frame, so the image must be centred where the item's tasks image it; centre [x, y] in the image's pixels puts the window there instead, for an image taken elsewhere: centre_from says which), sized from the item's own trench patterns (window_from says; width_um / height_um override). Answers thickness in nm (mean, median, min, max, by thirds), wedge (nm per um along the lamella), angle_deg (the band's rotation, counter-clockwise), straightness, centre_offset_nm (band above the POI is positive), continuity (columns dropped and where: holes or breaks), contrast (band vs trench brightness), other_bands (other bright lines in the window, e.g. trench residue, with their offsets from the POI), resolution (band_px, flagged under 8 px with a suggested field width), uncertainty_nm (one pixel) and warnings (low_contrast under a 2x ratio, several_bands, under_resolved, no_band: check the image before using the numbers), plus a plot: the window with the band's edges, and thickness along the lamella. A top-down estimate. Nothing moves; the result (data.json, window.tif, plot.png) is saved in a thickness folder beside the image, at saved_to, and replaced when the same image is measured again.",
         method="POST",
         path="/app/experiment/items/{item_name}/thickness",
         level="watch",
@@ -336,8 +336,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 "window across the lamella, um (default: from the trench patterns)",
                 float,
             ),
+            "centre": arg(
+                "optional: the window's centre, [x, y] in the image's pixels (default: the item's POI)",
+                List[float],
+            ),
         },
-        optional=("width_um", "height_um"),
+        optional=("width_um", "height_um", "centre"),
     ),
     ToolSpec(
         name="item_get_task_config",
