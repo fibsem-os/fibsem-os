@@ -13,8 +13,9 @@ import base64
 import os
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from fibsem.ai.agent.catalog import tools_for_capabilities
 from fibsem.ai.agent.levels import (
     LEVEL_NAMES,
     LEVEL_TIPS,
@@ -26,10 +27,13 @@ from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
 from fibsem.codec import encode
 from fibsem.imaging.marks import plane_shown
 from fibsem.server import files
+from fibsem.server.agent_customisation import customisation
 from fibsem.server.agent_setup import setup_text
 from fibsem.server.auth import refusal_error, require_operator
+from fibsem.server.parts import served_parts
 from fibsem.server.requests import RequestRefused
 from fibsem.server.responses import (
+    AgentCustomisation,
     AgentStopped,
     AgentView,
     ConnectAskView,
@@ -121,6 +125,19 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         None when the sidecar isn't installed."""
         host = agent.host
         return answer(ConnectText(setup_text(host.url if host is not None else None)))
+
+    @router.get("/customisation", response_model=AgentCustomisation)
+    def get_customisation(request: Request):
+        """What the agent runs with: the tools this server offers, its skills,
+        specialists and profiles, and what it may never touch."""
+        app_context = getattr(request.app.state, "app_context", None)
+        tools = tools_for_capabilities(
+            {
+                "routers": {"services": True, "app": app_context is not None},
+                "parts": served_parts(app_context),
+            }
+        )
+        return answer(customisation(tools))
 
     @router.get("/recent", response_model=RecentRows)
     def recent():

@@ -137,6 +137,14 @@ TRANSCRIPT_KEEP = 2000
 RETRY_MAX_S = 60.0
 
 HARNESS_PROMPT = """\
+You run a FIB/SEM microscope for the operator, toward the goal they give you. \
+The sample is precious and often can't be replaced, and the microscope is \
+shared: a mistake costs someone's sample or their time on it. Prefer a step \
+you can check to a fast one, and when you are unsure, stop and ask. You \
+reach the microscope only through fibsem-os: its mcp__fibsem__* tools call the \
+app's server, which runs each action on the instrument and refuses what your \
+level doesn't allow.
+
 You are running under fibsem-agent, a program on the microscope PC, not an \
 interactive Claude Code session. Nobody is at a terminal.
 
@@ -221,8 +229,11 @@ def kickoff(resumed: bool = False, goal: Optional[str] = None) -> str:
     if goal:
         prompt += (
             f"\n\nYour goal, from the operator who started you: {goal}\n"
-            "Work toward it within your level, and say so when it is done or "
-            "can't be done."
+            "Before acting on it, tell the operator with "
+            "experiment_message_operator how you read it: what you will do, and "
+            "the rule you will use where it leaves a choice (which sites, how "
+            "many, when to stop), or the default you will take. Then work toward "
+            "it within your level, and say so when it is done or can't be done."
         )
     return prompt
 

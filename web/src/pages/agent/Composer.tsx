@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { useAct } from "./act";
 import { TAKEN, type Attachments } from "./attach";
 import { AttachedChips } from "./Attachments";
+import { Customise } from "./Customisation";
 
 const LIMIT = 2000;
 
@@ -274,6 +275,7 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
         <Attach agent={agent} attach={attach} />
         {agent.last_heard_s == null ? <Connect /> : <AgentInfo agent={agent} />}
         <Level agent={agent} act={act} />
+        <Customise />
         <span className={cn("min-w-0 truncate text-[12px]", error ? "text-destructive" : "text-muted-foreground")}>
           {error ?? said}
         </span>
