@@ -1314,9 +1314,9 @@ class TestViews:
 
         widget.show_view(sem_view)
         widget.set_positions([mark])
-        assert widget.position_overlay._points == pytest.approx(in_sem), (
-            "coming back to a view did not restore where its markers sit"
-        )
+        assert np.asarray(widget.position_overlay._points) == pytest.approx(
+            np.asarray(in_sem)
+        ), "coming back to a view did not restore where its markers sit"
 
 
 class TestTheCanvasDrawsBeforeAnythingIsAcquired:
