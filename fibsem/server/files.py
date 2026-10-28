@@ -18,10 +18,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from pypdf import PdfReader
 
 from fibsem.server.responses import refused
 
 TEXT_SUFFIXES = (".yaml", ".yml", ".json", ".jsonl", ".log", ".md", ".csv", ".txt")
+# Read as the text on its pages (pypdf); figures and scanned pages carry none.
+PDF_SUFFIX = ".pdf"
 IMAGE_SUFFIXES = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 # A text answer's cap: a session log runs to megabytes, and app_get_log reads it
 # by window.
@@ -33,7 +36,8 @@ _DIGITS = re.compile(r"(\d+)")
 
 # What the operator may add to an experiment from the web page: what
 # experiment_read_file reads. The folder they go to when none is given.
-UPLOAD_SUFFIXES = (".md", ".txt", ".csv", ".yaml", ".yml", ".json") + IMAGE_SUFFIXES
+_NOTES = (".md", ".txt", ".csv", ".yaml", ".yml", ".json", PDF_SUFFIX)
+UPLOAD_SUFFIXES = _NOTES + IMAGE_SUFFIXES
 UPLOAD_LIMIT = 50 * 1024**2
 UPLOAD_DIR = "notes"
 _UNSAFE = re.compile(r"[^\w.()-]+")
@@ -84,7 +88,7 @@ def kind(path: str) -> str:
     if os.path.isdir(path):
         return "folder"
     name = path.lower()
-    if name.endswith(TEXT_SUFFIXES):
+    if name.endswith(TEXT_SUFFIXES + (PDF_SUFFIX,)):
         return "text"
     if name.endswith(IMAGE_SUFFIXES):
         return "image"
@@ -504,6 +508,13 @@ def read(
             422, "invalid", f"Only an image crops or shows a plane; {path} is not one."
         )
     entry = _entry(os.path.realpath(root), target)
+    if file_kind == "text" and target.lower().endswith(PDF_SUFFIX):
+        text = pdf_text(target, path)
+        return {
+            **entry,
+            "text": text[:TEXT_LIMIT],
+            "truncated": len(text) > TEXT_LIMIT,
+        }
     if file_kind == "text":
         with open(target, "rb") as f:
             raw = f.read(TEXT_LIMIT + 1)
@@ -527,6 +538,24 @@ def read(
                 422, "unreadable", f"Could not read {path} as an image: {exc}"
             ) from exc
     return entry
+
+
+def pdf_text(target: str, path: str) -> str:
+    """The text on each page of the PDF at *target*, under a "Page N" line;
+    the :class:`FileRefusal` saying why when it can't be read."""
+    try:
+        pages = [page.extract_text() or "" for page in PdfReader(target).pages]
+    except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+        raise FileRefusal(
+            422, "unreadable", f"Could not read {path} as a PDF: {exc}"
+        ) from exc
+    if not any(page.strip() for page in pages):
+        raise FileRefusal(
+            422,
+            "unreadable",
+            f"{path} has no text to read: its pages are pictures (a scan?).",
+        )
+    return "\n\n".join(f"Page {i}\n{page}" for i, page in enumerate(pages, 1))
 
 
 def read_etag(root: Optional[str], path: str, *query: Any) -> Optional[str]:

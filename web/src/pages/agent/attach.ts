@@ -4,7 +4,7 @@ import * as fmt from "@/lib/format";
 import type { FileEntry } from "@/lib/types";
 
 // What the agent reads (experiment_read_file), as POST /app/experiment/upload takes.
-export const TAKEN = [".md", ".txt", ".csv", ".yaml", ".yml", ".json", ".png", ".jpg", ".jpeg", ".tif", ".tiff"];
+export const TAKEN = ".md .txt .csv .yaml .yml .json .pdf .png .jpg .jpeg .tif .tiff".split(" ");
 const LIMIT = 50 * 1024 ** 2;
 
 export interface Attachment {
