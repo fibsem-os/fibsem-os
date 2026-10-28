@@ -92,6 +92,10 @@ def test_a_new_session_id_or_a_report_after_the_end_starts_a_new_session(server)
         {"ended": "yes"},
         {"goal": "x" * 501},
         {"model": 3},
+        {"tokens": {"input": -1}},
+        {"tokens": {"prompt": 1}},
+        {"context": {"used": 1.5}},
+        {"context": 412000},
     ],
 )
 def test_a_bad_report_is_refused_and_records_nothing(server, body):
@@ -181,3 +185,12 @@ def test_the_profile_and_its_reminders_are_kept(server):
     session = client.post("/app/agent/session", json=body).json()["session"]
     assert (session["profile"], session["profile_hash"]) == ("night", "abc")
     assert session["hooks"] == hooks
+
+
+def test_the_tokens_and_the_context_are_kept(server):
+    auth, client, _ = server
+    tokens = {"input": 1, "output": 2, "cache_read": 3, "cache_write": 4}
+    context = {"used": 412000, "window": 1000000, "compact_at": 970000}
+    client.post("/app/agent/session", json={"tokens": tokens, "context": context})
+    session = client.get("/app/agent/session").json()["session"]
+    assert (session["tokens"], session["context"]) == (tokens, context)

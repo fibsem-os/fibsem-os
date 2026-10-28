@@ -237,6 +237,10 @@ export interface ReportedSession {
   goal?: string;
   budget_usd?: number;
   spent_usd?: number;
+  /** What its model calls used this run, in tokens. */
+  tokens?: { input: number; output: number; cache_read: number; cache_write: number };
+  /** How full its context is, in tokens: compacted at `compact_at`. */
+  context?: { used: number; window?: number; compact_at?: number };
   /** `by`, when given, is an ISO time with its offset. */
   constraints?: { text: string; by?: string }[];
   checklist?: { text: string; state: "open" | "done" | "always" }[];
