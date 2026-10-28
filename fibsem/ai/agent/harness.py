@@ -36,7 +36,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from fibsem.ai.agent import code_mode, profiles
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
-from fibsem.ai.agent.levels import LEVEL_SKILLS
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
 from fibsem.extras import missing_extra_message
 from fibsem.logo import print_fibsem_logo
@@ -45,11 +44,16 @@ from fibsem.util import timestamps
 # Read first, every session; it names the task skills and when to read each.
 BASE_SKILL = "fibsem-agent"
 # The skills for a task, read once the operator says what they want done.
-TASK_SKILLS = ("autolamella-agent", *LEVEL_SKILLS.values(), "fib-experiment")
+TASK_SKILLS = (
+    "autolamella-agent",
+    "autolamella-lead",
+    "screen-grids",
+    "fib-experiment",
+)
 SKILLS = (BASE_SKILL,) + TASK_SKILLS
 
 SERVER = "fibsem"
-# The specialists a Run Lead calls (supervise-autolamella, lead mode): the
+# The specialists a Run Lead calls (the autolamella-lead skill): the
 # checkout's .claude/agents, each with its own tool list.
 SPECIALISTS = (
     "autolamella-verifier",
@@ -156,11 +160,9 @@ your reason comes then. One at a time; a new one replaces it.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.
-- The operator sets your level in the app. On AutoLamella work, work by the \
-skill for your level: observe-autolamella at Watch, assist-autolamella at \
-Assist, supervise-autolamella at Drive; a LEVEL line means it changed, so read \
-that level's skill if you haven't. A refusal is the server's answer: handle it \
-as the skills say."""
+- The operator sets your level in the app; a LEVEL line means it changed. \
+Work as your level allows, as the skills say, and handle a refusal as they say: \
+it is the server's answer."""
 NO_CODE = """\
 - Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
 autolamella-* agents only. There is no shell, no file access and no web, for \
@@ -192,7 +194,7 @@ def system_prompt(
 
 
 def skills_for(profile: Optional[profiles.Profile] = None) -> List[str]:
-    """The skills the agent loads: the base and level skills, and a profile's."""
+    """The skills the agent loads: the base and task skills, and a profile's."""
     extra = [name for name in (profile.skills if profile else []) if name not in SKILLS]
     return list(SKILLS) + extra
 
@@ -202,9 +204,8 @@ REREAD_PROPOSALS = (
     "on the lines above."
 )
 REREAD_LEVEL = (
-    "Your level may have changed: re-read server_get_capabilities and work by "
-    "the skill for the level it gives, then re-read app_get_status and "
-    "proposal_list."
+    "Your level may have changed: re-read server_get_capabilities and work as "
+    "the level it gives allows, then re-read app_get_status and proposal_list."
 )
 
 log = logging.getLogger("fibsem.agent.harness")
@@ -228,8 +229,8 @@ def _kickoff(resumed: bool) -> str:
         return (
             "fibsem-agent restarted and resumed this session. Its watcher started "
             "again from now, so whatever happened while it was down is not in its "
-            "lines. Call server_get_capabilities, read the skill for your level "
-            f"again if it is no longer in your context ({BASE_SKILL} first), tell "
+            "lines. Call server_get_capabilities, read your skills again if they "
+            f"are no longer in your context ({BASE_SKILL} first), tell "
             "the operator in a sentence what your level means now, re-read "
             "app_get_status and proposal_list, then end your turn."
         )

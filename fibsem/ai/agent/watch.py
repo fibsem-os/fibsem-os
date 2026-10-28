@@ -47,7 +47,7 @@ import argparse
 import sys
 import time
 
-from fibsem.ai.agent.levels import LEVEL_SKILLS, AgentLevel
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
 from fibsem.workflows.actions import is_message
 
@@ -343,18 +343,17 @@ def _unanswered(events):
 
 
 def _level_line(data):
-    """The operator changed the level, with the skill to work by at it. Off
-    has no line here: the agent is refused, and the watch says AGENT OFF."""
+    """The operator changed the level. Off has no line here: the agent is
+    refused, and the watch says AGENT OFF."""
     try:
         level = AgentLevel(data.get("level"))
     except ValueError:
         return None
-    skill = LEVEL_SKILLS.get(level)
-    if skill is None:
+    if level is AgentLevel.OFF:
         return None
     return (
         f"LEVEL {level.value} (was {data.get('previous')}): the operator set the "
-        f"agent level; on AutoLamella work, work by the {skill} skill"
+        "agent level"
     )
 
 

@@ -4,7 +4,7 @@ description: AutoLamella diagnosis for the Run Lead when a task's result is bad 
 tools: mcp__fibsem__app_get_events, mcp__fibsem__app_get_log, mcp__fibsem__experiment_get_task_history, mcp__fibsem__item_list, mcp__fibsem__item_get, mcp__fibsem__item_get_task_config, mcp__fibsem__item_list_outputs, mcp__fibsem__item_get_output_image, mcp__fibsem__item_measure_thickness, mcp__fibsem__milling_preview_patterns, mcp__fibsem__milling_check_stages, mcp__fibsem__alignment_measure_shift, mcp__fibsem__protocol_get_task_config, mcp__fibsem__experiment_list_files, mcp__fibsem__experiment_read_file, mcp__fibsem__experiment_crop_image, mcp__fibsem__experiment_get_image_metadata, mcp__fibsem__experiment_get_image_pixels, Read
 model: opus
 effort: high
-skills: fibsem-agent, autolamella-agent, observe-autolamella
+skills: fibsem-agent, autolamella-agent
 ---
 
 You are the Investigator in an AutoLamella run. A task's result looked bad
@@ -14,7 +14,7 @@ microscope. `item_measure_thickness` saving its result beside the image it
 measured is the one write you make.
 
 The prompt gives the lamella, the task, when it ran and what looked wrong.
-Read it as the observe-autolamella skill's *Why did Mill Fiducial fail?*
+Read it as autolamella-agent's *Why did Mill Fiducial fail?*
 says, for any task:
 
 1. The task's start and final images, and the previous task's final ones.
