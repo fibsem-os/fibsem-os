@@ -957,6 +957,9 @@ class Thickness:
     straightness: Optional[Dict[str, Optional[float]]] = None
     warnings: Optional[List[Dict[str, str]]] = None
     plot: Optional[Dict[str, str]] = None
+    # Where the window is centred: the item's poi, a given centre, or the
+    # image_centre when the item has no POI.
+    centre_from: Optional[str] = None
 
 
 @dataclass
@@ -979,6 +982,9 @@ class ImageDrawn:
     # place with its stage position when the image says where it was taken.
     marks: Optional[Dict[str, Any]]
     plot: Dict[str, str]
+    # Per layer drawn (a channel, or SEM/FIB): the look it was drawn with, its
+    # auto limits as numbers, and its stats (`fibsem.imaging.looks.layer_stats`).
+    layers: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -988,6 +994,23 @@ class ImagePairDrawn:
     path: str
     marks: Optional[Dict[str, Any]]
     plot: Dict[str, str]
+    # Each half's layers, as `ImageDrawn.layers`.
+    before_layers: Dict[str, Any] = field(default_factory=dict)
+    after_layers: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ImageMeasured:
+    """An analysis tool's answer (`fibsem.imaging.analysis`) on a saved image."""
+
+    image: str
+    # intensity, profile or quality
+    measurement: str
+    result: Dict[str, Any]
+    # The figure saved beside the image (drawn/<image>-<measurement>.png) and
+    # its preview, when the measurement draws one.
+    path: Optional[str] = None
+    plot: Optional[Dict[str, str]] = None
 
 
 @dataclass

@@ -618,12 +618,17 @@ def build_sidecar(client, capabilities):
         path: str,
         width_um: Optional[float] = None,
         height_um: Optional[float] = None,
+        centre: Optional[List[float]] = None,
     ):
         return _routed(
             "item_measure_thickness",
             item_name=item_name,
             path=path,
-            **_given(width_um=width_um, height_um=height_um),
+            **_given(
+                width_um=width_um,
+                height_um=height_um,
+                centre=list(centre) if centre is not None else None,
+            ),
         )
 
     def experiment_get_image_stage_position(
@@ -665,6 +670,8 @@ def build_sidecar(client, capabilities):
         metadata_bar: Optional[bool] = None,
         channels: Optional[List[str]] = None,
         plane: Optional[int] = None,
+        looks: Optional[dict] = None,
+        box: Optional[List[float]] = None,
     ):
         return _routed(
             "experiment_draw_image",
@@ -675,6 +682,8 @@ def build_sidecar(client, capabilities):
                 metadata_bar=metadata_bar,
                 channels=list(channels) if channels is not None else None,
                 plane=plane,
+                looks=dict(looks) if looks is not None else None,
+                box=list(box) if box is not None else None,
             ),
         )
 
@@ -686,6 +695,9 @@ def build_sidecar(client, capabilities):
         channels: Optional[List[str]] = None,
         before_plane: Optional[int] = None,
         after_plane: Optional[int] = None,
+        looks: Optional[dict] = None,
+        box: Optional[List[float]] = None,
+        share_looks: Optional[bool] = None,
     ):
         return _routed(
             "experiment_draw_pair",
@@ -697,6 +709,9 @@ def build_sidecar(client, capabilities):
                 channels=list(channels) if channels is not None else None,
                 before_plane=before_plane,
                 after_plane=after_plane,
+                looks=dict(looks) if looks is not None else None,
+                box=list(box) if box is not None else None,
+                share_looks=share_looks,
             ),
         )
 

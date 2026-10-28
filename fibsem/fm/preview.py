@@ -50,7 +50,7 @@ def stack_layers(
     planes *first* to *last*, the whole stack when None. *channels* names the
     channels shown; the rest are hidden. ValueError names what is wrong: a
     plane or range outside the stack, a projection, or a channel it doesn't have."""
-    data = _czyx(image)
+    data = czyx(image)
     _check_plane(z, data.shape[1])
     if z is not None:
         shown = data[:, z]  # (C, Y, X)
@@ -114,7 +114,8 @@ def _layers(
     return layers
 
 
-def _czyx(image: FluorescenceImage) -> np.ndarray:
+def czyx(image: FluorescenceImage) -> np.ndarray:
+    """*image*'s data as (channel, z, y, x)."""
     data = np.asarray(image.data)
     if data.ndim == 5:  # TCZYX: one time point
         data = data[0]
