@@ -6,8 +6,9 @@ argument-hint: [optional: what the operator wants help with]
 
 # Assisting in AutoLamella
 
-Read the autolamella-agent skill first: it covers connecting, the levels, the
-watcher, notes and using the microscope. This skill is what Assist adds.
+Read the fibsem-agent and autolamella-agent skills first: they cover
+connecting, the levels, the watcher, notes and using the microscope. This
+skill is what Assist adds.
 
 You help an operator who is at the microscope. At **Assist** you can see
 everything, but nothing you want done happens until the operator approves
@@ -26,7 +27,7 @@ never make them work out what you meant.
 
 ## Connect
 
-Connect as the autolamella-agent skill says, and read
+Connect as the fibsem-agent skill says, and read
 `server_get_capabilities`:
 
 - `level: "assist"` is the level this skill is for. Tell the operator in a
@@ -59,7 +60,7 @@ agent may never use it (`403 not_allowed`: `agent: false` in `device_list`).
 
 ## The watcher
 
-Start the watcher (autolamella-agent, *The watcher*) before you file
+Start the watcher (fibsem-agent, *The watcher*) before you file
 anything: the operator often decides within seconds. If you can only run it
 bounded in the foreground, read `latest_seq` from `app_get_events` just
 before you file and pass it as `--since` on the next run.
@@ -193,7 +194,7 @@ also puts it on the record (nobody else will). Typical cases:
 
 ## Stopping
 
-Follow the autolamella-agent skill's *Stopping*: at Assist the run and the
+Follow the fibsem-agent skill's *Stopping*: at Assist the run and the
 operator's mill are the operator's to stop. When you believe the run is doing
 damage, file `workflow_stop` or `milling_stop` as a request at once, with
 what you saw as the reason, and say it in chat. A mill you started yourself
@@ -204,7 +205,7 @@ stage (`MILL READING` with `on_trigger=suggest`) and you agree, file
 ## Using the microscope
 
 Hardware actions go in requests like any other action, following the
-autolamella-agent skill's *Using the microscope*. Without the microscope
+fibsem-agent skill's *Using the microscope*. Without the microscope
 served they are refused when you file them (`not_available`).
 
 - An image is an action at Assist (a direct call is refused, `403
@@ -224,7 +225,7 @@ served they are refused when you file them (`not_available`).
 
 ## Notes
 
-Notes work at Assist as at Watch (autolamella-agent, *Write down why*). Use
+Notes work at Assist as at Watch (fibsem-agent, *Write down why*). Use
 one for a judgement worth keeping that you're not acting on ("02: fiducial
 out of frame in the start image; left for the operator"). A request's reason
 is already on the record; don't repeat them in a

@@ -6,8 +6,9 @@ argument-hint: [optional: an experiment folder to read offline]
 
 # Observing AutoLamella
 
-Live, read the autolamella-agent skill first: it covers connecting, the
-levels, the watcher and what to read. This skill is what observing adds.
+Live, read the fibsem-agent and autolamella-agent skills first: they cover
+connecting, the levels, the watcher and what to read. This skill is what
+observing adds.
 
 You are the Observer. You watch AutoLamella sessions and read their records,
 and you explain them: what is happening, what happened to each lamella, why a
@@ -44,8 +45,9 @@ Stop. You can't stop it.
 
 ## Live
 
-Connect, read the level and run the watcher as the autolamella-agent skill
-says, and read the session with the reads in its *Reading the experiment*.
+Connect, read the level and run the watcher as the fibsem-agent skill
+says, and read the session with the reads in its *Reading the experiment*
+(and autolamella-agent's *Reading a lamella*).
 What the level means for you:
 
 - `watch`, `assist` or `drive`: you read everything and add notes. At Assist
@@ -153,7 +155,7 @@ lines, then the detail if they ask.
 
 ## Notes
 
-Add a note (`experiment_add_note`, as the autolamella-agent skill's *Write
+Add a note (`experiment_add_note`, as the fibsem-agent skill's *Write
 down why* says) when you've made a judgement worth keeping ("02: fiducial out
 of frame in the start image; likely cause of the alignment failure"), not for
 every observation. Offline there is no server, so there are no notes; say
@@ -171,7 +173,7 @@ Otherwise read and answer. Don't ask permission to read.
 
 ## How you report
 
-As the autolamella-agent skill says, and:
+As the fibsem-agent skill says, and:
 
 - Lead with the answer, then the evidence.
 - Say what you didn't check. "I read the recorded reason but there's no log

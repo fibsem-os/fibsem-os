@@ -307,8 +307,8 @@ def test_a_level_change_names_the_skill_to_work_by(app):
     code, lines = _watch({2: run})
 
     assert lines[0] == (
-        "LEVEL drive (was watch): the operator set the agent level; work by the "
-        "supervise-autolamella skill"
+        "LEVEL drive (was watch): the operator set the agent level; on "
+        "AutoLamella work, work by the supervise-autolamella skill"
     )
 
 

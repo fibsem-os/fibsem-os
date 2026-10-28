@@ -77,8 +77,9 @@ LEVEL_TIPS = {
     AgentLevel.DRIVE: "Full control",
 }
 
-# The skill an agent works by at each level, after the base autolamella-agent
-# skill. Off has none: the agent is refused everything.
+# The skill an agent works by at each level on AutoLamella work, after the
+# fibsem-agent and autolamella-agent skills. Off has none: the agent is refused
+# everything.
 LEVEL_SKILLS = {
     AgentLevel.WATCH: "observe-autolamella",
     AgentLevel.ASSIST: "assist-autolamella",

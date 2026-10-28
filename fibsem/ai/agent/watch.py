@@ -354,7 +354,7 @@ def _level_line(data):
         return None
     return (
         f"LEVEL {level.value} (was {data.get('previous')}): the operator set the "
-        f"agent level; work by the {skill} skill"
+        f"agent level; on AutoLamella work, work by the {skill} skill"
     )
 
 
