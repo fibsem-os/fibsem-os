@@ -1,5 +1,5 @@
-import { ChevronDown, Square } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, Paperclip, Square } from "lucide-react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -8,6 +8,8 @@ import { api } from "@/lib/api";
 import type { AgentLevel, AgentState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useAct } from "./act";
+import { TAKEN, type Attachments } from "./attach";
+import { AttachedChips } from "./Attachments";
 
 const LIMIT = 2000;
 
@@ -196,22 +198,57 @@ function Stop({ agent, act }: { agent: AgentState; act: ReturnType<typeof useAct
 }
 
 /** The message box, and under it the agent, its level and Stop. */
-export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => void }) {
+function Attach({ agent, attach }: { agent: AgentState; attach: Attachments }) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button
+        className={cn(plain, "px-1.5")}
+        aria-label="Attach files"
+        title={
+          agent.experiment
+            ? "Attach files: saved in the experiment's notes folder"
+            : "Open an experiment to attach files"
+        }
+        disabled={!agent.experiment}
+        onClick={() => input.current?.click()}
+      >
+        <Paperclip size={15} />
+      </button>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        accept={TAKEN.join(",")}
+        className="hidden"
+        onChange={(e) => {
+          attach.add(e.target.files ?? []);
+          e.target.value = "";
+        }}
+      />
+    </>
+  );
+}
+
+export function Composer({ agent, attach, onSent }: { agent: AgentState; attach: Attachments; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
   const { act, busy, error, setError } = useAct();
+  // Saved files go as lines at the message's end ("Attached notes/plan.md (4.0 KB)").
+  const text = [draft.trim(), attach.lines.join("\n")].filter(Boolean).join("\n\n");
   const send = async () => {
-    const text = draft.trim();
-    if (!text) return;
+    if (!text || attach.uploading) return;
     setSaid(null);
     const answer = await act("/app/agent/messages", { method: "POST", body: JSON.stringify({ text }) });
     if (answer === undefined) return;
     setDraft("");
+    attach.clear();
     onSent();
     setSaid(connected(agent) ? "Sent · the agent reads it on its next turn" : "Sent · waiting for an agent");
   };
   return (
     <div className="flex flex-col rounded-md border border-input bg-card">
+      <AttachedChips attach={attach} />
       <label htmlFor="msg" className="sr-only">
         Message
       </label>
@@ -234,6 +271,7 @@ export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => v
         className="max-h-[150px] min-h-[52px] resize-none border-0 bg-transparent px-3 py-2.5 font-[inherit] text-foreground outline-none [field-sizing:content]"
       />
       <div className="flex flex-wrap items-center gap-2 px-2 pt-1.5 pb-2">
+        <Attach agent={agent} attach={attach} />
         {agent.last_heard_s == null ? <Connect /> : <AgentInfo agent={agent} />}
         <Level agent={agent} act={act} />
         <span className={cn("min-w-0 truncate text-[12px]", error ? "text-destructive" : "text-muted-foreground")}>
@@ -241,7 +279,7 @@ export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => v
         </span>
         <div className="flex-1" />
         <Stop agent={agent} act={act} />
-        <Button variant="primary" onClick={send} disabled={!draft.trim() || busy}>
+        <Button variant="primary" onClick={send} disabled={!text || attach.uploading || busy}>
           Send
         </Button>
       </div>

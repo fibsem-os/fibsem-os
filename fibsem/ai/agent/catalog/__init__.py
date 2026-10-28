@@ -76,6 +76,7 @@ NOT_TOOLS: Dict[str, str] = {
     "DELETE /pairing/computers/{computer_id}": "The operator unpairs a computer (operator token only).",
     "PATCH /pairing/computers/{computer_id}": "The operator sets what a paired hub may do (operator token only).",
     "PUT /pairing/always_allow_local": "The operator's setting to allow agents logged in to this PC without a click (operator token only).",
+    "POST /app/experiment/upload": "The operator adding a file from the web page (operator token only); the agent reads it with experiment_read_file.",
     "GET /app/experiment/planes/{path}": "Raw pixel planes the web viewer draws; the agent reads images as pictures with experiment_read_file.",
     "POST /app/experiment/evidence": "Every acting tool's evidence argument: the sidecar keeps it here first, then the call cites it.",
     "GET /app/events/history": "The web Events page's read of the run before the live buffer; an agent reads a finished run from its experiment folder.",
