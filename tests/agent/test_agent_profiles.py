@@ -64,6 +64,15 @@ def test_a_hardware_error_is_a_server_error_never_a_refusal():
     )
 
 
+def test_the_polish_pass_reminder_fires_only_on_an_ended_iterative_pass():
+    after = HOOK_OPTIONS["after_polish_pass"]
+    ended = {"stages": [{"strategy": {"facts": {"Pass data": "pass.json"}}}]}
+    assert after.applies(call("service_wait_for_run", tool_response=ended), SERVER)
+    assert not after.applies(
+        call("service_wait_for_run", tool_response={"state": "running"}), SERVER
+    )
+
+
 def test_a_reminder_reaches_the_model_only_when_its_call_matches():
     hook = profiles.callback(
         HOOK_OPTIONS["before_milling"], ["Check depth.", "And current."], SERVER
@@ -146,7 +155,10 @@ def test_the_shipped_default_profile_loads(checkout):
     path = checkout / profiles.PROFILE_DIR / f"{profiles.DEFAULT_PROFILE}.yaml"
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)
     assert profile.mode == "none"
-    assert [hook.when for hook in profile.hooks] == ["hardware_error"]
+    assert [hook.when for hook in profile.hooks] == [
+        "hardware_error",
+        "after_polish_pass",
+    ]
 
 
 def show(capsys, *argv):
@@ -182,7 +194,10 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
     config = show(capsys)
     assert config["profile"]["name"] == "fibsem-agent", "the default"
     assert config["mode"] == "none"
-    assert [hook["when"] for hook in config["hooks"]] == ["hardware_error"]
+    assert [hook["when"] for hook in config["hooks"]] == [
+        "hardware_error",
+        "after_polish_pass",
+    ]
 
 
 def test_with_no_folder_the_agent_works_in_its_sessions_folder(home, capsys):
