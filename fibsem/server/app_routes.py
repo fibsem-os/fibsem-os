@@ -14,6 +14,7 @@ tagged with it and served only when the context implements that part.
 
 import functools
 import gzip
+import inspect
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -26,7 +27,12 @@ from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import exports, files, planes
-from fibsem.server.auth import refusal_error, refuse_dashboard, take_control
+from fibsem.server.auth import (
+    refusal_error,
+    refuse_dashboard,
+    require_operator,
+    take_control,
+)
 from fibsem.server.parts import (
     GRIDS,
     ITEMS,
@@ -47,6 +53,7 @@ from fibsem.server.responses import (
     Events,
     ExperimentOpened,
     ExperimentSummary,
+    FileEntry,
     FileRead,
     FolderListing,
     GridDetail,
@@ -308,14 +315,24 @@ def _as_sent(endpoint):
     """*endpoint* answering its dict as it is: its route's ``response_model``
     describes the answer without FastAPI filtering it or filling in nulls."""
 
-    @functools.wraps(endpoint)
-    def route(*args, **kwargs):
-        result = endpoint(*args, **kwargs)
+    def sent(result):
         if isinstance(result, Refusal):
             raise _refusal_error(result)
         if isinstance(result, Response):
             return result
         return JSONResponse(jsonable_encoder(result))
+
+    if inspect.iscoroutinefunction(endpoint):
+
+        @functools.wraps(endpoint)
+        async def awaited(*args, **kwargs):
+            return sent(await endpoint(*args, **kwargs))
+
+        return awaited
+
+    @functools.wraps(endpoint)
+    def route(*args, **kwargs):
+        return sent(endpoint(*args, **kwargs))
 
     return route
 
@@ -911,6 +928,29 @@ def build_app_router(context: Any) -> APIRouter:
         )
         _record_read(experiment, path, False)
         return JSONResponse(jsonable_encoder(answer), headers=cache)
+
+    @router.post(
+        "/experiment/upload",
+        response_model=FileEntry,
+        dependencies=[Depends(require_operator())],
+    )
+    async def upload_file(request: Request, name: str, dir: str = files.UPLOAD_DIR):
+        # The operator's file, added from the web page (the Agent page's
+        # attach, Experiment Files): the body is the file as it is.
+        upload = _files_answer(None, lambda root: files.Upload(root, name, dir))
+        try:
+            async for chunk in request.stream():
+                upload.add(chunk)
+        except files.FileRefusal as refusal:
+            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
+        except BaseException:
+            upload.cancel()
+            raise
+        entry = upload.finish()
+        context.record_event(
+            "experiment_file_added", {"path": entry["path"], "size": entry["size"]}
+        )
+        return JSONResponse(entry)
 
     @router.get("/experiment/planes/{path:path}", responses=_PLANES)
     def read_planes(

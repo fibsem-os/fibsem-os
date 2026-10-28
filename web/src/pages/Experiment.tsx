@@ -87,7 +87,7 @@ function Metadata() {
 
 /** The picked file: an image's preview, which opens it large, previous and next
  * through the folder's *images*; a text file's text. */
-function Preview({ entry, images }: { entry: FileEntry; images: string[] }) {
+export function FilePreview({ entry, images }: { entry: FileEntry; images: string[] }) {
   const [big, setBig] = useState(false);
   const read = useQuery({
     queryKey: ["app/experiment/files", entry.path, "read"],
@@ -227,7 +227,7 @@ function Files() {
             )}
           </tbody>
         </table>
-        {picked && <Preview key={picked.path} entry={picked} images={shown.filter(viewable).map((e) => e.path)} />}
+        {picked && <FilePreview key={picked.path} entry={picked} images={shown.filter(viewable).map((e) => e.path)} />}
       </div>
     </Card>
   );

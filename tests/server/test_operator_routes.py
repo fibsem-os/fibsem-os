@@ -6,6 +6,7 @@ import os
 import re
 import socket
 import time
+from pathlib import Path
 
 import httpx
 import pytest
@@ -15,7 +16,7 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
-from fibsem.server import AuthConfig, operator_token
+from fibsem.server import AuthConfig, files, operator_token
 from fibsem.server.hosting import AppServerHost
 from fibsem.server.operator_token import (
     load_operator_token,
@@ -758,3 +759,40 @@ def test_a_cleared_lamella_verdict_names_nobody(server):
         )
         assert answer.status_code == 200, answer.text
     assert lamella.defect.actor == ""
+
+
+def test_the_operator_adds_a_file_to_the_experiment(server):
+    root = Path(server.session.experiment.path)
+
+    def upload(name, body=b"# Plan\n", headers=None, **params):
+        return server.post(
+            "/app/experiment/upload",
+            params={"name": name, **params},
+            content=body,
+            headers=headers or server.operator,
+        )
+
+    answer = upload("plan.md")
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["path"] == "notes/plan.md"
+    assert (root / "notes" / "plan.md").read_bytes() == b"# Plan\n"
+    # A name already there is kept: the new one is numbered.
+    assert upload("plan.md").json()["path"] == "notes/plan-2.md"
+    assert upload("../../my plan.md").json()["path"] == "notes/my-plan.md"
+    assert upload("plan.md", headers=server.agent).status_code == 403
+    refused = upload("report.docx")
+    assert refused.status_code == 415
+    assert refused.json()["detail"]["error_type"] == "not_taken"
+    assert upload("plan.md", dir="../elsewhere").status_code == 403
+
+
+def test_a_file_over_the_limit_is_not_kept(server, monkeypatch):
+    monkeypatch.setattr(files, "UPLOAD_LIMIT", 10)
+    answer = server.post(
+        "/app/experiment/upload",
+        params={"name": "big.txt"},
+        content=b"x" * 11,
+        headers=server.operator,
+    )
+    assert answer.status_code == 413
+    assert list((Path(server.session.experiment.path) / "notes").iterdir()) == []

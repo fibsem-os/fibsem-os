@@ -31,6 +31,14 @@ MAX_PREVIEW_WIDTH = 3072
 _DIGITS = re.compile(r"(\d+)")
 
 
+# What the operator may add to an experiment from the web page: what
+# experiment_read_file reads. The folder they go to when none is given.
+UPLOAD_SUFFIXES = (".md", ".txt", ".csv", ".yaml", ".yml", ".json") + IMAGE_SUFFIXES
+UPLOAD_LIMIT = 50 * 1024**2
+UPLOAD_DIR = "notes"
+_UNSAFE = re.compile(r"[^\w.()-]+")
+
+
 class FileRefusal(Exception):
     """Why a file is not served: an HTTP status, an error type and a message."""
 
@@ -545,3 +553,67 @@ def raw_file(root: Optional[str], path: str) -> Tuple[str, str]:
         )
     relative = os.path.relpath(target, os.path.realpath(root)).replace(os.sep, "/")
     return target, relative
+
+
+def upload_name(name: str) -> str:
+    """*name* as a file name to save: its last part, spaces as dashes, and
+    one of `UPLOAD_SUFFIXES`; else the :class:`FileRefusal` saying why not."""
+    name = _UNSAFE.sub("-", os.path.basename(name.replace("\\", "/")).strip()).strip(
+        "-."
+    )
+    if not name:
+        raise FileRefusal(422, "invalid", "Give the file's name.")
+    if not name.lower().endswith(UPLOAD_SUFFIXES):
+        taken = ", ".join(suffix.lstrip(".") for suffix in UPLOAD_SUFFIXES)
+        raise FileRefusal(
+            415, "not_taken", f"{name} isn't a file the agent reads: {taken}."
+        )
+    return name
+
+
+class Upload:
+    """A file the operator adds to the open experiment, written as it comes:
+    `add` each chunk, then `finish`. At most `UPLOAD_LIMIT` bytes; a name
+    already there gets -2, -3, ... before its suffix."""
+
+    def __init__(self, root: Optional[str], name: str, folder: str = UPLOAD_DIR):
+        name = upload_name(name)
+        if root is None:
+            resolve(root, "")
+        root = os.path.realpath(root)
+        target = os.path.realpath(os.path.join(root, folder or UPLOAD_DIR))
+        if os.path.commonpath([root, target]) != root:
+            raise FileRefusal(
+                403,
+                "not_allowed",
+                f"Only folders inside the open experiment, not {folder}.",
+            )
+        os.makedirs(target, exist_ok=True)
+        stem, suffix = os.path.splitext(name)
+        path, n = os.path.join(target, name), 1
+        while os.path.exists(path):
+            n += 1
+            path = os.path.join(target, f"{stem}-{n}{suffix}")
+        self.root, self.path, self.size = root, path, 0
+        self._partial = path + ".part"
+        self._file = open(self._partial, "wb")
+
+    def add(self, chunk: bytes) -> None:
+        self.size += len(chunk)
+        if self.size > UPLOAD_LIMIT:
+            self.cancel()
+            raise FileRefusal(
+                413, "too_big", f"Over the {UPLOAD_LIMIT // 1024**2} MB limit."
+            )
+        self._file.write(chunk)
+
+    def finish(self) -> Dict[str, Any]:
+        """The file in place, as the files listing gives it."""
+        self._file.close()
+        os.replace(self._partial, self.path)
+        return _entry(self.root, self.path)
+
+    def cancel(self) -> None:
+        self._file.close()
+        if os.path.exists(self._partial):
+            os.remove(self._partial)
