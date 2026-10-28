@@ -681,7 +681,7 @@ def test_a_bare_resume_with_no_earlier_session_says_so(tmp_path, monkeypatch, ca
     assert "No earlier fibsem-agent session" in capsys.readouterr().err
 
 
-def test_code_with_no_path_is_the_current_folder(tmp_path, monkeypatch):
+def test_a_given_folder_is_resolved(tmp_path, monkeypatch):
     from fibsem.ai.agent import code_mode
 
     monkeypatch.chdir(tmp_path)
@@ -922,7 +922,12 @@ def test_the_agent_answers_a_supervised_run_through_the_harness(session):
 
 def test_the_session_is_reported_to_the_app_after_each_turn_and_at_the_end(session):
     async def reply(prompt):
-        return TurnEnd(cost_usd=0.25, session_id="scripted")
+        return TurnEnd(
+            cost_usd=0.25,
+            session_id="scripted",
+            tokens={"input": 1, "output": 2, "cache_read": 300, "cache_write": 4},
+            context={"used": 305, "window": 1000},
+        )
 
     agent = ScriptedAgent(reply)
     agent.model = "a-model"
@@ -938,6 +943,8 @@ def test_the_session_is_reported_to_the_app_after_each_turn_and_at_the_end(sessi
     assert reported["model"] == "a-model"
     assert reported["goal"] == "Mill 01 and 02"
     assert (reported["budget_usd"], reported["spent_usd"]) == (5.0, 0.25)
+    assert reported["tokens"]["cache_read"] == 300
+    assert reported["context"] == {"used": 305, "window": 1000}
     assert not reported.get("ended")
 
     assert running.stop() == 0
