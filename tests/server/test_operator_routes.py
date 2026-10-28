@@ -786,6 +786,64 @@ def test_the_operator_adds_a_file_to_the_experiment(server):
     assert upload("plan.md", dir="../elsewhere").status_code == 403
 
 
+def _pdf(*pages: str) -> bytes:
+    """A PDF with one line of text on each page."""
+    count = len(pages)
+    kids = " ".join(f"{3 + 2 * i} 0 R" for i in range(count))
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {count} >>".encode(),
+    ]
+    font = 3 + 2 * count
+    for i, text in enumerate(pages):
+        stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {4 + 2 * i} 0 R"
+            f" /Resources << /Font << /F1 {font} 0 R >> >> >>".encode()
+        )
+        objects.append(
+            b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream)
+        )
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    out, offsets = b"%PDF-1.4\n", []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    return out
+
+
+def test_the_agent_reads_an_attached_pdf_as_its_text(server):
+    answer = server.post(
+        "/app/experiment/upload",
+        params={"name": "protocol.pdf"},
+        content=_pdf("Mill at 30 kV", "Polish at 50 pA"),
+        headers=server.operator,
+    )
+    assert answer.status_code == 200, answer.text
+    read = server.get("/app/experiment/files/notes/protocol.pdf", headers=server.agent)
+    assert read.status_code == 200, read.text
+    text = read.json()["text"]
+    assert "Page 1\nMill at 30 kV" in text
+    assert "Page 2\nPolish at 50 pA" in text
+    # A scan carries no text: the agent is told so, not handed blank pages.
+    server.post(
+        "/app/experiment/upload",
+        params={"name": "scan.pdf"},
+        content=_pdf(""),
+        headers=server.operator,
+    )
+    blank = server.get("/app/experiment/files/notes/scan.pdf", headers=server.agent)
+    assert blank.status_code == 422
+    assert "no text" in blank.json()["detail"]["message"]
+
+
 def test_a_file_over_the_limit_is_not_kept(server, monkeypatch):
     monkeypatch.setattr(files, "UPLOAD_LIMIT", 10)
     answer = server.post(
