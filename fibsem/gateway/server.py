@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
+from fibsem.ai.agent.profiles import DEFAULT_PROFILE
 from fibsem.gateway.agent import AgentState, GatewayAgent
 from fibsem.gateway.gateway import (
     Gateway,
@@ -260,7 +261,7 @@ def build_gateway_app(
                 raise _refused(422, "bad_budget", "The budget is a number of dollars.")
             if budget is not None and budget <= 0:
                 raise _refused(422, "bad_budget", "The budget is above $0.")
-            profile = str(body.get("profile") or "default")
+            profile = str(body.get("profile") or DEFAULT_PROFILE)
             return _act(
                 found,
                 body,

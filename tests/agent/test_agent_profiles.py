@@ -144,7 +144,7 @@ def test_this_machines_profile_wins_over_the_checkouts(home, tmp_path):
 
 
 def test_the_shipped_default_profile_loads(checkout):
-    path = checkout / profiles.PROFILE_DIR / "default.yaml"
+    path = checkout / profiles.PROFILE_DIR / f"{profiles.DEFAULT_PROFILE}.yaml"
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)
     assert profile.mode == "none"
     assert [hook.when for hook in profile.hooks] == ["hardware_error"]
@@ -181,8 +181,9 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
     assert (config["effort"], config["max_turns"]) == ("max", 3), "flags win"
 
     config = show(capsys)
-    assert config["profile"] is None and config["mode"] == "none"
-    assert config["effort"] == harness_mod.EFFORT and config["hooks"] == []
+    assert config["profile"]["name"] == "fibsem-agent", "the default"
+    assert config["mode"] == "none"
+    assert [hook["when"] for hook in config["hooks"]] == ["hardware_error"]
 
 
 def test_an_unknown_profile_says_where_it_looked(home, capsys):
@@ -194,7 +195,7 @@ def test_the_lists_print_profiles_and_hook_options(home, capsys):
     write(home / ".fibsem" / "agent" / "profiles", "broken", "mode: what\n")
     assert harness_mod.main(["--list-profiles", "--json"]) == 0
     rows = {row["name"]: row for row in json.loads(capsys.readouterr().out)}
-    assert rows["default"]["mode"] == "none"
+    assert rows["fibsem-agent"]["mode"] == "none"
     assert "mode is one of" in rows["broken"]["error"]
 
     assert harness_mod.main(["--list-hooks", "--json"]) == 0

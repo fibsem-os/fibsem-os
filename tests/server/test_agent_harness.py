@@ -289,10 +289,11 @@ def test_a_wake_up_rings_into_the_next_turn(session):
     running.stop()
 
 
-def test_the_kickoff_reads_the_skill_for_the_level():
+def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     first = kickoff()
-    assert "autolamella-agent" in first
-    assert "skill for the level" in first
+    assert "Read the fibsem-agent skill" in first
+    assert "task skill" in first
+    assert "what they would like to get done today" in first
     assert "server_get_capabilities" in first
     assert "don't start one" in first
     # The harness never sets the level: it tells the agent whose it is.
@@ -327,11 +328,15 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     for agent in ("general-purpose", "claude", "Explore"):
         assert f"Agent({agent})" in options.disallowed_tools
     assert set(options.skills) == {
+        "fibsem-agent",
         "autolamella-agent",
         "observe-autolamella",
         "assist-autolamella",
         "supervise-autolamella",
+        "fib-experiment",
     }
+    for skill in options.skills:
+        assert (checkout / ".claude" / "skills" / skill / "SKILL.md").is_file()
     # The checkout's skills and nothing from ~/.claude, nor its MCP servers.
     assert options.setting_sources == ["project"]
     assert options.strict_mcp_config
@@ -1033,6 +1038,38 @@ def test_the_agent_keeps_what_it_prints_and_a_failed_step_names_it():
     assert (ran["verb"], ran["text"]) == ("Ran", "python a.py")
     assert failed["kind"] == "failed" and failed["step"] == ran["seq"]
     assert "cv2" in failed["text"]
+
+
+def test_the_skills_the_agent_reads_are_reported_when_it_reads_one():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import AssistantMessage, ToolUseBlock
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            if path == "/app/agent/session":
+                self.bodies.append(json)
+
+    def read(skill):
+        call = ToolUseBlock(f"t-{skill}", "Skill", {"skill": skill})
+        _show(AssistantMessage(content=[call], model="m"), agent)
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    harness = Harness(agent, lambda: None)
+    harness._client = client = Client()
+    read("fibsem-agent")
+    asyncio.run(harness._report())
+    asyncio.run(harness._report())
+    read("fib-experiment")
+    read("fibsem-agent")
+    asyncio.run(harness._report())
+    assert client.bodies[0]["skills"] == ["fibsem-agent"]
+    assert "skills" not in client.bodies[1], "sent again only when it changes"
+    assert client.bodies[2]["skills"] == ["fibsem-agent", "fib-experiment"]
 
 
 def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():

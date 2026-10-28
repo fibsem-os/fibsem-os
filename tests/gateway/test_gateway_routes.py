@@ -427,7 +427,7 @@ def test_a_start_with_no_profile_takes_the_default_and_checks_the_budget(with_ag
         headers=_as(OPERATOR_TOKEN),
     )
     assert agent.calls == [
-        ("start", "default", None, "watch", "operator", "page", 7.5, True)
+        ("start", "fibsem-agent", None, "watch", "operator", "page", 7.5, True)
     ]
 
 

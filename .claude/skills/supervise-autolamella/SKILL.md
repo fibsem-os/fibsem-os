@@ -12,9 +12,9 @@ When in doubt, this whole document reduces to one rule: **hold the proposal
 and ask the operator.** A workflow's proposals have no timeout — nothing is
 ever lost by waiting.
 
-Read the autolamella-agent skill first: it covers connecting, the levels and
-their refusals, the watcher, writing down why, session setup and using the
-microscope. This skill is what supervising adds. It is for **Drive**; at
+Read the fibsem-agent and autolamella-agent skills first: they cover
+connecting, the levels and their refusals, the watcher, writing down why,
+session setup, using the microscope and milling lamellae. This skill is what supervising adds. It is for **Drive**; at
 Assist use assist-autolamella, and at Watch say what you would decide and
 leave the click to the operator, with a note saying why.
 
@@ -29,7 +29,7 @@ leave the click to the operator, with a note saying why.
    decide — three tool calls, never one chained command. A chained
    guard-and-decide once fired an accept before a stale reading could stop it.
 3. **Check image freshness before judging.** An image that predates the
-   mill you are inspecting is the wrong frame (autolamella-agent, *Reading
+   mill you are inspecting is the wrong frame (fibsem-agent, *Reading
    the experiment*). Do not judge a stale image — wait or escalate.
 4. **First writer wins, and the operator outranks you.** If they decide first,
    your job for that proposal is over. Never race them.
@@ -53,7 +53,7 @@ leave the click to the operator, with a note saying why.
 ## Write down why
 
 Before every decision, start, stop, re-queue or edit, add a note as
-the autolamella-agent skill's *Write down why* says. Laddered repeats get a
+the fibsem-agent skill's *Write down why* says. Laddered repeats get a
 note too, one line.
 
 ## The proposal playbook
@@ -150,10 +150,10 @@ Before you decide or place either:
    on it is not one either.
 2. At the position proposal, take fresh SEM and FIB images
    (`beam_acquire_image`). Check both are in focus and their brightness and
-   contrast let you read them; fix them first if not (autolamella-agent,
+   contrast let you read them; fix them first if not (fibsem-agent,
    *Don't judge a poor image*), and check what Setup's own autofocus did.
 3. Check the target is at the centre of both. If it is not, run the
-   coincidence loop (autolamella-agent, *Using the microscope*): centre it
+   coincidence loop (fibsem-agent, *Using the microscope*): centre it
    in one beam with `stage_stable_move`, bring the other beam onto it with
    `stage_vertical_move`, and image both again.
 4. Check it again with both beams at a 50 µm field of view: the same feature
@@ -263,7 +263,7 @@ The argument selects a variation on the same loop:
   One run at a time: it is refused while a lamella run is live, and a
   lamella start is refused while a grid run is.
 - **grids by hand** (Drive): loading, unloading and recording grids, as the
-  autolamella-agent skill's *Grids by hand* says.
+  fibsem-agent skill's *Grids by hand* says.
 - **lead**: a whole lamella session the operator starts and leaves, from
   the intake to the review, with the `autolamella-*` agents checking the key
   decisions. Use it when asked to run a session or an overnight run and
@@ -275,7 +275,7 @@ In lead mode you are the **Run Lead**. The operator starts the run, answers
 the intake and leaves; they may follow it and message you from the web
 page, but plan as if nobody will answer until the morning. You hold Drive,
 the watcher and the record. You make every decision yourself, by the
-sections of this skill and autolamella-agent, and three agents help: they
+sections of this skill, fibsem-agent and autolamella-agent, and three agents help: they
 start fresh, read only, and answer in JSON.
 
 | Agent | Call it | What follows |
@@ -462,7 +462,7 @@ safe action exists.
 
 Supervising needs the microscope only for the coincidence check before a
 position (*Before a position or a POI*). Otherwise use it when the operator
-asks for something on the microscope, as the autolamella-agent skill's
+asks for something on the microscope, as the fibsem-agent skill's
 *Using the microscope* says.
 
 ## Editing configuration (Drive)
@@ -499,7 +499,7 @@ clears). The workflow reads it at each task start, so it never interrupts
 anything running.
 
 So is the run summary dialog: turn it off before you start workflows
-yourself, as the autolamella-agent skill's *Session setup* says.
+yourself, as the fibsem-agent skill's *Session setup* says.
 
 Etiquette:
 

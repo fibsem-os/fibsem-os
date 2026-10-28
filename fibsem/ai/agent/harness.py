@@ -42,8 +42,11 @@ from fibsem.extras import missing_extra_message
 from fibsem.logo import print_fibsem_logo
 from fibsem.util import timestamps
 
-BASE_SKILL = "autolamella-agent"
-SKILLS = (BASE_SKILL,) + tuple(LEVEL_SKILLS.values())
+# Read first, every session; it names the task skills and when to read each.
+BASE_SKILL = "fibsem-agent"
+# The skills for a task, read once the operator says what they want done.
+TASK_SKILLS = ("autolamella-agent", *LEVEL_SKILLS.values(), "fib-experiment")
+SKILLS = (BASE_SKILL,) + TASK_SKILLS
 
 SERVER = "fibsem"
 # The specialists a Run Lead calls (supervise-autolamella, lead mode): the
@@ -153,11 +156,11 @@ your reason comes then. One at a time; a new one replaces it.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.
-- The operator sets your level in the app. Work by the skill for your level: \
-observe-autolamella at Watch, assist-autolamella at Assist, \
-supervise-autolamella at Drive. A LEVEL line means it changed: read that \
-level's skill if you haven't. A refusal is the server's answer: handle it as \
-the skills say."""
+- The operator sets your level in the app. On AutoLamella work, work by the \
+skill for your level: observe-autolamella at Watch, assist-autolamella at \
+Assist, supervise-autolamella at Drive; a LEVEL line means it changed, so read \
+that level's skill if you haven't. A refusal is the server's answer: handle it \
+as the skills say."""
 NO_CODE = """\
 - Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
 autolamella-* agents only. There is no shell, no file access and no web, for \
@@ -231,15 +234,18 @@ def _kickoff(resumed: bool) -> str:
             "app_get_status and proposal_list, then end your turn."
         )
     return (
-        "You are the AutoLamella agent, run by fibsem-agent.\n"
+        "You are the microscope's agent, run by fibsem-agent.\n"
         f"1. Read the {BASE_SKILL} skill with the Skill tool.\n"
-        "2. Call server_get_capabilities, then read the skill for the level it "
-        "gives. Tell the operator in a sentence what your level means for this "
-        "session and whether the microscope is served. If an experiment is "
-        "open, send that sentence with experiment_message_operator too, so "
-        "the operator sees it in the app. The level is the operator's.\n"
+        "2. Call server_get_capabilities. Tell the operator in a sentence what "
+        "your level means for this session and whether the microscope is "
+        "served. The level is the operator's.\n"
         "3. Read where things stand, as the base skill's Session setup says. "
         "The watcher is already running: don't start one.\n"
+        "4. With a goal, read the task skill it calls for (the table at the top "
+        f"of {BASE_SKILL}). Without one, ask the operator with "
+        "experiment_message_operator what they would like to get done today, "
+        "naming the tasks in that table, and read the task skill for their "
+        "answer when it comes.\n"
         "Then end your turn. The harness wakes you with the watcher's lines."
     )
 
@@ -582,6 +588,8 @@ class Harness:
         self._deadlines = Deadlines()
         self._goal = goal
         self._goal_sent = False
+        # The skills read, as last reported: sent again when the agent reads one.
+        self._skills_sent: List[str] = []
         # What it can do (code mode, effort, skills), sent with the first report.
         self._about = dict(about or {})
         self._budget_usd = budget_usd
@@ -790,6 +798,10 @@ class Harness:
             "turns": self._turns,
             **({} if self._goal_sent else self._about),
         }
+        skills = list(getattr(self._agent, "skills_read", None) or [])
+        if skills != self._skills_sent:
+            body["skills"] = skills
+            self._skills_sent = skills
         body = {key: value for key, value in body.items() if value is not None}
         if ended:
             body.update(ended=True, reason=self._end_reason)
@@ -981,6 +993,8 @@ class SdkAgent:
         self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
+        # The skills it has read, in order: the session reports them.
+        self.skills_read: List[str] = []
         # The lines printed, until the harness sends them (`Harness._send_transcript`).
         self.transcript: List[dict] = []
         self._seq = 0
@@ -1156,6 +1170,9 @@ def _show(message, agent: SdkAgent) -> None:
                 log.info("agent: %s", block.text.strip())
                 _line(agent, "said", block.text.strip())
             elif isinstance(block, ToolUseBlock):
+                skill = block.input.get("skill") if block.name == "Skill" else None
+                if skill and skill not in agent.skills_read:
+                    agent.skills_read.append(skill)
                 verb, text = step(block.name, block.input, getattr(agent, "cwd", None))
                 log.info("%s %s", verb, text)
                 seq = _line(agent, "step", text, verb=verb)
@@ -1429,7 +1446,8 @@ def main(argv=None) -> int:
         default=None,
         metavar="NAME",
         help="run with the profile NAME.yaml, from ~/.fibsem/agent/profiles/ or "
-        "the checkout's .claude/fibsem-agent/; flags given here win over it",
+        f"the checkout's .claude/fibsem-agent/ (default: {profiles.DEFAULT_PROFILE}); "
+        "flags given here win over it",
     )
     parser.add_argument(
         "--show-config",
@@ -1470,8 +1488,9 @@ def main(argv=None) -> int:
     if args.list_profiles:
         return _print(_profile_rows(checkout), args.json, _profile_text)
     profile = None
-    if args.profile:
-        path = profiles.find(args.profile, checkout)
+    name = args.profile or profiles.DEFAULT_PROFILE
+    path = profiles.find(name, checkout)
+    if path is not None or args.profile:
         if path is None:
             print(
                 f"No profile {args.profile!r} in "
@@ -1557,7 +1576,6 @@ def main(argv=None) -> int:
             "files": work is not None and not code,
             "workdir": str(work) if work is not None else None,
             "effort": args.effort,
-            "skills": skills_for(profile),
             "resumed": args.resume is not None,
             **(_profile_report(profile) if profile else {}),
         },
