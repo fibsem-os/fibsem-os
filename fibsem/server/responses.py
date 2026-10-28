@@ -1398,6 +1398,70 @@ class AgentView:
 
 
 @dataclass
+class ToolRow:
+    name: str
+    description: str
+    # the level its route needs: "watch" | "assist" | "drive"
+    level: str
+    # one of AgentCustomisation.categories; group is the title of its name's
+    # first word (GROUP_TITLES)
+    category: str
+    group: str
+    # commands or changes the microscope
+    hardware: bool
+
+
+@dataclass
+class SkillRow:
+    name: str
+    description: str
+
+
+@dataclass
+class ReminderRow:
+    label: str
+    say: str
+
+
+@dataclass
+class ProfileRow:
+    name: str
+    path: str
+    hash: str
+    model: Optional[str] = None
+    effort: Optional[str] = None
+    max_budget_usd: Optional[float] = None
+    max_turns: Optional[int] = None
+    mode: str = "none"
+    skills: List[str] = field(default_factory=list)
+    prompt: Optional[str] = None
+    reminders: List[ReminderRow] = field(default_factory=list)
+    # why it can't be used, for a profile that doesn't load
+    error: Optional[str] = None
+
+
+@dataclass
+class BlockRow:
+    device: str
+    blocked: str
+    why: str
+
+
+@dataclass
+class AgentCustomisation:
+    """What the agent runs with, as the operator's Customisation dialog shows it."""
+
+    tools: List[ToolRow]
+    categories: List[str]
+    skills: List[SkillRow]
+    specialists: List[SkillRow]
+    profiles: List[ProfileRow]
+    # when a profile's reminder can fire, by its label
+    reminder_options: List[str]
+    never: List[BlockRow]
+
+
+@dataclass
 class ConnectText:
     # None when the sidecar isn't installed
     text: Optional[str]

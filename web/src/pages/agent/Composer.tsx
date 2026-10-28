@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import type { AgentLevel, AgentState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useAct } from "./act";
+import { Customise } from "./Customisation";
 
 const LIMIT = 2000;
 
@@ -236,6 +237,7 @@ export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => v
       <div className="flex flex-wrap items-center gap-2 px-2 pt-1.5 pb-2">
         {agent.last_heard_s == null ? <Connect /> : <AgentInfo agent={agent} />}
         <Level agent={agent} act={act} />
+        <Customise />
         <span className={cn("min-w-0 truncate text-[12px]", error ? "text-destructive" : "text-muted-foreground")}>
           {error ?? said}
         </span>

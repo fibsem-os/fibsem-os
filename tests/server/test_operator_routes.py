@@ -130,6 +130,25 @@ def test_the_operator_reaches_the_agents_routes_whatever_its_level(server):
     assert server.config.seconds_since_seen() is None
 
 
+def test_the_operator_reads_what_the_agent_runs_with(server):
+    assert (
+        server.get("/app/agent/customisation", headers=server.agent).status_code == 403
+    )
+    answer = server.get("/app/agent/customisation", headers=server.operator)
+    assert answer.status_code == 200, answer.text
+    found = answer.json()
+    tools = {tool["name"]: tool for tool in found["tools"]}
+    assert tools["beam_acquire_image"]["category"] == "Imaging"
+    assert tools["beam_acquire_image"]["hardware"] is True
+    assert tools["stage_get_position"]["level"] == "watch"
+    assert {tool["category"] for tool in found["tools"]} <= set(found["categories"])
+    assert found["skills"][0]["name"] == "fibsem-agent"
+    assert all(skill["description"] for skill in found["skills"])
+    assert all(agent["description"] for agent in found["specialists"])
+    assert "Before milling" in found["reminder_options"]
+    assert any(row["device"] == "Chamber" for row in found["never"])
+
+
 def test_the_operator_reads_what_the_microscope_is(microscope, tmp_path):  # noqa: F811
     session = AppSession()
     session.microscope = microscope
