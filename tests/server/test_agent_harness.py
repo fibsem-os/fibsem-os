@@ -302,6 +302,7 @@ def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     assert "resumed" in again and "server_get_capabilities" in again
     assert "LEVEL line" in harness_mod.HARNESS_PROMPT
     assert "stop and ask" in harness_mod.HARNESS_PROMPT
+    assert "only through fibsem-os" in harness_mod.HARNESS_PROMPT
     # A goal is said back, with its rule, before the agent acts on it.
     goal = kickoff(goal="mill 01 and 02")
     assert "mill 01 and 02" in goal and "Before acting on it" in goal
