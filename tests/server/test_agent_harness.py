@@ -20,9 +20,9 @@ import httpx
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
+from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.harness import Harness, TurnEnd, Wakes, kickoff
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.ai.agent.session import AgentSession
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,

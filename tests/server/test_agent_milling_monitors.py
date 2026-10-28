@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 from psygnal import Signal
 
+from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import route_call
-from fibsem.ai.agent.mcp import watch as watch_mod
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.monitors import FmIntensityMonitor
 from fibsem.milling.monitors.fm_intensity import FmIntensityConfig
