@@ -659,7 +659,7 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     record = manager.read_json(folder / manager.RECORD)
     assert record["goal"] == "mill 01"
     assert record["url"] == "http://127.0.0.1:9"
-    assert record["mode"] == "none"
+    assert record["mode"] == "files"
     (run,) = record["runs"]
     assert run["exit_code"] == 1 and run["resumable"] is True
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")
