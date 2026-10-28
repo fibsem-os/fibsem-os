@@ -497,6 +497,10 @@ retract first. The one exception: on an offset FM mount, `item_move_to_pose`
 or `stage_move_absolute` to a position at the other device crosses the
 chamber with the objective out by itself.
 
+If `fm_insert_objective` or `fm_retract_objective` is refused at a tilt,
+xT's objective restrictions are on: ask the operator to turn them off in the
+xT GUI, and don't retry.
+
 After every move, read the position back and compare it with what you asked
 for, then take a fresh image and check where the feature landed before the
 next one. A move under about 1 µm may not happen at all; the position read
@@ -544,7 +548,8 @@ rules above.
 
 **Milling.** Mill a protocol's stage with `milling_run_stage` and a
 multi-stage job with `milling_run_task`. Before milling, look at
-`milling_preview_patterns` on a saved ion image.
+`milling_preview_patterns` on a saved ion image. It takes the stages as
+`milling_run_stage` does, in metres, so never convert µm to pixels by hand.
 
 Only where neither fits, `prepare` the settings and patterns, mill with `run`
 (not `start`, which reports no progress and records nothing), then `clear`
@@ -608,7 +613,8 @@ The same rules apply in the Polishing task's milling proposal and by hand
 (one `milling_run_stage` per step):
 
 - Start gently and step down. Begin with a wide gap and narrow it a step at
-  a time, lowering the current as it narrows; never jump to the final gap. On the
+  a time, lowering the current as it narrows; never jump to the final gap.
+  Drop to 30 pA once the slab is under about 500 nm. On the
   Arctis the band ran at 0.53-0.73× the gap, so expect the target near a
   250-300 nm gap there; other instruments differ, so measure, don't assume.
 - Preview every step's patterns on a fresh ion image first
@@ -622,11 +628,16 @@ The same rules apply in the Polishing task's milling proposal and by hand
 - After every step, a FIB image and an SEM image, both saved as files, not
   previews, so the operator can review them later. Once the band is under
   about 400 nm, image the FIB at a narrow field of view (15 µm, not 30 µm).
+  Read the faces only on FIB images 3072 px wide: on a real run, faces read
+  on 1536 px images led to three passes that milled nothing.
 - Measure the band, don't trust the gap, and stop on the first of: the band
   under 200 nm; the band faint or low in contrast, even if it still looks
   wide (a faint band is already thin: a lamella milled through on the next
   pass when this was read as width); the SEM shows a crack, a break, a hole,
   bending or the face deteriorating.
+- On a correlative lamella, estimate the target's depth in the slab from the
+  FM stack and mill the face away from it first. Start the near face 150 nm
+  outside the target's half-maximum edge and step it in 50 nm at a time.
 - The polishing patterns can't be rotated to follow a tilted band. If the
   band is tilted enough to leave a wedge, say so before thinning further.
 - Report each step: current, gap, time, the alignment residual, the band
@@ -644,6 +655,9 @@ it right before the mill, so the patterns land where you put them.
 Once the slab is under about 1.5 µm, don't add rough rounds: thin with the
 polishing stages. An extra rough round on a real run cut through the slab
 and left a double lamella.
+
+On a correlative run, rough mill to a 4-6 µm slab first. Then take an FM stack
+and correlate again, with a surface point, before polishing.
 
 **Aligning to a reference.** `alignment_measure_shift` first to see how far
 off you are, then `alignment_align_to_reference`: beam shift for a small
@@ -672,14 +686,19 @@ and the metadata gives each channel's `sharpest_plane`. The projection hides
 which depth a spot is at and whether a neighbour sits above it. Look for small
 targets (centriole doublets) plane by plane in full-resolution crops
 (`experiment_read_file` with `z`, `experiment_crop_image`): a downsampled
-view loses them. Until the emission-filter read-back is fixed, an FM image's
+view loses them. Check each candidate against the lamella window on a FIB or
+SEM image before you call it a target: on a real run a stress-relief cut was
+taken for the lamella. Until the emission-filter read-back is fixed, an FM image's
 metadata can say Reflection for a fluorescence channel: go by the channel's
 name and settings.
 
 **Correlating FM to FIB.** Refine each fiducial pick with
 `correlation_refine_point` before `correlation_correlate`, pass
-`lamella_path`, and look at the overlay before trusting the answer. For a
-target at depth, give `fm_surface_point`. Apply the result
+`lamella_path`, and look at the overlay before trusting the answer. Always
+give a surface point, `fm_surface_point` or `fib_surface_point`, so the
+refractive-index correction is applied, and check the answer's
+`ri_correction`. Without one, the targets sit deeper than the FM stack reads:
+on a real run 4 of 7 targets were lost this way. Apply the result
 (`item_apply_correlation`, as the tab's Continue) only on a `good` verdict,
 or when the operator agrees.
 
