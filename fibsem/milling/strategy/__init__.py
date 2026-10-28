@@ -2,6 +2,7 @@ import typing
 
 from fibsem.milling.base import MillingStrategy
 from fibsem.milling.strategy.coincidence import CoincidenceMillingStrategy  # noqa: F401
+from fibsem.milling.strategy.iterative_polishing import IterativePolishingStrategy
 from fibsem.milling.strategy.overtilt import OvertiltTrenchMillingStrategy
 from fibsem.milling.strategy.standard import StandardMillingStrategy
 from fibsem.plugins.loader import PluginRegistry, subclass_of
@@ -11,6 +12,7 @@ BUILTIN_STRATEGIES: typing.Dict[str, typing.Type[MillingStrategy[typing.Any]]] =
     StandardMillingStrategy.name: StandardMillingStrategy,
     OvertiltTrenchMillingStrategy.name: OvertiltTrenchMillingStrategy,
     CoincidenceMillingStrategy.name: CoincidenceMillingStrategy,
+    IterativePolishingStrategy.name: IterativePolishingStrategy,
 }
 STRATEGY_ENTRY_POINT_GROUP = "fibsem.milling.strategies"
 
