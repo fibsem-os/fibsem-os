@@ -93,11 +93,9 @@ rectangles when a pattern exists.
 
 ## At Assist
 
-Each microscope step is a request (`request_create`): the actions in order,
-as `{tool, arguments}`, and a reason the operator reads before deciding. One
+Each microscope step is a request (fibsem-agent, *Asking at Assist*). One
 request waits at a time, so put one site's steps in one request (move, image,
-mill, image) with the preview drawing named in the reason. A `REQUEST` line
-tells you when it moves on.
+mill, image) with the preview drawing named in the reason.
 
 ## When you're done
 

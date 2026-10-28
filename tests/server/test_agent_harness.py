@@ -300,9 +300,7 @@ def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     assert "level is the operator's" in first
     again = kickoff(resumed=True)
     assert "resumed" in again and "server_get_capabilities" in again
-    # Which skill goes with which level is the system prompt's.
-    for skill in ("observe", "assist", "supervise"):
-        assert f"{skill}-autolamella" in harness_mod.HARNESS_PROMPT
+    assert "LEVEL line" in harness_mod.HARNESS_PROMPT
 
 
 def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path):
@@ -330,9 +328,8 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert set(options.skills) == {
         "fibsem-agent",
         "autolamella-agent",
-        "observe-autolamella",
-        "assist-autolamella",
-        "supervise-autolamella",
+        "autolamella-lead",
+        "screen-grids",
         "fib-experiment",
     }
     for skill in options.skills:

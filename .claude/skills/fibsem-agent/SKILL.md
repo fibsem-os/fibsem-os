@@ -11,7 +11,8 @@ whatever it was asked to do. Then read the skill for the task:
 
 | The operator wants to | Read |
 |---|---|
-| Make lamellae with AutoLamella | autolamella-agent, then the skill for your level (observe-autolamella at Watch, assist-autolamella at Assist, supervise-autolamella at Drive) |
+| Make lamellae with AutoLamella, or explain a run | autolamella-agent; to run a whole session left to you at Drive, autolamella-lead too |
+| Screen grids, take grid overviews or pick sites | screen-grids |
 | Do plain FIB work: images, milling patterns, spot burns, cross-sections, moving between sites | fib-experiment |
 
 If you don't know what the operator wants done, ask before you read a task
@@ -82,8 +83,8 @@ Every launch starts at Watch; nothing in a file raises it.
   stop, re-queue or edit. Watch is a complete job: say what you see and what
   you would do and why, and leave the click to the operator.
 - **Assist**: you read freely and ask before each action
-  (`request_create`); the operator approves it on the web Agent page. Your
-  task skill says how.
+  (`request_create`); the operator approves it on the web Agent page. See
+  *Asking at Assist*.
 - **Drive**: you act yourself: decide proposals, start and stop workflows,
   edit configuration and, with the microscope served, use the microscope.
 
@@ -120,6 +121,102 @@ comes back as the refusal. A limit with no end reads as `null`.
 If your level drops mid-session for any reason, the rule is the same as
 `agent_stopped`: re-read `/capabilities`, report and stop acting. Never treat
 a 403 as an error to work around, and never retry it in another form.
+
+## Asking at Assist
+
+At **Assist** nothing you want done happens until the operator approves it.
+You ask by filing a **request**: one or more of your own tool calls and your
+reason. The operator reads it on the web Agent page and approves or rejects
+it. Approved actions run exactly as if you had called them at Drive: checked,
+refused when the microscope is busy, and put on the record as yours. The
+operator is looking at the same screen, so ask for little, ask clearly, and
+never make them work out what you meant.
+
+| Tool | Route |
+|---|---|
+| `request_create` | `POST /app/agent/requests` |
+| `request_get` | `GET /app/agent/requests/{request_id}` |
+| `request_withdraw` | `POST /app/agent/requests/{request_id}/withdraw` with `{"reason": ...}` |
+
+```json
+{"actions": [
+   {"tool": "stage_move_to_saved_position", "arguments": {"name": "site-b"}},
+   {"tool": "beam_acquire_image",
+    "arguments": {"beam_type": "ION", "path": "site-b/before-cross-section_ib"}}],
+ "reason": "Site B next, as you listed. Move there and take a FIB image to place the cross-section on."}
+```
+
+In a request, `tool` is the tool's name without the `mcp__fibsem__` prefix
+and `arguments` are what that tool takes. Any tool that acts can go in a
+request; the server says so when it can't (`not_an_action`), or when the
+agent may never use it (`403 not_allowed`). The server writes the line the
+operator reads for each action (for a config edit, the path with old → new)
+from the arguments themselves. Your words appear only in **reason**.
+
+Start the watcher before you file anything: the operator often decides
+within seconds. Each time your request moves it prints a `REQUEST` line
+(`approved`, `applied (2 of 2 applied)`, `failed (1 of 2 applied)`,
+`rejected: <the operator's words>`, `cancelled: <why>`). Wait for the line,
+then read the request once; don't poll `request_get` on a timer.
+
+**One request at a time.** While one is waiting, another is refused
+(`409 request_pending`, naming it). When the plan changes before the
+operator decides, withdraw it (`request_withdraw`, with a reason) and file
+the new one. Put things that belong together in one request: a config change
+and the re-run it is for, a move and the image that checks it. Things that
+don't belong together wait their turn.
+
+**Write the reason for someone deciding in a few seconds.** Say what you
+saw, where you saw it (an image, a value, an event), and what the actions
+will do. Two sentences is usually right. Name what you saw in words ("the
+ringed cell at the centre"), never preview pixels: the operator can't use
+"(385, 258) of 768 x 512". The reason is kept on the record with the request,
+so you don't need a separate note for it.
+
+**Show the image you mean.** When an image decided what you do, pass it as
+`evidence` on the call: `{image}` with the path the image tools answered
+(inside the experiment), or `{file, source}` for an overlay you drew, with
+labelled `marks` for points and areas on it. Every acting tool takes it. It
+is the card's picture, with your actions' points, areas and patterns drawn on
+it when it is a beam image; without it, the card says "No evidence".
+
+**Read just before you ask.** Read the config or the stage position before
+filing, and pass the `version` you read. Until the operator approves,
+nothing is checked against the live state; a stale version is refused when
+the request runs (`409 stale_config`), which is correct: read again and ask
+again. A relative stage move has no version and runs from wherever the stage
+is when the operator approves it, so say in the reason where you read it
+from.
+
+**Ask for what was asked.** When the operator asks for one thing, the
+request is that thing. Don't add an image, a second move or a tidy-up they
+didn't ask for; offer it in chat instead.
+
+What happens next:
+
+- **Approved:** the actions run in order, each through its own route and
+  checks; the first refusal stops the rest. Read the request when the
+  `REQUEST … applied/failed` line arrives and tell the operator what was
+  done. If it failed, say which action failed and its error
+  (`results[i].error`).
+- **Rejected:** don't file the same thing again. If `reject_reason` points
+  somewhere else, ask about that; if there's no reason, ask in chat what
+  they'd prefer before you file anything similar.
+- **Cancelled:** the level changed, or the operator pressed **Stop agent**.
+  Re-read `server_get_capabilities`; after Stop agent you are at Watch.
+
+On the microscope at Assist:
+
+- An image is an action (a direct call is refused, `403 ask_first`). Look at
+  what is already there first. If you need a new one to check a move, say so
+  in chat, and when the operator agrees put the move and the image in one
+  request.
+- If an approved move fails while moving, stop there: file no retry and no
+  other route to the same place; read the stage, add a note and tell the
+  operator.
+- A grid exchange (`grid_load`, `grid_unload`, `grid_run_inventory`) is a
+  request like a move. Give the reason for the exchange, not a description
+  of it.
 
 ## The watcher
 
@@ -199,8 +296,7 @@ Its lines:
   `app_get_status`, `proposal_list` and any unanswered message; if the run is
   fine, end your turn. It comes once until something else happens.
 - `LEVEL <level> (was <level>)`: the operator changed your level. Re-read
-  `server_get_capabilities`; on AutoLamella work, work by the skill the line
-  names.
+  `server_get_capabilities` and work as the new level allows.
 - `MESSAGE id=…`: the operator wrote to you from the web Agent page. See
   *Messages*.
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
@@ -648,11 +744,8 @@ features a few µm off (about 4 % in x and 7 % in y per step on the Arctis).
 After moving to a point picked on an overview, take a fresh image and centre
 on the feature itself before acting, as an operator would.
 
-**Grids by hand.** `grid_list` is the experiment's records; `grid_get_inventory`
-is the hardware now. With an autoloader `grid_load` is an exchange, so say
-which grid comes out before you load. A grid run loads its own grids, so
-never load ahead of one. Ask the operator before renaming a grid
-(`grid_rename`), and say the old and new names.
+**Grids.** Loading, unloading, screening and picking sites on grids are the
+screen-grids skill's.
 
 **`409 microscope_busy` is someone else working.** Its `detail.in_control`
 names who (`workflow`, `script`, or another command) and what. Say who has
