@@ -308,7 +308,12 @@ or report one, draw it and look at the picture. Cite the drawn file as the note'
   site.
 - `item_draw_milling`: an item's patterns as its task configs have them, on
   its latest ion image. Draw it before a mill, and before you decide or
-  suggest a milling proposal. Don't note what
+  suggest a milling proposal.
+
+If a picture hides what you mean (saturated, too dark, a faint target),
+draw it again with `looks` (`clim` per layer) and `box` for the region.
+The answer gives each layer's stats, so set limits from them, not by guess.
+Don't note what
 is already on the record: a request's reason is kept with it.
 
 Where a site came from (grid, square, rank, why it was chosen) belongs on the
@@ -329,6 +334,9 @@ Every read works at Watch.
 | Why did it fail? | `app_get_log` with the `task_id`, `level=WARNING` |
 | One lamella | `item_get`, `item_list_outputs`, `item_get_output_image` |
 | How thick is it? | `item_measure_thickness` on a FIB image of the item |
+| Is this image good enough to go on with? | `analysis_measure_quality` |
+| How bright is a target, and against what? | `analysis_measure_intensity` with a `reference` point (a bead, the bulk); `correlation_refine_point`'s `z_fit` for its plane and width in z |
+| How wide is a spot, an edge or a bar? | `analysis_measure_profile` (`fwhm`; null means draw a longer line) |
 | The plan | `protocol_get`, `item_get_task_config`, `protocol_get_task_config` |
 | Grids | `grid_list`, `grid_get`, `grid_get_markers`, `experiment_render_markers` |
 | Grids on the hardware now | `grid_get_inventory` (which grid is loaded), `grid_get_current` |
@@ -660,7 +668,9 @@ position so the POI falls on the lamella. Read its `warnings` first. On
 on a real run. On `several_bands`, look for residue in a trench or a stepped
 wall. Check the answer on the image before you use it:
 the band it finds may be the wrong one, and then its `centre_offset` is wrong
-too (a polish window moved by it landed on trench residue). Compare readings
+too (a polish window moved by it landed on trench residue). If the band you
+checked sits away from the POI, pass `centre` [x, y] at it rather than
+moving the item. Compare readings
 only across images of similar contrast, at a 20 µm field width: on a real
 run one lamella read 226 nm on a high-contrast image and 305-341 nm on
 low-contrast ones. A number that moves with contrast is not a measurement;
