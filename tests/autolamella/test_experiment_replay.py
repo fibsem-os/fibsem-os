@@ -49,11 +49,6 @@ def recorded(tmp_path_factory):
     return load_replay(root)
 
 
-def _flat(points):
-    """(x, y) points as one list: pytest.approx compares no nested data."""
-    return [v for point in points for v in point]
-
-
 def _of(replay, kind):
     return [(i, e) for i, e in enumerate(replay.events) if e.kind == kind]
 
@@ -131,7 +126,7 @@ def test_spot_burns_accumulate_in_the_field_they_were_burnt_in(recorded):
         if e.kind == EventKind.IMAGE and e.beam == "ION"
     ).field_size
     expected = [((p.x - 0.5) * field[0], (p.y - 0.5) * field[1]) for p in SPOTS]
-    assert _flat(last.spots) == pytest.approx(_flat(expected))
+    assert last.spots == pytest.approx(expected)
     # That new frame also ended the milling before it.
     assert last.milling is None
 
@@ -452,8 +447,8 @@ def test_the_events_replay_what_the_log_replays(recorded_twice):
     assert all(e.item_type == "lamella" for e in events.events if e.item)
     spots = [i for i, e in _of(events, EventKind.MILLING) if "spot" in e.data]
     log_spots = [i for i, e in _of(log, EventKind.MILLING) if "spot" in e.data]
-    assert _flat(events.scene(spots[-1]).spots) == pytest.approx(
-        _flat(log.scene(log_spots[-1]).spots)
+    assert events.scene(spots[-1]).spots == pytest.approx(
+        log.scene(log_spots[-1]).spots
     )
     # milling's own final image is recorded, so the overlay ends where the log's does
     assert events.scene(spots[-1]).milling is None
