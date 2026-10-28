@@ -88,14 +88,14 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
           ))}
         </Section>
       )}
-      {started && !ended && (
-        <Section title="Session">
-          <p className="m-0">Running for {duration(Math.max(0, Math.floor((now - Date.parse(started)) / 60000)))}</p>
-        </Section>
-      )}
       {goal && (
         <Section title="Goal">
           <p className="m-0 break-words">{goal}</p>
+          {started && !ended && (
+            <p className="m-0 mt-1 text-muted-foreground">
+              Running for {duration(Math.max(0, Math.floor((now - Date.parse(started)) / 60000)))}
+            </p>
+          )}
         </Section>
       )}
       {(budget != null || spent != null) && (
