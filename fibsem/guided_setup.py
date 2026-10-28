@@ -302,8 +302,11 @@ def library_status(
 
 def save_library_folder(choices: SetupChoices) -> None:
     """Keep the library folder typed into the connection step for this PC."""
-    if choices.manufacturer.library is not None and choices.library_folder.strip():
-        vendor_libraries.save_folder(choices.manufacturer.key, choices.library_folder)
+    library = choices.manufacturer.library
+    folder = choices.library_folder.strip()
+    # this environment's own copy is imported whatever is set, so it isn't kept
+    if library is not None and folder and folder != vendor_libraries.installed(library):
+        vendor_libraries.save_folder(choices.manufacturer.key, folder)
 
 
 # ---------------------------------------------------------------------------

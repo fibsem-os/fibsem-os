@@ -110,10 +110,21 @@ fibsemOS controls Thermo Fisher instruments through AutoScript, Thermo
 Fisher's scripting interface. It is a licensed product; contact Thermo Fisher
 for pricing and installation. fibsemOS works with AutoScript 4.9 and later.
 
-If AutoScript is already installed on this computer, fibsemOS will most likely
-find it on its own: the first step of Guided Setup reports whether it was
-found. If it reports that AutoScript was not found, its Python packages are in
-AutoScript's own environment and need copying into yours.
+fibsemOS uses AutoScript from AutoScript's own Python environment; nothing
+needs copying. It looks in the usual install folders, such as
+`C:\Program Files\Python36\envs\AutoScript\Lib\site-packages\`, and
+keeps the folder it finds for this computer, so a later AutoScript install
+is not switched to unasked. Guided Setup's connection step and
+Preferences > Libraries show the folder and version in use.
+
+If AutoScript is somewhere else, choose its folder there: **Find** asks each
+Python on PATH (as `where python` lists them) where it has AutoScript, or
+pick the `site-packages` folder with the `...` button. Setting
+`FIBSEM_AUTOSCRIPT_PATH` to the folder overrides both.
+
+AutoScript packages copied into the fibsem environment itself are always
+used first. That was the old way, and still works where a folder can't be
+used:
 
 1. **Find AutoScript's packages.** AutoScript installs into its own Python
    environment, usually named `AutoScript`, with packages at a path like

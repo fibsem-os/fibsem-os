@@ -18,8 +18,11 @@ import numpy as np
 from packaging.version import InvalidVersion, Version
 from packaging.version import parse as parse_version
 
+from fibsem import vendor_libraries
 from fibsem.devices.sample_loader import GridExchangeError
+from fibsem.drivers.autoscript import DRIVER
 from fibsem.drivers.autoscript.connection import AutoScriptConnection
+from fibsem.drivers.autoscript.setup import LIBRARY as AUTOSCRIPT_LIBRARY
 from fibsem.microscope import (
     BEAM_TYPES,
     STAGE_TYPES,
@@ -83,18 +86,8 @@ THERMO_VOLTAGE_CHOICES = {
     BeamType.ION: (500, 1000, 2000, 8000, 16000, 30000),
 }
 
-# Legacy install locations, kept on sys.path for older machines. Current installs
-# copy the AutoScript packages into the active environment's site-packages (see
-# INSTALLATION.md), so these rarely match any more.
-_LEGACY_AUTOSCRIPT_SYS_PATHS = [
-    r"C:\Program Files\Thermo Scientific AutoScript",
-    r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages",
-    r"C:\Program Files\Python36\envs\AutoScript",
-    r"C:\Program Files\Python36\envs\AutoScript\Lib\site-packages",
-]
-
 # Where a copy of AutoScript might be sitting when the import fails. Searched only
-# to build the diagnostic message; never added to sys.path.
+# to build the diagnostic message; never served from.
 _AUTOSCRIPT_SEARCH_GLOBS = [
     r"C:\ProgramData\miniforge3\envs\*\Lib\site-packages",
     r"C:\ProgramData\miniconda3\envs\*\Lib\site-packages",
@@ -103,8 +96,7 @@ _AUTOSCRIPT_SEARCH_GLOBS = [
     os.path.expanduser(r"~\miniconda3\envs\*\Lib\site-packages"),
     os.path.expanduser(r"~\anaconda3\envs\*\Lib\site-packages"),
     os.path.expanduser(r"~\.conda\envs\*\Lib\site-packages"),
-    r"C:\Program Files\Python*\envs\AutoScript\Lib\site-packages",
-    *_LEGACY_AUTOSCRIPT_SYS_PATHS,
+    *AUTOSCRIPT_LIBRARY.candidates,
 ]
 
 
@@ -112,9 +104,14 @@ class AutoScriptException(Exception):
     pass
 
 
+# From AutoScript's own environment, unless this one has a copy.
+_SERVE_ERROR: Optional[str] = None
 try:
-    for _legacy_path in _LEGACY_AUTOSCRIPT_SYS_PATHS:
-        sys.path.append(_legacy_path)
+    vendor_libraries.serve(DRIVER.manufacturer, AUTOSCRIPT_LIBRARY)
+except ImportError as e:
+    _SERVE_ERROR = str(e)
+
+try:
     import autoscript_sdb_microscope_client
     from autoscript_sdb_microscope_client import SdbMicroscopeClient
 
@@ -169,8 +166,8 @@ except AutoScriptException as e:
     THERMO_API_IMPORT_ERROR = str(e)
     logging.warning("Failed to load AutoScript (ThermoFisher): %s", str(e))
 except ImportError as e:
-    THERMO_API_IMPORT_ERROR = str(e)
-    logging.debug("AutoScript (ThermoFisher) not found: %s", str(e))
+    THERMO_API_IMPORT_ERROR = _SERVE_ERROR or str(e)
+    logging.debug("AutoScript (ThermoFisher) not found: %s", THERMO_API_IMPORT_ERROR)
 except Exception as e:
     THERMO_API_IMPORT_ERROR = str(e)
     logging.error(
@@ -224,7 +221,7 @@ def autoscript_unavailable_message() -> str:
     parts = ["Autoscript (ThermoFisher) is not available."]
 
     if THERMO_API_IMPORT_ERROR:
-        parts.append(f"Reason: {THERMO_API_IMPORT_ERROR}.")
+        parts.append(f"Reason: {THERMO_API_IMPORT_ERROR.rstrip('.')}.")
 
     candidates = find_autoscript_install_candidates()
     active_env_candidates = [c for c in candidates if _is_active_environment(c)]
@@ -244,9 +241,7 @@ def autoscript_unavailable_message() -> str:
             "Found AutoScript packages in a different environment than the one "
             "currently running: "
             + _format_candidate_list(other_env_candidates)
-            + ". Make sure you activated the environment AutoScript was copied "
-            "into, or copy the AutoScript packages into this environment's "
-            "site-packages instead."
+            + ". Choose that folder for AutoScript in Preferences > Libraries."
         )
     if not candidates:
         parts.append(
@@ -254,7 +249,10 @@ def autoscript_unavailable_message() -> str:
             "common locations."
         )
 
-    parts.append("Please see INSTALLATION.md for installation instructions.")
+    parts.append(
+        "Choose AutoScript's folder in Preferences > Libraries (Find looks for it), "
+        "or see INSTALLATION.md."
+    )
     return " ".join(parts)
 
 

@@ -1,5 +1,7 @@
 """A driver's vendor library served from a folder outside the environment."""
 
+import os
+import subprocess
 import sys
 
 import pytest
@@ -114,3 +116,96 @@ def test_serving_again_replaces_the_finder(tmp_path, preferences):
 def test_nothing_found_says_where_to_set_it(preferences):
     with pytest.raises(ImportError, match=f"Preferences.*{ENV}"):
         vl.serve("TestVendor", LIBRARY)
+
+
+def test_a_copy_in_this_environment_wins_and_is_not_served(
+    tmp_path, monkeypatch, preferences
+):
+    own = _library_folder(tmp_path / "own")
+    vl.save_folder("TestVendor", str(_library_folder(tmp_path / "elsewhere")))
+    monkeypatch.syspath_prepend(str(own))
+    found = vl.resolve("TestVendor", LIBRARY)
+    assert (found.folder, found.source) == (str(own), vl.SOURCE_INSTALLED)
+    assert vl.serve("TestVendor", LIBRARY) is None
+    assert "TestVendor" not in vl._FINDERS
+
+
+def test_a_candidate_served_is_kept_for_this_pc(tmp_path, preferences):
+    folder = _library_folder(tmp_path / "Python311")
+    library = SetupLibrary(
+        label=LIBRARY.label,
+        packages=LIBRARY.packages,
+        candidates=(str(tmp_path / "Python3*" / "site-packages"),),
+    )
+    assert vl.serve("TestVendor", library) == str(folder)
+    # a newer install later is not switched to unasked
+    _library_folder(tmp_path / "Python312", version="9.0.0")
+    assert vl.resolve("TestVendor", library).folder == str(folder)
+    assert vl.resolve("TestVendor", library).source == vl.SOURCE_PREFERENCE
+
+
+def test_the_version_is_the_first_named_packages(tmp_path):
+    folder = _library_folder(tmp_path)
+    meta = folder / "tvendor_extra-7.0.dist-info"
+    meta.mkdir()
+    (meta / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: tvendor-extra\nVersion: 7.0\n"
+    )
+    assert vl.version(str(folder), LIBRARY.packages) == "1.2.3"
+    assert vl.version(str(folder), ("tvendor_extra",)) == "7.0"
+
+
+def _fake_python(directory, prints):
+    directory.mkdir(parents=True)
+    python = directory / "python"
+    python.write_text(f"#!/bin/sh\necho '{prints}'\n")
+    python.chmod(0o755)
+    return python
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the fake Python is a shell script")
+def test_search_asks_each_python_on_path(tmp_path, monkeypatch):
+    old = _library_folder(tmp_path / "a", version="1.0")
+    new = _library_folder(tmp_path / "b", version="2.0")
+    _fake_python(tmp_path / "bin1", old)
+    _fake_python(tmp_path / "bin2", new)
+    _fake_python(tmp_path / "bin3", tmp_path / "nothing-here")
+    _fake_python(tmp_path / "WindowsApps", new)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join(
+            str(tmp_path / d) for d in ("bin1", "bin2", "bin3", "WindowsApps", "bin1")
+        ),
+    )
+    assert vl.pythons_on_path() == [
+        str(tmp_path / d / "python") for d in ("bin1", "bin2", "bin3")
+    ]
+    found = vl.search(LIBRARY)
+    assert [(f.folder, f.version) for f in found] == [
+        (str(new), "2.0"),
+        (str(old), "1.0"),
+    ]
+    assert all(f.source == vl.SOURCE_FOUND for f in found)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the fake Python is a shell script")
+def test_a_python_that_hangs_is_given_up_on(tmp_path, monkeypatch):
+    directory = tmp_path / "bin"
+    directory.mkdir()
+    python = directory / "python"
+    python.write_text("#!/bin/sh\nsleep 5\n")
+    python.chmod(0o755)
+    monkeypatch.setenv("PATH", str(directory))
+    assert vl.search(LIBRARY, timeout=0.2) == []
+
+
+def test_the_search_script_finds_a_package_without_importing_it(tmp_path):
+    folder = _library_folder(tmp_path)
+    (folder / "tvendor_client" / "__init__.py").write_text("raise RuntimeError\n")
+    result = subprocess.run(
+        [sys.executable, "-c", vl._WHERE_SCRIPT, "tvendor_client"],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(folder)},
+    )
+    assert result.stdout.strip() == str(folder)
