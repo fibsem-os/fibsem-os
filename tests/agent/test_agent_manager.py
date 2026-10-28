@@ -272,3 +272,13 @@ def test_a_session_folder_records_each_run_and_how_it_ended(tmp_path):
     assert first["exit_code"] == 1 and first["spent_usd"] == 0.5 and first["turns"] == 3
     assert first["tokens"] == {"output": 9}
     assert "ended" not in second
+
+
+def test_a_bare_resume_finds_the_last_session_that_worked_in_its_own_folder(tmp_path):
+    own = manager.session_folder("own", tmp_path)
+    SessionFolder.open("own", {"cwd": str(own / manager.WORK)}, tmp_path, own)
+    later = SessionFolder.open("later", {"cwd": "/w"}, tmp_path)
+    assert manager.session_folder("own", tmp_path) == own
+    assert later.folder.parent == tmp_path
+    assert manager.last_session(None, tmp_path) == "own"
+    assert manager.last_session(Path("/w"), tmp_path) == "later"

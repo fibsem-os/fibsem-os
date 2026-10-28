@@ -7,11 +7,11 @@
 
 A profile is ``<name>.yaml`` in this machine's ``~/.fibsem/agent/profiles/``
 or in the checkout's ``.claude/fibsem-agent/`` (the machine's wins). It sets
-the model, effort, budget and turns, the mode and its folder, extra skills,
-instructions added to the prompt, and reminders (hooks). Flags on the command
-line win over it. The level and any secret never go in a profile: the
-operator sets the level, and the API key and server token come from the
-environment.
+the model, effort, budget and turns, the mode and its folder (else work/ in
+the session's folder), extra skills, instructions added to the prompt, and
+reminders (hooks). Flags on the command line win over it. The level and any
+secret never go in a profile: the operator sets the level, and the API key and
+server token come from the environment.
 
 A reminder is said to the agent at the moment it makes a matching tool call,
 so it doesn't rely on remembering a skill. ``HOOK_OPTIONS`` is the one list of
@@ -174,8 +174,6 @@ def load(path: Path, efforts=(), checkout: Optional[Path] = None) -> Profile:
     )
     if profile.mode not in MODES:
         raise ProfileError(f"{path}: mode is one of {', '.join(MODES)}")
-    if profile.mode != "none" and not profile.folder:
-        raise ProfileError(f"{path}: mode {profile.mode} needs a folder")
     if efforts and profile.effort is not None and profile.effort not in efforts:
         raise ProfileError(f"{path}: effort is one of {', '.join(efforts)}")
     if checkout is not None:

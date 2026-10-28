@@ -675,7 +675,7 @@ def test_a_bare_resume_with_no_earlier_session_says_so(tmp_path, monkeypatch, ca
     assert "No earlier fibsem-agent session" in capsys.readouterr().err
 
 
-def test_code_with_no_path_is_the_current_folder(tmp_path, monkeypatch):
+def test_a_given_folder_is_resolved(tmp_path, monkeypatch):
     from fibsem.ai.agent import code_mode
 
     monkeypatch.chdir(tmp_path)

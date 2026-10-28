@@ -10,8 +10,9 @@ decides what the agent may do, and the harness never sets the level. Needs the
     fibsem-agent --resume <session id>
     fibsem-agent --resume                     # the last session run in the same folder
     fibsem-agent --session-id <id>            # a new session with this id (a manager's)
-    cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
-    fibsem-agent --files ~/fibsem-work         # it reads and writes files there, runs nothing
+    fibsem-agent --code                       # it writes and runs code, sandboxed,
+                                              # in work/ in the session's folder
+    fibsem-agent --files ~/fibsem-work        # it reads and writes files there, runs nothing
     fibsem-agent --profile overnight-lamella  # what it runs with, from a profile
     fibsem-agent --profile overnight-lamella --show-config
 """
@@ -33,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode, profiles, usage
+from fibsem.ai.agent import code_mode, mirror, profiles, usage
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.levels import LEVEL_SKILLS
@@ -1285,12 +1286,15 @@ def build_options(
     code: bool = True,
     alarm: Optional[Alarm] = None,
     profile: Optional[profiles.Profile] = None,
+    transcript: Optional[Path] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
     copied the skills there); without ``code``, the file tools only. A
-    *profile* adds its skills, its instructions and its reminders."""
+    *profile* adds its skills, its instructions and its reminders. With
+    *transcript*, a folder, the CLI's transcript is copied there as it is
+    written (`mirror.TranscriptMirror`)."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     command = sidecar_command()
@@ -1343,6 +1347,12 @@ def build_options(
         effort=effort,
         resume=resume,
         session_id=session_id,
+        session_store=(
+            mirror.TranscriptMirror(transcript, resume or session_id)
+            if transcript is not None
+            else None
+        ),
+        session_store_flush="eager",
         max_buffer_size=MAX_BUFFER_SIZE,
         stderr=lambda line: log.debug("claude: %s", line.rstrip()),
     )
@@ -1370,6 +1380,8 @@ def _log_to(path: Path) -> None:
 
 # A bare --resume: the last session run in the same folder.
 LAST = "last"
+# --code or --files without a folder: work/ in the session's folder.
+IN_SESSION = ":session:"
 
 
 def status(
@@ -1447,7 +1459,8 @@ def main(argv=None) -> int:
         default=None,
         metavar="SESSION_ID",
         help="carry on a session; with no id, the last one run in the same "
-        "folder (the --code or --files folder, else the checkout)",
+        "folder (the --code or --files folder, else the checkout; with no "
+        "folder given, the last one that worked in its own)",
     )
     parser.add_argument(
         "--session-id",
@@ -1478,20 +1491,20 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--code",
         nargs="?",
-        const=".",
+        const=IN_SESSION,
         default=None,
         metavar="PATH",
-        help="code mode: the agent writes and runs its own code in PATH (the "
-        "current folder if none), sandboxed (macOS and Linux only)",
+        help="code mode: the agent writes and runs its own code in PATH (if "
+        "none, work/ in the session's folder), sandboxed (macOS and Linux only)",
     )
     parser.add_argument(
         "--files",
         nargs="?",
-        const=".",
+        const=IN_SESSION,
         default=None,
         metavar="PATH",
-        help="the agent reads and writes files in PATH (the current folder if "
-        "none) and runs nothing: no shell",
+        help="the agent reads and writes files in PATH (if none, work/ in the "
+        "session's folder) and runs nothing: no shell",
     )
     parser.add_argument(
         "--profile",
@@ -1557,8 +1570,26 @@ def main(argv=None) -> int:
     _resolve(args, profile)
     work = None
     code = bool(args.code)
-    if args.code or args.files:
-        work = code_mode.workdir(args.code or args.files)
+    given = args.code or args.files
+    in_session = given == IN_SESSION
+    if given and not in_session:
+        work = code_mode.workdir(given)
+    if args.resume == LAST:
+        args.resume = sessions.last_session(None if in_session else work or checkout)
+        if args.resume is None:
+            where = "its own folder" if in_session else work or checkout
+            print(
+                f"No earlier fibsem-agent session in {where} to resume: pass "
+                "its id (the Session line of its log).",
+                file=sys.stderr,
+            )
+            return 1
+    # A new session's id is chosen here, so the status can name it.
+    session_id = args.resume or args.session_id or str(uuid.uuid4())
+    folder = sessions.session_folder(session_id)
+    if in_session:
+        work = folder / sessions.WORK
+    if work is not None:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             print(refused, file=sys.stderr)
@@ -1570,21 +1601,10 @@ def main(argv=None) -> int:
     if missing:
         print(missing, file=sys.stderr)
         return 1
-    if args.resume == LAST:
-        args.resume = sessions.last_session(work or checkout)
-        if args.resume is None:
-            print(
-                f"No earlier fibsem-agent session in {work or checkout} to "
-                "resume: pass its id (the Session line of its log).",
-                file=sys.stderr,
-            )
-            return 1
     # From the environment, so it is not in the process list or shell history.
     token = server_env()[1]
-    # A new session's id is chosen here, so the status can name it.
-    session_id = args.resume or args.session_id or str(uuid.uuid4())
     session = sessions.SessionFolder.open(
-        session_id, _about(args, checkout, work, code, profile)
+        session_id, _about(args, checkout, work, code, profile), folder=folder
     )
     log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
@@ -1611,6 +1631,7 @@ def main(argv=None) -> int:
         session_id=None if args.resume else session_id,
         code=code,
         profile=profile,
+        transcript=session.folder,
     )
     agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
     harness = Harness(
@@ -1717,7 +1738,7 @@ def _resolve(args, profile: Optional[profiles.Profile]) -> None:
     if args.max_budget_usd is None:
         args.max_budget_usd = given.max_budget_usd or MAX_BUDGET_USD
     if not (args.code or args.files) and given.mode != "none":
-        folder = str(Path(given.folder).expanduser())
+        folder = str(Path(given.folder).expanduser()) if given.folder else IN_SESSION
         if given.mode == "code":
             args.code = folder
         else:
