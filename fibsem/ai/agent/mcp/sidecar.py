@@ -24,7 +24,7 @@ defaults to the SSH tunnel's end, http://localhost:8001):
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
 ``fibsem-mcp watch`` prints a line per app event worth waking an agent for,
-and needs nothing beyond fibsem itself (see :mod:`fibsem.ai.agent.mcp.watch`).
+and needs nothing beyond fibsem itself (see :mod:`fibsem.ai.agent.watch`).
 """
 
 import argparse
@@ -1477,7 +1477,7 @@ def main(argv=None):
     watch_argv = _watch_argv(argv)
     if watch_argv is not None:
         # Before the mcp import: watching needs only HTTP.
-        from fibsem.ai.agent.mcp.watch import main as watch_main
+        from fibsem.ai.agent.watch import main as watch_main
 
         sys.exit(watch_main(watch_argv))
     missing = missing_extra_message("mcp", "fibsem-mcp")

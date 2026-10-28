@@ -11,9 +11,9 @@ fibsem/ai/agent/drawing.py 3
 fibsem/ai/agent/harness.py 3
 fibsem/ai/agent/manager.py 1
 fibsem/ai/agent/mcp/sidecar.py 4
-fibsem/ai/agent/mcp/watch.py 1
 fibsem/ai/agent/pictures.py 17
 fibsem/ai/agent/session.py 8
+fibsem/ai/agent/watch.py 1
 fibsem/alignment/coincidence.py 10
 fibsem/alignment/methods.py 1
 fibsem/alignment/plotting.py 5
