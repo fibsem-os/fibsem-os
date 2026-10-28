@@ -530,8 +530,13 @@ class Watcher:
             self._client, self._stopping, lambda: self._deliver(_Seeded())
         )
         try:
+            # The harness marks a message read when the turn carrying it starts.
             code = watch_mod.watch(
-                client, out=self._out, sleep_fn=self._sleep, poll_s=self._poll_s
+                client,
+                out=self._out,
+                sleep_fn=self._sleep,
+                poll_s=self._poll_s,
+                report_reads=False,
             )
         except _Stopped:
             return
@@ -751,6 +756,7 @@ class Harness:
         over."""
         if self._stopping.is_set():
             return False
+        await self._report_read(prompt)
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
         sender = asyncio.ensure_future(self._send_transcript_every())
         try:
@@ -850,6 +856,15 @@ class Harness:
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("constraints"))
         await self._send_transcript()
+
+    async def _report_read(self, prompt: str) -> None:
+        """The operator's messages this turn carries are read: the web page
+        stops showing them as waiting."""
+        ids, client = watch_mod.message_ids(prompt), self._client
+        if ids and client is not None:
+            await asyncio.get_running_loop().run_in_executor(
+                None, watch_mod.report_read, client, ids
+            )
 
     async def _send_transcript(self) -> None:
         """The lines printed since the last send, to the App Server for the web
