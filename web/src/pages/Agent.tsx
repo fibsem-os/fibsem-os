@@ -336,9 +336,9 @@ export function AgentPage() {
   const session = reported.data?.session;
   const panel = hasPanel(session) ? <SidePanel session={session} budgetLow={a.budget_low} /> : null;
   return (
-    <div className="flex h-full justify-center gap-8 lg:pr-6">
+    <div className="flex h-full">
       <div
-        className="flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5"
+        className="mx-auto flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5"
         onDragEnter={(e) => {
           if (!carriesFiles(e)) return;
           drags.current += 1;
@@ -489,7 +489,7 @@ export function AgentPage() {
       {panel && (
         <aside
           aria-label="Goal and to do"
-          className="hidden w-[232px] shrink-0 overflow-y-auto pt-[38px] pb-4 lg:block"
+          className="hidden w-[clamp(232px,22vw,400px)] shrink-0 overflow-y-auto border-l border-border px-6 pt-[38px] pb-4 lg:block"
         >
           {panel}
         </aside>
