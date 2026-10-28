@@ -10,12 +10,15 @@ const WARN = "text-[var(--fibsem-warn-color)]";
 
 const dollars = (value: number) => (Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`);
 
+function duration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
+}
+
 function timeLeft(by: string, now: number): { text: string; soon: boolean } {
   const minutes = Math.floor((Date.parse(by) - now) / 60000);
   if (minutes < 0) return { text: "passed", soon: true };
-  const hours = Math.floor(minutes / 60);
-  const text = hours ? `${hours} h ${minutes % 60} min left` : `${minutes} min left`;
-  return { text, soon: minutes < SOON_MIN };
+  return { text: `${duration(minutes)} left`, soon: minutes < SOON_MIN };
 }
 
 function useNow(everyMs: number) {
@@ -34,6 +37,12 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </section>
   );
+}
+
+function todoTitle(checklist: NonNullable<ReportedSession["checklist"]>): string {
+  const counted = checklist.filter((item) => item.state !== "always");
+  if (!counted.length) return "To do";
+  return `To do · ${counted.filter((item) => item.state === "done").length} of ${counted.length}`;
 }
 
 /** Whether the panel has anything to show: hidden when it would be empty. */
@@ -56,6 +65,8 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
     profile,
     profile_hash: hash,
     hooks,
+    started,
+    ended,
     goal,
     budget_usd: budget,
     spent_usd: spent,
@@ -77,6 +88,11 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
           ))}
         </Section>
       )}
+      {started && !ended && (
+        <Section title="Session">
+          <p className="m-0">Running for {duration(Math.max(0, Math.floor((now - Date.parse(started)) / 60000)))}</p>
+        </Section>
+      )}
       {goal && (
         <Section title="Goal">
           <p className="m-0 break-words">{goal}</p>
@@ -94,7 +110,9 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
                   "h-full rounded-sm",
                   budgetLow ? "bg-[var(--fibsem-warn-color)]" : "bg-muted-foreground/70",
                 )}
-                style={{ width: `${Math.min(100, (100 * (spent ?? 0)) / budget)}%` }}
+                style={{
+                  width: `${Math.min(100, (100 * (spent ?? 0)) / budget)}%`,
+                }}
               />
             </div>
           ) : null}
@@ -114,7 +132,7 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
         </Section>
       ) : null}
       {checklist?.length ? (
-        <Section title="To do">
+        <Section title={todoTitle(checklist)}>
           <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
             {checklist.map((item, i) => (
               <li key={i} className="flex gap-2">
