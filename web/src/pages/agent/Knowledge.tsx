@@ -195,7 +195,7 @@ function Entry({
     entry.experiment && `in ${entry.experiment}`,
   ].filter(Boolean);
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-5">
         <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground" title={entry.path}>
           {entry.path}
