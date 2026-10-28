@@ -148,6 +148,9 @@ def test_the_shipped_default_profile_loads(checkout):
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)
     assert profile.mode == "none"
     assert [hook.when for hook in profile.hooks] == ["hardware_error"]
+    # The rules that hold on every task, read every turn after the harness's.
+    prompt = harness_mod.system_prompt(profile=profile)
+    assert "auto function" in prompt and "coincidence" in prompt
 
 
 def show(capsys, *argv):

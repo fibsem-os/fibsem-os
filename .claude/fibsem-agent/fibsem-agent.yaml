@@ -9,3 +9,9 @@ mode: none
 hooks:
   - when: hardware_error
     say: Stop. Don't retry. Message the operator with the error word for word.
+# Read every turn, so only the rules that must hold on every task; the work
+# itself is in the skills.
+prompt: |-
+  - Never trust an auto function's result on its own (alignment, focus, thickness, centre offsets): look at the image it gives and check it worked well enough before you act on it.
+  - Judge an image only once its focus and brightness/contrast are good enough; fix them first.
+  - At Setup, verify focus, brightness/contrast and SEM/FIB coincidence, even for FIB-only milling.
