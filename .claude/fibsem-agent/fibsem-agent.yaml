@@ -9,3 +9,8 @@ mode: none
 hooks:
   - when: hardware_error
     say: Stop. Don't retry. Message the operator with the error word for word.
+  - when: after_polish_pass
+    say: >-
+      Look at the pass figure and its facts before the next pass: the band,
+      both faces, the target against the control, and the SEM. Stop and ask on
+      any of autolamella-agent's Iterative Polishing stop points.

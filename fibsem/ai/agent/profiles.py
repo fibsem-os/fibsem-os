@@ -60,6 +60,8 @@ class HookOption:
     tools: str
     # For a failure: only a server error (5xx), never a refusal.
     server_errors_only: bool = False
+    # After the call: only when its answer has this in it.
+    answer_has: str = ""
 
     def applies(self, hook_input: dict, server: str) -> bool:
         name = str(hook_input.get("tool_name", ""))
@@ -70,6 +72,8 @@ class HookOption:
             return False
         if self.server_errors_only:
             return str(hook_input.get("error", "")).startswith("failed (5")
+        if self.answer_has:
+            return self.answer_has in str(hook_input.get("tool_response", ""))
         return True
 
 
@@ -84,6 +88,13 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "After an auto step",
         "PostToolUse",
         "beam_auto_.*|fm_auto_focus|alignment_.*",
+    ),
+    # An Iterative Polishing pass has ended: only its facts carry "Pass data".
+    "after_polish_pass": HookOption(
+        "After a polishing pass",
+        "PostToolUse",
+        "service_wait_for_run",
+        answer_has="Pass data",
     ),
     "hardware_error": HookOption(
         "On a hardware error", "PostToolUseFailure", ".*", server_errors_only=True

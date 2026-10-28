@@ -556,6 +556,62 @@ The same rules apply in the Polishing task's milling proposal and by hand
 - Report each step: current, gap, time, the alignment residual, the band
   measured, what the SEM showed.
 
+**Iterative Polishing.** Polishing one pass at a time, judging each pass on
+its images and readings before the next. Use it only when the operator asks
+for it, and only at Drive. You choose every pass's settings: the pattern and
+where it sits, the current and depth, the images and stacks.
+
+Each pass is one `milling_run_stage` with the strategy set:
+
+```json
+{"name": "Polish top 3",
+ "milling": {"milling_current": 3e-11, "hfw": 1.5e-05},
+ "pattern": {"name": "Rectangle", "point": {"x": 0.0, "y": 4.5e-07},
+             "width": 1e-05, "height": 1e-06, "depth": 1e-06},
+ "strategy": {"name": "Iterative Polishing",
+              "config": {"face": "top", "acquire_sem_image": true,
+                         "baseline": "<the last pass's Pass data>",
+                         "targets": [[212.4, 198.1]], "control": [140.0, 260.0]}}}
+```
+
+The pass mills the stage as given (a Rectangle for one face, a Trench for
+both, `face` `both`), then takes its images. `service_wait_for_run` milling
+answers with its facts and a figure (pass.png): the FIB band's top and
+bottom edge (µm, +y up, the frame a pattern is placed in), its FWHM and
+centre offset, the file paths of each image and stack, and, with a coincident
+FM, each target's refit, signal, ratio to the control and change from the
+baseline. Look at the figure and the facts before the next pass.
+
+- **Before the first pass.** Take a FIB image and measure the band. With a
+  coincident FM, also take an FM stack, pick the target and a control
+  punctum away from the mill, and note the objective's position.
+- **Each pass needs an SEM image or FM stacks.** Without a coincident FM, set
+  `acquire_reflection_stack` false and `acquire_sem_image` true: stacks are
+  refused there. With one, set `objective_position` each pass (on the Arctis
+  it drifts about 90 nm down a pass), pass the last pass's `Pass data` as
+  `baseline` and its refitted points as `targets`.
+- **Both faces.** It isn't done until the top and the bottom face have each
+  reached their stop point, in either order; a `both` pass counts for both.
+  If you stop a face early, tell the operator.
+- **Where each face goes** (rectangles, from Arctis Grid-03): the face
+  farther from the target starts 100 nm inside the target's half-maximum edge
+  and moves 100 nm a pass; the nearer face starts 150 nm outside it and moves
+  50 nm a pass. With a trench, narrow its `spacing` by twice the step each
+  pass and keep its centre where it is; move the centre only to correct a
+  band centre offset, or to thin one face on purpose.
+- **Stop and ask the operator** (guidance, not hard limits) when: the target's
+  signal against the control falls two passes running, or a lot in one pass;
+  the target's fit fails; about 0.7 µm has come off a face; the FWHM nears
+  its floor (about 450 nm with the objective in, on Grid-03); the FIB or
+  reflection image shows damage; the SEM check finds a problem.
+- **The SEM check**, on every pass with an SEM image (on a system without a
+  coincident FM it is the main one): the protective layer still covers the
+  front; no cracks, breaks or holes; no curtaining, bending or bowing; no
+  charging; an even thickness. Any of these: stop and ask.
+- **The final thickness** is the operator's, measured with the objective
+  out: readings with it in differ (560 against 483 nm, 474 against 467 nm).
+  Report your last reading as objective-in.
+
 **Rough milling.** Run the rough stages in the protocol's order (Rough Mill
 01 before Rough Mill 02), and tell the operator before you turn one off.
 Once the slab is under about 1.5 µm, don't add rough rounds: thin with the
