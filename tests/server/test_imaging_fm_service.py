@@ -20,6 +20,7 @@ from fibsem.autofunctions.autofocus import (
 from fibsem.fm.microscope import AcquisitionRefused
 from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.server import AuthConfig, build_server
+from fibsem.structures.system import DeviceImagingState
 
 TOKEN = "test-token"
 IMAGING = "/microscope/services/imaging"
@@ -153,15 +154,28 @@ def test_the_sweep_is_refused_while_the_fm_device_is_live(microscope):
         device.stop_live()
 
 
-def test_the_sweep_is_refused_away_from_the_fm_pose(microscope):
-    """Acquiring from a beam pose is allowed (NEEDS_REPOSE), but a focus sweep
-    there sweeps the objective where it cannot see the sample."""
-    microscope.move_to_orientation("SEM")
+def test_the_sweep_runs_at_the_milling_pose(microscope):
+    """The Arctis FM images at the milling pose (a re-pose), as an acquisition
+    does there, and the sweep moves only the objective."""
+    microscope.move_to_orientation("MILLING")
     try:
-        with pytest.raises(AcquisitionRefused, match="Cannot start auto-focus"):
-            microscope.imaging.fm_auto_focus(settings=SHORT)
+        state = microscope.get_device_imaging_state("FM")
+        assert state is DeviceImagingState.NEEDS_REPOSE
+        result = microscope.imaging.fm_auto_focus(settings=SHORT)
     finally:
         microscope.move_to_orientation("FM")
+    assert result["status"] in ("completed", "no_focus")
+
+
+def test_the_sweep_is_refused_where_an_acquisition_is(microscope, monkeypatch):
+    """Away from an offset FM the objective is nowhere near the sample."""
+    monkeypatch.setattr(
+        microscope,
+        "get_device_imaging_state",
+        lambda device, stage_position=None: DeviceImagingState.NEEDS_TRAVEL,
+    )
+    with pytest.raises(AcquisitionRefused, match="Cannot start auto-focus"):
+        microscope.imaging.fm_auto_focus(settings=SHORT)
 
 
 def test_the_agent_stops_the_fm_through_imaging(client):
