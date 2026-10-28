@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowDown, ChevronDown, ChevronRight, ListChecks, ListFilter } from "lucide-react";
+import { ArrowDown, BookOpen, ChevronDown, ChevronRight, ListChecks, ListFilter } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
@@ -8,6 +8,7 @@ import type { AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/l
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { Composer } from "./agent/Composer";
+import { KnowledgeDialog } from "./agent/Knowledge";
 import { EvidenceImage } from "./agent/Pictures";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
@@ -287,6 +288,7 @@ export function AgentPage() {
     placeholderData: keepPreviousData,
   });
   const [show, setShow] = useState<Show>("all");
+  const [knowledge, setKnowledge] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   // Kept at the newest row while the reader hasn't scrolled up from it.
   const pinned = useRef(true);
@@ -331,6 +333,14 @@ export function AgentPage() {
     <div className="flex h-full justify-center gap-8 lg:pr-6">
       <div className="flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5">
         <div className="flex items-center justify-end gap-3 pt-2.5">
+          <button
+            className="flex cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] text-muted-foreground hover:bg-accent hover:text-foreground"
+            onClick={() => setKnowledge(true)}
+          >
+            <BookOpen size={14} />
+            Knowledge
+          </button>
+          <KnowledgeDialog open={knowledge} onOpenChange={setKnowledge} />
           <Popup
             label="Show"
             align="right"
