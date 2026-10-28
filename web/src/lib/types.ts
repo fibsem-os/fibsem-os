@@ -230,6 +230,8 @@ export interface ReportedSession {
   profile?: string;
   profile_hash?: string;
   hooks?: { when: string; label: string; say: string }[];
+  /** When the server first heard of it, as an ISO time with its offset. */
+  started?: string;
   goal?: string;
   budget_usd?: number;
   spent_usd?: number;
