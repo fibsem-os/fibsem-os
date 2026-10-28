@@ -33,7 +33,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode, profiles
+from fibsem.ai.agent import code_mode, profiles, usage
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.levels import LEVEL_SKILLS
@@ -118,6 +118,8 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 MAX_TURNS = 40  # tool calls per wake-up
 MAX_BUDGET_USD = 5.0  # what one run spends
 SERVER_WAIT_S = 600.0
+# How long the CLI has to say how full the context is, after a turn.
+CONTEXT_WAIT_S = 10.0
 # The transcript (`Harness._send_transcript`): sent this often while a turn
 # runs and as it ends, at most this many lines at once, at most this many kept
 # while the server can't take them.
@@ -406,6 +408,10 @@ class TurnEnd:
     session_id: Optional[str] = None
     # Why the model did not answer (the SDK's AssistantMessage.error), if so.
     error: Optional[str] = None
+    # The turn's tokens ({input, output, cache_read, cache_write}).
+    tokens: Optional[Dict[str, int]] = None
+    # How full the context is: {used, window, compact_at}, in tokens.
+    context: Optional[Dict[str, int]] = None
 
 
 class _Stopped(Exception):
@@ -589,6 +595,8 @@ class Harness:
         self._client = None
         self._turns = 0
         self._spent_usd: Optional[float] = None
+        self._tokens: Optional[Dict[str, int]] = None
+        self._context: Optional[Dict[str, int]] = None
         self._end_reason = "stopped at fibsem-agent"
         # False when resuming can't help: the model can't answer.
         self._resumable = True
@@ -611,6 +619,7 @@ class Harness:
         return {
             "reason": self._end_reason,
             "spent_usd": self._spent_usd,
+            "tokens": self._tokens,
             "turns": self._turns,
             "resumable": self._resumable,
         }
@@ -731,6 +740,10 @@ class Harness:
         self._turns += 1
         if end.cost_usd is not None:
             self._spent_usd = end.cost_usd
+        if end.tokens is not None:
+            self._tokens = usage.add(self._tokens or usage.zero(), end.tokens)
+        if end.context is not None:
+            self._context = end.context
         if self._stopping.is_set():
             return False
         session = end.session_id or getattr(self._agent, "session_id", None)
@@ -787,6 +800,8 @@ class Harness:
             "goal": None if self._goal_sent else self._goal,
             "budget_usd": self._budget_usd,
             "spent_usd": self._spent_usd,
+            "tokens": self._tokens,
+            "context": self._context,
             "turns": self._turns,
             **({} if self._goal_sent else self._about),
         }
@@ -975,9 +990,12 @@ class Harness:
 class SdkAgent:
     """The agent: one ``ClaudeSDKClient`` session, its messages logged."""
 
-    def __init__(self, options) -> None:
+    def __init__(self, options, usage_path: Optional[Path] = None) -> None:
         self._options = options
         self._client = None
+        # Each model call's tokens, a line each in the session's usage file.
+        self.calls = usage.Calls(usage_path)
+        self._cost_usd: Optional[float] = None
         self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
@@ -1009,20 +1027,80 @@ class SdkAgent:
         await self._client.connect()
 
     async def turn(self, prompt: str) -> TurnEnd:
-        from claude_agent_sdk import AssistantMessage, ResultMessage
+        from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
         await self._client.query(prompt)
-        end, error = TurnEnd(subtype="no_result"), None
+        end, error, result = TurnEnd(subtype="no_result"), None, None
         async for message in self._client.receive_response():
             _show(message, self)
-            if isinstance(message, AssistantMessage) and message.error:
-                error = message.error
+            if isinstance(message, AssistantMessage):
+                error = message.error or error
+                self.calls.seen(
+                    message.message_id,
+                    message.model,
+                    message.usage,
+                    [
+                        _short(block.name)
+                        for block in message.content
+                        if isinstance(block, ToolUseBlock)
+                    ],
+                    message.parent_tool_use_id,
+                )
             if isinstance(message, ResultMessage):
+                result = message
                 end = TurnEnd(
                     message.subtype, message.total_cost_usd, message.session_id
                 )
         end.error = error
+        end.tokens = self.calls.end_turn()
+        end.context = await self._context()
+        if result is not None:
+            log.info("%s", self._turn_line(result, end))
+            if result.total_cost_usd is not None:
+                self._cost_usd = result.total_cost_usd
         return end
+
+    async def _context(self) -> Optional[Dict[str, int]]:
+        """How full the context is, from the CLI; the last call's size, if
+        the CLI can't say."""
+        context = {"used": self.calls.context} if self.calls.context else None
+        try:
+            reply = await asyncio.wait_for(
+                self._client.get_context_usage(), CONTEXT_WAIT_S
+            )
+        except Exception:  # noqa: BLE001 - the figure is a nicety
+            log.debug("The context's size couldn't be read.", exc_info=True)
+            return context
+        found = {
+            "used": reply.get("totalTokens"),
+            "window": reply.get("rawMaxTokens") or reply.get("maxTokens"),
+            "compact_at": reply.get("autoCompactThreshold"),
+        }
+        found = {key: int(value) for key, value in found.items() if value}
+        return found if "used" in found else context
+
+    def _turn_line(self, result, end: TurnEnd) -> str:
+        """ "Turn ended: success, 12 steps, $0.41 ($12.30 so far). ..." """
+        line = f"Turn ended: {result.subtype}, {result.num_turns} steps"
+        cost = result.total_cost_usd
+        if cost is not None and self._cost_usd is not None:
+            line += f", ${cost - self._cost_usd:.4f} (${cost:.4f} so far)"
+        elif cost is not None:
+            line += f", ${cost:.4f} so far"
+        counts = end.tokens or usage.zero()
+        line += (
+            f". Tokens: {usage.short(counts['input'])} in, "
+            f"{usage.short(counts['cache_read'])} cached, "
+            f"{usage.short(counts['cache_write'])} written, "
+            f"{usage.short(counts['output'])} out"
+        )
+        if result.duration_ms:
+            line += (
+                f". {result.duration_ms / 1000:.0f} s, "
+                f"{result.duration_api_ms / 1000:.0f} s of it the model"
+            )
+        context = usage.context_text(end.context)
+        return f"{line}. {context}." if context else f"{line}."
 
     async def interrupt(self) -> None:
         if self._client is not None:
@@ -1112,7 +1190,6 @@ def _show(message, agent: SdkAgent) -> None:
     """One SDK message on the console and in the log, readably."""
     from claude_agent_sdk import (
         AssistantMessage,
-        ResultMessage,
         SystemMessage,
         TextBlock,
         ToolResultBlock,
@@ -1168,14 +1245,6 @@ def _show(message, agent: SdkAgent) -> None:
                 log.warning("failed: %s", why)
                 seq = getattr(agent, "_steps", {}).get(block.tool_use_id)
                 _line(agent, "failed", _clip(why, 160), step=seq)
-    elif isinstance(message, ResultMessage):
-        cost = message.total_cost_usd
-        log.info(
-            "Turn ended: %s, %d steps%s.",
-            message.subtype,
-            message.num_turns,
-            f", ${cost:.4f} so far" if cost is not None else "",
-        )
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
@@ -1543,7 +1612,7 @@ def main(argv=None) -> int:
         code=code,
         profile=profile,
     )
-    agent = SdkAgent(options)
+    agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
     harness = Harness(
         agent,
         lambda: watch_mod.connect(args.url, token),

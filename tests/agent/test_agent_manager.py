@@ -258,7 +258,9 @@ def test_the_last_session_is_the_newest_run_in_the_same_folder(tmp_path):
 
 def test_a_session_folder_records_each_run_and_how_it_ended(tmp_path):
     session = SessionFolder.open("abc", {"cwd": "/w", "goal": "mill 01"}, tmp_path)
-    session.end(1, "the app could not be watched", spent_usd=0.5, turns=3)
+    session.end(
+        1, "the app could not be watched", spent_usd=0.5, turns=3, tokens={"output": 9}
+    )
     (session.folder / manager.STOP).touch()
     again = SessionFolder.open("abc", {"cwd": "/w", "goal": None}, tmp_path)
 
@@ -268,4 +270,5 @@ def test_a_session_folder_records_each_run_and_how_it_ended(tmp_path):
     assert record["goal"] == "mill 01"
     first, second = record["runs"]
     assert first["exit_code"] == 1 and first["spent_usd"] == 0.5 and first["turns"] == 3
+    assert first["tokens"] == {"output": 9}
     assert "ended" not in second

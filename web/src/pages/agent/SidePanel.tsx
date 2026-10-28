@@ -10,6 +10,22 @@ const WARN = "text-[var(--fibsem-warn-color)]";
 
 const dollars = (value: number) => (Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`);
 
+/** 412 tokens as "412", 41_200 as "41k", 1_200_000 as "1.2M". */
+function count(n: number): string {
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${+(n / 1000).toFixed(1)}k`;
+  return `${n}`;
+}
+
+function Bar({ share }: { share: number }) {
+  return (
+    <div className="mt-1.5 h-[3px] rounded-sm bg-accent">
+      <div className="h-full rounded-sm bg-muted-foreground/70" style={{ width: `${Math.min(100, 100 * share)}%` }} />
+    </div>
+  );
+}
+
 function duration(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   return hours ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
@@ -53,6 +69,7 @@ export function hasPanel(session: ReportedSession | null | undefined): session i
         session.goal ||
         session.budget_usd != null ||
         session.spent_usd != null ||
+        session.context ||
         session.constraints?.length ||
         session.checklist?.length),
   );
@@ -70,6 +87,8 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
     goal,
     budget_usd: budget,
     spent_usd: spent,
+    tokens,
+    context,
     constraints,
     checklist,
   } = session;
@@ -115,6 +134,23 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
                 }}
               />
             </div>
+          ) : null}
+          {tokens && (
+            <p className="m-0 mt-1.5 text-muted-foreground">
+              {count(tokens.input + tokens.cache_read + tokens.cache_write)} tokens in, {count(tokens.output)} out
+            </p>
+          )}
+        </Section>
+      )}
+      {context && (
+        <Section title="Context">
+          <p className="m-0">
+            {count(context.used)}
+            {context.window ? ` of ${count(context.window)}` : " tokens"}
+          </p>
+          {context.window ? <Bar share={context.used / context.window} /> : null}
+          {context.compact_at ? (
+            <p className="m-0 mt-1.5 text-muted-foreground">Compacts at {count(context.compact_at)}</p>
           ) : null}
         </Section>
       )}

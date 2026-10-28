@@ -2,9 +2,9 @@
 
 What the App Server knows of the agent on its own is its token, when it was last
 heard and the client its sidecar names. Its session -- which model, toward what
-goal, on what budget, how much spent -- only the agent's harness knows, so the
-harness reports it here: ``fibsem-agent`` after every turn, Claude Code through
-``server_report_session``. fibsem-agent also says what it can do: code mode and
+goal, on what budget, how much spent, how many tokens and how full its context
+is -- only the agent's harness knows, so the harness reports it here:
+``fibsem-agent`` after every turn, Claude Code through ``server_report_session``. fibsem-agent also says what it can do: code mode and
 its folder, effort, skills. Self-reported, like the client's name: a label for
 the operator, not an identity. The agent also keeps the operator's constraints
 (``server_set_constraints``) and its checklist (``server_set_checklist``) here,
@@ -44,6 +44,11 @@ _TEXT = (
     "profile_hash",
 )
 _NUMBERS = ("budget_usd", "spent_usd")
+# Counts of tokens: what its model calls used, and how full its context is.
+_COUNTS = {
+    "tokens": ("input", "output", "cache_read", "cache_write"),
+    "context": ("used", "window", "compact_at"),
+}
 MAX_SKILLS = 20
 MAX_ITEM = 200
 MAX_CHECKLIST = 50
@@ -72,6 +77,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
             "constraints",
             "hooks",
         }
+        | set(_COUNTS)
     )
     unknown = sorted(set(body) - known)
     if unknown:
@@ -101,6 +107,9 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(turns, bool) or not isinstance(turns, int) or turns < 0:
             raise _invalid("turns is a whole number, 0 or more.")
         report["turns"] = turns
+    for key, names in _COUNTS.items():
+        if body.get(key) is not None:
+            report[key] = _counts(key, body[key], names)
     for key in ("code", "files", "resumed"):
         value = body.get(key)
         if value is not None:
@@ -130,6 +139,23 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         raise _invalid("ended is true or false.")
     report["ended"] = bool(ended)
     return report
+
+
+def _counts(key: str, value: Any, names: tuple) -> Dict[str, int]:
+    """{name: whole number, 0 or more}, each name one of *names*."""
+    if (
+        not isinstance(value, dict)
+        or not set(value) <= set(names)
+        or not all(
+            isinstance(n, int) and not isinstance(n, bool) and n >= 0
+            for n in value.values()
+        )
+    ):
+        raise _invalid(
+            f"{key} is {{{', '.join(names)}}}, each a whole number of tokens, "
+            "0 or more."
+        )
+    return dict(value)
 
 
 def _text(item: Any, what: str) -> str:

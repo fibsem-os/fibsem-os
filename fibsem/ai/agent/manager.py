@@ -140,9 +140,10 @@ class SessionFolder:
         spent_usd: Optional[float] = None,
         turns: Optional[int] = None,
         resumable: bool = True,
+        tokens: Optional[Dict[str, int]] = None,
     ) -> None:
         """How this run ended. *resumable* is False when resuming can't help
-        (the model can't sign in)."""
+        (the model can't sign in). *tokens* is what its model calls used."""
         record = self.record()
         runs = record.get("runs") or [{}]
         runs[-1].update(
@@ -152,6 +153,7 @@ class SessionFolder:
             resumable=resumable,
             **({} if spent_usd is None else {"spent_usd": spent_usd}),
             **({} if turns is None else {"turns": turns}),
+            **({} if tokens is None else {"tokens": tokens}),
         )
         record["runs"] = runs
         self._write(record)
