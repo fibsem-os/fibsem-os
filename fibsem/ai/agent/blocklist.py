@@ -13,7 +13,8 @@ stay off the list.
 """
 
 import os
-from typing import Any, Callable, Dict, Mapping, Optional, Tuple
+import re
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
@@ -73,6 +74,27 @@ _WHY = {
     StageMovement: "move with safe_absolute_stage_movement (stage_move_absolute)",
     Milling: "mill with milling_run_stage or milling_run_task, which hold control until the mill ends",
 }
+
+
+def rules() -> List[Dict[str, str]]:
+    """The blocklist in words, one row per kind of device: what is blocked
+    and why. The operator's Customisation dialog lists them."""
+    rows = []
+    for cls, blocks in _BLOCKED:
+        writes, commands = blocks.get("write", ()), blocks.get("command", ())
+        if writes == ALL and commands == ALL:
+            what = "every setting and command"
+        else:
+            parts = []
+            if writes:
+                parts.append("settings " + ", ".join(sorted(writes)))
+            if commands:
+                parts.append("commands " + ", ".join(sorted(commands)))
+            what = "; ".join(parts)
+        first, *rest = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", cls.__name__).split()
+        name = " ".join([first] + [word.lower() for word in rest])
+        rows.append({"device": name, "blocked": what, "why": _WHY[cls]})
+    return rows
 
 
 def blocked(device: Device, kind: str, name: str) -> Optional[str]:
