@@ -3,6 +3,8 @@
 import asyncio
 import json
 
+import pytest
+
 from fibsem.ai.agent import mirror
 from fibsem.ai.agent.mirror import TranscriptMirror
 
@@ -38,6 +40,7 @@ def test_a_folder_that_cant_be_written_costs_the_run_nothing(tmp_path):
 
 
 def test_fibsem_agent_mirrors_into_the_session_folder(tmp_path):
+    pytest.importorskip("claude_agent_sdk")
     from fibsem.ai.agent import harness
 
     options = harness.build_options(

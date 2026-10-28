@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -202,7 +203,9 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
 
 def test_with_no_folder_the_agent_works_in_its_sessions_folder(home, capsys):
     sessions = home / ".fibsem" / "agent" / "sessions"
-    for argv in (["--files"], ["--code"]):
+    # Code mode is refused on Windows (no sandbox).
+    modes = [["--files"]] + ([] if sys.platform == "win32" else [["--code"]])
+    for argv in modes:
         folder = Path(show(capsys, *argv)["folder"])
         assert folder.name == "work" and folder.parent.parent == sessions
     write(home / ".fibsem" / "agent" / "profiles", "own", "mode: files\n")
