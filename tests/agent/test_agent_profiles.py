@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -61,6 +62,15 @@ def test_a_hardware_error_is_a_server_error_never_a_refusal():
     assert error.applies(call("stage_move_absolute", error="failed (500): x"), SERVER)
     assert not error.applies(
         call("stage_move_absolute", error="refused (403): x"), SERVER
+    )
+
+
+def test_the_polish_pass_reminder_fires_only_on_an_ended_iterative_pass():
+    after = HOOK_OPTIONS["after_polish_pass"]
+    ended = {"stages": [{"strategy": {"facts": {"Pass data": "pass.json"}}}]}
+    assert after.applies(call("service_wait_for_run", tool_response=ended), SERVER)
+    assert not after.applies(
+        call("service_wait_for_run", tool_response={"state": "running"}), SERVER
     )
 
 
@@ -145,8 +155,11 @@ def test_this_machines_profile_wins_over_the_checkouts(home, tmp_path):
 def test_the_shipped_default_profile_loads(checkout):
     path = checkout / profiles.PROFILE_DIR / f"{profiles.DEFAULT_PROFILE}.yaml"
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)
-    assert profile.mode == "none"
-    assert [hook.when for hook in profile.hooks] == ["hardware_error"]
+    assert profile.mode == "files" and profile.max_budget_usd == 500
+    assert [hook.when for hook in profile.hooks] == [
+        "hardware_error",
+        "after_polish_pass",
+    ]
 
 
 def show(capsys, *argv):
@@ -181,13 +194,18 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
 
     config = show(capsys)
     assert config["profile"]["name"] == "fibsem-agent", "the default"
-    assert config["mode"] == "none"
-    assert [hook["when"] for hook in config["hooks"]] == ["hardware_error"]
+    assert config["mode"] == "files"
+    assert [hook["when"] for hook in config["hooks"]] == [
+        "hardware_error",
+        "after_polish_pass",
+    ]
 
 
 def test_with_no_folder_the_agent_works_in_its_sessions_folder(home, capsys):
     sessions = home / ".fibsem" / "agent" / "sessions"
-    for argv in (["--files"], ["--code"]):
+    # Code mode is refused on Windows (no sandbox).
+    modes = [["--files"]] + ([] if sys.platform == "win32" else [["--code"]])
+    for argv in modes:
         folder = Path(show(capsys, *argv)["folder"])
         assert folder.name == "work" and folder.parent.parent == sessions
     write(home / ".fibsem" / "agent" / "profiles", "own", "mode: files\n")
@@ -205,7 +223,7 @@ def test_the_lists_print_profiles_and_hook_options(home, capsys):
     write(home / ".fibsem" / "agent" / "profiles", "broken", "mode: what\n")
     assert harness_mod.main(["--list-profiles", "--json"]) == 0
     rows = {row["name"]: row for row in json.loads(capsys.readouterr().out)}
-    assert rows["fibsem-agent"]["mode"] == "none"
+    assert rows["fibsem-agent"]["mode"] == "files"
     assert "mode is one of" in rows["broken"]["error"]
 
     assert harness_mod.main(["--list-hooks", "--json"]) == 0
