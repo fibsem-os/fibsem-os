@@ -118,7 +118,6 @@ def test_a_profile_loads_with_its_hash(tmp_path, checkout):
         ("level: drive\n", "unknown setting(s) level"),
         ("api_key: sk\n", "unknown setting(s) api_key"),
         ("mode: everything\n", "mode is one of"),
-        ("mode: files\n", "needs a folder"),
         ("effort: huge\n", "effort is one of"),
         ("max_budget_usd: -1\n", "above 0"),
         ("skills: [no-such-skill]\n", "no skill no-such-skill"),
@@ -184,6 +183,17 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
     assert config["profile"]["name"] == "fibsem-agent", "the default"
     assert config["mode"] == "none"
     assert [hook["when"] for hook in config["hooks"]] == ["hardware_error"]
+
+
+def test_with_no_folder_the_agent_works_in_its_sessions_folder(home, capsys):
+    sessions = home / ".fibsem" / "agent" / "sessions"
+    for argv in (["--files"], ["--code"]):
+        folder = Path(show(capsys, *argv)["folder"])
+        assert folder.name == "work" and folder.parent.parent == sessions
+    write(home / ".fibsem" / "agent" / "profiles", "own", "mode: files\n")
+    folder = Path(show(capsys, "--profile", "own")["folder"])
+    assert folder.name == "work" and folder.parent.parent == sessions
+    assert not sessions.exists(), "showing the config makes nothing"
 
 
 def test_an_unknown_profile_says_where_it_looked(home, capsys):

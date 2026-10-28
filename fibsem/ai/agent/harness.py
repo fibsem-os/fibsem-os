@@ -10,8 +10,9 @@ decides what the agent may do, and the harness never sets the level. Needs the
     fibsem-agent --resume <session id>
     fibsem-agent --resume                     # the last session run in the same folder
     fibsem-agent --session-id <id>            # a new session with this id (a manager's)
-    cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
-    fibsem-agent --files ~/fibsem-work         # it reads and writes files there, runs nothing
+    fibsem-agent --code                       # it writes and runs code, sandboxed,
+                                              # in work/ in the session's folder
+    fibsem-agent --files ~/fibsem-work        # it reads and writes files there, runs nothing
     fibsem-agent --profile overnight-lamella  # what it runs with, from a profile
     fibsem-agent --profile overnight-lamella --show-config
 """
@@ -33,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode, profiles
+from fibsem.ai.agent import code_mode, mirror, profiles, usage
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
@@ -125,6 +126,8 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 MAX_TURNS = 40  # tool calls per wake-up
 MAX_BUDGET_USD = 5.0  # what one run spends
 SERVER_WAIT_S = 600.0
+# How long the CLI has to say how full the context is, after a turn.
+CONTEXT_WAIT_S = 10.0
 # The transcript (`Harness._send_transcript`): sent this often while a turn
 # runs and as it ends, at most this many lines at once, at most this many kept
 # while the server can't take them.
@@ -413,6 +416,10 @@ class TurnEnd:
     session_id: Optional[str] = None
     # Why the model did not answer (the SDK's AssistantMessage.error), if so.
     error: Optional[str] = None
+    # The turn's tokens ({input, output, cache_read, cache_write}).
+    tokens: Optional[Dict[str, int]] = None
+    # How full the context is: {used, window, compact_at}, in tokens.
+    context: Optional[Dict[str, int]] = None
 
 
 class _Stopped(Exception):
@@ -598,6 +605,8 @@ class Harness:
         self._client = None
         self._turns = 0
         self._spent_usd: Optional[float] = None
+        self._tokens: Optional[Dict[str, int]] = None
+        self._context: Optional[Dict[str, int]] = None
         self._end_reason = "stopped at fibsem-agent"
         # False when resuming can't help: the model can't answer.
         self._resumable = True
@@ -620,6 +629,7 @@ class Harness:
         return {
             "reason": self._end_reason,
             "spent_usd": self._spent_usd,
+            "tokens": self._tokens,
             "turns": self._turns,
             "resumable": self._resumable,
         }
@@ -740,6 +750,10 @@ class Harness:
         self._turns += 1
         if end.cost_usd is not None:
             self._spent_usd = end.cost_usd
+        if end.tokens is not None:
+            self._tokens = usage.add(self._tokens or usage.zero(), end.tokens)
+        if end.context is not None:
+            self._context = end.context
         if self._stopping.is_set():
             return False
         session = end.session_id or getattr(self._agent, "session_id", None)
@@ -796,6 +810,8 @@ class Harness:
             "goal": None if self._goal_sent else self._goal,
             "budget_usd": self._budget_usd,
             "spent_usd": self._spent_usd,
+            "tokens": self._tokens,
+            "context": self._context,
             "turns": self._turns,
             **({} if self._goal_sent else self._about),
         }
@@ -988,9 +1004,12 @@ class Harness:
 class SdkAgent:
     """The agent: one ``ClaudeSDKClient`` session, its messages logged."""
 
-    def __init__(self, options) -> None:
+    def __init__(self, options, usage_path: Optional[Path] = None) -> None:
         self._options = options
         self._client = None
+        # Each model call's tokens, a line each in the session's usage file.
+        self.calls = usage.Calls(usage_path)
+        self._cost_usd: Optional[float] = None
         self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
@@ -1024,20 +1043,80 @@ class SdkAgent:
         await self._client.connect()
 
     async def turn(self, prompt: str) -> TurnEnd:
-        from claude_agent_sdk import AssistantMessage, ResultMessage
+        from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
         await self._client.query(prompt)
-        end, error = TurnEnd(subtype="no_result"), None
+        end, error, result = TurnEnd(subtype="no_result"), None, None
         async for message in self._client.receive_response():
             _show(message, self)
-            if isinstance(message, AssistantMessage) and message.error:
-                error = message.error
+            if isinstance(message, AssistantMessage):
+                error = message.error or error
+                self.calls.seen(
+                    message.message_id,
+                    message.model,
+                    message.usage,
+                    [
+                        _short(block.name)
+                        for block in message.content
+                        if isinstance(block, ToolUseBlock)
+                    ],
+                    message.parent_tool_use_id,
+                )
             if isinstance(message, ResultMessage):
+                result = message
                 end = TurnEnd(
                     message.subtype, message.total_cost_usd, message.session_id
                 )
         end.error = error
+        end.tokens = self.calls.end_turn()
+        end.context = await self._context()
+        if result is not None:
+            log.info("%s", self._turn_line(result, end))
+            if result.total_cost_usd is not None:
+                self._cost_usd = result.total_cost_usd
         return end
+
+    async def _context(self) -> Optional[Dict[str, int]]:
+        """How full the context is, from the CLI; the last call's size, if
+        the CLI can't say."""
+        context = {"used": self.calls.context} if self.calls.context else None
+        try:
+            reply = await asyncio.wait_for(
+                self._client.get_context_usage(), CONTEXT_WAIT_S
+            )
+        except Exception:  # noqa: BLE001 - the figure is a nicety
+            log.debug("The context's size couldn't be read.", exc_info=True)
+            return context
+        found = {
+            "used": reply.get("totalTokens"),
+            "window": reply.get("rawMaxTokens") or reply.get("maxTokens"),
+            "compact_at": reply.get("autoCompactThreshold"),
+        }
+        found = {key: int(value) for key, value in found.items() if value}
+        return found if "used" in found else context
+
+    def _turn_line(self, result, end: TurnEnd) -> str:
+        """ "Turn ended: success, 12 steps, $0.41 ($12.30 so far). ..." """
+        line = f"Turn ended: {result.subtype}, {result.num_turns} steps"
+        cost = result.total_cost_usd
+        if cost is not None and self._cost_usd is not None:
+            line += f", ${cost - self._cost_usd:.4f} (${cost:.4f} so far)"
+        elif cost is not None:
+            line += f", ${cost:.4f} so far"
+        counts = end.tokens or usage.zero()
+        line += (
+            f". Tokens: {usage.short(counts['input'])} in, "
+            f"{usage.short(counts['cache_read'])} cached, "
+            f"{usage.short(counts['cache_write'])} written, "
+            f"{usage.short(counts['output'])} out"
+        )
+        if result.duration_ms:
+            line += (
+                f". {result.duration_ms / 1000:.0f} s, "
+                f"{result.duration_api_ms / 1000:.0f} s of it the model"
+            )
+        context = usage.context_text(end.context)
+        return f"{line}. {context}." if context else f"{line}."
 
     async def interrupt(self) -> None:
         if self._client is not None:
@@ -1127,7 +1206,6 @@ def _show(message, agent: SdkAgent) -> None:
     """One SDK message on the console and in the log, readably."""
     from claude_agent_sdk import (
         AssistantMessage,
-        ResultMessage,
         SystemMessage,
         TextBlock,
         ToolResultBlock,
@@ -1186,14 +1264,6 @@ def _show(message, agent: SdkAgent) -> None:
                 log.warning("failed: %s", why)
                 seq = getattr(agent, "_steps", {}).get(block.tool_use_id)
                 _line(agent, "failed", _clip(why, 160), step=seq)
-    elif isinstance(message, ResultMessage):
-        cost = message.total_cost_usd
-        log.info(
-            "Turn ended: %s, %d steps%s.",
-            message.subtype,
-            message.num_turns,
-            f", ${cost:.4f} so far" if cost is not None else "",
-        )
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
@@ -1234,12 +1304,15 @@ def build_options(
     code: bool = True,
     alarm: Optional[Alarm] = None,
     profile: Optional[profiles.Profile] = None,
+    transcript: Optional[Path] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
     copied the skills there); without ``code``, the file tools only. A
-    *profile* adds its skills, its instructions and its reminders."""
+    *profile* adds its skills, its instructions and its reminders. With
+    *transcript*, a folder, the CLI's transcript is copied there as it is
+    written (`mirror.TranscriptMirror`)."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     command = sidecar_command()
@@ -1292,6 +1365,12 @@ def build_options(
         effort=effort,
         resume=resume,
         session_id=session_id,
+        session_store=(
+            mirror.TranscriptMirror(transcript, resume or session_id)
+            if transcript is not None
+            else None
+        ),
+        session_store_flush="eager",
         max_buffer_size=MAX_BUFFER_SIZE,
         stderr=lambda line: log.debug("claude: %s", line.rstrip()),
     )
@@ -1319,6 +1398,8 @@ def _log_to(path: Path) -> None:
 
 # A bare --resume: the last session run in the same folder.
 LAST = "last"
+# --code or --files without a folder: work/ in the session's folder.
+IN_SESSION = ":session:"
 
 
 def status(
@@ -1396,7 +1477,8 @@ def main(argv=None) -> int:
         default=None,
         metavar="SESSION_ID",
         help="carry on a session; with no id, the last one run in the same "
-        "folder (the --code or --files folder, else the checkout)",
+        "folder (the --code or --files folder, else the checkout; with no "
+        "folder given, the last one that worked in its own)",
     )
     parser.add_argument(
         "--session-id",
@@ -1427,20 +1509,20 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--code",
         nargs="?",
-        const=".",
+        const=IN_SESSION,
         default=None,
         metavar="PATH",
-        help="code mode: the agent writes and runs its own code in PATH (the "
-        "current folder if none), sandboxed (macOS and Linux only)",
+        help="code mode: the agent writes and runs its own code in PATH (if "
+        "none, work/ in the session's folder), sandboxed (macOS and Linux only)",
     )
     parser.add_argument(
         "--files",
         nargs="?",
-        const=".",
+        const=IN_SESSION,
         default=None,
         metavar="PATH",
-        help="the agent reads and writes files in PATH (the current folder if "
-        "none) and runs nothing: no shell",
+        help="the agent reads and writes files in PATH (if none, work/ in the "
+        "session's folder) and runs nothing: no shell",
     )
     parser.add_argument(
         "--profile",
@@ -1508,8 +1590,26 @@ def main(argv=None) -> int:
     _resolve(args, profile)
     work = None
     code = bool(args.code)
-    if args.code or args.files:
-        work = code_mode.workdir(args.code or args.files)
+    given = args.code or args.files
+    in_session = given == IN_SESSION
+    if given and not in_session:
+        work = code_mode.workdir(given)
+    if args.resume == LAST:
+        args.resume = sessions.last_session(None if in_session else work or checkout)
+        if args.resume is None:
+            where = "its own folder" if in_session else work or checkout
+            print(
+                f"No earlier fibsem-agent session in {where} to resume: pass "
+                "its id (the Session line of its log).",
+                file=sys.stderr,
+            )
+            return 1
+    # A new session's id is chosen here, so the status can name it.
+    session_id = args.resume or args.session_id or str(uuid.uuid4())
+    folder = sessions.session_folder(session_id)
+    if in_session:
+        work = folder / sessions.WORK
+    if work is not None:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             print(refused, file=sys.stderr)
@@ -1521,21 +1621,10 @@ def main(argv=None) -> int:
     if missing:
         print(missing, file=sys.stderr)
         return 1
-    if args.resume == LAST:
-        args.resume = sessions.last_session(work or checkout)
-        if args.resume is None:
-            print(
-                f"No earlier fibsem-agent session in {work or checkout} to "
-                "resume: pass its id (the Session line of its log).",
-                file=sys.stderr,
-            )
-            return 1
     # From the environment, so it is not in the process list or shell history.
     token = server_env()[1]
-    # A new session's id is chosen here, so the status can name it.
-    session_id = args.resume or args.session_id or str(uuid.uuid4())
     session = sessions.SessionFolder.open(
-        session_id, _about(args, checkout, work, code, profile)
+        session_id, _about(args, checkout, work, code, profile), folder=folder
     )
     log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
@@ -1562,8 +1651,9 @@ def main(argv=None) -> int:
         session_id=None if args.resume else session_id,
         code=code,
         profile=profile,
+        transcript=session.folder,
     )
-    agent = SdkAgent(options)
+    agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
     harness = Harness(
         agent,
         lambda: watch_mod.connect(args.url, token),
@@ -1667,7 +1757,7 @@ def _resolve(args, profile: Optional[profiles.Profile]) -> None:
     if args.max_budget_usd is None:
         args.max_budget_usd = given.max_budget_usd or MAX_BUDGET_USD
     if not (args.code or args.files) and given.mode != "none":
-        folder = str(Path(given.folder).expanduser())
+        folder = str(Path(given.folder).expanduser()) if given.folder else IN_SESSION
         if given.mode == "code":
             args.code = folder
         else:

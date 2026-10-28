@@ -3,7 +3,9 @@ starts, watches, restarts and ends agents for the gateway and the hub.
 
 Every session has a folder, ``~/.fibsem/agent/sessions/<date>-<session id>/``:
 ``session.json`` (what it runs with, and each run's start and end, written by
-``fibsem-agent``), its log, and ``manager.json`` when a manager started it.
+``fibsem-agent``), its log, its model calls' tokens (``usage.jsonl``), the
+Claude Code transcript (``transcript.jsonl``, and ``transcript/`` for the
+specialists), and ``manager.json`` when a manager started it.
 A resumed session runs again in the same folder.
 
 The manager starts each agent detached, so agents keep running when the
@@ -32,6 +34,8 @@ RECORD = "session.json"
 MANAGED = "manager.json"
 LOG = "fibsem-agent.log"
 STOP = "stop"
+# The agent's own files, when it was given no folder.
+WORK = "work"
 
 # fibsem-agent's exit codes.
 STOPPED, GONE, BUDGET = 0, 1, 2
@@ -56,6 +60,13 @@ def find_folder(session_id: str, root: Optional[Path] = None) -> Optional[Path]:
     root = root or sessions_dir()
     found = sorted(root.glob(f"*-{session_id}")) if root.is_dir() else []
     return found[-1] if found else None
+
+
+def session_folder(session_id: str, root: Optional[Path] = None) -> Path:
+    """The folder of session *session_id*: its own, else the one a new
+    session gets, not made yet."""
+    root = root or sessions_dir()
+    return find_folder(session_id, root) or root / folder_name(session_id)
 
 
 def read_json(path: Path) -> dict:
@@ -83,13 +94,15 @@ def folders(root: Optional[Path] = None) -> List[Path]:
     return sorted(found, key=lambda path: path.name, reverse=True)
 
 
-def last_session(cwd: Path, root: Optional[Path] = None) -> Optional[str]:
+def last_session(cwd: Optional[Path], root: Optional[Path] = None) -> Optional[str]:
     """The newest session run in *cwd* (the work folder, else the checkout),
-    or None: the CLI keeps a session's transcript under its folder, so one
-    run elsewhere can't be resumed here."""
+    or with *cwd* None the newest that worked in its own folder's ``work/``;
+    None if there is none: the CLI keeps a session's transcript under its
+    folder, so one run elsewhere can't be resumed here."""
     for folder in folders(root):
         record = read_json(folder / RECORD)
-        if record.get("cwd") == str(cwd) and record.get("session_id"):
+        here = folder / WORK if cwd is None else cwd
+        if record.get("cwd") == str(here) and record.get("session_id"):
             return record["session_id"]
     return None
 
@@ -102,14 +115,16 @@ class SessionFolder:
 
     @classmethod
     def open(
-        cls, session_id: str, about: dict, root: Optional[Path] = None
+        cls,
+        session_id: str,
+        about: dict,
+        root: Optional[Path] = None,
+        folder: Optional[Path] = None,
     ) -> "SessionFolder":
-        """The session's folder, made when it is new; a run begins in it.
-        *about* is what the session runs with (cwd, url, goal, model...)."""
-        root = root or sessions_dir()
-        folder = find_folder(session_id, root)
-        if folder is None:
-            folder = root / folder_name(session_id)
+        """The session's folder (*folder*, from `session_folder`, if given),
+        made when it is new; a run begins in it. *about* is what the session
+        runs with (cwd, url, goal, model...)."""
+        folder = folder or session_folder(session_id, root)
         folder.mkdir(parents=True, exist_ok=True)
         # A stop left from an earlier run is not for this one.
         (folder / STOP).unlink(missing_ok=True)
@@ -140,9 +155,10 @@ class SessionFolder:
         spent_usd: Optional[float] = None,
         turns: Optional[int] = None,
         resumable: bool = True,
+        tokens: Optional[Dict[str, int]] = None,
     ) -> None:
         """How this run ended. *resumable* is False when resuming can't help
-        (the model can't sign in)."""
+        (the model can't sign in). *tokens* is what its model calls used."""
         record = self.record()
         runs = record.get("runs") or [{}]
         runs[-1].update(
@@ -152,6 +168,7 @@ class SessionFolder:
             resumable=resumable,
             **({} if spent_usd is None else {"spent_usd": spent_usd}),
             **({} if turns is None else {"turns": turns}),
+            **({} if tokens is None else {"tokens": tokens}),
         )
         record["runs"] = runs
         self._write(record)
