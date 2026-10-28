@@ -29,6 +29,8 @@ import yaml
 from fibsem import paths
 
 PROFILE_DIR = Path(".claude") / "fibsem-agent"
+# The profile fibsem-agent and the gateway run with when none is named.
+DEFAULT_PROFILE = "fibsem-agent"
 MODES = ("none", "files", "code")
 FIELDS = (
     "name",

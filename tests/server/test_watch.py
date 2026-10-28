@@ -299,17 +299,14 @@ def test_only_five_marks_are_written_out():
     assert "point at 4,4 px; and 2 more --" in lines[0]
 
 
-def test_a_level_change_names_the_skill_to_work_by(app):
+def test_a_level_change_is_a_line(app):
     def run():
         app.buffer.append("agent_level_set", {"previous": "watch", "level": "drive"})
         app.buffer.append("workflow_completed", {})
 
     code, lines = _watch({2: run})
 
-    assert lines[0] == (
-        "LEVEL drive (was watch): the operator set the agent level; work by the "
-        "supervise-autolamella skill"
-    )
+    assert lines[0] == "LEVEL drive (was watch): the operator set the agent level"
 
 
 def test_the_agent_s_request_is_followed_to_its_end(app):

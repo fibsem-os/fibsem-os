@@ -141,7 +141,7 @@ fibsem-agent
   agents either: no shell, no file reads or writes, no web. Nothing waits on
   a permission prompt; anything else is denied. So the offline
   `read_record.py` reader stays with Claude Code.
-- **Agents.** In the supervise skill's lead mode the agent is the Run
+- **Agents.** Leading a run (the autolamella-lead skill), the agent is the Run
   Lead and makes every decision. It calls the Verifier for a second opinion
   on the site list, each Setup placement and every polishing pass, the
   Investigator when a task's result is bad, and the Auditor for the review

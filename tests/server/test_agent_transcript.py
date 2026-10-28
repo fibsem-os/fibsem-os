@@ -102,7 +102,7 @@ def test_the_agent_says_what_it_can_do_and_the_chip_lists_it():
             "effort": "high",
             "code": True,
             "workdir": "/Users/lab/fibsem-work",
-            "skills": ["autolamella-agent", "supervise-autolamella"],
+            "skills": ["autolamella-agent", "autolamella-lead"],
             "resumed": False,
         },
     )
@@ -110,7 +110,7 @@ def test_the_agent_says_what_it_can_do_and_the_chip_lists_it():
         "Harness": "fibsem-agent",
         "Model": "claude-opus, effort high",
         "Code": "On in /Users/lab/fibsem-work (sandboxed)",
-        "Skills": "autolamella-agent, supervise-autolamella",
+        "Skills": "autolamella-agent, autolamella-lead",
         "Session id": "abc (new)",
     }
     off, _ = report(auth, {"session_id": "def", "code": False, "resumed": True})

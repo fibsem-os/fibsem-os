@@ -66,6 +66,7 @@ export function hasPanel(session: ReportedSession | null | undefined): session i
   return Boolean(
     session &&
       (session.profile ||
+        session.skills?.length ||
         session.goal ||
         session.budget_usd != null ||
         session.spent_usd != null ||
@@ -75,13 +76,14 @@ export function hasPanel(session: ReportedSession | null | undefined): session i
   );
 }
 
-/** The agent's profile, goal, budget, the operator's constraints and its checklist. */
+/** The agent's profile, the skills it read, goal, budget, the operator's constraints and its checklist. */
 export function SidePanel({ session, budgetLow }: { session: ReportedSession; budgetLow: boolean }) {
   const now = useNow(30000);
   const {
     profile,
     profile_hash: hash,
     hooks,
+    skills,
     started,
     ended,
     goal,
@@ -107,6 +109,11 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
           ))}
         </Section>
       )}
+      {skills?.length ? (
+        <Section title="Skills">
+          <p className="m-0 break-words">{skills.join(", ")}</p>
+        </Section>
+      ) : null}
       {goal && (
         <Section title="Goal">
           <p className="m-0 break-words">{goal}</p>
