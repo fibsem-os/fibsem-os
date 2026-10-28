@@ -67,6 +67,7 @@ from fibsem.server.devices import (
     stream_live,
 )
 from fibsem.server.discovery import fibsem_folder
+from fibsem.server.knowledge_routes import build_knowledge_router
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.models import ControlRequest, MicroscopeStateRequest
 from fibsem.server.operator import build_operator_router
@@ -893,6 +894,12 @@ def build_server(
         # What fibsem-agent printed, kept beside the experiment.
         app.include_router(
             build_agent_transcript_router(
+                lambda: getattr(app_context, "experiment_path", None)
+            )
+        )
+        # What was learned on this microscope, kept under the state root.
+        app.include_router(
+            build_knowledge_router(
                 lambda: getattr(app_context, "experiment_path", None)
             )
         )

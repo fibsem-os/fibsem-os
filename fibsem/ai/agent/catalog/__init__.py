@@ -27,6 +27,7 @@ from fibsem.ai.agent.catalog import (
     grids,
     imaging,
     items,
+    knowledge,
     microscope,
     milling,
 )
@@ -51,6 +52,7 @@ CATALOG: Tuple[ToolSpec, ...] = (
     + items.TOOLS
     + app.TOOLS
     + analysis.TOOLS
+    + knowledge.TOOLS
 )
 
 # Every route the server serves is a tool above or here, with why it is not one
@@ -61,6 +63,8 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /app/experiment/replay/{index}": "The web page's replay scene, images and overlays at one recorded action; the agent reads the record and images directly.",
     "GET /health": "Open liveness check, no token; the agent's first read is server_get_capabilities.",
     "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
+    "GET /app/knowledge/{section}/{id}/images/{name}": "One knowledge image as a file, for the web page; knowledge_get answers the agent its images as pictures.",
+    "DELETE /app/knowledge/{section}/{id}": "Removing a knowledge entry is the operator's only (operator token).",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
     "POST /app/agent/transcript": "fibsem-agent's harness sends what it printed; not the agent's to call.",
     "GET /chat": "A redirect to the web app's Agent page, GET /ui/agent.",

@@ -436,6 +436,7 @@ def test_every_app_route_declares_its_answer(client):
         "/app/experiment/planes/{path:path}",
         "/app/experiment/export/image",
         "/app/experiment/export/animation",
+        "/app/knowledge/{section}/{id}/images/{name}",
     }
     untyped = [
         (method, path)
