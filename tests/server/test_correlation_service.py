@@ -362,6 +362,19 @@ def test_an_fm_surface_point_corrects_the_targets_depth_before_the_fit(client, i
     assert np.allclose(result["poi"][0]["image_px"], _expected_pre(1.3), atol=0.05)
 
 
+def test_without_a_surface_point_the_answer_says_there_was_no_ri_correction(
+    client, images
+):
+    result = _correlate(client, images).json()["result"]
+    assert result["ri_correction"] is None
+    assert result["ri_note"].startswith("No refractive-index correction")
+
+    corrected = _correlate(
+        client, images, fm_surface_point=[50.0, 50.0, SURFACE_Z], ri_factor=1.3
+    ).json()["result"]
+    assert "ri_note" not in corrected
+
+
 def test_without_a_factor_the_lookup_table_gives_it_at_tilt_0(client, images):
     from fibsem.correlation.config import RISettings
     from fibsem.correlation.refractive_index import lookup_zeta

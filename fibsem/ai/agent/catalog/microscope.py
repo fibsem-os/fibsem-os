@@ -629,7 +629,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "before the fit) or fib_surface_point (x, y in the FIB image: moves the "
             "first target after it). The factor is the lookup table's for the "
             "protocol's RI settings, with ri's values over them, or ri_factor; the "
-            "answer's ri_correction says what was applied. Paths inside the open "
+            "answer's ri_correction says what was applied, and ri_note that none "
+            "was. Paths inside the open "
             "experiment. Does not move the lamella's point of interest. Moves "
             "nothing."
         ),
