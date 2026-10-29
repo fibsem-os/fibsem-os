@@ -378,7 +378,7 @@ export function LayerImage({
   const [looks, setLooks] = useState<Look[]>(() => channels.map((c) => storedLook(c.key, c.color)));
   const [visible, setVisible] = useState<boolean[]>(() => channels.map(() => true));
   const [selected, setSelected] = useState(0);
-  const [panel, setPanel] = useState(stack);
+  const [panel, setPanel] = useState(false);
   const [tools, setTools] = useState<Tools>({ ruler: false, crosshair: false, scalebar: true });
   const [view, setView] = useState<View>(() => fitView(full[1], full[0]));
   const [exporting, setExporting] = useState(false);

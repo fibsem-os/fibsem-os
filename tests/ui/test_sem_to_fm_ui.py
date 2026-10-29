@@ -12,7 +12,8 @@ from PyQt5.QtCore import QEventLoop, QTimer
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.structures.settings import FibsemStagePosition
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.structures.system import DeviceCalibration, InsertableDeviceState
 from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 from fibsem.ui.FibsemMovementWidget import FibsemMovementWidget
@@ -230,11 +231,15 @@ def test_the_dialog_captures_a_site_and_restores_on_cancel(qapp, tmp_path, monke
     before = microscope.system.stage.rotation_centre_correction
     dialog = SemToFmDialog(microscope, configuration_path=path)
     monkeypatch.setattr(dialog.calibration, "measure_coincidence", lambda name: {})
+    blank = FibsemImage.generate_blank_image(resolution=(64, 48))
+    monkeypatch.setattr(microscope, "acquire_image", lambda beam_type: blank)
     assert dialog._step == STEP_ROTATION
 
     dialog.button_next.click()  # Skip
     assert dialog._step == STEP_BEAMS
     assert dialog.button_next.isEnabled() is False
+    _until(lambda: dialog.current_label.text() == "FIB")
+    assert dialog.current_label.text() == "FIB"  # the step opens on fresh images
 
     dialog.action_buttons["Capture beams"].click()
     _until(lambda: dialog.button_next.isEnabled())
@@ -244,3 +249,17 @@ def test_the_dialog_captures_a_site_and_restores_on_cancel(qapp, tmp_path, monke
     microscope.system.stage.rotation_centre_correction = (1e-6, 1e-6)
     dialog.reject()
     assert microscope.system.stage.rotation_centre_correction == before
+
+
+def test_a_click_is_marked_on_the_image_until_the_next_one(qapp, tmp_path):
+    microscope, _, path = _offset_session(tmp_path, calibrated=False)
+    dialog = SemToFmDialog(microscope, configuration_path=path)
+    blank = FibsemImage.generate_blank_image(resolution=(64, 48))
+    dialog._show_current(blank, BeamType.ELECTRON, "SEM")
+
+    dialog._on_click(10.0, 12.0, [])
+    assert dialog.click_marker.get_points() == [(10.0, 12.0)]
+
+    dialog._show_current(blank, BeamType.ELECTRON, "SEM")
+    assert dialog.click_marker.get_points() == []
+    dialog.reject()

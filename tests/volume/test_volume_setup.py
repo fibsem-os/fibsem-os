@@ -54,6 +54,7 @@ def _history(position):
     return [(s.name, s.iteration, s.status) for s in position.task_history]
 
 
+@pytest.mark.slow
 def test_a_position_is_set_up_once_and_then_sliced(
     microscope, experiment, unset, milled
 ):
@@ -90,6 +91,7 @@ def test_a_position_is_set_up_once_and_then_sliced(
     )
 
 
+@pytest.mark.slow
 def test_a_run_again_does_not_set_a_position_up_twice(
     microscope, experiment, unset, milled
 ):
@@ -106,6 +108,7 @@ def test_a_run_again_does_not_set_a_position_up_twice(
     ]
 
 
+@pytest.mark.slow
 def test_a_failed_setup_stops_its_position_and_not_the_others(
     microscope, experiment, unset, milled, monkeypatch
 ):

@@ -63,6 +63,22 @@ def holder_is_calibrated(microscope) -> bool:
     )
 
 
+def sample_height(microscope) -> Optional[float]:
+    """The sample's z: the first calibrated holder slot's, or None without one.
+
+    What odemis takes from SAMPLE_CENTERS: the height a grid sits at, which no device
+    origin carries. A frame anchored at a guessed height shifts everything placed
+    through it -- at a 32 mm error, a click near an FM overview's corner drove a METEOR
+    sim 26 mm under the objective (2026-10-26).
+    """
+    for slot in holder_slots(microscope):
+        position = getattr(slot, "position", None)
+        if getattr(slot, "is_calibrated", False) and position is not None:
+            if position.z is not None:
+                return float(position.z)
+    return None
+
+
 def slot_landmark(microscope, slot: object) -> Optional[FibsemStagePosition]:
     """Where a holder slot sits, as a position that can be drawn in any view.
 

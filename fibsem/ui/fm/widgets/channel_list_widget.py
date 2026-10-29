@@ -718,15 +718,10 @@ class ChannelListWidget(QWidget):
             source = self.selected_channel
             if source is not None:
                 channel = deepcopy(source)
+            elif self.fm is not None:
+                channel = self.fm.default_channel()
             else:
-                channel = ChannelSettings(
-                    excitation_wavelength=self._excitation_items[0]
-                    if self._excitation_items
-                    else 550.0,
-                    emission_filter=self._emission_items[0]
-                    if self._emission_items
-                    else REFLECTION,
-                )
+                channel = ChannelSettings()
             existing = {self._row(i).channel.name for i in range(self._list.count())}
             channel.name = unique_name(f"Channel-{count + 1:02d}", existing)
         row = self._add_row(channel, enabled=True)

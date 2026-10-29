@@ -8,10 +8,10 @@ the record as it reads it (it withdraws open questions and re-points paths);
 ``experiment.yaml`` is read as plain YAML and ``events.jsonl`` through the same
 tables the report uses.
 
-    python .claude/skills/observe-autolamella/read_record.py <experiment folder>
-    python .claude/skills/observe-autolamella/read_record.py <folder> --item 2
-    python .claude/skills/observe-autolamella/read_record.py <folder> --failures
-    python .claude/skills/observe-autolamella/read_record.py <folder> --preview <tif> --out <dir>
+    python .claude/skills/autolamella-agent/read_record.py <experiment folder>
+    python .claude/skills/autolamella-agent/read_record.py <folder> --item 2
+    python .claude/skills/autolamella-agent/read_record.py <folder> --failures
+    python .claude/skills/autolamella-agent/read_record.py <folder> --preview <tif> --out <dir>
 
 ``--item`` takes a lamella's name, or its number ("2" is 02-...). ``--preview``
 writes a PNG of a saved TIFF to ``--out`` (never into the experiment), for an

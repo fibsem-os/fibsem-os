@@ -280,7 +280,6 @@ def test_edits_run_where_the_client_says():
 def test_letting_the_agent_act_with_nothing_open_makes_a_plain_experiment(
     session, microscope
 ):
-    pytest.importorskip("fastapi")  # AuthConfig is the server's
     from fibsem.ai.agent.levels import AgentLevel
     from fibsem.server import AuthConfig
     from fibsem.workflows.experiment import FibsemExperiment
@@ -303,7 +302,6 @@ def test_letting_the_agent_act_with_nothing_open_makes_a_plain_experiment(
 def test_the_level_is_refused_when_there_is_nowhere_to_record(
     session, monkeypatch, tmp_path
 ):
-    pytest.importorskip("fastapi")  # AuthConfig is the server's
     import fibsem.workflows.session as module
     from fibsem.ai.agent.levels import AgentLevel
     from fibsem.server import AuthConfig
@@ -320,7 +318,6 @@ def test_the_level_is_refused_when_there_is_nowhere_to_record(
 
 
 def test_an_open_experiment_is_what_the_agent_records_to(session, experiment):
-    pytest.importorskip("fastapi")  # AuthConfig is the server's
     from fibsem.ai.agent.levels import AgentLevel
     from fibsem.server import AuthConfig
 

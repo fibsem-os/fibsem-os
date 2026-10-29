@@ -7,15 +7,12 @@ import time
 
 import pytest
 
-pytest.importorskip("fastapi")
-httpx = pytest.importorskip("httpx")
-
-from fibsem.client import pairing as client_pairing  # noqa: E402
-from fibsem.client.transport import Transport  # noqa: E402
-from fibsem.server.connections import DENIED_S, Connections  # noqa: E402
-from fibsem.server.pairing import AGENT, PairedTokens  # noqa: E402
-from fibsem.workflows.actions import ACTION  # noqa: E402
-from tests.server.test_operator_routes import (  # noqa: E402, F401
+from fibsem.client import pairing as client_pairing
+from fibsem.client.transport import Transport
+from fibsem.server.connections import DENIED_S, Connections
+from fibsem.server.pairing import AGENT, PairedTokens
+from fibsem.workflows.actions import ACTION
+from tests.server.test_operator_routes import (  # noqa: F401
     _bearer,
     microscope,
     server,

@@ -10,6 +10,7 @@ actions along the bottom.
 
 import logging
 import os
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -41,6 +42,7 @@ from fibsem.fm.structures import (
     ObjectiveStartPosition,
     OverviewParameters,
 )
+from fibsem.geometry.stage_places import sample_height
 from fibsem.imaging.overview_session import (
     FLUORESCENCE,
     OverviewSession,
@@ -122,6 +124,11 @@ def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget
 # Key the in-progress mosaic is drawn under. Distinct from a finished overview's
 # position-derived key, so the preview can be dropped when the real stitch lands.
 PREVIEW_KEY = "fm-preview"
+
+# How far a point picked on the canvas may be from the stage's height, on an offset FM:
+# an overview spans well under a millimetre of sample, and a click further off in z is
+# a wrong frame driving the sample at the inserted objective. Metres.
+MAX_CLICK_DZ = 1.0e-3
 
 # The three position markers (`CURRENT_`/`SAVED_`/`SELECTED_POSITION_COLOUR`) are
 # imported from `tokens` rather than defined here: all three are crosshairs, so colour
@@ -246,8 +253,12 @@ class FMOverviewWidget(OverviewWidgetBase):
         # Stage position the canvas frame is built around. Everything shown -- images,
         # the planned grid, position markers -- is placed relative to it, so it has to
         # be fixed once and kept: re-deriving it from the newest image would shift the
-        # whole scene each time one arrived. Taken from the first image displayed.
+        # whole scene each time one arrived. Fixed by the first image displayed.
         self._origin: Optional[FibsemStagePosition] = None
+        # Until then, the frame is derived from where the stage is now and re-derived
+        # on every stage move (`_provisional`): fixing it at the first draw kept a z read
+        # at the beams or the loader for the whole session.
+        self._provisional_origin: Optional[FibsemStagePosition] = None
         # The camera half of the frame, kept rather than re-read -- see `_projection`.
         # None until first resolved, and set back to None to force a re-read.
         self._cached_projection: Optional[FMStageProjection] = None
@@ -312,7 +323,8 @@ class FMOverviewWidget(OverviewWidgetBase):
                 return list(config.channel_settings)
         except Exception as e:
             logging.debug(f"Could not load the saved FM configuration: {e}")
-        return [ChannelSettings(name="Channel-01")]
+        fm = self.microscope.fm
+        return [fm.default_channel() if fm is not None else ChannelSettings()]
 
     # ── layout ───────────────────────────────────────────────────────────
 
@@ -885,7 +897,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         """
         record = self._record_for(image)
         if self._origin is None:
-            self._origin = self._device_origin()
+            self._origin = self._device_origin(self._position_of(image))
         self.canvas.set_composite_key(record.id)
         self.canvas.set_placement(self._offset_of(image))
         self.canvas.set_fm_image(image)
@@ -1048,7 +1060,8 @@ class FMOverviewWidget(OverviewWidgetBase):
         """
         position = self._position_of(image)
         projection = FMStageProjection.from_image(image)
-        if self._origin is None or position is None or projection is None:
+        origin = self._origin if self._origin is not None else self._provisional()
+        if origin is None or position is None or projection is None:
             return (0.0, 0.0)
         try:
             # The image's own *geometry*, but the shared *pose* -- the same base
@@ -1056,7 +1069,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             # image and the grid describing it in different places: a stale t = 0
             # origin against a stage at t = -180 landed them 300 um apart, mirrored
             # in y, which is a mosaic that disagrees with the grid that planned it.
-            return projection.to_plane(position, self._posed(self._origin))
+            return projection.to_plane(position, self._posed(origin))
         except Exception as e:
             logging.debug(f"Could not place the image in stage space: {e}")
             return (0.0, 0.0)
@@ -1225,14 +1238,16 @@ class FMOverviewWidget(OverviewWidgetBase):
                 f"placed against the current origin. Call clear_overviews() first."
             )
         self._origin = position
+        self._provisional_origin = None
         self._refresh_current_position()
         self._refresh_positions()
         self._refresh_tile_grid()
 
     @property
     def origin(self) -> Optional[FibsemStagePosition]:
-        """The stage position canvas zero corresponds to, once one has been fixed."""
-        return self._origin
+        """The stage position canvas zero corresponds to: fixed once an image is
+        placed, else derived from where the stage is now."""
+        return self._origin if self._origin is not None else self._provisional_origin
 
     def _projection(self, fresh: bool = False) -> Optional[FMStageProjection]:
         """The camera half of the frame, read once and kept.
@@ -1292,14 +1307,21 @@ class FMOverviewWidget(OverviewWidgetBase):
         if projection is None:
             return None
 
-        origin = self._origin or self._device_origin()
+        origin = self._origin if self._origin is not None else self._provisional()
         if origin is None:
             return None
-        self._origin = origin  # fix it now, so later drawing shares this frame
 
         return StageFrame(self.canvas.canvas, self._posed(origin), projection)
 
-    def _device_origin(self) -> Optional[FibsemStagePosition]:
+    def _provisional(self) -> Optional[FibsemStagePosition]:
+        """The origin before any image fixes one, kept until the stage moves."""
+        if self._provisional_origin is None:
+            self._provisional_origin = self._device_origin()
+        return self._provisional_origin
+
+    def _device_origin(
+        self, position: Optional[FibsemStagePosition] = None
+    ) -> Optional[FibsemStagePosition]:
         """Where canvas zero goes when nothing has said: the FM device's origin.
 
         This canvas is the FM's view of the sample, so its zero is the place the
@@ -1310,22 +1332,44 @@ class FMOverviewWidget(OverviewWidgetBase):
         device origin is the objective's offset from the beams' coincidence point (zero
         unless configured), so zero is the holder's centre as the objective sees it.
 
-        Only a *place*. The configuration declares x, and may declare y and z; an
-        axis it leaves out reads as 0. The pose is not part of the anchor at all --
-        `_posed` restates it from the stage on every draw, which is what keeps a
-        click after Move to FM resolving through the FIB tilt rather than the one the
-        stage had when the tab was built.
+        Only a *place*. The configuration declares x, and may declare y and z; on a
+        compustage an axis it leaves out reads as 0. The pose is not part of the anchor
+        at all -- `_posed` restates it from the stage on every draw, which is what
+        keeps a click after Move to FM resolving through the FIB tilt rather than the
+        one the stage had when the tab was built.
+
+        On an offset FM the place is `StageMovement.device_position`: the FM's
+        (calibrated) origin, with the axes it leaves out taken from the sample -- the
+        holder's slot height when the holder is calibrated, else the stage's own. A
+        METEOR's entry gives x and y only (odemis's CALIB dx, dy), and reading the
+        missing z as 0 put the sample plane 32 mm below the sample: a double-click
+        near an overview's corner drove the stage 15 mm in y and 21 mm in z under the
+        inserted objective (odemis simulator, 2026-10-26).
+
+        *position* stands in for the stage when the first image fixes the origin: the
+        image's own position, taken at the FM, whose z is the sample's there, so no slot
+        height replaces it.
 
         Falls back to the stage's position for a microscope with no FM device
         declared, which is how widget tests built on a bare FM arrive here.
         """
-        current = self._current_stage_position()
+        current = position or self._current_stage_position()
         try:
             origin = self.microscope.system.stage.devices["FM"].origin
         except (AttributeError, KeyError, TypeError):
             return current
         if current is None:
             return None
+        movement = self.microscope.stage_movement
+        if movement.travels_to_fm():
+            sample = deepcopy(current)
+            height = None if position is not None else sample_height(self.microscope)
+            if height is not None:
+                sample.z = height
+            place = movement.device_position("FM", sample)
+            place.r, place.t = current.r, current.t  # `_posed` restates the pose
+            place.coordinate_system = current.coordinate_system
+            return place
         return FibsemStagePosition(
             name="FM",
             x=origin.x or 0.0,
@@ -1763,6 +1807,7 @@ class FMOverviewWidget(OverviewWidgetBase):
         """
         reposed = self._pose_changed(position)
         self.session.stage_position = position
+        reanchored = self._rederive_provisional_origin()
         self._refresh_current_position()
         # The gate and the banner answer "can the FM image from here", and on an offset
         # mount that changes with pure *translation* -- the 48.8 mm traverse to the FM
@@ -1775,10 +1820,10 @@ class FMOverviewWidget(OverviewWidgetBase):
         self._last_imaging_state = state
         # Everything else on the canvas is placed through a frame whose rotation and
         # tilt come from wherever the stage is (see `_posed`), so a re-pose moves all of
-        # it. Redrawn only when the pose actually changes: the stage is polled
-        # constantly, and a translation leaves every one of these exactly where it was --
-        # the origin they are measured from moves with nothing.
-        if reposed:
+        # it. Redrawn only when the pose or canvas zero changes: the stage is polled
+        # constantly, and a translation leaves every one of these where it was unless
+        # it moved the not-yet-fixed origin.
+        if reposed or reanchored:
             self._refresh_positions()
             self._refresh_stage_metadata()
         if reposed or imaging_changed:
@@ -1789,6 +1834,21 @@ class FMOverviewWidget(OverviewWidgetBase):
         # followed would crawl across the canvas describing nothing.
         if self._target is None and not self.is_acquiring:
             self._refresh_tile_grid(redraw_context=False)
+
+    def _rederive_provisional_origin(self) -> bool:
+        """Re-derive the origin from the stage while no image has fixed one. True if
+        canvas zero moved, so everything drawn against it has to move too."""
+        if self._origin is not None:
+            return False
+        before = self._provisional_origin
+        self._provisional_origin = None
+        after = self._provisional()
+        if before is None or after is None:
+            return before is not after
+        return not all(
+            np.isclose(getattr(before, axis) or 0.0, getattr(after, axis) or 0.0)
+            for axis in ("x", "y", "z")
+        )
 
     def _pose_changed(self, position: FibsemStagePosition) -> bool:
         """Whether *position* is at a different rotation or tilt from the last one.
@@ -1834,7 +1894,33 @@ class FMOverviewWidget(OverviewWidgetBase):
             logging.debug(f"Could not resolve the clicked position: {e}")
             return None
 
+        if not self._within_click_height(target):
+            return None
         return target if self._within_limits(target) else None
+
+    def _within_click_height(self, target: FibsemStagePosition) -> bool:
+        """Whether *target* keeps the sample at about the height it is now, and say
+        if not.
+
+        On an offset FM a point picked on this canvas is somewhere across the sample
+        under the inserted objective; anything on an overview is within a millimetre
+        of the stage's height. A target further off in z means the frame is wrong,
+        and following it would drive the sample towards or away from the objective.
+        """
+        if not self.microscope.stage_movement.travels_to_fm():
+            return True
+        current = self._current_stage_position()
+        if current is None or current.z is None or target.z is None:
+            return True
+        dz = target.z - current.z
+        if abs(dz) <= MAX_CLICK_DZ:
+            return True
+        notification_service.show_toast(
+            f"Refused: that point is {dz * 1e3:+.1f} mm from the stage's height, "
+            f"more than {MAX_CLICK_DZ * 1e3:.0f} mm under the objective.",
+            "error",
+        )
+        return False
 
     def _on_grid_move(self, x: float, y: float) -> None:
         """The grid was dragged: plan the next overview around the point it landed on.

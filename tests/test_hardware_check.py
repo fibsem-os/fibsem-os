@@ -199,7 +199,6 @@ def test_the_command_checks_through_the_app_server_and_fails_on_a_failed_step(
     microscope, monkeypatch, tmp_path, capsys
 ):
     """``fibsem-cli hardware-check`` checks the server's devices, as the operator."""
-    pytest.importorskip("uvicorn")
     from fibsem.server import AuthConfig, build_server
     from tests.fixtures.app_server import serving
 
@@ -226,6 +225,30 @@ def test_the_command_checks_through_the_app_server_and_fails_on_a_failed_step(
         with pytest.raises(SystemExit) as exit:
             cli.main(argv)
         assert exit.value.code == 1
+
+
+def test_the_acquire_level_takes_a_frame_through_the_app_server(
+    microscope, monkeypatch, tmp_path, capsys
+):
+    """A frame taken on a client stamps the stage's geometry, read from the server
+    (B7: ``RemoteStageMovement`` had no ``fm_is_a_pose``)."""
+    pytest.importorskip("uvicorn")
+    from fibsem.server import AuthConfig, build_server
+    from tests.fixtures.app_server import serving
+
+    auth = AuthConfig.generate(level="watch", token="agent")
+    auth.operator_token = "operator"
+    argv = ["hardware-check", "--level", "acquire", "--yes"]
+    argv += ["--json", str(tmp_path / "report.json")]
+    with serving(build_server(microscope, auth=auth)) as url:
+        monkeypatch.setenv("FIBSEM_SERVER_URL", url)
+        monkeypatch.setenv("FIBSEM_OPERATOR_TOKEN", "operator")
+        with pytest.raises(SystemExit) as exit:
+            cli.main(argv)
+    report = json.loads((tmp_path / "report.json").read_text())
+    failed = [f for f in report["findings"] if f["result"] == "fail"]
+    assert exit.value.code == 0, json.dumps(failed)
+    assert report["passed"] is True
 
 
 def test_same_compares_small_si_values_relatively():

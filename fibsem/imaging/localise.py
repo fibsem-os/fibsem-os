@@ -43,6 +43,11 @@ class PointFitDiagnostic:
     z_input: Optional[float] = None
     z_fitted: Optional[float] = None
     z_inverted: bool = False  # reflection: signal is inverted
+    # the z fit's Gaussian: height above the lowest plane's signal (z_background),
+    # and sigma in planes
+    z_amplitude: Optional[float] = None
+    z_background: Optional[float] = None
+    z_sigma: Optional[float] = None
 
     @property
     def has_z(self) -> bool:
@@ -315,6 +320,9 @@ def target_fitting_fluorescence(
         z_fit=gauss1d(z_axis, *popt_z) + intensity.min(),
         z_input=z,
         z_fitted=zi,
+        z_amplitude=float(popt_z[0]),
+        z_background=float(intensity.min()),
+        z_sigma=abs(float(popt_z[2])),
     )
     return xi, yi, zi, diagnostic
 
@@ -424,5 +432,8 @@ def hole_fitting_reflection(da, x, y, z, cutout) -> tuple:
         z_input=z,
         z_fitted=zreal,
         z_inverted=True,
+        z_amplitude=float(popt[0]),
+        z_background=float(intensity.min()),
+        z_sigma=abs(float(popt[2])),
     )
     return xopt_real, yopt_real, zreal, diagnostic

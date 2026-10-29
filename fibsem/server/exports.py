@@ -144,6 +144,7 @@ def image_file(
         restacked,
         save_export,
     )
+    from fibsem.imaging.looks import check_look
 
     _one_of("format", format, list(IMAGE_FORMATS))
     image = _export_image(root, path)
@@ -154,12 +155,9 @@ def image_file(
         raise _invalid("contrast_min and contrast_max are 0 to 1, min below max.")
     if chosen.gamma <= 0:
         raise _invalid("gamma is above 0.")
-    for look in chosen.looks:
-        if look.clim is not None and not look.clim[0] < look.clim[1]:
-            raise _invalid("a look's clim is (low, high), low below high.")
-        if look.gamma <= 0 or not 0.0 <= look.opacity <= 1.0:
-            raise _invalid("a look's gamma is above 0 and its opacity 0 to 1.")
     try:
+        for look in chosen.looks:
+            check_look(look)
         image = restacked(image, chosen)
     except ValueError as exc:
         raise _invalid(str(exc)) from exc

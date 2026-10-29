@@ -8,8 +8,6 @@ import os
 import numpy as np
 import pytest
 
-fastapi = pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
 PILImage = pytest.importorskip("PIL.Image")
 
 from fastapi.testclient import TestClient  # noqa: E402

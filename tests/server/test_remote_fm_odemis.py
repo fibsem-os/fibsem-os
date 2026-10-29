@@ -13,17 +13,14 @@ import time
 
 import pytest
 
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-from fibsem.drivers.remote.devices import DeviceClient  # noqa: E402
-from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
+from fibsem.drivers.remote.devices import DeviceClient
+from fibsem.fm.remote import RemoteFluorescenceMicroscope
 from fibsem.fm.structures import (
     REFLECTION,
-    ChannelSettings,  # noqa: E402
+    ChannelSettings,
 )
-from fibsem.server.devices import DeviceServer  # noqa: E402
-from tests.fm import _odemis_stubs as stubs  # noqa: E402
+from fibsem.server.devices import DeviceServer
+from tests.fm import _odemis_stubs as stubs
 
 
 def wait_for(condition, timeout=2.0):

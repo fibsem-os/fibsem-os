@@ -90,11 +90,26 @@ def _without_times(case):
     return [result, *rest]
 
 
+# The other: live view selects its beam's channel, under the lock, before each state
+# read, frame and stop, since each acts on whichever view is active. The old worker
+# made them on whatever view was left. Compared without the selection, below.
+CHANNEL = ("connection.imaging.set_active_view", "connection.imaging.set_active_device")
+
+
+def _without_channel(case):
+    result, calls, *rest = case
+    return [result, [c for c in calls if c[1] not in CHANNEL], *rest]
+
+
+def _comparable(case, side):
+    if case["key"].endswith(" live"):
+        return _without_channel(case[side])
+    return _without_times(case[side])
+
+
 def test_the_beam_commands_make_the_same_sdk_calls_logs_and_results(recording):
     different = [
-        c
-        for c in recording["cases"]
-        if _without_times(c["old"]) != _without_times(c["new"])
+        c for c in recording["cases"] if _comparable(c, "old") != _comparable(c, "new")
     ]
     assert different == [], json.dumps(different[:2], indent=1)
 
@@ -174,7 +189,7 @@ def test_a_disabled_column_has_no_beam(recording):
 @pytest.mark.parametrize("beam", ["ELECTRON", "ION"])
 def test_live_view_through_the_beam_makes_the_old_calls_and_frames(recording, beam):
     case = next(c for c in recording["cases"] if c["key"] == f"{beam} live")
-    assert case["old"] == case["new"]
+    assert _without_channel(case["old"]) == _without_channel(case["new"])
     frames, acquiring = case["new"][0]
     assert frames == [
         [[4, 6], "uint16"],  # the fast path's frames
@@ -183,6 +198,29 @@ def test_live_view_through_the_beam_makes_the_old_calls_and_frames(recording, be
         [[4, 6], "uint8"],
     ]
     assert acquiring is False
+
+
+@pytest.mark.parametrize("beam", ["ELECTRON", "ION"])
+def test_live_view_selects_its_beam_before_each_call_on_the_view(recording, beam):
+    """A state read or a stop on the FM's view would read or stop the FM's
+    acquisition, so each follows its own selection of this beam's channel."""
+    calls = next(c for c in recording["cases"] if c["key"] == f"{beam} live")["new"][1]
+    on_the_view = (
+        "connection.imaging.state",
+        "connection.imaging.start_acquisition",
+        "connection.imaging.stop_acquisition",
+    )
+    unselected = []
+    selected = False
+    for call in calls:
+        if call[1] == CHANNEL[1]:
+            selected = True
+        elif call[1] in on_the_view:
+            if not selected:
+                unselected.append(call[1])
+            selected = False
+    assert any(call[1] in on_the_view for call in calls)
+    assert unselected == []
 
 
 def test_start_acquisition_runs_the_beams_live_view_and_stop_stops_it(recording):

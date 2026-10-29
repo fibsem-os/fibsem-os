@@ -4,34 +4,30 @@ import io
 import os
 
 import pytest
+from fastapi.testclient import TestClient
+from PIL import Image
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-from PIL import Image  # noqa: E402
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.codec import decode  # noqa: E402
-from fibsem.imaging.export import (  # noqa: E402
+from fibsem.codec import decode
+from fibsem.imaging.export import (
     default_options,
     load_export_image,
     render_export,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.responses import AnimationFrames, ImageExportForm  # noqa: E402
-from fibsem.structures.settings import (  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.responses import AnimationFrames, ImageExportForm
+from fibsem.structures.settings import (
     BeamType,
     ImageSettings,
     MicroscopeState,
 )
-from fibsem.workflows.status import TaskState, TaskStatus  # noqa: E402
-from tests.run_state import stub_session  # noqa: E402
+from fibsem.workflows.status import TaskState, TaskStatus
+from tests.run_state import stub_session
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

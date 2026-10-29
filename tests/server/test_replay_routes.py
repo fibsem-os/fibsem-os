@@ -7,25 +7,21 @@ import os
 from urllib.parse import quote
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem import utils  # noqa: E402
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem import utils
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from tests.autolamella._replay_experiment import (  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from tests.autolamella._replay_experiment import (
     MILLING_STAGES,
     SPOTS,
     record_demo_experiment,
 )
-from tests.run_state import stub_session  # noqa: E402
+from tests.run_state import stub_session
 
 TOKEN = "test-token"
 

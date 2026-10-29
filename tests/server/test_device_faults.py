@@ -9,20 +9,16 @@ shape, with its traceback in the server's log rather than the answer.
 import logging
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.devices import (  # noqa: E402
+from fibsem.devices import (
     Device,
     DeviceFault,
     DeviceParameter,
     ResourceBusy,
     command,
 )
-from fibsem.server.devices import build_device_app  # noqa: E402
+from fibsem.server.devices import build_device_app
 
 
 class ControllerError(DeviceFault):
@@ -86,7 +82,6 @@ def test_any_other_error_is_a_500_in_the_same_shape(client, caplog):
 
 
 def test_a_remote_copy_raises_the_fault_again():
-    pytest.importorskip("websockets")
     from fibsem.drivers.remote.devices import DeviceClient
     from fibsem.server.devices import DeviceServer
 

@@ -7,11 +7,11 @@
 
 A profile is ``<name>.yaml`` in this machine's ``~/.fibsem/agent/profiles/``
 or in the checkout's ``.claude/fibsem-agent/`` (the machine's wins). It sets
-the model, effort, budget and turns, the mode and its folder, extra skills,
-instructions added to the prompt, and reminders (hooks). Flags on the command
-line win over it. The level and any secret never go in a profile: the
-operator sets the level, and the API key and server token come from the
-environment.
+the model, effort, budget and turns, the mode and its folder (else work/ in
+the session's folder), extra skills, instructions added to the prompt, and
+reminders (hooks). Flags on the command line win over it. The level and any
+secret never go in a profile: the operator sets the level, and the API key and
+server token come from the environment.
 
 A reminder is said to the agent at the moment it makes a matching tool call,
 so it doesn't rely on remembering a skill. ``HOOK_OPTIONS`` is the one list of
@@ -29,6 +29,8 @@ import yaml
 from fibsem import paths
 
 PROFILE_DIR = Path(".claude") / "fibsem-agent"
+# The profile fibsem-agent and the gateway run with when none is named.
+DEFAULT_PROFILE = "fibsem-agent"
 MODES = ("none", "files", "code")
 FIELDS = (
     "name",
@@ -58,6 +60,8 @@ class HookOption:
     tools: str
     # For a failure: only a server error (5xx), never a refusal.
     server_errors_only: bool = False
+    # After the call: only when its answer has this in it.
+    answer_has: str = ""
 
     def applies(self, hook_input: dict, server: str) -> bool:
         name = str(hook_input.get("tool_name", ""))
@@ -68,6 +72,8 @@ class HookOption:
             return False
         if self.server_errors_only:
             return str(hook_input.get("error", "")).startswith("failed (5")
+        if self.answer_has:
+            return self.answer_has in str(hook_input.get("tool_response", ""))
         return True
 
 
@@ -82,6 +88,13 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "After an auto step",
         "PostToolUse",
         "beam_auto_.*|fm_auto_focus|alignment_.*",
+    ),
+    # An Iterative Polishing pass has ended: only its facts carry "Pass data".
+    "after_polish_pass": HookOption(
+        "After a polishing pass",
+        "PostToolUse",
+        "service_wait_for_run",
+        answer_has="Pass data",
     ),
     "hardware_error": HookOption(
         "On a hardware error", "PostToolUseFailure", ".*", server_errors_only=True
@@ -174,8 +187,6 @@ def load(path: Path, efforts=(), checkout: Optional[Path] = None) -> Profile:
     )
     if profile.mode not in MODES:
         raise ProfileError(f"{path}: mode is one of {', '.join(MODES)}")
-    if profile.mode != "none" and not profile.folder:
-        raise ProfileError(f"{path}: mode {profile.mode} needs a folder")
     if efforts and profile.effort is not None and profile.effort not in efforts:
         raise ProfileError(f"{path}: effort is one of {', '.join(efforts)}")
     if checkout is not None:

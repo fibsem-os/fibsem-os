@@ -6,11 +6,8 @@ import time
 import numpy as np
 import pytest
 
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-from fibsem.drivers.demo.devices import bind_demo_fm  # noqa: E402
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem.drivers.demo.devices import bind_demo_fm
+from fibsem.drivers.remote.devices import (
     DeviceClient,
     RemoteCamera,
     RemoteFM,
@@ -18,11 +15,11 @@ from fibsem.drivers.remote.devices import (  # noqa: E402
     connect_remote_fm,
 )
 from fibsem.fm.structures import (
-    ChannelSettings,  # noqa: E402
-    EmissionFilter,  # noqa: E402
+    ChannelSettings,
+    EmissionFilter,
 )
-from fibsem.server.devices import DeviceServer  # noqa: E402
-from fibsem.structures.system import InsertableDeviceState  # noqa: E402
+from fibsem.server.devices import DeviceServer
+from fibsem.structures.system import InsertableDeviceState
 
 
 def _unreachable(client):

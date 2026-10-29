@@ -1,7 +1,5 @@
 """``fibsem-cli`` through an App Server on the Demo, as the operator: each
 command takes the route the agent's tools take, and the server's checks.
-
-Skipped when the [server] extra is not installed.
 """
 
 import json
@@ -10,15 +8,12 @@ import math
 import pytest
 import yaml
 
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-
-from fibsem import cli  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.app_context import AppContext  # noqa: E402
-from fibsem.structures.image import FibsemImage  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
-from tests.fixtures.app_server import serving  # noqa: E402
+from fibsem import cli
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.app_context import AppContext
+from fibsem.structures.image import FibsemImage
+from fibsem.workflows.session import AppSession
+from tests.fixtures.app_server import serving
 
 OPERATOR = "operator-token"
 # A stage offset as the codec reads one: every field named.

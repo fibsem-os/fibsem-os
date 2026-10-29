@@ -202,6 +202,10 @@ class FibsemMicroscope(ABC):
     # known: stage moves and image reprojection assume the stage origin.
     rotation_centre: Optional[Tuple[float, float]] = None
 
+    # The vendor software that states an offset FM's place, for the configuration
+    # window's "Read from ..." (`vendor_fm_placement`). None: nothing to read.
+    fm_placement_source: Optional[str] = None
+
     # An image for the app's SEM and FIB views is sent with ``imaging.show(image)``.
     # One acquisition at a time on this microscope's imaging view. Devices claim the
     # same lock as the `imaging_channel` resource (`resources` below).
@@ -2068,6 +2072,14 @@ class FibsemMicroscope(ABC):
         """
         image.metadata.system_info = deepcopy(self.system.info)
         image.metadata.hardware_geometry = self.hardware_geometry()
+
+    def vendor_fm_placement(
+        self,
+    ) -> Tuple[Optional[Tuple[float, float]], Optional[Tuple[float, float]]]:
+        """The FM's origin (x, y, metres) and imaging pose (r, t, degrees) as the
+        vendor software states them, each None where it states none. Read for an
+        operator to review and save; nothing uses them unsaved."""
+        return None, None
 
     def fm_image_geometry(self) -> FibsemHardwareGeometry:
         """The geometry the FM is currently imaging under.

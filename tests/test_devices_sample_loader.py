@@ -5,10 +5,12 @@ the exchanges; ``DeviceGridMagazine`` turns that into grids. The grid model's
 exchanges and inventory over the Demo device are tested in ``test_grid_inventory``.
 """
 
+import os
 import threading
 
 import pytest
 
+import fibsem.config as cfg
 from fibsem import utils
 from fibsem.codec import decode
 from fibsem.devices.core import Resources
@@ -26,7 +28,7 @@ from fibsem.drivers.demo.devices import build_demo_sample_loader
 from fibsem.drivers.registry import BuildContext
 from fibsem.services.sample_handling import DeviceGridMagazine, bind_sample_handling
 from fibsem.structures.settings import SampleGrid
-from fibsem.structures.system import DeviceEntry
+from fibsem.structures.system import DeviceEntry, InsertableDeviceState
 
 
 def _device(**kwargs) -> DemoSampleLoaderDevice:
@@ -276,3 +278,34 @@ class TestGridModel:
     def test_exchange_seconds_is_the_devices(self):
         microscope = _arctis(exchange_delay=3.0)
         assert microscope.sample_handling.magazine.exchange_seconds == 6.0
+
+
+class TestObjective:
+    """The objective must never be in during an exchange (FIB-1306)."""
+
+    @pytest.fixture
+    def microscope(self):
+        config = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
+        microscope, _ = utils.setup_session(config_path=config)
+        return microscope
+
+    def test_a_load_retracts_the_objective_first(self, microscope):
+        microscope.fm.objective.insert()
+        microscope.sample_handling.ensure_loaded("Grid-01")
+        assert microscope.fm.objective.state is InsertableDeviceState.RETRACTED
+
+    def test_an_unload_retracts_the_objective_first(self, microscope):
+        microscope.sample_handling.ensure_loaded("Grid-01")
+        microscope.fm.objective.insert()
+        microscope.sample_handling.unload()
+        assert microscope.fm.objective.state is InsertableDeviceState.RETRACTED
+
+    def test_an_exchange_with_the_objective_out_leaves_it_alone(
+        self, microscope, monkeypatch
+    ):
+        def refuse():
+            raise AssertionError("retracted an objective that was already out")
+
+        monkeypatch.setattr(microscope.fm.objective, "retract", refuse)
+        microscope.sample_handling.ensure_loaded("Grid-01")
+        microscope.sample_handling.unload()

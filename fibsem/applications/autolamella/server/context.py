@@ -70,6 +70,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.workflows.estimate import grid_run_estimate
 from fibsem.applications.autolamella.workflows.plan import plan_lamella_run
 from fibsem.codec import encode
+from fibsem.conversions import image_to_microscope_image_coordinates
 from fibsem.correlation.history import correlation_dir, load_run
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
@@ -349,6 +350,7 @@ class AutoLamellaAppContext(AppContext):
         path: str,
         width_um: Optional[float] = None,
         height_um: Optional[float] = None,
+        centre: Optional[List[float]] = None,
     ) -> Dict[str, Any]:
         """The lamella's thickness, read off a saved FIB image of the item.
 
@@ -358,7 +360,9 @@ class AutoLamellaAppContext(AppContext):
         (:func:`fibsem.imaging.thickness.measure_lamella_band`) in a window
         around the item's POI: ``width_um`` along the lamella, ``height_um``
         across it, each by default from the item's own trench patterns
-        (``Lamella.trench_window``). Nothing moves; the result is saved in a
+        (``Lamella.trench_window``). ``centre`` ([x, y] in the image's pixels)
+        puts the window there instead of at the POI, for an image not centred
+        where the item's tasks image it. Nothing moves; the result is saved in a
         ``thickness`` folder beside the image. The answer carries the result's
         diagnostic plot.
         """
@@ -397,7 +401,20 @@ class AutoLamellaAppContext(AppContext):
         )
         if width_um is not None or height_um is not None:
             source = "given"
-        poi = lamella.poi if lamella.poi is not None else Point(0, 0)
+        if centre is not None:
+            pixel_size = getattr(image.metadata, "pixel_size", None)
+            if pixel_size is None:
+                return refused("invalid", f"{path!r} carries no pixel size.")
+            poi, centre_from = (
+                image_to_microscope_image_coordinates(
+                    Point(*centre), image.data, pixel_size.x, subpixel_precision=True
+                ),
+                "given",
+            )
+        elif lamella.poi is not None:
+            poi, centre_from = lamella.poi, "poi"
+        else:
+            poi, centre_from = Point(0, 0), "image_centre"
         try:
             result = measure_lamella_band(image, poi, window)
         except ValueError as exc:
@@ -416,6 +433,7 @@ class AutoLamellaAppContext(AppContext):
             "item_name": item_name,
             "image": path,
             "poi": {"x": poi.x, "y": poi.y},
+            "centre_from": centre_from,
             "window_um": [round(window[0] * 1e6, 3), round(window[1] * 1e6, 3)],
             "window_from": source,
             "saved_to": saved_to,
@@ -732,11 +750,15 @@ class AutoLamellaAppContext(AppContext):
 
         history = list(grid.task_history)
         completed = [t.name for t in history if t.status is TaskStatus.Completed]
-        overviews = {}
+        overviews, overview_paths = {}, {}
+        root = os.path.realpath(experiment.path)
         for role in GRID_OVERVIEW_ROLES:
             path = latest_item_output(experiment, grid, role)
             if path is not None:
                 overviews[role] = os.path.basename(path)
+                relative = os.path.relpath(os.path.realpath(path), root)
+                if not relative.startswith(".."):
+                    overview_paths[role] = relative.replace(os.sep, "/")
         return {
             "name": grid.name,
             "id": grid.id,
@@ -749,6 +771,7 @@ class AutoLamellaAppContext(AppContext):
             "last_completed_task": completed[-1] if completed else None,
             "num_items": len(experiment.get_lamellae_for_grid(grid)),
             "overviews": overviews,
+            "overview_paths": overview_paths,
         }
 
     @staticmethod

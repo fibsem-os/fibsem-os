@@ -1009,9 +1009,11 @@ class OdemisFM(FM):
         stream: Any,
         parent: Any = None,
         resources: Optional[Resources] = None,
+        emitter: Any = None,
     ):
         super().__init__(name="fm", parent=parent, resources=resources)
         self._stream = stream
+        self._emitter = emitter
 
     def check_health(self) -> Optional[str]:
         """Whether odemis answers: one live read, the camera's exposure time."""
@@ -1062,6 +1064,15 @@ class OdemisFM(FM):
             self._stream.is_active.value = False  # light off, camera stopped
         except Exception as e:
             logging.error(f"Failed to deactivate stream after live view: {e}")
+
+    def _light_off(self) -> None:
+        """The stream inactive, then every source of the light at 0 W: odemis keeps
+        the light's power when the stream that set it goes away, so a stream that
+        died with a server can leave it on."""
+        self._stream.is_active.value = False
+        if self._emitter is not None:
+            power = self._emitter.power
+            power.value = [0.0] * len(power.value)
 
 
 class OdemisObjectiveLens(fm_api.ObjectiveLens):
@@ -1168,7 +1179,7 @@ def bind_odemis_fm(
         "filter_set": OdemisFMFilterSet(stream, **common),
     }
     parts["camera"].configure(config)
-    group = OdemisFM(stream, **common).fill_roles(**parts)
+    group = OdemisFM(stream, emitter=light_source, **common).fill_roles(**parts)
     devices = {device.name: device.connect() for device in [group, *parts.values()]}
     # Full power is the selected source's (each LED has its own maximum), and the
     # stream's power range follows the excitation: read the power's scale again.
