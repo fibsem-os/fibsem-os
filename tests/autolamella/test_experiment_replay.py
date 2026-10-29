@@ -10,6 +10,7 @@ what it does when a later image overwrote an earlier one.
 import math
 from datetime import datetime, timedelta
 
+import numpy as np
 import pytest
 
 from fibsem.applications.autolamella.tools.replay import (
@@ -126,7 +127,7 @@ def test_spot_burns_accumulate_in_the_field_they_were_burnt_in(recorded):
         if e.kind == EventKind.IMAGE and e.beam == "ION"
     ).field_size
     expected = [((p.x - 0.5) * field[0], (p.y - 0.5) * field[1]) for p in SPOTS]
-    assert last.spots == pytest.approx(expected)
+    assert np.asarray(last.spots) == pytest.approx(np.asarray(expected))
     # That new frame also ended the milling before it.
     assert last.milling is None
 
@@ -447,8 +448,8 @@ def test_the_events_replay_what_the_log_replays(recorded_twice):
     assert all(e.item_type == "lamella" for e in events.events if e.item)
     spots = [i for i, e in _of(events, EventKind.MILLING) if "spot" in e.data]
     log_spots = [i for i, e in _of(log, EventKind.MILLING) if "spot" in e.data]
-    assert events.scene(spots[-1]).spots == pytest.approx(
-        log.scene(log_spots[-1]).spots
+    assert np.asarray(events.scene(spots[-1]).spots) == pytest.approx(
+        np.asarray(log.scene(log_spots[-1]).spots)
     )
     # milling's own final image is recorded, so the overlay ends where the log's does
     assert events.scene(spots[-1]).milling is None

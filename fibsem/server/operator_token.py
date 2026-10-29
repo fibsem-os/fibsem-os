@@ -39,20 +39,50 @@ def read_operator_token(path: Optional[Path] = None) -> Optional[str]:
 
 
 def load_operator_token(path: Optional[Path] = None) -> str:
-    """The install's operator token, made and saved the first time."""
+    """The install's operator token, made and saved the first time. Two
+    processes making it at once both get the one that was saved."""
+    token = read_operator_token(path)
+    if token is not None:
+        return token
+    token = secrets.token_urlsafe(32)
+    if _save(path, token, replace=False):
+        return token
     return read_operator_token(path) or new_operator_token(path)
 
 
 def new_operator_token(path: Optional[Path] = None) -> str:
     """Make, save and return a new operator token; the old one stops working
     once the App Server takes this one."""
+    token = secrets.token_urlsafe(32)
+    _save(path, token, replace=True)
+    return token
+
+
+def _save(path: Optional[Path], token: str, replace: bool) -> bool:
+    """Write *token* whole, so no reader sees half a file; without *replace*,
+    only where there is no file yet. Whether it was written."""
     path = Path(path) if path is not None else OPERATOR_TOKEN_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    token = secrets.token_urlsafe(32)
-    with open(path, "w") as f:
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(6)}")
+    with open(tmp, "w") as f:
         json.dump({"token": token, "person": None}, f, indent=2)
-    os.chmod(path, 0o600)
-    return token
+    os.chmod(tmp, 0o600)
+    try:
+        if replace:
+            os.replace(tmp, path)
+            return True
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            return False
+        except OSError:  # a file system without hard links
+            if path.exists():
+                return False
+            os.replace(tmp, path)
+        return True
+    finally:
+        if tmp.exists():
+            tmp.unlink()
 
 
 def read_device_token(path: Optional[Path] = None) -> Optional[str]:

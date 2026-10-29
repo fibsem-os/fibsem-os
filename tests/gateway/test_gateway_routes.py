@@ -6,23 +6,20 @@ gateway."""
 import json
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.gateway import main as gateway_main  # noqa: E402
-from fibsem.gateway.gateway import (  # noqa: E402
+from fibsem.gateway import main as gateway_main
+from fibsem.gateway.gateway import (
     OFF,
     RUNNING,
     GatewayRefused,
     GatewayState,
 )
-from fibsem.gateway.host import HostMicroscope  # noqa: E402
-from fibsem.gateway.server import GatewayAuth, build_gateway_app  # noqa: E402
-from fibsem.server.pairing import HUB, SWITCH_MODES, PairedTokens  # noqa: E402
-from fibsem.tools import desktop_launch  # noqa: E402
-from fibsem.tools.apps import AUTOLAMELLA  # noqa: E402
+from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.server import GatewayAuth, build_gateway_app
+from fibsem.server.pairing import HUB, SWITCH_MODES, PairedTokens
+from fibsem.tools import desktop_launch
+from fibsem.tools.apps import AUTOLAMELLA
 
 OPERATOR_TOKEN = "operator-token"
 
@@ -292,7 +289,9 @@ def host_setup(tmp_path):
     token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
     auth = GatewayAuth.from_disk(token_file, tmp_path / "gateway-paired.json")
     host = FakeHost()
-    microscope = HostMicroscope(discovery=host.discovery, call=host)
+    microscope = HostMicroscope(
+        discovery=host.discovery, call=host, token=lambda: OPERATOR_TOKEN
+    )
     client = TestClient(build_gateway_app(FakeGateway(), auth, microscope=microscope))
     return client, host
 
@@ -329,6 +328,20 @@ def test_connecting_needs_the_app_running_and_the_grant(host_setup):
     assert r.json()["detail"]["error_type"] == "no_grant"
     host.up = False
     r = client.post("/gateway/microscope/connect", headers=_as(OPERATOR_TOKEN))
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (409, "no_app")
+
+
+def test_the_operator_opens_the_apps_agent_page_signed_in(host_setup):
+    # The page is the app's (8001), not the gateway's; the token rides in the
+    # fragment, as the window's own link carries it.
+    client, host = host_setup
+    r = client.get("/gateway/app/agent-page", headers=_as(OPERATOR_TOKEN))
+    assert r.json() == {"url": f"http://127.0.0.1:8001/ui/agent#token={OPERATOR_TOKEN}"}
+    switcher = _pair_hub(client, [SWITCH_MODES])
+    r = client.get("/gateway/app/agent-page", headers=_as(switcher["token"]))
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (403, "operator_only")
+    host.up = False
+    r = client.get("/gateway/app/agent-page", headers=_as(OPERATOR_TOKEN))
     assert (r.status_code, r.json()["detail"]["error_type"]) == (409, "no_app")
 
 
@@ -430,7 +443,7 @@ def test_a_start_with_no_profile_takes_the_default_and_checks_the_budget(with_ag
         headers=_as(OPERATOR_TOKEN),
     )
     assert agent.calls == [
-        ("start", "default", None, "watch", "operator", "page", 7.5, True)
+        ("start", "fibsem-agent", None, "watch", "operator", "page", 7.5, True)
     ]
 
 

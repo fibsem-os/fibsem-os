@@ -182,3 +182,11 @@ def fm_camera_tilt(fm_is_pose: bool, ion_column_tilt: float) -> float:
     travels to sits parallel to the ion column and shares its tilt.
     """
     return 180.0 if fm_is_pose else float(ion_column_tilt)
+
+
+def pose_camera_tilt(model: StageModel, r: float, t: float) -> float:
+    """Tilt from the electron column, in degrees, of a camera that sees the sample
+    face on at the pose (r, t) in radians: the surface normal's tilt there. An FM's
+    declared pose and its camera's tilt are one fact, read this way round."""
+    normal = model.surface_normal(r, t)
+    return float(np.degrees(np.arctan2(-normal[1], normal[2])))

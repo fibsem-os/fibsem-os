@@ -3,7 +3,7 @@ import { ChevronRight, Download, FileImage, FileText, File as FileIcon, Folder }
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
-import { Legend, metaLine } from "@/components/images";
+import { ImageViewer, Legend, metaLine } from "@/components/images";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, getToken } from "@/lib/api";
 import { useOpenExperiment } from "@/lib/experiment";
@@ -14,6 +14,9 @@ import { cn } from "@/lib/utils";
 import { Replay } from "./experiment/Replay";
 
 const ICON = { folder: Folder, image: FileImage, text: FileText, other: FileIcon };
+
+// TIFFs open in the image viewer; a PNG or JPEG is a picture, shown as it is, in colour.
+const viewable = (entry: FileEntry) => entry.kind === "image" && /\.tiff?$/i.test(entry.name);
 
 // The folder and the view are in the address, so a reload or a link opens them again.
 const param = (key: string) => new URLSearchParams(location.search).get(key);
@@ -82,7 +85,9 @@ function Metadata() {
   );
 }
 
-function Preview({ entry }: { entry: FileEntry }) {
+/** The picked file: an image's preview, which opens it large, previous and next
+ * through the folder's *images*; a text file's text. */
+export function FilePreview({ entry, images }: { entry: FileEntry; images: string[] }) {
   const [big, setBig] = useState(false);
   const read = useQuery({
     queryKey: ["app/experiment/files", entry.path, "read"],
@@ -112,13 +117,17 @@ function Preview({ entry }: { entry: FileEntry }) {
           </button>
           <div className="text-[12px] text-muted-foreground">{metaLine(entry.path, read.data?.summary)}</div>
           {fm && <Legend fm={fm} />}
-          <Dialog open={big} onOpenChange={setBig}>
-            <DialogContent title={entry.name} className="w-[min(1200px,calc(100vw-32px))]">
-              <div className="overflow-auto bg-black p-2">
-                <img className="block w-full" alt={entry.name} src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />
-              </div>
-            </DialogContent>
-          </Dialog>
+          {viewable(entry) ? (
+            <ImageViewer paths={images} at={big ? images.indexOf(entry.path) : null} onClose={() => setBig(false)} />
+          ) : (
+            <Dialog open={big} onOpenChange={setBig}>
+              <DialogContent title={entry.name} className="w-[min(1200px,calc(100vw-32px))]">
+                <div className="overflow-auto bg-black p-2">
+                  <img className="block w-full" alt={entry.name} src={`data:image/jpeg;base64,${p.image_b64_jpeg}`} />
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
         </>
       )}
       {read.data?.text != null && (
@@ -218,7 +227,7 @@ function Files() {
             )}
           </tbody>
         </table>
-        {picked && <Preview key={picked.path} entry={picked} />}
+        {picked && <FilePreview key={picked.path} entry={picked} images={shown.filter(viewable).map((e) => e.path)} />}
       </div>
     </Card>
   );

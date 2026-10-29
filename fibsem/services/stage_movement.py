@@ -38,7 +38,7 @@ from fibsem.geometry.angles import (
     rotation_angle_is_smaller,
     wrap_angle,
 )
-from fibsem.geometry.frames import StageModel
+from fibsem.geometry.frames import StageModel, pose_camera_tilt
 from fibsem.geometry.frames import fm_camera_tilt as derived_camera_tilt
 from fibsem.geometry.movement import (
     apply_delta,
@@ -237,6 +237,7 @@ class StageMovement(Service):
         stage = self.parent.stage_device
         return False if stage is None else stage.turned_over(tilt)
 
+    @query
     def stage_poses(self) -> Dict[str, FibsemStagePosition]:
         """The stage's pose for each orientation name, from the configured geometry.
 
@@ -252,6 +253,7 @@ class StageMovement(Service):
             fib_column_tilt=system.ion.column_tilt,
         )
 
+    @query
     def fm_is_a_pose(self) -> bool:
         """Does the stage reach the FM by re-posing rather than by travelling?
 
@@ -281,6 +283,18 @@ class StageMovement(Service):
             "MILLING": FibsemStagePosition(r=sem.r, t=milling_tilt),
             **poses,
         }
+        declared = self._declared_fm_pose()
+        if declared is not None and "FM" not in self._orientations:
+            self._orientations["FM"] = FibsemStagePosition(
+                r=fib.r if declared.r is None else declared.r,
+                t=fib.t if declared.t is None else declared.t,
+            )
+
+    def _declared_fm_pose(self) -> Optional[FibsemStagePosition]:
+        """The pose an offset FM's entry states (``pose``), or None: then it images
+        in the FIB pose, and "FM" is no orientation of this stage."""
+        device = self.parent.system.stage.devices.get("FM")
+        return None if device is None else device.pose
 
     @query
     def orientation(self, name: str) -> FibsemStagePosition:
@@ -299,7 +313,19 @@ class StageMovement(Service):
             raise ValueError(
                 "Stage position must have both rotation (r) and tilt (t) defined."
             )
-        return classify_orientation(position.r, position.t, self.orientations)
+        orientations = self.orientations
+        found = classify_orientation(position.r, position.t, orientations)
+        if found in ("FIB", "FM") and self._fm_pose_is_the_fib_pose():
+            # One pose with two names, on an offset FM: the place decides.
+            return "FM" if self._device_by_place(position) == "FM" else "FIB"
+        return found
+
+    def _fm_pose_is_the_fib_pose(self) -> bool:
+        """Whether an offset FM's declared pose is the FIB pose itself."""
+        fm, fib = self.orientations.get("FM"), self.orientations.get("FIB")
+        if fm is None or fib is None or self.fm_is_a_pose():
+            return False
+        return bool(np.isclose(fm.r, fib.r) and np.isclose(fm.t, fib.t))
 
     @query
     def current_milling_angle(
@@ -473,6 +499,42 @@ class StageMovement(Service):
         return deepcopy(self._device(device).origin)
 
     @query
+    def device_position(
+        self, device: str, stage_position: Optional[FibsemStagePosition] = None
+    ) -> FibsemStagePosition:
+        """Where *stage_position*'s sample sits when the stage is at `device`: the
+        device's origin as a whole position, for drawing or anchoring at it.
+
+        The origin is partial on purpose (`device_origin`): a METEOR's FM is odemis's
+        CALIB dx, dy and nothing more, as odemis keeps it. What it leaves out is the
+        sample's, as odemis takes z from each grid's SAMPLE_CENTERS: x, y and z the
+        origin does not set come from *stage_position* (a holder slot for "where is this
+        grid at the FM", the stage for "where am I"; the current stage when omitted).
+        r and t are the device's imaging pose, its first available orientation.
+
+        Reading a missing axis as 0 instead put the FM overview's sample plane 32 mm
+        below the sample on a METEOR (odemis simulator, 2026-10-26).
+        """
+        target = self._device(device)
+        reference = stage_position if stage_position is not None else self._position()
+        origin = deepcopy(target.origin)
+        position = FibsemStagePosition(name=device, coordinate_system="RAW")
+        for axis in DEVICE_AXES:
+            value = getattr(origin, axis)
+            setattr(
+                position, axis, getattr(reference, axis) if value is None else value
+            )
+        orientations = target.available_orientations or []
+        pose = (
+            self.orientations.get(orientations[0])
+            if orientations and orientations[0] in self.orientations
+            else None
+        )
+        position.r = reference.r if pose is None else pose.r
+        position.t = reference.t if pose is None else pose.t
+        return position
+
+    @query
     def is_at_device(
         self, device: str, stage_position: Optional[FibsemStagePosition] = None
     ) -> bool:
@@ -568,7 +630,11 @@ class StageMovement(Service):
         by_pose = self._device_at_position_pose(stage_position)
         if by_pose is not None:
             return by_pose
+        return self._device_by_place(stage_position)
 
+    def _device_by_place(self, stage_position: FibsemStagePosition) -> Optional[str]:
+        """`current_device` by x, y and z alone: the containing device with the
+        nearest origin."""
         devices = {
             name: self._device(name) for name in self.parent.system.stage.devices
         }
@@ -769,7 +835,12 @@ class StageMovement(Service):
         if orientation is not None:
             return orientation
         allowed = self._device(device).available_orientations
-        if allowed and self.stage_orientation(stage_position) not in allowed:
+        current = self.stage_orientation(stage_position)
+        if allowed and current not in allowed:
+            # Back from an offset FM's own pose, the beam pose beside it: a tilt at
+            # the same rotation, not a turn to the first the beams list.
+            if current == "FM" and not self.fm_is_a_pose() and "FIB" in allowed:
+                return "FIB"
             return allowed[0]
         return None
 
@@ -824,7 +895,7 @@ class StageMovement(Service):
         # beam wearing the FM's rotation and tilt. Ask for it as a device instead:
         # `target_device="FM"`, with whichever orientation the sample should be in.
         if "FM" in (currrent_orientation, target_orientation) and (
-            not self.fm_is_a_pose()
+            "FM" not in self.orientations
         ):
             raise ValueError(
                 "Cannot move to the FM position: this stage reaches the FM by "
@@ -1408,7 +1479,7 @@ class StageMovement(Service):
             and position.t is not None
             else None
         )
-        if self.stage_orientation(destination) == "FM":
+        if self.stage_orientation(destination) == "FM" and self.fm_is_a_pose():
             blocked += ["z", "r"]
 
         fm = self.parent.fm
@@ -2126,11 +2197,22 @@ def bind_stage_movement(service: Type[_S], microscope: Any) -> Optional[_S]:
 
 def fm_camera_tilt(microscope: Any) -> float:
     """Tilt of the FM camera's optical axis from the SEM column, in degrees: the FM
-    entry's ``camera_tilt``, else 180 where the FM is a stage pose, else the ion
-    column's tilt. See `StageMovement.camera_tilt`."""
+    entry's ``camera_tilt``, else the sample normal's tilt in its declared ``pose``,
+    else 180 where the FM is a stage pose, else the ion column's tilt. See
+    `StageMovement.camera_tilt`."""
     configured = microscope.system.fm.camera_tilt
     if configured is not None:
         return float(configured)
+    movement = microscope.stage_movement
+    stage = microscope.system.stage
+    device = stage.devices.get("FM")
+    if movement is not None and device is not None and device.pose is not None:
+        pose = movement.orientation("FM")
+        model = StageModel(
+            shuttle_pre_tilt=float(np.radians(stage.shuttle_pre_tilt)),
+            rotation_reference=float(np.radians(stage.rotation_reference)),
+        )
+        return pose_camera_tilt(model, pose.r, pose.t)
     return derived_camera_tilt(
         microscope._fm_is_a_pose(), microscope.system.ion.column_tilt
     )

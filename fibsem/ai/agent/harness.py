@@ -1,17 +1,18 @@
 """``fibsem-agent``: an AutoLamella agent with nobody at a terminal.
 
 The Claude Agent SDK runs one long session with the ``fibsem-mcp`` sidecar as
-its only MCP server, and the runner runs ``fibsem-mcp watch`` itself: each
+its only MCP server, and the harness runs ``fibsem-mcp watch`` itself: each
 batch of the watcher's lines is the agent's next turn. The App Server still
-decides what the agent may do, and the runner never sets the level. Needs the
+decides what the agent may do, and the harness never sets the level. Needs the
 [agent] extra; nothing else in fibsem imports ``claude_agent_sdk``.
 
     fibsem-agent
     fibsem-agent --resume <session id>
     fibsem-agent --resume                     # the last session run in the same folder
     fibsem-agent --session-id <id>            # a new session with this id (a manager's)
-    cd ~/fibsem-work && fibsem-agent --code   # it writes and runs code, sandboxed
-    fibsem-agent --files ~/fibsem-work         # it reads and writes files there, runs nothing
+    fibsem-agent --code                       # it writes and runs code, sandboxed,
+                                              # in work/ in the session's folder
+    fibsem-agent --files ~/fibsem-work        # it reads and writes files there, runs nothing
     fibsem-agent --profile overnight-lamella  # what it runs with, from a profile
     fibsem-agent --profile overnight-lamella --show-config
 """
@@ -33,29 +34,36 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode, profiles
+from fibsem.ai.agent import code_mode, mirror, profiles, usage
 from fibsem.ai.agent import manager as sessions
-from fibsem.ai.agent.levels import LEVEL_SKILLS
-from fibsem.ai.agent.mcp import watch as watch_mod
+from fibsem.ai.agent import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
 from fibsem.extras import missing_extra_message
 from fibsem.logo import print_fibsem_logo
 from fibsem.util import timestamps
 
-BASE_SKILL = "autolamella-agent"
-SKILLS = (BASE_SKILL,) + tuple(LEVEL_SKILLS.values())
+# Read first, every session; it names the task skills and when to read each.
+BASE_SKILL = "fibsem-agent"
+# The skills for a task, read once the operator says what they want done.
+TASK_SKILLS = (
+    "autolamella-agent",
+    "autolamella-lead",
+    "screen-grids",
+    "fib-experiment",
+)
+SKILLS = (BASE_SKILL,) + TASK_SKILLS
 
 SERVER = "fibsem"
-# The specialists a Run Lead calls (supervise-autolamella, lead mode): the
+# The specialists a Run Lead calls (the autolamella-lead skill): the
 # checkout's .claude/agents, each with its own tool list.
 SPECIALISTS = (
     "autolamella-verifier",
     "autolamella-investigator",
     "autolamella-auditor",
 )
-# The runner's own tools, in-process: the wake-up timer (`Alarm`).
-RUNNER_SERVER = "fibsem_agent"
-WAKE_TOOL = f"mcp__{RUNNER_SERVER}__wake_after"
+# The harness's own tools, in-process: the wake-up timer (`Alarm`).
+HARNESS_SERVER = "fibsem_agent"
+WAKE_TOOL = f"mcp__{HARNESS_SERVER}__wake_after"
 # The longest a wake-up can be set for, in minutes.
 WAKE_MAX_MIN = 240
 # A constraint's time wakes the agent this long before it, and again at it.
@@ -118,7 +126,9 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 MAX_TURNS = 40  # tool calls per wake-up
 MAX_BUDGET_USD = 5.0  # what one run spends
 SERVER_WAIT_S = 600.0
-# The transcript (`Runner._send_transcript`): sent this often while a turn
+# How long the CLI has to say how full the context is, after a turn.
+CONTEXT_WAIT_S = 10.0
+# The transcript (`Harness._send_transcript`): sent this often while a turn
 # runs and as it ends, at most this many lines at once, at most this many kept
 # while the server can't take them.
 TRANSCRIPT_EVERY_S = 10.0
@@ -126,7 +136,15 @@ TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
 RETRY_MAX_S = 60.0
 
-RUNNER_PROMPT = """\
+HARNESS_PROMPT = """\
+You run a FIB/SEM microscope for the operator, toward the goal they give you. \
+The sample is precious and often can't be replaced, and the microscope is \
+shared: a mistake costs someone's sample or their time on it. Prefer a step \
+you can check to a fast one, and when you are unsure, stop and ask. You \
+reach the microscope only through fibsem-os: its mcp__fibsem__* tools call the \
+app's server, which runs each action on the instrument and refuses what your \
+level doesn't allow.
+
 You are running under fibsem-agent, a program on the microscope PC, not an \
 interactive Claude Code session. Nobody is at a terminal.
 
@@ -153,11 +171,9 @@ your reason comes then. One at a time; a new one replaces it.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.
-- The operator sets your level in the app. Work by the skill for your level: \
-observe-autolamella at Watch, assist-autolamella at Assist, \
-supervise-autolamella at Drive. A LEVEL line means it changed: read that \
-level's skill if you haven't. A refusal is the server's answer: handle it as \
-the skills say."""
+- The operator sets your level in the app; a LEVEL line means it changed. \
+Work as your level allows, as the skills say, and handle a refusal as they say: \
+it is the server's answer."""
 NO_CODE = """\
 - Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
 autolamella-* agents only. There is no shell, no file access and no web, for \
@@ -165,12 +181,12 @@ you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do."""
 
 
-def runner_prompt(work: Optional[Path] = None, code: bool = True) -> str:
-    """What the runner tells the agent about itself; with a work folder (code
+def harness_prompt(work: Optional[Path] = None, code: bool = True) -> str:
+    """What the harness tells the agent about itself; with a work folder (code
     mode, or files only), about it too."""
     if work is None:
-        return RUNNER_PROMPT.format(tools=NO_CODE)
-    return RUNNER_PROMPT.format(tools=code_mode.prompt(work, code))
+        return HARNESS_PROMPT.format(tools=NO_CODE)
+    return HARNESS_PROMPT.format(tools=code_mode.prompt(work, code))
 
 
 def system_prompt(
@@ -178,8 +194,8 @@ def system_prompt(
     code: bool = True,
     profile: Optional[profiles.Profile] = None,
 ) -> str:
-    """The runner's prompt, and the profile's instructions after it."""
-    prompt = runner_prompt(work, code)
+    """The harness's prompt, and the profile's instructions after it."""
+    prompt = harness_prompt(work, code)
     if profile is not None and profile.prompt:
         prompt += (
             f"\n\nInstructions from the {profile.name} profile you run with:\n"
@@ -189,7 +205,7 @@ def system_prompt(
 
 
 def skills_for(profile: Optional[profiles.Profile] = None) -> List[str]:
-    """The skills the agent loads: the base and level skills, and a profile's."""
+    """The skills the agent loads: the base and task skills, and a profile's."""
     extra = [name for name in (profile.skills if profile else []) if name not in SKILLS]
     return list(SKILLS) + extra
 
@@ -199,12 +215,11 @@ REREAD_PROPOSALS = (
     "on the lines above."
 )
 REREAD_LEVEL = (
-    "Your level may have changed: re-read server_get_capabilities and work by "
-    "the skill for the level it gives, then re-read app_get_status and "
-    "proposal_list."
+    "Your level may have changed: re-read server_get_capabilities and work as "
+    "the level it gives allows, then re-read app_get_status and proposal_list."
 )
 
-log = logging.getLogger("fibsem.agent.runner")
+log = logging.getLogger("fibsem.agent.harness")
 
 
 def kickoff(resumed: bool = False, goal: Optional[str] = None) -> str:
@@ -214,8 +229,11 @@ def kickoff(resumed: bool = False, goal: Optional[str] = None) -> str:
     if goal:
         prompt += (
             f"\n\nYour goal, from the operator who started you: {goal}\n"
-            "Work toward it within your level, and say so when it is done or "
-            "can't be done."
+            "Before acting on it, tell the operator with "
+            "experiment_message_operator how you read it: what you will do, and "
+            "the rule you will use where it leaves a choice (which sites, how "
+            "many, when to stop), or the default you will take. Then work toward "
+            "it within your level, and say so when it is done or can't be done."
         )
     return prompt
 
@@ -225,22 +243,25 @@ def _kickoff(resumed: bool) -> str:
         return (
             "fibsem-agent restarted and resumed this session. Its watcher started "
             "again from now, so whatever happened while it was down is not in its "
-            "lines. Call server_get_capabilities, read the skill for your level "
-            f"again if it is no longer in your context ({BASE_SKILL} first), tell "
+            "lines. Call server_get_capabilities, read your skills again if they "
+            f"are no longer in your context ({BASE_SKILL} first), tell "
             "the operator in a sentence what your level means now, re-read "
             "app_get_status and proposal_list, then end your turn."
         )
     return (
-        "You are the AutoLamella agent, run by fibsem-agent.\n"
+        "You are the microscope's agent, run by fibsem-agent.\n"
         f"1. Read the {BASE_SKILL} skill with the Skill tool.\n"
-        "2. Call server_get_capabilities, then read the skill for the level it "
-        "gives. Tell the operator in a sentence what your level means for this "
-        "session and whether the microscope is served. If an experiment is "
-        "open, send that sentence with experiment_message_operator too, so "
-        "the operator sees it in the app. The level is the operator's.\n"
+        "2. Call server_get_capabilities. Tell the operator in a sentence what "
+        "your level means for this session and whether the microscope is "
+        "served. The level is the operator's.\n"
         "3. Read where things stand, as the base skill's Session setup says. "
         "The watcher is already running: don't start one.\n"
-        "Then end your turn. The runner wakes you with the watcher's lines."
+        "4. With a goal, read the task skill it calls for (the table at the top "
+        f"of {BASE_SKILL}). Without one, ask the operator with "
+        "experiment_message_operator what they would like to get done today, "
+        "naming the tasks in that table, and read the task skill for their "
+        "answer when it comes.\n"
+        "Then end your turn. The harness wakes you with the watcher's lines."
     )
 
 
@@ -292,7 +313,7 @@ class Alarm:
         self.reason: Optional[str] = None
 
     def bind(self, loop: asyncio.AbstractEventLoop, ring: Callable[[str], None]):
-        """Ring through *ring* on *loop* (`Runner.run`)."""
+        """Ring through *ring* on *loop* (`Harness.run`)."""
         self._loop, self._ring = loop, ring
 
     def set(self, minutes: float, reason: str) -> str:
@@ -301,7 +322,7 @@ class Alarm:
         if minutes <= 0:
             return "No wake-up is set."
         if self._loop is None:
-            return "The runner can't wake you yet; the watcher's lines still will."
+            return "The harness can't wake you yet; the watcher's lines still will."
         minutes = min(float(minutes), WAKE_MAX_MIN)
         self.reason = reason.strip() or "you asked to be woken"
         line = f"WAKE {self.reason} (you asked {minutes:g} min ago)"
@@ -378,7 +399,7 @@ class Deadlines:
 
 
 def wake_server(alarm: Alarm):
-    """The runner's in-process MCP server: the ``wake_after`` tool on *alarm*."""
+    """The harness's in-process MCP server: the ``wake_after`` tool on *alarm*."""
     from claude_agent_sdk import create_sdk_mcp_server, tool
 
     @tool(
@@ -394,7 +415,7 @@ def wake_server(alarm: Alarm):
         said = alarm.set(float(args.get("minutes", 0)), str(args.get("reason", "")))
         return {"content": [{"type": "text", "text": said}]}
 
-    return create_sdk_mcp_server(RUNNER_SERVER, tools=[wake_after])
+    return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after])
 
 
 @dataclass
@@ -406,10 +427,14 @@ class TurnEnd:
     session_id: Optional[str] = None
     # Why the model did not answer (the SDK's AssistantMessage.error), if so.
     error: Optional[str] = None
+    # The turn's tokens ({input, output, cache_read, cache_write}).
+    tokens: Optional[Dict[str, int]] = None
+    # How full the context is: {used, window, compact_at}, in tokens.
+    context: Optional[Dict[str, int]] = None
 
 
 class _Stopped(Exception):
-    """The runner is stopping: raised inside ``watch()`` to end it."""
+    """The harness is stopping: raised inside ``watch()`` to end it."""
 
 
 class _Seeded:
@@ -505,8 +530,13 @@ class Watcher:
             self._client, self._stopping, lambda: self._deliver(_Seeded())
         )
         try:
+            # The harness marks a message read when the turn carrying it starts.
             code = watch_mod.watch(
-                client, out=self._out, sleep_fn=self._sleep, poll_s=self._poll_s
+                client,
+                out=self._out,
+                sleep_fn=self._sleep,
+                poll_s=self._poll_s,
+                report_reads=False,
             )
         except _Stopped:
             return
@@ -523,7 +553,7 @@ class Watcher:
 
 
 def _close(client) -> None:
-    """Close a client the runner is done with, and its pooled connections."""
+    """Close a client the harness is done with, and its pooled connections."""
     try:
         client.close()
     except Exception:
@@ -549,7 +579,7 @@ def _reachable(client) -> bool:
     return response.status_code != 401 and response.status_code < 500
 
 
-class Runner:
+class Harness:
     """The wake loop: the kickoff, then one turn per batch of watcher lines,
     until the operator stops it, the budget is spent or the app is gone.
 
@@ -558,7 +588,7 @@ class Runner:
     or None while no server is known. ``run()`` returns the exit code: 0
     when stopped, 1 when the app or the agent is gone, 2 when the budget is.
 
-    After every turn, and as it ends, the runner reports the session to the
+    After every turn, and as it ends, the harness reports the session to the
     App Server (``POST /app/agent/session``): its id, model, goal, budget and
     spend, so the operator sees them in the app.
     """
@@ -582,6 +612,8 @@ class Runner:
         self._deadlines = Deadlines()
         self._goal = goal
         self._goal_sent = False
+        # The skills read, as last reported: sent again when the agent reads one.
+        self._skills_sent: List[str] = []
         # What it can do (code mode, effort, skills), sent with the first report.
         self._about = dict(about or {})
         self._budget_usd = budget_usd
@@ -589,6 +621,8 @@ class Runner:
         self._client = None
         self._turns = 0
         self._spent_usd: Optional[float] = None
+        self._tokens: Optional[Dict[str, int]] = None
+        self._context: Optional[Dict[str, int]] = None
         self._end_reason = "stopped at fibsem-agent"
         # False when resuming can't help: the model can't answer.
         self._resumable = True
@@ -611,6 +645,7 @@ class Runner:
         return {
             "reason": self._end_reason,
             "spent_usd": self._spent_usd,
+            "tokens": self._tokens,
             "turns": self._turns,
             "resumable": self._resumable,
         }
@@ -721,6 +756,7 @@ class Runner:
         over."""
         if self._stopping.is_set():
             return False
+        await self._report_read(prompt)
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
         sender = asyncio.ensure_future(self._send_transcript_every())
         try:
@@ -731,6 +767,10 @@ class Runner:
         self._turns += 1
         if end.cost_usd is not None:
             self._spent_usd = end.cost_usd
+        if end.tokens is not None:
+            self._tokens = usage.add(self._tokens or usage.zero(), end.tokens)
+        if end.context is not None:
+            self._context = end.context
         if self._stopping.is_set():
             return False
         session = end.session_id or getattr(self._agent, "session_id", None)
@@ -787,9 +827,15 @@ class Runner:
             "goal": None if self._goal_sent else self._goal,
             "budget_usd": self._budget_usd,
             "spent_usd": self._spent_usd,
+            "tokens": self._tokens,
+            "context": self._context,
             "turns": self._turns,
             **({} if self._goal_sent else self._about),
         }
+        skills = list(getattr(self._agent, "skills_read", None) or [])
+        if skills != self._skills_sent:
+            body["skills"] = skills
+            self._skills_sent = skills
         body = {key: value for key, value in body.items() if value is not None}
         if ended:
             body.update(ended=True, reason=self._end_reason)
@@ -810,6 +856,15 @@ class Runner:
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("constraints"))
         await self._send_transcript()
+
+    async def _report_read(self, prompt: str) -> None:
+        """The operator's messages this turn carries are read: the web page
+        stops showing them as waiting."""
+        ids, client = watch_mod.message_ids(prompt), self._client
+        if ids and client is not None:
+            await asyncio.get_running_loop().run_in_executor(
+                None, watch_mod.report_read, client, ids
+            )
 
     async def _send_transcript(self) -> None:
         """The lines printed since the last send, to the App Server for the web
@@ -930,7 +985,7 @@ class Runner:
         self._wakes = Wakes()
         back = (
             f"The app could not be watched for {time.monotonic() - started:.0f} s "
-            "and the runner is watching it again: events in between were not "
+            "and the harness is watching it again: events in between were not "
             "seen. " + REREAD_LEVEL
         )
         return f"{prompt}\n\n{back}" if prompt else back
@@ -975,13 +1030,18 @@ class Runner:
 class SdkAgent:
     """The agent: one ``ClaudeSDKClient`` session, its messages logged."""
 
-    def __init__(self, options) -> None:
+    def __init__(self, options, usage_path: Optional[Path] = None) -> None:
         self._options = options
         self._client = None
+        # Each model call's tokens, a line each in the session's usage file.
+        self.calls = usage.Calls(usage_path)
+        self._cost_usd: Optional[float] = None
         self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
-        # The lines printed, until the runner sends them (`Runner._send_transcript`).
+        # The skills it has read, in order: the session reports them.
+        self.skills_read: List[str] = []
+        # The lines printed, until the harness sends them (`Harness._send_transcript`).
         self.transcript: List[dict] = []
         self._seq = 0
         # A tool call's line, by the call's id: its result may say it failed.
@@ -1009,20 +1069,80 @@ class SdkAgent:
         await self._client.connect()
 
     async def turn(self, prompt: str) -> TurnEnd:
-        from claude_agent_sdk import AssistantMessage, ResultMessage
+        from claude_agent_sdk import AssistantMessage, ResultMessage, ToolUseBlock
 
         await self._client.query(prompt)
-        end, error = TurnEnd(subtype="no_result"), None
+        end, error, result = TurnEnd(subtype="no_result"), None, None
         async for message in self._client.receive_response():
             _show(message, self)
-            if isinstance(message, AssistantMessage) and message.error:
-                error = message.error
+            if isinstance(message, AssistantMessage):
+                error = message.error or error
+                self.calls.seen(
+                    message.message_id,
+                    message.model,
+                    message.usage,
+                    [
+                        _short(block.name)
+                        for block in message.content
+                        if isinstance(block, ToolUseBlock)
+                    ],
+                    message.parent_tool_use_id,
+                )
             if isinstance(message, ResultMessage):
+                result = message
                 end = TurnEnd(
                     message.subtype, message.total_cost_usd, message.session_id
                 )
         end.error = error
+        end.tokens = self.calls.end_turn()
+        end.context = await self._context()
+        if result is not None:
+            log.info("%s", self._turn_line(result, end))
+            if result.total_cost_usd is not None:
+                self._cost_usd = result.total_cost_usd
         return end
+
+    async def _context(self) -> Optional[Dict[str, int]]:
+        """How full the context is, from the CLI; the last call's size, if
+        the CLI can't say."""
+        context = {"used": self.calls.context} if self.calls.context else None
+        try:
+            reply = await asyncio.wait_for(
+                self._client.get_context_usage(), CONTEXT_WAIT_S
+            )
+        except Exception:  # noqa: BLE001 - the figure is a nicety
+            log.debug("The context's size couldn't be read.", exc_info=True)
+            return context
+        found = {
+            "used": reply.get("totalTokens"),
+            "window": reply.get("rawMaxTokens") or reply.get("maxTokens"),
+            "compact_at": reply.get("autoCompactThreshold"),
+        }
+        found = {key: int(value) for key, value in found.items() if value}
+        return found if "used" in found else context
+
+    def _turn_line(self, result, end: TurnEnd) -> str:
+        """ "Turn ended: success, 12 steps, $0.41 ($12.30 so far). ..." """
+        line = f"Turn ended: {result.subtype}, {result.num_turns} steps"
+        cost = result.total_cost_usd
+        if cost is not None and self._cost_usd is not None:
+            line += f", ${cost - self._cost_usd:.4f} (${cost:.4f} so far)"
+        elif cost is not None:
+            line += f", ${cost:.4f} so far"
+        counts = end.tokens or usage.zero()
+        line += (
+            f". Tokens: {usage.short(counts['input'])} in, "
+            f"{usage.short(counts['cache_read'])} cached, "
+            f"{usage.short(counts['cache_write'])} written, "
+            f"{usage.short(counts['output'])} out"
+        )
+        if result.duration_ms:
+            line += (
+                f". {result.duration_ms / 1000:.0f} s, "
+                f"{result.duration_api_ms / 1000:.0f} s of it the model"
+            )
+        context = usage.context_text(end.context)
+        return f"{line}. {context}." if context else f"{line}."
 
     async def interrupt(self) -> None:
         if self._client is not None:
@@ -1112,7 +1232,6 @@ def _show(message, agent: SdkAgent) -> None:
     """One SDK message on the console and in the log, readably."""
     from claude_agent_sdk import (
         AssistantMessage,
-        ResultMessage,
         SystemMessage,
         TextBlock,
         ToolResultBlock,
@@ -1156,6 +1275,9 @@ def _show(message, agent: SdkAgent) -> None:
                 log.info("agent: %s", block.text.strip())
                 _line(agent, "said", block.text.strip())
             elif isinstance(block, ToolUseBlock):
+                skill = block.input.get("skill") if block.name == "Skill" else None
+                if skill and skill not in agent.skills_read:
+                    agent.skills_read.append(skill)
                 verb, text = step(block.name, block.input, getattr(agent, "cwd", None))
                 log.info("%s %s", verb, text)
                 seq = _line(agent, "step", text, verb=verb)
@@ -1168,14 +1290,6 @@ def _show(message, agent: SdkAgent) -> None:
                 log.warning("failed: %s", why)
                 seq = getattr(agent, "_steps", {}).get(block.tool_use_id)
                 _line(agent, "failed", _clip(why, 160), step=seq)
-    elif isinstance(message, ResultMessage):
-        cost = message.total_cost_usd
-        log.info(
-            "Turn ended: %s, %d steps%s.",
-            message.subtype,
-            message.num_turns,
-            f", ${cost:.4f} so far" if cost is not None else "",
-        )
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
@@ -1216,12 +1330,15 @@ def build_options(
     code: bool = True,
     alarm: Optional[Alarm] = None,
     profile: Optional[profiles.Profile] = None,
+    transcript: Optional[Path] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
     copied the skills there); without ``code``, the file tools only. A
-    *profile* adds its skills, its instructions and its reminders."""
+    *profile* adds its skills, its instructions and its reminders. With
+    *transcript*, a folder, the CLI's transcript is copied there as it is
+    written (`mirror.TranscriptMirror`)."""
     from claude_agent_sdk import ClaudeAgentOptions
 
     command = sidecar_command()
@@ -1244,7 +1361,7 @@ def build_options(
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
     servers = {SERVER: server}
     if alarm is not None:
-        servers[RUNNER_SERVER] = wake_server(alarm)
+        servers[HARNESS_SERVER] = wake_server(alarm)
     return ClaudeAgentOptions(
         cwd=str(work or checkout),
         # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
@@ -1274,6 +1391,12 @@ def build_options(
         effort=effort,
         resume=resume,
         session_id=session_id,
+        session_store=(
+            mirror.TranscriptMirror(transcript, resume or session_id)
+            if transcript is not None
+            else None
+        ),
+        session_store_flush="eager",
         max_buffer_size=MAX_BUFFER_SIZE,
         stderr=lambda line: log.debug("claude: %s", line.rstrip()),
     )
@@ -1301,6 +1424,8 @@ def _log_to(path: Path) -> None:
 
 # A bare --resume: the last session run in the same folder.
 LAST = "last"
+# --code or --files without a folder: work/ in the session's folder.
+IN_SESSION = ":session:"
 
 
 def status(
@@ -1378,7 +1503,8 @@ def main(argv=None) -> int:
         default=None,
         metavar="SESSION_ID",
         help="carry on a session; with no id, the last one run in the same "
-        "folder (the --code or --files folder, else the checkout)",
+        "folder (the --code or --files folder, else the checkout; with no "
+        "folder given, the last one that worked in its own)",
     )
     parser.add_argument(
         "--session-id",
@@ -1409,27 +1535,28 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--code",
         nargs="?",
-        const=".",
+        const=IN_SESSION,
         default=None,
         metavar="PATH",
-        help="code mode: the agent writes and runs its own code in PATH (the "
-        "current folder if none), sandboxed (macOS and Linux only)",
+        help="code mode: the agent writes and runs its own code in PATH (if "
+        "none, work/ in the session's folder), sandboxed (macOS and Linux only)",
     )
     parser.add_argument(
         "--files",
         nargs="?",
-        const=".",
+        const=IN_SESSION,
         default=None,
         metavar="PATH",
-        help="the agent reads and writes files in PATH (the current folder if "
-        "none) and runs nothing: no shell",
+        help="the agent reads and writes files in PATH (if none, work/ in the "
+        "session's folder) and runs nothing: no shell",
     )
     parser.add_argument(
         "--profile",
         default=None,
         metavar="NAME",
         help="run with the profile NAME.yaml, from ~/.fibsem/agent/profiles/ or "
-        "the checkout's .claude/fibsem-agent/; flags given here win over it",
+        f"the checkout's .claude/fibsem-agent/ (default: {profiles.DEFAULT_PROFILE}); "
+        "flags given here win over it",
     )
     parser.add_argument(
         "--show-config",
@@ -1470,8 +1597,9 @@ def main(argv=None) -> int:
     if args.list_profiles:
         return _print(_profile_rows(checkout), args.json, _profile_text)
     profile = None
-    if args.profile:
-        path = profiles.find(args.profile, checkout)
+    name = args.profile or profiles.DEFAULT_PROFILE
+    path = profiles.find(name, checkout)
+    if path is not None or args.profile:
         if path is None:
             print(
                 f"No profile {args.profile!r} in "
@@ -1488,8 +1616,26 @@ def main(argv=None) -> int:
     _resolve(args, profile)
     work = None
     code = bool(args.code)
-    if args.code or args.files:
-        work = code_mode.workdir(args.code or args.files)
+    given = args.code or args.files
+    in_session = given == IN_SESSION
+    if given and not in_session:
+        work = code_mode.workdir(given)
+    if args.resume == LAST:
+        args.resume = sessions.last_session(None if in_session else work or checkout)
+        if args.resume is None:
+            where = "its own folder" if in_session else work or checkout
+            print(
+                f"No earlier fibsem-agent session in {where} to resume: pass "
+                "its id (the Session line of its log).",
+                file=sys.stderr,
+            )
+            return 1
+    # A new session's id is chosen here, so the status can name it.
+    session_id = args.resume or args.session_id or str(uuid.uuid4())
+    folder = sessions.session_folder(session_id)
+    if in_session:
+        work = folder / sessions.WORK
+    if work is not None:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             print(refused, file=sys.stderr)
@@ -1501,21 +1647,10 @@ def main(argv=None) -> int:
     if missing:
         print(missing, file=sys.stderr)
         return 1
-    if args.resume == LAST:
-        args.resume = sessions.last_session(work or checkout)
-        if args.resume is None:
-            print(
-                f"No earlier fibsem-agent session in {work or checkout} to "
-                "resume: pass its id (the Session line of its log).",
-                file=sys.stderr,
-            )
-            return 1
     # From the environment, so it is not in the process list or shell history.
     token = server_env()[1]
-    # A new session's id is chosen here, so the status can name it.
-    session_id = args.resume or args.session_id or str(uuid.uuid4())
     session = sessions.SessionFolder.open(
-        session_id, _about(args, checkout, work, code, profile)
+        session_id, _about(args, checkout, work, code, profile), folder=folder
     )
     log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
@@ -1542,9 +1677,10 @@ def main(argv=None) -> int:
         session_id=None if args.resume else session_id,
         code=code,
         profile=profile,
+        transcript=session.folder,
     )
-    agent = SdkAgent(options)
-    runner = Runner(
+    agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
+    harness = Harness(
         agent,
         lambda: watch_mod.connect(args.url, token),
         resumed=args.resume is not None,
@@ -1557,7 +1693,6 @@ def main(argv=None) -> int:
             "files": work is not None and not code,
             "workdir": str(work) if work is not None else None,
             "effort": args.effort,
-            "skills": skills_for(profile),
             "resumed": args.resume is not None,
             **(_profile_report(profile) if profile else {}),
         },
@@ -1566,14 +1701,14 @@ def main(argv=None) -> int:
     def on_interrupt(signum, frame):
         # A second Ctrl-C ends it at once.
         signal.signal(signal.SIGINT, signal.default_int_handler)
-        runner.stop()
+        harness.stop()
 
     previous = signal.signal(signal.SIGINT, on_interrupt)
     # A manager stops it with a file, which works where a signal can't reach.
-    sessions.watch_for_stop(session, runner.stop)
+    sessions.watch_for_stop(session, harness.stop)
     outcome = None
     try:
-        code = asyncio.run(runner.run())
+        code = asyncio.run(harness.run())
     except KeyboardInterrupt:
         code = 130
     except Exception as error:
@@ -1583,7 +1718,7 @@ def main(argv=None) -> int:
         code, outcome = 1, {"reason": f"the agent failed: {error}"}
     finally:
         signal.signal(signal.SIGINT, previous)
-    session.end(code, **(outcome or runner.outcome()))
+    session.end(code, **(outcome or harness.outcome()))
     return code
 
 
@@ -1648,7 +1783,7 @@ def _resolve(args, profile: Optional[profiles.Profile]) -> None:
     if args.max_budget_usd is None:
         args.max_budget_usd = given.max_budget_usd or MAX_BUDGET_USD
     if not (args.code or args.files) and given.mode != "none":
-        folder = str(Path(given.folder).expanduser())
+        folder = str(Path(given.folder).expanduser()) if given.folder else IN_SESSION
         if given.mode == "code":
             args.code = folder
         else:

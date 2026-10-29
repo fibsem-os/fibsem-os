@@ -77,14 +77,6 @@ LEVEL_TIPS = {
     AgentLevel.DRIVE: "Full control",
 }
 
-# The skill an agent works by at each level, after the base autolamella-agent
-# skill. Off has none: the agent is refused everything.
-LEVEL_SKILLS = {
-    AgentLevel.WATCH: "observe-autolamella",
-    AgentLevel.ASSIST: "assist-autolamella",
-    AgentLevel.DRIVE: "supervise-autolamella",
-}
-
 
 def _doing(tool: Any) -> str:
     """What a request's step is doing, in a word: "applying" read as writing a

@@ -1,22 +1,16 @@
 """The operator off the PC: the operator token reaches the agent's routes as the
 operator, whatever the agent's level. The blocklist still applies.
-
-Skipped when the [server] extra is not installed.
 """
 
 import pytest
 
+from fibsem.acting import OPERATOR, current_actor
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.client.remote_microscope import RemoteMicroscope
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import FibsemStagePosition
+from fibsem.workflows.actions import ACTION
 from tests.fixtures.app_server import serving
-
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-
-from fibsem.acting import OPERATOR, current_actor  # noqa: E402
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
-from fibsem.workflows.actions import ACTION  # noqa: E402
 
 TOKEN = "agent-token"
 OPERATOR_TOKEN = "operator-token"

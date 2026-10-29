@@ -9,7 +9,8 @@ names, which grid is which across scans and the holder's working slot are the gr
 model's (``fibsem.services.sample_handling``), not the device's.
 
 All parameters are read-only; what moves is a command. ``load`` and ``unload`` move
-the stage, so they claim the ``stage`` resource as well as ``sample_loader``. ``scan``
+the stage, so they claim the ``stage`` resource as well as ``sample_loader``, and
+retract the FM objective first where there is one. ``scan``
 has the loader check every slot physically, where a read of ``magazine`` is what it
 already knows. ``set_description`` writes a slot's description and reads it back.
 
@@ -28,6 +29,7 @@ the magazine only when asked (``get_inventory``, ``run_inventory``).
 
 from __future__ import annotations
 
+import logging
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from enum import Enum
@@ -37,6 +39,7 @@ from fibsem.codec import decode, encode
 from fibsem.devices.chamber import CryoCompartment
 from fibsem.devices.core import Device, DeviceParameter, command
 from fibsem.devices.stage import STAGE_RESOURCE
+from fibsem.structures.system import InsertableDeviceState
 
 SAMPLE_LOADER_RESOURCE = "sample_loader"
 
@@ -143,14 +146,18 @@ class SampleLoader(Device):
 
     @command
     def load(self, slot: int) -> None:
-        """Bring the grid in a magazine slot (1-based) onto the stage."""
+        """Bring the grid in a magazine slot (1-based) onto the stage. The FM
+        objective is retracted first."""
         with self._running(STAGE_RESOURCE):
+            self._retract_objective()
             self._load(int(slot))
 
     @command
     def unload(self) -> None:
-        """Put the grid on the stage back in the magazine."""
+        """Put the grid on the stage back in the magazine. The FM objective is
+        retracted first."""
         with self._running(STAGE_RESOURCE):
+            self._retract_objective()
             self._unload()
 
     @command
@@ -209,6 +216,15 @@ class SampleLoader(Device):
         self._busy = busy
         if "busy" in self._bound:
             self.busy.report(busy)
+
+    def _retract_objective(self) -> None:
+        """The objective must never be in during an exchange."""
+        fm = getattr(self.parent, "fm", None)
+        objective = None if fm is None else fm.objective
+        if objective is None or objective.state is InsertableDeviceState.RETRACTED:
+            return
+        logging.info("Retracting the FM objective for the grid exchange.")
+        objective.retract()
 
     def _read_back(self) -> Magazine:
         if "on_stage" in self._bound:

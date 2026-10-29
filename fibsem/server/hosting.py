@@ -269,6 +269,7 @@ class AppServerHost:
             read_discovery_file,
             write_discovery_file,
         )
+        from fibsem.server.uvicorn_server import Server
 
         if self.running:
             return True
@@ -329,7 +330,7 @@ class AppServerHost:
             log_level="warning",
             ws=WS_PROTOCOL,  # for /microscope/events
         )
-        self._server = uvicorn.Server(config)
+        self._server = Server(config)
         # Signal handlers belong to the main thread, which belongs to Qt.
         self._server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
 

@@ -14,6 +14,7 @@ tagged with it and served only when the context implements that part.
 
 import functools
 import gzip
+import inspect
 import json
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -26,7 +27,12 @@ from fastapi.routing import APIRoute
 
 from fibsem.ai.agent.calls import current_call
 from fibsem.server import exports, files, planes
-from fibsem.server.auth import refusal_error, refuse_dashboard, take_control
+from fibsem.server.auth import (
+    refusal_error,
+    refuse_dashboard,
+    require_operator,
+    take_control,
+)
 from fibsem.server.parts import (
     GRIDS,
     ITEMS,
@@ -47,6 +53,7 @@ from fibsem.server.responses import (
     Events,
     ExperimentOpened,
     ExperimentSummary,
+    FileEntry,
     FileRead,
     FolderListing,
     GridDetail,
@@ -57,6 +64,7 @@ from fibsem.server.responses import (
     GridTasksQueued,
     ImageDrawn,
     ImageExportForm,
+    ImageMeasured,
     ImagePairDrawn,
     ItemDetail,
     ItemEdit,
@@ -220,6 +228,20 @@ def _names(body: Dict[str, Any], key: str, what: str) -> List[str]:
     return value
 
 
+def _point(body: Dict[str, Any], key: str) -> List[float]:
+    """*body*'s pixel point *key*, [x, y], or the 422 saying to pass it."""
+    value = body.get(key)
+    if (
+        not isinstance(value, list)
+        or len(value) != 2
+        or not all(
+            isinstance(v, (int, float)) and not isinstance(v, bool) for v in value
+        )
+    ):
+        raise _missing_field(f"Pass {key}: [x, y] in the image's pixels.")
+    return [float(v) for v in value]
+
+
 def _numbers(text: Optional[str]) -> Optional[List[float]]:
     """A comma-separated list of numbers from a query, or the 422 saying so."""
     if text is None:
@@ -293,14 +315,24 @@ def _as_sent(endpoint):
     """*endpoint* answering its dict as it is: its route's ``response_model``
     describes the answer without FastAPI filtering it or filling in nulls."""
 
-    @functools.wraps(endpoint)
-    def route(*args, **kwargs):
-        result = endpoint(*args, **kwargs)
+    def sent(result):
         if isinstance(result, Refusal):
             raise _refusal_error(result)
         if isinstance(result, Response):
             return result
         return JSONResponse(jsonable_encoder(result))
+
+    if inspect.iscoroutinefunction(endpoint):
+
+        @functools.wraps(endpoint)
+        async def awaited(*args, **kwargs):
+            return sent(await endpoint(*args, **kwargs))
+
+        return awaited
+
+    @functools.wraps(endpoint)
+    def route(*args, **kwargs):
+        return sent(endpoint(*args, **kwargs))
 
     return route
 
@@ -511,6 +543,8 @@ def build_app_router(context: Any) -> APIRouter:
                 window[key] = float(value)
             except (TypeError, ValueError):
                 raise _missing_field(f"{key} is a number of microns.") from None
+        if body.get("centre") is not None:
+            window["centre"] = _point(body, "centre")
         return _answer_or_refusal(context.measure_thickness(item_name, path, **window))
 
     @router.get("/experiment/grids", response_model=Grids, tags=[GRIDS])
@@ -665,6 +699,24 @@ def build_app_router(context: Any) -> APIRouter:
                         f"{name} is a fluorescence stack's plane, 0 the first."
                     )
                 options[name] = plane
+        looks = body.get("looks")
+        if looks is not None:
+            if not isinstance(looks, dict):
+                raise _missing_field(
+                    "looks is {layer name: {clim, gamma, opacity, color}}."
+                )
+            options["looks"] = looks
+        box = body.get("box")
+        if box is not None:
+            if (
+                not isinstance(box, list)
+                or len(box) != 4
+                or not all(isinstance(v, (int, float)) for v in box)
+                or box[2] <= 0
+                or box[3] <= 0
+            ):
+                raise _missing_field("box is [x, y, width, height] in pixels.")
+            options["box"] = [float(v) for v in box]
         return options
 
     @router.post("/experiment/images/drawn", response_model=ImageDrawn)
@@ -681,7 +733,73 @@ def build_app_router(context: Any) -> APIRouter:
         after = _required_text(body, "after", "a saved image inside the experiment")
         options = _draw_options(body, "before_plane", "after_plane")
         options.pop("crosshair", None)
+        options.update(_flags(body, "share_looks"))
         return _typed(context.draw_pair(before, after, body.get("marks"), **options))
+
+    def _number(body: Dict[str, Any], key: str, whole: bool = False) -> Dict[str, Any]:
+        """*body*'s number *key* when given, as a keyword; or the 422."""
+        value = body.get(key)
+        if value is None:
+            return {}
+        kinds = int if whole else (int, float)
+        if isinstance(value, bool) or not isinstance(value, kinds):
+            what = "a whole number" if whole else "a number"
+            raise refusal_error(422, "invalid", f"{key} is {what}")
+        return {key: value}
+
+    def _channel(body: Dict[str, Any]) -> Dict[str, Any]:
+        channel = body.get("channel")
+        if channel is None:
+            return {}
+        if not isinstance(channel, str):
+            raise refusal_error(422, "invalid", "channel is a layer's name")
+        return {"channel": channel}
+
+    @router.post("/experiment/analysis/intensity", response_model=ImageMeasured)
+    def measure_intensity(body: Dict[str, Any]):
+        # A POST because its figure is saved beside the image, as a drawing is.
+        path = _required_text(body, "path", "a saved image inside the experiment")
+        points = body.get("points")
+        if not isinstance(points, list) or not points:
+            raise _missing_field("Pass points: a list of [x, y] in the image's pixels.")
+        points = [_point({"point": p}, "point") for p in points]
+        planes = body.get("planes")
+        if planes is not None and (
+            not isinstance(planes, list)
+            or not all(isinstance(z, int) and not isinstance(z, bool) for z in planes)
+        ):
+            raise refusal_error(
+                422, "invalid", "planes is a list of planes, 0 the first"
+            )
+        options = {
+            **_number(body, "radius_px"),
+            **_channel(body),
+            **_number(body, "reference", whole=True),
+        }
+        if planes is not None:
+            options["planes"] = planes
+        return _typed(context.measure_intensity(path, points, **options))
+
+    @router.post("/experiment/analysis/profile", response_model=ImageMeasured)
+    def line_profile(body: Dict[str, Any]):
+        path = _required_text(body, "path", "a saved image inside the experiment")
+        options = {
+            **_number(body, "width_px"),
+            **_channel(body),
+            **_number(body, "plane", whole=True),
+            **_flags(body, "dip"),
+        }
+        return _typed(
+            context.line_profile(
+                path, _point(body, "start"), _point(body, "end"), **options
+            )
+        )
+
+    @router.get("/experiment/analysis/quality", response_model=ImageMeasured)
+    def image_quality(
+        path: str, channel: Optional[str] = None, plane: Optional[int] = None
+    ):
+        return _typed(context.image_quality(path, channel, plane))
 
     @router.post(
         "/experiment/items/{item_name}/milling/drawn",
@@ -810,6 +928,29 @@ def build_app_router(context: Any) -> APIRouter:
         )
         _record_read(experiment, path, False)
         return JSONResponse(jsonable_encoder(answer), headers=cache)
+
+    @router.post(
+        "/experiment/upload",
+        response_model=FileEntry,
+        dependencies=[Depends(require_operator())],
+    )
+    async def upload_file(request: Request, name: str, dir: str = files.UPLOAD_DIR):
+        # The operator's file, added from the web page (the Agent page's
+        # attach, Experiment Files): the body is the file as it is.
+        upload = _files_answer(None, lambda root: files.Upload(root, name, dir))
+        try:
+            async for chunk in request.stream():
+                upload.add(chunk)
+        except files.FileRefusal as refusal:
+            raise HTTPException(status_code=refusal.status, detail=refusal.detail)
+        except BaseException:
+            upload.cancel()
+            raise
+        entry = upload.finish()
+        context.record_event(
+            "experiment_file_added", {"path": entry["path"], "size": entry["size"]}
+        )
+        return JSONResponse(entry)
 
     @router.get("/experiment/planes/{path:path}", responses=_PLANES)
     def read_planes(

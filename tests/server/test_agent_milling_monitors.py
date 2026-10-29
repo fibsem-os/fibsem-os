@@ -8,24 +8,20 @@ import time
 
 import numpy as np
 import pytest
+from psygnal import Signal
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from psygnal import Signal  # noqa: E402
-
-from fibsem.ai.agent.catalog import route_call  # noqa: E402
-from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
-from fibsem.milling.base import FibsemMillingStage  # noqa: E402
-from fibsem.milling.monitors import FmIntensityMonitor  # noqa: E402
-from fibsem.milling.monitors.fm_intensity import FmIntensityConfig  # noqa: E402
-from fibsem.milling.patterning.patterns import RectanglePattern  # noqa: E402
-from fibsem.milling.tasks import (  # noqa: E402
+from fibsem.ai.agent import watch as watch_mod
+from fibsem.ai.agent.catalog import route_call
+from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.monitors import FmIntensityMonitor
+from fibsem.milling.monitors.fm_intensity import FmIntensityConfig
+from fibsem.milling.patterning.patterns import RectanglePattern
+from fibsem.milling.tasks import (
     FibsemMillingTaskConfig,
     patch_milling_config,
 )
-from tests.server.test_agent_gap_tools import _ok, driving  # noqa: E402, F401
-from tests.server.test_grid_tools import TOOLS, _call, arctis  # noqa: E402, F401
+from tests.server.test_agent_gap_tools import _ok, driving  # noqa: F401
+from tests.server.test_grid_tools import TOOLS, _call, arctis  # noqa: F401
 
 RUN = "/microscope/services/milling/run"
 

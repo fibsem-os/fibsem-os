@@ -1,19 +1,12 @@
 """Tests for the fibsem server factory: auth, scopes, control of the microscope
 (FIB-1270), and the degree-normalized milling-angle boundary (FIB-852).
-
-Skipped when the [server] extra is not installed (CI installs [test] only until
-the FIB-849 leg lands).
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
-fastapi = pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.server import AuthConfig, build_server
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}

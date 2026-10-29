@@ -136,6 +136,7 @@ from fibsem.ui.widgets.overview_base import OverviewWidgetBase
 from fibsem.ui.widgets.overview_confirmation_dialog import OverviewConfirmationDialog
 from fibsem.ui.widgets.overview_list_widget import OverviewListWidget
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate
+from fibsem.ui.widgets.stage_control_widget import beam_move_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -3302,6 +3303,11 @@ class FibsemOverviewWidget(OverviewWidgetBase):
     # ── the host's API ───────────────────────────────────────────────────
 
     # ── the stage ────────────────────────────────────────────────────────
+
+    def _orientation_refusal(self) -> Optional[str]:
+        """A beam overview's point is where the beams see it, which at an offset FM
+        is about 50 mm from the stage: the FM overview's refusal, the other way round."""
+        return beam_move_refusal(self.microscope)
 
     def _on_stage_moved(self, position: FibsemStagePosition) -> None:
         self.session.stage_position = deepcopy(position)

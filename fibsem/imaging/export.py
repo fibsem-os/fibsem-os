@@ -110,6 +110,9 @@ class ExportImage:
     layers: List[FMLayer] = field(default_factory=list)
     # The greyscale data's (min, max) before scaling, for limits given in its values.
     value_range: Optional[Tuple[float, float]] = None
+    # The greyscale data's full value (an integer type's largest), where a pixel
+    # saturates; None for float data.
+    full_value: Optional[float] = None
 
     @property
     def adjustable(self) -> bool:
@@ -693,6 +696,7 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
             path=path,
             gray=gray,
             value_range=_value_range(image.data),
+            full_value=saturation_value(image.data),
         )
     md = image.metadata
     info = fibsem_image_fields(image)
@@ -705,7 +709,14 @@ def from_fibsem_image(image: FibsemImage, path: Optional[str] = None) -> ExportI
         path=path,
         gray=gray,
         value_range=_value_range(image.data),
+        full_value=saturation_value(image.data),
     )
+
+
+def saturation_value(data: np.ndarray) -> Optional[float]:
+    """Where *data* saturates: its integer type's largest value; None for floats."""
+    dtype = np.asarray(data).dtype
+    return float(np.iinfo(dtype).max) if np.issubdtype(dtype, np.integer) else None
 
 
 def _value_range(data: np.ndarray) -> Optional[Tuple[float, float]]:

@@ -44,10 +44,11 @@ fibsem is installed, without the [mcp] extra.
 """
 
 import argparse
+import re
 import sys
 import time
 
-from fibsem.ai.agent.levels import LEVEL_SKILLS, AgentLevel
+from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
 from fibsem.workflows.actions import is_message
 
@@ -106,6 +107,26 @@ def _quiet_line(quiet_s):
         f"{quiet_s / 60:g} min -- check app_get_status, proposal_list and any "
         "unanswered message, then end your turn. Said once until something happens"
     )
+
+
+# The operator's message ids a line or a turn carries (`_message_line`).
+_MESSAGE_ID = re.compile(r"\bMESSAGE id=([0-9a-f]+)")
+
+
+def message_ids(text: str) -> list:
+    """The ids of the operator's messages *text* carries, in order."""
+    return _MESSAGE_ID.findall(text)
+
+
+def report_read(client, ids) -> None:
+    """Tell the App Server the agent has read the messages *ids*, so the web
+    page stops showing them as waiting. Best effort: the watch goes on."""
+    if not ids:
+        return
+    try:
+        client.request("POST", "/app/agent/read", json={"ids": ids}, timeout=10.0)
+    except Exception:  # noqa: BLE001 - a missed mark never stops the watch
+        pass
 
 
 def _poll(client, since, timeout):
@@ -229,7 +250,10 @@ def _is_message(event) -> bool:
 
 def _message_line(data, marked=None) -> str:
     message_id = data.get("id")
-    text = " ".join(str(data.get("text", "")).split())
+    # Its line breaks kept: a pasted list or table reaches the agent as written.
+    text = "\n".join(
+        line.rstrip() for line in str(data.get("text", "")).strip().splitlines()
+    )
     marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
     return (
         f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"
@@ -343,18 +367,17 @@ def _unanswered(events):
 
 
 def _level_line(data):
-    """The operator changed the level, with the skill to work by at it. Off
-    has no line here: the agent is refused, and the watch says AGENT OFF."""
+    """The operator changed the level. Off has no line here: the agent is
+    refused, and the watch says AGENT OFF."""
     try:
         level = AgentLevel(data.get("level"))
     except ValueError:
         return None
-    skill = LEVEL_SKILLS.get(level)
-    if skill is None:
+    if level is AgentLevel.OFF:
         return None
     return (
         f"LEVEL {level.value} (was {data.get('previous')}): the operator set the "
-        f"agent level; work by the {skill} skill"
+        "agent level"
     )
 
 
@@ -584,6 +607,7 @@ def watch(
     clock=None,
     since=None,
     quiet_s=QUIET_S,
+    report_reads=True,
 ):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
@@ -598,6 +622,10 @@ def watch(
 
     ``quiet_s`` is how long a running workflow may go without a line before
     one ``QUIET`` line; 0 or None never says it.
+
+    With ``report_reads``, a ``MESSAGE`` line marks its message read as it is
+    printed: the agent reads it on the wake it makes. fibsem-agent turns it
+    off and marks them as the turn carrying them starts.
     """
     say = out or _print_line
     sleep_fn = sleep_fn or time.sleep
@@ -610,6 +638,8 @@ def watch(
         said_at = clock()
         nudged = False
         say(line)
+        if report_reads:
+            report_read(client, message_ids(line))
 
     # Seed the cursor at the tail: the buffer outlives workflows, so starting at
     # 0 would replay history -- stale PROPOSAL lines, and a previous workflow's

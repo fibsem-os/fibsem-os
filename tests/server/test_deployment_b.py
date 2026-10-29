@@ -13,18 +13,15 @@ import time
 import pytest
 import yaml
 
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-import fibsem.config as cfg  # noqa: E402
-from fibsem import cli, utils  # noqa: E402
-from fibsem.devices.entries import disconnect_devices  # noqa: E402
-from fibsem.drivers.remote.devices import RemoteDeviceUnreachable  # noqa: E402
-from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
-from fibsem.server.device_auth import DeviceAuth  # noqa: E402
-from fibsem.server.devices import DeviceServer, configured_devices  # noqa: E402
-from fibsem.server.pairing import PairedTokens, Pairing  # noqa: E402
-from fibsem.structures.system import InsertableDeviceState  # noqa: E402
+import fibsem.config as cfg
+from fibsem import cli, utils
+from fibsem.devices.entries import disconnect_devices
+from fibsem.drivers.remote.devices import RemoteDeviceUnreachable
+from fibsem.fm.remote import RemoteFluorescenceMicroscope
+from fibsem.server.device_auth import DeviceAuth
+from fibsem.server.devices import DeviceServer, configured_devices
+from fibsem.server.pairing import PairedTokens, Pairing
+from fibsem.structures.system import InsertableDeviceState
 
 IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 

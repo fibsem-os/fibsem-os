@@ -37,6 +37,7 @@ SHIPPED = (
     "tfs-aquilos2-configuration.yaml",
     "tfs-arctis-configuration.yaml",
     "tfs-hydra-configuration.yaml",
+    "tfs-hydra-meteor-configuration.yaml",
 )
 
 
