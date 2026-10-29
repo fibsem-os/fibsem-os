@@ -250,7 +250,10 @@ def _is_message(event) -> bool:
 
 def _message_line(data, marked=None) -> str:
     message_id = data.get("id")
-    text = " ".join(str(data.get("text", "")).split())
+    # Its line breaks kept: a pasted list or table reaches the agent as written.
+    text = "\n".join(
+        line.rstrip() for line in str(data.get("text", "")).strip().splitlines()
+    )
     marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
     return (
         f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"

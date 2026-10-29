@@ -13,6 +13,7 @@ import pytest
 
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.session import MESSAGE_LIMIT
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
@@ -191,7 +192,9 @@ def test_a_message_goes_on_the_record_as_the_operators(server):
     assert str(note["actor"]).startswith(str(OPERATOR))
 
 
-@pytest.mark.parametrize("body", [{}, {"text": "  "}, {"text": "x" * 2001}])
+@pytest.mark.parametrize(
+    "body", [{}, {"text": "  "}, {"text": "x" * (MESSAGE_LIMIT + 1)}]
+)
 def test_an_empty_or_long_message_is_refused(server, body):
     answer = server.post("/app/agent/messages", headers=server.operator, json=body)
     assert answer.status_code == 422

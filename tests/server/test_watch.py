@@ -193,8 +193,9 @@ def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
 
     code, lines = _watch({2: run})
 
+    # Its line breaks kept, as the operator wrote it.
     assert lines[0] == (
-        "MESSAGE id=ab12 from the operator: skip 03 -- answer with "
+        "MESSAGE id=ab12 from the operator: skip\n03 -- answer with "
         "experiment_message_operator (reply_to=ab12). It is not an approval: your level "
         "still decides what you may do"
     )
