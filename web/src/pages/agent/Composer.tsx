@@ -1,5 +1,5 @@
-import { ChevronDown, Square } from "lucide-react";
-import { useState } from "react";
+import { ChevronDown, Paperclip, Square } from "lucide-react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -8,8 +8,12 @@ import { api } from "@/lib/api";
 import type { AgentLevel, AgentState } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useAct } from "./act";
+import { TAKEN, type Attachments } from "./attach";
+import { AttachedChips } from "./Attachments";
+import { Customise } from "./Customisation";
 
-const LIMIT = 2000;
+// The server's MESSAGE_LIMIT: past it, pasted text goes as a document instead.
+const LIMIT = 20000;
 
 // Watch's mark is white (Patrick 2026-10-21).
 export const LEVEL_COLOUR: Record<AgentLevel, string> = {
@@ -196,22 +200,99 @@ function Stop({ agent, act }: { agent: AgentState; act: ReturnType<typeof useAct
 }
 
 /** The message box, and under it the agent, its level and Stop. */
-export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => void }) {
+function Attach({ agent, attach }: { agent: AgentState; attach: Attachments }) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <button
+        className={cn(plain, "px-1.5")}
+        aria-label="Attach files"
+        title={
+          agent.experiment
+            ? "Attach files: saved in the experiment's notes folder"
+            : "Open an experiment to attach files"
+        }
+        disabled={!agent.experiment}
+        onClick={() => input.current?.click()}
+      >
+        <Paperclip size={15} />
+      </button>
+      <input
+        ref={input}
+        type="file"
+        multiple
+        accept={TAKEN.join(",")}
+        className="hidden"
+        onChange={(e) => {
+          attach.add(e.target.files ?? []);
+          e.target.value = "";
+        }}
+      />
+    </>
+  );
+}
+
+/** Pasted text too long for a message, offered as a Markdown file in notes/. */
+function AttachLong({
+  text,
+  experiment,
+  attach,
+  done,
+}: {
+  text: string;
+  experiment: boolean;
+  attach: Attachments;
+  done: () => void;
+}) {
+  const add = () => {
+    const at = new Date();
+    const stamp = `${at.toLocaleDateString("sv")}-${at.toTimeString().slice(0, 5).replace(":", "")}`;
+    attach.add([new File([text], `pasted-${stamp}.md`, { type: "text/markdown" })]);
+    done();
+  };
+  return (
+    <div
+      role="alert"
+      className="mx-2.5 mt-2 flex flex-wrap items-center gap-2 rounded-md bg-accent px-2.5 py-2 text-[13px]"
+    >
+      <span className="min-w-0 flex-1">
+        Pasted text is over the {LIMIT.toLocaleString()} character limit ({text.length.toLocaleString()} characters).{" "}
+        {experiment ? "Attach it as a document instead?" : "Open an experiment to attach it as a document."}
+      </span>
+      <Button onClick={done}>Cancel</Button>
+      {experiment && (
+        <Button variant="primary" onClick={add}>
+          Attach as document
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function Composer({ agent, attach, onSent }: { agent: AgentState; attach: Attachments; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
+  // Pasted text that would take the message past LIMIT, waiting to be attached.
+  const [long, setLong] = useState<string | null>(null);
   const { act, busy, error, setError } = useAct();
+  // Saved files go as lines at the message's end ("Attached notes/plan.md (4.0 KB)").
+  const text = [draft.trim(), attach.lines.join("\n")].filter(Boolean).join("\n\n");
   const send = async () => {
-    const text = draft.trim();
-    if (!text) return;
+    if (!text || attach.uploading) return;
     setSaid(null);
     const answer = await act("/app/agent/messages", { method: "POST", body: JSON.stringify({ text }) });
     if (answer === undefined) return;
     setDraft("");
+    attach.clear();
     onSent();
     setSaid(connected(agent) ? "Sent · the agent reads it on its next turn" : "Sent · waiting for an agent");
   };
   return (
     <div className="flex flex-col rounded-md border border-input bg-card">
+      <AttachedChips attach={attach} />
+      {long != null && (
+        <AttachLong text={long} experiment={!!agent.experiment} attach={attach} done={() => setLong(null)} />
+      )}
       <label htmlFor="msg" className="sr-only">
         Message
       </label>
@@ -225,6 +306,13 @@ export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => v
           setSaid(null);
           setError(null);
         }}
+        onPaste={(e) => {
+          const pasted = e.clipboardData.getData("text");
+          const el = e.currentTarget;
+          if (draft.length - (el.selectionEnd - el.selectionStart) + pasted.length <= LIMIT) return;
+          e.preventDefault();
+          setLong(pasted);
+        }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -234,14 +322,16 @@ export function Composer({ agent, onSent }: { agent: AgentState; onSent: () => v
         className="max-h-[150px] min-h-[52px] resize-none border-0 bg-transparent px-3 py-2.5 font-[inherit] text-foreground outline-none [field-sizing:content]"
       />
       <div className="flex flex-wrap items-center gap-2 px-2 pt-1.5 pb-2">
+        <Attach agent={agent} attach={attach} />
         {agent.last_heard_s == null ? <Connect /> : <AgentInfo agent={agent} />}
         <Level agent={agent} act={act} />
+        <Customise />
         <span className={cn("min-w-0 truncate text-[12px]", error ? "text-destructive" : "text-muted-foreground")}>
           {error ?? said}
         </span>
         <div className="flex-1" />
         <Stop agent={agent} act={act} />
-        <Button variant="primary" onClick={send} disabled={!draft.trim() || busy}>
+        <Button variant="primary" onClick={send} disabled={!text || attach.uploading || busy}>
           Send
         </Button>
       </div>

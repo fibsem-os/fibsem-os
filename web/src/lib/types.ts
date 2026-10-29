@@ -225,6 +225,49 @@ export interface AgentState {
 }
 
 /** GET /app/agent/session: what the agent reported of its session. */
+/** One of the agent's tools, as GET /app/agent/customisation lists it. */
+export interface ToolRow {
+  name: string;
+  description: string;
+  level: "watch" | "assist" | "drive";
+  category: string;
+  group: string;
+  /** Commands or changes the microscope. */
+  hardware: boolean;
+}
+
+export interface SkillRow {
+  name: string;
+  description: string;
+}
+
+export interface ProfileRow {
+  name: string;
+  path: string;
+  hash: string;
+  model: string | null;
+  effort: string | null;
+  max_budget_usd: number | null;
+  max_turns: number | null;
+  mode: string;
+  skills: string[];
+  prompt: string | null;
+  reminders: { label: string; say: string }[];
+  /** Why it can't be used, for a profile that doesn't load. */
+  error: string | null;
+}
+
+/** GET /app/agent/customisation: what the agent runs with. */
+export interface AgentCustomisation {
+  tools: ToolRow[];
+  categories: string[];
+  skills: SkillRow[];
+  specialists: SkillRow[];
+  profiles: ProfileRow[];
+  reminder_options: string[];
+  never: { device: string; blocked: string; why: string }[];
+}
+
 export interface ReportedSession {
   /** The fibsem-agent profile it runs with, and its reminders. */
   profile?: string;
@@ -257,8 +300,11 @@ export interface RecentRow {
   evidence: Evidence | null;
   why: string;
   kind: "you" | "message" | "note" | "action";
-  /** When, as an ISO time with its offset. */
+  /** When, as an ISO time with its offset; where the agent read it, for an operator's message read later. */
   at: string;
+  /** An operator's message: its id, and when the agent read it ("" not yet). */
+  message_id: string;
+  read: string;
 }
 
 /** One line of GET /app/agent/transcript: what fibsem-agent printed. */

@@ -454,12 +454,14 @@ haven't used this session (every read here works at Watch):
   each beam now. If a view says `scan_rotation_handled: false`, its image
   axes are not the stage's: don't `stage_stable_move` from it.
 - `grid_get_holder_slots`: each holder slot's stage position and its
-  calibration. A slot whose `position` is null is not calibrated (or was
+  calibration (this matters whenever you move between grids, workflow or
+  not; with no holder slots set up, say so and work from stage positions). A slot whose `position` is null is not calibrated (or was
   calibrated against a pre-tilt or rotation reference the system no longer
   has). Say which: the operator calibrates them with the app's wizard, never
   you, and nothing moves to an uncalibrated slot.
 - `grid_get_inventory` and `grid_get_current`: which grid is on the stage and
-  whether the stage is at a slot.
+  whether the stage is at a slot. With no grids loaded in the app, ask the
+  operator which sample is under the beam if the goal doesn't say.
 - `microscope_get_state`: each beam's voltage, current, working distance and
   scan rotation, the detectors' type and mode, the stage position. Say what
   you read, and anything that looks wrong for the task (a milling current on

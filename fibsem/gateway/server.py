@@ -5,7 +5,8 @@
 granted "may start and stop apps" (`SWITCH_MODES`); forcing past a running
 workflow, and ``/gateway/claim`` (a desktop launch on this PC), for the
 operator only. ``/gateway/microscope/...`` connects and disconnects the
-running host's microscope, and ``/gateway/agent`` reads, starts and ends this
+running host's microscope, ``/gateway/app/agent-page`` links the operator to
+its Agent page, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), with the same rules as starting the app.
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
 role, and the page is the web app's ``/ui/gateway``.
@@ -231,6 +232,16 @@ def build_gateway_app(
         def disconnect(found: Caller = Depends(switcher)) -> dict:
             """The host lets the microscope go; refused while a run is on."""
             return _act(found, {}, lambda force, via: microscope.disconnect())
+
+        @app.get("/gateway/app/agent-page")
+        def agent_page(found: Caller = Depends(caller)) -> dict:
+            """``{url}``: the running host's Agent page, signed in as the
+            operator the way the window's link is. The operator only."""
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator opens the Agent page."
+                )
+            return _act(found, {}, lambda force, via: {"url": microscope.agent_page()})
 
     if agent is not None:
 

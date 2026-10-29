@@ -3,9 +3,9 @@
 # runs with, and `fibsem-agent --list-hooks` lists when a reminder can fire.
 # Flags on the command line win.
 effort: high
-max_budget_usd: 5
+max_budget_usd: 500
 max_turns: 40
-mode: none
+mode: files
 hooks:
   - when: hardware_error
     say: Stop. Don't retry. Message the operator with the error word for word.
@@ -14,3 +14,9 @@ hooks:
       Look at the pass figure and its facts before the next pass: the band,
       both faces, the target against the control, and the SEM. Stop and ask on
       any of autolamella-agent's Iterative Polishing stop points.
+# Read every turn, so only the rules that must hold on every task; the work
+# itself is in the skills.
+prompt: |-
+  - Never trust an auto function's result on its own (alignment, focus, thickness, centre offsets): look at the image it gives and check it worked well enough before you act on it.
+  - Judge an image only once its focus and brightness/contrast are good enough; fix them first.
+  - Every time you choose a position (a site, a lamella, a place to mill), verify focus, brightness/contrast and SEM/FIB coincidence there before you accept it, even for FIB-only milling. Coincident means the same feature is centred in both the SEM and the FIB image at a 50 µm field of view: within 5 µm of centre in both, aiming for 2-3 µm.
