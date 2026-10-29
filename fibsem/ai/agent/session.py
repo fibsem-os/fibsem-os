@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 # A request the operator still has to decide, or one being applied.
 OPEN = ("pending", "applying")
 # The longest message to the agent, in characters.
-MESSAGE_LIMIT = 2000
+MESSAGE_LIMIT = 20000
 # How often a waiting request's values are read again.
 REQUEST_REFRESH_S = 15.0
 # The share of its budget at which the card and the record warn.

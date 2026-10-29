@@ -6,16 +6,18 @@ import os
 import re
 import socket
 import time
+from pathlib import Path
 
 import httpx
 import pytest
 
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.session import MESSAGE_LIMIT
 from fibsem.applications.autolamella.server.context import (
     AutoLamellaAppContext,
 )
-from fibsem.server import AuthConfig, operator_token
+from fibsem.server import AuthConfig, files, operator_token
 from fibsem.server.hosting import AppServerHost
 from fibsem.server.operator_token import (
     load_operator_token,
@@ -190,7 +192,9 @@ def test_a_message_goes_on_the_record_as_the_operators(server):
     assert str(note["actor"]).startswith(str(OPERATOR))
 
 
-@pytest.mark.parametrize("body", [{}, {"text": "  "}, {"text": "x" * 2001}])
+@pytest.mark.parametrize(
+    "body", [{}, {"text": "  "}, {"text": "x" * (MESSAGE_LIMIT + 1)}]
+)
 def test_an_empty_or_long_message_is_refused(server, body):
     answer = server.post("/app/agent/messages", headers=server.operator, json=body)
     assert answer.status_code == 422
@@ -758,3 +762,121 @@ def test_a_cleared_lamella_verdict_names_nobody(server):
         )
         assert answer.status_code == 200, answer.text
     assert lamella.defect.actor == ""
+
+
+def test_the_operator_adds_a_file_to_the_experiment(server):
+    root = Path(server.session.experiment.path)
+
+    def upload(name, body=b"# Plan\n", headers=None, **params):
+        return server.post(
+            "/app/experiment/upload",
+            params={"name": name, **params},
+            content=body,
+            headers=headers or server.operator,
+        )
+
+    answer = upload("plan.md")
+    assert answer.status_code == 200, answer.text
+    assert answer.json()["path"] == "notes/plan.md"
+    assert (root / "notes" / "plan.md").read_bytes() == b"# Plan\n"
+    # A name already there is kept: the new one is numbered.
+    assert upload("plan.md").json()["path"] == "notes/plan-2.md"
+    assert upload("../../my plan.md").json()["path"] == "notes/my-plan.md"
+    assert upload("plan.md", headers=server.agent).status_code == 403
+    refused = upload("report.docx")
+    assert refused.status_code == 415
+    assert refused.json()["detail"]["error_type"] == "not_taken"
+    assert upload("plan.md", dir="../elsewhere").status_code == 403
+
+
+def _pdf(*pages: str) -> bytes:
+    """A PDF with one line of text on each page."""
+    count = len(pages)
+    kids = " ".join(f"{3 + 2 * i} 0 R" for i in range(count))
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {count} >>".encode(),
+    ]
+    font = 3 + 2 * count
+    for i, text in enumerate(pages):
+        stream = f"BT /F1 12 Tf 72 720 Td ({text}) Tj ET".encode()
+        objects.append(
+            f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {4 + 2 * i} 0 R"
+            f" /Resources << /Font << /F1 {font} 0 R >> >> >>".encode()
+        )
+        objects.append(
+            b"<< /Length %d >>\nstream\n%s\nendstream" % (len(stream), stream)
+        )
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    out, offsets = b"%PDF-1.4\n", []
+    for number, body in enumerate(objects, 1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n%s\nendobj\n" % (number, body)
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    out += b"".join(b"%010d 00000 n \n" % offset for offset in offsets)
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1,
+        xref,
+    )
+    return out
+
+
+def test_the_agent_reads_an_attached_pdf_as_its_text(server):
+    answer = server.post(
+        "/app/experiment/upload",
+        params={"name": "protocol.pdf"},
+        content=_pdf("Mill at 30 kV", "Polish at 50 pA"),
+        headers=server.operator,
+    )
+    assert answer.status_code == 200, answer.text
+    read = server.get("/app/experiment/files/notes/protocol.pdf", headers=server.agent)
+    assert read.status_code == 200, read.text
+    text = read.json()["text"]
+    assert "Page 1\nMill at 30 kV" in text
+    assert "Page 2\nPolish at 50 pA" in text
+    # A scan carries no text: the agent is told so, not handed blank pages.
+    server.post(
+        "/app/experiment/upload",
+        params={"name": "scan.pdf"},
+        content=_pdf(""),
+        headers=server.operator,
+    )
+    blank = server.get("/app/experiment/files/notes/scan.pdf", headers=server.agent)
+    assert blank.status_code == 422
+    assert "no text" in blank.json()["detail"]["message"]
+
+
+def test_a_file_over_the_limit_is_not_kept(server, monkeypatch):
+    monkeypatch.setattr(files, "UPLOAD_LIMIT", 10)
+    answer = server.post(
+        "/app/experiment/upload",
+        params={"name": "big.txt"},
+        content=b"x" * 11,
+        headers=server.operator,
+    )
+    assert answer.status_code == 413
+    assert list((Path(server.session.experiment.path) / "notes").iterdir()) == []
+
+
+def test_the_agent_says_which_messages_it_has_read(server):
+    sent = server.post(
+        "/app/agent/messages", headers=server.operator, json={"text": "Skip 04."}
+    )
+    message_id = sent.json()["id"]
+
+    def mine():
+        rows = server.get("/app/agent/recent", headers=server.operator).json()["rows"]
+        return [row for row in rows if row["kind"] == "you"][-1]
+
+    assert (mine()["message_id"], mine()["read"]) == (message_id, "")
+    read = server.post(
+        "/app/agent/read", headers=server.agent, json={"ids": [message_id]}
+    )
+    assert read.status_code == 200, read.text
+    assert mine()["read"]
+    for ids in ([], ["not an id"], "ab12"):
+        refused = server.post(
+            "/app/agent/read", headers=server.agent, json={"ids": ids}
+        )
+        assert refused.status_code == 422
