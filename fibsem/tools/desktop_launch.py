@@ -374,11 +374,24 @@ def _take_over(app: App, state: dict) -> bool:
     return box.clickedButton() is take
 
 
+_QAPP = None
+
+
+def _qt_app():
+    """The QApplication, kept: one made and dropped at once is deleted, and a
+    dialog after it aborts ("Must construct a QApplication before a QWidget")."""
+    global _QAPP
+    from PyQt5.QtWidgets import QApplication
+
+    _QAPP = QApplication.instance() or QApplication(sys.argv)
+    return _QAPP
+
+
 def take_over_box(app: App, state: dict):
     """The Take over / Cancel question, and its Take over button."""
-    from PyQt5.QtWidgets import QApplication, QMessageBox
+    from PyQt5.QtWidgets import QMessageBox
 
-    QApplication.instance() or QApplication(sys.argv)
+    _qt_app()
     experiment = state.get("experiment") or "no experiment"
     who = state.get("who") or "remotely"
     box = QMessageBox()
@@ -394,9 +407,9 @@ def take_over_box(app: App, state: dict):
 
 
 def _say(app: App, text: str) -> None:
-    from PyQt5.QtWidgets import QApplication, QMessageBox
+    from PyQt5.QtWidgets import QMessageBox
 
-    QApplication.instance() or QApplication(sys.argv)
+    _qt_app()
     QMessageBox.warning(None, app.name, text)
 
 

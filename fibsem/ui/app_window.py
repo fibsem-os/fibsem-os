@@ -204,13 +204,14 @@ class AppWindow(QMainWindow):
             self._setup_experiment_connections()
 
     def _start_app_server(self) -> None:
-        """Host the App Server over this session, if the preference asks for it.
+        """Host the App Server over this session, if the preference or the
+        launch (``--host``) asks for it.
 
         The agent starts at Watch; never raises — an optional observer
         must not be able to take the session down (see fibsem/server/hosting.py).
         """
         preference = fibsem_cfg.load_user_preferences().install.app_server
-        if preference.enabled:
+        if preference.enabled or self.session.host_app_server:
             if self.session.serve_microscope is None:
                 # the operator's choice in Tools → Host is per session,
                 # like the agent level; it starts at the preference's default
@@ -223,7 +224,7 @@ class AppWindow(QMainWindow):
         saves the switch."""
         host = self.session.app_server
         preference = fibsem_cfg.load_user_preferences().install.app_server
-        if preference.enabled:
+        if preference.enabled or self.session.host_app_server:
             if host is None or not host.running:
                 self._start_app_server()
         elif host is not None and host.running:
@@ -259,13 +260,15 @@ class AppWindow(QMainWindow):
             parent=self,
             set_enabled=self._set_app_server_enabled,
             set_microscope=self._set_app_server_microscope,
-            enabled=preference.enabled,
+            enabled=preference.enabled or self.session.host_app_server,
             serve_microscope=preference.microscope,
         )
         dialog.exec_()
 
     def _set_app_server_enabled(self, enabled: bool) -> None:
         """Tools → Host: save whether the server runs, and act on it now."""
+        if not enabled:
+            self.session.host_app_server = False
         self._preferences = fibsem_cfg.update_user_preferences(
             lambda p: setattr(p.install.app_server, "enabled", bool(enabled))
         )
