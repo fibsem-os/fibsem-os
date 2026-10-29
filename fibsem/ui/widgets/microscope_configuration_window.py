@@ -412,11 +412,10 @@ def geometry_tab(
         _muted("Where the stage travels for each instrument to see the sample.")
     )
     if fm_form is not None:
-        right.addWidget(_panel("FM place", fm_form))
+        right.addWidget(_panel("FM", fm_form))
         right.addWidget(
             _muted(
-                "The FM from the beams (odemis's CALIB dx, dy) and the pose it images "
-                "in. Saved by Save, used from the next connect."
+                "Rotation and tilt default to the FIB pose. Applies after reconnecting."
             )
         )
     right.addStretch()

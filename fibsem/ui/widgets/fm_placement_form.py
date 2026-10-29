@@ -11,13 +11,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
-    QCheckBox,
-    QFormLayout,
-    QHBoxLayout,
-    QPushButton,
-    QWidget,
-)
+from PyQt5.QtWidgets import QFormLayout, QPushButton, QWidget
 
 from fibsem import utils
 from fibsem.ui import notification_service, stylesheets
@@ -37,20 +31,21 @@ class FMPlacementForm(QWidget):
 
         self.origin_x = ValueSpinBox("mm", -100.0, 100.0, 0.01, 4)
         self.origin_y = ValueSpinBox("mm", -100.0, 100.0, 0.01, 4)
-        self.own_pose = QCheckBox("Images in its own pose, not FIB's")
+        self.origin_x.setToolTip("odemis CALIB dx")
+        self.origin_y.setToolTip("odemis CALIB dy")
         self.pose_r = ValueSpinBox("°", -360.0, 360.0, 0.1, 2)
         self.pose_t = ValueSpinBox("°", -90.0, 90.0, 0.1, 2)
-        self.button_stage_pose = QPushButton("Use the stage's pose")
-        self.button_stage_pose.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
-        self.button_stage_pose.setToolTip(
-            "Take r and t from where the stage is now: move it to the FM's imaging "
-            "pose first."
+        self._fib_pose = (
+            round(float(np.degrees(fib.r)), 2),
+            round(float(np.degrees(fib.t)), 2),
         )
+        self.button_stage_pose = QPushButton("Use stage pose")
+        self.button_stage_pose.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+        self.button_stage_pose.setToolTip("Take r and t from the stage's position now.")
 
         self.origin_x.setValue((device.origin.x or 0.0) * 1e3)
         self.origin_y.setValue((device.origin.y or 0.0) * 1e3)
         pose = device.pose
-        self.own_pose.setChecked(pose is not None)
         self.pose_r.setValue(
             float(np.degrees(fib.r if pose is None or pose.r is None else pose.r))
         )
@@ -59,43 +54,29 @@ class FMPlacementForm(QWidget):
         )
         self._saved = self.values()
 
-        pose_row = QHBoxLayout()
-        pose_row.setContentsMargins(0, 0, 0, 0)
-        pose_row.addWidget(self.pose_r)
-        pose_row.addWidget(self.pose_t)
-        pose_row.addWidget(self.button_stage_pose)
-        pose_widget = QWidget()
-        pose_widget.setLayout(pose_row)
-
         form = QFormLayout(self)
         form.setContentsMargins(8, 6, 8, 6)
-        form.addRow("Origin x (CALIB dx)", self.origin_x)
-        form.addRow("Origin y (CALIB dy)", self.origin_y)
-        form.addRow("", self.own_pose)
-        form.addRow("Pose r, t", pose_widget)
+        form.addRow("Origin x", self.origin_x)
+        form.addRow("Origin y", self.origin_y)
+        form.addRow("Rotation", self.pose_r)
+        form.addRow("Tilt", self.pose_t)
+        form.addRow("", self.button_stage_pose)
 
         for box in (self.origin_x, self.origin_y, self.pose_r, self.pose_t):
-            box.valueChanged.connect(self._on_edit)
-        self.own_pose.toggled.connect(self._on_edit)
+            box.valueChanged.connect(self.changed)
         self.button_stage_pose.clicked.connect(self.use_stage_pose)
-        self._apply_enabled()
 
     def values(self) -> Tuple[Tuple[float, float], Optional[Tuple[float, float]]]:
-        """((x, y) in metres, (r, t) in degrees or None for the FIB pose)."""
+        """((x, y) in metres, (r, t) in degrees, or None while the pose is FIB's)."""
         origin = (self.origin_x.value() * 1e-3, self.origin_y.value() * 1e-3)
-        pose = (
-            (self.pose_r.value(), self.pose_t.value())
-            if self.own_pose.isChecked()
-            else None
-        )
-        return origin, pose
+        pose = (round(self.pose_r.value(), 2), round(self.pose_t.value(), 2))
+        return origin, None if pose == self._fib_pose else pose
 
     def is_modified(self) -> bool:
         return self.values() != self._saved
 
     def use_stage_pose(self) -> None:
         position = self.microscope.get_stage_position()
-        self.own_pose.setChecked(True)
         self.pose_r.setValue(float(np.degrees(position.r)) % 360.0)
         self.pose_t.setValue(float(np.degrees(position.t)))
 
@@ -123,19 +104,10 @@ class FMPlacementForm(QWidget):
         self._saved = self.values()
         self.changed.emit()
         logging.info(f"FM origin {origin} m and pose {pose} deg saved to {path}")
-        message = "FM place saved. Reconnect to use it."
+        message = "FM origin and pose saved. Reconnect to use them."
         if pose_changed and self.microscope.system.stage.fm_calibrated():
             message += (
                 " The SEM to FM calibration was measured in the old pose: run it again."
             )
         notification_service.show_toast(message, "info")
         return True
-
-    def _on_edit(self, *_) -> None:
-        self._apply_enabled()
-        self.changed.emit()
-
-    def _apply_enabled(self) -> None:
-        own = self.own_pose.isChecked()
-        self.pose_r.setEnabled(own)
-        self.pose_t.setEnabled(own)

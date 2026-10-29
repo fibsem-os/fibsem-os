@@ -396,7 +396,10 @@ def test_the_fm_place_shows_the_configured_origin(qapp, site, toasts):
 
     assert window.fm_place.origin_x.value() == pytest.approx(origin.x * 1e3)
     assert window.fm_place.origin_y.value() == pytest.approx((origin.y or 0.0) * 1e3)
-    assert not window.fm_place.own_pose.isChecked()
+    fib = site.get_orientation("FIB")
+    assert window.fm_place.pose_r.value() == pytest.approx(np.degrees(fib.r), abs=0.01)
+    assert window.fm_place.pose_t.value() == pytest.approx(np.degrees(fib.t), abs=0.01)
+    assert window.fm_place.values()[1] is None  # FIB's pose: nothing to save
 
 
 def test_an_fm_place_edit_is_unsaved_on_the_geometry_tab(qapp, site, toasts):
@@ -415,7 +418,6 @@ def test_save_writes_the_fm_origin_and_pose(qapp, site, toasts):
     form = window.fm_place
     form.origin_x.setValue(48.7852)
     form.origin_y.setValue(-0.087)
-    form.own_pose.setChecked(True)
     form.pose_r.setValue(107.0)
     form.pose_t.setValue(20.3)
 
@@ -428,13 +430,30 @@ def test_save_writes_the_fm_origin_and_pose(qapp, site, toasts):
     assert fm["pose"] == pytest.approx({"r": 107.0, "t": 20.3})
     assert "available_orientations" not in fm
     assert not window.has_unsaved_changes()
-    assert "Reconnect to use it" in " ".join(str(t[0]) for t in toasts)
+    assert "Reconnect to use them" in " ".join(str(t[0]) for t in toasts)
     # and the file reads back with that pose
     settings = utils.load_microscope_configuration(site.configuration_path)
     pose = settings.system.stage.devices["FM"].pose
     assert (pose.r, pose.t) == pytest.approx(
         (float(np.radians(107.0)), float(np.radians(20.3)))
     )
+
+
+def test_a_pose_put_back_to_fib_s_saves_no_pose(qapp, site, toasts):
+    utils.write_fm_placement(site.configuration_path, (0.05, 0.0), (107.0, 20.3))
+    window = MicroscopeConfigurationWindow(site)  # the session's FM is still at FIB's
+    form = window.fm_place
+    form.pose_r.setValue(107.0)
+    fib = site.get_orientation("FIB")
+    form.pose_r.setValue(float(np.degrees(fib.r)))
+    form.origin_x.setValue(49.0)
+
+    window.pushButton_save.click()
+
+    devices = utils.load_yaml(site.configuration_path)["hardware"]["devices"]
+    (fm,) = [d for d in devices if d["name"] == "fm"]
+    assert "pose" not in fm
+    assert fm["available_orientations"] == ["FIB"]
 
 
 def test_clearing_the_pose_goes_back_to_imaging_in_fib(qapp, site, toasts):
@@ -455,7 +474,6 @@ def test_use_the_stage_s_pose_takes_r_and_t_from_the_stage(qapp, site, toasts):
     window.fm_place.use_stage_pose()
 
     here = site.get_stage_position()
-    assert window.fm_place.own_pose.isChecked()
     assert window.fm_place.pose_r.value() == pytest.approx(
         float(np.degrees(here.r)) % 360.0, abs=0.01
     )
