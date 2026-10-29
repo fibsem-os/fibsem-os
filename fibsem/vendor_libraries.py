@@ -5,8 +5,8 @@ import from the folder and where the folder usually is. A copy installed in this
 environment always wins. Otherwise the folder, on this PC, is the driver's environment
 variable when set, else this PC's install preferences
 (``InstallPreferences.vendor_libraries``), else the first of the driver's candidate
-folders that holds one of its packages (the newest, where several do), which is then
-kept as the preference. ``search`` asks the other Pythons on PATH. Only the named
+folders that holds one of its packages (the newest, where several do, so an upgrade
+installed in a new folder is taken up). ``search`` asks the other Pythons on PATH. Only the named
 packages are served from it, by a finder on ``sys.meta_path``. The folder never goes on
 ``sys.path``, so nothing else in it, such as an older numpy or packages compiled for
 another Python, is imported by accident.
@@ -264,8 +264,7 @@ def serve(
 ) -> Optional[str]:
     """Make *driver*'s library importable: its packages from *folder*, else from the
     resolved folder. Returns the folder, or None where this environment has the
-    library itself and nothing needs serving. A candidate folder it finds is kept as
-    this PC's preference, so a later install elsewhere is not switched to unasked.
+    library itself and nothing needs serving.
     Raises ``ImportError`` when no folder holds it, saying where it was looked for."""
     if folder is None and installed(library):
         return None
@@ -285,8 +284,6 @@ def serve(
     _FINDERS[driver] = finder
     # last, so a package installed in this environment wins over the folder's copy
     sys.meta_path.append(finder)
-    if found.source == SOURCE_FOUND:
-        save_folder(driver, found.folder)
     version_text = f" {found.version}" if found.version else ""
     logging.info(
         f"{driver}: the {library.label}{version_text} is served from {found.folder}."

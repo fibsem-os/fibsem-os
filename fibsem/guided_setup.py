@@ -304,9 +304,15 @@ def save_library_folder(choices: SetupChoices) -> None:
     """Keep the library folder typed into the connection step for this PC."""
     library = choices.manufacturer.library
     folder = choices.library_folder.strip()
-    # this environment's own copy is imported whatever is set, so it isn't kept
-    if library is not None and folder and folder != vendor_libraries.installed(library):
-        vendor_libraries.save_folder(choices.manufacturer.key, folder)
+    if library is None or not folder:
+        return
+    # what is found unasked (this environment's copy, the newest candidate) isn't
+    # kept, so a later upgrade is still found; only a folder chosen here pins it
+    found = vendor_libraries.resolve(choices.manufacturer.key, library)
+    unasked = (vendor_libraries.SOURCE_INSTALLED, vendor_libraries.SOURCE_FOUND)
+    if found.source in unasked and found.folder == folder:
+        return
+    vendor_libraries.save_folder(choices.manufacturer.key, folder)
 
 
 # ---------------------------------------------------------------------------

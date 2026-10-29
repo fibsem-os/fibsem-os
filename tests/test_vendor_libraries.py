@@ -130,7 +130,7 @@ def test_a_copy_in_this_environment_wins_and_is_not_served(
     assert "TestVendor" not in vl._FINDERS
 
 
-def test_a_candidate_served_is_kept_for_this_pc(tmp_path, preferences):
+def test_an_upgrade_in_a_new_folder_is_taken_up(tmp_path, preferences):
     folder = _library_folder(tmp_path / "Python311")
     library = SetupLibrary(
         label=LIBRARY.label,
@@ -138,10 +138,9 @@ def test_a_candidate_served_is_kept_for_this_pc(tmp_path, preferences):
         candidates=(str(tmp_path / "Python3*" / "site-packages"),),
     )
     assert vl.serve("TestVendor", library) == str(folder)
-    # a newer install later is not switched to unasked
-    _library_folder(tmp_path / "Python312", version="9.0.0")
-    assert vl.resolve("TestVendor", library).folder == str(folder)
-    assert vl.resolve("TestVendor", library).source == vl.SOURCE_PREFERENCE
+    assert "TestVendor" not in cfg.load_user_preferences().install.vendor_libraries
+    newer = _library_folder(tmp_path / "Python312", version="9.0.0")
+    assert vl.serve("TestVendor", library) == str(newer)
 
 
 def test_the_version_is_the_first_named_packages(tmp_path):

@@ -113,13 +113,14 @@ for pricing and installation. fibsemOS works with AutoScript 4.9 and later.
 fibsemOS uses AutoScript from AutoScript's own Python environment; nothing
 needs copying. It looks in the usual install folders, such as
 `C:\Program Files\Python36\envs\AutoScript\Lib\site-packages\`, and
-keeps the folder it finds for this computer, so a later AutoScript install
-is not switched to unasked. Guided Setup's connection step and
+takes the newest AutoScript it finds there, so an upgrade is picked up.
+Guided Setup's connection step and
 Preferences > Libraries show the folder and version in use.
 
 If AutoScript is somewhere else, choose its folder there: **Find** asks each
 Python on PATH (as `where python` lists them) where it has AutoScript, or
-pick the `site-packages` folder with the `...` button. Setting
+pick the `site-packages` folder with the `...` button. A folder chosen this
+way is kept for this computer and used even after an upgrade. Setting
 `FIBSEM_AUTOSCRIPT_PATH` to the folder overrides both.
 
 AutoScript packages copied into the fibsem environment itself are always
