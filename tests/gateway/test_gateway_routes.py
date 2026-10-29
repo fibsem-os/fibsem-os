@@ -289,7 +289,9 @@ def host_setup(tmp_path):
     token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
     auth = GatewayAuth.from_disk(token_file, tmp_path / "gateway-paired.json")
     host = FakeHost()
-    microscope = HostMicroscope(discovery=host.discovery, call=host)
+    microscope = HostMicroscope(
+        discovery=host.discovery, call=host, token=lambda: OPERATOR_TOKEN
+    )
     client = TestClient(build_gateway_app(FakeGateway(), auth, microscope=microscope))
     return client, host
 
@@ -326,6 +328,20 @@ def test_connecting_needs_the_app_running_and_the_grant(host_setup):
     assert r.json()["detail"]["error_type"] == "no_grant"
     host.up = False
     r = client.post("/gateway/microscope/connect", headers=_as(OPERATOR_TOKEN))
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (409, "no_app")
+
+
+def test_the_operator_opens_the_apps_agent_page_signed_in(host_setup):
+    # The page is the app's (8001), not the gateway's; the token rides in the
+    # fragment, as the window's own link carries it.
+    client, host = host_setup
+    r = client.get("/gateway/app/agent-page", headers=_as(OPERATOR_TOKEN))
+    assert r.json() == {"url": f"http://127.0.0.1:8001/ui/agent#token={OPERATOR_TOKEN}"}
+    switcher = _pair_hub(client, [SWITCH_MODES])
+    r = client.get("/gateway/app/agent-page", headers=_as(switcher["token"]))
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (403, "operator_only")
+    host.up = False
+    r = client.get("/gateway/app/agent-page", headers=_as(OPERATOR_TOKEN))
     assert (r.status_code, r.json()["detail"]["error_type"]) == (409, "no_app")
 
 
