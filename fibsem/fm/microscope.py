@@ -65,6 +65,7 @@ from fibsem.util.timestamps import now_iso
 if TYPE_CHECKING:
     from fibsem.devices.core import BoundParameter, Device
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.structures.settings import FibsemStagePosition
 
 RATE_LIMIT_DEFAULT = 0.05  # seconds between updates
 
@@ -1013,6 +1014,12 @@ class FluorescenceMicroscope:
     ) -> FluorescenceImage:
         """One command on the ``fm`` group sets up the channel and takes the frame,
         with what it was taken with, so building the image needs no further reads."""
+        return self._acquire(channel_settings)
+
+    def _acquire(
+        self, channel_settings: Optional[ChannelSettings] = None, live: bool = False
+    ) -> FluorescenceImage:
+        """`acquire_image`; a *live* frame takes the stage's cached position."""
         with self.active_channel():
             channel = None
             if channel_settings is not None:
@@ -1021,10 +1028,13 @@ class FluorescenceMicroscope:
                 self.channel_color = channel_settings.color
                 channel = channel_settings.to_dict()
             frame = self.devices["fm"].acquire_frame(channel)
-            return self._construct_image(frame.data, frame.metadata)
+            return self._construct_image(frame.data, frame.metadata, live=live)
 
     def _construct_image(
-        self, data: np.ndarray, frame_metadata: Optional[dict] = None
+        self,
+        data: np.ndarray,
+        frame_metadata: Optional[dict] = None,
+        live: bool = False,
     ) -> FluorescenceImage:
         """Construct a FluorescenceImage from raw data with associated metadata.
 
@@ -1039,7 +1049,7 @@ class FluorescenceMicroscope:
                 'pixel_size' ((x, y) in metres), 'acquisition_date'
                 (ISO string), 'exposure_time' (seconds).
         """
-        md = self._metadata_for_frame(frame_metadata)
+        md = self._metadata_for_frame(frame_metadata, live=live)
 
         # Apply image transformation to align with SEM/FIB images
         data = self._apply_image_transform(data)
@@ -1056,7 +1066,7 @@ class FluorescenceMicroscope:
         return img
 
     def _metadata_for_frame(
-        self, frame_metadata: Optional[dict]
+        self, frame_metadata: Optional[dict], live: bool = False
     ) -> FluorescenceImageMetadata:
         """Built from what the ``fm`` group reported with the frame. Anything it didn't
         report (a server from before ``acquire_frame``) is read live, as before."""
@@ -1105,11 +1115,22 @@ class FluorescenceMicroscope:
             pixel_size_x=pixel_size[0],
             pixel_size_y=pixel_size[1],
             resolution=(resolution[0], resolution[1]),
-            stage_position=parent.get_stage_position() if parent else None,
+            stage_position=self._stage_position(live),
             geometry=parent.fm_image_geometry() if parent else None,
             experiment=deepcopy(parent.experiment) if parent else None,
             channels=[channel],
         )
+
+    def _stage_position(self, live: bool) -> Optional[FibsemStagePosition]:
+        """Where the stage is, for a frame's metadata. A live frame takes the cached
+        position: a read per frame was a stage call at the camera's frame rate (about
+        20 a second on a METEOR, 2026-10-29), for frames that are only displayed."""
+        parent = self.parent
+        if parent is None:
+            return None
+        if live and getattr(parent, "stage", None) is not None:
+            return deepcopy(parent.stage.position.cached)
+        return parent.get_stage_position()
 
     def start_acquisition(
         self, channel_settings: Optional[ChannelSettings] = None
@@ -1259,7 +1280,7 @@ class FluorescenceMicroscope:
             group.start_live()
             try:
                 while not self._stop_acquisition_event.is_set():
-                    self.acquire_image()
+                    self._acquire(live=True)
             finally:
                 group.stop_live()
         except Exception as e:
