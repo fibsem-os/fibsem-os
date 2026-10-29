@@ -309,6 +309,33 @@ def test_the_operator_s_message_and_the_agent_s_reply_are_rows():
     assert [row.level for row in recent.rows] == ["", "drive"]
 
 
+def _message(message_id, text):
+    return _record("note", {"to": "agent", "id": message_id, "text": text}, OPERATOR)
+
+
+def test_a_message_the_agent_has_not_read_waits_then_sits_where_it_read_it():
+    recent = RecentActions()
+    recent.add(_message("ab12", "skip 03"))
+    recent.add(_called("stage_move"))
+    assert [(row.message_id, row.read) for row in recent.rows][0] == ("ab12", "")
+    read = _record("agent_messages_read", {"ids": ["ab12"]})
+    read["t"] = "2026-10-15T16:09:00.000"
+    assert recent.add(read)
+    # After what the agent did before it read it, placed by when it read it.
+    assert [row.kind for row in recent.rows] == ["action", "you"]
+    assert recent.rows[-1].read == recent.rows[-1].at == "2026-10-15T16:09:00.000"
+    assert recent.rows[-1].when == "16:08"
+    # Read once: a second report changes nothing.
+    assert not recent.add(read)
+
+
+def test_the_agent_s_answer_marks_the_message_read():
+    recent = RecentActions()
+    recent.add(_message("cd34", "skip 04"))
+    recent.add(_record("note", {"to": "operator", "reply_to": "cd34", "text": "ok"}))
+    assert [row.read != "" for row in recent.rows] == [True, False]
+
+
 def test_the_agent_s_message_and_note_are_told_apart():
     recent = RecentActions()
     recent.add(_record("agent_level_set", {"level": "drive"}, actor=OPERATOR))

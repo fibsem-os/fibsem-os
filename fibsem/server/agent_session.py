@@ -11,10 +11,15 @@ the operator, not an identity. The agent also keeps the operator's constraints
 for the Agent page. A session starting, its goal or constraints changing and
 its end go on the record, and so does the spend first reaching 80% of the
 budget; the spend and the checklist in between are state, read with GET.
+
+Which of the operator's messages the agent has read goes on the record too
+(``POST /app/agent/read``): fibsem-agent says so as a turn carrying them
+starts, ``fibsem-mcp watch`` as it prints them for any other agent.
 """
 
 import logging
 import math
+import re
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
@@ -30,6 +35,10 @@ SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
 SESSION_BUDGET = "agent_session_budget"
 SESSION_CONSTRAINTS = "agent_session_constraints"
+MESSAGES_READ = "agent_messages_read"
+# A message's id (`AgentSession.message`), and how many one report names.
+_MESSAGE_ID = re.compile(r"^[0-9a-f]{1,32}$")
+MAX_READ = 50
 
 MAX_TEXT = 500
 _TEXT = (
@@ -293,6 +302,23 @@ def build_agent_session_router(
             except Exception:  # noqa: BLE001 - the record never costs the report
                 logging.debug("could not record %s", kind, exc_info=True)
         return {"session": session}
+
+    @router.post("/read")
+    def report_read(body: Dict[str, Any]):
+        ids = body.get("ids")
+        if (
+            not isinstance(ids, list)
+            or not 0 < len(ids) <= MAX_READ
+            or not all(isinstance(i, str) and _MESSAGE_ID.match(i) for i in ids)
+        ):
+            raise refusal_error(
+                422,
+                "invalid",
+                f"ids lists 1 to {MAX_READ} of the operator's message ids.",
+            )
+        if emit is not None:
+            emit(MESSAGES_READ, {"ids": ids})
+        return {"read": ids}
 
     @router.get("/session", response_model=AgentSession)
     def get_session(request: Request):

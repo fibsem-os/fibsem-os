@@ -253,9 +253,10 @@ Once, on the support PC:
            available_orientations: [FIB] # the objective images in the FIB pose
    ```
 
-   If the objective images at another tilt than the FIB pose, state that pose
-   in place of `available_orientations`, in degrees, for example
-   `pose: {t: 10}`; a missing `r` or `t` is FIB's. See
+   If the objective images in another pose than FIB's, state that pose in place
+   of `available_orientations`, in degrees, for example `pose: {r: 107, t: 20.3}`;
+   a missing `r` or `t` is FIB's. The SEM to FM calibration takes up to 15° from
+   FIB in each, and one site within 5°. See
    [Devices](docs/developers/devices.md#configuring-devices) for the other keys.
 
 **Start the Device Server** on the METEOR PC, with odemis already running

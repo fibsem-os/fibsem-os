@@ -583,15 +583,16 @@ class SemToFmDialog(QtWidgets.QDialog):
 
     def _fm_pose_text(self) -> str:
         try:
-            dt = self.calibration.fm_tilt_difference()
+            dr, dt = self.calibration.fm_pose_difference()
         except ValueError as e:
             return str(e)
         name = self.calibration.fm_orientation()
-        if abs(dt) < 0.05:
-            return f"The FM images in the {name} pose, the same as FIB's."
+        where = "Set in Configuration > Geometry > FM."
+        if abs(dr) < 0.05 and abs(dt) < 0.05:
+            return f"The FM images in the {name} pose, the same as FIB's. {where}"
         return (
-            f"The FM's pose is {dt:+.1f}° from FIB's in tilt: tilt by that much at "
-            "the beams before capturing."
+            f"The FM's pose is {dr:+.1f}° from FIB's in rotation and {dt:+.1f}° in "
+            f"tilt: re-pose by that much at the beams before capturing. {where}"
         )
 
     def _show_summary(self) -> None:

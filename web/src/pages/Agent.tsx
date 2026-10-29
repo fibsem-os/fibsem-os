@@ -7,6 +7,8 @@ import { Markdown } from "@/lib/markdown";
 import type { AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
+import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
+import { SentFiles } from "./agent/Attachments";
 import { Composer } from "./agent/Composer";
 import { EvidenceImage } from "./agent/Pictures";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
@@ -38,14 +40,30 @@ function Time({ when }: { when: string }) {
   return <div className="w-12 shrink-0 pt-0.5 text-[12px] text-muted-foreground tabular-nums">{when}</div>;
 }
 
-function Message({ row }: { row: RecentRow }) {
+/** Why a message isn't read yet, and when it will be. */
+function unreadWhy(agent: AgentState | undefined): [string, string] {
+  if (agent?.last_heard_s == null) return ["No agent connected", "An agent reads it when one connects."];
+  if (agent.level === "off") return ["The agent is off", "The agent reads it when its level is back on."];
+  return ["The agent is working...", "The agent reads it when its current turn ends."];
+}
+
+function Message({ row, unread }: { row: RecentRow; unread?: [string, string] }) {
+  const sent = splitAttached(row.text);
   if (row.kind === "you")
     return (
-      <div className="my-1 flex gap-2 rounded-md bg-card py-2 pr-2.5 pl-2.5">
+      <div className={cn("my-1 flex gap-2 rounded-md bg-card py-2 pr-2.5 pl-2.5", unread && "opacity-75")}>
         <Time when={row.when} />
         <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-semibold text-muted-foreground">You</div>
-          <div className="whitespace-pre-wrap break-words">{row.text}</div>
+          <div className="flex gap-2 text-[12px] font-semibold text-muted-foreground">
+            You
+            {unread && (
+              <span className="ml-auto cursor-help font-normal" title={unread[1]}>
+                Not read yet. {unread[0]}
+              </span>
+            )}
+          </div>
+          <div className="whitespace-pre-wrap break-words">{sent.text}</div>
+          <SentFiles files={sent.files} />
           {row.evidence && <EvidenceImage id={row.evidence.evidence_id} />}
         </div>
       </div>
@@ -290,10 +308,18 @@ export function AgentPage() {
   const list = useRef<HTMLDivElement>(null);
   // Kept at the newest row while the reader hasn't scrolled up from it.
   const pinned = useRef(true);
-  const rows = recent.data?.rows ?? [];
+  // The operator's messages the agent hasn't read wait below the chat, under
+  // whatever it does meanwhile; read, each sits where the agent read it.
+  const all = recent.data?.rows ?? [];
+  const rows = all.filter((r) => !(r.kind === "you" && r.message_id && !r.read));
+  const unread = all.filter((r) => r.kind === "you" && r.message_id && !r.read);
   const a = agent.data;
   // A row that arrives while the reader is scrolled up shows the way down to it.
   const [newer, setNewer] = useState(false);
+  const attach = useAttachments();
+  // Files dragged over the chat: enter and leave fire for each child, so count them.
+  const drags = useRef(0);
+  const [dragging, setDragging] = useState(false);
   const newest = rows.length ? rows[rows.length - 1].at : "";
   const seen = useRef(newest);
   useEffect(() => {
@@ -328,8 +354,26 @@ export function AgentPage() {
   const session = reported.data?.session;
   const panel = hasPanel(session) ? <SidePanel session={session} budgetLow={a.budget_low} /> : null;
   return (
-    <div className="flex h-full justify-center gap-8 lg:pr-6">
-      <div className="flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5">
+    <div className="flex h-full">
+      <div
+        className="mx-auto flex h-full w-full max-w-[880px] min-w-0 flex-col px-4 md:px-5"
+        onDragEnter={(e) => {
+          if (!carriesFiles(e)) return;
+          drags.current += 1;
+          setDragging(true);
+        }}
+        onDragLeave={(e) => {
+          if (carriesFiles(e) && --drags.current <= 0) setDragging(false);
+        }}
+        onDragOver={(e) => carriesFiles(e) && e.preventDefault()}
+        onDrop={(e) => {
+          if (!carriesFiles(e)) return;
+          e.preventDefault();
+          drags.current = 0;
+          setDragging(false);
+          if (a.experiment) attach.add(e.dataTransfer.files);
+        }}
+      >
         <div className="flex items-center justify-end gap-3 pt-2.5">
           <Popup
             label="Show"
@@ -404,7 +448,7 @@ export function AgentPage() {
           >
             <div>
               {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
-              {rows.length ? (
+              {all.length ? (
                 <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
               ) : (
                 <div className="py-8 text-center text-[13px] text-muted-foreground">
@@ -414,6 +458,20 @@ export function AgentPage() {
               )}
             </div>
           </section>
+          {dragging && (
+            <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-primary bg-primary/5 text-center">
+              {a.experiment ? (
+                <>
+                  <div className="text-[15px]">Drop to attach</div>
+                  <div className="text-[13px] text-muted-foreground">
+                    Saved in the experiment folder, under notes/, where the agent reads them
+                  </div>
+                </>
+              ) : (
+                <div className="text-[15px]">Open an experiment to attach files</div>
+              )}
+            </div>
+          )}
           {newer && (
             <button
               className="absolute bottom-3 left-1/2 flex -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-md border border-input bg-popover px-3 py-1.5 text-[12px] text-foreground shadow-[0_4px_14px_rgba(0,0,0,0.4)] hover:bg-accent"
@@ -424,6 +482,16 @@ export function AgentPage() {
             </button>
           )}
         </div>
+        {unread.length > 0 && (
+          <section
+            aria-label="Not read yet"
+            className="max-h-[30vh] overflow-y-auto border-t border-dashed border-border pt-1"
+          >
+            {unread.map((row) => (
+              <Message key={row.message_id} row={row} unread={unreadWhy(a)} />
+            ))}
+          </section>
+        )}
         <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
           {/* Kept while a session runs, so the composer doesn't move as commands start and end. */}
           {(a.session || a.now) && <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>}
@@ -436,13 +504,20 @@ export function AgentPage() {
           {a.asking && <ConnectCard key={a.asking.id} ask={a.asking} />}
           {request && <RequestCard key={request.request_id} request={request} agent={a} />}
           {!request && suggestion && <SuggestionCard key={suggestion.proposal_id} suggestion={suggestion} agent={a} />}
-          <Composer agent={a} onSent={() => (pinned.current = true)} />
+          <div
+            className={cn(
+              "rounded-md",
+              dragging && a.experiment && "outline-2 outline-offset-2 outline-primary outline-dashed",
+            )}
+          >
+            <Composer agent={a} attach={attach} onSent={() => (pinned.current = true)} />
+          </div>
         </div>
       </div>
       {panel && (
         <aside
           aria-label="Goal and to do"
-          className="hidden w-[232px] shrink-0 overflow-y-auto pt-[38px] pb-4 lg:block"
+          className="hidden w-[clamp(232px,22vw,400px)] shrink-0 overflow-y-auto border-l border-border px-6 pt-[38px] pb-4 lg:block"
         >
           {panel}
         </aside>

@@ -155,11 +155,15 @@ def test_this_machines_profile_wins_over_the_checkouts(home, tmp_path):
 def test_the_shipped_default_profile_loads(checkout):
     path = checkout / profiles.PROFILE_DIR / f"{profiles.DEFAULT_PROFILE}.yaml"
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)
-    assert profile.mode == "none"
+    assert profile.mode == "files" and profile.max_budget_usd == 500
     assert [hook.when for hook in profile.hooks] == [
         "hardware_error",
         "after_polish_pass",
     ]
+    # The rules that hold on every task, read every turn after the harness's.
+    prompt = harness_mod.system_prompt(profile=profile)
+    assert "auto function" in prompt and "coincidence" in prompt
+    assert "50 µm field of view" in prompt
 
 
 def show(capsys, *argv):
@@ -194,7 +198,7 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
 
     config = show(capsys)
     assert config["profile"]["name"] == "fibsem-agent", "the default"
-    assert config["mode"] == "none"
+    assert config["mode"] == "files"
     assert [hook["when"] for hook in config["hooks"]] == [
         "hardware_error",
         "after_polish_pass",
@@ -223,7 +227,7 @@ def test_the_lists_print_profiles_and_hook_options(home, capsys):
     write(home / ".fibsem" / "agent" / "profiles", "broken", "mode: what\n")
     assert harness_mod.main(["--list-profiles", "--json"]) == 0
     rows = {row["name"]: row for row in json.loads(capsys.readouterr().out)}
-    assert rows["fibsem-agent"]["mode"] == "none"
+    assert rows["fibsem-agent"]["mode"] == "files"
     assert "mode is one of" in rows["broken"]["error"]
 
     assert harness_mod.main(["--list-hooks", "--json"]) == 0

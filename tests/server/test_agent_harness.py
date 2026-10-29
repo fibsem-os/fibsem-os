@@ -279,6 +279,23 @@ def test_the_harness_keeps_the_constraints_the_agent_set(session):
     assert running.harness._deadlines.times == []
 
 
+def test_a_message_is_read_as_the_turn_carrying_it_starts(session):
+    agent = ScriptedAgent()
+    running = _harness(session, agent)
+    _until(lambda: len(agent.prompts) >= 1, what="the kickoff")
+    message_id = AgentSession(session).message("Skip 04.")
+    _until(lambda: len(agent.prompts) >= 2, what="the message's turn")
+    assert f"MESSAGE id={message_id}" in agent.prompts[1]
+    running.stop()
+    read = [
+        e["payload"]["ids"]
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if e["kind"] == "agent_messages_read"
+    ]
+    # Once, by the harness: its watch leaves it to the turn.
+    assert read == [[message_id]]
+
+
 def test_a_wake_up_rings_into_the_next_turn(session):
     agent = ScriptedAgent()
     running = _harness(session, agent, alarm=(alarm := harness_mod.Alarm()))
@@ -301,6 +318,11 @@ def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     again = kickoff(resumed=True)
     assert "resumed" in again and "server_get_capabilities" in again
     assert "LEVEL line" in harness_mod.HARNESS_PROMPT
+    assert "stop and ask" in harness_mod.HARNESS_PROMPT
+    assert "only through fibsem-os" in harness_mod.HARNESS_PROMPT
+    # A goal is said back, with its rule, before the agent acts on it.
+    goal = kickoff(goal="mill 01 and 02")
+    assert "mill 01 and 02" in goal and "Before acting on it" in goal
 
 
 def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path):
@@ -655,7 +677,7 @@ def test_each_session_has_a_folder_with_its_record_and_log(tmp_path, monkeypatch
     record = manager.read_json(folder / manager.RECORD)
     assert record["goal"] == "mill 01"
     assert record["url"] == "http://127.0.0.1:9"
-    assert record["mode"] == "none"
+    assert record["mode"] == "files"
     (run,) = record["runs"]
     assert run["exit_code"] == 1 and run["resumable"] is True
     assert "Session:" in (folder / manager.LOG).read_text(encoding="utf-8")

@@ -237,6 +237,13 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
 function Run({ running }: { running: Running }) {
   const client = useQueryClient();
   const [confirm, setConfirm] = useState(false);
+  // The app's own Agent page, signed in as the operator; absent while it is away.
+  const page = useQuery({
+    queryKey: ["gateway/app/agent-page"],
+    queryFn: () => api<{ url: string }>("/gateway/app/agent-page"),
+    enabled: running.state === "running",
+    retry: false,
+  });
   const end = useMutation({
     mutationFn: (stopApp: boolean) =>
       api<AgentState>("/gateway/agent/end", { method: "POST", body: JSON.stringify({ stop_app: stopApp }) }),
@@ -295,9 +302,18 @@ function Run({ running }: { running: Running }) {
         </>
       ) : (
         <div className="flex flex-wrap items-center justify-end gap-2.5">
-          <a href="/ui/agent" className="mr-auto text-xs text-[var(--primary)] hover:underline">
-            Open the Agent page
-          </a>
+          {page.data ? (
+            <a
+              href={page.data.url}
+              target="_blank"
+              rel="noopener"
+              className="mr-auto text-xs text-[var(--primary)] hover:underline"
+            >
+              Open the Agent page
+            </a>
+          ) : (
+            <span className="mr-auto" />
+          )}
           <Button disabled={end.isPending} onClick={() => setConfirm(true)}>
             End and stop the app
           </Button>

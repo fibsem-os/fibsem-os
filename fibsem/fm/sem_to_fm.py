@@ -5,8 +5,8 @@ Two parts, in the order the move that matters makes them: SEM to FIB is a half
 turn at the beams, so the rotation centre comes first
 (`StageSystemSettings.rotation_centre_correction`); FIB to FM is a travel, measured
 as where the same point sits at the beams and under the objective
-(`DeviceCalibration`). One site measures it when the FM images in the FIB pose;
-more sites are its check. An FM tilted from FIB needs three, spread in y. The stage then travels by what was measured, and
+(`DeviceCalibration`). One site measures it when the FM images within 5° of the FIB
+pose; more sites are its check. An FM further off needs three, spread in y. The stage then travels by what was measured, and
 travel to the FM is refused until it is (`StageMovement.fm_calibration_needed`).
 
 The steps are here, Qt-free; `fibsem.ui.widgets.sem_to_fm_dialog` walks the
@@ -30,12 +30,12 @@ from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.structures.system import BEAMS_STAGE_DEVICE, DEVICE_AXES, DeviceCalibration
 from fibsem.util.timestamps import now, now_iso
 
-# How far the FM's pose may differ from FIB's in tilt and still be calibrated by
-# tilting at the beams; more is a configuration error. Degrees.
-MAX_FM_TILT_DIFFERENCE = 15.0
-# Below this, in degrees, the FM's pose is FIB's in tilt and the travel is one
-# translation.
-SAME_TILT = 0.05
+# How far the FM's pose may differ from FIB's, in rotation and in tilt, and still be
+# calibrated by re-posing at the beams; more is a configuration error. Degrees.
+MAX_FM_POSE_DIFFERENCE = 15.0
+# Within this of FIB's pose, in rotation and in tilt, one site calibrates the travel
+# (unchecked until a second agrees); further off needs `SITES`. Degrees.
+ONE_SITE_POSE_DIFFERENCE = 5.0
 # With a tilt, the sites must spread at least this far in y for a travel that
 # varies with position to show. Metres.
 MIN_SITE_SPREAD_Y = 3.0e-3
@@ -120,29 +120,30 @@ class SemToFmCalibration:
         """The orientation the FM images from: the first its device names."""
         return self.microscope.system.stage.devices["FM"].available_orientations[0]
 
-    def fm_tilt_difference(self) -> float:
-        """How far the FM's pose is tilted from FIB's, in degrees, refused when it
-        can't be calibrated: another rotation, or more than
-        `MAX_FM_TILT_DIFFERENCE` of tilt."""
+    def fm_pose_difference(self) -> Tuple[float, float]:
+        """How far the FM's pose is from FIB's, (rotation, tilt) in degrees, refused
+        when either is more than `MAX_FM_POSE_DIFFERENCE`."""
         fib = self.microscope.get_orientation("FIB")
         fm = self.microscope.get_orientation(self.fm_orientation())
-        dr = np.degrees(abs(np.arctan2(np.sin(fm.r - fib.r), np.cos(fm.r - fib.r))))
+        dr = float(np.degrees(np.arctan2(np.sin(fm.r - fib.r), np.cos(fm.r - fib.r))))
         dt = float(np.degrees(fm.t - fib.t))
-        if dr > 1.0:
-            raise CalibrationRefused(
-                f"The FM's pose is {dr:.1f}° from FIB's in rotation. An offset FM "
-                "images at FIB's rotation: check the FM entry's pose."
-            )
-        if abs(dt) > MAX_FM_TILT_DIFFERENCE:
-            raise CalibrationRefused(
-                f"The FM's pose is {dt:.1f}° from FIB's in tilt, more than "
-                f"{MAX_FM_TILT_DIFFERENCE:.0f}°: check the FM entry's pose."
-            )
-        return dt
+        for what, difference in (("rotation", dr), ("tilt", dt)):
+            if abs(difference) > MAX_FM_POSE_DIFFERENCE:
+                raise CalibrationRefused(
+                    f"The FM's pose is {difference:.1f}° from FIB's in {what}, more "
+                    f"than {MAX_FM_POSE_DIFFERENCE:.0f}°: check the FM entry's pose."
+                )
+        return dr, dt
+
+    def fm_tilt_difference(self) -> float:
+        """How far the FM's pose is tilted from FIB's, in degrees."""
+        return self.fm_pose_difference()[1]
 
     def sites_needed(self) -> int:
-        """1 when the FM images in FIB's tilt, else `SITES`."""
-        return 1 if abs(self.fm_tilt_difference()) < SAME_TILT else SITES
+        """1 when the FM images within `ONE_SITE_POSE_DIFFERENCE` of FIB's pose, else
+        `SITES`."""
+        dr, dt = self.fm_pose_difference()
+        return 1 if max(abs(dr), abs(dt)) < ONE_SITE_POSE_DIFFERENCE else SITES
 
     def _require_at_beams(self, orientation: Optional[str] = None) -> None:
         if self.movement.current_device() != BEAMS_STAGE_DEVICE:

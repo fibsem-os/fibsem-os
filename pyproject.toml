@@ -43,6 +43,8 @@ dependencies = [
     # fibsem.codec, which saves and loads the structures. Present via ome_types all
     # along; 2.12 is the first that refuses unknown keys per call (`extra=`).
     "pydantic>=2.12",
+    # experiment_read_file reads a PDF the operator attaches as its text. Pure Python.
+    "pypdf>=4.0",
     # The App Server's one transport (fibsem.client): the client, the MCP
     # sidecar and fibsem-mcp watch.
     "httpx>=0.27.0",
