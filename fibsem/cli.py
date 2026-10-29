@@ -582,6 +582,49 @@ def cmd_plugins(args) -> int:
     return 0
 
 
+def cmd_notify(args) -> int:
+    """Slack notifications on this PC (``fibsem.alerts``): set the channel and
+    send a test, send one again, turn them off, or say how they are set."""
+    from fibsem import alerts, config
+
+    if args.verb == "off":
+        config.update_user_preferences(
+            lambda p: setattr(p.install.notifications, "enabled", False)
+        )
+        print("Slack notifications are off.")
+        return 0
+    if args.verb == "setup":
+
+        def name(p):
+            p.install.notifications.channel = args.channel.strip()
+            p.install.notifications.channel_id = ""
+
+        config.update_user_preferences(name)
+    settings = config.load_user_preferences().install.notifications
+    if args.verb == "status":
+        state = "on" if settings.enabled else "off"
+        channel = settings.channel or "none"
+        if settings.channel_id:
+            channel += f" ({settings.channel_id})"
+        token = "set" if alerts.service.slack_token() else "not set"
+        print(
+            f"Slack notifications: {state}. Channel: {channel}. {alerts.service.TOKEN_ENV}: {token}."
+        )
+        return 0
+    channel_id = alerts.send_test(settings)
+
+    def keep(p):
+        p.install.notifications.channel_id = channel_id
+        if args.verb == "setup":
+            p.install.notifications.enabled = True
+
+    config.update_user_preferences(keep)
+    print(f"Sent a test to {settings.channel or channel_id} ({channel_id}).")
+    if args.verb == "setup":
+        print("Slack notifications are on; a running fibsem host starts sending now.")
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Parser construction
 # ---------------------------------------------------------------------------
@@ -856,6 +899,27 @@ def _add_pair_device_parser(sub) -> None:
     p.set_defaults(func=cmd_pair_device, needs_server=False)
 
 
+def _add_notify_parser(sub) -> None:
+    """Takes no connection arguments: the settings are this PC's, read by the
+    host on its next pass."""
+    p = sub.add_parser(
+        "notify",
+        help="Slack notifications from this instrument",
+        description="The bot token is the FIBSEM_SLACK_TOKEN environment variable; "
+        "set it before starting the host. Add the bot to the channel first.",
+    )
+    verbs = p.add_subparsers(dest="verb", metavar="VERB")
+    verbs.required = True
+    setup = verbs.add_parser(
+        "setup", help="Name the channel, send a test, and turn notifications on"
+    )
+    setup.add_argument("channel", metavar="CHANNEL", help="#name or channel ID")
+    verbs.add_parser("test", help="Send a test to the channel")
+    verbs.add_parser("off", help="Turn notifications off")
+    verbs.add_parser("status", help="Say how notifications are set")
+    p.set_defaults(func=cmd_notify, needs_server=False)
+
+
 def _add_plugins_parser(sub) -> None:
     """Takes no connection arguments: diagnosing a plugin is usually done away
     from the instrument."""
@@ -915,6 +979,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_remote_parsers(sub, conn)
     _add_experiment_parsers(sub, conn)
     _add_pair_device_parser(sub)
+    _add_notify_parser(sub)
     _add_plugins_parser(sub)
     return root
 

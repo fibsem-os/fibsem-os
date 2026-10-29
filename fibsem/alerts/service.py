@@ -61,6 +61,7 @@ def send_test(
     settings: NotificationPreferences,
     token: Optional[str] = None,
     channel: Optional[Callable[..., Any]] = None,
+    link: str = "",
 ) -> str:
     """Post a test message to the channel the settings name, whether or not
     notifications are on. Returns the channel's ID; raises ``ValueError`` when
@@ -73,7 +74,7 @@ def send_test(
     name = _channel_name(settings)
     if not name:
         raise ValueError("No Slack channel: name one first.")
-    poster = (channel or SlackChannel)(token, name, settings.link)
+    poster = (channel or SlackChannel)(token, name, settings.link or link)
     try:
         return poster.send(
             Alert(
@@ -99,8 +100,12 @@ class Alerts:
         clock: Callable[[], float] = time.monotonic,
         now: Callable[[], float] = time.time,
         poll_s: float = POLL_S,
+        link: str = "",
     ):
         self._session = session
+        # The web app as the host serves it, for the Open button when the
+        # settings name no other address.
+        self._link = link
         self._settings = settings
         self._token = slack_token() if token is None else token
         self._make_channel = channel
@@ -126,7 +131,9 @@ class Alerts:
         if self._thread is not None:
             return
         if not self._token:
+            # Read only here, so nothing could be sent until a restart.
             logging.info("Slack notifications: no %s, so none are sent", TOKEN_ENV)
+            return
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._run, name="fibsem-alerts", daemon=True
@@ -195,11 +202,11 @@ class Alerts:
         name = _channel_name(settings)
         if not name:
             return None
-        key = (name, settings.link)
+        key = (name, settings.link or self._link)
         if self._poster_for != key:
             if self._poster is not None:
                 self._poster.close()
-            self._poster = self._make_channel(self._token, name, settings.link)
+            self._poster = self._make_channel(self._token, *key)
             self._poster_for = key
         return self._poster
 

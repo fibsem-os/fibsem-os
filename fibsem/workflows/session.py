@@ -24,6 +24,7 @@ from fibsem import config as cfg
 from fibsem import utils
 from fibsem.acting import AGENT, OPERATOR, ActorKind
 from fibsem.ai.agent.session import AgentSession
+from fibsem.alerts import Alerts
 from fibsem.devices.runs import Runs
 from fibsem.imaging.latest import LatestImages
 from fibsem.imaging.overview_session import OverviewSession
@@ -129,6 +130,9 @@ class AppSession:
         # The agent as the operator meets it: its level, its requests and the
         # operator's messages.
         self.agent = AgentSession(self)
+        # Slack messages for someone away from the instrument, while the App
+        # Server is hosted (its web app is where they are answered).
+        self.alerts: Optional[Alerts] = None
         # The surfaces attached to decide a run's proposals (a window: the
         # operator), while they are attached.
         self._deciders: List[ActorKind] = []
@@ -444,10 +448,16 @@ class AppSession:
         started = self.app_server.start()
         if started:
             self.agent.keep_pictures()
+            if self.alerts is None:
+                self.alerts = Alerts(self, link=f"{self.app_server.url}/ui")
+                self.alerts.start()
         return started
 
     def stop_app_server(self) -> None:
         self.agent.stop_pictures()
+        if self.alerts is not None:
+            self.alerts.stop()
+            self.alerts = None
         if self.app_server is not None:
             self.app_server.stop()
 
