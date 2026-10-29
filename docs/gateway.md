@@ -91,6 +91,26 @@ end the agent too. Each session's record and log are in
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
 
+## One shortcut: AutoLamella with the agent
+
+```
+fibsem-gateway shortcut
+```
+
+This puts an "AutoLamella with the agent" shortcut on the desktop. It runs
+`fibsem-autolamella-agent`, which does the whole start in one go:
+
+1. Starts the gateway, if it isn't running.
+2. Starts AutoLamella with its window. A window the gateway starts always hosts the App
+   Server on this PC, whatever **Tools → Host** says. Turning Host off there stops it.
+3. Connects the default microscope configuration (`--configuration <name>` for another).
+4. Starts the agent with the `default` profile (`--profile <name>` for another), at **Watch**.
+5. Opens the Agent page in the browser.
+
+A step that's already done is skipped, so a second click only opens the page. If a step
+fails, the launch stops there and a dialog says why. The shortcut never raises the level:
+raise it on the Agent page. `fibsem-gateway launch` does the same from a terminal.
+
 ## Pairing a hub
 
 Pair a hub as you pair a browser, with a 4-digit code: **Pair a computer → A hub that may
