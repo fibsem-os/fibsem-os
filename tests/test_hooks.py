@@ -397,27 +397,6 @@ def test_any_producer_can_fire_events():
     ]
 
 
-# ---------------------------------------------------------------------------
-# WebhookHook
-# ---------------------------------------------------------------------------
-
-# def test_webhook_hook_rejects_invalid_scheme():
-#     hook = WebhookHook(name="w", events=[HookEvent.TASK_COMPLETED], url="ftp://example.com")
-#     with pytest.raises(ValueError, match="scheme"):
-#         hook.run(_ctx())
-
-
-# def test_webhook_hook_rejects_empty_url():
-#     hook = WebhookHook(name="w", events=[HookEvent.TASK_COMPLETED], url="")
-#     with pytest.raises(ValueError, match="empty"):
-#         hook.run(_ctx())
-
-
-# def test_webhook_hook_rejects_invalid_method():
-#     with pytest.raises(ValueError, match="method"):
-#         WebhookHook(name="w", events=[], url="https://x.com", method="DELETE")
-
-
 def test_notify_reaches_the_notifier_and_is_quiet_without_one():
     """A run's own notices (a grid run's report) go where hooks' do: the app's
     notifications when it listens, nowhere when headless."""
