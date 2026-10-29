@@ -8,18 +8,14 @@ import os
 from types import SimpleNamespace
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem import config as fcfg  # noqa: E402
-from fibsem.devices.runs import ended_as  # noqa: E402
-from fibsem.milling.base import FibsemMillingStage  # noqa: E402
-from fibsem.milling.tasks import FibsemMillingTaskConfig  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import BeamType, ImageSettings  # noqa: E402
+from fibsem import config as fcfg
+from fibsem.devices.runs import ended_as
+from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.tasks import FibsemMillingTaskConfig
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import BeamType, ImageSettings
 
 TOKEN = "test-token"
 MILLING = "/microscope/services/milling"

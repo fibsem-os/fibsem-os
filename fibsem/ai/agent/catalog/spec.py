@@ -175,6 +175,20 @@ MARKS_PARAM = (
     "[x, y, z] goes to correlation as it is"
 )
 
+# How each layer of a picture is drawn, as the viewer's layers panel sets it
+# (fibsem.imaging.looks).
+LOOKS_PARAM = (
+    "optional: how each layer is drawn, as the viewer's layers panel sets it: "
+    "{layer: {clim: [low, high] in the image's own values (left out: auto, the "
+    "1st and 99th percentiles), gamma (1 linear), opacity (0 to 1), color}}; a "
+    "layer is a fluorescence channel by name, or SEM / FIB for a beam image"
+)
+BOX_PARAM = (
+    "optional: draw only this region, [x, y, width, height] in the image's "
+    "pixels (marks stay in the image's pixels); each fluorescence channel is "
+    "contrasted to the region"
+)
+
 # The optional argument every acting tool takes (`ToolSpec.takes_evidence`):
 # what the agent judged from, kept in the experiment (fibsem.workflows.evidence).
 EVIDENCE_PARAM = (
@@ -204,6 +218,7 @@ GROUP_TITLES: Dict[str, str] = {
     "coating": "Coating",
     "alignment": "Alignment",
     "correlation": "Correlation",
+    "analysis": "Analysis",
     "app": "App",
     "experiment": "Experiment",
     "protocol": "Protocol",
@@ -226,10 +241,13 @@ _WRITES_AT_WATCH = frozenset(
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image
         "correlation_correlate",  # saves a run in the lamella's Correlation folder
+        "correlation_refine_point",  # saves its fit figure beside the image
         "experiment_render_markers",  # saves its picture beside the image
         "experiment_draw_image",  # saves its picture beside the image
         "experiment_draw_pair",  # saves its picture beside the first image
         "item_draw_milling",  # saves its picture beside the image
+        "analysis_measure_intensity",  # saves its figure beside the image
+        "analysis_measure_profile",  # saves its figure beside the image
     }
 )
 

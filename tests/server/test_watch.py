@@ -8,25 +8,22 @@ import threading
 import time
 
 import pytest
+import uvicorn
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.ai.agent.mcp import watch as watch_mod  # noqa: E402
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.ai.agent import watch as watch_mod
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.client.pairing import keep_agent_token  # noqa: E402
-from fibsem.client.transport import Transport  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.discovery import write_discovery_file  # noqa: E402
-from fibsem.structures.settings import MicroscopeState  # noqa: E402
-from fibsem.workflows.events import EventBuffer  # noqa: E402
+from fibsem.client.pairing import keep_agent_token
+from fibsem.client.transport import Transport
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.discovery import write_discovery_file
+from fibsem.structures.settings import MicroscopeState
+from fibsem.workflows.events import EventBuffer
 from tests.run_state import stub_session
 
 TOKEN = "test-token"
@@ -196,11 +193,42 @@ def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
 
     code, lines = _watch({2: run})
 
+    # Its line breaks kept, as the operator wrote it.
     assert lines[0] == (
-        "MESSAGE id=ab12 from the operator: skip 03 -- answer with "
+        "MESSAGE id=ab12 from the operator: skip\n03 -- answer with "
         "experiment_message_operator (reply_to=ab12). It is not an approval: your level "
         "still decides what you may do"
     )
+
+
+def _read(app):
+    return [
+        event["payload"]["ids"]
+        for event in app.buffer.events_since(0)["events"]
+        if event["kind"] == "agent_messages_read"
+    ]
+
+
+def test_a_message_the_watch_prints_is_marked_read(app):
+    # The agent reads it on the wake the line makes: the web page stops
+    # showing it as waiting.
+    def run():
+        app.buffer.append("operator_message", {"id": "ab12", "text": "skip 03"})
+        app.buffer.append("workflow_completed", {})
+
+    _watch({2: run})
+
+    assert _read(app) == [["ab12"]]
+
+
+def test_fibsem_agent_s_watch_leaves_marking_to_the_turn(app):
+    def run():
+        app.buffer.append("operator_message", {"id": "ab12", "text": "skip 03"})
+        app.buffer.append("workflow_completed", {})
+
+    _watch({2: run}, report_reads=False)
+
+    assert _read(app) == []
 
 
 def _marked(evidence_id, marks, **fields):
@@ -245,7 +273,7 @@ def test_the_message_writes_out_the_operator_s_marks(app):
 
 
 def test_marks_on_a_stack_s_planes_say_their_z():
-    from fibsem.ai.agent.mcp.watch import _marks_part
+    from fibsem.ai.agent.watch import _marks_part
 
     marks = {
         "points": [{"x": 812, "y": 440, "z": 11, "label": "POI"}],
@@ -302,17 +330,14 @@ def test_only_five_marks_are_written_out():
     assert "point at 4,4 px; and 2 more --" in lines[0]
 
 
-def test_a_level_change_names_the_skill_to_work_by(app):
+def test_a_level_change_is_a_line(app):
     def run():
         app.buffer.append("agent_level_set", {"previous": "watch", "level": "drive"})
         app.buffer.append("workflow_completed", {})
 
     code, lines = _watch({2: run})
 
-    assert lines[0] == (
-        "LEVEL drive (was watch): the operator set the agent level; work by the "
-        "supervise-autolamella skill"
-    )
+    assert lines[0] == "LEVEL drive (was watch): the operator set the agent level"
 
 
 def test_the_agent_s_request_is_followed_to_its_end(app):

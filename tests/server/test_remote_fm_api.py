@@ -6,26 +6,22 @@ import time
 import numpy as np
 import pytest
 
-from fibsem.structures.system import InsertableDeviceState
-from tests.server.test_remote_fm import _unreachable  # noqa: E402
-
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-from fibsem.drivers.demo.devices import bind_demo_fm  # noqa: E402
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem.drivers.demo.devices import bind_demo_fm
+from fibsem.drivers.remote.devices import (
     DeviceClient,
     RemoteDeviceUnreachable,
 )
-from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402  # noqa: E402
-from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
-from fibsem.fm.structures import (  # noqa: E402
+from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.fm.remote import RemoteFluorescenceMicroscope
+from fibsem.fm.structures import (
     REFLECTION,
     ChannelSettings,
     EmissionFilter,
     FluorescenceImage,
 )
-from fibsem.server.devices import DeviceServer  # noqa: E402
+from fibsem.server.devices import DeviceServer
+from fibsem.structures.system import InsertableDeviceState
+from tests.server.test_remote_fm import _unreachable
 
 
 def _far_group(fm):

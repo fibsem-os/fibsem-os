@@ -24,7 +24,7 @@ import sys
 from pathlib import Path, PurePath
 from typing import List, Mapping, Optional
 
-# The file tools on top of the runner's own, and the code tools: those and a
+# The file tools on top of the harness's own, and the code tools: those and a
 # shell.
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
 CODE_TOOLS = ["Bash"] + FILE_TOOLS
@@ -55,7 +55,7 @@ One line per entry: what it is, and its file.
 CODE_PROMPT = """\
 - Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
 autolamella-* agents only, and code mode's shell, \
-Read, Write and Edit, which work in {work} only, in a sandbox with no \
+Read, Write, Edit, Glob and Grep, which work in {work} only, in a sandbox with no \
 network: code can't reach the App Server or the web, so the mcp__fibsem__* \
 tools are the only way to the microscope and its data. \
 experiment_fetch_file saves a file under fetched/ for your code. Run Python \
@@ -64,7 +64,7 @@ can't install anything: say what you are missing.
 """
 FILES_PROMPT = """\
 - Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
-autolamella-* agents only, and Read, Write and Edit, which work in {work} \
+autolamella-* agents only, and Read, Write, Edit, Glob and Grep, which work in {work} \
 only. There is no shell and no web: you can't run code. Where a skill shows \
 curl, python or a script, use the matching mcp__fibsem__ tool, or say what \
 you can't do. experiment_fetch_file saves a file under fetched/ for you to \

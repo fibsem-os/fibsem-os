@@ -18,14 +18,16 @@ from fibsem.codec import decode, encode
 from fibsem.config import get_recent_experiments
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.geometry.saved_images import image_point_to_stage_position, stage_projector
+from fibsem.imaging import analysis
 from fibsem.imaging.cells import from_crop
 from fibsem.imaging.marks import (
-    drawn_pair,
+    draw,
+    draw_pair,
     drawn_path,
-    drawn_picture,
     image_stem,
     plane_shown,
     save_drawn,
+    side_by_side,
 )
 from fibsem.server import log_tail
 from fibsem.server.files import FileRefusal, resolve
@@ -38,6 +40,7 @@ from fibsem.server.responses import (
     ExperimentSummary,
     HistoryRow,
     ImageDrawn,
+    ImageMeasured,
     ImagePairDrawn,
     ImagePayload,
     ItemDetail,
@@ -314,13 +317,19 @@ class AppContext:
         metadata_bar: bool = True,
         channels: Optional[List[str]] = None,
         plane: Optional[int] = None,
+        looks: Optional[Dict[str, Dict[str, Any]]] = None,
+        box: Optional[List[float]] = None,
     ) -> Any:
         """A saved image in the experiment (beam, or a fluorescence stack's
         *plane* or max projection) with *marks* (the one marks vocabulary, its
         pixels) drawn on it, as evidence draws them, the centre *crosshair*,
-        the scale bar and the metadata bar. Saved as ``drawn/<image>.png``
-        beside the image (``<image>-plane-<n>.png`` for a plane; replaced when
-        drawn again), a path to cite as evidence."""
+        the scale bar and the metadata bar. Only the region *box* (x, y,
+        width, height in its pixels) when given; each layer drawn with its
+        look from *looks* (by name: limits, gamma, opacity, colour, as the
+        viewer's layers panel sets them). Saved as ``drawn/<image>.png``
+        beside the image (``<image>-plane-<n>.png`` for a plane,
+        ``-box-<x>-<y>-<w>-<h>`` for a region; replaced when drawn again), a
+        path to cite as evidence. Answers each layer's look and stats."""
         target, refusal = self._experiment_image(path)
         if refusal:
             return refusal
@@ -328,18 +337,22 @@ class AppContext:
         if refusal:
             return refusal
         try:
-            rgb = drawn_picture(
+            drawn = draw(
                 target,
                 checked,
                 crosshair=crosshair,
                 metadata_bar=metadata_bar,
                 channels=channels,
                 plane=plane,
+                looks=looks,
+                box=box,
             )
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
-        saved = drawn_path(target, _drawn_stem(target, checked, plane))
-        return ImageDrawn(path, saved, checked, save_drawn(rgb, saved))
+        saved = drawn_path(target, _drawn_stem(target, checked, plane, box))
+        return ImageDrawn(
+            path, saved, checked, save_drawn(drawn.rgb, saved), drawn.layers
+        )
 
     def draw_pair(
         self,
@@ -350,12 +363,18 @@ class AppContext:
         channels: Optional[List[str]] = None,
         before_plane: Optional[int] = None,
         after_plane: Optional[int] = None,
+        looks: Optional[Dict[str, Dict[str, Any]]] = None,
+        box: Optional[List[float]] = None,
+        share_looks: bool = True,
     ) -> Any:
         """Two saved images of the experiment side by side at one scale, each
         with its own bars, *marks* (in *before*'s pixels) drawn on both: pre and
         post mill, before and after an alignment, SEM next to FIB, two planes
-        of one fluorescence stack (*before_plane*, *after_plane*). Saved as
-        ``drawn/<before>-<after>.png`` beside *before*."""
+        of one fluorescence stack (*before_plane*, *after_plane*). *box* (in
+        *before*'s pixels) draws that region of each. Both take *looks*; with
+        *share_looks*, *after* is drawn with *before*'s limits wherever
+        *looks* leaves one on auto. Saved as ``drawn/<before>-<after>.png``
+        beside *before*."""
         first, refusal = self._experiment_image(before)
         if refusal:
             return refusal
@@ -366,7 +385,7 @@ class AppContext:
         if refusal:
             return refusal
         try:
-            rgb = drawn_pair(
+            left, right = draw_pair(
                 first,
                 second,
                 checked,
@@ -374,15 +393,99 @@ class AppContext:
                 channels=channels,
                 before_plane=before_plane,
                 after_plane=after_plane,
+                looks=looks,
+                box=box,
+                share_looks=share_looks,
             )
         except ValueError as exc:
             return {"error_type": "invalid", "message": str(exc)}
         saved = drawn_path(
             first,
-            f"{_drawn_stem(first, checked, before_plane)}"
-            f"-{_drawn_stem(second, checked, after_plane)}",
+            f"{_drawn_stem(first, checked, before_plane, box)}"
+            f"-{_drawn_stem(second, checked, after_plane, box)}",
         )
-        return ImagePairDrawn(before, after, saved, checked, save_drawn(rgb, saved))
+        return ImagePairDrawn(
+            before,
+            after,
+            saved,
+            checked,
+            save_drawn(side_by_side(left.rgb, right.rgb), saved),
+            left.layers,
+            right.layers,
+        )
+
+    def _measured(self, path: str, measure, figure=None, name: str = ""):
+        """*measure* (and its *figure*, saved as ``drawn/<image>-<name>.png``)
+        on the saved image *path*, as an `ImageMeasured`."""
+        target, refusal = self._experiment_image(path)
+        if refusal:
+            return refusal
+        try:
+            planes = analysis.load_planes(target)
+            result = measure(planes)
+        except ValueError as exc:
+            return refused("invalid", str(exc))
+        if figure is None:
+            return ImageMeasured(path, name, result)
+        saved = drawn_path(target, f"{image_stem(target)}-{name}")
+        return ImageMeasured(
+            path, name, result, saved, save_drawn(figure(planes, result), saved)
+        )
+
+    def measure_intensity(
+        self,
+        path: str,
+        points: List[List[float]],
+        radius_px: float = 3.0,
+        channel: Optional[str] = None,
+        reference: Optional[int] = None,
+        planes: Optional[List[int]] = None,
+    ) -> Any:
+        """The signal at *points* of a saved image, per plane: the mean in a
+        disc of *radius_px* above the median of the ring about it, as a ratio
+        to the *reference* point's. Saves a figure of each point's planes and
+        its signal against plane (`fibsem.imaging.analysis.measure_intensity`)."""
+        return self._measured(
+            path,
+            lambda image: analysis.measure_intensity(
+                image, points, radius_px, channel, reference, planes
+            ),
+            analysis.intensity_figure,
+            "intensity",
+        )
+
+    def line_profile(
+        self,
+        path: str,
+        start: List[float],
+        end: List[float],
+        width_px: float = 1.0,
+        channel: Optional[str] = None,
+        plane: Optional[int] = None,
+        dip: bool = False,
+    ) -> Any:
+        """A saved image's values along a line, and the FWHM of its peak (or
+        *dip*), with a figure (`fibsem.imaging.analysis.line_profile`)."""
+        line = "-".join(str(round(v)) for v in (*start, *end))
+        return self._measured(
+            path,
+            lambda image: analysis.line_profile(
+                image, start, end, width_px, channel, plane, dip
+            ),
+            analysis.profile_figure,
+            f"profile-{line}",
+        )
+
+    def image_quality(
+        self, path: str, channel: Optional[str] = None, plane: Optional[int] = None
+    ) -> Any:
+        """A saved image's clipping, histogram, focus and, for a stack, each
+        plane's sharpness (`fibsem.imaging.analysis.image_quality`)."""
+        return self._measured(
+            path,
+            lambda image: analysis.image_quality(image, channel, plane),
+            name="quality",
+        )
 
     @property
     def _runner(self):
@@ -1772,12 +1875,18 @@ def _uncropped_point(target: str, crop: Any, px, fraction):
     return [x0 + fraction[0] * box[2], y0 + fraction[1] * box[3]], None
 
 
-def _drawn_stem(path: str, marks: Any, plane: Optional[int]) -> str:
+def _drawn_stem(
+    path: str, marks: Any, plane: Optional[int], box: Optional[List[float]] = None
+) -> str:
     """The name a picture of *path* is saved by: its stem, with the plane of a
-    stack it shows (`plane_shown`), so each plane's picture is kept."""
+    stack it shows (`plane_shown`) and the region *box*, so each is kept."""
     shown, _ = plane_shown(marks, plane, is_fluorescence_image(path))
     stem = image_stem(path)
-    return stem if shown is None else f"{stem}-plane-{shown + 1}"
+    if shown is not None:
+        stem = f"{stem}-plane-{shown + 1}"
+    if box is not None:
+        stem += "-box-" + "-".join(str(round(v)) for v in box)
+    return stem
 
 
 def _checked_marks(marks: Any, image_path: str):

@@ -629,7 +629,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "before the fit) or fib_surface_point (x, y in the FIB image: moves the "
             "first target after it). The factor is the lookup table's for the "
             "protocol's RI settings, with ri's values over them, or ri_factor; the "
-            "answer's ri_correction says what was applied. Paths inside the open "
+            "answer's ri_correction says what was applied, and ri_note that none "
+            "was. Paths inside the open "
             "experiment. Does not move the lamella's point of interest. Moves "
             "nothing."
         ),
@@ -705,7 +706,13 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "or a reflection hole (Hole) or fluorescent target (Gaussian, the "
             "default) in a channel of an FM stack (beam fm). Answers the status "
             "(ok, unchanged, error), the fitted (x, y, z), how far it moved in "
-            "pixels, and why it failed. A proposal: nothing is saved or moved."
+            "pixels, and why it failed; for an FM fit, z_fit: the z Gaussian's "
+            "amplitude above the background (a reflection hole's inverted) and "
+            "its FWHM in planes. Saves the fit's figure (the z signal and fit, "
+            "the XY crop with the picked and fitted points, as the tab's confirm "
+            "dialog shows it) beside the image as drawn/<image>-fit-<x>-<y>.png "
+            "and answers it as figure_path with a preview: look at it before "
+            "you use the point. A proposal: nothing moves."
         ),
         method="POST",
         path="/services/correlation/queries/refine_point",

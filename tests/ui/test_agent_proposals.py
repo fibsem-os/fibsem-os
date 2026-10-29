@@ -14,8 +14,6 @@ import pytest
 from psygnal.containers import EventedDict
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
 
 from fastapi.testclient import TestClient  # noqa: E402
 

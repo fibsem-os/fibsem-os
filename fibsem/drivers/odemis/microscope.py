@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 from copy import deepcopy
 from typing import TYPE_CHECKING, Optional, Tuple
@@ -227,6 +228,26 @@ ODEMIS_DEVICES = (
 _FM_TYPES = ("fm",)
 
 
+def fm_placement_from_metadata(
+    metadata: dict,
+) -> Tuple[Optional[Tuple[float, float]], Optional[Tuple[float, float]]]:
+    """The FM's origin (CALIB dx, dy, metres) and imaging pose (FM posture rz, rx, as
+    r, t in degrees) from stage-bare's metadata, each None where it is not stated."""
+    calib = metadata.get(model.MD_CALIB) or {}
+    posture = metadata.get(model.MD_FAV_FM_POS_ACTIVE) or {}
+    origin = (
+        (float(calib["dx"]), float(calib["dy"]))
+        if "dx" in calib and "dy" in calib
+        else None
+    )
+    pose = (
+        (math.degrees(posture["rz"]) % 360.0, math.degrees(posture["rx"]))
+        if "rz" in posture and "rx" in posture
+        else None
+    )
+    return origin, pose
+
+
 class OdemisThermoMicroscope(FibsemMicroscope):
     """TFS integration through Odemis.
     Requires Odemis installation, unlike ThermoMicroscope which provides direct TFS integration."""
@@ -241,6 +262,15 @@ class OdemisThermoMicroscope(FibsemMicroscope):
 
     _connection: Optional[OdemisConnection] = None
     vertical_move_views = (BeamType.ION, BeamType.ELECTRON)
+    fm_placement_source = "odemis"
+
+    def vendor_fm_placement(
+        self,
+    ) -> Tuple[Optional[Tuple[float, float]], Optional[Tuple[float, float]]]:
+        """stage-bare's CALIB dx, dy and its FM posture (rz, rx). CALIB is the
+        nominal FIB to FM translation, the same as the FM entry's origin; the SEM to FM
+        calibration measures the travel that replaces it."""
+        return fm_placement_from_metadata(self._connection.vendor_stage.getMetadata())
 
     @property
     def rotation_centre(self) -> Tuple[float, float]:

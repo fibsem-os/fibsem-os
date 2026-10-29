@@ -7,17 +7,13 @@ import shutil
 from pathlib import Path
 
 import pytest
+from fastapi.testclient import TestClient
 
-fastapi = pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem import config as fibsem_cfg  # noqa: E402
-from fibsem import utils  # noqa: E402
-from fibsem.applications.autolamella import config as cfg  # noqa: E402
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem import config as fibsem_cfg
+from fibsem import utils
+from fibsem.applications.autolamella import config as cfg
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.server import AuthConfig, build_server
 from tests.run_state import stub_session
 
 TOKEN = "test-token"

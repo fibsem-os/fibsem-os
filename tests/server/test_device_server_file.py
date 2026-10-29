@@ -7,11 +7,9 @@ names the FM as an ``fm`` entry and the address to serve on.
 import pytest
 import yaml
 
-pytest.importorskip("fastapi")
-
-from fibsem.devices.entries import disconnect_devices  # noqa: E402
-from fibsem.server import devices as server_devices  # noqa: E402
-from fibsem.server.devices import configured_devices  # noqa: E402
+from fibsem.devices.entries import disconnect_devices
+from fibsem.server import devices as server_devices
+from fibsem.server.devices import configured_devices
 
 FM_PARTS = ["camera", "filter_set", "fm", "light_source", "objective"]
 

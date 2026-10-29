@@ -1,30 +1,24 @@
 """The App Server's ``WS /microscope/events``: devices' and services' changes as
 they happen, to the remote driver's devices and to the client, behind the agent
 token at Watch, and never to a browser page.
-
-Skipped when the [server] extra is not installed.
 """
 
 import threading
 import time
 
 import pytest
+import uvicorn
+from websockets.exceptions import ConnectionClosed, InvalidStatus
+from websockets.sync.client import connect
 
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-websockets = pytest.importorskip("websockets")
-
-from websockets.exceptions import ConnectionClosed, InvalidStatus  # noqa: E402
-from websockets.sync.client import connect  # noqa: E402
-
-from fibsem.client import FibsemClient  # noqa: E402
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem.client import FibsemClient
+from fibsem.drivers.remote.devices import (
     DeviceClient,
     connect_remote_beams,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.devices import WS_PROTOCOL  # noqa: E402
-from fibsem.structures.settings import BeamType  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.devices import WS_PROTOCOL
+from fibsem.structures.settings import BeamType
 
 TOKEN = "test-token"
 

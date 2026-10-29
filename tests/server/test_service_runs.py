@@ -8,17 +8,13 @@ import json
 import threading
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem import config as fcfg  # noqa: E402
-from fibsem.devices.runs import current_run  # noqa: E402
-from fibsem.milling.base import FibsemMillingStage  # noqa: E402
-from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
+from fibsem import config as fcfg
+from fibsem.devices.runs import current_run
+from fibsem.milling.base import FibsemMillingStage
+from fibsem.milling.tasks import FibsemMillingTaskConfig, run_milling_task
+from fibsem.server import AuthConfig, build_server
 
 TOKEN = "test-token"
 MILLING = "/microscope/services/milling"

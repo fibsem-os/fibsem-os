@@ -632,6 +632,8 @@ class GridSummary:
     num_items: int = 0
     # each overview role's latest file (a basename)
     overviews: Dict[str, str] = field(default_factory=dict)
+    # the same files' paths in the experiment, as the files routes take them
+    overview_paths: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -956,6 +958,9 @@ class Thickness:
     straightness: Optional[Dict[str, Optional[float]]] = None
     warnings: Optional[List[Dict[str, str]]] = None
     plot: Optional[Dict[str, str]] = None
+    # Where the window is centred: the item's poi, a given centre, or the
+    # image_centre when the item has no POI.
+    centre_from: Optional[str] = None
 
 
 @dataclass
@@ -978,6 +983,9 @@ class ImageDrawn:
     # place with its stage position when the image says where it was taken.
     marks: Optional[Dict[str, Any]]
     plot: Dict[str, str]
+    # Per layer drawn (a channel, or SEM/FIB): the look it was drawn with, its
+    # auto limits as numbers, and its stats (`fibsem.imaging.looks.layer_stats`).
+    layers: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -987,6 +995,23 @@ class ImagePairDrawn:
     path: str
     marks: Optional[Dict[str, Any]]
     plot: Dict[str, str]
+    # Each half's layers, as `ImageDrawn.layers`.
+    before_layers: Dict[str, Any] = field(default_factory=dict)
+    after_layers: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class ImageMeasured:
+    """An analysis tool's answer (`fibsem.imaging.analysis`) on a saved image."""
+
+    image: str
+    # intensity, profile or quality
+    measurement: str
+    result: Dict[str, Any]
+    # The figure saved beside the image (drawn/<image>-<measurement>.png) and
+    # its preview, when the measurement draws one.
+    path: Optional[str] = None
+    plot: Optional[Dict[str, str]] = None
 
 
 @dataclass
@@ -1371,6 +1396,70 @@ class AgentView:
     budget_low: bool = False
     # the chip's word: what it asks for or is applying, or its level
     chip: str = ""
+
+
+@dataclass
+class ToolRow:
+    name: str
+    description: str
+    # the level its route needs: "watch" | "assist" | "drive"
+    level: str
+    # one of AgentCustomisation.categories; group is the title of its name's
+    # first word (GROUP_TITLES)
+    category: str
+    group: str
+    # commands or changes the microscope
+    hardware: bool
+
+
+@dataclass
+class SkillRow:
+    name: str
+    description: str
+
+
+@dataclass
+class ReminderRow:
+    label: str
+    say: str
+
+
+@dataclass
+class ProfileRow:
+    name: str
+    path: str
+    hash: str
+    model: Optional[str] = None
+    effort: Optional[str] = None
+    max_budget_usd: Optional[float] = None
+    max_turns: Optional[int] = None
+    mode: str = "none"
+    skills: List[str] = field(default_factory=list)
+    prompt: Optional[str] = None
+    reminders: List[ReminderRow] = field(default_factory=list)
+    # why it can't be used, for a profile that doesn't load
+    error: Optional[str] = None
+
+
+@dataclass
+class BlockRow:
+    device: str
+    blocked: str
+    why: str
+
+
+@dataclass
+class AgentCustomisation:
+    """What the agent runs with, as the operator's Customisation dialog shows it."""
+
+    tools: List[ToolRow]
+    categories: List[str]
+    skills: List[SkillRow]
+    specialists: List[SkillRow]
+    profiles: List[ProfileRow]
+    # when a profile's reminder can fire, by its label
+    reminder_options: List[str]
+    never: List[BlockRow]
 
 
 @dataclass

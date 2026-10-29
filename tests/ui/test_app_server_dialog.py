@@ -10,7 +10,6 @@ import json
 import pytest
 
 pytest.importorskip("PyQt5")
-pytest.importorskip("fastapi")
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.server.agent_setup import agent_setup_text, sidecar_path  # noqa: E402

@@ -2,19 +2,24 @@
 
 What the App Server knows of the agent on its own is its token, when it was last
 heard and the client its sidecar names. Its session -- which model, toward what
-goal, on what budget, how much spent -- only the agent's harness knows, so the
-harness reports it here: ``fibsem-agent`` after every turn, Claude Code through
-``server_report_session``. fibsem-agent also says what it can do: code mode and
+goal, on what budget, how much spent, how many tokens and how full its context
+is -- only the agent's harness knows, so the harness reports it here:
+``fibsem-agent`` after every turn, Claude Code through ``server_report_session``. fibsem-agent also says what it can do: code mode and
 its folder, effort, skills. Self-reported, like the client's name: a label for
 the operator, not an identity. The agent also keeps the operator's constraints
 (``server_set_constraints``) and its checklist (``server_set_checklist``) here,
 for the Agent page. A session starting, its goal or constraints changing and
 its end go on the record, and so does the spend first reaching 80% of the
 budget; the spend and the checklist in between are state, read with GET.
+
+Which of the operator's messages the agent has read goes on the record too
+(``POST /app/agent/read``): fibsem-agent says so as a turn carrying them
+starts, ``fibsem-mcp watch`` as it prints them for any other agent.
 """
 
 import logging
 import math
+import re
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
@@ -30,6 +35,10 @@ SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
 SESSION_BUDGET = "agent_session_budget"
 SESSION_CONSTRAINTS = "agent_session_constraints"
+MESSAGES_READ = "agent_messages_read"
+# A message's id (`AgentSession.message`), and how many one report names.
+_MESSAGE_ID = re.compile(r"^[0-9a-f]{1,32}$")
+MAX_READ = 50
 
 MAX_TEXT = 500
 _TEXT = (
@@ -44,6 +53,11 @@ _TEXT = (
     "profile_hash",
 )
 _NUMBERS = ("budget_usd", "spent_usd")
+# Counts of tokens: what its model calls used, and how full its context is.
+_COUNTS = {
+    "tokens": ("input", "output", "cache_read", "cache_write"),
+    "context": ("used", "window", "compact_at"),
+}
 MAX_SKILLS = 20
 MAX_ITEM = 200
 MAX_CHECKLIST = 50
@@ -72,6 +86,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
             "constraints",
             "hooks",
         }
+        | set(_COUNTS)
     )
     unknown = sorted(set(body) - known)
     if unknown:
@@ -101,6 +116,9 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(turns, bool) or not isinstance(turns, int) or turns < 0:
             raise _invalid("turns is a whole number, 0 or more.")
         report["turns"] = turns
+    for key, names in _COUNTS.items():
+        if body.get(key) is not None:
+            report[key] = _counts(key, body[key], names)
     for key in ("code", "files", "resumed"):
         value = body.get(key)
         if value is not None:
@@ -130,6 +148,23 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         raise _invalid("ended is true or false.")
     report["ended"] = bool(ended)
     return report
+
+
+def _counts(key: str, value: Any, names: tuple) -> Dict[str, int]:
+    """{name: whole number, 0 or more}, each name one of *names*."""
+    if (
+        not isinstance(value, dict)
+        or not set(value) <= set(names)
+        or not all(
+            isinstance(n, int) and not isinstance(n, bool) and n >= 0
+            for n in value.values()
+        )
+    ):
+        raise _invalid(
+            f"{key} is {{{', '.join(names)}}}, each a whole number of tokens, "
+            "0 or more."
+        )
+    return dict(value)
 
 
 def _text(item: Any, what: str) -> str:
@@ -267,6 +302,23 @@ def build_agent_session_router(
             except Exception:  # noqa: BLE001 - the record never costs the report
                 logging.debug("could not record %s", kind, exc_info=True)
         return {"session": session}
+
+    @router.post("/read")
+    def report_read(body: Dict[str, Any]):
+        ids = body.get("ids")
+        if (
+            not isinstance(ids, list)
+            or not 0 < len(ids) <= MAX_READ
+            or not all(isinstance(i, str) and _MESSAGE_ID.match(i) for i in ids)
+        ):
+            raise refusal_error(
+                422,
+                "invalid",
+                f"ids lists 1 to {MAX_READ} of the operator's message ids.",
+            )
+        if emit is not None:
+            emit(MESSAGES_READ, {"ids": ids})
+        return {"read": ids}
 
     @router.get("/session", response_model=AgentSession)
     def get_session(request: Request):

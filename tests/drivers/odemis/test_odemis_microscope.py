@@ -226,6 +226,14 @@ class FakeStage:
     def __init__(self):
         self.position = stubs.FakeVA({"x": 0, "y": 0, "z": 0, "rz": 0, "rx": 0})
         self.moves = []
+        # meteor0012, 2026-10-29
+        self.metadata = {
+            stubs.MD_CALIB: {"version": "tfs_3", "dx": 0.0487852, "dy": -8.7e-05},
+            stubs.MD_FAV_FM_POS_ACTIVE: {"rx": 0.3543018, "rz": 1.8675},
+        }
+
+    def getMetadata(self):
+        return dict(self.metadata)
 
     def moveAbs(self, pos):
         self.moves.append(dict(pos))
@@ -486,3 +494,17 @@ def test_a_move_to_an_orientation_carries_x_and_y_round_the_rotation_centre(micr
 def test_the_rotation_centre_takes_the_calibrated_correction(microscope):
     microscope.system.stage.rotation_centre_correction = (2e-6, -3e-6)
     assert microscope.rotation_centre == (2e-6, -3e-6)
+
+
+def test_the_fm_place_is_read_from_stage_bare(microscope):
+    origin, pose = microscope.vendor_fm_placement()
+
+    assert microscope.fm_placement_source == "odemis"
+    assert origin == pytest.approx((0.0487852, -8.7e-05))
+    assert pose == pytest.approx((107.0, 20.3), abs=0.01)
+
+
+def test_an_fm_place_odemis_does_not_state_is_none(microscope):
+    microscope._connection.vendor_stage._target.metadata = {}
+
+    assert microscope.vendor_fm_placement() == (None, None)

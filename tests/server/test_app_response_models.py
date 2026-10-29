@@ -2,28 +2,24 @@
 Demo decodes, strictly, as the route's declared class."""
 
 import pytest
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-from fastapi.routing import APIRoute  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.applications.autolamella.experiment_setup import (  # noqa: E402
+from fibsem.applications.autolamella.experiment_setup import (
     default_protocol_path,
 )
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.codec import decode  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import MicroscopeState  # noqa: E402
-from fibsem.workflows.events import EventBuffer  # noqa: E402
-from fibsem.workflows.grids import GridRecord  # noqa: E402
-from tests.run_state import stub_session  # noqa: E402
+from fibsem.codec import decode
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import MicroscopeState
+from fibsem.workflows.events import EventBuffer
+from fibsem.workflows.grids import GridRecord
+from tests.run_state import stub_session
 
 TOKEN = "test-token"
 

@@ -26,6 +26,13 @@ OVERLAY_FILENAME = "correlation_overlay.png"
 #: The method each side's point fit uses when none is named.
 DEFAULT_METHOD = {"fib": "Hole", "fm": "Gaussian"}
 
+#: The answer's ``ri_note`` when no surface point was given.
+NO_RI_CORRECTION = (
+    "No refractive-index correction: the targets' depths are as the FM stack "
+    "reads them, which usually puts them too shallow. Give a surface point "
+    "(fm_surface_point or fib_surface_point) to correct them."
+)
+
 
 class Correlation(Service):
     """FM to FIB correlation: ``correlate`` fits the transform and maps the
@@ -77,8 +84,8 @@ class Correlation(Service):
         Answers the RMS error, each point of interest in FIB image pixels and in
         metres from the image centre, the verdict (good, check, bad, with its
         reasons), what the fit started from, any RI correction (its mode,
-        factor and parameters, and the first point of interest before it), and
-        the saved paths.
+        factor and parameters, and the first point of interest before it) or an
+        ``ri_note`` saying there was none, and the saved paths.
         """
         from fibsem.correlation.config import CorrelationConfig
         from fibsem.correlation.export import save_overlay
@@ -191,7 +198,10 @@ class Correlation(Service):
         *channel* (its index or name) of the FM stack at *image_path*, at
         ``(x, y)`` pixels and slice *z*, by default that channel's sharpest
         plane (a hole's fit searches only the planes around it). Answers the status (ok, unchanged, error), the fitted
-        ``(x, y, z)``, how far it moved in pixels, and why it failed.
+        ``(x, y, z)``, how far it moved in pixels, and why it failed; for an FM
+        fit, its z Gaussian's amplitude above the background and its FWHM in
+        planes. The fit's figure, as the tab's confirm dialog shows it, is
+        saved beside the image as ``drawn/<image>-fit-<x>-<y>.png``.
         """
         from fibsem.correlation.point_fit import refine_point
         from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
@@ -229,7 +239,7 @@ class Correlation(Service):
         if result is None:
             raise ValueError(f"no {method!r} fit applies to a {beam} point")
         fitted = result.fitted
-        return {
+        answer = {
             "status": result.status.value,
             "method": result.method,
             "initial": [result.initial.x, result.initial.y, result.initial.z],
@@ -237,6 +247,18 @@ class Correlation(Service):
             "moved_px": result.delta_px,
             "message": result.message,
         }
+        diag = result.diagnostic
+        if diag is None:
+            return answer
+        if diag.z_sigma is not None:
+            answer["z_fit"] = {
+                "amplitude": round(diag.z_amplitude, 3),
+                "background": round(diag.z_background, 3),
+                "fwhm_planes": round(2.3548 * diag.z_sigma, 3),
+                "inverted": diag.z_inverted,
+            }
+        answer.update(_fit_figure(image_path, diag, x, y))
+        return answer
 
     @query
     def predict(self, run_path: str, fm_points: List[List[float]]) -> Dict[str, Any]:
@@ -386,7 +408,8 @@ def _summary(result: Any, data: Any, seed: Any) -> Dict[str, Any]:
         started = "geometry"
     else:
         started = "unseeded" + (f": {seed.note}" if seed.note else "")
-    return {
+    ri = _ri_answer(result)
+    answer = {
         "pairs": len(data.fib_coordinates),
         "rms_error_px": result.rms_error,
         "rms_error_nm": result.rms_error * pixel_size * 1e9 if pixel_size else None,
@@ -394,5 +417,18 @@ def _summary(result: Any, data: Any, seed: Any) -> Dict[str, Any]:
         "verdict": judged,
         "started_from": started,
         "placement_offset_um": result.placement_offset,
-        "ri_correction": _ri_answer(result),
+        "ri_correction": ri,
     }
+    if ri is None:
+        answer["ri_note"] = NO_RI_CORRECTION
+    return answer
+
+def _fit_figure(image_path: str, diagnostic, x: float, y: float) -> Dict[str, Any]:
+    """A point fit's diagnostic figure saved beside the image it was fitted on:
+    its path and preview."""
+    from fibsem.correlation.point_fit import plot_fit_diagnostic
+    from fibsem.imaging.marks import drawn_path, image_stem, rgb_of, save_drawn
+
+    path = drawn_path(image_path, f"{image_stem(image_path)}-fit-{x:.0f}-{y:.0f}")
+    figure = plot_fit_diagnostic(diagnostic, dark=True)
+    return {"figure_path": path, "plot": save_drawn(rgb_of(figure), path)}

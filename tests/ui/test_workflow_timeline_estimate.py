@@ -35,7 +35,9 @@ START = 1000.0  # the fake clock every status payload is stamped with
 
 @pytest.fixture
 def app(qapp):
-    qapp.setStyleSheet(NAPARI_STYLE)
+    # Setting it restyles every live top-level widget in the process, so set it once.
+    if qapp.styleSheet() != NAPARI_STYLE:
+        qapp.setStyleSheet(NAPARI_STYLE)
     return qapp
 
 

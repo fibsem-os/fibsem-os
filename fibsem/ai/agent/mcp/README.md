@@ -132,7 +132,7 @@ fibsem-agent
   (observe at Watch, assist at Assist, supervise at Drive), and the watcher
   prints a `LEVEL` line when the operator changes it. The level is set from
   the Agent chip, the server still refuses what it doesn't allow, and the
-  runner never sets it.
+  harness never sets it.
 - **Tools.** The `mcp__fibsem__*` tools run without a prompt, since the
   server decides what they may do. The agent also has the Skill tool,
   ToolSearch to find the fibsem tools, the Agent tool for the checkout's
@@ -141,7 +141,7 @@ fibsem-agent
   agents either: no shell, no file reads or writes, no web. Nothing waits on
   a permission prompt; anything else is denied. So the offline
   `read_record.py` reader stays with Claude Code.
-- **Agents.** In the supervise skill's lead mode the agent is the Run
+- **Agents.** Leading a run (the autolamella-lead skill), the agent is the Run
   Lead and makes every decision. It calls the Verifier for a second opinion
   on the site list, each Setup placement and every polishing pass, the
   Investigator when a task's result is bad, and the Auditor for the review
@@ -156,7 +156,7 @@ fibsem-agent
 - **Signing in.** Set `ANTHROPIC_API_KEY` to a Claude API key in its
   environment, or configure Amazon Bedrock or Google Vertex as the Agent SDK
   documents. Not a claude.ai login: products built on the Agent SDK use API
-  keys. If the model refuses the sign-in, the runner stops with exit code 1
+  keys. If the model refuses the sign-in, the harness stops with exit code 1
   rather than wait. Its log never shows a bearer token or an API key.
 - **Instructions.** It reads this checkout's skills and nothing else: not the
   checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
@@ -175,7 +175,7 @@ fibsem-agent
   (`experiment_add_note`).
 - **Waking.** Lines are held while the level is Off, and come as one turn
   once it is back; started at Off, the agent's first turn waits for it too. A `GAP`, a restart or the level coming back tells the
-  agent to re-read the status. If the app can't be watched, the runner waits
+  agent to re-read the status. If the app can't be watched, the harness waits
   up to `--server-wait` seconds (default 600) for it to answer again, then
   stops with exit code 1.
 - **Profiles.** `--profile NAME` runs with `NAME.yaml` from this computer's
@@ -193,7 +193,7 @@ fibsem-agent
 - **Limits.** `--max-turns` (default 40) caps the tool calls in one
   wake-up; the next wake-up starts a fresh count. `--max-budget-usd`
   (default 5) caps what one run of `fibsem-agent` spends, and reaching it
-  stops the runner with exit code 2. `--model` picks the model.
+  stops the harness with exit code 2. `--model` picks the model.
   The SDK compacts a long session's context by itself, and the log says when.
 - **Stopping and resuming.** Ctrl-C interrupts the agent's turn and ends the
   session cleanly; a second Ctrl-C ends it at once. The log names the session

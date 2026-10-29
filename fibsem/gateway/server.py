@@ -5,7 +5,8 @@
 granted "may start and stop apps" (`SWITCH_MODES`); forcing past a running
 workflow, and ``/gateway/claim`` (a desktop launch on this PC), for the
 operator only. ``/gateway/microscope/...`` connects and disconnects the
-running host's microscope, and ``/gateway/agent`` reads, starts and ends this
+running host's microscope, ``/gateway/app/agent-page`` links the operator to
+its Agent page, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), with the same rules as starting the app.
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
 role, and the page is the web app's ``/ui/gateway``.
@@ -21,6 +22,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
+from fibsem.ai.agent.profiles import DEFAULT_PROFILE
 from fibsem.gateway.agent import AgentState, GatewayAgent
 from fibsem.gateway.gateway import (
     Gateway,
@@ -231,6 +233,16 @@ def build_gateway_app(
             """The host lets the microscope go; refused while a run is on."""
             return _act(found, {}, lambda force, via: microscope.disconnect())
 
+        @app.get("/gateway/app/agent-page")
+        def agent_page(found: Caller = Depends(caller)) -> dict:
+            """``{url}``: the running host's Agent page, signed in as the
+            operator the way the window's link is. The operator only."""
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator opens the Agent page."
+                )
+            return _act(found, {}, lambda force, via: {"url": microscope.agent_page()})
+
     if agent is not None:
 
         @app.get("/gateway/agent", response_model=AgentState)
@@ -260,7 +272,7 @@ def build_gateway_app(
                 raise _refused(422, "bad_budget", "The budget is a number of dollars.")
             if budget is not None and budget <= 0:
                 raise _refused(422, "bad_budget", "The budget is above $0.")
-            profile = str(body.get("profile") or "default")
+            profile = str(body.get("profile") or DEFAULT_PROFILE)
             return _act(
                 found,
                 body,

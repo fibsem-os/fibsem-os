@@ -5,26 +5,22 @@ device it stands for, and fail closed when the server goes away."""
 import threading
 import time
 
+import httpx
 import pytest
 
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-import httpx  # noqa: E402
-
-from fibsem.devices.core import (  # noqa: E402
+from fibsem.devices.core import (
     ParameterReadOnly,
     ParameterUnavailable,
 )
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem.drivers.remote.devices import (
     DeviceClient,
     RemoteBeam,
     RemoteDeviceUnreachable,
     connect_remote_beams,
 )
-from fibsem.server.devices import DeviceServer, demo_devices  # noqa: E402
-from fibsem.structures.image import FibsemImage  # noqa: E402
-from fibsem.structures.settings import (  # noqa: E402
+from fibsem.server.devices import DeviceServer, demo_devices
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
     FibsemRectangle,
     Point,

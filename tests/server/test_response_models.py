@@ -3,18 +3,14 @@ do: each answer on the Demo is checked against its route's declared schema."""
 
 import os
 
+import jsonschema
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")  # TestClient transport
-
-import jsonschema  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem import utils  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.devices import build_device_app, demo_devices  # noqa: E402
-from fibsem.server.leases import LEASE_HEADER  # noqa: E402
+from fibsem import utils
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.devices import build_device_app, demo_devices
+from fibsem.server.leases import LEASE_HEADER
 
 TOKEN = "test-token"
 

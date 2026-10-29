@@ -2,19 +2,15 @@
 experiments folder, the recents and the volume protocol folder."""
 
 import pytest
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem import config as fibsem_cfg  # noqa: E402
-from fibsem.applications.volume import server as volume_server  # noqa: E402
-from fibsem.applications.volume.experiment import VolumeExperiment  # noqa: E402
-from fibsem.applications.volume.server import VolumeAppContext  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.workflows.events import EventBuffer  # noqa: E402
-from fibsem.workflows.session import AppSession  # noqa: E402
+from fibsem import config as fibsem_cfg
+from fibsem.applications.volume import server as volume_server
+from fibsem.applications.volume.experiment import VolumeExperiment
+from fibsem.applications.volume.server import VolumeAppContext
+from fibsem.server import AuthConfig, build_server
+from fibsem.workflows.events import EventBuffer
+from fibsem.workflows.session import AppSession
 
 TOKEN = "volume-token"
 MILL = "Volume FIB Milling"

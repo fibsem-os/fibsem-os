@@ -184,14 +184,19 @@ the METEOR's own Linux PC. odemis can only be reached from that computer, so
 fibsemOS reaches the FM in one of two ways:
 
 - **fibsemOS on the METEOR's Linux PC** (`manufacturer: Odemis`). fibsemOS
-  drives the FM directly, and finds odemis from `/etc/odemis.conf`. The user
-  running fibsemOS must be in the `odemis` group (step 1 below), and odemis must
-  be running.
+  drives the FM directly, and finds odemis from `/etc/odemis.conf`. Install it
+  with `pip install "fibsem[server,ui]"` (or `pip install -e ".[server,ui]"`
+  from a checkout). The user running fibsemOS must be in the `odemis` group
+  (step 1 below), and odemis must be running.
 - **fibsemOS on the Thermo Fisher support PC**, driving the beams through
-  AutoScript, with the FM served from the METEOR's Linux PC. The steps below set
-  this up.
+  AutoScript, with the FM served from the METEOR's Linux PC by the Device
+  Server. The steps below set this up. They assume an environment named
+  `fibsem-os` on both PCs.
 
-On the METEOR's Linux PC:
+The Device Server only listens on `127.0.0.1` on the METEOR PC. The support PC
+reaches it through an SSH tunnel, which also encrypts the traffic.
+
+Once, on the METEOR's Linux PC:
 
 1. **Let your user reach odemis.** odemis only accepts connections from members
    of the `odemis` group. Check with `groups`; if `odemis` is not listed, add
@@ -205,11 +210,11 @@ On the METEOR's Linux PC:
    also import odemis:
 
    ```bash
+   conda activate fibsem-os
    pip install "fibsem[server]"
    ```
 
-3. **Start odemis** (`odemis-start`).
-4. **Write the Device Server's file**, `~/.fibsem/device-server.yaml`:
+3. **Write the Device Server's file**, `~/.fibsem/device-server.yaml`:
 
    ```yaml
    info: {manufacturer: Odemis}
@@ -221,57 +226,17 @@ On the METEOR's Linux PC:
          mount_transform: none    # or flip-x, flip-y, flip-xy: how the camera is mounted
    ```
 
-   `server.host` is where it listens. `127.0.0.1` is this PC only, and the
-   support PC reaches it through an SSH tunnel, which encrypts the traffic:
+4. **Note the stage calibration** for the support PC's configuration:
+   `odemis-cli --list-prop stage-bare` shows `CALIB` (dx, dy: where the FM is
+   from the beams).
 
-   ```bash
-   ssh -N -L 8765:localhost:8765 <user>@<METEOR PC address>   # on the support PC
-   ```
+Once, on the support PC:
 
-   When the two PCs are cabled to each other with nothing else on that link,
-   set `host` to the METEOR PC's address on that link instead, and the support
-   PC reaches it directly. Don't use `0.0.0.0`: it listens on every network the
-   PC is on, and the traffic is not encrypted.
-
-5. **Serve the FM:**
-
-   ```bash
-   python -m fibsem.server.devices --config ~/.fibsem/device-server.yaml --pair
-   ```
-
-   If odemis cannot be imported or does not answer, the FM is not served and
-   the message says which.
-
-   Every request needs a token. The first start makes this PC's own and says
-   where it is kept (`~/.fibsem/device-server-token.json`). `--pair` also prints
-   a 4-digit code (5 minutes, works once) for the support PC.
-
-6. **With a `host` on the link, open the port to the support PC only**, for
-   example with `ufw`:
-
-   ```bash
-   sudo ufw allow from <support PC address> to any port 8765 proto tcp
-   ```
-
-To start the server with the computer rather than by hand, run step 5 (without
-`--pair`) as a service, for example with a systemd unit. It must run as a user
-in the `odemis` group, and after odemis has started.
-
-On the support PC:
-
-1. **Pair once**, with the code step 5 printed (the address is `127.0.0.1`
-   through the tunnel):
-
-   ```bash
-   fibsem-cli pair-device <METEOR PC address>:8765 1234
-   ```
-
-   The token is kept in `~/.fibsem/remote/`, and every later connect uses it.
-   A connect without one says to run this.
-
-2. **Name the FM as remote** in the microscope configuration's device list. The
-   entry says where the server is and where the FM sits on the stage; nothing
-   about pairing:
+1. **SSH to the METEOR PC logs in without a password** (`ssh <meteor-pc>`
+   drops you straight into a shell), with a key.
+2. **Name the FM as remote** in the microscope configuration's device list. A
+   Hydra with a METEOR can start from
+   `fibsem/config/tfs-hydra-meteor-configuration.yaml`, which has this entry:
 
    ```yaml
    hardware:
@@ -281,21 +246,80 @@ On the support PC:
            type:       fm
            enabled:    true
            driver:     remote
-           address:    127.0.0.1         # through the tunnel, else the METEOR PC
+           address:    127.0.0.1         # through the tunnel
            port:       8765
            origin:     {x: 50.63e-3, y: 4.98e-3}   # the FM from the beams: odemis's CALIB dx, dy
-           range:      {x: 20.0e-3}      # the FM's window, a half-width from its origin
+           range:      {x: 10.0e-3, y: 30.0e-3}   # the FM's window, a half-width from its origin
            available_orientations: [FIB] # the objective images in the FIB pose
    ```
 
-   `origin` is the nominal offset, from odemis's `CALIB` dx and dy for the
-   stage. See [Devices](docs/developers/devices.md#configuring-devices) for the
-   other keys.
+   If the objective images in another pose than FIB's, state that pose in place
+   of `available_orientations`, in degrees, for example `pose: {r: 107, t: 20.3}`;
+   a missing `r` or `t` is FIB's. The SEM to FM calibration takes up to 15° from
+   FIB in each, and one site within 5°. See
+   [Devices](docs/developers/devices.md#configuring-devices) for the other keys.
+
+**Start the Device Server** on the METEOR PC, with odemis already running
+(`odemis-cli --check` exits 0). Start it in tmux, so it keeps running when your
+SSH session closes, with its log kept:
+
+```bash
+conda activate fibsem-os
+tmux new-session -d -s fmserver "$CONDA_PREFIX/bin/python -u -m fibsem.server.devices \
+    --config ~/.fibsem/device-server.yaml --pair 2>&1 | tee ~/fm-server.log"
+cat ~/fm-server.log
+```
+
+The log shows a 4-digit pairing code (5 minutes, works once) and
+`Uvicorn running on http://127.0.0.1:8765`. If odemis cannot be imported or
+does not answer, the FM is not served and the log says which. Keep `-u`:
+without it the code never reaches the log. `tmux attach -t fmserver` watches
+it (`Ctrl-b d` to leave).
+
+**Open the tunnel** on the support PC. It must be up whenever fibsemOS is
+running:
+
+```bash
+ssh -f -N -o ExitOnForwardFailure=yes -L 8765:127.0.0.1:8765 <meteor-pc>
+```
+
+**Pair, once**, on the support PC, with the code from the log:
+
+```bash
+fibsem-cli pair-device 127.0.0.1:8765 <code>
+```
+
+The token is kept in `~/.fibsem/remote/127.0.0.1_8765.json`, and every later
+connect uses it, also after the Device Server restarts. Check the server
+through the tunnel:
+
+```bash
+TOKEN=$(python -c "import json, pathlib; print(json.loads((pathlib.Path.home() / '.fibsem/remote/127.0.0.1_8765.json').read_text())['token'])")
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8765/health
+```
+
+It answers `{"ok":true,"devices":{"fm":{"ok":true,...},...}}`. Then start
+fibsemOS with the configuration; its log says
+`Connected to the fluorescence microscope at 127.0.0.1:8765`.
+
+**Every later session**: start the Device Server the same way without
+`--pair`, open the tunnel, start fibsemOS. To restart the Device Server,
+`tmux kill-session -t fmserver` and start it again without `--pair`; fibsemOS
+reconnects within a few seconds.
+
+**When you are done**, quit fibsemOS, then:
+
+```bash
+pkill -f "ssh -f -N.*8765"            # support PC: the tunnel
+tmux kill-session -t fmserver          # METEOR PC: the Device Server
+odemis-cli --list-prop light | grep power   # METEOR PC: [0.0, 0.0] is off
+```
 
 Two things to know:
 
-- **The traffic is not encrypted.** Keep the server on this PC behind the SSH
-  tunnel, or on a link to the support PC only.
+- **If the light is left on** (the Device Server stopped mid-acquisition), turn
+  it off on the METEOR PC, one value per LED:
+  `odemis-cli --set-attr light power "[0.0, 0.0]"`.
 - **The odemis GUI and fibsemOS drive the same camera, light and filter wheel,**
   and nothing arbitrates between them. Image from one at a time: stop the odemis
   GUI's streams before acquiring from fibsemOS, and the other way round.
