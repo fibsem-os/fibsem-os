@@ -1,4 +1,5 @@
-"""Live frames take the stage's cached position; acquired images read it live."""
+"""Live frames take the stage position and channel settings from caches; acquired
+images read them live."""
 
 import threading
 import traceback
@@ -64,3 +65,72 @@ def test_live_view_reads_no_stage_position_per_frame(counted):
         microscope.fm.stop_acquisition()
 
     assert reads == []
+
+
+# The channel's settings: about ten more reads per live frame
+
+
+@pytest.fixture
+def parameter_reads(monkeypatch):
+    from fibsem.devices.core import BoundParameter
+
+    reads = []
+    get_value = BoundParameter.get_value
+
+    def counting(self):
+        if any(f.name == "_metadata_for_frame" for f in traceback.extract_stack()):
+            reads.append(f"{self.device.name}.{self.name}")
+        return get_value(self)
+
+    monkeypatch.setattr(BoundParameter, "get_value", counting)
+    return reads
+
+
+def test_a_live_frame_reads_no_channel_settings(counted, parameter_reads):
+    microscope, _ = counted
+    microscope.fm._acquire(live=True)  # the first takes the frame size
+    parameter_reads.clear()
+
+    image = microscope.fm._acquire(live=True)
+
+    assert parameter_reads == []
+    channel = image.metadata.channels[0]
+    assert channel.exposure_time == microscope.fm.camera.exposure_time
+    assert channel.objective_position == microscope.fm.objective.position
+
+
+def test_an_acquired_image_takes_no_cached_settings(counted, monkeypatch):
+    microscope, _ = counted
+    monkeypatch.setattr(
+        microscope.fm, "_cached_settings", lambda: pytest.fail("used the caches")
+    )
+
+    microscope.fm.acquire_image()
+
+
+def test_a_live_frame_carries_a_setting_written_since(counted):
+    microscope, _ = counted
+    fm = microscope.fm
+    fm._acquire(live=True)
+
+    fm.camera.exposure_time = 0.2
+    fm.objective.move_relative(1e-6)
+    image = fm._acquire(live=True)
+
+    channel = image.metadata.channels[0]
+    assert channel.exposure_time == pytest.approx(0.2)
+    assert channel.objective_position == pytest.approx(fm.objective.position)
+
+
+def test_a_binning_change_re_reads_the_frame_size(counted, parameter_reads):
+    microscope, _ = counted
+    fm = microscope.fm
+    fm._acquire(live=True)
+    other = next(b for b in fm.camera.available_binnings if b != fm.camera.binning)
+
+    fm.camera.binning = other
+    parameter_reads.clear()
+    image = fm._acquire(live=True)
+
+    assert sorted(parameter_reads) == ["camera.pixel_size", "camera.resolution"]
+    assert image.metadata.pixel_size_x == pytest.approx(fm.camera.pixel_size[0])
