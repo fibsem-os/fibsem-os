@@ -26,6 +26,7 @@ CATEGORIES: Dict[str, Tuple[str, ...]] = {
     "Experiment & protocol": ("app", "experiment", "protocol"),
     "Lamellae & grids": ("item", "grid"),
     "Workflow & approvals": ("workflow", "proposal", "request"),
+    "Knowledge": ("knowledge",),
 }
 _CATEGORY_OF = {
     group: title for title, groups in CATEGORIES.items() for group in groups
