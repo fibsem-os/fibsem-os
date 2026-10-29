@@ -329,8 +329,6 @@ def test_the_run_lends_control_while_the_question_stands(window, qapp):
     """FIB-1270, supervised: the run is in control, and while its question
     stands whoever answers may act on the microscope first -- a server command
     here. After the decision, control is the run's again."""
-    pytest.importorskip("fastapi")
-    pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
     from fibsem.server import AuthConfig, build_server

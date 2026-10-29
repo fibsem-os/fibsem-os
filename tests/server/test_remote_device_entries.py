@@ -11,32 +11,28 @@ import logging
 import socket
 
 import pytest
+import yaml
 
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-import yaml  # noqa: E402
-
-import fibsem.config as cfg  # noqa: E402
-from fibsem import utils  # noqa: E402
-from fibsem.devices.entries import (  # noqa: E402
+import fibsem.config as cfg
+from fibsem import utils
+from fibsem.devices.entries import (
     DeviceBuildError,
     build_device_entries,
     resolve_device_entries,
 )
-from fibsem.drivers.demo.devices import bind_demo_fm  # noqa: E402
-from fibsem.drivers.registry import device_builder  # noqa: E402
-from fibsem.drivers.remote.devices import (  # noqa: E402
+from fibsem.drivers.demo.devices import bind_demo_fm
+from fibsem.drivers.registry import device_builder
+from fibsem.drivers.remote.devices import (
     RemoteBeam,
     RemoteCamera,
     RemoteObjective,
 )
-from fibsem.server.devices import (  # noqa: E402
+from fibsem.server.devices import (
     DeviceServer,
     demo_devices,
 )
-from fibsem.structures.settings import BeamType  # noqa: E402
-from fibsem.structures.system import DeviceEntry  # noqa: E402
+from fibsem.structures.settings import BeamType
+from fibsem.structures.system import DeviceEntry
 
 
 @pytest.fixture

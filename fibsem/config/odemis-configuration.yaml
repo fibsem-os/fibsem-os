@@ -2,7 +2,7 @@
 # configuration 
 version: 2                                                  # configuration schema version
 info:
-    name: odemis-microscope-configuration               # a descriptive name for your configuration                     [SPECIFIED]
+    name: odemis-tfs-hydra-meteor-configuration         # a descriptive name for your configuration                     [SPECIFIED]
     ip_address: 192.168.0.1                                 # the ip address of the microscope PC                           [SPECIFIED]
     manufacturer: Odemis                                      # the microscope manufactuer                                    [SPECIFIED]        
 hardware:                                                   # what the instrument is; cannot be asked
@@ -22,6 +22,20 @@ hardware:                                                   # what the instrumen
         column_tilt:                52                          # the column tilt of the electron beam                          [SPECIFIED]
         eucentric_height:           16.5e-3                     # the eucentric height of the ion beam                          [SPECIFIED]
         plasma_gas:                 null                        # the plasma gas for the ion beam (plasma fib only)             [USER]
+      # A METEOR is an offset FM: the stage travels to it and it images in the FIB pose,
+      # so it is a place, not a pose. Without this entry the FM defaults to a compustage's
+      # (a pose at the beams), and a move to SEM from the FM turns the stage in place 50 mm
+      # from the beams (odemis simulator, 2026-10-26). The FM's own driver is odemis's, so
+      # no `driver` key. `origin` is odemis's CALIB dx, dy for the stage
+      # (`odemis-cli --list-prop stage-bare`): the values below are the meteor sims',
+      # so replace them with this site's. Travel to the FM is refused until the SEM to FM
+      # calibration is saved.
+      - name: fm
+        type: fm
+        enabled:                    true                        # this site has a fluorescence microscope                       [USER]
+        origin:                     {x: 50.6252e-3, y: 4.9832e-3}  # the FM from the beams: odemis's CALIB dx, dy      [metres][SPECIFIED]
+        available_orientations:     [FIB]                       # the objective images the sample in the FIB pose              [SPECIFIED]
+        range:                      {x: 10.0e-3, y: 30.0e-3}    # the FM's window, a half-width from its origin         [metres][SPECIFIED]
 calibration:                                                # measured at this instrument
     shuttle_pre_tilt:           35.0                        # the pre-tilt of the shuttle                                   [SPECIFIED]
 defaults:                                                   # what a session starts from

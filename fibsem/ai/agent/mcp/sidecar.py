@@ -24,7 +24,7 @@ defaults to the SSH tunnel's end, http://localhost:8001):
 Requires the [mcp] extra (Python 3.10+): pip install fibsem[mcp]
 
 ``fibsem-mcp watch`` prints a line per app event worth waking an agent for,
-and needs nothing beyond fibsem itself (see :mod:`fibsem.ai.agent.mcp.watch`).
+and needs nothing beyond fibsem itself (see :mod:`fibsem.ai.agent.watch`).
 """
 
 import argparse
@@ -618,12 +618,17 @@ def build_sidecar(client, capabilities):
         path: str,
         width_um: Optional[float] = None,
         height_um: Optional[float] = None,
+        centre: Optional[List[float]] = None,
     ):
         return _routed(
             "item_measure_thickness",
             item_name=item_name,
             path=path,
-            **_given(width_um=width_um, height_um=height_um),
+            **_given(
+                width_um=width_um,
+                height_um=height_um,
+                centre=list(centre) if centre is not None else None,
+            ),
         )
 
     def experiment_get_image_stage_position(
@@ -665,6 +670,8 @@ def build_sidecar(client, capabilities):
         metadata_bar: Optional[bool] = None,
         channels: Optional[List[str]] = None,
         plane: Optional[int] = None,
+        looks: Optional[dict] = None,
+        box: Optional[List[float]] = None,
     ):
         return _routed(
             "experiment_draw_image",
@@ -675,6 +682,8 @@ def build_sidecar(client, capabilities):
                 metadata_bar=metadata_bar,
                 channels=list(channels) if channels is not None else None,
                 plane=plane,
+                looks=dict(looks) if looks is not None else None,
+                box=list(box) if box is not None else None,
             ),
         )
 
@@ -686,6 +695,9 @@ def build_sidecar(client, capabilities):
         channels: Optional[List[str]] = None,
         before_plane: Optional[int] = None,
         after_plane: Optional[int] = None,
+        looks: Optional[dict] = None,
+        box: Optional[List[float]] = None,
+        share_looks: Optional[bool] = None,
     ):
         return _routed(
             "experiment_draw_pair",
@@ -697,6 +709,9 @@ def build_sidecar(client, capabilities):
                 channels=list(channels) if channels is not None else None,
                 before_plane=before_plane,
                 after_plane=after_plane,
+                looks=dict(looks) if looks is not None else None,
+                box=list(box) if box is not None else None,
+                share_looks=share_looks,
             ),
         )
 
@@ -1477,7 +1492,7 @@ def main(argv=None):
     watch_argv = _watch_argv(argv)
     if watch_argv is not None:
         # Before the mcp import: watching needs only HTTP.
-        from fibsem.ai.agent.mcp.watch import main as watch_main
+        from fibsem.ai.agent.watch import main as watch_main
 
         sys.exit(watch_main(watch_argv))
     missing = missing_extra_message("mcp", "fibsem-mcp")

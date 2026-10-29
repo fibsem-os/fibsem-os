@@ -1,6 +1,7 @@
 """The gateway's calls to the fibsem host on this PC, as the operator: the
 host's answer, or its refusal as a `GatewayRefused`. `HostMicroscope` is the
-host's connect and disconnect, for the gateway's page."""
+host's connect and disconnect, and the link to its Agent page, for the
+gateway's page."""
 
 from __future__ import annotations
 
@@ -51,9 +52,11 @@ class HostMicroscope:
         self,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         call: Callable[..., Any] = call_host,
+        token: Callable[[], Optional[str]] = read_operator_token,
     ) -> None:
         self._discovery = discovery
         self._call = call
+        self._token = token
 
     def _url(self) -> str:
         found = self._discovery()
@@ -70,3 +73,8 @@ class HostMicroscope:
 
     def disconnect(self) -> dict:
         return self._call(self._url(), "POST", "/microscope/disconnect", {})
+
+    def agent_page(self) -> str:
+        """The host's Agent page with the operator token in the fragment, the
+        link the window opens (`fibsem.server.hosting.chat_url`)."""
+        return f"{self._url()}/ui/agent#token={self._token() or ''}"

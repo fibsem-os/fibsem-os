@@ -110,3 +110,40 @@ def test_ome_file_keeps_each_channels_filter(tmp_path):
         EmissionFilter("Dual", bands=[(450, 650)], multi_band=True),
         FLUORESCENCE,
     ]
+
+
+def _default_channel(excitations, filters):
+    from types import SimpleNamespace
+
+    from fibsem.fm.microscope import FluorescenceMicroscope
+
+    fm = SimpleNamespace(
+        filter_set=SimpleNamespace(
+            available_excitation_wavelengths=tuple(excitations),
+            available_emission_filters=tuple(filters),
+        )
+    )
+    return FluorescenceMicroscope.default_channel(fm)
+
+
+def test_the_default_channel_is_on_wavelengths_the_fm_has():
+    """B10: a METEOR has no reflection position and no 550 nm LED, so the plain
+    default (550 nm, Reflection) could not be set and the live view never started."""
+    rfp = EmissionFilter.band("RFP", 579.5, 610.5)
+    channel = _default_channel([365.0, 470.0, 500.0, 625.0], [GFP, rfp])
+
+    assert channel.excitation_wavelength == 500.0
+    assert channel.emission_filter == GFP  # the lowest band above 500 nm
+
+
+def test_the_default_channel_keeps_reflection_where_the_fm_has_it():
+    channel = _default_channel([550.0], [REFLECTION, GFP])
+
+    assert channel.excitation_wavelength == 550.0
+    assert channel.emission_filter == REFLECTION
+
+
+def test_an_fm_that_reports_no_choices_keeps_the_plain_default():
+    channel = _default_channel([], [])
+
+    assert channel == ChannelSettings()

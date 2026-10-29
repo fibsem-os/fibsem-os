@@ -1,8 +1,6 @@
 """The client (`fibsem.client`) over the App Server: devices and services reached by
 name from the server's descriptions, values and results read as their types, and
 refusals raised as the exceptions they name.
-
-Skipped when the [server] extra is not installed.
 """
 
 import inspect
@@ -11,27 +9,24 @@ import subprocess
 import sys
 import threading
 
+import httpx
 import pytest
+import uvicorn
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-httpx = pytest.importorskip("httpx")
-uvicorn = pytest.importorskip("uvicorn")
-
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.cancellation import NothingToStop  # noqa: E402
-from fibsem.client import (  # noqa: E402
+from fibsem.cancellation import NothingToStop
+from fibsem.client import (
     FibsemClient,
     Remote,
     ServerError,
     ServerUnreachable,
     Transport,
 )
-from fibsem.devices.core import _Controllable  # noqa: E402
-from fibsem.devices.stage import StageLimitError  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.image import FibsemImage  # noqa: E402
-from fibsem.structures.settings import (  # noqa: E402
+from fibsem.devices.core import _Controllable
+from fibsem.devices.stage import StageLimitError
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
     MicroscopeState,

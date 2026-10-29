@@ -6,16 +6,14 @@ import time
 from datetime import datetime
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-pytest.importorskip("fastapi")
-from fastapi import FastAPI  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.ai.agent.session import session_facts, session_line  # noqa: E402
-from fibsem.server import AuthConfig  # noqa: E402
-from fibsem.server.agent_session import report  # noqa: E402
-from fibsem.server.agent_transcript import build_agent_transcript_router  # noqa: E402
+from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.session import session_facts, session_line
+from fibsem.server import AuthConfig
+from fibsem.server.agent_session import report
+from fibsem.server.agent_transcript import build_agent_transcript_router
 
 
 @pytest.fixture
@@ -104,7 +102,7 @@ def test_the_agent_says_what_it_can_do_and_the_chip_lists_it():
             "effort": "high",
             "code": True,
             "workdir": "/Users/lab/fibsem-work",
-            "skills": ["autolamella-agent", "supervise-autolamella"],
+            "skills": ["autolamella-agent", "autolamella-lead"],
             "resumed": False,
         },
     )
@@ -112,7 +110,7 @@ def test_the_agent_says_what_it_can_do_and_the_chip_lists_it():
         "Harness": "fibsem-agent",
         "Model": "claude-opus, effort high",
         "Code": "On in /Users/lab/fibsem-work (sandboxed)",
-        "Skills": "autolamella-agent, supervise-autolamella",
+        "Skills": "autolamella-agent, autolamella-lead",
         "Session id": "abc (new)",
     }
     off, _ = report(auth, {"session_id": "def", "code": False, "resumed": True})

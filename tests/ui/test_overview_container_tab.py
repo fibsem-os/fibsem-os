@@ -368,3 +368,20 @@ def test_the_checked_chip_is_the_page_on_screen(qapp):
         assert checked == [modality]
 
     _teardown(tab)
+
+
+def test_the_lamella_list_comes_back_after_a_reconnect(qapp):
+    """Dropping an overview hides the list it lent the settings column; the
+    rebuilt overview must show it again, or the positions vanish from the tab."""
+    from tests.fixtures.overview_host import tab_args
+
+    host = _ui(_plain_microscope())
+    tab = AutoLamellaOverviewContainerTab(*tab_args(host))
+    tab.refresh_microscope()
+    assert not tab.beam_tab.lamella_list.isHidden()
+
+    host.microscope = _plain_microscope()
+    tab.refresh_microscope()
+    assert not tab.beam_tab.lamella_list.isHidden()
+
+    _teardown(tab)

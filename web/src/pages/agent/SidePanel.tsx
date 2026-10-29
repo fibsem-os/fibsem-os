@@ -10,12 +10,31 @@ const WARN = "text-[var(--fibsem-warn-color)]";
 
 const dollars = (value: number) => (Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`);
 
+/** 412 tokens as "412", 41_200 as "41k", 1_200_000 as "1.2M". */
+function count(n: number): string {
+  if (n >= 1_000_000) return `${+(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${+(n / 1000).toFixed(1)}k`;
+  return `${n}`;
+}
+
+function Bar({ share }: { share: number }) {
+  return (
+    <div className="mt-1.5 h-[3px] rounded-sm bg-accent">
+      <div className="h-full rounded-sm bg-muted-foreground/70" style={{ width: `${Math.min(100, 100 * share)}%` }} />
+    </div>
+  );
+}
+
+function duration(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours} h ${minutes % 60} min` : `${minutes} min`;
+}
+
 function timeLeft(by: string, now: number): { text: string; soon: boolean } {
   const minutes = Math.floor((Date.parse(by) - now) / 60000);
   if (minutes < 0) return { text: "passed", soon: true };
-  const hours = Math.floor(minutes / 60);
-  const text = hours ? `${hours} h ${minutes % 60} min left` : `${minutes} min left`;
-  return { text, soon: minutes < SOON_MIN };
+  return { text: `${duration(minutes)} left`, soon: minutes < SOON_MIN };
 }
 
 function useNow(everyMs: number) {
@@ -36,29 +55,42 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+function todoTitle(checklist: NonNullable<ReportedSession["checklist"]>): string {
+  const counted = checklist.filter((item) => item.state !== "always");
+  if (!counted.length) return "To do";
+  return `To do · ${counted.filter((item) => item.state === "done").length} of ${counted.length}`;
+}
+
 /** Whether the panel has anything to show: hidden when it would be empty. */
 export function hasPanel(session: ReportedSession | null | undefined): session is ReportedSession {
   return Boolean(
     session &&
       (session.profile ||
+        session.skills?.length ||
         session.goal ||
         session.budget_usd != null ||
         session.spent_usd != null ||
+        session.context ||
         session.constraints?.length ||
         session.checklist?.length),
   );
 }
 
-/** The agent's profile, goal, budget, the operator's constraints and its checklist. */
+/** The agent's profile, the skills it read, goal, budget, the operator's constraints and its checklist. */
 export function SidePanel({ session, budgetLow }: { session: ReportedSession; budgetLow: boolean }) {
   const now = useNow(30000);
   const {
     profile,
     profile_hash: hash,
     hooks,
+    skills,
+    started,
+    ended,
     goal,
     budget_usd: budget,
     spent_usd: spent,
+    tokens,
+    context,
     constraints,
     checklist,
   } = session;
@@ -77,9 +109,19 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
           ))}
         </Section>
       )}
+      {skills?.length ? (
+        <Section title="Skills">
+          <p className="m-0 break-words">{skills.join(", ")}</p>
+        </Section>
+      ) : null}
       {goal && (
         <Section title="Goal">
           <p className="m-0 break-words">{goal}</p>
+          {started && !ended && (
+            <p className="m-0 mt-1 text-muted-foreground">
+              Running for {duration(Math.max(0, Math.floor((now - Date.parse(started)) / 60000)))}
+            </p>
+          )}
         </Section>
       )}
       {(budget != null || spent != null) && (
@@ -94,9 +136,28 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
                   "h-full rounded-sm",
                   budgetLow ? "bg-[var(--fibsem-warn-color)]" : "bg-muted-foreground/70",
                 )}
-                style={{ width: `${Math.min(100, (100 * (spent ?? 0)) / budget)}%` }}
+                style={{
+                  width: `${Math.min(100, (100 * (spent ?? 0)) / budget)}%`,
+                }}
               />
             </div>
+          ) : null}
+          {tokens && (
+            <p className="m-0 mt-1.5 text-muted-foreground">
+              {count(tokens.input + tokens.cache_read + tokens.cache_write)} tokens in, {count(tokens.output)} out
+            </p>
+          )}
+        </Section>
+      )}
+      {context && (
+        <Section title="Context">
+          <p className="m-0">
+            {count(context.used)}
+            {context.window ? ` of ${count(context.window)}` : " tokens"}
+          </p>
+          {context.window ? <Bar share={context.used / context.window} /> : null}
+          {context.compact_at ? (
+            <p className="m-0 mt-1.5 text-muted-foreground">Compacts at {count(context.compact_at)}</p>
           ) : null}
         </Section>
       )}
@@ -114,7 +175,7 @@ export function SidePanel({ session, budgetLow }: { session: ReportedSession; bu
         </Section>
       ) : null}
       {checklist?.length ? (
-        <Section title="To do">
+        <Section title={todoTitle(checklist)}>
           <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
             {checklist.map((item, i) => (
               <li key={i} className="flex gap-2">

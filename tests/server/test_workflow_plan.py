@@ -4,21 +4,18 @@ the running queue."""
 
 import pytest
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fibsem.applications.autolamella.workflows.estimate import (  # noqa: E402
+from fibsem.applications.autolamella.workflows.estimate import (
     estimate_lamella_run,
 )
-from fibsem.applications.autolamella.workflows.plan import (  # noqa: E402
+from fibsem.applications.autolamella.workflows.plan import (
     plan_lamella_run,
 )
-from fibsem.workflows.runner import ITEMS, RunRequest  # noqa: E402
-from tests.autolamella.test_select_position_asks import (  # noqa: E402, F401
+from fibsem.workflows.runner import ITEMS, RunRequest
+from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
     microscope,
 )
-from tests.server.test_a_run_with_no_window import _held, _ok, agent  # noqa: E402, F401
+from tests.server.test_a_run_with_no_window import _held, _ok, agent  # noqa: F401
 
 
 def test_a_run_s_plan_is_the_confirmation_s_estimate(agent):  # noqa: F811

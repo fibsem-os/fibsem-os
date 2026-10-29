@@ -183,8 +183,6 @@ def test_an_odemis_relative_move_returns_where_the_stage_ended(odemis_microscope
 def test_the_server_move_endpoint_answers_with_where_a_tescan_stage_went():
     # It called result.to_dict() on None, after the stage had moved. Through the
     # safe move: an agent token may not call the raw move_absolute.
-    pytest.importorskip("fastapi")
-    pytest.importorskip("httpx")
     from fastapi.testclient import TestClient
 
     from fibsem.server import AuthConfig, build_server

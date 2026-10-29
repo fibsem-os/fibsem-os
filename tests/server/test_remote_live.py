@@ -1,7 +1,5 @@
 """A remote beam's live view: it runs on the server, and its frames come on the
 beam's live socket (``WS /devices/{beam}/live``), the latest only.
-
-Skipped when the [server] extra is not installed.
 """
 
 import asyncio
@@ -9,26 +7,20 @@ import os
 import time
 
 import pytest
+from websockets.exceptions import InvalidStatus
+from websockets.sync.client import connect
 
-from tests.fixtures.app_server import serving
-
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-pytest.importorskip("websockets")
-
-from websockets.exceptions import InvalidStatus  # noqa: E402
-from websockets.sync.client import connect  # noqa: E402
-
-from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
-from fibsem.drivers.remote.devices import connect_remote_beams  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.server.devices import (  # noqa: E402
+from fibsem.client.remote_microscope import RemoteMicroscope
+from fibsem.drivers.remote.devices import connect_remote_beams
+from fibsem.server import AuthConfig, build_server
+from fibsem.server.devices import (
     DeviceServer,
     demo_devices,
     stream_live,
 )
-from fibsem.structures.image import FibsemImage  # noqa: E402
-from fibsem.structures.settings import BeamType, ImageSettings  # noqa: E402
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType, ImageSettings
+from tests.fixtures.app_server import serving
 
 TOKEN = "test-token"
 

@@ -11,21 +11,18 @@ import threading
 import numpy as np
 import pytest
 
-pytest.importorskip("fastapi")
-pytest.importorskip("websockets")
-
-from fibsem.drivers.demo.devices import bind_demo_fm  # noqa: E402
-from fibsem.drivers.remote.devices import DeviceClient  # noqa: E402
-from fibsem.fm.acquisition import acquire_z_stack  # noqa: E402
-from fibsem.fm.microscope import FluorescenceMicroscope  # noqa: E402
-from fibsem.fm.progress import FluorescenceAcquisitionStatus  # noqa: E402
-from fibsem.fm.remote import RemoteFluorescenceMicroscope  # noqa: E402
-from fibsem.fm.structures import (  # noqa: E402
+from fibsem.drivers.demo.devices import bind_demo_fm
+from fibsem.drivers.remote.devices import DeviceClient
+from fibsem.fm.acquisition import acquire_z_stack
+from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.fm.progress import FluorescenceAcquisitionStatus
+from fibsem.fm.remote import RemoteFluorescenceMicroscope
+from fibsem.fm.structures import (
     ChannelSettings,
     ZParameters,
     ZStackOrder,
 )
-from fibsem.server.devices import DeviceServer  # noqa: E402
+from fibsem.server.devices import DeviceServer
 
 CHANNELS = [
     ChannelSettings(name="green", excitation_wavelength=488, exposure_time=0.01),

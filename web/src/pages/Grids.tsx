@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { metaLine } from "@/components/images";
+import { ImageViewer, metaLine } from "@/components/images";
 import { Card, CardTitle } from "@/components/ui/card";
 import { api, imageUrl } from "@/lib/api";
 import { useOpenExperiment } from "@/lib/experiment";
@@ -31,12 +31,17 @@ const ROLES: [string, string][] = [
   ["overview_fm", "FM"],
 ];
 
-/** The grid's latest overview of each kind it has, SEM before FIB before FM. */
-function overviewsOf(grid: GridSummary): [string, string][] {
+/** The grid's latest overview of each kind it has, SEM before FIB before FM: its
+ * label, file and path in the experiment. */
+function overviewsOf(grid: GridSummary): [string, string, string | undefined][] {
   const o = grid.overviews;
-  const known = ROLES.filter(([role]) => o[role]).map(([role, label]): [string, string] => [label, o[role]]);
-  const others = Object.entries(o).filter(([role]) => !ROLES.some(([r]) => r === role));
-  return [...known, ...others];
+  const roles = [
+    ...ROLES.filter(([role]) => o[role]),
+    ...Object.keys(o)
+      .filter((role) => !ROLES.some(([r]) => r === role))
+      .map((role) => [role, role]),
+  ];
+  return roles.map(([role, label]) => [label, o[role], grid.overview_paths?.[role]]);
 }
 
 function useGridImage(grid: string, filename: string | null) {
@@ -98,7 +103,7 @@ function GridCard({ grid, picked, onPick }: { grid: GridSummary; picked: boolean
 }
 
 /** The overview with the grid's lamellae where they sit: green, red when failed. */
-function Overview({ grid, filename }: { grid: string; filename: string }) {
+function Overview({ grid, filename, onOpen }: { grid: string; filename: string; onOpen?: () => void }) {
   const { src, old } = useGridImage(grid, filename);
   const markers = useQuery({
     queryKey: ["grid markers", grid, filename],
@@ -112,7 +117,10 @@ function Overview({ grid, filename }: { grid: string; filename: string }) {
   const size = Math.max(w / 40, 10);
   return (
     <div className="flex flex-col gap-2">
-      <div className="relative w-full max-w-[880px] overflow-hidden rounded bg-black">
+      <div
+        className={cn("relative w-full max-w-[880px] overflow-hidden rounded bg-black", onOpen && "cursor-zoom-in")}
+        onClick={onOpen}
+      >
         {src ? (
           <img className="block w-full" alt={filename} src={src} />
         ) : (
@@ -165,6 +173,9 @@ function GridPanel({ name, go }: { name: string; go: Go }) {
   const [kind, setKind] = useState<string | null>(null);
   const shown = overviews.find(([label]) => label === kind) ?? overviews[0];
   const overview = shown?.[1] ?? null;
+  const path = shown?.[2];
+  const paths = overviews.map(([, , path]) => path).filter((path): path is string => !!path);
+  const [viewing, setViewing] = useState<number | null>(null);
   return (
     <Card className="flex min-w-0 flex-col gap-4">
       <div>
@@ -193,7 +204,7 @@ function GridPanel({ name, go }: { name: string; go: Go }) {
         </div>
       )}
       {overview ? (
-        <Overview grid={name} filename={overview} />
+        <Overview grid={name} filename={overview} onOpen={path ? () => setViewing(paths.indexOf(path)) : undefined} />
       ) : (
         d && <div className="text-[13px] text-muted-foreground">No overview yet.</div>
       )}
@@ -230,6 +241,7 @@ function GridPanel({ name, go }: { name: string; go: Go }) {
           </div>
         </div>
       )}
+      <ImageViewer paths={paths} at={viewing} onClose={() => setViewing(null)} />
     </Card>
   );
 }

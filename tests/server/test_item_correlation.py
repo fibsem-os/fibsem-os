@@ -3,27 +3,23 @@ Server: the correlation dialog's Continue, at Drive, through the item patch,
 with no window."""
 
 import pytest
+from fastapi.testclient import TestClient
+from psygnal.containers import EventedDict
 
-pytest.importorskip("fastapi")
-pytest.importorskip("httpx")
-
-from fastapi.testclient import TestClient  # noqa: E402
-from psygnal.containers import EventedDict  # noqa: E402
-
-from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402
-from fibsem.applications.autolamella.structures import (  # noqa: E402
+from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
     Experiment,
 )
-from fibsem.correlation.history import new_run_dir, save_run  # noqa: E402
-from fibsem.correlation.structures import (  # noqa: E402
+from fibsem.correlation.history import new_run_dir, save_run
+from fibsem.correlation.structures import (
     CorrelationPointOfInterest,
     CorrelationResult,
     CorrelationState,
 )
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.structures.settings import MicroscopeState, Point  # noqa: E402
-from fibsem.workflows.events import EventBuffer  # noqa: E402
+from fibsem.server import AuthConfig, build_server
+from fibsem.structures.settings import MicroscopeState, Point
+from fibsem.workflows.events import EventBuffer
 from tests.run_state import stub_session
 
 TOKEN = "test-token"

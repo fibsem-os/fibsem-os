@@ -1,15 +1,13 @@
 """``fibsem-volume`` opens a volume experiment on a microscope and serves it,
 with no window, until it is stopped."""
 
+import httpx
 import pytest
 
-pytest.importorskip("fastapi")
-httpx = pytest.importorskip("httpx")
-
-from fibsem.applications.volume import launch  # noqa: E402
-from fibsem.applications.volume.experiment import VolumeExperiment  # noqa: E402
-from fibsem.server.operator_token import load_operator_token  # noqa: E402
-from tests.fixtures.headless import (  # noqa: E402
+from fibsem.applications.volume import launch
+from fibsem.applications.volume.experiment import VolumeExperiment
+from fibsem.server.operator_token import load_operator_token
+from tests.fixtures.headless import (
     allowed_agent,
     confine_host,
     run_in_background,

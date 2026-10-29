@@ -1,7 +1,5 @@
 """`RemoteMicroscope`: a `FibsemMicroscope` whose devices and services are an App
 Server's, over the Demo. The facade's calls run on the server.
-
-Skipped when the [server] extra is not installed.
 """
 
 import threading
@@ -9,19 +7,14 @@ import time
 
 import pytest
 
-from tests.fixtures.app_server import serving
-
-pytest.importorskip("fastapi")
-uvicorn = pytest.importorskip("uvicorn")
-
-from fibsem.cancellation import OperationCancelledError  # noqa: E402
-from fibsem.client.remote_microscope import RemoteMicroscope  # noqa: E402
-from fibsem.drivers.remote.devices import RemoteBeam, RemoteStage  # noqa: E402
-from fibsem.drivers.remote.services import RemoteService  # noqa: E402
-from fibsem.server import AuthConfig, build_server  # noqa: E402
-from fibsem.services.milling import Milling  # noqa: E402
-from fibsem.structures.image import FibsemImage  # noqa: E402
-from fibsem.structures.settings import (  # noqa: E402
+from fibsem.cancellation import OperationCancelledError
+from fibsem.client.remote_microscope import RemoteMicroscope
+from fibsem.drivers.remote.devices import RemoteBeam, RemoteStage
+from fibsem.drivers.remote.services import RemoteService
+from fibsem.server import AuthConfig, build_server
+from fibsem.services.milling import Milling
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import (
     BeamType,
     FibsemMillingSettings,
     FibsemRectangleSettings,
@@ -29,6 +22,7 @@ from fibsem.structures.settings import (  # noqa: E402
     ImageSettings,
     MillingState,
 )
+from tests.fixtures.app_server import serving
 
 TOKEN = "test-token"
 
