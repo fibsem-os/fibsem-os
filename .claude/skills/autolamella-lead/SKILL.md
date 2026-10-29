@@ -115,7 +115,10 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    the morning.
 7. **Review.** Put supervision back as the protocol had it before the run
    (`protocol_set_supervision`), and say so. Then call the Auditor, and post
-   its review as notes.
+   its review as notes. Write the run's `experiment` entry in the knowledge
+   base from that review, and an instrument or sample entry for each lesson
+   it names that would change the next run (fibsem-agent, *The knowledge
+   base*).
 
 ## After every task
 

@@ -395,6 +395,32 @@ The answer gives each layer's stats, so set limits from them, not by guess.
 Don't note what is already on the record: a request's reason is kept with
 it.
 
+## The knowledge base
+
+What was learned on this microscope is kept across experiments, under
+`~/.fibsem/knowledge`, in three sections: *instrument* (the state of this
+microscope: a weak aperture, a stage axis that drifts, a detector that
+saturates), *sample* (what was learned about a sample type here, by a short
+slug such as `yeast`), and *experiment* (one summary per finished run).
+Every knowledge tool works at Watch, with or without an experiment open.
+
+- **Read before acting.** At session setup, `knowledge_list`, then
+  `knowledge_get` the instrument entries and the entries for this run's
+  sample. Say in a sentence which ones change what you will do. An entry is
+  someone's earlier judgment: check it against what you see today.
+- **Write what was learned the hard way.** When something cost you a retry,
+  a lost lamella or the operator's help, and knowing it would change the
+  next run, write an instrument or sample entry with `knowledge_write`:
+  short, specific, what to do differently, with the image that shows it
+  (`images`, paths in the open experiment). Write one whenever the operator
+  asks. Rewrite an entry (its `id`) rather than adding a second one on the
+  same thing.
+- **Summarise the run.** At the end of a run, write its `experiment` entry:
+  what was asked, what was done and how it ended, what went wrong and why,
+  and what to do differently. Under autolamella-lead it is written from the
+  Auditor's review.
+- Only the operator removes an entry; ask them if one is wrong.
+
 ## Reading the experiment
 
 Every read works at Watch.
@@ -795,10 +821,12 @@ At the start of a session:
    read is missed. Under `fibsem-agent` it is already running.
 3. Read where things stand: `app_get_status`, `workflow_get_queue`,
    `proposal_list`. A pending proposal comes first.
-4. If you don't know what the operator wants done, ask them (the table at
+4. Read the knowledge base (*The knowledge base*): the instrument entries,
+   and the sample's once you know the sample.
+5. If you don't know what the operator wants done, ask them (the table at
    the top), then read the task skill for it.
-5. Before the first microscope action, get your bearings (above).
-6. At Drive, before you start workflows yourself, turn the run summary
+6. Before the first microscope action, get your bearings (above).
+7. At Drive, before you start workflows yourself, turn the run summary
    dialog off with `workflow_set_options(show_run_summary=false)` so no dialog
    is left over the operator's window, and tell them you did. Each workflow's
    end still shows a toast with a Show summary link, and `workflow_get_summary`
