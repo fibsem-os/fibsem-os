@@ -3,6 +3,7 @@
 import os
 from datetime import datetime, timezone
 
+import numpy as np
 import pytest
 
 from tests.fixtures.microscopes import demo_microscope
@@ -383,3 +384,93 @@ def test_a_calibration_with_an_offset_shows_in_the_viewers_zone(qapp, microscope
 
     rows = slot_rows(holder)
     assert rows[0][4] == f"{local:%Y-%m-%d %H:%M:%S}"
+
+
+# The FM's place: an offset FM's origin and pose, saved by the same Save
+# ---------------------------------------------------------------------------
+
+
+def test_the_fm_place_shows_the_configured_origin(qapp, site, toasts):
+    window = MicroscopeConfigurationWindow(site)
+    origin = site.system.stage.devices["FM"].origin
+
+    assert window.fm_place.origin_x.value() == pytest.approx(origin.x * 1e3)
+    assert window.fm_place.origin_y.value() == pytest.approx((origin.y or 0.0) * 1e3)
+    assert not window.fm_place.own_pose.isChecked()
+
+
+def test_an_fm_place_edit_is_unsaved_on_the_geometry_tab(qapp, site, toasts):
+    window = MicroscopeConfigurationWindow(site)
+
+    window.fm_place.origin_x.setValue(48.7852)
+
+    assert window.has_unsaved_changes()
+    assert window.label_unsaved.text() == "Unsaved changes  ·  Geometry  ·  site.yaml"
+    assert window.tabs.tabText(1) == "Geometry •"
+
+
+def test_save_writes_the_fm_origin_and_pose(qapp, site, toasts):
+    """The METEOR of 2026-10-29: CALIB dx, dy, and odemis's FM posture."""
+    window = MicroscopeConfigurationWindow(site)
+    form = window.fm_place
+    form.origin_x.setValue(48.7852)
+    form.origin_y.setValue(-0.087)
+    form.own_pose.setChecked(True)
+    form.pose_r.setValue(107.0)
+    form.pose_t.setValue(20.3)
+
+    window.pushButton_save.click()
+
+    devices = utils.load_yaml(site.configuration_path)["hardware"]["devices"]
+    (fm,) = [d for d in devices if d["name"] == "fm"]
+    assert fm["origin"]["x"] == pytest.approx(48.7852e-3)
+    assert fm["origin"]["y"] == pytest.approx(-0.087e-3)
+    assert fm["pose"] == pytest.approx({"r": 107.0, "t": 20.3})
+    assert "available_orientations" not in fm
+    assert not window.has_unsaved_changes()
+    assert "Reconnect to use it" in " ".join(str(t[0]) for t in toasts)
+    # and the file reads back with that pose
+    settings = utils.load_microscope_configuration(site.configuration_path)
+    pose = settings.system.stage.devices["FM"].pose
+    assert (pose.r, pose.t) == pytest.approx(
+        (float(np.radians(107.0)), float(np.radians(20.3)))
+    )
+
+
+def test_clearing_the_pose_goes_back_to_imaging_in_fib(qapp, site, toasts):
+    utils.write_fm_placement(site.configuration_path, (0.05, 0.0), (107.0, 20.3))
+
+    utils.write_fm_placement(site.configuration_path, (0.05, 0.0), None)
+
+    devices = utils.load_yaml(site.configuration_path)["hardware"]["devices"]
+    (fm,) = [d for d in devices if d["name"] == "fm"]
+    assert "pose" not in fm
+    assert fm["available_orientations"] == ["FIB"]
+
+
+def test_use_the_stage_s_pose_takes_r_and_t_from_the_stage(qapp, site, toasts):
+    site.move_to_orientation("SEM")
+    window = MicroscopeConfigurationWindow(site)
+
+    window.fm_place.use_stage_pose()
+
+    here = site.get_stage_position()
+    assert window.fm_place.own_pose.isChecked()
+    assert window.fm_place.pose_r.value() == pytest.approx(
+        float(np.degrees(here.r)) % 360.0, abs=0.01
+    )
+    assert window.fm_place.pose_t.value() == pytest.approx(
+        float(np.degrees(here.t)), abs=0.01
+    )
+
+
+def test_a_compustage_has_no_fm_place_to_edit(qapp, toasts):
+    from tests.fixtures.fm_microscope import SIM_COMPUSTAGE_CONFIG
+
+    microscope, _ = utils.setup_session(
+        config_path=SIM_COMPUSTAGE_CONFIG, manufacturer="Demo", setup_logging=False
+    )
+    try:
+        assert MicroscopeConfigurationWindow(microscope).fm_place is None
+    finally:
+        microscope.disconnect()

@@ -7,7 +7,9 @@ kinds the configuration file is divided into:
   subsystems are fitted (reported by the instrument, or the backend's own answer where
   it cannot be asked -- the file does not state them).
 - **Geometry**: the columns, the stage and where each device sees the sample. Set when
-  the system is installed, by the guided setup; shown here, not edited.
+  the system is installed, by the guided setup; shown here, not edited, except an
+  offset FM's origin and pose (`fibsem.ui.widgets.fm_placement_form`), saved by the
+  window's Save and used from the next connect.
 - **Calibration**: what was measured at this instrument -- the holder's slots and the
   fluorescence objective. Never typed in: the holder's slots come from its guided
   calibration, opened from here.
@@ -22,7 +24,8 @@ kinds the configuration file is divided into:
   section holds. Shown, not edited: each section is changed where it is used.
 
 Only while connected: everything here is read from the live session. The Defaults tab
-is the only one with anything to save; the window says when it has unsaved changes.
+and the FM's place are all there is to save; the window says when either has unsaved
+changes.
 """
 
 import math
@@ -348,7 +351,9 @@ def instrument_tab(microscope: FibsemMicroscope) -> QWidget:
     return widget
 
 
-def geometry_tab(microscope: FibsemMicroscope) -> QWidget:
+def geometry_tab(
+    microscope: FibsemMicroscope, fm_form: Optional[QWidget] = None
+) -> QWidget:
     system = microscope.system
     stage = system.stage
     columns = _table(
@@ -406,6 +411,14 @@ def geometry_tab(microscope: FibsemMicroscope) -> QWidget:
     right.addWidget(
         _muted("Where the stage travels for each instrument to see the sample.")
     )
+    if fm_form is not None:
+        right.addWidget(_panel("FM place", fm_form))
+        right.addWidget(
+            _muted(
+                "The FM from the beams (odemis's CALIB dx, dy) and the pose it images "
+                "in. Saved by Save, used from the next connect."
+            )
+        )
     right.addStretch()
     grid = QHBoxLayout()
     grid.addLayout(left, 1)
@@ -729,6 +742,7 @@ def session_tab(microscope: FibsemMicroscope) -> QWidget:
 
 
 DEFAULTS = "Defaults"
+GEOMETRY = "Geometry"
 
 
 def devices_tab(microscope: FibsemMicroscope) -> QWidget:
@@ -743,8 +757,8 @@ def devices_tab(microscope: FibsemMicroscope) -> QWidget:
 class MicroscopeConfigurationWindow(QDialog):
     """The connected microscope's configuration, by kind. Non-modal.
 
-    Everything is read-only except the Defaults tab, which the window's one Save
-    writes into the configuration file.
+    Everything is read-only except the Defaults tab and an offset FM's place, which
+    the window's one Save writes into the configuration file.
     """
 
     def __init__(
@@ -780,9 +794,16 @@ class MicroscopeConfigurationWindow(QDialog):
         self.defaults.set_microscope(microscope, image_settings=image_settings)
         self.defaults.set_current_imaging(current_imaging)
 
+        self.fm_place = None
+        if microscope.stage_movement.travels_to_fm():
+            from fibsem.ui.widgets.fm_placement_form import FMPlacementForm
+
+            self.fm_place = FMPlacementForm(microscope)
+            self.fm_place.changed.connect(self._show_unsaved)
+
         self.tabs = QTabWidget()
         self.tabs.addTab(instrument_tab(microscope), "Instrument")
-        self.tabs.addTab(geometry_tab(microscope), "Geometry")
+        self.tabs.addTab(geometry_tab(microscope, self.fm_place), GEOMETRY)
         self.tabs.addTab(self._calibration_tab(), "Calibration")
         self.tabs.addTab(self.defaults, DEFAULTS)
         self.tabs.addTab(session_tab(microscope), "Session")
@@ -794,8 +815,8 @@ class MicroscopeConfigurationWindow(QDialog):
         self.label_unsaved = _status("", WARN_COLOR)
         self.pushButton_save = QPushButton("Save")
         self.pushButton_save.setToolTip(
-            "Write the defaults into the configuration file this session was started "
-            "from. Nothing else in the file is changed."
+            "Write the defaults, and an offset FM's place, into the configuration file "
+            "this session was started from. Nothing else in the file is changed."
         )
         self.pushButton_save.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.pushButton_close = QPushButton("Close")
@@ -823,22 +844,47 @@ class MicroscopeConfigurationWindow(QDialog):
 
     # -- saving -----------------------------------------------------------------------
 
+    def _fm_place_modified(self) -> bool:
+        return self.fm_place is not None and self.fm_place.is_modified()
+
     def has_unsaved_changes(self) -> bool:
-        return self.defaults.is_modified()
+        return self.defaults.is_modified() or self._fm_place_modified()
 
     def _show_unsaved(self) -> None:
         unsaved = self.has_unsaved_changes()
         where = f"  ·  {self._file_name}" if self._file_name else ""
+        what = [
+            name
+            for name, modified in (
+                (DEFAULTS, self.defaults.is_modified()),
+                (GEOMETRY, self._fm_place_modified()),
+            )
+            if modified
+        ]
         self.label_unsaved.setText(
-            f"Unsaved changes  ·  {DEFAULTS}{where}" if unsaved else ""
+            f"Unsaved changes  ·  {', '.join(what)}{where}" if unsaved else ""
         )
         self.pushButton_save.setEnabled(unsaved)
-        index = self.tabs.indexOf(self.defaults)
-        self.tabs.setTabText(index, f"{DEFAULTS} •" if unsaved else DEFAULTS)
+        for widget_name, modified in (
+            (DEFAULTS, self.defaults.is_modified()),
+            (GEOMETRY, self._fm_place_modified()),
+        ):
+            index = next(
+                i
+                for i in range(self.tabs.count())
+                if self.tabs.tabText(i).rstrip(" •") == widget_name
+            )
+            self.tabs.setTabText(index, f"{widget_name} •" if modified else widget_name)
 
     def save(self) -> bool:
         """Write the window's changes into the configuration. Returns whether saved."""
-        return self.defaults.save_to_configuration()
+        saved = True
+        if self.defaults.is_modified():
+            saved = self.defaults.save_to_configuration() and saved
+        if self._fm_place_modified():
+            saved = self.fm_place.save_to_configuration() and saved
+        self._show_unsaved()
+        return saved
 
     def reject(self) -> None:
         """Close, Escape and the title bar all come here: offer to save first."""
@@ -848,7 +894,7 @@ class MicroscopeConfigurationWindow(QDialog):
         answer = QMessageBox.question(
             self,
             "Unsaved changes",
-            "The defaults have changes that are not saved to the configuration.",
+            "The window has changes that are not saved to the configuration.",
             QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
             QMessageBox.Save,
         )
