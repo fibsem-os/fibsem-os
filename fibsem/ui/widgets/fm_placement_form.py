@@ -42,6 +42,13 @@ class FMPlacementForm(QWidget):
         self.button_stage_pose = QPushButton("Use stage pose")
         self.button_stage_pose.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         self.button_stage_pose.setToolTip("Take r and t from the stage's position now.")
+        source = microscope.fm_placement_source
+        self.button_vendor = QPushButton(f"Read from {source}") if source else None
+        if self.button_vendor is not None:
+            self.button_vendor.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
+            self.button_vendor.setToolTip(
+                f"Fill the origin and pose from {source}'s calibration and FM position."
+            )
 
         self.origin_x.setValue((device.origin.x or 0.0) * 1e3)
         self.origin_y.setValue((device.origin.y or 0.0) * 1e3)
@@ -61,6 +68,9 @@ class FMPlacementForm(QWidget):
         form.addRow("Rotation", self.pose_r)
         form.addRow("Tilt", self.pose_t)
         form.addRow("", self.button_stage_pose)
+        if self.button_vendor is not None:
+            form.addRow("", self.button_vendor)
+            self.button_vendor.clicked.connect(self.read_from_vendor)
 
         for box in (self.origin_x, self.origin_y, self.pose_r, self.pose_t):
             box.valueChanged.connect(self.changed)
@@ -79,6 +89,33 @@ class FMPlacementForm(QWidget):
         position = self.microscope.get_stage_position()
         self.pose_r.setValue(float(np.degrees(position.r)) % 360.0)
         self.pose_t.setValue(float(np.degrees(position.t)))
+
+    def read_from_vendor(self) -> None:
+        """Fill what the vendor software states; Save writes it."""
+        source = self.microscope.fm_placement_source
+        try:
+            origin, pose = self.microscope.vendor_fm_placement()
+        except Exception as e:
+            logging.error(f"Could not read the FM's place from {source}: {e}")
+            notification_service.show_toast(
+                f"Could not read the FM's place from {source}: {e}", "error"
+            )
+            return
+        if origin is not None:
+            self.origin_x.setValue(origin[0] * 1e3)
+            self.origin_y.setValue(origin[1] * 1e3)
+        if pose is not None:
+            self.pose_r.setValue(pose[0])
+            self.pose_t.setValue(pose[1])
+        if origin is None or pose is None:
+            missing = " and ".join(
+                name
+                for name, value in (("origin", origin), ("pose", pose))
+                if value is None
+            )
+            notification_service.show_toast(
+                f"{source} states no FM {missing}.", "warning"
+            )
 
     def save_to_configuration(self) -> bool:
         """Write the FM's place and pose into the configuration file. Returns whether

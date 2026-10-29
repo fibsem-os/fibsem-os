@@ -482,6 +482,25 @@ def test_use_the_stage_s_pose_takes_r_and_t_from_the_stage(qapp, site, toasts):
     )
 
 
+def test_read_from_the_vendor_fills_the_origin_and_pose(qapp, site, toasts):
+    site.fm_placement_source = "odemis"
+    site.vendor_fm_placement = lambda: ((0.0487852, -8.7e-05), (107.0, 20.3))
+    window = MicroscopeConfigurationWindow(site)
+    form = window.fm_place
+
+    form.button_vendor.click()
+
+    assert form.values() == (
+        pytest.approx((0.0487852, -8.7e-05)),
+        pytest.approx((107.0, 20.3)),
+    )
+    assert window.has_unsaved_changes()  # saved only by Save
+
+
+def test_a_backend_with_nothing_to_read_has_no_read_button(qapp, site, toasts):
+    assert MicroscopeConfigurationWindow(site).fm_place.button_vendor is None
+
+
 def test_a_compustage_has_no_fm_place_to_edit(qapp, toasts):
     from tests.fixtures.fm_microscope import SIM_COMPUSTAGE_CONFIG
 
