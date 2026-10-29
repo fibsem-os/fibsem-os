@@ -160,7 +160,7 @@ fibsem/ui/widgets/guided_setup_dialog.py 2
 fibsem/ui/widgets/holder_calibration_dialog.py 1
 fibsem/ui/widgets/image_fit_dialog.py 2
 fibsem/ui/widgets/image_viewer_dialog.py 1
-fibsem/ui/widgets/microscope_configuration_window.py 5
+fibsem/ui/widgets/microscope_configuration_window.py 6
 fibsem/ui/widgets/overview_widget.py 12
 fibsem/ui/widgets/sample_holder_widget.py 1
 fibsem/ui/widgets/script_menu.py 1

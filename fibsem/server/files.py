@@ -18,10 +18,13 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from pypdf import PdfReader
 
 from fibsem.server.responses import refused
 
 TEXT_SUFFIXES = (".yaml", ".yml", ".json", ".jsonl", ".log", ".md", ".csv", ".txt")
+# Read as the text on its pages (pypdf); figures and scanned pages carry none.
+PDF_SUFFIX = ".pdf"
 IMAGE_SUFFIXES = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 # A text answer's cap: a session log runs to megabytes, and app_get_log reads it
 # by window.
@@ -29,6 +32,15 @@ TEXT_LIMIT = 512 * 1024
 # The widest preview served: an image enlarged to fill a screen.
 MAX_PREVIEW_WIDTH = 3072
 _DIGITS = re.compile(r"(\d+)")
+
+
+# What the operator may add to an experiment from the web page: what
+# experiment_read_file reads. The folder they go to when none is given.
+_NOTES = (".md", ".txt", ".csv", ".yaml", ".yml", ".json", PDF_SUFFIX)
+UPLOAD_SUFFIXES = _NOTES + IMAGE_SUFFIXES
+UPLOAD_LIMIT = 50 * 1024**2
+UPLOAD_DIR = "notes"
+_UNSAFE = re.compile(r"[^\w.()-]+")
 
 
 class FileRefusal(Exception):
@@ -76,7 +88,7 @@ def kind(path: str) -> str:
     if os.path.isdir(path):
         return "folder"
     name = path.lower()
-    if name.endswith(TEXT_SUFFIXES):
+    if name.endswith(TEXT_SUFFIXES + (PDF_SUFFIX,)):
         return "text"
     if name.endswith(IMAGE_SUFFIXES):
         return "image"
@@ -496,6 +508,13 @@ def read(
             422, "invalid", f"Only an image crops or shows a plane; {path} is not one."
         )
     entry = _entry(os.path.realpath(root), target)
+    if file_kind == "text" and target.lower().endswith(PDF_SUFFIX):
+        text = pdf_text(target, path)
+        return {
+            **entry,
+            "text": text[:TEXT_LIMIT],
+            "truncated": len(text) > TEXT_LIMIT,
+        }
     if file_kind == "text":
         with open(target, "rb") as f:
             raw = f.read(TEXT_LIMIT + 1)
@@ -519,6 +538,24 @@ def read(
                 422, "unreadable", f"Could not read {path} as an image: {exc}"
             ) from exc
     return entry
+
+
+def pdf_text(target: str, path: str) -> str:
+    """The text on each page of the PDF at *target*, under a "Page N" line;
+    the :class:`FileRefusal` saying why when it can't be read."""
+    try:
+        pages = [page.extract_text() or "" for page in PdfReader(target).pages]
+    except Exception as exc:  # noqa: BLE001 - a broken file is a data fact
+        raise FileRefusal(
+            422, "unreadable", f"Could not read {path} as a PDF: {exc}"
+        ) from exc
+    if not any(page.strip() for page in pages):
+        raise FileRefusal(
+            422,
+            "unreadable",
+            f"{path} has no text to read: its pages are pictures (a scan?).",
+        )
+    return "\n\n".join(f"Page {i}\n{page}" for i, page in enumerate(pages, 1))
 
 
 def read_etag(root: Optional[str], path: str, *query: Any) -> Optional[str]:
@@ -545,3 +582,67 @@ def raw_file(root: Optional[str], path: str) -> Tuple[str, str]:
         )
     relative = os.path.relpath(target, os.path.realpath(root)).replace(os.sep, "/")
     return target, relative
+
+
+def upload_name(name: str) -> str:
+    """*name* as a file name to save: its last part, spaces as dashes, and
+    one of `UPLOAD_SUFFIXES`; else the :class:`FileRefusal` saying why not."""
+    name = _UNSAFE.sub("-", os.path.basename(name.replace("\\", "/")).strip()).strip(
+        "-."
+    )
+    if not name:
+        raise FileRefusal(422, "invalid", "Give the file's name.")
+    if not name.lower().endswith(UPLOAD_SUFFIXES):
+        taken = ", ".join(suffix.lstrip(".") for suffix in UPLOAD_SUFFIXES)
+        raise FileRefusal(
+            415, "not_taken", f"{name} isn't a file the agent reads: {taken}."
+        )
+    return name
+
+
+class Upload:
+    """A file the operator adds to the open experiment, written as it comes:
+    `add` each chunk, then `finish`. At most `UPLOAD_LIMIT` bytes; a name
+    already there gets -2, -3, ... before its suffix."""
+
+    def __init__(self, root: Optional[str], name: str, folder: str = UPLOAD_DIR):
+        name = upload_name(name)
+        if root is None:
+            resolve(root, "")
+        root = os.path.realpath(root)
+        target = os.path.realpath(os.path.join(root, folder or UPLOAD_DIR))
+        if os.path.commonpath([root, target]) != root:
+            raise FileRefusal(
+                403,
+                "not_allowed",
+                f"Only folders inside the open experiment, not {folder}.",
+            )
+        os.makedirs(target, exist_ok=True)
+        stem, suffix = os.path.splitext(name)
+        path, n = os.path.join(target, name), 1
+        while os.path.exists(path):
+            n += 1
+            path = os.path.join(target, f"{stem}-{n}{suffix}")
+        self.root, self.path, self.size = root, path, 0
+        self._partial = path + ".part"
+        self._file = open(self._partial, "wb")
+
+    def add(self, chunk: bytes) -> None:
+        self.size += len(chunk)
+        if self.size > UPLOAD_LIMIT:
+            self.cancel()
+            raise FileRefusal(
+                413, "too_big", f"Over the {UPLOAD_LIMIT // 1024**2} MB limit."
+            )
+        self._file.write(chunk)
+
+    def finish(self) -> Dict[str, Any]:
+        """The file in place, as the files listing gives it."""
+        self._file.close()
+        os.replace(self._partial, self.path)
+        return _entry(self.root, self.path)
+
+    def cancel(self) -> None:
+        self._file.close()
+        if os.path.exists(self._partial):
+            os.remove(self._partial)

@@ -65,6 +65,7 @@ from fibsem.util.timestamps import now_iso
 if TYPE_CHECKING:
     from fibsem.devices.core import BoundParameter, Device
     from fibsem.microscope import FibsemMicroscope
+    from fibsem.structures.settings import FibsemStagePosition
 
 RATE_LIMIT_DEFAULT = 0.05  # seconds between updates
 
@@ -586,6 +587,8 @@ class FluorescenceMicroscope:
             self.camera = Camera(devices["camera"], parent=self)
             self.light_source = LightSource(devices["light_source"], parent=self)
             self.filter_set = FilterSet(devices["filter_set"], parent=self)
+        # (binning, pixel size, resolution) for live frames: see `_cached_settings`
+        self._live_frame_size: Optional[Tuple[Any, Any, Any]] = None
         self._last_updated_at: Optional[datetime] = datetime.now()
         self._rate_limit = RATE_LIMIT_DEFAULT  # seconds between updates
         self.default_orientation: str = (
@@ -1013,6 +1016,12 @@ class FluorescenceMicroscope:
     ) -> FluorescenceImage:
         """One command on the ``fm`` group sets up the channel and takes the frame,
         with what it was taken with, so building the image needs no further reads."""
+        return self._acquire(channel_settings)
+
+    def _acquire(
+        self, channel_settings: Optional[ChannelSettings] = None, live: bool = False
+    ) -> FluorescenceImage:
+        """`acquire_image`; a *live* frame takes the stage's cached position."""
         with self.active_channel():
             channel = None
             if channel_settings is not None:
@@ -1021,10 +1030,13 @@ class FluorescenceMicroscope:
                 self.channel_color = channel_settings.color
                 channel = channel_settings.to_dict()
             frame = self.devices["fm"].acquire_frame(channel)
-            return self._construct_image(frame.data, frame.metadata)
+            return self._construct_image(frame.data, frame.metadata, live=live)
 
     def _construct_image(
-        self, data: np.ndarray, frame_metadata: Optional[dict] = None
+        self,
+        data: np.ndarray,
+        frame_metadata: Optional[dict] = None,
+        live: bool = False,
     ) -> FluorescenceImage:
         """Construct a FluorescenceImage from raw data with associated metadata.
 
@@ -1039,7 +1051,7 @@ class FluorescenceMicroscope:
                 'pixel_size' ((x, y) in metres), 'acquisition_date'
                 (ISO string), 'exposure_time' (seconds).
         """
-        md = self._metadata_for_frame(frame_metadata)
+        md = self._metadata_for_frame(frame_metadata, live=live)
 
         # Apply image transformation to align with SEM/FIB images
         data = self._apply_image_transform(data)
@@ -1056,17 +1068,22 @@ class FluorescenceMicroscope:
         return img
 
     def _metadata_for_frame(
-        self, frame_metadata: Optional[dict]
+        self, frame_metadata: Optional[dict], live: bool = False
     ) -> FluorescenceImageMetadata:
         """Built from what the ``fm`` group reported with the frame. Anything it didn't
-        report (a server from before ``acquire_frame``) is read live, as before."""
+        report (a server from before ``acquire_frame``) is read live, as before; for a
+        *live* frame it is taken from the parameters' caches instead."""
         frame = frame_metadata or {}
+        if live:
+            frame = {**self._cached_settings(), **frame}
 
         def reported(key: str, read: Callable[[], Any]) -> Any:
             return frame[key] if key in frame else read()
 
         if "emission_filter" in frame:
-            emission = EmissionFilter.from_dict(frame["emission_filter"])
+            emission = frame["emission_filter"]
+            if not isinstance(emission, EmissionFilter):
+                emission = EmissionFilter.from_dict(emission)
         else:
             emission = self.filter_set.emission_filter
         camera, objective = self.camera, self.objective
@@ -1105,11 +1122,52 @@ class FluorescenceMicroscope:
             pixel_size_x=pixel_size[0],
             pixel_size_y=pixel_size[1],
             resolution=(resolution[0], resolution[1]),
-            stage_position=parent.get_stage_position() if parent else None,
+            stage_position=self._stage_position(live),
             geometry=parent.fm_image_geometry() if parent else None,
             experiment=deepcopy(parent.experiment) if parent else None,
             channels=[channel],
         )
+
+    def _cached_settings(self) -> dict:
+        """The channel's settings for a live frame, with no instrument call. Every write
+        through fibsem updates a parameter's cache and the objective re-reads its
+        position after each move; a read per frame was about ten calls at the camera's
+        frame rate on a METEOR (2026-10-29). Pixel size and resolution are read again
+        only when the binning has changed."""
+        camera, objective = self.camera, self.objective
+
+        def cached(part, name: str) -> Any:
+            return _param(part._device, name).cached
+
+        binning = cached(camera, "binning")
+        if self._live_frame_size is None or self._live_frame_size[0] != binning:
+            self._live_frame_size = (binning, camera.pixel_size, camera.resolution)
+        _, pixel_size, resolution = self._live_frame_size
+        return {
+            "excitation_wavelength": cached(self.filter_set, "excitation_wavelength"),
+            "emission_filter": cached(self.filter_set, "emission_filter"),
+            "power": cached(self.light_source, "power"),
+            "exposure_time": cached(camera, "exposure_time"),
+            "gain": None if camera._has_no_gain() else cached(camera, "gain"),
+            "offset": cached(camera, "offset"),
+            "binning": binning,
+            "objective_position": cached(objective, "position"),
+            "objective_magnification": cached(objective, "magnification"),
+            "objective_numerical_aperture": cached(objective, "numerical_aperture"),
+            "pixel_size": pixel_size,
+            "resolution": resolution,
+        }
+
+    def _stage_position(self, live: bool) -> Optional[FibsemStagePosition]:
+        """Where the stage is, for a frame's metadata. A live frame takes the cached
+        position: a read per frame was a stage call at the camera's frame rate (about
+        20 a second on a METEOR, 2026-10-29), for frames that are only displayed."""
+        parent = self.parent
+        if parent is None:
+            return None
+        if live and getattr(parent, "stage", None) is not None:
+            return deepcopy(parent.stage.position.cached)
+        return parent.get_stage_position()
 
     def start_acquisition(
         self, channel_settings: Optional[ChannelSettings] = None
@@ -1135,6 +1193,7 @@ class FluorescenceMicroscope:
 
         # reset stop event if needed
         self._stop_acquisition_event.clear()
+        self._live_frame_size = None
         self._streaming.set()
 
         # start acquisition thread
@@ -1259,7 +1318,7 @@ class FluorescenceMicroscope:
             group.start_live()
             try:
                 while not self._stop_acquisition_event.is_set():
-                    self.acquire_image()
+                    self._acquire(live=True)
             finally:
                 group.stop_live()
         except Exception as e:

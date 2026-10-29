@@ -8,6 +8,7 @@ entry's nominal origin, and what it measures is what the stage travels by after.
 
 import os
 
+import numpy as np
 import pytest
 
 import fibsem.config as cfg
@@ -241,7 +242,7 @@ def test_sites_that_disagree_are_not_offered_for_saving(calibration):
 
 
 def test_an_fm_tilted_from_fib_needs_three_sites_spread_in_y(tmp_path, monkeypatch):
-    microscope, path = _uncalibrated(tmp_path, fm_pose={"t": 20.0})
+    microscope, path = _uncalibrated(tmp_path, fm_pose={"t": 25.0})
     steps = SemToFmCalibration(microscope, configuration_path=path)
     monkeypatch.setattr(steps, "measure_coincidence", lambda name: {})
     microscope.move_to_orientation("FM")
@@ -253,6 +254,47 @@ def test_an_fm_tilted_from_fib_needs_three_sites_spread_in_y(tmp_path, monkeypat
         _site(microscope, steps, found_x=0.0)
 
     assert "must be at least 3 mm off" in " ".join(steps.summary()["problems"])
+
+
+def _fib_pose_degrees(tmp_path):
+    microscope, _ = _uncalibrated(tmp_path / "fib")
+    fib = microscope.get_orientation("FIB")
+    return float(np.degrees(fib.r)), float(np.degrees(fib.t))
+
+
+def test_an_fm_a_few_degrees_off_fib_calibrates_from_one_site(tmp_path, monkeypatch):
+    """A METEOR imaged 3° off FIB in rotation and 3.3° in tilt (2026-10-29): one site
+    saves, unchecked, as in the FIB pose."""
+    r, t = _fib_pose_degrees(tmp_path)
+    microscope, path = _uncalibrated(tmp_path, fm_pose={"r": r - 3.0, "t": t + 3.3})
+    steps = SemToFmCalibration(microscope, configuration_path=path)
+    monkeypatch.setattr(steps, "measure_coincidence", lambda name: {})
+
+    assert steps.fm_pose_difference() == pytest.approx((-3.0, 3.3))
+    assert steps.sites_needed() == 1
+
+    microscope.move_to_orientation("FM")
+    _site(microscope, steps, found_x=0.0)
+    summary = steps.summary()
+
+    assert summary["can_save"], summary["problems"]
+    assert not summary["checked"]
+
+
+@pytest.mark.parametrize("dr, refused", [(14.0, False), (16.0, True)])
+def test_an_fm_up_to_15_degrees_from_fib_in_rotation_can_be_calibrated(
+    tmp_path, dr, refused
+):
+    r, t = _fib_pose_degrees(tmp_path)
+    microscope, path = _uncalibrated(tmp_path, fm_pose={"r": r + dr, "t": t})
+    steps = SemToFmCalibration(microscope, configuration_path=path)
+
+    if refused:
+        with pytest.raises(CalibrationRefused, match="in rotation, more than 15°"):
+            steps.fm_pose_difference()
+    else:
+        assert steps.fm_pose_difference()[0] == pytest.approx(dr)
+        assert steps.sites_needed() == 3
 
 
 @pytest.mark.parametrize("t, refused", [(30.0, False), (33.0, True)])

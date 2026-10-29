@@ -27,6 +27,8 @@ MD_FAV_POS_ACTIVE = "Favourite position active"
 MD_FAV_POS_DEACTIVE = "Favourite position deactive"
 MD_ACQ_DATE = "Acquisition date"
 MD_EXP_TIME = "Exposure time"
+MD_CALIB = "Calibration"
+MD_FAV_FM_POS_ACTIVE = "Favourite FM position active"
 BAND_PASS_THROUGH = "pass-through"
 
 
@@ -338,6 +340,8 @@ def install_odemis_stubs() -> None:
     model_mod.MD_FAV_POS_DEACTIVE = MD_FAV_POS_DEACTIVE
     model_mod.MD_ACQ_DATE = MD_ACQ_DATE
     model_mod.MD_EXP_TIME = MD_EXP_TIME
+    model_mod.MD_CALIB = MD_CALIB
+    model_mod.MD_FAV_FM_POS_ACTIVE = MD_FAV_FM_POS_ACTIVE
     model_mod.BAND_PASS_THROUGH = BAND_PASS_THROUGH
     model_mod.Actuator = FakeFocuser
     model_mod.DigitalCamera = FakeCamera

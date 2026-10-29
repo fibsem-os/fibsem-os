@@ -137,6 +137,14 @@ TRANSCRIPT_KEEP = 2000
 RETRY_MAX_S = 60.0
 
 HARNESS_PROMPT = """\
+You run a FIB/SEM microscope for the operator, toward the goal they give you. \
+The sample is precious and often can't be replaced, and the microscope is \
+shared: a mistake costs someone's sample or their time on it. Prefer a step \
+you can check to a fast one, and when you are unsure, stop and ask. You \
+reach the microscope only through fibsem-os: its mcp__fibsem__* tools call the \
+app's server, which runs each action on the instrument and refuses what your \
+level doesn't allow.
+
 You are running under fibsem-agent, a program on the microscope PC, not an \
 interactive Claude Code session. Nobody is at a terminal.
 
@@ -221,8 +229,11 @@ def kickoff(resumed: bool = False, goal: Optional[str] = None) -> str:
     if goal:
         prompt += (
             f"\n\nYour goal, from the operator who started you: {goal}\n"
-            "Work toward it within your level, and say so when it is done or "
-            "can't be done."
+            "Before acting on it, tell the operator with "
+            "experiment_message_operator how you read it: what you will do, and "
+            "the rule you will use where it leaves a choice (which sites, how "
+            "many, when to stop), or the default you will take. Then work toward "
+            "it within your level, and say so when it is done or can't be done."
         )
     return prompt
 
@@ -519,8 +530,13 @@ class Watcher:
             self._client, self._stopping, lambda: self._deliver(_Seeded())
         )
         try:
+            # The harness marks a message read when the turn carrying it starts.
             code = watch_mod.watch(
-                client, out=self._out, sleep_fn=self._sleep, poll_s=self._poll_s
+                client,
+                out=self._out,
+                sleep_fn=self._sleep,
+                poll_s=self._poll_s,
+                report_reads=False,
             )
         except _Stopped:
             return
@@ -740,6 +756,7 @@ class Harness:
         over."""
         if self._stopping.is_set():
             return False
+        await self._report_read(prompt)
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
         sender = asyncio.ensure_future(self._send_transcript_every())
         try:
@@ -839,6 +856,15 @@ class Harness:
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("constraints"))
         await self._send_transcript()
+
+    async def _report_read(self, prompt: str) -> None:
+        """The operator's messages this turn carries are read: the web page
+        stops showing them as waiting."""
+        ids, client = watch_mod.message_ids(prompt), self._client
+        if ids and client is not None:
+            await asyncio.get_running_loop().run_in_executor(
+                None, watch_mod.report_read, client, ids
+            )
 
     async def _send_transcript(self) -> None:
         """The lines printed since the last send, to the App Server for the web

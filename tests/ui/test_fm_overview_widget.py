@@ -1843,6 +1843,69 @@ def test_the_canvas_is_anchored_at_the_fm_device_not_at_the_stage(qapp):
         qapp.processEvents()
 
 
+def _offset_fm_widget(qapp):
+    import os
+
+    import fibsem.config as cfg
+    from fibsem import utils
+
+    microscope, _ = utils.setup_session(
+        config_path=os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
+    )
+    return microscope, FMOverviewWidget(OverviewSession(microscope, FLUORESCENCE))
+
+
+def _at_z(microscope, z: float) -> None:
+    from fibsem.structures.settings import FibsemStagePosition
+
+    microscope.move_stage_absolute(FibsemStagePosition(z=z))
+
+
+def test_the_anchor_is_not_fixed_by_a_draw_before_any_image(qapp):
+    """Drawn at the beams (or the loader) before anything was imaged, the frame took
+    that z and kept it all session: a METEOR's overview then wanted to move to 27.88 mm
+    with the sample at 31.94 mm (2026-10-29)."""
+    microscope, widget = _offset_fm_widget(qapp)
+    try:
+        _at_z(microscope, 27.88e-3)
+        widget._on_stage_moved(microscope.get_stage_position())
+        assert widget._frame() is not None
+        assert widget.origin.z == pytest.approx(27.88e-3)
+
+        _at_z(microscope, 31.94e-3)
+        widget._on_stage_moved(microscope.get_stage_position())
+
+        assert widget.origin.z == pytest.approx(31.94e-3)
+        assert widget._frame().origin.z == pytest.approx(31.94e-3)
+    finally:
+        widget.close()
+
+
+def test_the_first_image_fixes_the_anchor_at_its_own_position(qapp):
+    """Fixed from where the image was taken, not from where the stage stood when the
+    tab first drew, and then kept: later moves no longer shift canvas zero."""
+    from fibsem.fm.structures import ChannelSettings
+
+    microscope, widget = _offset_fm_widget(qapp)
+    try:
+        _at_z(microscope, 27.88e-3)
+        widget._on_stage_moved(microscope.get_stage_position())
+        widget._frame()
+
+        image = microscope.fm.acquire_image(ChannelSettings(name="Channel-01"))
+        image.metadata.stage_position = microscope.get_stage_position()
+        image.metadata.stage_position.z = 31.94e-3
+        widget.set_image(image)
+        assert widget.origin.z == pytest.approx(31.94e-3)
+
+        _at_z(microscope, 25e-3)
+        widget._on_stage_moved(microscope.get_stage_position())
+
+        assert widget.origin.z == pytest.approx(31.94e-3)
+    finally:
+        widget.close()
+
+
 def test_closing_the_widget_lets_go_of_the_stage_signal(qapp):
     """`stage.position.changed` belongs to the stage and outlives the widget. A
     connection left behind emits into a Qt object already torn down on the C++ side,

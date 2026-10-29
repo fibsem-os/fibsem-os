@@ -825,6 +825,42 @@ def write_device_calibration(
     _write_configuration_file(path, config)
 
 
+def write_fm_placement(
+    path: Union[str, Path],
+    origin: Tuple[float, float],
+    pose: Optional[Tuple[float, float]],
+) -> None:
+    """Record where an offset FM is from the beams and the pose it images in, on the
+    ``fm`` entry of the configuration at *path*.
+
+    *origin* is (x, y) in metres; a z the entry states is kept. *pose* is (r, t) in
+    degrees, or None for the FIB pose (``available_orientations: [FIB]``).
+
+    Raises:
+        ValueError: the configuration has no ``fm`` device.
+    """
+    config = _read_for_writing(path)
+    devices = (config.get("hardware") or {}).get("devices") or []
+    entry = next((d for d in devices if d.get("name") == "fm"), None)
+    if entry is None:
+        raise ValueError(f"{path} has no fm device to write the FM's place into.")
+    origin_dict = dict(entry.get("origin") or {})
+    origin_dict["x"], origin_dict["y"] = float(origin[0]), float(origin[1])
+    entry["origin"] = origin_dict
+    if pose is None:
+        entry.pop("pose", None)
+        entry["available_orientations"] = ["FIB"]
+    else:
+        if entry.get("camera_tilt") is not None:
+            raise ValueError(
+                "The fm entry states camera_tilt; a pose sets the camera tilt. "
+                "Remove camera_tilt first."
+            )
+        entry.pop("available_orientations", None)
+        entry["pose"] = {"r": float(pose[0]), "t": float(pose[1])}
+    _write_configuration_file(path, config)
+
+
 def _write_configuration_file(path: Union[str, Path], config: dict) -> None:
     """Write a configuration dict to exactly *path*.
 
