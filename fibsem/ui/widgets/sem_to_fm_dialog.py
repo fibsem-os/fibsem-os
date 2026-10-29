@@ -587,11 +587,12 @@ class SemToFmDialog(QtWidgets.QDialog):
         except ValueError as e:
             return str(e)
         name = self.calibration.fm_orientation()
+        where = "Set in Configuration > Geometry > FM."
         if abs(dr) < 0.05 and abs(dt) < 0.05:
-            return f"The FM images in the {name} pose, the same as FIB's."
+            return f"The FM images in the {name} pose, the same as FIB's. {where}"
         return (
             f"The FM's pose is {dr:+.1f}° from FIB's in rotation and {dt:+.1f}° in "
-            "tilt: re-pose by that much at the beams before capturing."
+            f"tilt: re-pose by that much at the beams before capturing. {where}"
         )
 
     def _show_summary(self) -> None:
