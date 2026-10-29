@@ -12,7 +12,8 @@ import { TAKEN, type Attachments } from "./attach";
 import { AttachedChips } from "./Attachments";
 import { Customise } from "./Customisation";
 
-const LIMIT = 2000;
+// The server's MESSAGE_LIMIT: past it, pasted text goes as a document instead.
+const LIMIT = 20000;
 
 // Watch's mark is white (Patrick 2026-10-21).
 export const LEVEL_COLOUR: Record<AgentLevel, string> = {
@@ -231,9 +232,48 @@ function Attach({ agent, attach }: { agent: AgentState; attach: Attachments }) {
   );
 }
 
+/** Pasted text too long for a message, offered as a Markdown file in notes/. */
+function AttachLong({
+  text,
+  experiment,
+  attach,
+  done,
+}: {
+  text: string;
+  experiment: boolean;
+  attach: Attachments;
+  done: () => void;
+}) {
+  const add = () => {
+    const at = new Date();
+    const stamp = `${at.toLocaleDateString("sv")}-${at.toTimeString().slice(0, 5).replace(":", "")}`;
+    attach.add([new File([text], `pasted-${stamp}.md`, { type: "text/markdown" })]);
+    done();
+  };
+  return (
+    <div
+      role="alert"
+      className="mx-2.5 mt-2 flex flex-wrap items-center gap-2 rounded-md bg-accent px-2.5 py-2 text-[13px]"
+    >
+      <span className="min-w-0 flex-1">
+        Pasted text is over the {LIMIT.toLocaleString()} character limit ({text.length.toLocaleString()} characters).{" "}
+        {experiment ? "Attach it as a document instead?" : "Open an experiment to attach it as a document."}
+      </span>
+      <Button onClick={done}>Cancel</Button>
+      {experiment && (
+        <Button variant="primary" onClick={add}>
+          Attach as document
+        </Button>
+      )}
+    </div>
+  );
+}
+
 export function Composer({ agent, attach, onSent }: { agent: AgentState; attach: Attachments; onSent: () => void }) {
   const [draft, setDraft] = useState("");
   const [said, setSaid] = useState<string | null>(null);
+  // Pasted text that would take the message past LIMIT, waiting to be attached.
+  const [long, setLong] = useState<string | null>(null);
   const { act, busy, error, setError } = useAct();
   // Saved files go as lines at the message's end ("Attached notes/plan.md (4.0 KB)").
   const text = [draft.trim(), attach.lines.join("\n")].filter(Boolean).join("\n\n");
@@ -250,6 +290,9 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
   return (
     <div className="flex flex-col rounded-md border border-input bg-card">
       <AttachedChips attach={attach} />
+      {long != null && (
+        <AttachLong text={long} experiment={!!agent.experiment} attach={attach} done={() => setLong(null)} />
+      )}
       <label htmlFor="msg" className="sr-only">
         Message
       </label>
@@ -262,6 +305,13 @@ export function Composer({ agent, attach, onSent }: { agent: AgentState; attach:
           setDraft(e.target.value);
           setSaid(null);
           setError(null);
+        }}
+        onPaste={(e) => {
+          const pasted = e.clipboardData.getData("text");
+          const el = e.currentTarget;
+          if (draft.length - (el.selectionEnd - el.selectionStart) + pasted.length <= LIMIT) return;
+          e.preventDefault();
+          setLong(pasted);
         }}
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
