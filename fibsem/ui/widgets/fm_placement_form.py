@@ -31,8 +31,8 @@ class FMPlacementForm(QWidget):
 
         self.origin_x = ValueSpinBox("mm", -100.0, 100.0, 0.01, 4)
         self.origin_y = ValueSpinBox("mm", -100.0, 100.0, 0.01, 4)
-        self.origin_x.setToolTip("odemis CALIB dx")
-        self.origin_y.setToolTip("odemis CALIB dy")
+        self.origin_x.setToolTip("From the beams, along x (odemis CALIB dx).")
+        self.origin_y.setToolTip("From the beams, along y (odemis CALIB dy).")
         self.pose_r = ValueSpinBox("°", -360.0, 360.0, 0.1, 2)
         self.pose_t = ValueSpinBox("°", -90.0, 90.0, 0.1, 2)
         self._fib_pose = (
@@ -63,8 +63,8 @@ class FMPlacementForm(QWidget):
 
         form = QFormLayout(self)
         form.setContentsMargins(8, 6, 8, 6)
-        form.addRow("Origin x", self.origin_x)
-        form.addRow("Origin y", self.origin_y)
+        form.addRow("Offset x", self.origin_x)
+        form.addRow("Offset y", self.origin_y)
         form.addRow("Rotation", self.pose_r)
         form.addRow("Tilt", self.pose_t)
         form.addRow("", self.button_stage_pose)
