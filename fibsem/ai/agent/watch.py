@@ -44,6 +44,7 @@ fibsem is installed, without the [mcp] extra.
 """
 
 import argparse
+import re
 import sys
 import time
 
@@ -106,6 +107,26 @@ def _quiet_line(quiet_s):
         f"{quiet_s / 60:g} min -- check app_get_status, proposal_list and any "
         "unanswered message, then end your turn. Said once until something happens"
     )
+
+
+# The operator's message ids a line or a turn carries (`_message_line`).
+_MESSAGE_ID = re.compile(r"\bMESSAGE id=([0-9a-f]+)")
+
+
+def message_ids(text: str) -> list:
+    """The ids of the operator's messages *text* carries, in order."""
+    return _MESSAGE_ID.findall(text)
+
+
+def report_read(client, ids) -> None:
+    """Tell the App Server the agent has read the messages *ids*, so the web
+    page stops showing them as waiting. Best effort: the watch goes on."""
+    if not ids:
+        return
+    try:
+        client.request("POST", "/app/agent/read", json={"ids": ids}, timeout=10.0)
+    except Exception:  # noqa: BLE001 - a missed mark never stops the watch
+        pass
 
 
 def _poll(client, since, timeout):
@@ -583,6 +604,7 @@ def watch(
     clock=None,
     since=None,
     quiet_s=QUIET_S,
+    report_reads=True,
 ):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
@@ -597,6 +619,10 @@ def watch(
 
     ``quiet_s`` is how long a running workflow may go without a line before
     one ``QUIET`` line; 0 or None never says it.
+
+    With ``report_reads``, a ``MESSAGE`` line marks its message read as it is
+    printed: the agent reads it on the wake it makes. fibsem-agent turns it
+    off and marks them as the turn carrying them starts.
     """
     say = out or _print_line
     sleep_fn = sleep_fn or time.sleep
@@ -609,6 +635,8 @@ def watch(
         said_at = clock()
         nudged = False
         say(line)
+        if report_reads:
+            report_read(client, message_ids(line))
 
     # Seed the cursor at the tail: the buffer outlives workflows, so starting at
     # 0 would replay history -- stale PROPOSAL lines, and a previous workflow's

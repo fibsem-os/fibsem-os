@@ -279,6 +279,23 @@ def test_the_harness_keeps_the_constraints_the_agent_set(session):
     assert running.harness._deadlines.times == []
 
 
+def test_a_message_is_read_as_the_turn_carrying_it_starts(session):
+    agent = ScriptedAgent()
+    running = _harness(session, agent)
+    _until(lambda: len(agent.prompts) >= 1, what="the kickoff")
+    message_id = AgentSession(session).message("Skip 04.")
+    _until(lambda: len(agent.prompts) >= 2, what="the message's turn")
+    assert f"MESSAGE id={message_id}" in agent.prompts[1]
+    running.stop()
+    read = [
+        e["payload"]["ids"]
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if e["kind"] == "agent_messages_read"
+    ]
+    # Once, by the harness: its watch leaves it to the turn.
+    assert read == [[message_id]]
+
+
 def test_a_wake_up_rings_into_the_next_turn(session):
     agent = ScriptedAgent()
     running = _harness(session, agent, alarm=(alarm := harness_mod.Alarm()))

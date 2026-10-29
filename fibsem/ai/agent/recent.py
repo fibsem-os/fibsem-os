@@ -104,8 +104,12 @@ class RecentRow:
     # YOU, MESSAGE or NOTE for the conversation, else ACTION.
     kind: str = ACTION
     # When, as the record has it (ISO with its offset): the web page places
-    # the agent's transcript between the rows by it.
+    # the agent's transcript between the rows by it. An operator's message
+    # the agent read later is placed where it read it.
     at: str = ""
+    # An operator's message: its id, and when the agent read it ("" not yet).
+    message_id: str = ""
+    read: str = ""
 
     @property
     def conversation(self) -> bool:
@@ -197,6 +201,8 @@ class RecentActions:
         # The evidence kept this session, by id, for the rows that cite it.
         self._evidence: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
         self._citing: Optional[Dict[str, Any]] = None
+        # The operator's messages not read yet: their row's key, by id.
+        self._unread: Dict[str, Any] = {}
 
     @property
     def rows(self) -> List[RecentRow]:
@@ -209,6 +215,7 @@ class RecentActions:
         self._failures.clear()
         self._level = ""
         self._evidence.clear()
+        self._unread.clear()
 
     def add(self, record: Dict[str, Any]) -> bool:
         """Take one record of the session's; True when the rows changed."""
@@ -481,6 +488,7 @@ class RecentActions:
 
     def _on_agent_note(self, record, p, agent):
         # Its message to the operator (an answer to theirs), or a note.
+        self._read(record, [p.get("reply_to")])
         return self._put(
             ("note", record.get("seq")),
             record,
@@ -492,15 +500,29 @@ class RecentActions:
 
     def _on_operator_message(self, record, p, agent):
         # The operator's own line, at no level: the agent answers with a message.
-        return self._put(
-            ("message", record.get("seq")),
-            record,
-            p.get("text", ""),
-            "",
-            MUTED,
-            level="",
-            kind=YOU,
-        )
+        key = ("message", record.get("seq"))
+        self._put(key, record, p.get("text", ""), "", MUTED, level="", kind=YOU)
+        message_id = str(p.get("id") or "")
+        if message_id:
+            self._rows[key] = replace(self._rows[key], message_id=message_id)
+            self._unread[message_id] = key
+        return True
+
+    def _on_agent_messages_read(self, record, p, agent):
+        return self._read(record, p.get("ids") or [])
+
+    def _read(self, record, ids) -> bool:
+        """The agent read the messages *ids*: each row moves to where it read
+        it, after what the agent did before."""
+        at = record.get("t") if isinstance(record.get("t"), str) else ""
+        changed = False
+        for message_id in ids:
+            key = self._unread.pop(str(message_id or ""), None)
+            row = self._rows.pop(key, None) if key is not None else None
+            if row is not None:
+                self._rows[key] = replace(row, read=at or "read", at=at or row.at)
+                changed = True
+        return changed
 
     def _on_agent_stop(self, record, p, agent):
         # An agent_stop said what it stopped as ``what``; an action, ``target``.

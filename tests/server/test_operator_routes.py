@@ -854,3 +854,26 @@ def test_a_file_over_the_limit_is_not_kept(server, monkeypatch):
     )
     assert answer.status_code == 413
     assert list((Path(server.session.experiment.path) / "notes").iterdir()) == []
+
+
+def test_the_agent_says_which_messages_it_has_read(server):
+    sent = server.post(
+        "/app/agent/messages", headers=server.operator, json={"text": "Skip 04."}
+    )
+    message_id = sent.json()["id"]
+
+    def mine():
+        rows = server.get("/app/agent/recent", headers=server.operator).json()["rows"]
+        return [row for row in rows if row["kind"] == "you"][-1]
+
+    assert (mine()["message_id"], mine()["read"]) == (message_id, "")
+    read = server.post(
+        "/app/agent/read", headers=server.agent, json={"ids": [message_id]}
+    )
+    assert read.status_code == 200, read.text
+    assert mine()["read"]
+    for ids in ([], ["not an id"], "ab12"):
+        refused = server.post(
+            "/app/agent/read", headers=server.agent, json={"ids": ids}
+        )
+        assert refused.status_code == 422

@@ -300,8 +300,11 @@ export interface RecentRow {
   evidence: Evidence | null;
   why: string;
   kind: "you" | "message" | "note" | "action";
-  /** When, as an ISO time with its offset. */
+  /** When, as an ISO time with its offset; where the agent read it, for an operator's message read later. */
   at: string;
+  /** An operator's message: its id, and when the agent read it ("" not yet). */
+  message_id: string;
+  read: string;
 }
 
 /** One line of GET /app/agent/transcript: what fibsem-agent printed. */

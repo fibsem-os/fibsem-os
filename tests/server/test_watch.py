@@ -200,6 +200,36 @@ def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
     )
 
 
+def _read(app):
+    return [
+        event["payload"]["ids"]
+        for event in app.buffer.events_since(0)["events"]
+        if event["kind"] == "agent_messages_read"
+    ]
+
+
+def test_a_message_the_watch_prints_is_marked_read(app):
+    # The agent reads it on the wake the line makes: the web page stops
+    # showing it as waiting.
+    def run():
+        app.buffer.append("operator_message", {"id": "ab12", "text": "skip 03"})
+        app.buffer.append("workflow_completed", {})
+
+    _watch({2: run})
+
+    assert _read(app) == [["ab12"]]
+
+
+def test_fibsem_agent_s_watch_leaves_marking_to_the_turn(app):
+    def run():
+        app.buffer.append("operator_message", {"id": "ab12", "text": "skip 03"})
+        app.buffer.append("workflow_completed", {})
+
+    _watch({2: run}, report_reads=False)
+
+    assert _read(app) == []
+
+
 def _marked(evidence_id, marks, **fields):
     return {
         "evidence_id": evidence_id,
