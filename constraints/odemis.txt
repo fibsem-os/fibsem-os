@@ -1,0 +1,8 @@
+# For fibsemOS on a METEOR's Linux PC, next to odemis:
+#   pip install -e ".[server,ui]" -c constraints/odemis.txt
+# odemis's compiled modules (odemis.util.img_fast) are built against numpy 1, and
+# fibsemOS imports them to drive the FM. pip then picks the scipy, pandas,
+# tifffile and imagecodecs releases that still support numpy 1.
+numpy<2
+# 4.10 is the last OpenCV whose wheels accept numpy 1 on every Python.
+opencv-python-headless<4.11

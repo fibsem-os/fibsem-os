@@ -197,13 +197,12 @@ fibsemOS reaches the FM in one of two ways:
 
 - **fibsemOS on the METEOR's Linux PC** (`manufacturer: Odemis`). fibsemOS
   drives the FM directly, and finds odemis from `/etc/odemis.conf`. Install it
-  with `pip install "fibsem[server,ui]"` (or `pip install -e ".[server,ui]"`
-  from a checkout). The user running fibsemOS must be in the `odemis` group
-  (step 1 below), and odemis must be running.
+  as below, with the `ui` extra too. The user running fibsemOS must be in the
+  `odemis` group (step 1 below), and odemis must be running.
 - **fibsemOS on the Thermo Fisher support PC**, driving the beams through
   AutoScript, with the FM served from the METEOR's Linux PC by the Device
   Server. The steps below set this up. They assume an environment named
-  `fibsem-os` on both PCs.
+  `fibsem-os` on the support PC.
 
 The Device Server only listens on `127.0.0.1` on the METEOR PC. The support PC
 reaches it through an SSH tunnel, which also encrypts the traffic.
@@ -218,13 +217,23 @@ Once, on the METEOR's Linux PC:
    sudo usermod -aG odemis $USER
    ```
 
-2. **Install fibsemOS with the server extra**, into an environment that can
-   also import odemis:
+2. **Install fibsemOS next to odemis.** odemis is installed into the system
+   Python (`/usr/bin/python3`, 3.10 on Ubuntu 22.04), so a conda environment
+   cannot import it. Use a venv on that Python that also sees its packages, and
+   install with `constraints/odemis.txt` from a checkout: odemis's compiled
+   modules need numpy 1, and the constraints keep fibsemOS's dependencies on
+   releases that support it.
 
    ```bash
-   conda activate fibsem-os
-   pip install "fibsem[server]"
+   /usr/bin/python3 -m venv --system-site-packages ~/fibsem-venv
+   source ~/fibsem-venv/bin/activate
+   git clone https://github.com/fibsem-os/fibsem-os.git && cd fibsem-os
+   pip install -e ".[server]" -c constraints/odemis.txt   # ".[server,ui]" to run the app here
+   python -c "import odemis, fibsem; print('ok')"
    ```
+
+   Without the constraints, numpy 2 is installed and odemis fails to import with
+   "numpy.dtype size changed".
 
 3. **Write the Device Server's file**, `~/.fibsem/device-server.yaml`:
 
@@ -276,8 +285,7 @@ Once, on the support PC:
 SSH session closes, with its log kept:
 
 ```bash
-conda activate fibsem-os
-tmux new-session -d -s fmserver "$CONDA_PREFIX/bin/python -u -m fibsem.server.devices \
+tmux new-session -d -s fmserver "$HOME/fibsem-venv/bin/python -u -m fibsem.server.devices \
     --config ~/.fibsem/device-server.yaml --pair 2>&1 | tee ~/fm-server.log"
 cat ~/fm-server.log
 ```
