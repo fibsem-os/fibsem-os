@@ -155,6 +155,26 @@ def test_saving_the_preference_mid_session_starts_and_stops_the_server(
     assert not host.running
 
 
+def test_a_window_started_to_host_hosts_until_the_operator_turns_it_off(
+    ui, monkeypatch, tmp_path
+):
+    """``--host`` (the gateway's window starts): hosted with the preference
+    off, through any preferences save, until Tools → Host turns it off."""
+    preferences = _confine_and_control_preferences(monkeypatch, tmp_path)
+    monkeypatch.setattr(fibsem_cfg, "save_user_preferences", lambda p: None)
+    ui.session.host_app_server = True
+    ui.sync_app_server_with_preference()
+    host = ui.session.app_server
+    assert host is not None and host.running
+
+    ui.sync_app_server_with_preference()  # what any preferences save does
+    assert ui.session.app_server is host and host.running
+
+    ui._set_app_server_enabled(False)
+    assert not host.running and ui.session.host_app_server is False
+    assert preferences.install.app_server.enabled is False
+
+
 def _routers(host) -> dict:
     return httpx.get(
         f"{host.url}/capabilities",

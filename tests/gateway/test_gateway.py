@@ -209,6 +209,7 @@ def test_with_the_window_it_opens_the_apps_desktop_launch(tmp_path, fakes):
             "--last",
             "--manufacturer",
             "Demo",
+            "--host",
             "1",
         ]
     finally:

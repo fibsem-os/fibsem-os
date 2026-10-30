@@ -69,6 +69,12 @@ def _parser() -> argparse.ArgumentParser:
         help="Also serve the /microscope routes to the agent (default: the "
         "App Server preference).",
     )
+    parser.add_argument(
+        "--host",
+        action="store_true",
+        help="With the window: host the App Server whatever the preference "
+        "(the gateway's window starts).",
+    )
     return parser
 
 
@@ -136,6 +142,7 @@ def main(
         else fibsem_cfg.load_user_preferences().install.app_server.microscope
     )
     if window is not None:
+        session.host_app_server = args.host
         return window(session, window_args)
     return headless.serve_until_stopped(
         session, serve, "fibsem-autolamella-server", stop

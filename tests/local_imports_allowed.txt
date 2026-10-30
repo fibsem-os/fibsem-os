@@ -84,7 +84,8 @@ fibsem/fm/reader.py 2
 fibsem/fm/remote.py 1
 fibsem/fm/structures.py 8
 fibsem/gateway/gateway.py 2
-fibsem/gateway/main.py 4
+fibsem/gateway/launch.py 1
+fibsem/gateway/main.py 8
 fibsem/geometry/orientations.py 1
 fibsem/geometry/projection.py 2
 fibsem/geometry/saved_images.py 10
