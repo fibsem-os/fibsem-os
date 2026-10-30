@@ -271,9 +271,9 @@ class MicroscopeControls(QWidget):
                 self.det_widget = FibsemEmbeddedDetectionWidget(
                     parent=self, view_controller=self._view_controller
                 )
-                self.tabWidget.addTab(self.det_widget, "Detection")
+                index = self.tabWidget.indexOf(self.sample_widget)
                 self.tabWidget.setTabVisible(
-                    self.tabWidget.indexOf(self.det_widget), False
+                    self.tabWidget.insertTab(index, self.det_widget, "Detection"), False
                 )
 
             # spot burn widget (optional)
@@ -283,9 +283,9 @@ class MicroscopeControls(QWidget):
                 view_controller=self._view_controller,
                 parent=self,
             )
-            self.tabWidget.addTab(self.spot_burn_widget, "Spot Burn")
+            index = self.tabWidget.indexOf(self.sample_widget)
             self.tabWidget.setTabVisible(
-                self.tabWidget.indexOf(self.spot_burn_widget), False
+                self.tabWidget.insertTab(index, self.spot_burn_widget, "Spot Burn"), False
             )
 
             self.image_widget.acquisition_progress_signal.connect(
