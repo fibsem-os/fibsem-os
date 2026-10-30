@@ -34,7 +34,7 @@ from fibsem.applications.autolamella.workflows.tasks.undercut import (
 )
 from fibsem.structures.settings import Point
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
+from fibsem.workflows.proposals import DETECTION, MILLING, Decision, DecisionOutcome
 from fibsem.workflows.status import TaskStatus
 from tests.protocols import planned, task_protocol
 
@@ -97,8 +97,8 @@ def _task(microscope, exp) -> MillUndercutTask:
     )
 
 
-def test_the_task_declares_the_detection():
-    assert MillUndercutTask.asks == (DETECTION,)
+def test_the_task_declares_the_detection_then_the_milling():
+    assert MillUndercutTask.asks == (DETECTION, MILLING)
 
 
 def test_headless_every_detection_goes_on_the_record_unreviewed(
