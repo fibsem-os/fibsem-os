@@ -26,6 +26,7 @@ from fibsem.config import (
     card_mode_label,
 )
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
+from fibsem.ui.widgets.library_folder_edit import LibraryFolderEdit
 
 # ---------------------------------------------------------------------------
 # Labels and tooltips — edit here to update both text and hover description
@@ -190,14 +191,15 @@ class PreferencesDialog(QDialog):
             libraries_page = QWidget()
             libraries_form = QFormLayout(libraries_page)
             for driver, library in libraries.items():
-                edit = QDirectoryLineEdit()
+                edit = LibraryFolderEdit(library)
                 edit.setToolTip(
                     f"The folder that holds {', '.join(library.packages)}, for "
                     f"{driver}. Kept for this computer only."
                 )
                 found = vendor_libraries.resolve(driver, library)
                 if found.folder and found.source != vendor_libraries.SOURCE_PREFERENCE:
-                    edit.setPlaceholderText(f"{found.folder} ({found.source})")
+                    version = f", {found.version}" if found.version else ""
+                    edit.setPlaceholderText(f"{found.folder} ({found.source}{version})")
                 self._library_edits[driver] = edit
                 libraries_form.addRow(
                     library.label[:1].upper() + library.label[1:], edit
