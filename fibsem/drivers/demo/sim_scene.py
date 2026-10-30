@@ -854,7 +854,11 @@ class SampleScene:
         ax = ax + beam_shift[0] + offset[0] + current_offset[0]
         ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
         vx, vy = dx - ax, dy - ay
-        return float(vx * cos_t + vy * sin_t), float((-vx * sin_t + vy * cos_t) / fs)
+        turn = self._turn(stage_position)
+        return (
+            float(turn * (vx * cos_t + vy * sin_t)),
+            float(turn * (-vx * sin_t + vy * cos_t) / fs),
+        )
 
     def mill(
         self,
@@ -1476,8 +1480,9 @@ class SampleScene:
         # un-rotate the scan, un-foreshorten
         vx = (np.arange(width, dtype=np.float32) - cx)[None, :] * pixel_size - ax
         vy = (np.arange(height, dtype=np.float32) - cy)[:, None] * pixel_size - ay
-        xs_world = vx * cos_t + vy * sin_t
-        ys_world = (-vx * sin_t + vy * cos_t) / fs
+        turn = self._turn(stage_position)
+        xs_world = turn * (vx * cos_t + vy * sin_t)
+        ys_world = turn * (-vx * sin_t + vy * cos_t) / fs
 
         bars, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
         hole_rim = ndi_binary_dilation(holes, iterations=2) & ~holes & ~bars
@@ -1578,18 +1583,28 @@ class SampleScene:
         reference = self.reference_position
         if self.tilt_axis_offset:
             reference = self._non_eucentric_reference(stage_position, projection)
+        # the FM's projection has no half-turn flip: reflect the anchor as the
+        # beams' does, then turn the world about it (see _turn)
+        reference = BeamStageProjection._compucentric_corrected(
+            reference, stage_position, projection.geometry.rotation_centre
+        )
         ax, ay = projection.to_plane(reference, stage_position)
         fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        turn = self._turn(stage_position)
 
         bars, cells, red, fiducial = weights[:4]
         # contamination reflects strongly and autofluoresces faintly
         contamination = 0.9 if bars >= 1.0 else 0.12
         canvas = np.zeros((height, width), dtype=np.float32)
 
-        xs_world = (np.arange(width, dtype=np.float32) - cx)[None, :] * pixel_size - ax
+        xs_world = turn * (
+            (np.arange(width, dtype=np.float32) - cx)[None, :] * pixel_size - ax
+        )
         ys_world = (
-            (np.arange(height, dtype=np.float32) - cy)[:, None] * pixel_size - ay
-        ) / fs
+            turn
+            * ((np.arange(height, dtype=np.float32) - cy)[:, None] * pixel_size - ay)
+            / fs
+        )
         bar_mask, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
         if bars > 0:
             canvas[bar_mask] += bars * self.grid_intensity
@@ -1628,9 +1643,11 @@ class SampleScene:
                     weight = FM_INTENSITY * body_dye
             if weight <= 0:
                 continue
-            u = cx + (f.x + ax) / pixel_size
-            v = cy + (f.y * fs + ay) / pixel_size
-            self._stamp_feature(canvas, f, u, v, pixel_size, fs, 0.0, intensity=weight)
+            u = cx + (turn * f.x + ax) / pixel_size
+            v = cy + (turn * f.y * fs + ay) / pixel_size
+            self._stamp_feature(
+                canvas, f, u, v, pixel_size, fs, np.pi * (turn < 0), intensity=weight
+            )
         # milled regions after the features: a trench or a burn removes the
         # material, so in reflection it reads dark through whatever cell was
         # there, and a burn's rim stays visible on top of it
@@ -1685,6 +1702,18 @@ class SampleScene:
                 float(v) for v in rng.normal(0, self.current_offset_scale, size=2)
             )
         return self._current_offsets[key]
+
+    def _turn(self, stage_position: FibsemStagePosition) -> float:
+        """-1 when the stage is half a turn from the anchor, else 1.
+
+        The sample turns with the stage. The projection already reflects the
+        anchor at a half turn (`_compucentric_corrected`, by the same test);
+        this turns the world about it, so the view shows what a move by
+        `target_position` puts under it."""
+        r, r0 = stage_position.r, self.reference_position.r
+        if r is None or r0 is None:
+            return 1.0
+        return -1.0 if np.isclose(abs(np.rad2deg(r0 - r)), 180, atol=2) else 1.0
 
     def _non_eucentric_reference(
         self, stage_position: FibsemStagePosition, projection: BeamStageProjection
