@@ -194,6 +194,7 @@ _BUILT_IN: Dict[str, str] = {
     "ThermoFisher": "fibsem.drivers.autoscript:DRIVER",
     "Tescan": "fibsem.drivers.tescan:DRIVER",
     "Odemis": "fibsem.drivers.odemis:DRIVER",
+    "JEOL": "fibsem.drivers.jeol:DRIVER",
     "Demo": "fibsem.drivers.demo:DRIVER",
 }
 

@@ -24,6 +24,7 @@ import yaml
 # else there was written by the install.
 SHIPPED_CONFIGURATIONS = frozenset(
     {
+        "jeol-configuration.yaml",
         "microscope-configuration.yaml",
         "odemis-configuration.yaml",
         "sim-arctis-configuration.yaml",

@@ -640,9 +640,10 @@ def test_the_manufacturers_come_from_the_driver_registry(monkeypatch):
     from fibsem.drivers import registry
     from fibsem.drivers.registry import DriverEntry, register_driver
 
-    assert [m.key for m in wizard.manufacturers()][:3] == [
+    assert [m.key for m in wizard.manufacturers()][:4] == [
         "ThermoFisher",
         "Tescan",
+        "JEOL",
         "Demo",
     ]
 
