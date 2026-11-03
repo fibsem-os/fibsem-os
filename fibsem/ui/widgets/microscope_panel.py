@@ -285,7 +285,8 @@ class MicroscopeControls(QWidget):
             )
             index = self.tabWidget.indexOf(self.sample_widget)
             self.tabWidget.setTabVisible(
-                self.tabWidget.insertTab(index, self.spot_burn_widget, "Spot Burn"), False
+                self.tabWidget.insertTab(index, self.spot_burn_widget, "Spot Burn"),
+                False,
             )
 
             self.image_widget.acquisition_progress_signal.connect(
