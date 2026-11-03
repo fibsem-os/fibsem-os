@@ -19,7 +19,7 @@ import fibsem.config as fibsem_cfg
 from fibsem.applications.autolamella.ui.coincidence.menu import CoincidenceMenu
 from fibsem.structures.settings import BeamType
 from fibsem.theme.tokens import GRAY_ICON_COLOR
-from fibsem.tools.apps import AUTOLAMELLA, App, apps
+from fibsem.tools.apps import AUTOLAMELLA, AUTOLAMELLA_AGENT, App, apps
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.sound import play_notification_sound
 from fibsem.ui.widgets.connection_dialog import connect_to_microscope_dialog
@@ -349,6 +349,16 @@ class MainMenuBar(QObject):
             )
             shortcut_menu.addAction(action)
             self.shortcut_actions[key] = action
+        action = QAction(f"{AUTOLAMELLA_AGENT.name}...", self._host)
+        action.setToolTip(
+            "Place a shortcut on your desktop that starts AutoLamella with the agent "
+            "at Watch, and opens the Agent page"
+        )
+        action.triggered.connect(
+            lambda _checked=False: self._on_create_desktop_shortcut(AUTOLAMELLA_AGENT)
+        )
+        shortcut_menu.addAction(action)
+        self.shortcut_actions["autolamella-agent"] = action
 
         # add help menu
         help_menu = menu_bar.addMenu("Help")

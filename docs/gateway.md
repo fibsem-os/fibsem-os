@@ -97,8 +97,10 @@ for it.
 fibsem-gateway shortcut
 ```
 
-This puts an "AutoLamella with the agent" shortcut on the desktop. It runs
-`fibsem-autolamella-agent`, which does the whole start in one go:
+This puts an "AutoLamella with the agent" shortcut on the desktop, with a purple
+AutoLamella icon. AutoLamella's **Tools → Create Desktop Shortcut → AutoLamella with the
+agent...** makes the same shortcut. It runs `fibsem-autolamella-agent`, which does the whole
+start in one go:
 
 1. Starts the gateway, if it isn't running.
 2. Starts AutoLamella with its window. A window the gateway starts always hosts the App

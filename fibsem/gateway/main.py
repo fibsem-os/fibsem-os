@@ -250,18 +250,11 @@ def uninstall() -> int:
 def agent_shortcut() -> int:
     """The "AutoLamella with the agent" desktop shortcut, running
     ``fibsem-autolamella-agent``."""
-    from dataclasses import replace
-
-    from fibsem.tools.apps import AUTOLAMELLA
+    from fibsem.tools.apps import AUTOLAMELLA_AGENT
     from fibsem.tools.desktop_shortcut import create_desktop_shortcut
 
-    app = replace(
-        AUTOLAMELLA,
-        name=f"{AUTOLAMELLA.name} with the agent",
-        command="fibsem-autolamella-agent",
-    )
     try:
-        path = create_desktop_shortcut(overwrite=True, app=app)
+        path = create_desktop_shortcut(overwrite=True, app=AUTOLAMELLA_AGENT)
     except (FileNotFoundError, OSError, subprocess.CalledProcessError) as error:
         print(f"The shortcut wasn't made: {error}")
         return 1

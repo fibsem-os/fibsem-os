@@ -40,13 +40,21 @@ BUILD = BRAND / "build"
 # name: (drawing, drawing used at 16 px and for the glyph, or None for the same)
 ICONS = {
     "autolamella": (APP_ICONS / "autolamella.svg", APP_ICONS / "autolamella-16.svg"),
+    "autolamella-agent": (
+        APP_ICONS / "autolamella-agent.svg",
+        APP_ICONS / "autolamella-agent-16.svg",
+    ),
     "liftout": (BRAND / "liftout.svg", None),
     "volume": (BRAND / "volume.svg", None),
     "fibsemos": (APP_ICONS / "fibsemos.svg", APP_ICONS / "fibsemos-16.svg"),
 }
 
 # Per-icon changes to the colour variant.
-ICON_COLOURS = {"fibsemos": {"tile": "#262930", "dark": "#5A626C"}}
+# AutoLamella with the agent is AutoLamella in the agent's purple.
+ICON_COLOURS = {
+    "fibsemos": {"tile": "#262930", "dark": "#5A626C"},
+    "autolamella-agent": {"tile": "#7C3AED", "dark": "#3B1A78"},
+}
 
 # Colour per role; None for the tile means no tile. A (colour, opacity) pair
 # draws that role at part strength.

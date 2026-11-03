@@ -20,7 +20,7 @@ from __future__ import annotations
 import importlib.metadata
 import importlib.resources
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -93,6 +93,15 @@ AUTOLAMELLA = App(
     ),
     splash_animation="milling",
     serve="fibsem.applications.autolamella.launch:main",
+)
+
+# Not a launcher app: its shortcut runs the gateway's one-click start
+# (fibsem.gateway.launch), which opens AutoLamella and the agent.
+AUTOLAMELLA_AGENT = replace(
+    AUTOLAMELLA,
+    name=f"{AUTOLAMELLA.name} with the agent",
+    command="fibsem-autolamella-agent",
+    icon=ICONS_DIR / "autolamella-agent.svg",
 )
 
 FIBSEM_UI = App(
