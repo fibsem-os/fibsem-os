@@ -67,6 +67,8 @@ starts it with:
 - an optional **budget**, in place of the profile's;
 - a **goal** for the session.
 
+Under the goal, one line sums up the profile: its model, budget, what it may touch, and how many skills and reminders it has.
+
 **Show configuration** lists what the profile runs with: the model, budget, skills and
 reminders.
 

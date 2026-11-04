@@ -70,6 +70,22 @@ function Field({ label, wide, children }: { label: string; wide?: boolean; child
   );
 }
 
+/** The profile in one line: model, budget, what it may touch, skills and reminders. */
+function summary(c: Configuration): string {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  return [
+    [c.model ?? "Default model", c.effort && `${c.effort} effort`].filter(Boolean).join(", "),
+    [c.max_budget_usd != null && `${dollars(c.max_budget_usd)} budget`, c.max_turns != null && `${c.max_turns} turns`]
+      .filter(Boolean)
+      .join(", "),
+    c.mode === "none" ? "no files" : c.mode === "code" ? "writes and runs code" : "reads and writes files",
+    plural(c.skills.length, "skill"),
+    plural(c.hooks.length, "reminder"),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function ConfigurationFacts({ name }: { name: string }) {
   const config = useQuery({
     queryKey: ["gateway/agent/profiles", name],
@@ -208,6 +224,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
       {profiles.error && <p className="m-0 text-[13px] text-destructive">{(profiles.error as Error).message}</p>}
       {chosen && (
         <div className="flex flex-col gap-2.5">
+          {config.data && <p className="m-0 text-xs text-muted-foreground">{summary(config.data)}</p>}
           <button
             onClick={() => setShown(!shown)}
             className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--primary)] hover:underline"
