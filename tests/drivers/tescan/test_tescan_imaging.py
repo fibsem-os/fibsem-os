@@ -33,6 +33,14 @@ RECORDED = os.path.join(
 AREA = FibsemRectangle(0.25, 0.25, 0.5, 0.5)
 
 
+def _recorded(settings):
+    """*settings* as the recording has them: bit_depth is newer than it, so left
+    out while it is None."""
+    if settings.get("bit_depth") is None:
+        settings.pop("bit_depth", None)
+    return settings
+
+
 def _system():
     return utils.load_microscope_configuration(
         os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml")
@@ -78,13 +86,13 @@ def _plain(value):
         md = value.metadata
         return {
             "shape": list(value.data.shape),
-            "settings": md.image_settings.to_dict(),
+            "settings": _recorded(md.image_settings.to_dict()),
             "pixel_size": [md.pixel_size.x, md.pixel_size.y],
             "stage": md.microscope_state.stage_position.to_dict(),
             "system": _system_info(md.system_info),
         }
     if isinstance(value, ImageSettings):
-        return value.to_dict()
+        return _recorded(value.to_dict())
     if isinstance(value, (list, tuple)):
         return [_plain(v) for v in value]
     return value

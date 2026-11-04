@@ -395,6 +395,12 @@ class AutoscriptBeam(Beam):
             limits=RangeLimit(min=limits.min, max=limits.max - 10e-6)
         )
 
+    def read_bit_depth(self) -> int:
+        return int(self._beam.scanning.bit_depth.value)
+
+    def write_bit_depth(self, value: int) -> None:
+        self._beam.scanning.bit_depth.value = int(value)
+
     def read_dwell_time(self) -> float:
         return self._beam.scanning.dwell_time.value
 
