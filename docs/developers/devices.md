@@ -662,10 +662,29 @@ Every other key belongs to the device or its driver (`column_tilt`, `address`,
 Version 1 files, with one block per device under `hardware:`, still load, and are
 written back as version 2 when the configuration is saved.
 
+## Adding a device to your microscope
+
+Which case your device is decides what you write. Each example is a working driver in
+[fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example), on the
+microscope's own computer, and its `examples/devices-configuration.yaml` adds all three
+to the Demo microscope, so they run with no hardware.
+
+| Your device | What you write | Example |
+| -- | -- | -- |
+| One the microscope's own driver already builds (a beam, the stage, the manipulator) | An entry in the configuration only ([Configuring devices](#configuring-devices)) | |
+| A new kind of device with settings only | A device class, its builder and a driver record ([Adding a device type](#adding-a-device-type), [Adding a driver](#adding-a-driver)) | `lamp/` |
+| A new kind of device with commands | The same, plus commands, a `DeviceFault` on a refusal, hardware check steps and a guided setup | `knife/` |
+| A type fibsemOS already has, on its own controller | A device implementing that type's interface, bound to a role if it fills one ([Roles](#roles)) | `scanner/` |
+| A device plugged into another computer | Any of the above, served by a device server and named `driver: remote` ([Devices on another computer](#devices-on-another-computer)) | `scanner/remote.py` |
+
+Its README gives the steps in order, from wrapping the vendor's library to checking
+the device in the application.
+
 ## Adding a device type
 
 A device class declares its parameters and commands. A driver implements each
-parameter with methods named after it, which `connect()` binds:
+parameter with methods named after it, which `connect()` binds (the plugin example's
+`knife/` is this device as a working driver):
 
 ```python
 from fibsem.devices import Device, DeviceParameter, ParameterMetadata, command
