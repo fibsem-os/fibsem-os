@@ -389,8 +389,9 @@ class Gateway:
         # An app with neither starts with no experiment open, if it can.
         args = [experiment] if experiment else ["--last"] if last else []
         if window:
-            # An app with a headless command has the host's flags; others none.
-            host = [*args, *self._connection] if app.serve else []
+            # An app with a headless command has the host's flags, and hosts
+            # whatever the preference; others none.
+            host = [*args, *self._connection, "--host"] if app.serve else []
             command = [self._python, "-m", "fibsem.tools.desktop_launch", key, *host]
             env[CHILD_ENV] = "1"
         else:

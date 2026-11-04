@@ -1,5 +1,7 @@
 """``fibsem-gateway``: run the gateway (with its tray icon when Qt is there),
-install it to start at logon, open pairing, or show whether the app runs.
+install it to start at logon, open pairing, show whether the app runs, or
+launch the app with the agent (`fibsem.gateway.launch`) and put a desktop
+shortcut for that on the Desktop.
 
 Microscope connection flags (``--manufacturer``, ``--ip-address``,
 ``--config``) after ``run`` are passed to the app as it starts, which then
@@ -31,7 +33,7 @@ from fibsem.gateway.gateway import (
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.operator_token import read_operator_token
 
-__all__ = ["call", "main", "shortcut_command"]
+__all__ = ["call", "main", "shortcut_command", "start_gateway"]
 
 SHORTCUT_NAME = "fibsemOS Gateway"
 
@@ -57,6 +59,8 @@ def call(method: str, route: str, body: Optional[dict] = None, timeout: float = 
 
 
 def _parser() -> argparse.ArgumentParser:
+    from fibsem.gateway.launch import launch_options
+
     parser = argparse.ArgumentParser(
         prog="fibsem-gateway",
         description="Start and stop the app on this microscope PC, here or for a hub.",
@@ -78,6 +82,16 @@ def _parser() -> argparse.ArgumentParser:
         help="The hub may start and stop apps.",
     )
     commands.add_parser("status", help="Show whether the app runs.")
+    launch = commands.add_parser(
+        "launch",
+        parents=[launch_options()],
+        help="Start the app, connect the microscope, start the agent at Watch "
+        "and open its page.",
+    )
+    launch.add_argument("app", nargs="?", default="autolamella")
+    commands.add_parser(
+        "shortcut", help='Put an "AutoLamella with the agent" shortcut on the Desktop.'
+    )
     return parser
 
 
@@ -165,11 +179,37 @@ def _startup_folder() -> Path:
     )
 
 
+def pythonw() -> Path:
+    """This environment's console-less Python (Windows)."""
+    exe = Path(sys.executable)
+    return exe.with_name("pythonw" + exe.suffix)
+
+
+def start_gateway() -> None:
+    """Run the gateway, with its tray, apart from this process (as the logon
+    shortcut does, without connection flags)."""
+    if sys.platform == "win32":
+        python = pythonw()
+        flags = {
+            "creationflags": subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+        }
+    else:
+        python = Path(sys.executable)
+        flags = {"start_new_session": True}
+    subprocess.Popen(
+        [str(python), "-m", "fibsem.gateway", "run"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd=str(Path.home()),
+        **flags,
+    )
+
+
 def shortcut_command(path: Path, connection: List[str]) -> List[str]:
     """PowerShell that writes a shortcut at *path* running the gateway with no
     console (``pythonw``)."""
-    exe = Path(sys.executable)
-    pythonw = exe.with_name("pythonw" + exe.suffix)
     arguments = subprocess.list2cmdline(["-m", "fibsem.gateway", "run", *connection])
 
     def quoted(text: str) -> str:
@@ -177,7 +217,7 @@ def shortcut_command(path: Path, connection: List[str]) -> List[str]:
 
     script = (
         f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut({quoted(str(path))}); "
-        f"$s.TargetPath = {quoted(str(pythonw))}; "
+        f"$s.TargetPath = {quoted(str(pythonw()))}; "
         f"$s.Arguments = {quoted(arguments)}; "
         f"$s.WorkingDirectory = {quoted(str(Path.home()))}; "
         f"$s.Description = {quoted('Runs apps on this microscope PC for a hub')}; "
@@ -207,6 +247,28 @@ def uninstall() -> int:
     return 0
 
 
+def agent_shortcut() -> int:
+    """The "AutoLamella with the agent" desktop shortcut, running
+    ``fibsem-autolamella-agent``."""
+    from dataclasses import replace
+
+    from fibsem.tools.apps import AUTOLAMELLA
+    from fibsem.tools.desktop_shortcut import create_desktop_shortcut
+
+    app = replace(
+        AUTOLAMELLA,
+        name=f"{AUTOLAMELLA.name} with the agent",
+        command="fibsem-autolamella-agent",
+    )
+    try:
+        path = create_desktop_shortcut(overwrite=True, app=app)
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError) as error:
+        print(f"The shortcut wasn't made: {error}")
+        return 1
+    print(f"Shortcut made: {path}")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0].startswith("-") and argv[0] not in ("-h", "--help"):
@@ -220,6 +282,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         return install(_connection(args.connection))
     if args.command == "uninstall":
         return uninstall()
+    if args.command == "launch":
+        from fibsem.gateway.launch import launch_app
+
+        return launch_app(args.app, args.configuration, args.profile)
+    if args.command == "shortcut":
+        return agent_shortcut()
     if args.command == "pair":
         body = {"role": "hub" if args.hub else "operator"}
         if args.hub and args.may_switch:

@@ -153,3 +153,13 @@ def _stopped():
 def test_a_window_flag_without_the_window_is_refused(places):
     with pytest.raises(SystemExit):
         launch.main(["--quickstart"])
+
+
+@pytest.mark.parametrize("flags, hosts", [([], False), (["--host"], True)])
+def test_the_window_hosts_whatever_the_preference_with_host(places, flags, hosts):
+    seen = []
+    launch.main(
+        ["--no-connect", *flags],
+        window=lambda session, rest: seen.append(session.host_app_server) or 0,
+    )
+    assert seen == [hosts]
