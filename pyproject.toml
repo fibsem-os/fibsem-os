@@ -20,7 +20,8 @@ classifiers = [
 
 dependencies = [
     "tifffile>=2021.7.2",
-    "numpy>=2.0.0",
+    # numpy 1 only for odemis PCs, through constraints/odemis.txt (INSTALLATION.md).
+    "numpy>=1.26",
     "scipy>=1.10.0",
     "opencv-python-headless>=4.7.0.72",
     "scikit-image>=0.19.3",
@@ -56,6 +57,9 @@ dependencies = [
     "websockets>=15.0",
     # fibsem.extras reads which extras are installed from the package metadata.
     "packaging",
+    # fibsem.keystore: API keys in Windows Credential Manager or the macOS Keychain.
+    # Elsewhere keys come from the environment only.
+    "keyring>=24; sys_platform == 'win32' or sys_platform == 'darwin'",
 ]
 
 [project.urls]

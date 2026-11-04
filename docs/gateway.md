@@ -74,8 +74,7 @@ Start needs:
 
 - **The app running**, with its window or without. The agent acts through it.
 - **A microscope connected.** The agent works on it.
-- **An API key** in `ANTHROPIC_API_KEY`, set for this PC's user. Restart the gateway after
-  setting it. The key stays in the environment; it's never written to a file or a log.
+- **An API key**, stored once with `fibsem-cli key set ANTHROPIC_API_KEY` (see below).
 - **A profile that doesn't run code.** Windows has no sandbox for the agent's code.
 
 If another agent is already connected, such as Claude Code from another computer, Start asks
@@ -96,6 +95,27 @@ end the agent too. Each session's record and log are in
 
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
+
+### The API key
+
+Store it once on this PC:
+
+```
+fibsem-cli key set ANTHROPIC_API_KEY
+```
+
+It asks for the key without showing it and keeps it in Windows Credential Manager (the
+Keychain on a Mac), encrypted to this Windows login. The gateway reads it at each Start, so
+there's nothing to restart, and passes it only to the agent, never to the app.
+`fibsem-agent` run by hand reads it too. It's never shown, logged or sent anywhere else.
+`fibsem-cli key status ANTHROPIC_API_KEY` says whether one is stored, and `fibsem-cli key
+remove ANTHROPIC_API_KEY` removes it. An `ANTHROPIC_API_KEY` environment variable, if set,
+is used instead.
+
+Anyone using this Windows login can read the key, so use a key for this microscope alone, in
+its own Console workspace with a monthly spend limit. To retire a key, disable it in the
+Console first: that stops it everywhere. Then remove it here. To replace one, store the new
+key, check the agent starts, then disable the old one.
 
 ## The desktop shortcut
 

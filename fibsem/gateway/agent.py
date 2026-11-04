@@ -36,6 +36,7 @@ from fibsem.ai.agent.manager import (
 )
 from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
 from fibsem.gateway.host import call_host, microscope_connected
+from fibsem.keystore import stored_secret
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.pairing import AGENT, PairedTokens
 from fibsem.util import timestamps
@@ -139,6 +140,7 @@ class GatewayAgent:
         connected: Callable[[str], bool] = microscope_connected,
         agent_json: Callable[[List[str]], Any] = fibsem_agent_json,
         environ: Optional[Dict[str, str]] = None,
+        stored: Callable[[str], Optional[str]] = stored_secret,
         platform: str = sys.platform,
         microscope: Optional[str] = None,
     ) -> None:
@@ -150,6 +152,7 @@ class GatewayAgent:
         self._connected = connected
         self._agent_json = agent_json
         self._environ = os.environ if environ is None else environ
+        self._stored = stored
         self._platform = platform
         self.microscope = microscope or socket.gethostname()
         self._lock = threading.Lock()
@@ -186,7 +189,7 @@ class GatewayAgent:
         return AgentState(
             running=running,
             sessions=rows[:SESSIONS_SHOWN],
-            api_key=bool(self._environ.get(API_KEY)),
+            api_key=bool(self._api_key()),
             microscope=self.microscope,
         )
 
@@ -236,11 +239,11 @@ class GatewayAgent:
                 raise GatewayRefused(
                     409, "agent_running", "The agent is already running: end it first."
                 )
-            if not self._environ.get(API_KEY):
+            if not self._api_key():
                 raise GatewayRefused(
                     409,
                     "no_api_key",
-                    f"Set {API_KEY} for this PC's user, then restart the gateway.",
+                    f"No API key: run fibsem-cli key set {API_KEY} on this PC.",
                 )
             config = self.configuration(profile)
             if config.get("mode") == "code" and self._platform == "win32":
@@ -337,10 +340,19 @@ class GatewayAgent:
             return None
         return found["url"]
 
+    def _api_key(self) -> Optional[str]:
+        """The environment's key, else the stored one: read at each start."""
+        return self._environ.get(API_KEY) or self._stored(API_KEY)
+
     def _pair(self) -> Dict[str, str]:
-        """A fresh agent token, replacing any agent paired before."""
+        """A fresh agent token, replacing any agent paired before, and the
+        API key: the agent's environment only."""
         _, token = self._tokens.add(AGENT_NAME, role=AGENT)
-        return {"FIBSEM_SERVER_TOKEN": token}
+        env = {"FIBSEM_SERVER_TOKEN": token}
+        key = self._api_key()
+        if key:
+            env[API_KEY] = key
+        return env
 
     def _unpair(self) -> None:
         paired = self._tokens.agent()

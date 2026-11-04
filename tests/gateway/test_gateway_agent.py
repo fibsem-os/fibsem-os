@@ -3,6 +3,7 @@ ending the agent, the level set again on a resume, and a restarted gateway
 taking the agent back, with the stand-in ``fibsem-agent``
 (tests/agent/stand_in.py) in real processes and a fake App Server."""
 
+import dataclasses
 import json
 import sys
 import time
@@ -63,7 +64,14 @@ def made(tmp_path, monkeypatch):
     monkeypatch.setenv("PYTHONPATH", str(ROOT))
     built = []
 
-    def make(gateway=None, app=None, configs=None, platform="linux", key="sk-test"):
+    def make(
+        gateway=None,
+        app=None,
+        configs=None,
+        platform="linux",
+        key="sk-test",
+        stored=None,
+    ):
         gateway = gateway or FakeGateway()
         app = app or App()
         configs = configs if configs is not None else {"default": DEFAULT}
@@ -87,6 +95,7 @@ def made(tmp_path, monkeypatch):
             connected=lambda url: app.connected,
             agent_json=agent_json,
             environ={API_KEY: key} if key else {},
+            stored=lambda name: stored if name == API_KEY else None,
             platform=platform,
             microscope="arctis-pc",
         )
@@ -135,6 +144,23 @@ def test_start_pairs_the_agent_sets_the_level_and_runs_the_profile(made, tmp_pat
     written = json.dumps(record) + json.dumps(managed)
     assert "sk-test" not in written, "the API key is never written down"
     assert "FIBSEM_SERVER_TOKEN" not in written
+
+
+def test_a_stored_key_is_used_and_goes_only_into_the_agents_environment(made, tmp_path):
+    agent, _, _ = made(key=None, stored="sk-stored")
+    assert agent.state().api_key is True
+    agent.start("default", None, "watch", "operator", "page")
+    assert agent._manager.agent("arctis-pc").env[API_KEY] == "sk-stored"
+    assert until(lambda: _record(tmp_path).get("args"))
+    managed = read_json(folders(tmp_path / "sessions")[0] / MANAGED)
+    assert "sk-stored" not in json.dumps(_record(tmp_path)) + json.dumps(managed)
+    assert "sk-stored" not in json.dumps(dataclasses.asdict(agent.state()))
+
+
+def test_the_environments_key_wins_over_the_stored_one(made):
+    agent, _, _ = made(key="sk-env", stored="sk-stored")
+    agent.start("default", None, "watch", "operator", "page")
+    assert agent._manager.agent("arctis-pc").env[API_KEY] == "sk-env"
 
 
 def test_a_budget_override_is_passed_and_nothing_else_is(made, tmp_path):

@@ -158,8 +158,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
       </p>
       {!state.api_key && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          No API key on this PC, so the agent can't start. Set ANTHROPIC_API_KEY for this PC's user, then restart the
-          gateway.
+          No API key on this PC, so the agent can't start. Run fibsem-cli key set ANTHROPIC_API_KEY on this PC.
         </p>
       )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">

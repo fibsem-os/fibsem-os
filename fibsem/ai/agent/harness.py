@@ -39,6 +39,7 @@ from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
 from fibsem.extras import missing_extra_message
+from fibsem.keystore import get_secret
 from fibsem.logo import print_fibsem_logo
 from fibsem.util import timestamps
 
@@ -109,6 +110,7 @@ EFFORT = "high"
 # The model can't answer until someone fixes the sign-in or the account, so
 # waiting for the next wake-up would wait for ever.
 FATAL_ERRORS = {"authentication_failed", "billing_error"}
+API_KEY = "ANTHROPIC_API_KEY"
 
 # The CLI's environment: no CLAUDE.md (the checkout's is developer guidance),
 # no auto memory from a developer's sessions in the same folder, and no
@@ -778,10 +780,11 @@ class Harness:
             self._end_reason = f"the model can't answer ({end.error})"
             self._resumable = False
             log.error(
-                "The model can't answer (%s); fibsem-agent stops. Set "
-                "ANTHROPIC_API_KEY to a Claude API key (or configure Bedrock or "
+                "The model can't answer (%s); fibsem-agent stops. Store a Claude "
+                "API key with fibsem-cli key set %s (or configure Bedrock or "
                 "Vertex), then start it again.",
                 end.error,
+                API_KEY,
             )
             self._code = 1
             return False
@@ -1649,6 +1652,10 @@ def main(argv=None) -> int:
         return 1
     # From the environment, so it is not in the process list or shell history.
     token = server_env()[1]
+    # The CLI reads the key from its environment, which it inherits from here.
+    key = get_secret(API_KEY)
+    if key:
+        os.environ[API_KEY] = key
     session = sessions.SessionFolder.open(
         session_id, _about(args, checkout, work, code, profile), folder=folder
     )
