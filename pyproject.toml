@@ -56,6 +56,9 @@ dependencies = [
     "websockets>=15.0",
     # fibsem.extras reads which extras are installed from the package metadata.
     "packaging",
+    # fibsem.keystore: API keys in Windows Credential Manager or the macOS Keychain.
+    # Elsewhere keys come from the environment only.
+    "keyring>=24; sys_platform == 'win32' or sys_platform == 'darwin'",
 ]
 
 [project.urls]
