@@ -16,6 +16,8 @@ from fibsem.codec import encode, saved
 from fibsem.config import NotificationPreferences
 from fibsem.control import InControl
 from fibsem.geometry.stage_places import StageMapPlaces
+from fibsem.knowledge import Entry as KnowledgeEntryFile
+from fibsem.knowledge import Row as KnowledgeRow
 from fibsem.structures.image import FibsemImageMetadata
 from fibsem.structures.params import Limits
 from fibsem.structures.settings import (
@@ -1063,6 +1065,40 @@ class RunPlan:
     estimate: Optional[Dict[str, Any]] = None
     # work and delay seconds, finish before and after, hold seconds
     addition: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class KnowledgeIndex:
+    """The knowledge base's index, newest first, and the samples and playbooks
+    it has entries for."""
+
+    entries: List[KnowledgeRow] = field(default_factory=list)
+    samples: List[str] = field(default_factory=list)
+    playbooks: List[str] = field(default_factory=list)
+
+
+@dataclass
+class KnowledgePicture:
+    """One image an entry cites, by name; asked for, its preview."""
+
+    name: str
+    preview: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class KnowledgeEntry:
+    """One knowledge entry, and its images as pictures when asked for."""
+
+    entry: KnowledgeEntryFile
+    pictures: Optional[List[KnowledgePicture]] = None
+
+
+@dataclass
+class KnowledgeRemoved:
+    """The entry the operator removed, as it was."""
+
+    removed: bool
+    entry: KnowledgeEntryFile
 
 
 @dataclass
