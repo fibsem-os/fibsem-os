@@ -227,6 +227,7 @@ GROUP_TITLES: Dict[str, str] = {
     "workflow": "Workflow",
     "proposal": "Proposal",
     "request": "Request",
+    "knowledge": "Knowledge",
 }
 
 # Watch tools that write a record (a note, a request) rather than only read.
@@ -234,6 +235,7 @@ _WRITES_AT_WATCH = frozenset(
     {
         "experiment_add_note",
         "experiment_message_operator",
+        "knowledge_write",  # the microscope's knowledge base, not the experiment
         "server_report_session",  # the agent's own session, on the record
         "server_set_constraints",
         "server_set_checklist",
