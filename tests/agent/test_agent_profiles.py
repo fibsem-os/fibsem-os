@@ -123,6 +123,18 @@ def test_a_profile_loads_with_its_hash(tmp_path, checkout):
     assert profiles.load(path).hash != profile.hash, "an edit changes the hash"
 
 
+def test_a_profile_says_what_it_is_for(tmp_path, checkout):
+    path = write(tmp_path, "lamella", "description: On-grid lamellae.\n")
+    assert profiles.load(path, harness_mod.EFFORTS, checkout).description == (
+        "On-grid lamellae."
+    )
+
+
+def test_the_shipped_profiles_say_what_they_are_for(checkout):
+    for path in (checkout / profiles.PROFILE_DIR).glob("*.yaml"):
+        assert profiles.load(path, harness_mod.EFFORTS, checkout).description, path
+
+
 def test_a_profile_names_the_level_the_gateway_picks_first(tmp_path, checkout):
     path = write(tmp_path, "overnight", "level: drive\n")
     assert profiles.load(path, harness_mod.EFFORTS, checkout).level == "drive"

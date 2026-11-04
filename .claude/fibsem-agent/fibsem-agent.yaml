@@ -2,6 +2,7 @@
 # gateway and the hub offer first. `fibsem-agent --show-config` prints what it
 # runs with, and `fibsem-agent --list-hooks` lists when a reminder can fire.
 # Flags on the command line win.
+description: General microscope work, for when no workflow profile fits.
 effort: high
 max_budget_usd: 500
 max_turns: 40

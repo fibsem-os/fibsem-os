@@ -6,7 +6,8 @@
     fibsem-agent --list-hooks
 
 A profile is ``<name>.yaml`` in this machine's ``~/.fibsem/agent/profiles/``
-or in the checkout's ``.claude/fibsem-agent/`` (the machine's wins). It sets
+or in the checkout's ``.claude/fibsem-agent/`` (the machine's wins). It says
+what it is for (``description``, shown on the gateway's Agent card), and sets
 the model, effort, budget and turns, the mode and its folder (else work/ in
 the session's folder), extra skills, instructions added to the prompt, and
 reminders (hooks), and the level the gateway's Agent card picks first. Flags on
@@ -37,6 +38,7 @@ MODES = ("none", "files", "code")
 LEVELS = ("watch", "assist", "drive")
 FIELDS = (
     "name",
+    "description",
     "level",
     "model",
     "effort",
@@ -135,6 +137,8 @@ class Profile:
     hooks: List[Hook] = field(default_factory=list)
     level: Optional[str] = None
     """The level the gateway's Agent card picks first; the operator still starts it."""
+    description: Optional[str] = None
+    """What the profile is for, in a sentence, for the gateway's Agent card."""
 
 
 def dirs(checkout: Optional[Path]) -> List[Path]:
@@ -191,6 +195,7 @@ def load(path: Path, efforts=(), checkout: Optional[Path] = None) -> Profile:
         prompt=_text(data, "prompt", path),
         hooks=_hooks(data.get("hooks"), path),
         level=_text(data, "level", path),
+        description=_text(data, "description", path),
     )
     if profile.level is not None and profile.level not in LEVELS:
         raise ProfileError(f"{path}: level is one of {', '.join(LEVELS)}")

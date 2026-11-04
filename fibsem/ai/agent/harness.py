@@ -1823,6 +1823,7 @@ def show_config(
             else None
         ),
         "level": profile.level if profile else None,
+        "description": profile.description if profile else None,
         "model": args.model,
         "effort": args.effort,
         "max_budget_usd": args.max_budget_usd,
