@@ -39,6 +39,7 @@ interface Profile {
 
 interface Configuration {
   profile: { name: string; path: string; hash: string } | null;
+  level: string | null;
   model: string | null;
   effort: string | null;
   max_budget_usd: number | null;
@@ -118,11 +119,20 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
   });
   const usable = (profiles.data ?? []).filter((p) => !p.error);
   const [profile, setProfile] = useState("");
-  const [level, setLevel] = useState("watch");
+  // Picked here, or else the profile's level, or Watch.
+  const [picked, setPicked] = useState<string | null>(null);
   const [budget, setBudget] = useState("");
   const [goal, setGoal] = useState("");
   const [shown, setShown] = useState(false);
   const chosen = profile || usable.find((p) => p.name === "default")?.name || usable[0]?.name || "";
+  const config = useQuery({
+    queryKey: ["gateway/agent/profiles", chosen],
+    queryFn: () => api<Configuration>(`/gateway/agent/profiles/${encodeURIComponent(chosen)}`),
+    enabled: !!chosen,
+    staleTime: 30_000,
+  });
+  const fromProfile = config.data?.level ?? null;
+  const level = picked ?? fromProfile ?? "watch";
   const start = useMutation({
     mutationFn: (replace: boolean) =>
       api<AgentState>("/gateway/agent/start", {
@@ -154,7 +164,14 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
       )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         <Field label="Profile">
-          <select value={chosen} onChange={(event) => setProfile(event.target.value)} className={FIELD}>
+          <select
+            value={chosen}
+            onChange={(event) => {
+              setProfile(event.target.value);
+              setPicked(null);
+            }}
+            className={FIELD}
+          >
             {usable.map((p) => (
               <option key={p.name} value={p.name}>
                 {p.name}
@@ -162,8 +179,8 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
             ))}
           </select>
         </Field>
-        <Field label="Level">
-          <select value={level} onChange={(event) => setLevel(event.target.value)} className={FIELD}>
+        <Field label={fromProfile && !picked ? "Level (from the profile)" : "Level"}>
+          <select value={level} onChange={(event) => setPicked(event.target.value)} className={FIELD}>
             {LEVELS.map((l) => (
               <option key={l} value={l}>
                 {title(l)}

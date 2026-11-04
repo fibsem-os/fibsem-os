@@ -58,7 +58,7 @@ The gateway can run the agent on this PC, next to the app. The **Agent** card on
 starts it with:
 
 - a **profile** (`default` is picked first);
-- a **level** (Watch, Assist or Drive);
+- a **level** (Watch, Assist or Drive): the profile's `level` is picked first, else Watch;
 - an optional **budget**, in place of the profile's;
 - a **goal** for the session.
 
@@ -115,7 +115,7 @@ can.
 
 ## At the scope
 
-Double-click the desktop shortcut as usual.
+Double-click the AutoLamella desktop shortcut as usual.
 
 - With the gateway off, the window opens and the gateway shows the app running with its
   window until you close it.
