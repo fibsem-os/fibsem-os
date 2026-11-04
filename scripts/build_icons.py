@@ -43,10 +43,14 @@ ICONS = {
     "liftout": (BRAND / "liftout.svg", None),
     "volume": (BRAND / "volume.svg", None),
     "fibsemos": (APP_ICONS / "fibsemos.svg", APP_ICONS / "fibsemos-16.svg"),
+    "gateway": (APP_ICONS / "gateway.svg", None),
 }
 
 # Per-icon changes to the colour variant.
-ICON_COLOURS = {"fibsemos": {"tile": "#262930", "dark": "#5A626C"}}
+ICON_COLOURS = {
+    "fibsemos": {"tile": "#262930", "dark": "#5A626C"},
+    "gateway": {"tile": "#262930", "dark": "#5A626C"},
+}
 
 # Colour per role; None for the tile means no tile. A (colour, opacity) pair
 # draws that role at part strength.

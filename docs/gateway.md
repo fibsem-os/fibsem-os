@@ -52,6 +52,11 @@ The page (`/ui/gateway`) shows:
 - the paired computers;
 - every start and stop, with who made it and from where.
 
+At the top right, the page says when there is newer code: "fibsemOS 0.6.3 available" when a
+newer release is on PyPI, or "12 commits behind main" for a source checkout behind GitHub's
+`main`. The gateway asks when it starts and once a day after. Offline, or with a commit that
+was never pushed, it shows nothing.
+
 ## The agent
 
 The gateway can run the agent on this PC, next to the app. The **Agent** card on the page

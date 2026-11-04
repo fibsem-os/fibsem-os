@@ -29,6 +29,7 @@ interface GatewayState {
   last_experiment: string | null;
   connection: string[];
   configurations: { name: string; default: boolean }[];
+  newer: { latest: string | null; behind: number | null; branch: string } | null;
 }
 
 /** What the next start connects: the page's choice, or the gateway's own
@@ -52,6 +53,13 @@ interface Switch {
 }
 
 const FIELD = "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
+
+/** What is newer than the code the gateway runs: a release, or commits on main. */
+function newerLabel(newer: GatewayState["newer"]): string | null {
+  if (newer?.latest) return `fibsemOS ${newer.latest} available`;
+  if (newer?.behind) return `${newer.behind} commit${newer.behind === 1 ? "" : "s"} behind ${newer.branch}`;
+  return null;
+}
 
 function Status({ state }: { state: GatewayState }) {
   const app = state.apps.find((a) => a.key === state.app)?.name ?? state.app;
@@ -307,6 +315,9 @@ export function GatewayPage() {
             {location.host}
             {state && ` · fibsemOS ${state.version}`}
           </span>
+          {state && newerLabel(state.newer) && (
+            <span className="ml-auto text-[13px] text-muted-foreground">{newerLabel(state.newer)}</span>
+          )}
         </div>
         {gateway.error && <p className="m-0 text-[13px] text-destructive">{(gateway.error as Error).message}</p>}
         {running && <ConnectionCard base="/gateway" title="Microscope" />}

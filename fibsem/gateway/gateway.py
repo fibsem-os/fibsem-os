@@ -27,6 +27,7 @@ import fibsem
 from fibsem.server.discovery import DISCOVERY_DIR, _pid_alive, read_discovery_file
 from fibsem.server.operator_token import read_operator_token
 from fibsem.tools.apps import App, apps
+from fibsem.update_check import Newer, check_newer
 
 __all__ = [
     "GATEWAY_FILE",
@@ -50,6 +51,7 @@ GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
 CHILD_ENV = "FIBSEM_GATEWAY"
 STOP_WAIT_S = 60.0
 POLL_S = 1.0
+NEWER_EVERY_S = 24 * 3600.0
 HISTORY_SHOWN = 50
 
 
@@ -110,6 +112,8 @@ class GatewayState:
     """The flags the app connects with as it starts; none: the operator connects."""
     configurations: List[GatewayConfiguration] = field(default_factory=list)
     """The microscope configurations saved on this PC, for a start to connect."""
+    newer: Optional[Newer] = None
+    """A newer release, or commits on main, than the code this gateway runs."""
 
 
 @dataclass
@@ -212,6 +216,7 @@ class Gateway:
         running: Callable[[str, Optional[str]], bool] = workflow_running,
         python: Optional[str] = None,
         stop_wait_s: float = STOP_WAIT_S,
+        newer: Callable[[], Optional[Newer]] = check_newer,
     ):
         self._connection = list(connection or [])
         self._home = Path(home) if home is not None else DISCOVERY_DIR
@@ -222,6 +227,8 @@ class Gateway:
         self._running = running
         self._python = python or _python()
         self._stop_wait_s = stop_wait_s
+        self._check_newer = newer
+        self._newer: Optional[Newer] = None
         self._lock = threading.RLock()
         self._busy = False
         self._proc: Optional[subprocess.Popen] = None
@@ -256,7 +263,15 @@ class Gateway:
             GatewayConfiguration(name=c["name"], default=c["default"])
             for c in self._configurations()
         ]
+        state.newer = self._newer
         return state
+
+    def check_newer(self) -> None:
+        """Ask whether newer code exists (PyPI, or GitHub for a checkout)."""
+        try:
+            self._newer = self._check_newer()
+        except Exception:  # noqa: BLE001 - offline is normal; never fail
+            logging.debug("Update check failed", exc_info=True)
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
         try:
@@ -597,8 +612,15 @@ class Gateway:
                     except Exception:  # noqa: BLE001 - the watcher never dies
                         logging.exception("Gateway watcher failed")
 
+        def newer():
+            while True:
+                self.check_newer()
+                if self._closed.wait(NEWER_EVERY_S):
+                    return
+
         self._watcher = threading.Thread(target=loop, name="gateway", daemon=True)
         self._watcher.start()
+        threading.Thread(target=newer, name="gateway-newer", daemon=True).start()
 
     def close(self) -> None:
         """Stop watching. An app without its window keeps running; a new

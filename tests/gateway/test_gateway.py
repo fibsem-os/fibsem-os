@@ -253,3 +253,21 @@ def test_with_the_window_it_opens_the_apps_desktop_launch(tmp_path, fakes):
     finally:
         os.kill(state.pid, 9)
         _wait_for(lambda: (gateway.poll(), gateway.state().mode)[1] == OFF)
+
+
+def test_the_state_names_newer_code(tmp_path, fakes):
+    from fibsem.update_check import Newer
+
+    gateway = Gateway(home=tmp_path, newer=lambda: Newer(behind=3))
+    assert gateway.state().newer is None, "nothing known before a check"
+    gateway.check_newer()
+    assert gateway.state().newer == Newer(behind=3)
+
+
+def test_a_failed_update_check_shows_nothing(tmp_path):
+    def offline():
+        raise OSError("offline")
+
+    gateway = Gateway(home=tmp_path, newer=offline)
+    gateway.check_newer()
+    assert gateway.state().newer is None

@@ -23,7 +23,7 @@ from typing import List, Optional
 
 from packaging import version
 
-from fibsem.versioning import get_revision
+from fibsem.versioning import get_commit, get_revision
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +172,60 @@ def refresh(package: str = _PACKAGE, force: bool = False) -> Optional[UpdateStat
     )
     logger.debug("Update check: %s", _status)
     return _status
+
+
+GITHUB_COMPARE_URL = "https://api.github.com/repos/{repo}/compare/{commit}...{branch}"
+_REPO = "fibsem-os/fibsem-os"
+_BRANCH = "main"
+
+
+@dataclass(frozen=True)
+class Newer:
+    """What is newer than the running code: a release, or commits on main."""
+
+    latest: Optional[str] = None
+    """A newer release on PyPI, for an installed package."""
+    behind: Optional[int] = None
+    """Commits on main the checkout doesn't have, for a source checkout."""
+    branch: str = _BRANCH
+
+
+def commits_behind(
+    commit: str, repo: str = _REPO, branch: str = _BRANCH
+) -> Optional[int]:
+    """How many commits *branch* on GitHub has that *commit* doesn't. None on
+    any failure, including a commit GitHub doesn't know (never pushed)."""
+    try:
+        request = urllib.request.Request(
+            GITHUB_COMPARE_URL.format(repo=repo, commit=commit, branch=branch),
+            headers={
+                "Accept": "application/vnd.github+json",
+                "User-Agent": "fibsem-update-check",
+            },
+        )
+        with urllib.request.urlopen(
+            request, timeout=REQUEST_TIMEOUT_SECONDS
+        ) as response:
+            return int(json.loads(response.read().decode("utf-8"))["ahead_by"])
+    except Exception as exc:
+        logger.debug("Could not compare %s with %s: %s", commit, branch, exc)
+        return None
+
+
+def check_newer() -> Optional[Newer]:
+    """Ask now whether something newer than the running code exists. Blocking;
+    None when nothing newer is known (current, offline, or any failure).
+
+    A source checkout asks GitHub how far its commit is behind main; an
+    installed package asks PyPI for a newer release."""
+    if not is_supported():
+        commit = get_commit()
+        behind = commits_behind(commit) if commit else None
+        return Newer(behind=behind) if behind else None
+    status = refresh(force=True)
+    if status is not None and status.update_available:
+        return Newer(latest=status.latest)
+    return None
 
 
 def reset() -> None:
