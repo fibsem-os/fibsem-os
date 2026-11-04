@@ -1,5 +1,9 @@
 include LICENSE
 include README.md
+# The agent files the wheel ships a copy of (setup.py).
+graft .claude/skills
+graft .claude/agents
+graft .claude/fibsem-agent
 
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]

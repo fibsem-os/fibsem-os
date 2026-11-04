@@ -1,0 +1,6 @@
+# Looking at and reporting on saved experiments, with no milling.
+description: Reading, comparing and reporting on saved experiments.
+skills: [fibsem-experiment]
+reminders:
+  before_milling: Confirm the current and depth against the experiment's plan.
+  after_auto: Check the auto step's result on its image before the next step.

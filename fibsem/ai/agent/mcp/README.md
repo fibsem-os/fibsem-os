@@ -119,7 +119,10 @@ Everything above is Claude Code in a terminal, kept awake by a person.
 [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk): one long
 session with this sidecar as its only MCP server, and the watcher run for it,
 so each batch of watcher lines is the agent's next turn. It reads the same
-skills, from this checkout's `.claude/skills`. The Claude Code path is
+skills: a checkout's `.claude/skills`, or from a pip install the copy the
+package ships, and before either the lab's own in
+`~/.fibsem/knowledge/skills/<name>/SKILL.md` (a lab skill with a shipped
+skill's name replaces it; any other is offered too). The Claude Code path is
 unchanged.
 
 ```bash
@@ -150,8 +153,9 @@ fibsem-agent
   refused. Each agent sets its own model and effort; `--effort` sets the
   Run Lead's (default high). A lead run calls the most capable model often:
   raise `--max-budget-usd` to match the night.
-- **Your Claude Code config stays out.** The session loads this checkout's
-  project settings and skills, not `~/.claude`, and only this sidecar, not a
+- **Your Claude Code config stays out.** The session runs in a folder that
+  holds only its skills and specialists, copied there each start (its
+  session folder's `run/`, or the `--code`/`--files` folder), not `~/.claude`, and only this sidecar, not a
   `fibsem` server you registered with `claude mcp add`.
 - **Signing in.** A Claude API key: the `ANTHROPIC_API_KEY` environment
   variable, else the one `fibsem-cli key set ANTHROPIC_API_KEY` stored in
@@ -159,7 +163,7 @@ fibsem-agent
   documents. Not a claude.ai login: products built on the Agent SDK use API
   keys. If the model refuses the sign-in, the harness stops with exit code 1
   rather than wait. Its log never shows a bearer token or an API key.
-- **Instructions.** It reads this checkout's skills and nothing else: not the
+- **Instructions.** It reads its skills and nothing else: not the
   checkout's `CLAUDE.md` (developer guidance) and not Claude Code's auto memory.
 - **Its session's folder.** Each session has one,
   `~/.fibsem/agent/sessions/<date>-<session id>/`, kept by a resume:
@@ -179,9 +183,10 @@ fibsem-agent
   agent to re-read the status. If the app can't be watched, the harness waits
   up to `--server-wait` seconds (default 600) for it to answer again, then
   stops with exit code 1.
-- **Profiles.** `--profile NAME` runs with `NAME.yaml` from this computer's
-  `~/.fibsem/agent/profiles/` or the checkout's `.claude/fibsem-agent/` (this
-  computer's wins): model, effort, budget and turns, the mode and its folder,
+- **Profiles.** `--profile NAME` runs with `NAME.yaml` from the lab's
+  `~/.fibsem/knowledge/profiles/`, this computer's older
+  `~/.fibsem/agent/profiles/`, or the shipped `.claude/fibsem-agent/`, the
+  first found winning: model, effort, budget and turns, the mode and its folder,
   extra skills, instructions added to the prompt, and reminders. Flags on the
   command line win over it; the level and the API key are never in it.
   `--show-config` prints what the agent would run with and starts nothing,

@@ -5,8 +5,10 @@
     fibsem-agent --list-profiles
     fibsem-agent --list-hooks
 
-A profile is ``<name>.yaml`` in this machine's ``~/.fibsem/agent/profiles/``
-or in the checkout's ``.claude/fibsem-agent/`` (the machine's wins). It says
+A profile is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/profiles/``,
+this machine's older ``~/.fibsem/agent/profiles/``, or the shipped
+``.claude/fibsem-agent/`` (a checkout's, or the package's copy), the first
+found winning. It says
 what it is for (``description``, shown on the gateway's Agent card), and sets
 the model, effort, budget and turns, the mode and its folder (else work/ in
 the session's folder), extra skills, instructions added to the prompt, and
@@ -25,11 +27,12 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
 from fibsem import paths
+from fibsem.ai.agent import sources
 
 PROFILE_DIR = Path(".claude") / "fibsem-agent"
 # The profile fibsem-agent and the gateway run with when none is named.
@@ -49,6 +52,7 @@ FIELDS = (
     "skills",
     "prompt",
     "hooks",
+    "playbook",
 )
 
 
@@ -68,6 +72,13 @@ class HookOption:
     server_errors_only: bool = False
     # After the call: only when its answer has this in it.
     answer_has: str = ""
+    # Only when these arguments match (a pattern, searched, any case).
+    input_matches: Tuple[Tuple[str, str], ...] = ()
+    # For event WATCHER: a pattern on the watcher's lines, said with that turn.
+    line: str = ""
+
+    def on_lines(self, lines: List[str]) -> bool:
+        return bool(self.line) and any(re.search(self.line, x) for x in lines)
 
     def applies(self, hook_input: dict, server: str) -> bool:
         name = str(hook_input.get("tool_name", ""))
@@ -78,10 +89,17 @@ class HookOption:
             return False
         if self.server_errors_only:
             return str(hook_input.get("error", "")).startswith("failed (5")
+        given = hook_input.get("tool_input") or {}
+        for key, pattern in self.input_matches:
+            if not re.search(pattern, str(given.get(key, "")), re.IGNORECASE):
+                return False
         if self.answer_has:
             return self.answer_has in str(hook_input.get("tool_response", ""))
         return True
 
+
+# An option said with a turn of watcher lines, not by an SDK hook on a call.
+WATCHER = "Watcher"
 
 HOOK_OPTIONS: Dict[str, HookOption] = {
     "site": HookOption(
@@ -101,6 +119,25 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PostToolUse",
         "service_wait_for_run",
         answer_has="Pass data",
+    ),
+    # Deciding or suggesting one of Setup's proposals: its position, point of
+    # interest or alignment area. By the task's name in the protocol.
+    "setup_placement": HookOption(
+        "Placing a lamella at Setup",
+        "PreToolUse",
+        "proposal_decide|proposal_suggest",
+        input_matches=(("task_name", r"setup|select.*position"),),
+    ),
+    # Deciding or suggesting a pass of the Polishing task's mill.
+    "polishing_pass": HookOption(
+        "Deciding a polishing pass",
+        "PreToolUse",
+        "proposal_decide|proposal_suggest",
+        input_matches=(("task_name", r"polish"),),
+    ),
+    # A task finished: the watcher's line, not a tool call.
+    "after_task": HookOption(
+        "After a task finishes", WATCHER, "", line=r"^EVENT task_completed\b"
     ),
     "hardware_error": HookOption(
         "On a hardware error", "PostToolUseFailure", ".*", server_errors_only=True
@@ -139,11 +176,14 @@ class Profile:
     """The level the gateway's Agent card picks first; the operator still starts it."""
     description: Optional[str] = None
     """What the profile is for, in a sentence, for the gateway's Agent card."""
+    playbook: Optional[str] = None
+    """The playbook it runs, by name; without one the agent proposes one."""
 
 
 def dirs(checkout: Optional[Path]) -> List[Path]:
-    """Where profiles are looked for, the first found winning."""
-    found = [machine_dir()]
+    """Where profiles are looked for, the first found winning: the lab's in
+    the knowledge base, this machine's older folder, then the shipped ones."""
+    found = [sources.lab_folder("profiles"), machine_dir()]
     if checkout is not None:
         found.append(checkout / PROFILE_DIR)
     return found
@@ -196,6 +236,7 @@ def load(path: Path, efforts=(), checkout: Optional[Path] = None) -> Profile:
         hooks=_hooks(data.get("hooks"), path),
         level=_text(data, "level", path),
         description=_text(data, "description", path),
+        playbook=_text(data, "playbook", path),
     )
     if profile.level is not None and profile.level not in LEVELS:
         raise ProfileError(f"{path}: level is one of {', '.join(LEVELS)}")
@@ -205,12 +246,13 @@ def load(path: Path, efforts=(), checkout: Optional[Path] = None) -> Profile:
         raise ProfileError(f"{path}: effort is one of {', '.join(efforts)}")
     if checkout is not None:
         missing = [
-            name
-            for name in profile.skills
-            if not (checkout / ".claude" / "skills" / name / "SKILL.md").is_file()
+            name for name in profile.skills if sources.skill_dir(name, checkout) is None
         ]
         if missing:
-            raise ProfileError(f"{path}: no skill {', '.join(missing)} in {checkout}")
+            raise ProfileError(
+                f"{path}: no skill {', '.join(missing)} in "
+                f"{sources.lab_folder('skills')} or {checkout}"
+            )
     return profile
 
 
@@ -262,7 +304,7 @@ def _hooks(value: Any, path: Path) -> List[Hook]:
 
 
 def reminder(texts: List[str]) -> str:
-    return "Reminder from your profile: " + " ".join(texts)
+    return "Reminder: " + " ".join(texts)
 
 
 def callback(option: HookOption, texts: List[str], server: str):
@@ -293,6 +335,8 @@ def sdk_hooks(hooks: List[Hook], server: str) -> Optional[dict]:
     matchers: Dict[str, list] = {}
     for when, texts in said.items():
         option = HOOK_OPTIONS[when]
+        if option.event == WATCHER:
+            continue
         matchers.setdefault(option.event, []).append(
             HookMatcher(
                 matcher=f"mcp__{server}__({option.tools})",
@@ -310,8 +354,14 @@ def hook_rows() -> List[dict]:
             "PreToolUse": "before the call",
             "PostToolUse": "after the call",
             "PostToolUseFailure": "when the call fails with a server error",
+            WATCHER: "on the watcher's line",
         }[option.event]
         rows.append(
-            {"when": key, "label": option.label, "fires": timing, "tools": option.tools}
+            {
+                "when": key,
+                "label": option.label,
+                "fires": timing,
+                "tools": option.tools or option.line,
+            }
         )
     return rows
