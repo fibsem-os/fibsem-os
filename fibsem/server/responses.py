@@ -1491,9 +1491,17 @@ class EvidenceView:
     channels: Optional[List[str]] = None
     # The stack's plane shown (0 the first), when the marks are on one.
     plane: Optional[int] = None
-    # The experiment image to mark in reply: this one, or the one an upload
-    # was drawn from. None for a picture with no image behind it.
+    # The experiment image to mark in reply: this one, or the one a drawn
+    # picture or an upload was drawn on. None when there is none to mark.
     source: Optional[str] = None
+    # The marks drawn on *source* (its pixels), when it is not this image:
+    # the picks to say good or bad of. None when unknown.
+    source_marks: Optional[Any] = None
+    # Feedback: the evidence id of the picture this answers, the verdict on
+    # it (good or bad), and on each of its marks.
+    answers: Optional[str] = None
+    verdict: Optional[str] = None
+    judged: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass

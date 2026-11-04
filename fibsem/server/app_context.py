@@ -351,7 +351,11 @@ class AppContext:
             return {"error_type": "invalid", "message": str(exc)}
         saved = drawn_path(target, _drawn_stem(target, checked, plane, box))
         return ImageDrawn(
-            path, saved, checked, save_drawn(drawn.rgb, saved), drawn.layers
+            path,
+            saved,
+            checked,
+            save_drawn(drawn.rgb, saved, target, checked, plane),
+            drawn.layers,
         )
 
     def draw_pair(
@@ -409,7 +413,9 @@ class AppContext:
             after,
             saved,
             checked,
-            save_drawn(side_by_side(left.rgb, right.rgb), saved),
+            save_drawn(
+                side_by_side(left.rgb, right.rgb), saved, first, checked, before_plane
+            ),
             left.layers,
             right.layers,
         )
