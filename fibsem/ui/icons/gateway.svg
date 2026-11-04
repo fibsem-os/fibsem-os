@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect class="tile" width="32" height="32" rx="7" fill="#262930"/>
+  <rect class="light" x="4" y="6" width="24" height="16" rx="2" fill="#FFFFFF"/>
+  <rect class="tile" x="6" y="8" width="20" height="12" rx="0.5" fill="#262930"/>
+  <rect class="dark" x="14" y="22" width="4" height="3" fill="#5A626C"/>
+  <rect class="dark" x="10" y="25" width="12" height="2.5" rx="1" fill="#5A626C"/>
+  <circle class="accent" cx="24" cy="21" r="7" fill="#007ACC"/>
+  <polygon class="light" points="29.57,20.45 29.57,21.55 27.97,22.20 27.65,22.95 28.33,24.55 27.55,25.33 25.95,24.65 25.20,24.97 24.55,26.57 23.45,26.57 22.80,24.97 22.05,24.65 20.45,25.33 19.67,24.55 20.35,22.95 20.03,22.20 18.43,21.55 18.43,20.45 20.03,19.80 20.35,19.05 19.67,17.45 20.45,16.67 22.05,17.35 22.80,17.03 23.45,15.43 24.55,15.43 25.20,17.03 25.95,17.35 27.55,16.67 28.33,17.45 27.65,19.05 27.97,19.80" fill="#FFFFFF"/>
+  <circle class="accent" cx="24" cy="21" r="1.79" fill="#007ACC"/>
+</svg>

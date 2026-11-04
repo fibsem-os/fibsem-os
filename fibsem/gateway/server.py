@@ -170,9 +170,10 @@ def build_gateway_app(
 
     @app.post("/gateway/start", response_model=GatewayState)
     def start(body: Dict[str, Any], found: Caller = Depends(switcher)):
-        """``{app, window, experiment | last, force}``: stop the running app
-        and start this one, with its window at this PC (the default) or
-        without."""
+        """``{app, window, experiment | last, force, connect, configuration}``:
+        stop the running app and start this one, with its window at this PC
+        (the default) or without, connecting *configuration* (the default one)
+        as it starts when *connect*."""
         return _act(
             found,
             body,
@@ -184,14 +185,23 @@ def build_gateway_app(
                 experiment=body.get("experiment"),
                 last=bool(body.get("last", False)),
                 force=force,
+                connect=None if body.get("connect") is None else bool(body["connect"]),
+                configuration=body.get("configuration"),
             ),
         )
 
     @app.post("/gateway/stop", response_model=GatewayState)
     def stop(body: Optional[Dict[str, Any]] = None, found: Caller = Depends(switcher)):
-        """Back to off: ``{force}`` stops past a running workflow (operator)."""
+        """Back to off: ``{force}`` stops past a running workflow, and an app
+        with its window closes it (both the operator's only)."""
         body = body or {}
-        return _act(found, body, lambda force, via: gateway.stop(found.who, via, force))
+        return _act(
+            found,
+            body,
+            lambda force, via: gateway.stop(
+                found.who, via, force, window=found.operator
+            ),
+        )
 
     @app.post("/gateway/claim", response_model=GatewayState)
     def claim(body: Dict[str, Any], found: Caller = Depends(caller)):
@@ -297,7 +307,11 @@ def build_gateway_app(
                 found,
                 body,
                 lambda force, via: agent.end(
-                    found.who, via, bool(body.get("stop_app", False)), force
+                    found.who,
+                    via,
+                    bool(body.get("stop_app", False)),
+                    force,
+                    window=found.operator,
                 ),
             )
 

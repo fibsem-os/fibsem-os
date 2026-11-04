@@ -39,6 +39,8 @@ interface Profile {
 
 interface Configuration {
   profile: { name: string; path: string; hash: string } | null;
+  level: string | null;
+  description: string | null;
   model: string | null;
   effort: string | null;
   max_budget_usd: number | null;
@@ -118,11 +120,20 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
   });
   const usable = (profiles.data ?? []).filter((p) => !p.error);
   const [profile, setProfile] = useState("");
-  const [level, setLevel] = useState("watch");
+  // Picked here, or else the profile's level, or Watch.
+  const [picked, setPicked] = useState<string | null>(null);
   const [budget, setBudget] = useState("");
   const [goal, setGoal] = useState("");
   const [shown, setShown] = useState(false);
   const chosen = profile || usable.find((p) => p.name === "default")?.name || usable[0]?.name || "";
+  const config = useQuery({
+    queryKey: ["gateway/agent/profiles", chosen],
+    queryFn: () => api<Configuration>(`/gateway/agent/profiles/${encodeURIComponent(chosen)}`),
+    enabled: !!chosen,
+    staleTime: 30_000,
+  });
+  const fromProfile = config.data?.level ?? null;
+  const level = picked ?? fromProfile ?? "watch";
   const start = useMutation({
     mutationFn: (replace: boolean) =>
       api<AgentState>("/gateway/agent/start", {
@@ -146,9 +157,21 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
         No agent is running.
         {last?.ended && ` Last session (${day(last.started)}): ${last.ended}.`}
       </p>
+      {!state.api_key && (
+        <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+          No API key on this PC, so the agent can't start. Run fibsem-cli key set ANTHROPIC_API_KEY on this PC.
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         <Field label="Profile">
-          <select value={chosen} onChange={(event) => setProfile(event.target.value)} className={FIELD}>
+          <select
+            value={chosen}
+            onChange={(event) => {
+              setProfile(event.target.value);
+              setPicked(null);
+            }}
+            className={FIELD}
+          >
             {usable.map((p) => (
               <option key={p.name} value={p.name}>
                 {p.name}
@@ -157,7 +180,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
           </select>
         </Field>
         <Field label="Level">
-          <select value={level} onChange={(event) => setLevel(event.target.value)} className={FIELD}>
+          <select value={level} onChange={(event) => setPicked(event.target.value)} className={FIELD}>
             {LEVELS.map((l) => (
               <option key={l} value={l}>
                 {title(l)}
@@ -186,6 +209,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
       {profiles.error && <p className="m-0 text-[13px] text-destructive">{(profiles.error as Error).message}</p>}
       {chosen && (
         <div className="flex flex-col gap-2.5">
+          {config.data?.description && <p className="m-0 text-[13px] text-muted-foreground">{config.data.description}</p>}
           <button
             onClick={() => setShown(!shown)}
             className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--primary)] hover:underline"
@@ -213,11 +237,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
               <span className="text-xs text-muted-foreground">Start the app first: the agent acts through it.</span>
             ) : !connected ? (
               <span className="text-xs text-muted-foreground">Connect the microscope first: the agent works on it.</span>
-            ) : !state.api_key ? (
-              <span className="text-xs text-muted-foreground">
-                No API key: run fibsem-cli key set ANTHROPIC_API_KEY on this PC.
-              </span>
-            ) : (
+            ) : !state.api_key ? null : (
               <span className="text-xs text-muted-foreground">Uses ANTHROPIC_API_KEY on this PC.</span>
             )}
             <Button
