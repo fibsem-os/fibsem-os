@@ -53,8 +53,8 @@ The page (`/ui/gateway`) shows:
 - every start and stop, with who made it and from where.
 
 At the top right, the page says when there is newer code: "fibsemOS 0.6.3 available" when a
-newer release is on PyPI, or "12 commits behind main" for a source checkout behind GitHub's
-`main`. The gateway asks when it starts and once a day after. Offline, or with a commit that
+newer release is on PyPI, or "Update available" for a source checkout behind GitHub's
+`main` (hover it for how many changes). The gateway asks when it starts and once a day after. Offline, or with a commit that
 was never pushed, it shows nothing.
 
 ## The agent

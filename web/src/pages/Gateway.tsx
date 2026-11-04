@@ -55,9 +55,13 @@ interface Switch {
 const FIELD = "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
 
 /** What is newer than the code the gateway runs: a release, or commits on main. */
-function newerLabel(newer: GatewayState["newer"]): string | null {
-  if (newer?.latest) return `fibsemOS ${newer.latest} available`;
-  if (newer?.behind) return `${newer.behind} commit${newer.behind === 1 ? "" : "s"} behind ${newer.branch}`;
+function newerLabel(newer: GatewayState["newer"]): { text: string; detail: string } | null {
+  if (newer?.latest) return { text: `fibsemOS ${newer.latest} available`, detail: "A newer release is on PyPI." };
+  if (newer?.behind)
+    return {
+      text: "Update available",
+      detail: `${newer.behind} newer change${newer.behind === 1 ? "" : "s"} on GitHub (${newer.branch}).`,
+    };
   return null;
 }
 
@@ -291,6 +295,7 @@ export function GatewayPage() {
   });
   const state = gateway.data;
   const running = state?.mode === "running";
+  const newer = state ? newerLabel(state.newer) : null;
   const [choice, setChoice] = useState<MicroscopeChoice>({ connect: true, configuration: "" });
   // The gateway's own flags stand when it has some; else the page's choice.
   const microscope: Record<string, unknown> =
@@ -315,8 +320,10 @@ export function GatewayPage() {
             {location.host}
             {state && ` · fibsemOS ${state.version}`}
           </span>
-          {state && newerLabel(state.newer) && (
-            <span className="ml-auto text-[13px] text-muted-foreground">{newerLabel(state.newer)}</span>
+          {newer && (
+            <span className="ml-auto text-[13px] text-muted-foreground" title={newer.detail}>
+              {newer.text}
+            </span>
           )}
         </div>
         {gateway.error && <p className="m-0 text-[13px] text-destructive">{(gateway.error as Error).message}</p>}
