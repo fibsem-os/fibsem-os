@@ -41,9 +41,8 @@ Either way, stop at once on a stop sign below. For every pass:
   low-current passes align on the full frame, and don't re-align by hand as
   well. By hand (`milling_run_stage`), re-align to the reference yourself
   before every step (fibsem-agent, *Align to the image you placed on*).
-  Either way, below about 300 nm, check that the alignment methods agree
-  (`alignment_compare_methods` on the reference and a fresh image); if they
-  don't, align again before milling.
+  Either way, below about 300 nm, if the alignment methods disagree, align
+  again before milling.
 - After every step, a FIB image and an SEM image, both saved as files, not
   previews, so the operator can review them later. Read the faces only on
   FIB images 3072 px wide: on a real run, faces read on 1536 px images led
