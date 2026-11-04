@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional, Tuple
 from urllib.error import HTTPError
 
 from fibsem.ai.agent.profiles import DEFAULT_PROFILE
+from fibsem.gateway.agent import API_KEY
 from fibsem.gateway.gateway import OFF
 from fibsem.gateway.main import call, start_gateway
 from fibsem.tools.apps import apps
@@ -103,6 +104,16 @@ class Launch:
             return self._call("GET", "/gateway", timeout=10.0)
         except (OSError, ValueError):
             return None
+
+    def api_key(self) -> None:
+        """An API key for the agent, checked before anything starts; skipped
+        while an agent runs."""
+        state = self._ask("Start the agent", "GET", "/gateway/agent")
+        if state.get("running") is None and not state.get("api_key"):
+            raise LaunchFailed(
+                f"Start the agent: no API key on this PC. Set {API_KEY} for this "
+                "PC's user, then restart the gateway."
+            )
 
     def app(self, key: str) -> None:
         """The app running, with its window when the gateway starts it."""
@@ -190,6 +201,7 @@ def launch(
     fails."""
     steps = steps or Launch()
     steps.gateway()
+    steps.api_key()
     steps.app(key)
     steps.microscope(configuration)
     steps.agent(profile)

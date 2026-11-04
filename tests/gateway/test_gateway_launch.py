@@ -24,8 +24,11 @@ class FakeGateway:
     """The gateway's routes as `fibsem.gateway.main.call` reaches them: an app
     that takes a poll to come up, and a connect that takes a poll to finish."""
 
-    def __init__(self, up=True, mode=OFF, app=None, connected=False, agent=None):
+    def __init__(
+        self, up=True, mode=OFF, app=None, connected=False, agent=None, api_key=True
+    ):
         self.up = up
+        self.api_key = api_key
         self.mode, self.app = mode, app
         self.host_up = mode == RUNNING
         self.connected, self.connecting = connected, False
@@ -59,7 +62,7 @@ class FakeGateway:
             self.connecting = True
             return {"connected": False}
         if route == "/gateway/agent":
-            return {"running": self.agent}
+            return {"running": self.agent, "api_key": self.api_key}
         if route == "/gateway/agent/start":
             self.agent = {"level": body["level"]}
             return {"running": self.agent}
@@ -153,6 +156,20 @@ def test_a_refused_agent_start_says_why():
     steps = Launch(call=call, say=lambda text: None, sleep=lambda seconds: None)
     with pytest.raises(LaunchFailed, match="Start the agent: Set ANTHROPIC_API_KEY"):
         launch(steps=steps, open_page=lambda url: None)
+
+
+def test_no_api_key_stops_before_the_app_starts():
+    gateway = FakeGateway(api_key=False)
+    with pytest.raises(LaunchFailed, match="no API key on this PC"):
+        _launch(gateway)
+    assert gateway.posts() == []
+
+
+def test_a_running_agent_needs_no_key_check():
+    gateway = FakeGateway(
+        mode=RUNNING, app="autolamella", connected=True, agent={}, api_key=False
+    )
+    assert _launch(gateway) == [PAGE]
 
 
 def test_the_command_has_no_level_to_raise():

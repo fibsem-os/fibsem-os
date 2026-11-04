@@ -146,6 +146,12 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
         No agent is running.
         {last?.ended && ` Last session (${day(last.started)}): ${last.ended}.`}
       </p>
+      {!state.api_key && (
+        <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+          No API key on this PC, so the agent can't start. Set ANTHROPIC_API_KEY for this PC's user, then restart the
+          gateway.
+        </p>
+      )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         <Field label="Profile">
           <select value={chosen} onChange={(event) => setProfile(event.target.value)} className={FIELD}>
@@ -213,11 +219,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
               <span className="text-xs text-muted-foreground">Start the app first: the agent acts through it.</span>
             ) : !connected ? (
               <span className="text-xs text-muted-foreground">Connect the microscope first: the agent works on it.</span>
-            ) : !state.api_key ? (
-              <span className="text-xs text-muted-foreground">
-                Set ANTHROPIC_API_KEY for this PC's user, then restart the gateway.
-              </span>
-            ) : (
+            ) : !state.api_key ? null : (
               <span className="text-xs text-muted-foreground">Uses ANTHROPIC_API_KEY on this PC.</span>
             )}
             <Button
