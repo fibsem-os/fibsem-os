@@ -33,16 +33,25 @@ its plane with `experiment_draw_image` and `looks`, setting each channel's
 the target's own values. Check a candidate at two settings before you call
 it a target.
 
+Once the FM is focused on a lamella, store the objective's position on its
+fluorescence pose (`item_set_objective_position`), so its next stack starts
+there. `item_set_objective_position_on_all` copies it to every lamella and
+overwrites theirs: use it only when the operator asks.
+
 ## Correlating FM to FIB
 
-Refine each fiducial pick with `correlation_refine_point` before
+Where the lamella has a spot-burn task, seed the FIB fiducials from its burns
+(`correlation_find_spot_burns`, with `fib_image_path`) instead of picking
+them by eye. Refine each fiducial pick with `correlation_refine_point` before
 `correlation_correlate`, pass `lamella_path`, and look at the overlay before
 trusting the answer. Always give a surface point, `fm_surface_point` or
 `fib_surface_point`, so the refractive-index correction is applied, and check
 the answer's `ri_correction`. Without one, the targets sit deeper than the FM
 stack reads: on a real run 4 of 7 targets were lost this way. Apply the
 result (`item_apply_correlation`, as the tab's Continue) only on a `good`
-verdict, or when the operator agrees.
+verdict, or when the operator agrees. To place another FM point (a second
+target, a refitted one) through a correlation you already have, use
+`correlation_predict` with its run, rather than correlating again.
 
 ## Rough milling to a target
 

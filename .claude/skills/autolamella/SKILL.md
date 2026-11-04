@@ -193,6 +193,8 @@ Before you decide or place either:
    (`beam_acquire_image`). Check both are in focus and their brightness and
    contrast let you read them; fix them first if not (fibsem-agent,
    *Don't judge a poor image*), and check what Setup's own autofocus did.
+   Read the milling angle (`stage_get_current_milling_angle`) against the
+   Setup task config's `milling_angle`.
 3. Check the target is at the centre of both. If it is not, run the
    coincidence loop (fibsem-agent, *Using the microscope*): centre it
    in one beam with `stage_stable_move`, bring the other beam onto it with
@@ -422,7 +424,9 @@ task recorded, a log line, an image you looked at, or your own inference.
 Keep inference marked as inference ("the fiducial looks out of frame in the
 start image, so alignment probably failed for that reason").
 
-**"What happened to lamella 2?"** Its runs in order, how each ended, how
+**"What happened to lamella 2?"** `item_get_history` has its runs in order,
+as its History tab shows them; `operations_open` marks a run with an
+operation that didn't complete. Give its runs in order, how each ended, how
 long it took, any decisions or edits on it, and its current state. Look at
 the final images of the last task it completed. Lead with the outcome
 ("Rough Milling done; Mill Fiducial failed once and wasn't re-run").

@@ -39,7 +39,10 @@ the stage geometry yourself. `experiment_render_markers` draws the items on
 any beam image in the experiment.
 
 `quality` is the operator's verdict, not yours: say what you see, propose,
-and leave the verdict to them.
+and leave the verdict to them. Set it with `grid_set_quality` only once they
+agree. What
+you saw goes on the grid's card with `grid_set_note`, so the next session
+finds it with the grid.
 
 ## Finding sites
 
