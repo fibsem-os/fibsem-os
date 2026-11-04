@@ -84,6 +84,15 @@ When you pick sites (cells, squares):
 - Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
   cell or a rank; ask which the operator means.
 
+**Check each site before you keep it.** Picking on the overview gives
+candidates, not sites. Then go to each candidate (`stage_stable_move`) and
+check focus, brightness and contrast, and SEM/FIB coincidence there
+(fibsem-agent, *Coincidence: do it yourself*): the same feature centred in
+both beams at a 50 µm field of view, within 5 µm, aiming for 2-3 µm. Fix
+what you can; drop a candidate you can't bring into focus or coincidence and
+say why. Only a site that passes is recorded. Note each one's coincident
+height: on a bent grid it changes from site to site.
+
 **Recording sites.** For AutoLamella, each site is a lamella: `item_add`
 without `name`, so it gets the app's usual name, and how to find it again
 (grid, square, rank, why it was chosen) in its description, as

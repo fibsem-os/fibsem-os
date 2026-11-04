@@ -73,7 +73,8 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    auto are yours; say so, and that the Verifier checks them. Say too that
    a hardware error stops the run until they're back (fibsem-agent, *A
    hardware error is the operator's*).
-1. **Sites.** Pick them by screen-grids' *Finding sites*. Call the Verifier with the
+1. **Sites.** Pick them by screen-grids' *Finding sites*, and check each
+   one there before you keep it. Call the Verifier with the
    marked overview, the intake's rules and the list; drop or replace each
    site it flags, and ask it again about the replacements. Then post
    `[sites]` with the overview as the evidence.
