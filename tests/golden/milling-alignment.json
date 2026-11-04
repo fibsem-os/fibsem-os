@@ -4,6 +4,7 @@
   "imaging": {
     "autocontrast": true,
     "beam_type": "ION",
+    "bit_depth": null,
     "drift_correction": true,
     "dwell_time": 2e-06,
     "filename": "reference",

@@ -188,9 +188,11 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 record.get("by") or evidence.AGENT,
                 record.get("channels"),
                 plane,
-                _markable(
-                    root, record.get("source") if record.get("uploaded") else image
-                ),
+                _markable(root, record.get("source") or image),
+                evidence.marked_on(record)[1] if record.get("source") else None,
+                record.get("answers"),
+                record.get("verdict"),
+                record.get("judged"),
             )
         )
 
@@ -211,7 +213,10 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             # experiment as the agent's own evidence is.
             if not isinstance(marked, dict):
                 raise refusal_error(
-                    422, "invalid", "evidence is {image, marks, channels?}."
+                    422,
+                    "invalid",
+                    "evidence is {image, marks, channels?, answers?, verdict?, "
+                    "judged?}.",
                 )
             try:
                 record = evidence.save(
@@ -220,6 +225,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     marks=marked.get("marks"),
                     channels=marked.get("channels"),
                     by=evidence.OPERATOR,
+                    answers=marked.get("answers"),
+                    verdict=marked.get("verdict"),
+                    judged=marked.get("judged"),
                 )
             except evidence.EvidenceRefused as refusal:
                 raise HTTPException(
@@ -321,10 +329,15 @@ def _decided(result: Any, proposal_id: str) -> Any:
     return answer(SuggestionDecided(proposal_id, True))
 
 
+# The images the operator can mark: saved beam images and stacks, and pictures.
+_MARKABLE = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
+
+
 def _markable(root: str, image: Optional[str]) -> Optional[str]:
-    """*image* inside the experiment at *root*, when it is a beam image or a
-    fluorescence stack (TIFF) the operator can mark; None otherwise."""
-    if not image or not image.lower().endswith((".tif", ".tiff")):
+    """*image* inside the experiment at *root*, when it is one the operator
+    can mark: a beam image, a fluorescence stack, or a picture (PNG, JPEG);
+    None otherwise."""
+    if not image or not image.lower().endswith(_MARKABLE):
         return None
     if not os.path.isfile(image):
         return None

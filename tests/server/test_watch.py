@@ -1129,3 +1129,35 @@ def test_every_autofocus_and_alignment_is_a_line_with_its_check():
         "score=0.81 passed",
         "AUTOFOCUS beam=ELECTRON status=failed (RuntimeError: no beam)",
     ]
+
+
+def test_feedback_on_the_agent_s_picture_says_what_was_wrong():
+    from fibsem.ai.agent.watch import _marks_part
+
+    record = _marked(
+        "ab12cd34",
+        {"points": [{"x": 64, "y": 48, "label": "cell 4", "verdict": "good"}]},
+    )
+    record.update(
+        answers="3f9a01c2",
+        verdict="bad",
+        judged=[
+            {"kind": "points", "index": 0, "label": "1", "verdict": "bad"},
+            {
+                "kind": "points",
+                "index": 1,
+                "label": "",
+                "verdict": "good",
+                "moved_to": {"x": 90, "y": 92},
+                "moved_px": 32.0,
+                "moved_m": 20e-6,
+            },
+        ],
+    )
+    said = _marks_part(record)
+    assert said == (
+        " -- answers your picture (evidence 3f9a01c2) on /exp/ref_fib.tif "
+        '(evidence ab12cd34): the picture bad; your marks: "1" bad; point 2 good, '
+        "moved 20.0 µm to 90,92 px; operator's marks: "
+        'point "cell 4" good at 64,48 px'
+    )
