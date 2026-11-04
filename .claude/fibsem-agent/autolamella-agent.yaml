@@ -1,6 +1,7 @@
-# The profile for AutoLamella work: the fibsem-agent default's settings and
-# rules, plus the reminders only AutoLamella's stages need. Profiles don't
-# inherit, so a change to the default's rules goes in both files.
+# The profile for on-grid AutoLamella work, not correlative: the fibsem-agent
+# default's settings and rules, plus the reminders only AutoLamella's stages
+# need. Profiles don't inherit, so a change to the default's rules goes in
+# both files.
 effort: high
 max_budget_usd: 500
 max_turns: 40

@@ -168,7 +168,10 @@ def test_the_autolamella_profile_is_the_default_plus_its_reminders(checkout):
         path = checkout / profiles.PROFILE_DIR / f"{name}.yaml"
         return profiles.load(path, harness_mod.EFFORTS, checkout)
 
-    default, autolamella = shipped(profiles.DEFAULT_PROFILE), shipped("autolamella")
+    default, autolamella = (
+        shipped(profiles.DEFAULT_PROFILE),
+        shipped("autolamella-agent"),
+    )
     assert [hook.when for hook in autolamella.hooks] == [
         "hardware_error",
         "after_polish_pass",
