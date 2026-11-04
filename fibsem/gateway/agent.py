@@ -8,6 +8,7 @@ the Allow), sets the App Server's level, then starts
 agent's environment. When the app comes back after a restart the manager
 resumes the agent, and the gateway sets the Start level again: the App Server
 starts at Watch on every launch. End stops the agent and unpairs it.
+Resume carries an ended session on, whoever started it, as its record says.
 """
 
 from __future__ import annotations
@@ -22,13 +23,15 @@ import threading
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.manager import (
     END_WAIT_S,
     MANAGED,
     RECORD,
+    RUN,
+    WORK,
     AgentRunning,
     AgentSessionManager,
     agent_command,
@@ -103,7 +106,19 @@ def _spent(record: dict) -> Optional[float]:
     return round(sum(spent), 2) if spent else None
 
 
-def _row(record: dict) -> Dict[str, Any]:
+def _why_not(record: dict, platform: str) -> Optional[str]:
+    """Why the session can't be resumed here, or None when it can."""
+    if not record.get("session_id"):
+        return "It has no session id."
+    if record.get("mode") == "code" and platform == "win32":
+        return "It ran code, which has no sandbox on Windows."
+    cwd = record.get("cwd")
+    if cwd and not Path(cwd).is_dir() and Path(cwd).name != RUN:
+        return "Its working folder is gone."
+    return None
+
+
+def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
     """One session as the page lists it."""
     managed = record.get("manager") or {}
     runs = record.get("runs") or [{}]
@@ -120,6 +135,8 @@ def _row(record: dict) -> Dict[str, Any]:
         "spent_usd": _spent(record),
         "ended": ended,
         "gateway": bool(managed),
+        "resumed": bool((managed.get("about") or {}).get("resumed")),
+        "cannot_resume": _why_not(record, platform),
     }
 
 
@@ -173,13 +190,13 @@ class GatewayAgent:
         agent = self._manager.agent(self.microscope)
         running = None
         records = self._manager.sessions(SESSIONS_SHOWN + 1)
-        rows = [_row(record) for record in records]
+        rows = [_row(record, self._platform) for record in records]
         if agent is not None and agent.state != "ended":
             # Read here: the agent may not have written its record yet.
             managed = read_json(agent.folder / MANAGED)
             record = {**read_json(agent.folder / RECORD), "manager": managed}
             running = {
-                **_row(record),
+                **_row(record, self._platform),
                 **(managed.get("about") or {}),
                 "session_id": agent.session_id,
                 "state": agent.state,
@@ -214,53 +231,7 @@ class GatewayAgent:
         """Pair, set the level, start ``fibsem-agent``; each failure undoes
         what came before it. Raises `GatewayRefused`."""
         with self._lock:
-            try:
-                level = AgentLevel(str(level).lower()).value
-            except ValueError:
-                names = ", ".join(lvl.value for lvl in AgentLevel)
-                raise GatewayRefused(422, "bad_level", f"The level is one of {names}.")
-            if self._gateway.state().mode != RUNNING:
-                raise GatewayRefused(
-                    409, "no_app", "Run the app first: the agent acts through it."
-                )
-            url = self._url()
-            if url is None:
-                raise GatewayRefused(
-                    409, "no_app", "The app's server isn't up yet: try again shortly."
-                )
-            if not self._connected(url):
-                raise GatewayRefused(
-                    409,
-                    "not_connected",
-                    "Connect the microscope first: the agent works on it.",
-                )
-            current = self._manager.agent(self.microscope)
-            if current is not None and current.state != "ended":
-                raise GatewayRefused(
-                    409, "agent_running", "The agent is already running: end it first."
-                )
-            if not self._api_key():
-                raise GatewayRefused(
-                    409,
-                    "no_api_key",
-                    f"No API key: run fibsem-cli key set {API_KEY} on this PC.",
-                )
-            config = self.configuration(profile)
-            if config.get("mode") == "code" and self._platform == "win32":
-                raise GatewayRefused(
-                    409,
-                    "code_mode_windows",
-                    f"Profile {profile} runs code, which has no sandbox on Windows: "
-                    "pick a profile without code.",
-                )
-            paired = self._tokens.agent()
-            if paired is not None and paired.name != AGENT_NAME and not replace:
-                raise GatewayRefused(
-                    409,
-                    "agent_paired",
-                    f"An agent is already connected ({paired.name}). "
-                    "Starting this agent disconnects it.",
-                )
+            level, url = self._ready(level, profile, replace)
             env = self._pair()
             try:
                 self._level(url, level)
@@ -295,6 +266,134 @@ class GatewayAgent:
                 "Gateway started the agent (%s, %s) for %s", profile, level, who
             )
             return self.state()
+
+    def resume(
+        self,
+        session_id: str,
+        level: str,
+        who: str,
+        via: str,
+        budget_usd: Optional[float] = None,
+        replace: bool = False,
+    ) -> AgentState:
+        """Carry on an ended session, started here or with ``fibsem-agent`` by
+        hand, as it ran: its profile, mode and folder from its record, with a
+        fresh pairing and the App Server's url now. Checks and undoes as
+        Start does. Raises `GatewayRefused`."""
+        with self._lock:
+            folder = self._manager.folder(session_id)
+            record = read_json(folder / RECORD) if folder else {}
+            if not record:
+                raise GatewayRefused(
+                    404, "no_session", f"No session {session_id} on this PC."
+                )
+            why = _why_not(record, self._platform)
+            if why:
+                raise GatewayRefused(409, "cannot_resume", why)
+            started = read_json(folder / MANAGED).get("about") or {}
+            profile = record.get("profile") or started.get("profile")
+            mode = record.get("mode")
+            level, url = self._ready(level, profile, replace, mode)
+            env = self._pair()
+            try:
+                self._level(url, level)
+            except GatewayRefused:
+                self._unpair()
+                raise
+            args = (["--profile", profile] if profile else []) + ["--url", url]
+            cwd = record.get("cwd")
+            if mode in ("code", "files"):
+                # Its own work/ is the flag alone; any other folder is named.
+                own = cwd == str(folder / WORK)
+                args += [f"--{mode}"] + ([] if own else [cwd])
+            elif mode == "none" and cwd and cwd != str(folder / RUN):
+                # From before run/: it ran in a checkout, which the CLI needs
+                # again to find its transcript.
+                args += ["--checkout", cwd]
+            for key in ("model", "effort"):
+                if record.get(key):
+                    args += [f"--{key}", str(record[key])]
+            if budget_usd is not None:
+                args += ["--max-budget-usd", f"{float(budget_usd):g}"]
+            about = {
+                "started": timestamps.now().isoformat(),
+                "profile": profile,
+                "goal": record.get("goal"),
+                "level": level,
+                "who": who,
+                "via": via,
+                "budget_usd": budget_usd,
+                "resumed": True,
+            }
+            try:
+                self._manager.resume(
+                    self.microscope, session_id, args, env=env, about=about
+                )
+            except (AgentRunning, OSError) as error:
+                self._undo(url)
+                raise GatewayRefused(409, "agent_not_started", str(error)) from None
+            logging.info(
+                "Gateway resumed session %s (%s) for %s", session_id, level, who
+            )
+            return self.state()
+
+    def _ready(
+        self,
+        level: str,
+        profile: Optional[str],
+        replace: bool,
+        mode: Optional[str] = None,
+    ) -> Tuple[str, str]:
+        """Start's and Resume's checks, before anything is done: the level
+        and the App Server's url. *mode* is a resumed session's own."""
+        try:
+            level = AgentLevel(str(level).lower()).value
+        except ValueError:
+            names = ", ".join(lvl.value for lvl in AgentLevel)
+            raise GatewayRefused(422, "bad_level", f"The level is one of {names}.")
+        if self._gateway.state().mode != RUNNING:
+            raise GatewayRefused(
+                409, "no_app", "Run the app first: the agent acts through it."
+            )
+        url = self._url()
+        if url is None:
+            raise GatewayRefused(
+                409, "no_app", "The app's server isn't up yet: try again shortly."
+            )
+        if not self._connected(url):
+            raise GatewayRefused(
+                409,
+                "not_connected",
+                "Connect the microscope first: the agent works on it.",
+            )
+        current = self._manager.agent(self.microscope)
+        if current is not None and current.state != "ended":
+            raise GatewayRefused(
+                409, "agent_running", "The agent is already running: end it first."
+            )
+        if not self._api_key():
+            raise GatewayRefused(
+                409,
+                "no_api_key",
+                f"No API key: run fibsem-cli key set {API_KEY} on this PC.",
+            )
+        config = self.configuration(profile) if profile else {}
+        if "code" in (config.get("mode"), mode) and self._platform == "win32":
+            raise GatewayRefused(
+                409,
+                "code_mode_windows",
+                f"Profile {profile} runs code, which has no sandbox on Windows: "
+                "pick a profile without code.",
+            )
+        paired = self._tokens.agent()
+        if paired is not None and paired.name != AGENT_NAME and not replace:
+            raise GatewayRefused(
+                409,
+                "agent_paired",
+                f"An agent is already connected ({paired.name}). "
+                "Starting this agent disconnects it.",
+            )
+        return level, url
 
     def end(
         self,

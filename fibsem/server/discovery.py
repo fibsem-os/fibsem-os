@@ -99,9 +99,12 @@ def write_discovery_file(
         # No level: it changes while the server runs and a file
         # would go stale. /capabilities is the live answer.
     }
-    with open(path, "w") as f:
+    # Written whole, then moved into place: a reader never sees it half written.
+    partial = path.with_name(path.name + ".partial")
+    with open(partial, "w") as f:
         json.dump(payload, f, indent=2)
-    os.chmod(path, 0o600)
+    os.chmod(partial, 0o600)
+    os.replace(partial, path)
     return path
 
 
