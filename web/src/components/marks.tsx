@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { type Mark, lineLength } from "@/lib/marks";
+import { BAD_MARK, GOOD_MARK, type Mark, VERDICT_SIGN, type Verdict, lineLength } from "@/lib/marks";
 
 // The label box: dark and see-through, a thin border in the mark's colour, no outline on the text.
 const LABEL_FILL = "rgba(17, 19, 24, 0.62)";
@@ -25,6 +25,7 @@ function Label({
   color,
   k,
   width,
+  verdict,
 }: {
   x: number;
   y: number;
@@ -32,10 +33,13 @@ function Label({
   color: string;
   k: number;
   width: number;
+  verdict?: Verdict;
 }) {
   const size = 12 * k;
   const pad = 4 * k;
-  const w = text.length * size * 0.6 + pad * 2;
+  // the tick or cross after the label, in green or red
+  const sign = verdict ? VERDICT_SIGN[verdict] : "";
+  const w = (text.length + (sign ? (text ? 2 : 1) : 0)) * size * 0.6 + pad * 2;
   const h = size + pad * 1.6;
   // kept inside the picture
   const left = Math.max(0, Math.min(x, width - w));
@@ -55,6 +59,11 @@ function Label({
       />
       <text x={left + pad} y={top + h / 2} dominantBaseline="central" fill={color} fontSize={size} fontWeight={500}>
         {text}
+        {sign && (
+          <tspan fill={verdict === "good" ? GOOD_MARK : BAD_MARK} dx={text ? size * 0.4 : 0}>
+            {sign}
+          </tspan>
+        )}
       </text>
     </g>
   );
@@ -65,6 +74,11 @@ function labelAt(m: Mark, k: number): [number, number] {
   if (m.kind === "point") return [m.x + 12 * k, m.y - 6 * k];
   if (m.kind === "area") return [m.x, m.y - 4 * k];
   if (m.kind === "circle") return [m.x + m.radius * 0.7, m.y - m.radius * 0.7];
+  if (m.kind === "outline") {
+    const xs = m.points.map((p) => p[0]);
+    const ys = m.points.map((p) => p[1]);
+    return [Math.min(...xs), Math.min(...ys) - 4 * k];
+  }
   return [(m.x1 + m.x2) / 2 + 6 * k, (m.y1 + m.y2) / 2 - 6 * k];
 }
 
@@ -86,6 +100,7 @@ function Shape({ m, color, k, thick }: { m: Mark; color: string; k: number; thic
   }
   if (m.kind === "area") return <rect x={m.x} y={m.y} width={m.width} height={m.height} {...line} />;
   if (m.kind === "circle") return <circle cx={m.x} cy={m.y} r={m.radius} {...line} />;
+  if (m.kind === "outline") return <polygon points={m.points.map((p) => p.join(",")).join(" ")} {...line} />;
   const head = 10 * k;
   const angle = Math.atan2(m.y2 - m.y1, m.x2 - m.x1);
   const wing = (side: number) =>
@@ -111,6 +126,7 @@ function HitArea({ m, k }: { m: Mark; k: number }) {
   if (m.kind === "point") return <circle cx={m.x} cy={m.y} r={10 * k} fill="transparent" />;
   if (m.kind === "area") return <rect x={m.x} y={m.y} width={m.width} height={m.height} {...hit} />;
   if (m.kind === "circle") return <circle cx={m.x} cy={m.y} r={m.radius} {...hit} />;
+  if (m.kind === "outline") return <polygon points={m.points.map((p) => p.join(",")).join(" ")} {...hit} />;
   return <path d={`M${m.x1} ${m.y1}L${m.x2} ${m.y2}`} {...hit} />;
 }
 
@@ -123,6 +139,17 @@ export function markLabel(m: Mark, pixelSize?: number | null): string | undefine
 export function planeLabel(label: string | undefined, z: number | null | undefined): string | undefined {
   if (z == null) return label;
   return label ? `${label} · plane ${z + 1}` : `plane ${z + 1}`;
+}
+
+/** Where a mark is, as one point: a point, a shape's centre, a line's start. */
+export function markPlace(m: Mark): [number, number] {
+  if (m.kind === "point" || m.kind === "circle") return [m.x, m.y];
+  if (m.kind === "area") return [m.x + m.width / 2, m.y + m.height / 2];
+  if (m.kind === "outline") {
+    const n = m.points.length || 1;
+    return [m.points.reduce((a, p) => a + p[0], 0) / n, m.points.reduce((a, p) => a + p[1], 0) / n];
+  }
+  return [m.x1, m.y1];
 }
 
 /** Marks drawn over an image *width* x *height* source pixels, the SVG laid over it
@@ -138,6 +165,8 @@ export function MarkLayer({
   selected = null,
   hiddenLabel = null,
   plane,
+  verdicts,
+  dimmed,
   onMarkDown,
   onPointerDown,
   onPointerMove,
@@ -152,6 +181,10 @@ export function MarkLayer({
   selected?: number | null;
   hiddenLabel?: number | null;
   plane?: number | null;
+  /** What was said of each mark, by its place in *marks*, over its own verdict. */
+  verdicts?: (Verdict | undefined)[];
+  /** The marks drawn faint: moved elsewhere. */
+  dimmed?: boolean[];
   onMarkDown?: (index: number, e: ReactPointerEvent<SVGGElement>) => void;
   onPointerDown?: (e: ReactPointerEvent<SVGSVGElement>) => void;
   onPointerMove?: (e: ReactPointerEvent<SVGSVGElement>) => void;
@@ -178,10 +211,21 @@ export function MarkLayer({
             key={i}
             className={onMarkDown ? "cursor-move" : undefined}
             onPointerDown={onMarkDown && ((e) => onMarkDown(i, e))}
+            opacity={dimmed?.[i] ? 0.45 : undefined}
           >
             <Shape m={m} color={color} k={k} thick={i === selected} />
             {onMarkDown && <HitArea m={m} k={k} />}
-            {text && <Label x={lx} y={ly} text={text} color={color} k={k} width={width} />}
+            {(text || (verdicts?.[i] ?? m.verdict)) && (
+              <Label
+                x={lx}
+                y={ly}
+                text={text ?? ""}
+                color={color}
+                k={k}
+                width={width}
+                verdict={verdicts?.[i] ?? m.verdict}
+              />
+            )}
           </g>
         );
       })}

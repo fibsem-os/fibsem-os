@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { ImageInfoBar, ScaleBar } from "@/components/image-info";
 import { type ImageKeys, LayerImage } from "@/components/layer-image";
-import { MarkPanel, MarkToolbar, MarkingLayer, toolForKey, useMarkEditor } from "@/components/mark-for-agent";
+import { MarkPanel, MarkToolbar, MarkingLayer, toolForKey, useMarkEditor, verdictForKey } from "@/components/mark-for-agent";
 import { MarkLayer } from "@/components/marks";
 import { Stepper } from "@/components/stepper";
 import { type StackView, useFileRead } from "@/lib/files";
@@ -231,10 +231,12 @@ function JpegImage({
   );
 }
 
-/** The agent's picture the operator answers by marking: its marks, and the plane they are on. */
+/** The agent's picture the operator answers by marking: its marks on the image, the
+ * plane they are on, and its evidence id. */
 export interface Reply {
   marks: Mark[];
   plane?: number | null;
+  answers?: string;
 }
 
 /** The viewer: one image large with its metadata, previous and next through *paths*.
@@ -280,9 +282,8 @@ export function ImageViewer({
   const fm = read.data?.summary?.fm;
   const stack = fm && fm.z_planes > 1 ? fm : undefined;
   const pixelSize = read.data?.summary?.pixel_size as number | null | undefined;
-  // in answer to the agent's picture: a beam image, or an FM stack's planes or max projection
-  const markable =
-    !!reply && !!read.data?.preview && (!!fm || imageKind(path ?? "", read.data?.summary?.beam_type) !== "Image");
+  // in answer to the agent's picture: a beam image, an FM stack's planes or max projection, or the picture itself
+  const markable = !!reply && !!read.data?.preview;
   const keys = useRef<HTMLDivElement>(null);
   const imageKeys: ImageKeys = useRef(null);
   const mark = (on: boolean) => {
@@ -303,7 +304,7 @@ export function ImageViewer({
   const size = shape ? `${shape[1]} × ${shape[0]} px${bytes ? ` · ${fmt.bytes(bytes)}` : ""}` : "";
   const marks = (
     <>
-      {reply && (
+      {reply && !marking && (
         <MarkLayer
           marks={reply.marks}
           width={editor.width}
@@ -313,7 +314,7 @@ export function ImageViewer({
           plane={editor.plane}
         />
       )}
-      {marking && <MarkingLayer editor={editor} pixelSize={pixelSize} />}
+      {marking && <MarkingLayer editor={editor} pixelSize={pixelSize} picks={reply?.marks} />}
     </>
   );
   // The viewer's keys, wherever focus is in the page while it is open, so they keep
@@ -326,7 +327,14 @@ export function ImageViewer({
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const key = e.key.toLowerCase();
     const picked = marking && toolForKey(key);
+    const said = marking && verdictForKey(key);
     if (picked) editor.setTool(picked);
+    else if (said) {
+      // the pick asked about, else the mark picked, else what new marks are
+      if (editor.choosing != null) editor.judge(editor.choosing, said);
+      else if (editor.selected != null) editor.rate(editor.selected, said);
+      else editor.setVerdict(editor.verdict === said ? undefined : said);
+    }
     else if (marking && (e.key === "Delete" || e.key === "Backspace") && editor.selected != null)
       editor.remove(editor.selected);
     else if (gl && imageKeys.current?.(e)) {
@@ -354,6 +362,10 @@ export function ImageViewer({
         onEscapeKeyDown={(e) => {
           if (!marking) return;
           e.preventDefault();
+          if (editor.choosing != null || editor.moving != null) {
+            editor.startMoving(null);
+            return;
+          }
           mark(false);
         }}
       >
@@ -398,6 +410,8 @@ export function ImageViewer({
                 image={path}
                 pixelSize={pixelSize}
                 channels={fm ? (channels ?? fm.channels.map((c) => c.name)) : null}
+                answers={reply?.answers}
+                picks={reply?.marks}
                 // back to the chat, where the message shows with its marks
                 onSent={onClose}
               />
