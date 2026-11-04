@@ -192,9 +192,16 @@ def build_gateway_app(
 
     @app.post("/gateway/stop", response_model=GatewayState)
     def stop(body: Optional[Dict[str, Any]] = None, found: Caller = Depends(switcher)):
-        """Back to off: ``{force}`` stops past a running workflow (operator)."""
+        """Back to off: ``{force}`` stops past a running workflow, and an app
+        with its window closes it (both the operator's only)."""
         body = body or {}
-        return _act(found, body, lambda force, via: gateway.stop(found.who, via, force))
+        return _act(
+            found,
+            body,
+            lambda force, via: gateway.stop(
+                found.who, via, force, window=found.operator
+            ),
+        )
 
     @app.post("/gateway/claim", response_model=GatewayState)
     def claim(body: Dict[str, Any], found: Caller = Depends(caller)):
@@ -300,7 +307,11 @@ def build_gateway_app(
                 found,
                 body,
                 lambda force, via: agent.end(
-                    found.who, via, bool(body.get("stop_app", False)), force
+                    found.who,
+                    via,
+                    bool(body.get("stop_app", False)),
+                    force,
+                    window=found.operator,
                 ),
             )
 

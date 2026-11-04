@@ -128,7 +128,7 @@ class GatewayTray(QSystemTrayIcon):
                 self._add(sub, "Choose…", free, lambda k=app.key: self._choose(k))
         windows.setEnabled(free)
         headless.setEnabled(free)
-        running = state.mode != OFF and not state.window
+        running = state.mode != OFF
         stop = self._add(menu, "Stop", running and not state.switching, self._stop)
         if state.window:
             stop.setText("Stop (close the window)")
@@ -209,7 +209,7 @@ class GatewayTray(QSystemTrayIcon):
     def _stop(self, force: bool = False) -> None:
         def act():
             try:
-                self._gateway.stop("operator", VIA, force)
+                self._gateway.stop("operator", VIA, force, window=True)
             except GatewayRefused as refusal:
                 if refusal.error_type != "run_in_progress" or force:
                     raise

@@ -293,14 +293,22 @@ class GatewayAgent:
             )
             return self.state()
 
-    def end(self, who: str, via: str, stop_app: bool = False, force: bool = False):
-        """End the agent and unpair it; with *stop_app*, then stop the app."""
+    def end(
+        self,
+        who: str,
+        via: str,
+        stop_app: bool = False,
+        force: bool = False,
+        window: bool = False,
+    ):
+        """End the agent and unpair it; with *stop_app*, then stop the app
+        (closing its window too with *window*, the operator's)."""
         ended = self._manager.end(self.microscope)
         if ended is not None:
             self._unpair()
             logging.info("Gateway ended the agent for %s", who)
         if stop_app:
-            self._gateway.stop(who, via, force)
+            self._gateway.stop(who, via, force, window=window)
         return self.state()
 
     # -- the manager's and the gateway's calls -------------------------------

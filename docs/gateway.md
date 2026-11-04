@@ -35,7 +35,7 @@ Its menu does the following:
 
 - starts an app with its window;
 - starts an app without a window, with the last experiment or one you choose;
-- stops it (an app without its window);
+- stops it, closing its window if it has one;
 - ends the agent, while one runs;
 - pairs a computer;
 - opens the gateway's page. Quitting the gateway
@@ -47,7 +47,7 @@ The page (`/ui/gateway`) shows:
   first) and **Connect when the app starts**; while it runs, Connect and Disconnect, the same
   as the web app's Microscope page;
 - the app: Start, with an app, an experiment folder and **Show the window on this PC**, or
-  what runs and Stop;
+  what runs and Stop (with its window, Stop asks first, then closes the window);
 - the agent;
 - the paired computers;
 - every start and stop, with who made it and from where.
@@ -127,7 +127,10 @@ Double-click the AutoLamella desktop shortcut as usual.
 - With the app running without its window, you're asked first: **Take over** stops it (and
   any workflow it is running), then opens the window; **Cancel** leaves it running.
 
-A window is only ever closed at the PC: the gateway refuses to stop it.
+Only the operator closes a window: on the gateway's page, in the tray, or at the PC. A hub
+can't. The window closes as its own close button does, so it saves and disconnects first. If
+it asks a question as it closes, the gateway leaves it open to be answered at the PC and says
+so. It is never killed.
 
 Two things never hold the microscope at once: while a host the gateway didn't start is
 running (a hand-run `fibsem-autolamella-server`), the gateway refuses every start.

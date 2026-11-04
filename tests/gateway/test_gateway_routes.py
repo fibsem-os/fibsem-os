@@ -70,8 +70,8 @@ class FakeGateway:
             configuration,
         )
 
-    def stop(self, who, via, force=False):
-        return self._do(OFF, who, via, force)
+    def stop(self, who, via, force=False, window=False):
+        return self._do(OFF, who, via, force, window)
 
     def claim(self, pid, app, who, via):
         return self._do(RUNNING, who, via, pid, app)
@@ -165,7 +165,7 @@ def test_a_hub_with_the_grant_starts_but_never_forces(setup):
     hub = _pair_hub(client, [SWITCH_MODES])
     r = client.post("/gateway/stop", json={}, headers=_as(hub["token"]))
     assert r.status_code == 200 and r.json()["who"] == "mac-mini"
-    assert gateway.calls == [(OFF, "mac-mini", "hub", False)]
+    assert gateway.calls == [(OFF, "mac-mini", "hub", False, False)], "no window"
     r = client.post("/gateway/stop", json={"force": True}, headers=_as(hub["token"]))
     assert r.json()["detail"]["error_type"] == "operator_only"
     assert (
@@ -207,6 +207,13 @@ def test_an_app_server_pairs_no_hubs(setup):
     pairing = Pairing(PairedTokens(None))
     with pytest.raises(ValueError):
         pairing.open(HUB)
+
+
+def test_the_operators_stop_may_close_a_window(setup):
+    client, gateway, _ = setup
+    r = client.post("/gateway/stop", json={}, headers=_as(OPERATOR_TOKEN))
+    assert r.status_code == 200
+    assert gateway.calls == [(OFF, "operator", "page", False, True)]
 
 
 def test_a_refusal_keeps_its_status(setup):
@@ -439,8 +446,8 @@ class FakeAgent:
         )
         return self.state()
 
-    def end(self, who, via, stop_app=False, force=False):
-        self.calls.append(("end", who, via, stop_app, force))
+    def end(self, who, via, stop_app=False, force=False, window=False):
+        self.calls.append(("end", who, via, stop_app, force, window))
         return self.state()
 
 
@@ -465,7 +472,7 @@ def test_the_operator_starts_and_ends_the_agent(with_agent):
     assert r.status_code == 200
     assert agent.calls == [
         ("start", "overnight", "Mill 01", "assist", "operator", "page", None, False),
-        ("end", "operator", "page", True, False),
+        ("end", "operator", "page", True, False, True),
     ]
 
 
@@ -497,7 +504,7 @@ def test_a_hub_needs_the_grant_to_start_the_agent(with_agent):
     switcher = _pair_hub(client, [SWITCH_MODES])
     r = client.post("/gateway/agent/end", json={}, headers=_as(switcher["token"]))
     assert r.status_code == 200
-    assert agent.calls == [("end", "mac-mini", "hub", False, False)]
+    assert agent.calls == [("end", "mac-mini", "hub", False, False, False)]
     r = client.post(
         "/gateway/agent/end", json={"force": True}, headers=_as(switcher["token"])
     )

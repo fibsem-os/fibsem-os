@@ -7,7 +7,8 @@ flags; the operator connects one in the window or on a page. Every start and
 stop is recorded with who made it and from where. A stop during a workflow is
 refused unless the operator forces it, and a host the gateway didn't start (a
 hand-run ``fibsem-autolamella-server``) blocks every start until it goes: two
-things never hold the microscope at once.
+things never hold the microscope at once. Only the operator closes a window,
+and a window that asks a question as it closes is left to answer at the PC.
 """
 
 from __future__ import annotations
@@ -142,6 +143,12 @@ class Switch:
 @dataclass
 class History:
     switches: List[Switch] = field(default_factory=list)
+
+
+def close_file(pid: int, home: Path = DISCOVERY_DIR) -> Path:
+    """The file that asks the window with *pid* to close
+    (`fibsem.tools.desktop_launch.watch_for_close`)."""
+    return home / f"gateway-close-{pid}"
 
 
 def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
@@ -336,15 +343,17 @@ class Gateway:
                 self._state.who, self._state.via = who, via
             return self.state()
 
-    def stop(self, who: str, via: str, force: bool = False) -> GatewayState:
-        """Back to off. A window is closed only by the operator at the PC."""
+    def stop(
+        self, who: str, via: str, force: bool = False, window: bool = False
+    ) -> GatewayState:
+        """Back to off. *window* closes a window too, for the operator only."""
         with self._take(who, via, OFF, None, None):
             if self._state.mode == OFF:
                 return self.state()
             app, experiment = self._state.app, self._state.experiment
-            window = self._state.window
-            self._stop_current(force)
-            self._record(RUNNING, OFF, who, via, "stopped", app, experiment, window)
+            closing = self._state.window
+            self._stop_current(force, close_window=window)
+            self._record(RUNNING, OFF, who, via, "stopped", app, experiment, closing)
             return self.state()
 
     def claim(self, pid: int, app: str, who: str, via: str) -> GatewayState:
@@ -500,13 +509,13 @@ class Gateway:
                 last_exit=self._state.last_exit,
             )
 
-    def _stop_current(self, force: bool) -> None:
+    def _stop_current(self, force: bool, close_window: bool = False) -> None:
         """Stop the running app's process, or raise `GatewayRefused`."""
-        if self._state.window:
+        if self._state.window and not close_window:
             raise GatewayRefused(
                 409,
                 "window_open",
-                "The app's window is open: it's closed at the PC, never remotely.",
+                "The app's window is open: only the operator closes it.",
             )
         if not force and self._run_going():
             raise GatewayRefused(
@@ -516,6 +525,9 @@ class Gateway:
             )
         for hook in self.before_stop:
             hook()
+        if self._state.window:
+            self._close_window()
+            return
         with self._lock:
             proc, stop_file = self._proc, self._stop_file
         if proc is None:
@@ -532,6 +544,32 @@ class Gateway:
             proc.wait()
             killed = True
         self._ended(proc.returncode, killed)
+
+    def _close_window(self) -> None:
+        """Ask the window to close as its own close button does, and wait for
+        its process to end. Never killed: it may be asking a question."""
+        with self._lock:
+            proc, pid = self._proc, self._state.pid
+        ask = close_file(pid, self._home)
+        ask.touch()
+        end = time.monotonic() + self._stop_wait_s
+
+        def gone() -> bool:
+            return proc.poll() is not None if proc is not None else not _pid_alive(pid)
+
+        try:
+            while not gone():
+                if time.monotonic() > end:
+                    raise GatewayRefused(
+                        409,
+                        "window_didnt_close",
+                        "The window didn't close: it may be asking a question "
+                        "at the PC.",
+                    )
+                time.sleep(0.2)
+        finally:
+            ask.unlink(missing_ok=True)
+        self._ended(proc.returncode if proc is not None else None)
 
     def _ended(self, code: Optional[int], killed: bool = False) -> None:
         with self._lock:

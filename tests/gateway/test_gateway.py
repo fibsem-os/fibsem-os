@@ -5,6 +5,7 @@ apps (tests/gateway/sleeper.py) in real child processes."""
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -200,7 +201,7 @@ def test_an_app_that_ends_on_its_own_goes_back_to_off(tmp_path, fakes):
     assert gateway.history().switches[0].result == "exited (3)"
 
 
-def test_a_claimed_window_is_never_closed_remotely(tmp_path, fakes):
+def test_a_claimed_window_is_closed_only_by_the_operator(tmp_path, fakes):
     gateway = _gateway(tmp_path, fakes)
     window = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
@@ -209,7 +210,7 @@ def test_a_claimed_window_is_never_closed_remotely(tmp_path, fakes):
         fakes.found = {"pid": window.pid, "url": "http://127.0.0.1:8001"}
         assert gateway.state().holder is None  # its own App Server
         for act in (
-            lambda: gateway.stop("operator", "page", force=True),
+            lambda: gateway.stop("mac-mini", "hub", force=True),
             lambda: _headless(gateway, "mac-mini", "hub", last=True),
         ):
             with pytest.raises(GatewayRefused) as refused:
@@ -271,3 +272,45 @@ def test_a_failed_update_check_shows_nothing(tmp_path):
     gateway = Gateway(home=tmp_path, newer=offline)
     gateway.check_newer()
     assert gateway.state().newer is None
+
+
+WINDOW = """
+import os, sys, time
+ask = sys.argv[1] + "/gateway-close-%d" % os.getpid()
+while not os.path.exists(ask):
+    time.sleep(0.05)
+"""
+
+
+def test_the_operator_closes_a_window_as_its_close_button_does(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    window = subprocess.Popen([sys.executable, "-c", WINDOW, str(tmp_path)])
+    # Reaped as it ends, as a window the gateway didn't start is.
+    reaper = threading.Thread(target=window.wait)
+    reaper.start()
+    try:
+        gateway.claim(window.pid, "stand-in", "operator", "desktop launch")
+        state = gateway.stop("operator", "page", window=True)
+    finally:
+        window.kill()
+        reaper.join()
+    assert state.mode == OFF
+    assert window.returncode == 0, "it closed itself"
+    assert not list(tmp_path.glob("gateway-close-*"))
+    assert gateway.history().switches[0].result == "stopped"
+
+
+def test_a_window_that_doesnt_close_is_left_to_answer_at_the_pc(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes, stop_wait_s=0.5)
+    window = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        gateway.claim(window.pid, "stand-in", "operator", "desktop launch")
+        with pytest.raises(GatewayRefused) as refused:
+            gateway.stop("operator", "page", window=True)
+        assert refused.value.error_type == "window_didnt_close"
+        assert window.poll() is None, "never killed"
+        assert gateway.state().mode == RUNNING
+        assert not list(tmp_path.glob("gateway-close-*"))
+    finally:
+        window.kill()
+        window.wait()

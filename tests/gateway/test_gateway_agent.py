@@ -31,7 +31,7 @@ class FakeGateway:
     def state(self):
         return GatewayState(mode=self.mode, version="test")
 
-    def stop(self, who, via, force=False):
+    def stop(self, who, via, force=False, window=False):
         for hook in self.before_stop:
             hook()
         self.stopped.append((who, via, force))

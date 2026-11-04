@@ -177,7 +177,6 @@ function Starting({
         Show the window on this PC
       </label>
       {!window && !host && <p className="m-0 text-xs text-muted-foreground">{chosen?.name} runs only with its window.</p>}
-      {window && <p className="m-0 text-xs text-muted-foreground">A window is closed at this PC only.</p>}
       <div className="flex justify-end">
         <Button
           variant="primary"
@@ -209,6 +208,11 @@ function AppSection({ state, microscope }: { state: GatewayState; microscope: Re
     },
   });
   const busy = state.switching || act.isPending;
+  const [confirmClose, setConfirmClose] = useState(false);
+  const stop = () => {
+    setConfirmClose(false);
+    act.mutate({ path: "/gateway/stop", body: {} });
+  };
   return (
     <Card className="flex flex-col gap-3">
       <CardTitle>App</CardTitle>
@@ -222,15 +226,25 @@ function AppSection({ state, microscope }: { state: GatewayState; microscope: Re
       ) : (
         <>
           <Status state={state} />
-          <div className="flex justify-end">
-            {state.window ? (
-              <span className="text-xs text-muted-foreground">The window is closed at the PC.</span>
-            ) : (
-              <Button variant="danger" disabled={busy} onClick={() => act.mutate({ path: "/gateway/stop", body: {} })}>
-                Stop
+          {confirmClose ? (
+            <>
+              <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+                Close the app's window on this PC? Anyone at the PC sees it close.
+              </p>
+              <div className="flex justify-end gap-2.5">
+                <Button onClick={() => setConfirmClose(false)}>Cancel</Button>
+                <Button variant="danger" disabled={busy} onClick={stop}>
+                  Close the window
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-end">
+              <Button variant="danger" disabled={busy} onClick={state.window ? () => setConfirmClose(true) : stop}>
+                {act.isPending ? "Stopping…" : "Stop"}
               </Button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
       {state.holder && (

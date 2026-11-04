@@ -138,7 +138,7 @@ fibsem/structures/image.py 1
 fibsem/structures/params.py 2
 fibsem/structures/settings.py 7
 fibsem/structures/system.py 5
-fibsem/tools/desktop_launch.py 2
+fibsem/tools/desktop_launch.py 3
 fibsem/tools/hardware_check/__init__.py 1
 fibsem/ui/FibsemImageSettingsWidget.py 1
 fibsem/ui/FibsemMovementWidget.py 1
