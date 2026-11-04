@@ -137,12 +137,18 @@ class ProcessItemData:
         return f"ProcessItemData.{self.kind}({self.fields})"
 
 
+def _frame(height: int, width: int) -> np.ndarray:
+    """The same textured frame every time: a flat one has no contrast, and the
+    alignment a spot burn runs first divides by its standard deviation."""
+    return np.random.default_rng(0).integers(0, 256, (height, width), dtype=np.uint8)
+
+
 def _png_payload(width: int, height: int) -> bytes:
     """A display image payload: a header, then an RGBA PNG."""
     buffer = io.BytesIO()
-    Image.fromarray(np.full((height, width, 4), 128, dtype=np.uint8), "RGBA").save(
-        buffer, "PNG"
-    )
+    frame = _frame(height, width)
+    rgba = np.dstack([frame, frame, frame, np.full_like(frame, 255)])
+    Image.fromarray(rgba, "RGBA").save(buffer, "PNG")
     return b"JEOLHDR\x00" + buffer.getvalue()
 
 
@@ -598,9 +604,7 @@ class FakeSem(_Client):
             self.photo_size
         ]
         width, height = size
-        Image.fromarray(np.full((height, width), 100, dtype=np.uint8), "L").save(
-            base_path + ".tif"
-        )
+        Image.fromarray(_frame(height, width), "L").save(base_path + ".tif")
         return 0
 
     @_recorded
@@ -629,7 +633,7 @@ class FakeSemLive:
 
     def read_image(self, handle, address, size):
         shape = (960, 1280) if address == 0x1000 else (480, 640)
-        return np.full(shape, 50, dtype=np.uint8)
+        return _frame(*shape)
 
 
 class FakeJeol:

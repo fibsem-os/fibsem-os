@@ -54,6 +54,12 @@ class ToolSpec:
     call: Optional[
         Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]
     ] = field(default=None, compare=False)
+    # The seconds its call may take, from its arguments and a reader of the
+    # server's current values (path -> its answer), where the client's usual
+    # timeout is too short (a long frame); None keeps the usual one.
+    timeout: Optional[
+        Callable[[Dict[str, Any], Callable[[str], Any]], Optional[float]]
+    ] = field(default=None, compare=False)
     # The class its route answers, by its name in `fibsem.server.responses`
     # (`answer_class` writes it as the app's); "" for an image.
     returns: str = ""
