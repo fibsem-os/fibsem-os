@@ -15,8 +15,8 @@ ask.
 **Agree the plan.** Ask what the operator wants done, at which sites, and
 what counts as done: the patterns and their size and depth, the milling
 currents, which images to take after each step and where to save them. Say
-the plan back as a short numbered list and put each item on your checklist
-(`server_set_checklist`). Ask for anything missing rather than guessing
+the plan back as a short numbered list and put each item in your plan's
+Steps (`plan_set_section`, fibsem-agent's *Keep a plan*). Ask for anything missing rather than guessing
 (fibsem-agent, *When an ask leaves out the rule*).
 
 **An experiment to save into.** Your images and mills are saved in the open
