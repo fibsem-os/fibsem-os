@@ -241,7 +241,7 @@ function AppSection({ state, microscope }: { state: GatewayState; microscope: Re
           ) : (
             <div className="flex justify-end">
               <Button variant="danger" disabled={busy} onClick={state.window ? () => setConfirmClose(true) : stop}>
-                {act.isPending ? "Stopping…" : "Stop"}
+                {act.isPending ? "Stopping…" : state.window ? "Close the window" : "Stop"}
               </Button>
             </div>
           )}
@@ -265,7 +265,19 @@ function AppSection({ state, microscope }: { state: GatewayState; microscope: Re
   );
 }
 
-function Recent() {
+/** One line of the history in words: what happened to which app. */
+function happened(s: Switch, name: string): string {
+  if (s.result.startsWith("refused")) return `Refused: ${s.result.replace(/^refused:\s*/, "")}`;
+  if (s.result === "started")
+    return `Started ${name}${s.window === true ? " with its window" : s.window === false ? " without a window" : ""}`;
+  if (s.result === "stopped") return s.window ? `Closed ${name}'s window` : `Stopped ${name}`;
+  if (s.result === "closed") return `${name}'s window was closed at the PC`;
+  const exit = s.result.match(/^exited \((.*)\)$/);
+  if (exit) return `${name} ended on its own (exit ${exit[1]})`;
+  return s.result;
+}
+
+function Recent({ apps }: { apps: GatewayState["apps"] }) {
   const history = useQuery({
     queryKey: ["gateway/history"],
     queryFn: () => api<{ switches: Switch[] }>("/gateway/history"),
@@ -279,16 +291,16 @@ function Recent() {
       {switches.map((s, i) => (
         <div key={i} className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3">
           <span className="text-muted-foreground tabular-nums">{fmt.when(s.at)}</span>
-          <span className="min-w-0 break-words">
-            {s.from_mode} → {s.to_mode}
-            {s.window === true && " (window)"}
-            {s.window === false && " (no window)"}
-            {s.app && ` · ${s.app}`}
-            {s.experiment && <span title={s.experiment}> · {s.experiment.split(/[\\/]/).filter(Boolean).pop()}</span>}
-            <span className={cn("text-muted-foreground", s.result.startsWith("refused") && "text-[var(--fibsem-semantic-warning-color)]")}>
-              {" "}
-              · {s.result}
-            </span>
+          <span
+            className={cn("min-w-0 break-words", s.result.startsWith("refused") && "text-[var(--fibsem-semantic-warning-color)]")}
+          >
+            {happened(s, apps.find((a) => a.key === s.app)?.name ?? s.app ?? "the app")}
+            {s.experiment && (
+              <span className="text-muted-foreground" title={s.experiment}>
+                {" "}
+                · {s.experiment.split(/[\\/]/).filter(Boolean).pop()}
+              </span>
+            )}
           </span>
           <span className="text-muted-foreground">
             {s.who} · {s.via}
@@ -348,7 +360,7 @@ export function GatewayPage() {
         <Card>
           <Connections roles={["operator", "hub"]} />
         </Card>
-        <Recent />
+        <Recent apps={state?.apps ?? []} />
         <AgentSessions />
       </div>
     </div>
