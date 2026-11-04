@@ -1,6 +1,6 @@
 ---
 name: autolamella-coincidence-milling
-description: Milling while the FM watches, on an instrument whose FM and FIB look at the same point (such as the Arctis) — Iterative Polishing with FM stacks, following a target and a control pass by pass, and the FM Intensity monitor. Read fibsem-agent, autolamella, autolamella-polishing and autolamella-correlative first, then this when the FM is coincident with the FIB.
+description: Polishing with FM stacks between passes, on an instrument whose FM and FIB look at the same point (such as the Arctis) — Iterative Polishing following a target and a control pass by pass. Read fibsem-agent, autolamella, autolamella-polishing and autolamella-correlative first, then this when the FM is coincident with the FIB.
 ---
 
 # Milling with a coincident FM
@@ -51,13 +51,3 @@ paths.
 - **Thickness with the objective in** reads differently from the operator's
   measurement with it out (560 against 483 nm, 474 against 467 nm on one
   run). Report your last reading as objective-in.
-
-## The FM Intensity monitor
-
-FM Intensity watches the fluorescence under the mill and triggers on a drop
-(fibsem-agent, *Milling monitors*, for how monitors work). It needs an
-instrument whose software restrictions on running the FM while milling an
-operator has disabled: if they haven't, don't use it. It is experimental:
-never turn it on yourself, at any level. Propose it, and use it only after
-the operator says yes for this run; then help them set it up (which stage,
-the area to watch, the drop settings).

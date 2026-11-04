@@ -685,8 +685,12 @@ Collect the result with `service_wait_for_run` milling, with the line's
 **Milling monitors.** A stage can list monitors that watch it while it
 mills, each `{name, config}` in its `monitors`. `milling_list_options` lists
 them with their config fields; you pick one by name and set its config, never
-supply code. FM Intensity watches the fluorescence under the mill; it is
-experimental, and the autolamella-coincidence-milling skill says when it may be used.
+supply code. FM Intensity watches the fluorescence under the mill and triggers
+on a drop. It needs an instrument whose software restrictions on running the
+FM while milling an operator has disabled: if they haven't, don't use it. It
+is experimental: never turn it on yourself, at any level. Propose it, and use
+it only after the operator says yes for this run; then help them set it up
+(which stage, the area to watch, the drop settings).
 SEM Peek pauses the mill every `interval` seconds of milled time for an SEM image.
 RTM, listed only where the instrument has it, reads what the ion beam reads
 back from the patterns as they mill; each reading carries every pattern's
