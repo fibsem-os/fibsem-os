@@ -72,20 +72,20 @@ def test_a_checkout_is_on(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "main",
+    ("main", "args"),
     [
-        "fibsem.ai.agent.harness:main",
-        "fibsem.ai.agent.mcp.sidecar:main",
-        "fibsem.gateway.main:main",
-        "fibsem.gateway.launch:autolamella",
+        ("fibsem.ai.agent.harness:main", ([],)),
+        ("fibsem.ai.agent.mcp.sidecar:main", ([],)),
+        ("fibsem.gateway.main:main", ([],)),
+        ("fibsem.gateway.launch:open_gateway_page", ()),
     ],
 )
-def test_the_agent_and_gateway_commands_refuse(off, main):
+def test_the_agent_and_gateway_commands_refuse(off, main, args):
     import importlib
 
     module, function = main.split(":")
     with pytest.raises(SystemExit, match="not part of this release"):
-        getattr(importlib.import_module(module), function)([])
+        getattr(importlib.import_module(module), function)(*args)
 
 
 def test_the_level_stays_off():

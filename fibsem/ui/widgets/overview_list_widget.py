@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
-from fibsem.theme.tokens import TEXT_MUTED_COLOR
+from fibsem.theme.tokens import SEMANTIC_WARNING_COLOR, TEXT_MUTED_COLOR
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
 # Imported only for typing: the record lives on `FMOverviewWidget`, which builds this
 # widget, so a runtime import would close a cycle. Nothing here needs more than the
-# four fields it reads.
+# fields it reads.
 
 _BTN_SIZE = 26
 _ROW_HEIGHT = 30
@@ -61,6 +61,16 @@ class OverviewRowWidget(QWidget):
         self.name_label = QLabel(record.label)
         self.name_label.setStyleSheet("background: transparent;")
         layout.addWidget(self.name_label, 1)
+
+        # Kept out of the hover swap below: a warning that hides under the pointer is
+        # one nobody reads.
+        self.flag_label = QLabel()
+        self.flag_label.setStyleSheet(
+            f"background: transparent; color: {SEMANTIC_WARNING_COLOR};"
+            f" border: 1px solid {SEMANTIC_WARNING_COLOR}; border-radius: 4px;"
+            " padding: 0px 4px; font-size: 11px;"
+        )
+        layout.addWidget(self.flag_label)
 
         # The detail and the buttons occupy the same end of the row rather than sitting
         # side by side: a settings column is narrow, and a name long enough to matter is
@@ -127,6 +137,9 @@ class OverviewRowWidget(QWidget):
     def refresh(self, record: "PlacedOverviewImageRecord") -> None:
         self.name_label.setText(record.label)
         self.detail_label.setText(record.detail)
+        self.flag_label.setText(record.flag or "")
+        self.flag_label.setToolTip(record.flag_tooltip or "")
+        self.flag_label.setVisible(bool(record.flag))
         # Only when it differs. `IconToolButton` drives its own icon off `toggled`, so
         # blocking signals to set it silently would leave the icon showing the old
         # state -- and setting it unconditionally would re-emit on every refresh.

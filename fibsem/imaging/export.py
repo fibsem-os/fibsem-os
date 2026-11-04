@@ -385,6 +385,7 @@ FIELD_CATALOGUE: Dict[str, Tuple[str, str]] = {
     "current": ("Current", "I"),
     "working_distance": ("Working distance", "WD"),
     "dwell_time": ("Dwell time", "Dwell"),
+    "scan_rotation": ("Scan rotation", "SR"),
     "z": ("Z-stack", "Z"),
     "experiment": ("Experiment", ""),
     "item": ("Item", ""),
@@ -404,6 +405,7 @@ BEAM_FIELD_KEYS = (
     "current",
     "working_distance",
     "dwell_time",
+    "scan_rotation",
 )
 FM_FIELD_KEYS = ("objective", "hfw", "pixel_size", "z")
 
@@ -561,6 +563,10 @@ def fibsem_image_fields(image: FibsemImage) -> ImageFields:
             # 100 µm step, coarser than focusing moves it.
             wd = f"{beam.working_distance * 1e3:.2f} mm"
             _add(fields, "working_distance", wd)
+        if beam.scan_rotation is not None:
+            # Rounded before wrapping, so 359.8 reads as 0 rather than 360.
+            degrees = round(math.degrees(beam.scan_rotation)) % 360
+            _add(fields, "scan_rotation", f"{degrees}°")
     if md.image_settings.dwell_time:
         dwell = format_si(md.image_settings.dwell_time, "s")
         _add(fields, "dwell_time", dwell)

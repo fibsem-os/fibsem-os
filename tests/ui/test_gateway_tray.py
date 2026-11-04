@@ -44,10 +44,10 @@ def test_off_offers_both_starts(tray):
     assert texts["Start with the window"] and texts["  AutoLamella"]
     assert texts["Start without a window"] and texts["    Last experiment"]
     assert texts["Stop"] is False
-    assert "fibsemOS Gateway: Off" == tray.toolTip()
+    assert "Agent Gateway: Off" == tray.toolTip()
 
 
-def test_a_window_is_stopped_at_the_window(tray):
+def test_the_tray_closes_a_window(tray):
     tray, gateway = tray
     gateway._state.mode, gateway._state.window = RUNNING, True
     tray._build_menu()
@@ -55,7 +55,7 @@ def test_a_window_is_stopped_at_the_window(tray):
     assert texts["App: Running with the window"] is False
     assert texts["Start with the window"] is False
     assert texts["Start without a window"] is False
-    assert texts["Stop (close the window)"] is False
+    assert texts["Stop (close the window)"] is True
 
 
 def test_an_app_without_its_window_is_stopped_from_the_tray(tray):

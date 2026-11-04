@@ -118,14 +118,32 @@ def test_a_profile_loads_with_its_hash(tmp_path, checkout):
     )
     assert profile.hooks == [profiles.Hook("site", "Coincidence checked here?")]
     assert len(profile.hash) == 12
+    assert profile.level is None
     path.write_text(path.read_text() + "max_turns: 10\n")
     assert profiles.load(path).hash != profile.hash, "an edit changes the hash"
+
+
+def test_a_profile_says_what_it_is_for(tmp_path, checkout):
+    path = write(tmp_path, "lamella", "description: On-grid lamellae.\n")
+    assert profiles.load(path, harness_mod.EFFORTS, checkout).description == (
+        "On-grid lamellae."
+    )
+
+
+def test_the_shipped_profiles_say_what_they_are_for(checkout):
+    for path in (checkout / profiles.PROFILE_DIR).glob("*.yaml"):
+        assert profiles.load(path, harness_mod.EFFORTS, checkout).description, path
+
+
+def test_a_profile_names_the_level_the_gateway_picks_first(tmp_path, checkout):
+    path = write(tmp_path, "overnight", "level: drive\n")
+    assert profiles.load(path, harness_mod.EFFORTS, checkout).level == "drive"
 
 
 @pytest.mark.parametrize(
     "text, said",
     [
-        ("level: drive\n", "unknown setting(s) level"),
+        ("level: max\n", "level is one of"),
         ("api_key: sk\n", "unknown setting(s) api_key"),
         ("mode: everything\n", "mode is one of"),
         ("effort: huge\n", "effort is one of"),
@@ -156,14 +174,30 @@ def test_the_shipped_default_profile_loads(checkout):
     path = checkout / profiles.PROFILE_DIR / f"{profiles.DEFAULT_PROFILE}.yaml"
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)
     assert profile.mode == "files" and profile.max_budget_usd == 500
-    assert [hook.when for hook in profile.hooks] == [
-        "hardware_error",
-        "after_polish_pass",
-    ]
+    assert [hook.when for hook in profile.hooks] == ["hardware_error"]
     # The rules that hold on every task, read every turn after the harness's.
     prompt = harness_mod.system_prompt(profile=profile)
     assert "auto function" in prompt and "coincidence" in prompt
     assert "50 µm field of view" in prompt
+
+
+def test_the_autolamella_profile_is_the_default_plus_its_reminders(checkout):
+    def shipped(name):
+        path = checkout / profiles.PROFILE_DIR / f"{name}.yaml"
+        return profiles.load(path, harness_mod.EFFORTS, checkout)
+
+    default, autolamella = (
+        shipped(profiles.DEFAULT_PROFILE),
+        shipped("autolamella-agent"),
+    )
+    assert [hook.when for hook in autolamella.hooks] == [
+        "hardware_error",
+        "after_polish_pass",
+    ]
+    # Profiles don't inherit: the rest stays the same as the default's.
+    for name in ("model", "effort", "max_budget_usd", "max_turns", "mode", "prompt"):
+        assert getattr(autolamella, name) == getattr(default, name), name
+    assert autolamella.hooks[0] == default.hooks[0]
 
 
 def show(capsys, *argv):
@@ -178,12 +212,13 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
     write(
         own,
         "night",
-        f"effort: low\nmax_turns: 10\nmode: files\nfolder: {home / 'w'}\n"
+        f"effort: low\nmax_turns: 10\nmode: files\nfolder: {home / 'w'}\nlevel: assist\n"
         "prompt: Prefer leaving a lamella unfinished.\n"
         "hooks:\n  - when: before_milling\n    say: Check the depth.\n",
     )
     config = show(capsys, "--profile", "night")
     assert config["profile"]["name"] == "night"
+    assert config["level"] == "assist", "for the gateway's Level picker"
     assert (config["effort"], config["max_turns"]) == ("low", 10)
     assert config["max_budget_usd"] == harness_mod.MAX_BUDGET_USD, "the default"
     assert (config["mode"], config["folder"]) == ("files", str(home / "w"))
@@ -199,10 +234,7 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
     config = show(capsys)
     assert config["profile"]["name"] == "fibsem-agent", "the default"
     assert config["mode"] == "files"
-    assert [hook["when"] for hook in config["hooks"]] == [
-        "hardware_error",
-        "after_polish_pass",
-    ]
+    assert [hook["when"] for hook in config["hooks"]] == ["hardware_error"]
 
 
 def test_with_no_folder_the_agent_works_in_its_sessions_folder(home, capsys):

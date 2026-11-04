@@ -7,7 +7,8 @@ flags; the operator connects one in the window or on a page. Every start and
 stop is recorded with who made it and from where. A stop during a workflow is
 refused unless the operator forces it, and a host the gateway didn't start (a
 hand-run ``fibsem-autolamella-server``) blocks every start until it goes: two
-things never hold the microscope at once.
+things never hold the microscope at once. Only the operator closes a window,
+and a window that asks a question as it closes is left to answer at the PC.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import fibsem
 from fibsem.server.discovery import DISCOVERY_DIR, _pid_alive, read_discovery_file
 from fibsem.server.operator_token import read_operator_token
 from fibsem.tools.apps import App, apps
+from fibsem.update_check import Newer, check_newer
 
 __all__ = [
     "GATEWAY_FILE",
@@ -50,6 +52,7 @@ GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
 CHILD_ENV = "FIBSEM_GATEWAY"
 STOP_WAIT_S = 60.0
 POLL_S = 1.0
+NEWER_EVERY_S = 24 * 3600.0
 HISTORY_SHOWN = 50
 
 
@@ -108,6 +111,18 @@ class GatewayState:
     last_experiment: Optional[str] = None
     connection: List[str] = field(default_factory=list)
     """The flags the app connects with as it starts; none: the operator connects."""
+    configurations: List[GatewayConfiguration] = field(default_factory=list)
+    """The microscope configurations saved on this PC, for a start to connect."""
+    newer: Optional[Newer] = None
+    """A newer release, or commits on main, than the code this gateway runs."""
+
+
+@dataclass
+class GatewayConfiguration:
+    """A microscope configuration saved on this PC."""
+
+    name: str
+    default: bool = False
 
 
 @dataclass
@@ -130,6 +145,12 @@ class History:
     switches: List[Switch] = field(default_factory=list)
 
 
+def close_file(pid: int, home: Path = DISCOVERY_DIR) -> Path:
+    """The file that asks the window with *pid* to close
+    (`fibsem.tools.desktop_launch.watch_for_close`)."""
+    return home / f"gateway-close-{pid}"
+
+
 def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
     """The running gateway's ``{"url", "pid"}``, or None when none runs."""
     try:
@@ -140,6 +161,13 @@ def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
     if not isinstance(data, dict) or "url" not in data:
         return None
     return data if _pid_alive(data.get("pid")) else None
+
+
+def saved_configurations() -> List[dict]:
+    """``fibsem.config.saved_configurations``: ``{name, path, default}`` each."""
+    from fibsem.config import saved_configurations
+
+    return saved_configurations()
 
 
 def last_experiment() -> Optional[str]:
@@ -190,19 +218,24 @@ class Gateway:
         home: Optional[Path] = None,
         app_registry: Callable[[], Dict[str, App]] = apps,
         last: Callable[[], Optional[str]] = last_experiment,
+        configurations: Callable[[], List[dict]] = saved_configurations,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         running: Callable[[str, Optional[str]], bool] = workflow_running,
         python: Optional[str] = None,
         stop_wait_s: float = STOP_WAIT_S,
+        newer: Callable[[], Optional[Newer]] = check_newer,
     ):
         self._connection = list(connection or [])
         self._home = Path(home) if home is not None else DISCOVERY_DIR
         self._apps = app_registry
         self._last = last
+        self._configurations = configurations
         self._discovery = discovery
         self._running = running
         self._python = python or _python()
         self._stop_wait_s = stop_wait_s
+        self._check_newer = newer
+        self._newer: Optional[Newer] = None
         self._lock = threading.RLock()
         self._busy = False
         self._proc: Optional[subprocess.Popen] = None
@@ -233,7 +266,19 @@ class Gateway:
         ]
         state.last_experiment = self._last()
         state.connection = list(self._connection)
+        state.configurations = [
+            GatewayConfiguration(name=c["name"], default=c["default"])
+            for c in self._configurations()
+        ]
+        state.newer = self._newer
         return state
+
+    def check_newer(self) -> None:
+        """Ask whether newer code exists (PyPI, or GitHub for a checkout)."""
+        try:
+            self._newer = self._check_newer()
+        except Exception:  # noqa: BLE001 - offline is normal; never fail
+            logging.debug("Update check failed", exc_info=True)
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
         try:
@@ -272,10 +317,15 @@ class Gateway:
         experiment: Optional[str] = None,
         last: bool = False,
         force: bool = False,
+        connect: Optional[bool] = None,
+        configuration: Optional[str] = None,
     ) -> GatewayState:
         """Start *app*'s host, with its window at this PC or without, stopping
-        the running one first. Raises `GatewayRefused` when it can't."""
+        the running one first. *connect* connects *configuration* (the default
+        one without) as it starts, or nothing when False; None keeps the
+        gateway's own connection flags. Raises `GatewayRefused` when it can't."""
         chosen = self._app(app, window)
+        connection = self._start_connection(connect, configuration)
         with self._take(who, via, RUNNING, app, experiment, window):
             if self._state.mode != OFF:
                 self._stop_current(force)
@@ -287,21 +337,23 @@ class Gateway:
                     f"Another fibsem host (pid {holder.pid}) holds the microscope: "
                     "close it at the PC first.",
                 )
-            self._start(app, chosen, window, experiment, last)
+            self._start(app, chosen, window, experiment, last, connection)
             self._record(OFF, RUNNING, who, via, "started", app, experiment, window)
             with self._lock:
                 self._state.who, self._state.via = who, via
             return self.state()
 
-    def stop(self, who: str, via: str, force: bool = False) -> GatewayState:
-        """Back to off. A window is closed only by the operator at the PC."""
+    def stop(
+        self, who: str, via: str, force: bool = False, window: bool = False
+    ) -> GatewayState:
+        """Back to off. *window* closes a window too, for the operator only."""
         with self._take(who, via, OFF, None, None):
             if self._state.mode == OFF:
                 return self.state()
             app, experiment = self._state.app, self._state.experiment
-            window = self._state.window
-            self._stop_current(force)
-            self._record(RUNNING, OFF, who, via, "stopped", app, experiment, window)
+            closing = self._state.window
+            self._stop_current(force, close_window=window)
+            self._record(RUNNING, OFF, who, via, "stopped", app, experiment, closing)
             return self.state()
 
     def claim(self, pid: int, app: str, who: str, via: str) -> GatewayState:
@@ -337,6 +389,31 @@ class Gateway:
                 422, "no_headless", f"{found.name} runs only with its window."
             )
         return found
+
+    def _start_connection(
+        self, connect: Optional[bool], configuration: Optional[str]
+    ) -> List[str]:
+        """The connection flags for one start."""
+        if connect is None:
+            return list(self._connection)
+        if not connect:
+            return []
+        saved = self._configurations()
+        found = next(
+            (
+                c
+                for c in saved
+                if (c["name"] == configuration if configuration else c["default"])
+            ),
+            None,
+        )
+        if found is None:
+            raise GatewayRefused(
+                422,
+                "unknown_configuration",
+                f"No configuration {configuration or 'is the default'} on this PC.",
+            )
+        return ["--config", str(found["path"])]
 
     def _take(self, who, via, mode, app, experiment, window=None):
         gateway = self
@@ -379,6 +456,7 @@ class Gateway:
         window: bool,
         experiment: Optional[str],
         last: bool,
+        connection: List[str],
     ) -> None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
@@ -391,7 +469,7 @@ class Gateway:
         if window:
             # An app with a headless command has the host's flags, and hosts
             # whatever the preference; others none.
-            host = [*args, *self._connection, "--host"] if app.serve else []
+            host = [*args, *connection, "--host"] if app.serve else []
             command = [self._python, "-m", "fibsem.tools.desktop_launch", key, *host]
             env[CHILD_ENV] = "1"
         else:
@@ -404,7 +482,7 @@ class Gateway:
                 str(stop_file),
                 app.serve,
                 *args,
-                *(self._connection or ["--no-connect"]),
+                *(connection or ["--no-connect"]),
             ]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         with open(log, "w") as out:
@@ -431,13 +509,13 @@ class Gateway:
                 last_exit=self._state.last_exit,
             )
 
-    def _stop_current(self, force: bool) -> None:
+    def _stop_current(self, force: bool, close_window: bool = False) -> None:
         """Stop the running app's process, or raise `GatewayRefused`."""
-        if self._state.window:
+        if self._state.window and not close_window:
             raise GatewayRefused(
                 409,
                 "window_open",
-                "The app's window is open: it's closed at the PC, never remotely.",
+                "The app's window is open: only the operator closes it.",
             )
         if not force and self._run_going():
             raise GatewayRefused(
@@ -447,6 +525,9 @@ class Gateway:
             )
         for hook in self.before_stop:
             hook()
+        if self._state.window:
+            self._close_window()
+            return
         with self._lock:
             proc, stop_file = self._proc, self._stop_file
         if proc is None:
@@ -463,6 +544,32 @@ class Gateway:
             proc.wait()
             killed = True
         self._ended(proc.returncode, killed)
+
+    def _close_window(self) -> None:
+        """Ask the window to close as its own close button does, and wait for
+        its process to end. Never killed: it may be asking a question."""
+        with self._lock:
+            proc, pid = self._proc, self._state.pid
+        ask = close_file(pid, self._home)
+        ask.touch()
+        end = time.monotonic() + self._stop_wait_s
+
+        def gone() -> bool:
+            return proc.poll() is not None if proc is not None else not _pid_alive(pid)
+
+        try:
+            while not gone():
+                if time.monotonic() > end:
+                    raise GatewayRefused(
+                        409,
+                        "window_didnt_close",
+                        "The window didn't close: it may be asking a question "
+                        "at the PC.",
+                    )
+                time.sleep(0.2)
+        finally:
+            ask.unlink(missing_ok=True)
+        self._ended(proc.returncode if proc is not None else None)
 
     def _ended(self, code: Optional[int], killed: bool = False) -> None:
         with self._lock:
@@ -543,8 +650,15 @@ class Gateway:
                     except Exception:  # noqa: BLE001 - the watcher never dies
                         logging.exception("Gateway watcher failed")
 
+        def newer():
+            while True:
+                self.check_newer()
+                if self._closed.wait(NEWER_EVERY_S):
+                    return
+
         self._watcher = threading.Thread(target=loop, name="gateway", daemon=True)
         self._watcher.start()
+        threading.Thread(target=newer, name="gateway-newer", daemon=True).start()
 
     def close(self) -> None:
         """Stop watching. An app without its window keeps running; a new

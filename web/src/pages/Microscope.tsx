@@ -223,7 +223,7 @@ const FIELD = "min-w-0 flex-1 rounded border border-input bg-background px-2 py-
 /** Connect and disconnect the microscope: the operator's, so a token that may
  * not (the agent's, the dashboard's) gets no card. The gateway's page passes
  * its own routes to the host's (`base` "/gateway"). */
-export function ConnectionCard({ base = "" }: { base?: string }) {
+export function ConnectionCard({ base = "", title = "Connection" }: { base?: string; title?: string }) {
   const client = useQueryClient();
   const key = `${base}/microscope/connection`;
   const state = useQuery({
@@ -256,7 +256,7 @@ export function ConnectionCard({ base = "" }: { base?: string }) {
   const failed = (act.error as Error | null)?.message ?? (!data.connected && !busy ? data.error : null);
   return (
     <Card className="flex flex-col gap-2.5">
-      <CardTitle>Connection</CardTitle>
+      <CardTitle>{title}</CardTitle>
       {data.connected && c ? (
         <>
           <Facts

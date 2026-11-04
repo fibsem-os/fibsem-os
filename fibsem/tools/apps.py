@@ -20,7 +20,7 @@ from __future__ import annotations
 import importlib.metadata
 import importlib.resources
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -113,6 +113,17 @@ VOLUME = App(
     icon=ICONS_DIR / "fibsemos.svg",
     load_steps=_COMMON_STEPS
     + (("Loading Volume", ("fibsem.ui", "fibsem.applications.volume.ui.window")),),
+)
+
+# Not a launcher app: its desktop shortcut opens the gateway's page
+# (fibsem.gateway.launch), starting the gateway when none runs.
+GATEWAY = replace(
+    FIBSEM_UI,
+    name="Agent Gateway",
+    app_id="fibsemOS.AgentGateway",
+    command="fibsem-gateway-open",
+    icon=ICONS_DIR / "gateway.svg",
+    load_steps=(),
 )
 
 BUILTIN_APPS: Dict[str, App] = {

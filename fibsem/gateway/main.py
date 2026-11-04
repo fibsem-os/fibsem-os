@@ -1,7 +1,7 @@
 """``fibsem-gateway``: run the gateway (with its tray icon when Qt is there),
-install it to start at logon, open pairing, show whether the app runs, or
-launch the app with the agent (`fibsem.gateway.launch`) and put a desktop
-shortcut for that on the Desktop.
+install it to start at logon, open pairing, show whether the app runs, open
+its page (`fibsem.gateway.launch`), and put a desktop shortcut for that on the
+Desktop.
 
 Microscope connection flags (``--manufacturer``, ``--ip-address``,
 ``--config``) after ``run`` are passed to the app as it starts, which then
@@ -36,7 +36,7 @@ from fibsem.unreleased import refuse
 
 __all__ = ["call", "main", "shortcut_command", "start_gateway"]
 
-SHORTCUT_NAME = "fibsemOS Gateway"
+SHORTCUT_NAME = "Agent Gateway"
 
 
 def call(method: str, route: str, body: Optional[dict] = None, timeout: float = 3.0):
@@ -60,8 +60,6 @@ def call(method: str, route: str, body: Optional[dict] = None, timeout: float = 
 
 
 def _parser() -> argparse.ArgumentParser:
-    from fibsem.gateway.launch import launch_options
-
     parser = argparse.ArgumentParser(
         prog="fibsem-gateway",
         description="Start and stop the app on this microscope PC, here or for a hub.",
@@ -83,15 +81,13 @@ def _parser() -> argparse.ArgumentParser:
         help="The hub may start and stop apps.",
     )
     commands.add_parser("status", help="Show whether the app runs.")
-    launch = commands.add_parser(
-        "launch",
-        parents=[launch_options()],
-        help="Start the app, connect the microscope, start the agent at Watch "
-        "and open its page.",
-    )
-    launch.add_argument("app", nargs="?", default="autolamella")
     commands.add_parser(
-        "shortcut", help='Put an "AutoLamella with the agent" shortcut on the Desktop.'
+        "open",
+        help="Open the gateway's page, starting the gateway if it isn't running.",
+    )
+    commands.add_parser(
+        "shortcut",
+        help='Put a "Agent Gateway" shortcut on the Desktop that opens it.',
     )
     return parser
 
@@ -248,21 +244,13 @@ def uninstall() -> int:
     return 0
 
 
-def agent_shortcut() -> int:
-    """The "AutoLamella with the agent" desktop shortcut, running
-    ``fibsem-autolamella-agent``."""
-    from dataclasses import replace
-
-    from fibsem.tools.apps import AUTOLAMELLA
+def gateway_shortcut() -> int:
+    """The "Agent Gateway" desktop shortcut, running ``fibsem-gateway-open``."""
+    from fibsem.tools.apps import GATEWAY
     from fibsem.tools.desktop_shortcut import create_desktop_shortcut
 
-    app = replace(
-        AUTOLAMELLA,
-        name=f"{AUTOLAMELLA.name} with the agent",
-        command="fibsem-autolamella-agent",
-    )
     try:
-        path = create_desktop_shortcut(overwrite=True, app=app)
+        path = create_desktop_shortcut(overwrite=True, app=GATEWAY)
     except (FileNotFoundError, OSError, subprocess.CalledProcessError) as error:
         print(f"The shortcut wasn't made: {error}")
         return 1
@@ -284,12 +272,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         return install(_connection(args.connection))
     if args.command == "uninstall":
         return uninstall()
-    if args.command == "launch":
-        from fibsem.gateway.launch import launch_app
+    if args.command == "open":
+        from fibsem.gateway.launch import open_gateway
 
-        return launch_app(args.app, args.configuration, args.profile)
+        return open_gateway()
     if args.command == "shortcut":
-        return agent_shortcut()
+        return gateway_shortcut()
     if args.command == "pair":
         body = {"role": "hub" if args.hub else "operator"}
         if args.hub and args.may_switch:

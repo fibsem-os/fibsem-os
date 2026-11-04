@@ -28,6 +28,15 @@ interface GatewayState {
   apps: { key: string; name: string; headless: boolean }[];
   last_experiment: string | null;
   connection: string[];
+  configurations: { name: string; default: boolean }[];
+  newer: { latest: string | null; behind: number | null; branch: string } | null;
+}
+
+/** What the next start connects: the page's choice, or the gateway's own
+ * flags when it was given some. */
+interface MicroscopeChoice {
+  connect: boolean;
+  configuration: string;
 }
 
 interface Switch {
@@ -45,6 +54,17 @@ interface Switch {
 
 const FIELD = "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
 
+/** What is newer than the code the gateway runs: a release, or commits on main. */
+function newerLabel(newer: GatewayState["newer"]): { text: string; detail: string } | null {
+  if (newer?.latest) return { text: `fibsemOS ${newer.latest} available`, detail: "A newer release is on PyPI." };
+  if (newer?.behind)
+    return {
+      text: "Update available",
+      detail: `${newer.behind} newer change${newer.behind === 1 ? "" : "s"} on GitHub (${newer.branch}).`,
+    };
+  return null;
+}
+
 function Status({ state }: { state: GatewayState }) {
   const app = state.apps.find((a) => a.key === state.app)?.name ?? state.app;
   const rows: [string, ReactNode][] = [
@@ -56,7 +76,70 @@ function Status({ state }: { state: GatewayState }) {
   return <Facts className="[&_dd]:text-left" rows={rows} />;
 }
 
-function Starting({ state, start, busy }: { state: GatewayState; start: (body: unknown) => void; busy: boolean }) {
+/** Before the app starts: which configuration it connects as it starts. Once
+ * it runs, the Connection card takes this place. */
+function MicroscopeStart({
+  state,
+  choice,
+  setChoice,
+}: {
+  state: GatewayState;
+  choice: MicroscopeChoice;
+  setChoice: (choice: MicroscopeChoice) => void;
+}) {
+  const fallback = state.configurations.find((c) => c.default)?.name ?? state.configurations[0]?.name ?? "";
+  const configuration = choice.configuration || fallback;
+  return (
+    <Card className="flex flex-col gap-3">
+      <CardTitle>Microscope</CardTitle>
+      {state.connection.length > 0 ? (
+        <p className="m-0 text-[13px] text-muted-foreground">
+          The app connects as it starts, with this gateway's flags: {state.connection.join(" ")}.
+        </p>
+      ) : (
+        <>
+          <label className="flex max-w-[320px] flex-col gap-1 text-xs text-muted-foreground">
+            Configuration
+            <select
+              value={configuration}
+              onChange={(event) => setChoice({ ...choice, configuration: event.target.value })}
+              className={FIELD}
+            >
+              {state.configurations.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.default ? `${c.name} (default)` : c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input
+              type="checkbox"
+              checked={choice.connect}
+              onChange={(event) => setChoice({ ...choice, connect: event.target.checked })}
+            />
+            Connect when the app starts
+          </label>
+          {!choice.connect && (
+            <p className="m-0 text-xs text-muted-foreground">The app starts with no microscope: connect one once it is up.</p>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function Starting({
+  state,
+  start,
+  busy,
+  microscope,
+}: {
+  state: GatewayState;
+  start: (body: unknown) => void;
+  busy: boolean;
+  microscope: Record<string, unknown>;
+}) {
   const [app, setApp] = useState(state.apps[0]?.key ?? "");
   const [window, setWindow] = useState(true);
   const [experiment, setExperiment] = useState(state.last_experiment ?? "");
@@ -94,18 +177,17 @@ function Starting({ state, start, busy }: { state: GatewayState; start: (body: u
         Show the window on this PC
       </label>
       {!window && !host && <p className="m-0 text-xs text-muted-foreground">{chosen?.name} runs only with its window.</p>}
-      <p className="m-0 text-xs text-muted-foreground">
-        {state.connection.length > 0
-          ? `Connects as it starts: ${state.connection.join(" ")}.`
-          : "Starts with no microscope: connect one once it is up."}
-        {window && " A window is closed at this PC only."}
-      </p>
       <div className="flex justify-end">
         <Button
           variant="primary"
           disabled={busy || !chosen || (!window && !host)}
           onClick={() =>
-            start({ app, window, ...(host && experiment.trim() ? { experiment: experiment.trim() } : {}) })
+            start({
+              app,
+              window,
+              ...microscope,
+              ...(host && experiment.trim() ? { experiment: experiment.trim() } : {}),
+            })
           }
         >
           Start
@@ -115,7 +197,7 @@ function Starting({ state, start, busy }: { state: GatewayState; start: (body: u
   );
 }
 
-function AppSection({ state }: { state: GatewayState }) {
+function AppSection({ state, microscope }: { state: GatewayState; microscope: Record<string, unknown> }) {
   const client = useQueryClient();
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) =>
@@ -126,23 +208,43 @@ function AppSection({ state }: { state: GatewayState }) {
     },
   });
   const busy = state.switching || act.isPending;
+  const [confirmClose, setConfirmClose] = useState(false);
+  const stop = () => {
+    setConfirmClose(false);
+    act.mutate({ path: "/gateway/stop", body: {} });
+  };
   return (
     <Card className="flex flex-col gap-3">
       <CardTitle>App</CardTitle>
       {state.mode === "off" ? (
-        <Starting state={state} busy={busy} start={(body) => act.mutate({ path: "/gateway/start", body })} />
+        <Starting
+          state={state}
+          busy={busy}
+          microscope={microscope}
+          start={(body) => act.mutate({ path: "/gateway/start", body })}
+        />
       ) : (
         <>
           <Status state={state} />
-          <div className="flex justify-end">
-            {state.window ? (
-              <span className="text-xs text-muted-foreground">The window is closed at the PC.</span>
-            ) : (
-              <Button variant="danger" disabled={busy} onClick={() => act.mutate({ path: "/gateway/stop", body: {} })}>
-                Stop
+          {confirmClose ? (
+            <>
+              <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+                Close the app's window on this PC? Anyone at the PC sees it close.
+              </p>
+              <div className="flex justify-end gap-2.5">
+                <Button onClick={() => setConfirmClose(false)}>Cancel</Button>
+                <Button variant="danger" disabled={busy} onClick={stop}>
+                  Close the window
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="flex justify-end">
+              <Button variant="danger" disabled={busy} onClick={state.window ? () => setConfirmClose(true) : stop}>
+                {act.isPending ? "Stopping…" : state.window ? "Close the window" : "Stop"}
               </Button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
       {state.holder && (
@@ -163,7 +265,19 @@ function AppSection({ state }: { state: GatewayState }) {
   );
 }
 
-function Recent() {
+/** One line of the history in words: what happened to which app. */
+function happened(s: Switch, name: string): string {
+  if (s.result.startsWith("refused")) return `Refused: ${s.result.replace(/^refused:\s*/, "")}`;
+  if (s.result === "started")
+    return `Started ${name}${s.window === true ? " with its window" : s.window === false ? " without a window" : ""}`;
+  if (s.result === "stopped") return s.window ? `Closed ${name}'s window` : `Stopped ${name}`;
+  if (s.result === "closed") return `${name}'s window was closed at the PC`;
+  const exit = s.result.match(/^exited \((.*)\)$/);
+  if (exit) return `${name} ended on its own (exit ${exit[1]})`;
+  return s.result;
+}
+
+function Recent({ apps }: { apps: GatewayState["apps"] }) {
   const history = useQuery({
     queryKey: ["gateway/history"],
     queryFn: () => api<{ switches: Switch[] }>("/gateway/history"),
@@ -177,16 +291,16 @@ function Recent() {
       {switches.map((s, i) => (
         <div key={i} className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3">
           <span className="text-muted-foreground tabular-nums">{fmt.when(s.at)}</span>
-          <span className="min-w-0 break-words">
-            {s.from_mode} → {s.to_mode}
-            {s.window === true && " (window)"}
-            {s.window === false && " (no window)"}
-            {s.app && ` · ${s.app}`}
-            {s.experiment && <span title={s.experiment}> · {s.experiment.split(/[\\/]/).filter(Boolean).pop()}</span>}
-            <span className={cn("text-muted-foreground", s.result.startsWith("refused") && "text-[var(--fibsem-semantic-warning-color)]")}>
-              {" "}
-              · {s.result}
-            </span>
+          <span
+            className={cn("min-w-0 break-words", s.result.startsWith("refused") && "text-[var(--fibsem-semantic-warning-color)]")}
+          >
+            {happened(s, apps.find((a) => a.key === s.app)?.name ?? s.app ?? "the app")}
+            {s.experiment && (
+              <span className="text-muted-foreground" title={s.experiment}>
+                {" "}
+                · {s.experiment.split(/[\\/]/).filter(Boolean).pop()}
+              </span>
+            )}
           </span>
           <span className="text-muted-foreground">
             {s.who} · {s.via}
@@ -207,6 +321,15 @@ export function GatewayPage() {
   });
   const state = gateway.data;
   const running = state?.mode === "running";
+  const newer = state ? newerLabel(state.newer) : null;
+  const [choice, setChoice] = useState<MicroscopeChoice>({ connect: true, configuration: "" });
+  // The gateway's own flags stand when it has some; else the page's choice.
+  const microscope: Record<string, unknown> =
+    !state || state.connection.length > 0
+      ? {}
+      : choice.connect
+        ? { connect: true, ...(choice.configuration ? { configuration: choice.configuration } : {}) }
+        : { connect: false };
   const connection = useQuery({
     queryKey: ["/gateway/microscope/connection"],
     queryFn: () => api<Connection>("/gateway/microscope/connection"),
@@ -218,20 +341,26 @@ export function GatewayPage() {
     <div className="h-full overflow-auto">
       <div className="mx-auto flex max-w-[1100px] flex-col gap-4 px-4 py-5">
         <div className="flex items-baseline gap-3">
-          <h1 className="m-0 text-[17px] font-semibold">Gateway</h1>
+          <h1 className="m-0 text-[17px] font-semibold">Agent Gateway</h1>
           <span className="text-[13px] text-muted-foreground">
             {location.host}
             {state && ` · fibsemOS ${state.version}`}
           </span>
+          {newer && (
+            <span className="ml-auto text-[13px] text-muted-foreground" title={newer.detail}>
+              {newer.text}
+            </span>
+          )}
         </div>
         {gateway.error && <p className="m-0 text-[13px] text-destructive">{(gateway.error as Error).message}</p>}
-        {state && <AppSection state={state} />}
-        {running && <ConnectionCard base="/gateway" />}
+        {running && <ConnectionCard base="/gateway" title="Microscope" />}
+        {state && !running && <MicroscopeStart state={state} choice={choice} setChoice={setChoice} />}
+        {state && <AppSection state={state} microscope={microscope} />}
         {state && <AgentCard appRunning={running} connected={running && !!connection.data?.connected} />}
         <Card>
           <Connections roles={["operator", "hub"]} />
         </Card>
-        <Recent />
+        <Recent apps={state?.apps ?? []} />
         <AgentSessions />
       </div>
     </div>

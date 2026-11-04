@@ -5,6 +5,7 @@ apps (tests/gateway/sleeper.py) in real child processes."""
 import os
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -35,6 +36,12 @@ def _importable(monkeypatch):
     )
 
 
+CONFIGURATIONS = [
+    {"name": "arctis", "path": "/cfg/arctis.yaml", "default": True},
+    {"name": "hydra", "path": "/cfg/hydra.yaml", "default": False},
+]
+
+
 class Fakes:
     def __init__(self):
         self.found = None
@@ -55,6 +62,7 @@ def _gateway(tmp_path, fakes, serve="serve", stop_wait_s=20.0, connection=None):
         last=lambda: "/experiments/grid3",
         discovery=lambda: fakes.found,
         running=lambda url, token: fakes.running,
+        configurations=lambda: CONFIGURATIONS,
         stop_wait_s=stop_wait_s,
     )
 
@@ -100,6 +108,37 @@ def test_the_gateways_connection_flags_connect_as_it_starts(tmp_path, fakes):
     assert "serving --last --manufacturer Demo\n" in _log(
         gateway.stop("operator", "page")
     )
+
+
+def test_the_state_lists_the_saved_configurations(tmp_path, fakes):
+    listed = _gateway(tmp_path, fakes).state().configurations
+    assert [(c.name, c.default) for c in listed] == [("arctis", True), ("hydra", False)]
+
+
+@pytest.mark.parametrize(
+    "configuration, flags",
+    [(None, "--config /cfg/arctis.yaml"), ("hydra", "--config /cfg/hydra.yaml")],
+)
+def test_a_start_can_connect_a_saved_configuration(
+    tmp_path, fakes, configuration, flags
+):
+    gateway = _gateway(tmp_path, fakes, connection=["--manufacturer", "Demo"])
+    _headless(gateway, last=True, connect=True, configuration=configuration)
+    assert f"serving --last {flags}\n" in _log(gateway.stop("operator", "page"))
+
+
+def test_a_start_can_leave_the_microscope_unconnected(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes, connection=["--manufacturer", "Demo"])
+    _headless(gateway, last=True, connect=False)
+    assert "serving --last --no-connect\n" in _log(gateway.stop("operator", "page"))
+
+
+def test_an_unknown_configuration_refuses_the_start(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    with pytest.raises(GatewayRefused) as refused:
+        _headless(gateway, connect=True, configuration="krios")
+    assert refused.value.error_type == "unknown_configuration"
+    assert gateway.state().mode == OFF
 
 
 def test_last_runs_the_most_recent_experiment(tmp_path, fakes):
@@ -162,7 +201,7 @@ def test_an_app_that_ends_on_its_own_goes_back_to_off(tmp_path, fakes):
     assert gateway.history().switches[0].result == "exited (3)"
 
 
-def test_a_claimed_window_is_never_closed_remotely(tmp_path, fakes):
+def test_a_claimed_window_is_closed_only_by_the_operator(tmp_path, fakes):
     gateway = _gateway(tmp_path, fakes)
     window = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
     try:
@@ -171,7 +210,7 @@ def test_a_claimed_window_is_never_closed_remotely(tmp_path, fakes):
         fakes.found = {"pid": window.pid, "url": "http://127.0.0.1:8001"}
         assert gateway.state().holder is None  # its own App Server
         for act in (
-            lambda: gateway.stop("operator", "page", force=True),
+            lambda: gateway.stop("mac-mini", "hub", force=True),
             lambda: _headless(gateway, "mac-mini", "hub", last=True),
         ):
             with pytest.raises(GatewayRefused) as refused:
@@ -215,3 +254,63 @@ def test_with_the_window_it_opens_the_apps_desktop_launch(tmp_path, fakes):
     finally:
         os.kill(state.pid, 9)
         _wait_for(lambda: (gateway.poll(), gateway.state().mode)[1] == OFF)
+
+
+def test_the_state_names_newer_code(tmp_path, fakes):
+    from fibsem.update_check import Newer
+
+    gateway = Gateway(home=tmp_path, newer=lambda: Newer(behind=3))
+    assert gateway.state().newer is None, "nothing known before a check"
+    gateway.check_newer()
+    assert gateway.state().newer == Newer(behind=3)
+
+
+def test_a_failed_update_check_shows_nothing(tmp_path):
+    def offline():
+        raise OSError("offline")
+
+    gateway = Gateway(home=tmp_path, newer=offline)
+    gateway.check_newer()
+    assert gateway.state().newer is None
+
+
+WINDOW = """
+import os, sys, time
+ask = sys.argv[1] + "/gateway-close-%d" % os.getpid()
+while not os.path.exists(ask):
+    time.sleep(0.05)
+"""
+
+
+def test_the_operator_closes_a_window_as_its_close_button_does(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    window = subprocess.Popen([sys.executable, "-c", WINDOW, str(tmp_path)])
+    # Reaped as it ends, as a window the gateway didn't start is.
+    reaper = threading.Thread(target=window.wait)
+    reaper.start()
+    try:
+        gateway.claim(window.pid, "stand-in", "operator", "desktop launch")
+        state = gateway.stop("operator", "page", window=True)
+    finally:
+        window.kill()
+        reaper.join()
+    assert state.mode == OFF
+    assert window.returncode == 0, "it closed itself"
+    assert not list(tmp_path.glob("gateway-close-*"))
+    assert gateway.history().switches[0].result == "stopped"
+
+
+def test_a_window_that_doesnt_close_is_left_to_answer_at_the_pc(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes, stop_wait_s=0.5)
+    window = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        gateway.claim(window.pid, "stand-in", "operator", "desktop launch")
+        with pytest.raises(GatewayRefused) as refused:
+            gateway.stop("operator", "page", window=True)
+        assert refused.value.error_type == "window_didnt_close"
+        assert window.poll() is None, "never killed"
+        assert gateway.state().mode == RUNNING
+        assert not list(tmp_path.glob("gateway-close-*"))
+    finally:
+        window.kill()
+        window.wait()
