@@ -60,7 +60,12 @@ from fibsem.config import (
     POSITION_FOV_WIDTH,
 )
 from fibsem.fm.composite import auto_clim
-from fibsem.geometry.projection import BeamStageProjection, lifted, posed_like
+from fibsem.geometry.projection import (
+    BeamStageProjection,
+    lifted,
+    posed_like,
+    scan_rotation_flips,
+)
 from fibsem.imaging import tiled
 from fibsem.imaging.overview_session import OverviewSession
 from fibsem.imaging.reduce import downsample, downsample_mask
@@ -442,8 +447,8 @@ class OverviewRecord:
     the run, because that is the thing a user acquired and the thing they mean.
 
     Structurally compatible with the fluorescence side's `PlacedOverviewImageRecord`:
-    `OverviewListWidget` reads `id`, `label`, `detail` and `visible` off whatever it is
-    given, and both overviews use the same list.
+    `OverviewListWidget` reads `id`, `label`, `detail`, `visible` and `flag` off
+    whatever it is given, and both overviews use the same list.
     """
 
     def __init__(
@@ -475,6 +480,12 @@ class OverviewRecord:
         # from disk cannot say how many it was made of, which is why this is None
         # rather than 1.
         self.tiles: Optional[int] = None
+        # The scan rotation the overview was taken at, radians, from its metadata.
+        self.scan_rotation: Optional[float] = None
+        # A warning chip for the list row and its tooltip: set while the view draws
+        # markers at a scan rotation this overview was not taken at.
+        self.flag: Optional[str] = None
+        self.flag_tooltip: Optional[str] = None
 
     @property
     def detail(self) -> str:
@@ -2116,7 +2127,12 @@ class FibsemOverviewWidget(OverviewWidgetBase):
             )
             if projection is None:
                 return self._projections.get(view)
+            previous = self._projections.get(view)
             self._projections[view] = projection
+            if previous is None or scan_rotation_flips(
+                previous.scan_rotation
+            ) != scan_rotation_flips(projection.scan_rotation):
+                self._refresh_overview_list()
         return self._projections[view]
 
     def invalidate_projection(self) -> None:
@@ -2316,6 +2332,17 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         if metadata is None:
             return None
         return getattr(metadata, "stage_position", None)
+
+    @staticmethod
+    def _scan_rotation_of(image: FibsemImage) -> Optional[float]:
+        """The scan rotation *image* was taken at, radians, or None if it does not say."""
+        metadata = getattr(image, "metadata", None)
+        state = getattr(metadata, "microscope_state", None)
+        if metadata is None or state is None:
+            return None
+        ion = metadata.image_settings.beam_type is BeamType.ION
+        beam = state.ion_beam if ion else state.electron_beam
+        return getattr(beam, "scan_rotation", None)
 
     @staticmethod
     def _pixel_size_of(image: FibsemImage) -> Optional[float]:
@@ -2523,6 +2550,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
             record_id, os.path.basename(record_id), [key], view=view
         )
         record.pixel_size = self._pixel_size_of(image)
+        record.scan_rotation = self._scan_rotation_of(image)
         record.images.append(tile)
         record.item_id, record.item_name = _item_of(image)
         self._records[record_id] = record
@@ -2622,6 +2650,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         record.keys = [key]
         record.images = [tile]
         record.pixel_size = self._pixel_size_of(mosaic)
+        record.scan_rotation = self._scan_rotation_of(mosaic)
         record.item_id, record.item_name = _item_of(mosaic)
         self._refresh_overview_list()
 
@@ -2689,8 +2718,35 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         Called wherever a record appears, disappears or gains a tile -- the row shows a
         tile count, so a run in progress has to keep up with itself.
         """
+        for record in self._records.values():
+            self._flag_scan_rotation(record)
         self.overview_list.set_records(self.overviews)
         self._refresh_empty_view_hint()
+
+    def _flag_scan_rotation(self, record: OverviewRecord) -> None:
+        """Flag *record* when its view draws markers at a scan rotation it was not
+        taken at. The image is drawn as taken and the markers and clicks go through
+        the view's projection, so on a mismatch they are mirrored over it.
+
+        Against the view's cached projection, the one the markers are drawn with: a
+        view nothing has drawn has none, and nothing to disagree with.
+        """
+        record.flag = record.flag_tooltip = None
+        projection = self._projections.get(record.view) if record.view else None
+        if projection is None or record.scan_rotation is None:
+            return
+        if scan_rotation_flips(record.scan_rotation) == scan_rotation_flips(
+            projection.scan_rotation
+        ):
+            return
+        taken = round(math.degrees(record.scan_rotation)) % 360
+        now = round(math.degrees(projection.scan_rotation)) % 360
+        beam = "FIB" if record.view.beam_type is BeamType.ION else "SEM"
+        record.flag = f"SR {taken}°"
+        record.flag_tooltip = (
+            f"Taken at {taken}°; the {beam} is at {now}° now. "
+            "Markers and clicks on this overview are mirrored."
+        )
 
     def _refresh_empty_view_hint(self) -> None:
         """Say where the overviews went when the displayed view moved off them.
@@ -2708,7 +2764,21 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         acquired here", which is a different and still-true statement. This one is
         "nothing was acquired here, but something was somewhere else", which the backdrop
         cannot say.
+
+        An overview shown here with its markers mirrored (`_flag_scan_rotation`) says so
+        first: that one is wrong, where the other is only empty.
         """
+        mirrored = next(
+            (
+                record
+                for record in self._records.values()
+                if record.flag and record.visible and record.view == self._current_view
+            ),
+            None,
+        )
+        if mirrored is not None:
+            self.canvas.set_hint(f"{mirrored.label}: {mirrored.flag_tooltip}")
+            return
         elsewhere = {
             record.view.label
             for record in self._records.values()
