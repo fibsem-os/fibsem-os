@@ -215,7 +215,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
               <span className="text-xs text-muted-foreground">Connect the microscope first: the agent works on it.</span>
             ) : !state.api_key ? (
               <span className="text-xs text-muted-foreground">
-                Set ANTHROPIC_API_KEY for this PC's user, then restart the gateway.
+                No API key: run fibsem-cli key set ANTHROPIC_API_KEY on this PC.
               </span>
             ) : (
               <span className="text-xs text-muted-foreground">Uses ANTHROPIC_API_KEY on this PC.</span>

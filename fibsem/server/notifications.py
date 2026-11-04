@@ -2,8 +2,8 @@
 change this instrument's settings, and send a test.
 
 Behind the operator token only: the agent can't turn notifications on, change
-where they go, or post. The bot token is never served or taken here; it is the
-``FIBSEM_SLACK_TOKEN`` environment variable on this PC.
+where they go, or post. The bot token is never served or taken here; it is
+``FIBSEM_SLACK_TOKEN`` on this PC (`fibsem.keystore`).
 """
 
 import dataclasses
