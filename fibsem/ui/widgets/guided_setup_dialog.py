@@ -66,6 +66,7 @@ from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import install_wheel_blocker_recursive
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit, QFileLineEdit
 from fibsem.ui.widgets.form_builder import configure_spinbox
+from fibsem.ui.widgets.library_folder_edit import LibraryFolderEdit
 
 logger = logging.getLogger(__name__)
 
@@ -1246,7 +1247,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         library_row.setSpacing(8)
         self._library_caption = _label("", 11, TEXT_COLOR)
         self._library_caption.setFixedWidth(140)
-        self._library_edit = QDirectoryLineEdit()
+        self._library_edit = LibraryFolderEdit()
         self._library_edit.textChanged.connect(self._on_library_folder_changed)
         library_row.addWidget(self._library_caption)
         library_row.addWidget(self._library_edit, 1)
@@ -1340,6 +1341,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         if library is None:
             return
         self._library_caption.setText(library.label[:1].upper() + library.label[1:])
+        self._library_edit.library = library
         found = wizard.library_status(self.choices.manufacturer)
         self._library_edit.setText(found.folder or "")
         self._show_library_status()
@@ -1356,7 +1358,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         if not folder:
             self._library_hint.setText(
                 f"Not found on this computer. Choose the folder that contains the "
-                f"{library.label}."
+                f"{library.label}, or press Find."
             )
             self._library_hint.setStyleSheet(_label_style(10, WARN_COLOR))
             return

@@ -84,7 +84,10 @@ def record_demo_experiment(
             m.setattr(time, "sleep", lambda *_: None)  # the exposure countdown
             microscope.run_spot_burn(
                 settings=SpotBurnSettings(
-                    coordinates=list(SPOTS), exposure_time=1.0, milling_current=1e-10
+                    coordinates=list(SPOTS),
+                    exposure_time=1.0,
+                    milling_current=1e-10,
+                    align=False,  # as the mill above
                 ),
                 beam_type=BeamType.ION,
             )

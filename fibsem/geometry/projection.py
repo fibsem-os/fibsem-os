@@ -388,9 +388,15 @@ class BeamStageProjection:
 
     def _scan_rotated(self, x: float, y: float) -> Tuple[float, float]:
         """Apply a 180-degree scan rotation, which is its own inverse."""
-        if np.isclose(self.scan_rotation, np.pi):
+        if scan_rotation_flips(self.scan_rotation):
             return -x, -y
         return x, y
+
+
+def scan_rotation_flips(scan_rotation: float) -> bool:
+    """Does a beam view at *scan_rotation* (radians) flip x and y? Only 180 degrees
+    is modelled, so this is the whole of what a projection makes of the rotation."""
+    return bool(np.isclose(scan_rotation, np.pi))
 
 
 def image_stage_geometry(

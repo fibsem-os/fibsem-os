@@ -51,7 +51,13 @@ def test_thermo_burns_through_the_service(recording):
     assert facts["is_spot_burn"]
     assert facts["roles"] == ["ion"]
     assert facts["ion"] == "ion"
-    assert facts["supported"] == ["coordinates", "exposure_time", "milling_current"]
+    assert facts["supported"] == [
+        "align",
+        "align_steps",
+        "coordinates",
+        "exposure_time",
+        "milling_current",
+    ]
     assert facts["no_ion"]
 
 

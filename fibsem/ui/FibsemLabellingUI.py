@@ -536,11 +536,15 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         """Set the active layer based on the current state of the UI"""
         model_assist = self.checkBox_model_assist.isChecked()
         if model_assist and self.sam_pts_layer is not None:
-            self.viewer.layers.selection.active = self.sam_pts_layer
-            self.sam_pts_layer.mode = "add"
+            layer, mode = self.sam_pts_layer, "add"
         else:
-            self.viewer.layers.selection.active = self.mask_layer
-            self.mask_layer.mode = "paint"
+            layer, mode = self.mask_layer, "paint"
+        # Removing a layer resets the dims, which lands here; napari 0.6 refuses to
+        # select a layer that is already out of the list.
+        if layer not in self.viewer.layers:
+            return
+        self.viewer.layers.selection.active = layer
+        layer.mode = mode
 
     def update_instructions(self):
         """Update instructions based on the current state of the UI"""

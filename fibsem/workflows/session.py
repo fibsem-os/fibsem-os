@@ -24,6 +24,7 @@ from fibsem import config as cfg
 from fibsem import utils
 from fibsem.acting import AGENT, OPERATOR, ActorKind
 from fibsem.ai.agent.session import AgentSession
+from fibsem.alerts import Alerts
 from fibsem.devices.runs import Runs
 from fibsem.imaging.latest import LatestImages
 from fibsem.imaging.overview_session import OverviewSession
@@ -123,12 +124,18 @@ class AppSession:
         # the microscope, None until the client first says.
         self.agent_auth: Optional[Any] = None
         self.serve_microscope: Optional[bool] = None
+        # The window hosts it whatever the preference, until the operator
+        # turns it off in Tools → Host (``--host``: the gateway's starts).
+        self.host_app_server = False
         # Where an agent creates and finds experiments this session; None is
         # the app's default (fibsem-autolamella-server --experiments sets it).
         self.experiments_folder: Optional[str] = None
         # The agent as the operator meets it: its level, its requests and the
         # operator's messages.
         self.agent = AgentSession(self)
+        # Slack messages for someone away from the instrument, while the App
+        # Server is hosted (its web app is where they are answered).
+        self.alerts: Optional[Alerts] = None
         # The surfaces attached to decide a run's proposals (a window: the
         # operator), while they are attached.
         self._deciders: List[ActorKind] = []
@@ -444,10 +451,16 @@ class AppSession:
         started = self.app_server.start()
         if started:
             self.agent.keep_pictures()
+            if self.alerts is None:
+                self.alerts = Alerts(self, link=f"{self.app_server.url}/ui")
+                self.alerts.start()
         return started
 
     def stop_app_server(self) -> None:
         self.agent.stop_pictures()
+        if self.alerts is not None:
+            self.alerts.stop()
+            self.alerts = None
         if self.app_server is not None:
             self.app_server.stop()
 

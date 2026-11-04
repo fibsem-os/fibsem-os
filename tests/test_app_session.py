@@ -131,6 +131,7 @@ class _FakeHost:
         self.serve_microscope = serve_microscope
         self.running = False
         self.starts = 0
+        self.url = "http://127.0.0.1:8001"
         # Seconds since the agent was last heard; None: never.
         self.seen = None
 

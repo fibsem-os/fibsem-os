@@ -164,6 +164,17 @@ def get_revision() -> Optional[str]:
     return _describe()
 
 
+@cache
+def _commit() -> Optional[str]:
+    return _run_git("rev-parse", "HEAD")
+
+
+def get_commit() -> Optional[str]:
+    """Return the full sha of the running checkout's HEAD, or None (not a
+    checkout, or any failure). Cached."""
+    return _commit()
+
+
 def get_branch() -> Optional[str]:
     """Return the checked-out branch, or None (detached HEAD, or not a checkout).
 

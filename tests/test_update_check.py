@@ -253,3 +253,39 @@ def test_unparseable_current_version_is_not_fatal(monkeypatch, update_check_acti
 
     assert update_check.refresh() is None
     assert update_check.get_available_update() is None
+
+
+# --- what the gateway shows: a newer release, or commits behind main --------
+
+
+def test_a_checkout_is_told_how_far_behind_main_it_is(monkeypatch):
+    monkeypatch.setattr(update_check, "get_revision", lambda: "v0.5.1-48-gabc")
+    monkeypatch.setattr(update_check, "get_commit", lambda: "abc123")
+    seen = {}
+    _stub_urlopen(monkeypatch, json.dumps({"ahead_by": 12}).encode(), seen)
+    assert update_check.check_newer() == update_check.Newer(behind=12)
+    assert seen["url"].endswith("/repos/fibsem-os/fibsem-os/compare/abc123...main")
+    assert seen["timeout"] == update_check.REQUEST_TIMEOUT_SECONDS
+
+
+@pytest.mark.parametrize("payload", [{"ahead_by": 0}, None])
+def test_a_current_or_unknown_checkout_shows_nothing(monkeypatch, payload):
+    monkeypatch.setattr(update_check, "get_revision", lambda: "v0.5.1-48-gabc")
+    monkeypatch.setattr(update_check, "get_commit", lambda: "abc123")
+    if payload is None:  # never pushed: GitHub answers 404
+
+        def _404(request, **kwargs):
+            raise OSError("HTTP Error 404")
+
+        monkeypatch.setattr(update_check.urllib.request, "urlopen", _404)
+    else:
+        _stub_urlopen(monkeypatch, json.dumps(payload).encode())
+    assert update_check.check_newer() is None
+
+
+def test_an_install_is_told_of_a_newer_release_without_opting_in(
+    monkeypatch, wheel_install
+):
+    monkeypatch.setattr("fibsem.__version__", "0.5.1")
+    _stub_urlopen(monkeypatch, _pypi_payload("0.5.1", "0.6.0", "0.7.0rc1"))
+    assert update_check.check_newer() == update_check.Newer(latest="0.6.0")

@@ -278,3 +278,26 @@ def test_the_holder_ends_after_what_joined_it():
     joined.__exit__(None, None, None)
     assert released.wait(5)
     assert control.current is None
+
+
+def test_a_take_that_joins_is_not_refused_while_the_holder_ends():
+    """The holder waits for what joined it before it lets go. A click in that
+    wait joins too: the operator's clicks never refuse each other."""
+    control = Control()
+    holder = control.take(OPERATOR, "acquire images", join=True)
+    holder.__enter__()
+    joined = control.take(OPERATOR, "acquire", join=True)
+    joined.__enter__()
+    released = threading.Event()
+
+    def release():
+        holder.__exit__(None, None, None)
+        released.set()
+
+    threading.Thread(target=release, daemon=True).start()
+    assert not released.wait(0.2)
+    with control.take(OPERATOR, "move stage", join=True):
+        pass
+    joined.__exit__(None, None, None)
+    assert released.wait(5)
+    assert control.current is None

@@ -73,6 +73,9 @@ class SemToFmDialog(QtWidgets.QDialog):
         self.calibration = SemToFmCalibration(microscope, configuration_path)
         self._step = STEP_ROTATION
         self._worker: Optional[FunctionWorker] = None
+        # Cleared by the worker's finished signal: its thread can still be alive
+        # when that slot runs, so is_alive() would leave Next off.
+        self._running = False
         self._closed = False
         self._saved = False
         # The image on the right, and what took it, for a click to be read in.
@@ -528,20 +531,25 @@ class SemToFmDialog(QtWidgets.QDialog):
     # -- plumbing ----------------------------------------------------------------
 
     def _busy(self) -> bool:
-        return self._worker is not None and self._worker.is_alive()
+        return self._running
 
     def _run(self, func, on_done) -> None:
         """Run one step off the GUI thread, with the buttons off until it ends."""
         if self._busy():
             return
+        self._running = True
         self._set_buttons(False)
         self._worker = FunctionWorker(func)
         self._worker.returned.connect(lambda result: self._done(on_done, result))
         self._worker.errored.connect(self._failed)
-        self._worker.finished.connect(lambda: self._set_buttons(True))
+        self._worker.finished.connect(self._finished)
         self._worker.start(
             control=control_of(self.microscope), action="calibrate SEM to FM"
         )
+
+    def _finished(self) -> None:
+        self._running = False
+        self._set_buttons(True)
 
     def _done(self, on_done, result) -> None:
         if self._closed:

@@ -46,12 +46,32 @@ class FakeGateway:
         return GatewayState(mode=call[0], version="test", who=call[1])
 
     def start_app(
-        self, who, via, app=None, window=True, experiment=None, last=False, force=False
+        self,
+        who,
+        via,
+        app=None,
+        window=True,
+        experiment=None,
+        last=False,
+        force=False,
+        connect=None,
+        configuration=None,
     ):
-        return self._do(RUNNING, who, via, app, window, experiment, last, force)
+        return self._do(
+            RUNNING,
+            who,
+            via,
+            app,
+            window,
+            experiment,
+            last,
+            force,
+            connect,
+            configuration,
+        )
 
-    def stop(self, who, via, force=False):
-        return self._do(OFF, who, via, force)
+    def stop(self, who, via, force=False, window=False):
+        return self._do(OFF, who, via, force, window)
 
     def claim(self, pid, app, who, via):
         return self._do(RUNNING, who, via, pid, app)
@@ -89,8 +109,29 @@ def test_the_operator_starts_and_forces(setup):
     )
     assert r.status_code == 200
     assert gateway.calls == [
-        (RUNNING, "operator", "page", "autolamella", False, None, True, True)
+        (
+            RUNNING,
+            "operator",
+            "page",
+            "autolamella",
+            False,
+            None,
+            True,
+            True,
+            None,
+            None,
+        )
     ]
+
+
+def test_a_start_can_name_the_configuration_to_connect(setup):
+    client, gateway, _ = setup
+    client.post(
+        "/gateway/start",
+        json={"app": "autolamella", "connect": True, "configuration": "arctis"},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert gateway.calls[0][-2:] == (True, "arctis")
 
 
 def test_a_start_shows_the_window_unless_asked_not_to(setup):
@@ -124,7 +165,7 @@ def test_a_hub_with_the_grant_starts_but_never_forces(setup):
     hub = _pair_hub(client, [SWITCH_MODES])
     r = client.post("/gateway/stop", json={}, headers=_as(hub["token"]))
     assert r.status_code == 200 and r.json()["who"] == "mac-mini"
-    assert gateway.calls == [(OFF, "mac-mini", "hub", False)]
+    assert gateway.calls == [(OFF, "mac-mini", "hub", False, False)], "no window"
     r = client.post("/gateway/stop", json={"force": True}, headers=_as(hub["token"]))
     assert r.json()["detail"]["error_type"] == "operator_only"
     assert (
@@ -166,6 +207,13 @@ def test_an_app_server_pairs_no_hubs(setup):
     pairing = Pairing(PairedTokens(None))
     with pytest.raises(ValueError):
         pairing.open(HUB)
+
+
+def test_the_operators_stop_may_close_a_window(setup):
+    client, gateway, _ = setup
+    r = client.post("/gateway/stop", json={}, headers=_as(OPERATOR_TOKEN))
+    assert r.status_code == 200
+    assert gateway.calls == [(OFF, "operator", "page", False, True)]
 
 
 def test_a_refusal_keeps_its_status(setup):
@@ -347,13 +395,13 @@ def test_the_operator_opens_the_apps_agent_page_signed_in(host_setup):
 
 def test_install_writes_a_startup_shortcut_running_pythonw(tmp_path):
     command = gateway_main.shortcut_command(
-        tmp_path / "fibsemOS Gateway.lnk", ["--manufacturer", "Thermo"]
+        tmp_path / "Agent Gateway.lnk", ["--manufacturer", "Thermo"]
     )
     assert command[:2] == ["powershell", "-NoProfile"]
     script = command[-1]
     assert "pythonw" in script
     assert "-m fibsem.gateway run --manufacturer Thermo" in script
-    assert str(tmp_path / "fibsemOS Gateway.lnk") in script
+    assert str(tmp_path / "Agent Gateway.lnk") in script
 
 
 def test_the_app_server_and_the_gateway_share_one_paired_file(tmp_path):
@@ -398,8 +446,8 @@ class FakeAgent:
         )
         return self.state()
 
-    def end(self, who, via, stop_app=False, force=False):
-        self.calls.append(("end", who, via, stop_app, force))
+    def end(self, who, via, stop_app=False, force=False, window=False):
+        self.calls.append(("end", who, via, stop_app, force, window))
         return self.state()
 
 
@@ -424,7 +472,7 @@ def test_the_operator_starts_and_ends_the_agent(with_agent):
     assert r.status_code == 200
     assert agent.calls == [
         ("start", "overnight", "Mill 01", "assist", "operator", "page", None, False),
-        ("end", "operator", "page", True, False),
+        ("end", "operator", "page", True, False, True),
     ]
 
 
@@ -456,7 +504,7 @@ def test_a_hub_needs_the_grant_to_start_the_agent(with_agent):
     switcher = _pair_hub(client, [SWITCH_MODES])
     r = client.post("/gateway/agent/end", json={}, headers=_as(switcher["token"]))
     assert r.status_code == 200
-    assert agent.calls == [("end", "mac-mini", "hub", False, False)]
+    assert agent.calls == [("end", "mac-mini", "hub", False, False, False)]
     r = client.post(
         "/gateway/agent/end", json={"force": True}, headers=_as(switcher["token"])
     )
