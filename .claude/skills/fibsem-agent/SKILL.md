@@ -11,8 +11,8 @@ whatever it was asked to do. Then read the skill for the task:
 
 | The operator wants to | Read |
 |---|---|
-| Make lamellae with AutoLamella, or explain a run | autolamella, then autolamella-lead if nobody will be at the microscope, or autolamella-assistant if the operator will |
-| Make lamellae through a fluorescent target | autolamella-correlative too, and coincidence-milling where the FM and FIB are coincident |
+| Make lamellae with AutoLamella, or explain a run | autolamella and autolamella-polishing, then autolamella-lead if nobody will be at the microscope, or autolamella-assistant if the operator will |
+| Make lamellae through a fluorescent target | autolamella-correlative too, and autolamella-coincidence-milling where the FM and FIB are coincident |
 | Screen grids, take grid overviews or pick sites | screen-grids |
 | Do plain FIB work: images, milling patterns, spot burns, cross-sections, moving between sites | fibsem-experiment |
 
@@ -676,7 +676,7 @@ Collect the result with `service_wait_for_run` milling, with the line's
 mills, each `{name, config}` in its `monitors`. `milling_list_options` lists
 them with their config fields; you pick one by name and set its config, never
 supply code. FM Intensity watches the fluorescence under the mill; it is
-experimental, and the coincidence-milling skill says when it may be used.
+experimental, and the autolamella-coincidence-milling skill says when it may be used.
 SEM Peek pauses the mill every `interval` seconds of milled time for an SEM image.
 RTM, listed only where the instrument has it, reads what the ion beam reads
 back from the patterns as they mill; each reading carries every pattern's

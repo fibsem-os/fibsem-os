@@ -10,7 +10,7 @@ lamella through a fluorescent target needs: finding the target in the FM,
 carrying it into the FIB, and milling so it stays in the slab. FM device use
 (inserting and retracting the objective, focusing, FM overviews) is
 fibsem-agent's. Milling while the FM watches, on an instrument where the FM
-and FIB are coincident, is the coincidence-milling skill's.
+and FIB are coincident, is the autolamella-coincidence-milling skill's.
 
 ## Reading an FM stack
 
@@ -44,7 +44,7 @@ polishing.
 
 ## Polishing to a target
 
-The polishing rules are autolamella's *Polishing*; the target decides where
+The polishing rules are autolamella-polishing's; the target decides where
 the faces go:
 
 - Estimate the target's depth in the slab from the FM stack, and mill the
@@ -53,4 +53,4 @@ the faces go:
   it in 50 nm at a time.
 
 With a coincident FM, follow the target pass by pass with Iterative
-Polishing (coincidence-milling).
+Polishing (autolamella-coincidence-milling).

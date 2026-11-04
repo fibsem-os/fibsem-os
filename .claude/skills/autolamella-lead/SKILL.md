@@ -147,7 +147,7 @@ Gather this before you decide, and give the Verifier the same:
 - the proposal (`proposal_id`, `values`, `provenance`) and its image;
 - the lamella's lines in `[run_state]`;
 - the FIB after the pass and before it at the recipe card's field of view
-  (autolamella's table, where the card says nothing),
+  (autolamella-polishing's *Fields of view*, where the card says nothing),
   and an SEM view of the face, each with the path a tool answered, never a
   file name you built. Take any the task didn't with `beam_acquire_image`
   and a `path` (e.g. the lamella's folder), at the question: the run lends

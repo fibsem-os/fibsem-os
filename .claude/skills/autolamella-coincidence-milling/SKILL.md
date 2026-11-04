@@ -1,14 +1,15 @@
 ---
-name: coincidence-milling
-description: Milling while the FM watches, on an instrument whose FM and FIB look at the same point (such as the Arctis) — Iterative Polishing with FM stacks, following a target and a control pass by pass, and the FM Intensity monitor. Read fibsem-agent, autolamella and autolamella-correlative first, then this when the FM is coincident with the FIB.
+name: autolamella-coincidence-milling
+description: Milling while the FM watches, on an instrument whose FM and FIB look at the same point (such as the Arctis) — Iterative Polishing with FM stacks, following a target and a control pass by pass, and the FM Intensity monitor. Read fibsem-agent, autolamella, autolamella-polishing and autolamella-correlative first, then this when the FM is coincident with the FIB.
 ---
 
 # Milling with a coincident FM
 
-Read fibsem-agent, autolamella and autolamella-correlative first. This skill
+Read fibsem-agent, autolamella, autolamella-polishing and
+autolamella-correlative first. This skill
 is for an instrument whose FM and FIB look at the same point, so the FM can
 image the lamella between passes, or while it mills, without moving the
-stage. Without a coincident FM it doesn't apply: polish by autolamella's
+stage. Without a coincident FM it doesn't apply: polish by autolamella-polishing's
 rules, with an SEM image each pass.
 
 This is about the FM and the FIB. Bringing the SEM and FIB onto the same
@@ -16,7 +17,7 @@ feature is fibsem-agent's *Coincidence: do it yourself*.
 
 ## Iterative Polishing with the FM
 
-Autolamella's *Iterative Polishing* is the loop. With a coincident FM, each
+Autolamella-polishing's *Iterative Polishing* is the loop. With a coincident FM, each
 pass also takes FM stacks and follows a target:
 
 ```json

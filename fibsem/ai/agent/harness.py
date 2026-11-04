@@ -50,8 +50,9 @@ TASK_SKILLS = (
     "autolamella",
     "autolamella-lead",
     "autolamella-assistant",
+    "autolamella-polishing",
     "autolamella-correlative",
-    "coincidence-milling",
+    "autolamella-coincidence-milling",
     "screen-grids",
     "fibsem-experiment",
 )

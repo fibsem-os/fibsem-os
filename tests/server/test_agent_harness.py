@@ -352,8 +352,9 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         "autolamella",
         "autolamella-lead",
         "autolamella-assistant",
+        "autolamella-polishing",
         "autolamella-correlative",
-        "coincidence-milling",
+        "autolamella-coincidence-milling",
         "screen-grids",
         "fibsem-experiment",
     }
