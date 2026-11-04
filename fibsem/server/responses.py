@@ -1069,10 +1069,12 @@ class RunPlan:
 
 @dataclass
 class KnowledgeIndex:
-    """The knowledge base's index, newest first, and the samples it has."""
+    """The knowledge base's index, newest first, and the samples and playbooks
+    it has entries for."""
 
     entries: List[KnowledgeRow] = field(default_factory=list)
     samples: List[str] = field(default_factory=list)
+    playbooks: List[str] = field(default_factory=list)
 
 
 @dataclass
