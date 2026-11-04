@@ -870,8 +870,8 @@ def test_a_run_task_reads_by_its_stages_with_whose_estimate_it_is():
             {"beam_type": "ION", "image_settings": {"hfw": 80e-6}},
             {},
             "Ion beam",
-            "Take an image: 80 µm wide, 1536 × 1024, 1 µs dwell\n"
-            "These settings stay on the beam",
+            "Take an image: 80 µm wide\n"
+            "These settings stay on the beam; the rest are as it is set now",
         ),
         (
             "device_set_parameter",
@@ -1164,7 +1164,7 @@ def test_a_waiting_request_is_described_again_with_the_values_now(
 
 def test_an_image_s_settings_read_in_display_units_now_and_new():
     """FIB-1428: no raw SI in the details; the beam's settings now beside what
-    the image sets them to."""
+    the image sets them to. A setting left out stays as it is, so has no row."""
     from fibsem.ai.agent.catalog.describe import describe_action
 
     answers = {
@@ -1181,8 +1181,6 @@ def test_an_image_s_settings_read_in_display_units_now_and_new():
         "columns": ["Setting", "Now", "New"],
         "rows": [
             ["Field of view", "300 µm", "150 µm"],
-            ["Resolution", "", "1536 × 1024"],
-            ["Dwell time", "200 ns", "1 µs"],
             ["Save", "", "yes"],
         ],
     }

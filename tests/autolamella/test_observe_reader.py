@@ -12,7 +12,7 @@ READER = (
     Path(__file__).resolve().parents[2]
     / ".claude"
     / "skills"
-    / "autolamella-agent"
+    / "autolamella"
     / "read_record.py"
 )
 

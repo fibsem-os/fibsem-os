@@ -8,7 +8,7 @@ description: Grids — loading and unloading them, screening runs, whole-grid ov
 Read the fibsem-agent skill first: it covers connecting, the levels, the
 watcher, and overviews (*Overview or tile set*). This skill adds the grids
 themselves and how to pick sites on them. Making lamellae at those sites is
-the autolamella-agent skill's.
+the autolamella skill's.
 
 ## Grids by hand
 
@@ -39,7 +39,10 @@ the stage geometry yourself. `experiment_render_markers` draws the items on
 any beam image in the experiment.
 
 `quality` is the operator's verdict, not yours: say what you see, propose,
-and leave the verdict to them.
+and leave the verdict to them. Set it with `grid_set_quality` only once they
+agree. What
+you saw goes on the grid's card with `grid_set_note`, so the next session
+finds it with the grid.
 
 ## Finding sites
 
@@ -84,10 +87,30 @@ When you pick sites (cells, squares):
 - Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
   cell or a rank; ask which the operator means.
 
+**Two separate checks: is the site good, and is the microscope set up there.**
+
+- *Is the site good* is about the sample: the cell or target, the film, the
+  bars, the room for the trenches (the list above). It decides whether a
+  candidate is kept or rejected.
+- *Is the microscope set up there* is about the beams: focus, brightness and
+  contrast, and SEM/FIB coincidence. It never decides whether a site is good.
+  It is something you fix.
+
+Picking on the overview gives candidates by the first check. Then go to
+each candidate (`stage_stable_move`) and do the second there: the same
+feature centred in both beams at a 50 µm field of view, within 5 µm, aiming
+for 2-3 µm (fibsem-agent, *Coincidence: do it yourself*). If it isn't, fix it:
+focus, then the coincidence loop. Never reject a candidate for focus or
+coincidence. If you can't fix one, say what you tried and ask the operator;
+in a lead run, hold it in `[run_state]` and carry on with the others. With
+the beams on it, look at the site again: a closer look can still show it
+isn't good, and that is the first check, not the second. Record each site
+with its coincident height: on a bent grid it changes from site to site.
+
 **Recording sites.** For AutoLamella, each site is a lamella: `item_add`
 without `name`, so it gets the app's usual name, and how to find it again
 (grid, square, rank, why it was chosen) in its description, as
-autolamella-agent's *A lamella's record* says. Without AutoLamella, save each
+autolamella's *A lamella's record* says. Without AutoLamella, save each
 as a position (`stage_save_position`). Show the operator what you picked:
 `experiment_render_markers` draws the items on any beam image in the
 experiment, your own overview included, and its `path` is the evidence of

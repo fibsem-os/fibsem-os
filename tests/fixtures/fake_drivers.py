@@ -12,12 +12,12 @@ why; a built-in in neither fails ``test_every_built_in_driver_has_a_fake``.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
 
 from fibsem import config as cfg
 from fibsem import utils
-from tests.fixtures import tescan_sdk
+from tests.fixtures import jeol_sdk, tescan_sdk
 
 
 @dataclass(frozen=True)
@@ -26,6 +26,13 @@ class FakeDriver:
     configuration: str
     # Puts the fake SDK in place of the vendor's (monkeypatch -> anything).
     install: Callable[[Any], Any]
+    # Beam parameters the instrument sets to its nearest step (a DAC count, a whole
+    # degree), so a value written reads back within this fraction of itself.
+    tolerances: Dict[str, float] = field(default_factory=dict)
+    # Contract tests this driver is known to fail, by test name without the driver
+    # (``test_on_off_and_blanking[BeamType.ELECTRON]``), and why. Each runs as a
+    # strict xfail, so it fails the suite once it passes and should come off.
+    known_gaps: Dict[str, str] = field(default_factory=dict)
 
 
 def _no_sdk(monkeypatch) -> None:
@@ -37,6 +44,12 @@ FAKE_DRIVERS: Dict[str, FakeDriver] = {
     "Tescan": FakeDriver(
         os.path.join(cfg.SHIPPED_CONFIG_PATH, "tescan-configuration.yaml"),
         tescan_sdk.install,
+    ),
+    "JEOL": FakeDriver(
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "jeol-configuration.yaml"),
+        jeol_sdk.install,
+        tolerances=jeol_sdk.STEP_TOLERANCES,
+        known_gaps=jeol_sdk.KNOWN_GAPS,
     ),
 }
 

@@ -106,7 +106,7 @@ def test_a_profile_loads_with_its_hash(tmp_path, checkout):
         tmp_path,
         "overnight",
         "model: opus\neffort: high\nmax_budget_usd: 40\nmode: files\nfolder: ~/w\n"
-        "skills: [autolamella-agent]\nprompt: Overnight run.\n"
+        "skills: [autolamella]\nprompt: Overnight run.\n"
         "hooks:\n  - when: site\n    say: Coincidence checked here?\n",
     )
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)

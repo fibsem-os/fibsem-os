@@ -93,7 +93,8 @@ the same environment as fibsemOS. No registration calls or files in the
 fibsem tree are needed; the application discovers it on the next start.
 
 The [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example)
-repository is a template covering the first three groups. It includes tests that
+repository is a template covering patterns, strategies, tasks and drivers (a
+scanner, a knife and a lamp). It includes tests that
 check the contract, a CI workflow that installs against fibsemOS `main` so
 breaking changes are detected early, and a README describing how to rename
 it. Its "When nothing shows up" section covers the diagnostic steps.

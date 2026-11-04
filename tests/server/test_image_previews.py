@@ -144,6 +144,101 @@ def test_the_preview_tool_images_through_the_imaging_service(armed_client):
     assert preview["hfw"] == pytest.approx(80e-6)
 
 
+def test_a_field_left_out_keeps_the_beams_current_value(armed_client):
+    """Only the fields sent change: the resolution and dwell time set on the beam
+    stay, not ImageSettings' 1536 x 1024 at 1 µs."""
+    base = "/microscope/devices/ion"
+    for key, value in (("resolution", [768, 512]), ("dwell_time", 2e-7)):
+        put = armed_client.put(f"{base}/{key}", headers=AUTH, json={"value": value})
+        assert put.status_code == 200, put.text
+    resp = armed_client.post(
+        "/microscope/services/imaging/commands/acquire",
+        headers=AUTH,
+        json={"kwargs": {"beam_type": "ION", "image_settings": {"hfw": 90e-6}}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert armed_client.get(f"{base}/resolution", headers=AUTH).json()["value"] == [
+        768,
+        512,
+    ]
+    assert armed_client.get(f"{base}/dwell_time", headers=AUTH).json()[
+        "value"
+    ] == pytest.approx(2e-7)
+    assert armed_client.get(f"{base}/hfw", headers=AUTH).json()["value"] == (
+        pytest.approx(90e-6)
+    )
+
+
+def test_a_misspelt_field_is_still_refused(armed_client):
+    resp = armed_client.post(
+        "/microscope/services/imaging/commands/acquire",
+        headers=AUTH,
+        json={"kwargs": {"beam_type": "ION", "image_settings": {"hwf": 90e-6}}},
+    )
+    assert resp.status_code == 422, resp.text
+    assert "hwf" in resp.text
+
+
+def test_a_long_frame_waits_long_enough():
+    """LI32 at 3072 x 2048 and 2 µs scans for about 400 s: the client's usual 120 s
+    gave up while the server went on and saved it."""
+    from fibsem.ai.agent.catalog import CATALOG
+
+    spec = next(t for t in CATALOG if t.name == "beam_acquire_image")
+    asked = []
+
+    def read(path):
+        asked.append(path)
+        return {
+            "value": {"resolution": [3072, 2048], "dwell_time": 2e-6}[
+                path.rsplit("/", 1)[1]
+            ]
+        }
+
+    long = spec.timeout({"image_settings": {"line_integration": 32}}, read)
+    assert long == pytest.approx(60 + 2 * 3072 * 2048 * 2e-6 * 32)
+    assert asked == [
+        "/microscope/devices/electron/resolution",
+        "/microscope/devices/electron/dwell_time",
+    ]
+    given = {"resolution": [1536, 1024], "dwell_time": 1e-6}
+    assert spec.timeout({"image_settings": given}, read) is None  # the usual
+    assert spec.timeout({}, lambda path: None) is None  # nothing read: the usual
+
+
+def test_the_tool_call_sends_its_timeout():
+    from fibsem.client import tools
+
+    sent = []
+
+    class Transport:
+        def request(self, method, path, **kwargs):
+            sent.append((method, path, kwargs))
+            if method == "GET":
+                value = [3072, 2048] if path.endswith("resolution") else 2e-6
+                return _Answer({"value": value})
+            return _Answer({"result": None})
+
+    tools.send(
+        Transport(),
+        "beam_acquire_image",
+        {"image_settings": {"line_integration": 32}},
+    )
+    method, path, kwargs = sent[-1]
+    assert path == "/microscope/services/imaging/commands/acquire"
+    assert kwargs["timeout"].read == pytest.approx(60 + 2 * 3072 * 2048 * 2e-6 * 32)
+
+
+class _Answer:
+    status_code = 200
+
+    def __init__(self, data):
+        self._data = data
+
+    def json(self):
+        return self._data
+
+
 def test_a_camera_frame_answers_the_same_shape():
     """A chamber camera or FM frame (an array, a Frame, a z-stack) answers an
     agent as an image does: summary, path, preview."""
