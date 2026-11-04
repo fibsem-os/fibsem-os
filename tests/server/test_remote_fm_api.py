@@ -359,6 +359,9 @@ def _wait_for(condition, timeout: float) -> bool:
 
 
 def test_without_offline_an_unserved_fm_refuses_to_connect():
+    # Paired, so what refuses is the missing server: without a token the
+    # client refuses first, and the test passed only after one that made it.
+    DeviceAuth.from_disk()
     with pytest.raises(RemoteDeviceUnreachable):
         RemoteFluorescenceMicroscope.connect("127.0.0.1", _free_port())
 
