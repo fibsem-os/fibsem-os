@@ -310,7 +310,8 @@ export interface RecentRow {
 /** One line of GET /app/agent/transcript: what fibsem-agent printed. */
 export interface TranscriptLine {
   t: string;
-  kind: "said" | "step" | "failed";
+  /** context: what fibsem-agent says of the session, "Playbook set: autolamella, ...". */
+  kind: "said" | "step" | "failed" | "context";
   text: string;
   verb?: string;
   seq?: number;

@@ -81,7 +81,7 @@ def test_a_reminder_reaches_the_model_only_when_its_call_matches():
     said = asyncio.run(hook(call("milling_run_task"), "t1", {}))
     assert said["hookSpecificOutput"] == {
         "hookEventName": "PreToolUse",
-        "additionalContext": "Reminder from your profile: Check depth. And current.",
+        "additionalContext": "Reminder: Check depth. And current.",
     }
     assert asyncio.run(hook(call("milling_stop"), "t2", {})) == {}
 
@@ -181,7 +181,7 @@ def test_the_shipped_default_profile_loads(checkout):
     assert "50 µm field of view" in prompt
 
 
-def test_the_autolamella_profile_is_the_default_plus_its_reminders(checkout):
+def test_the_autolamella_profile_is_the_default_running_its_playbook(checkout):
     def shipped(name):
         path = checkout / profiles.PROFILE_DIR / f"{name}.yaml"
         return profiles.load(path, harness_mod.EFFORTS, checkout)
@@ -190,14 +190,19 @@ def test_the_autolamella_profile_is_the_default_plus_its_reminders(checkout):
         shipped(profiles.DEFAULT_PROFILE),
         shipped("autolamella-agent"),
     )
-    assert [hook.when for hook in autolamella.hooks] == [
-        "hardware_error",
-        "after_polish_pass",
-    ]
+    assert autolamella.playbook == "autolamella"
+    assert default.playbook is None
     # Profiles don't inherit: the rest stays the same as the default's.
-    for name in ("model", "effort", "max_budget_usd", "max_turns", "mode", "prompt"):
+    for name in (
+        "model",
+        "effort",
+        "max_budget_usd",
+        "max_turns",
+        "mode",
+        "prompt",
+        "hooks",
+    ):
         assert getattr(autolamella, name) == getattr(default, name), name
-    assert autolamella.hooks[0] == default.hooks[0]
 
 
 def show(capsys, *argv):

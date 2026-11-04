@@ -34,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode, mirror, profiles, sources, usage
+from fibsem.ai.agent import code_mode, mirror, playbooks, profiles, sources, usage
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
@@ -69,6 +69,11 @@ SPECIALISTS = (
 # The harness's own tools, in-process: the wake-up timer (`Alarm`).
 HARNESS_SERVER = "fibsem_agent"
 WAKE_TOOL = f"mcp__{HARNESS_SERVER}__wake_after"
+# The playbook tools (`PlaybookControl`), on the same in-process server.
+PLAYBOOK_TOOLS = [
+    f"mcp__{HARNESS_SERVER}__{name}"
+    for name in ("playbook_list", "playbook_set", "skill_done")
+]
 # The longest a wake-up can be set for, in minutes.
 WAKE_MAX_MIN = 240
 # A constraint's time wakes the agent this long before it, and again at it.
@@ -79,6 +84,7 @@ ALLOWED_TOOLS = (
     [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
     + [f"Agent({name})" for name in SPECIALISTS]
     + [WAKE_TOOL]
+    + PLAYBOOK_TOOLS
 )
 # The only built-in tools the agent has: reading its skills, finding the
 # sidecar's tools when the CLI defers them, calling a specialist or carrying
@@ -177,6 +183,10 @@ your reason comes then. One at a time; a new one replaces it.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.
+- The job runs from a playbook (skills, reminders, rules): playbook_list \
+says which is set and which there are; playbook_set sets one once the \
+operator agrees; skill_done ends an optional skill's part. The fibsem-agent \
+skill's Session setup says when.
 - The operator sets your level in the app; a LEVEL line means it changed. \
 Work as your level allows, as the skills say, and handle a refusal as they say: \
 it is the server's answer."""
@@ -271,6 +281,8 @@ def _kickoff(resumed: bool) -> str:
         "experiment_message_operator what they would like to get done today, "
         "naming the tasks in that table, and read the task skill for their "
         "answer when it comes.\n"
+        "5. Call playbook_list. With no playbook set, propose the one that fits "
+        "(Session setup) and set it once the operator agrees.\n"
         "Then end your turn. The harness wakes you with the watcher's lines."
     )
 
@@ -408,8 +420,87 @@ class Deadlines:
         return sorted(by for _, by in self._timers)
 
 
-def wake_server(alarm: Alarm):
-    """The harness's in-process MCP server: the ``wake_after`` tool on *alarm*."""
+class PlaybookControl:
+    """The session's playbook, as its tools set it: which one runs, who chose
+    it, and which of its optional skills are loaded (`playbooks.Reminders`).
+    Each change is said on the transcript (*say*) and kept (*keep*)."""
+
+    def __init__(
+        self,
+        reminders: playbooks.Reminders,
+        checkout: Optional[Path],
+        say: Optional[Callable[[str], None]] = None,
+        keep: Optional[Callable[[dict], None]] = None,
+    ) -> None:
+        self.reminders = reminders
+        self.checkout = checkout
+        self.say = say or (lambda text: None)
+        self.keep = keep or (lambda state: None)
+
+    def _changed(self, line: str) -> None:
+        log.info(line)
+        self.say(line)
+        self.keep(self.reminders.state())
+
+    def list(self) -> str:
+        rows = []
+        for name in playbooks.available(self.checkout):
+            try:
+                found = playbooks.load(name, self.checkout)
+            except playbooks.PlaybookError as error:
+                rows.append({"name": name, "error": str(error)})
+                continue
+            rows.append(found.summary())
+        current = self.reminders.playbook
+        return json.dumps(
+            {"current": current.name if current else None, "playbooks": rows},
+            ensure_ascii=False,
+        )
+
+    def set(self, name: str, chosen_by: str) -> str:
+        if not name:
+            self.reminders.set(None, chosen_by)
+            self._changed(f"Playbook set: none, {chosen_by}")
+            return "No playbook: only your profile's reminders hold."
+        try:
+            found = playbooks.load(name, self.checkout)
+        except playbooks.PlaybookError as error:
+            return f"Refused: {error}"
+        self.reminders.set(found, chosen_by)
+        self._changed(f"Playbook set: {found.name}, {chosen_by}")
+        return (
+            f"Running the {found.name} playbook. Its reminders are on now. "
+            "Read its skills, and an optional one when its when holds:\n"
+            + json.dumps(found.summary(), ensure_ascii=False)
+        )
+
+    def loaded(self, skill: str) -> None:
+        """The agent read *skill* with the Skill tool."""
+        entry = self.reminders.loaded(skill)
+        if entry is not None:
+            self._changed(f"Skill loaded: {skill}, because {entry.when}")
+
+    def done(self, skill: str, summary: str) -> str:
+        if not self.reminders.finished(skill, summary):
+            return (
+                f"Refused: {skill} is not an optional skill of this session's "
+                "playbook that you have read."
+            )
+        self._changed(f"Skill done: {skill}, {summary}".rstrip(", "))
+        return f"{skill} is done: its reminders are off."
+
+    def hooks(self) -> List[dict]:
+        """The reminders on now, as the Agent page shows them."""
+        rows = []
+        for when, option in profiles.HOOK_OPTIONS.items():
+            for say in self.reminders.texts(when):
+                rows.append({"when": when, "label": option.label, "say": say})
+        return rows
+
+
+def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
+    """The harness's in-process MCP server: the ``wake_after`` tool on
+    *alarm*, and with *control* the playbook tools."""
     from claude_agent_sdk import create_sdk_mcp_server, tool
 
     @tool(
@@ -425,7 +516,56 @@ def wake_server(alarm: Alarm):
         said = alarm.set(float(args.get("minutes", 0)), str(args.get("reason", "")))
         return {"content": [{"type": "text", "text": said}]}
 
-    return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after])
+    if control is None:
+        return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after])
+
+    def text(said: str) -> dict:
+        return {"content": [{"type": "text", "text": said}]}
+
+    @tool(
+        "playbook_list",
+        "The playbooks you can run: each one's description, skills, optional "
+        "skills with when to read them, reminders and rules, and the one "
+        "running now.",
+        {},
+    )
+    async def playbook_list(args):
+        return text(control.list())
+
+    @tool(
+        "playbook_set",
+        "Run a playbook from now on: its reminders go on at once and its rules "
+        "hold. Set it once the operator has agreed to it, or when they name "
+        "one. chosen_by says who chose it, as the operator reads it: 'named by "
+        "the operator', or 'proposed by the agent, confirmed by the "
+        "operator'. An empty name runs none.",
+        {"name": str, "chosen_by": str},
+    )
+    async def playbook_set(args):
+        return text(
+            control.set(
+                str(args.get("name", "")).strip(),
+                str(args.get("chosen_by", "")).strip() or "by the agent",
+            )
+        )
+
+    @tool(
+        "skill_done",
+        "An optional skill of the playbook is done for this session: its "
+        "reminders go off. summary says in a few words what came of it, "
+        "('9 usable squares, 6 sites chosen').",
+        {"skill": str, "summary": str},
+    )
+    async def skill_done(args):
+        return text(
+            control.done(
+                str(args.get("skill", "")).strip(), str(args.get("summary", "")).strip()
+            )
+        )
+
+    return create_sdk_mcp_server(
+        HARNESS_SERVER, tools=[wake_after, playbook_list, playbook_set, skill_done]
+    )
 
 
 @dataclass
@@ -615,8 +755,12 @@ class Harness:
         budget_usd: Optional[float] = None,
         about: Optional[dict] = None,
         alarm: Optional[Alarm] = None,
+        playbook: Optional[PlaybookControl] = None,
     ) -> None:
         self._agent = agent
+        # The session's playbook: sent again when it or its skills change.
+        self._playbook = playbook
+        self._playbook_sent: Optional[dict] = None
         # The agent's wake-up timer: it rings into the watcher's lines.
         self._alarm = alarm
         self._deadlines = Deadlines()
@@ -847,6 +991,12 @@ class Harness:
         if skills != self._skills_sent:
             body["skills"] = skills
             self._skills_sent = skills
+        if self._playbook is not None:
+            state = self._playbook.reminders.state()
+            if state != self._playbook_sent:
+                body["playbook"] = state["playbook"] or {}
+                body["hooks"] = self._playbook.hooks()
+                self._playbook_sent = state
         body = {key: value for key, value in body.items() if value is not None}
         if ended:
             body.update(ended=True, reason=self._end_reason)
@@ -1289,6 +1439,9 @@ def _show(message, agent: SdkAgent) -> None:
                 skill = block.input.get("skill") if block.name == "Skill" else None
                 if skill and skill not in agent.skills_read:
                     agent.skills_read.append(skill)
+                control = getattr(agent, "playbook", None)
+                if skill and control is not None:
+                    control.loaded(skill)
                 verb, text = step(block.name, block.input, getattr(agent, "cwd", None))
                 log.info("%s %s", verb, text)
                 seq = _line(agent, "step", text, verb=verb)
@@ -1337,6 +1490,7 @@ def build_options(
     profile: Optional[profiles.Profile] = None,
     transcript: Optional[Path] = None,
     cwd: Optional[Path] = None,
+    control: Optional[PlaybookControl] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
@@ -1367,7 +1521,7 @@ def build_options(
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
     servers = {SERVER: server}
     if alarm is not None:
-        servers[HARNESS_SERVER] = wake_server(alarm)
+        servers[HARNESS_SERVER] = wake_server(alarm, control)
     return ClaudeAgentOptions(
         # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
         # is off, see CLI_ENV), and none of ~/.claude: the user's own
@@ -1389,7 +1543,14 @@ def build_options(
             "preset": "claude_code",
             "append": system_prompt(work, code, profile),
         },
-        hooks=profiles.sdk_hooks(profile.hooks, SERVER) if profile else None,
+        # With a playbook control, the reminders on now, asked at each call.
+        hooks=(
+            control.reminders.sdk_hooks(SERVER)
+            if control is not None
+            else profiles.sdk_hooks(profile.hooks, SERVER)
+            if profile
+            else None
+        ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
         max_turns=max_turns,
@@ -1628,6 +1789,13 @@ def main(argv=None) -> int:
             print(error, file=sys.stderr)
             return 1
     _resolve(args, profile)
+    playbook = None
+    if profile is not None and profile.playbook:
+        try:
+            playbook = playbooks.load(profile.playbook, checkout)
+        except playbooks.PlaybookError as error:
+            print(f"{profile.path}: {error}", file=sys.stderr)
+            return 1
     work = None
     code = bool(args.code)
     given = args.code or args.files
@@ -1662,7 +1830,7 @@ def main(argv=None) -> int:
             print(refused, file=sys.stderr)
             return 1
     if args.show_config:
-        config = show_config(args, checkout, work, code, profile)
+        config = show_config(args, checkout, work, code, profile, playbook)
         return _print(config, args.json, _config_text)
     missing = missing_extra_message("agent", "fibsem-agent")
     if missing:
@@ -1690,9 +1858,27 @@ def main(argv=None) -> int:
         sources.assemble(run, checkout, skills_for(profile), SPECIALISTS)
 
     alarm = Alarm()
+    control = PlaybookControl(
+        playbooks.Reminders(profile.hooks if profile else []),
+        checkout,
+        keep=session.keep_playbook,
+    )
+    record = session.record() if args.resume else {}
+    if record:
+        why = control.reminders.restore(record, checkout)
+        if why:
+            log.warning("The session's playbook can't be picked up again: %s", why)
+    # A resumed session whose operator chose none keeps none.
+    named = "playbook" not in record and playbook is not None
+    if named:
+        control.reminders.set(playbook, f"named by the {profile.name} profile")
+        session.keep_playbook(control.reminders.state())
+    if control.reminders.playbook is not None:
+        log.info("Playbook: %s", control.reminders.playbook.name)
     options = build_options(
         checkout,
         alarm=alarm,
+        control=control,
         url=args.url,
         token=token,
         model=args.model,
@@ -1708,6 +1894,10 @@ def main(argv=None) -> int:
         cwd=run,
     )
     agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
+    agent.playbook = control
+    control.say = lambda text: _line(agent, "context", text)
+    if named:
+        control.say(f"Playbook set: {playbook.name}, {control.reminders.chosen_by}")
     harness = Harness(
         agent,
         lambda: watch_mod.connect(args.url, token),
@@ -1715,6 +1905,7 @@ def main(argv=None) -> int:
         server_wait_s=args.server_wait,
         goal=args.goal,
         budget_usd=args.max_budget_usd,
+        playbook=control,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,
@@ -1835,6 +2026,7 @@ def show_config(
     work: Optional[Path],
     code: bool,
     profile: Optional[profiles.Profile],
+    playbook: Optional[playbooks.Playbook] = None,
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
     pieces `build_options` uses, without the SDK and without starting."""
@@ -1869,6 +2061,8 @@ def show_config(
         "allowed_tools": list(allowed),
         "denied_tools": list(denied),
         "hooks": hooks,
+        # Its reminders are on from the start; without one, chosen at intake.
+        "playbook": playbook.summary() if playbook is not None else None,
         "system_prompt": system_prompt(work, code, profile),
     }
 
@@ -1940,6 +2134,18 @@ def _config_text(config: dict) -> str:
     lines += [f"  {hook['label']}: {hook['say']}" for hook in config["hooks"]] or [
         "  none"
     ]
+    playbook = config.get("playbook")
+    if playbook is None:
+        lines.append("Playbook: none named; the agent proposes one at intake")
+    else:
+        chain = " <- ".join(playbook["extends"] + [playbook["name"]])
+        lines.append(f"Playbook: {chain}")
+        lines.append(f"  Skills: {', '.join(playbook['skills']) or 'none'}")
+        lines += [
+            f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]
+        ]
+        lines += [f"  {r['label']}: {r['say']}" for r in playbook["reminders"]]
+        lines += [f"  Rule: {rule}" for rule in playbook["rules"]]
     return "\n".join(lines + ["", "System prompt (appended):", config["system_prompt"]])
 
 

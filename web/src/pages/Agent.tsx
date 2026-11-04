@@ -190,6 +190,15 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
                     {l.text}
                   </div>
                 );
+              if (l.kind === "context") {
+                const [head, ...rest] = l.text.split(": ");
+                return (
+                  <div key={i} className="col-span-2 break-words">
+                    <span className="font-medium">{rest.length ? head : l.text}</span>
+                    {rest.length > 0 && <span className="text-muted-foreground"> · {rest.join(": ")}</span>}
+                  </div>
+                );
+              }
               const reason = l.kind === "failed" ? l.text : why.get(`${l.session_id}|${l.seq}`);
               if (l.kind === "failed" && l.step != null) return null;
               return (

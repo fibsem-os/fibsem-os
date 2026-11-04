@@ -1,0 +1,9 @@
+# Lamellae through a fluorescent target: autolamella's, plus the FM.
+description: Lamellae targeted with the FM.
+extends: autolamella
+skills: [autolamella-correlative]
+optional:
+  - skill: autolamella-coincidence-milling
+    when: the FM and FIB are coincident and the operator turned it on
+rules:
+  - Correlate again, with a surface point, after rough milling and before polishing.

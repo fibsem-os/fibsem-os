@@ -27,7 +27,7 @@ import hashlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -52,6 +52,7 @@ FIELDS = (
     "skills",
     "prompt",
     "hooks",
+    "playbook",
 )
 
 
@@ -71,6 +72,8 @@ class HookOption:
     server_errors_only: bool = False
     # After the call: only when its answer has this in it.
     answer_has: str = ""
+    # Only when these arguments match (a pattern, searched, any case).
+    input_matches: Tuple[Tuple[str, str], ...] = ()
 
     def applies(self, hook_input: dict, server: str) -> bool:
         name = str(hook_input.get("tool_name", ""))
@@ -81,6 +84,10 @@ class HookOption:
             return False
         if self.server_errors_only:
             return str(hook_input.get("error", "")).startswith("failed (5")
+        given = hook_input.get("tool_input") or {}
+        for key, pattern in self.input_matches:
+            if not re.search(pattern, str(given.get(key, "")), re.IGNORECASE):
+                return False
         if self.answer_has:
             return self.answer_has in str(hook_input.get("tool_response", ""))
         return True
@@ -104,6 +111,21 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PostToolUse",
         "service_wait_for_run",
         answer_has="Pass data",
+    ),
+    # Deciding or suggesting one of Setup's proposals: its position, point of
+    # interest or alignment area. By the task's name in the protocol.
+    "setup_placement": HookOption(
+        "Placing a lamella at Setup",
+        "PreToolUse",
+        "proposal_decide|proposal_suggest",
+        input_matches=(("task_name", r"setup|select.*position"),),
+    ),
+    # Deciding or suggesting a pass of the Polishing task's mill.
+    "polishing_pass": HookOption(
+        "Deciding a polishing pass",
+        "PreToolUse",
+        "proposal_decide|proposal_suggest",
+        input_matches=(("task_name", r"polish"),),
     ),
     "hardware_error": HookOption(
         "On a hardware error", "PostToolUseFailure", ".*", server_errors_only=True
@@ -142,6 +164,8 @@ class Profile:
     """The level the gateway's Agent card picks first; the operator still starts it."""
     description: Optional[str] = None
     """What the profile is for, in a sentence, for the gateway's Agent card."""
+    playbook: Optional[str] = None
+    """The playbook it runs, by name; without one the agent proposes one."""
 
 
 def dirs(checkout: Optional[Path]) -> List[Path]:
@@ -200,6 +224,7 @@ def load(path: Path, efforts=(), checkout: Optional[Path] = None) -> Profile:
         hooks=_hooks(data.get("hooks"), path),
         level=_text(data, "level", path),
         description=_text(data, "description", path),
+        playbook=_text(data, "playbook", path),
     )
     if profile.level is not None and profile.level not in LEVELS:
         raise ProfileError(f"{path}: level is one of {', '.join(LEVELS)}")
@@ -267,7 +292,7 @@ def _hooks(value: Any, path: Path) -> List[Hook]:
 
 
 def reminder(texts: List[str]) -> str:
-    return "Reminder from your profile: " + " ".join(texts)
+    return "Reminder: " + " ".join(texts)
 
 
 def callback(option: HookOption, texts: List[str], server: str):

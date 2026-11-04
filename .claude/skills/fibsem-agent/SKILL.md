@@ -818,6 +818,15 @@ At the start of a session:
    now, the sample's and playbook's once you know them.
 5. If the goal and the operator's messages don't say what they want done,
    ask them (the table at the top), then read the task skill for it.
+   Under `fibsem-agent`, the job runs from a playbook: its skills, its
+   reminders and its rules. If none is set yet (`playbook_list` says which
+   is), propose the one that fits the operator's brief and goal, say why,
+   and call `playbook_set` once they agree, or with no name if they agree
+   none fits. Until then only ask and read. Say "running the X playbook"
+   from then on. Read its skills at once; read an optional one when its
+   `when` holds, and call `skill_done` with a one-line summary when that
+   part of the job is over, so its reminders go off. When the job changes,
+   propose the other playbook the same way.
 6. Before the first microscope action, get your bearings (above).
 7. At Drive, before you start workflows yourself, turn the run summary
    dialog off with `workflow_set_options(show_run_summary=false)` so no dialog

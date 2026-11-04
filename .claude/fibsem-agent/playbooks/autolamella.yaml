@@ -1,0 +1,25 @@
+# On-grid AutoLamella: the shipped starting point. A lab's own copy in
+# ~/.fibsem/knowledge/playbooks/ wins by name.
+description: On-grid lamellae, not correlative.
+skills: [autolamella]
+optional:
+  - skill: autolamella-lead
+    when: the operator leaves you to run the workflow on your own (Drive)
+  - skill: autolamella-assistant
+    when: the operator runs the workflow and asks you to help
+  - skill: screen-grids
+    when: the grid has not been screened and the operator wants sites found
+  - skill: autolamella-polishing
+    when: before the first polishing pass
+    reminders:
+      polishing_pass: >-
+        Measure the band and both faces on the last images before you choose
+        this pass's depth and current.
+      after_polish_pass: >-
+        Look at the pass figure and its facts before the next pass: the band,
+        both faces, the target against the control, and the SEM. Stop and ask
+        on any of autolamella-polishing's Iterative Polishing stop points.
+reminders:
+  setup_placement: >-
+    Before you place this lamella, check focus, brightness/contrast and
+    SEM/FIB coincidence here, and that the site is flat and clear of grid bars.
