@@ -119,8 +119,8 @@ VOLUME = App(
 # (fibsem.gateway.launch), starting the gateway when none runs.
 GATEWAY = replace(
     FIBSEM_UI,
-    name="fibsemOS Gateway",
-    app_id="fibsemOS.Gateway",
+    name="Agent Gateway",
+    app_id="fibsemOS.AgentGateway",
     command="fibsem-gateway-open",
     icon=ICONS_DIR / "gateway.svg",
     load_steps=(),

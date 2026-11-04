@@ -1,4 +1,4 @@
-"""Tools → Create Desktop Shortcut: the apps, then the fibsemOS Gateway."""
+"""Tools → Create Desktop Shortcut: the apps, then the Agent Gateway."""
 
 import os
 
@@ -19,7 +19,7 @@ window = main_window_fixture(connect=False, name="window")
 def test_the_gateway_shortcut_comes_after_the_apps(window):
     actions = window.menu_bar.shortcut_actions
     assert list(actions)[-1] == "gateway"
-    assert actions["gateway"].text() == "fibsemOS Gateway..."
+    assert actions["gateway"].text() == "Agent Gateway..."
 
 
 def test_it_writes_the_gateway_shortcut_where_chosen(window, tmp_path, monkeypatch):

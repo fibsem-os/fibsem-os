@@ -44,7 +44,7 @@ def test_off_offers_both_starts(tray):
     assert texts["Start with the window"] and texts["  AutoLamella"]
     assert texts["Start without a window"] and texts["    Last experiment"]
     assert texts["Stop"] is False
-    assert "fibsemOS Gateway: Off" == tray.toolTip()
+    assert "Agent Gateway: Off" == tray.toolTip()
 
 
 def test_the_tray_closes_a_window(tray):

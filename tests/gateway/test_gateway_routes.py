@@ -395,13 +395,13 @@ def test_the_operator_opens_the_apps_agent_page_signed_in(host_setup):
 
 def test_install_writes_a_startup_shortcut_running_pythonw(tmp_path):
     command = gateway_main.shortcut_command(
-        tmp_path / "fibsemOS Gateway.lnk", ["--manufacturer", "Thermo"]
+        tmp_path / "Agent Gateway.lnk", ["--manufacturer", "Thermo"]
     )
     assert command[:2] == ["powershell", "-NoProfile"]
     script = command[-1]
     assert "pythonw" in script
     assert "-m fibsem.gateway run --manufacturer Thermo" in script
-    assert str(tmp_path / "fibsemOS Gateway.lnk") in script
+    assert str(tmp_path / "Agent Gateway.lnk") in script
 
 
 def test_the_app_server_and_the_gateway_share_one_paired_file(tmp_path):

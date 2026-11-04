@@ -1,4 +1,4 @@
-"""Open the gateway's page at this PC: the "fibsemOS Gateway" desktop shortcut
+"""Open the gateway's page at this PC: the "Agent Gateway" desktop shortcut
 and ``fibsem-gateway open`` run it.
 
 It starts the gateway when none runs, then opens its page in the browser signed
@@ -84,5 +84,5 @@ def _show(text: str) -> None:
 
 
 def open_gateway_page() -> None:
-    """``fibsem-gateway-open``: the "fibsemOS Gateway" desktop shortcut."""
+    """``fibsem-gateway-open``: the "Agent Gateway" desktop shortcut."""
     sys.exit(open_gateway())

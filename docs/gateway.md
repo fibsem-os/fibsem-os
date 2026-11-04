@@ -15,7 +15,7 @@ installed, nothing changes: desktop launches work as they always have.
 fibsem-gateway install
 ```
 
-On Windows this puts a "fibsemOS Gateway" shortcut in your Startup folder, so the gateway
+On Windows this puts a "Agent Gateway" shortcut in your Startup folder, so the gateway
 starts when you log on, with a tray icon and no console. It needs no admin rights.
 `fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run` (add
 `--no-tray` with no desktop).
@@ -123,8 +123,8 @@ key, check the agent starts, then disable the old one.
 fibsem-gateway shortcut
 ```
 
-This puts a "fibsemOS Gateway" shortcut on the desktop; AutoLamella's **Tools → Create Desktop
-Shortcut → fibsemOS Gateway...** makes the same one. It starts the gateway if it isn't running
+This puts a "Agent Gateway" shortcut on the desktop; AutoLamella's **Tools → Create Desktop
+Shortcut → Agent Gateway...** makes the same one. It starts the gateway if it isn't running
 and opens its page signed in as the operator, so this browser needs no pairing. Nothing else
 starts: pick the microscope, the app and the agent on the page. `fibsem-gateway open` does the
 same from a terminal.

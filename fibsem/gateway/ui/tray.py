@@ -9,8 +9,9 @@ import sys
 import threading
 from typing import Callable, Optional
 
-from PyQt5.QtCore import QObject, Qt, QTimer, QUrl, pyqtSignal
-from PyQt5.QtGui import QColor, QDesktopServices, QIcon, QPainter, QPixmap
+from PyQt5.QtCore import QByteArray, QObject, Qt, QTimer, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
+from PyQt5.QtSvg import QSvgRenderer
 from PyQt5.QtWidgets import (
     QAction,
     QApplication,
@@ -52,16 +53,14 @@ def mode_colour(state: GatewayState) -> str:
 
 
 def tray_icon(colour: str) -> QIcon:
-    """fibsemOS's icon with a dot in the mode's colour."""
+    """The gateway's icon with its badge in the mode's colour."""
+    svg = (ICONS_DIR / "gateway.svg").read_text().replace("#007ACC", colour)
     size = 64
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.Antialiasing)
-    QIcon(str(ICONS_DIR / "fibsemos.svg")).paint(painter, 0, 0, size, size)
-    painter.setPen(QColor("#1e2124"))
-    painter.setBrush(QColor(colour))
-    painter.drawEllipse(size - 26, size - 26, 24, 24)
+    QSvgRenderer(QByteArray(svg.encode())).render(painter)
     painter.end()
     return QIcon(pixmap)
 
@@ -100,7 +99,7 @@ class GatewayTray(QSystemTrayIcon):
             what += f" · {state.app}"
         if state.experiment:
             what += f" · {state.experiment}"
-        self.setToolTip(f"fibsemOS Gateway: {what}")
+        self.setToolTip(f"Agent Gateway: {what}")
 
     def _build_menu(self) -> None:
         menu = self.menu

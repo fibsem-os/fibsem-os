@@ -70,6 +70,6 @@ def test_the_shortcut_opens_the_gateway(tmp_path, monkeypatch):
     )
     assert gateway_main.gateway_shortcut() == 0
     shortcut = next(tmp_path.iterdir()) if not written else written[0][0]
-    assert "fibsemOS Gateway" in shortcut.name
+    assert "Agent Gateway" in shortcut.name
     if not written:
         assert "fibsem-gateway-open" in shortcut.read_text()

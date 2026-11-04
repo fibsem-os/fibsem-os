@@ -35,7 +35,7 @@ from fibsem.server.operator_token import read_operator_token
 
 __all__ = ["call", "main", "shortcut_command", "start_gateway"]
 
-SHORTCUT_NAME = "fibsemOS Gateway"
+SHORTCUT_NAME = "Agent Gateway"
 
 
 def call(method: str, route: str, body: Optional[dict] = None, timeout: float = 3.0):
@@ -86,7 +86,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands.add_parser(
         "shortcut",
-        help='Put a "fibsemOS Gateway" shortcut on the Desktop that opens it.',
+        help='Put a "Agent Gateway" shortcut on the Desktop that opens it.',
     )
     return parser
 
@@ -244,7 +244,7 @@ def uninstall() -> int:
 
 
 def gateway_shortcut() -> int:
-    """The "fibsemOS Gateway" desktop shortcut, running ``fibsem-gateway-open``."""
+    """The "Agent Gateway" desktop shortcut, running ``fibsem-gateway-open``."""
     from fibsem.tools.apps import GATEWAY
     from fibsem.tools.desktop_shortcut import create_desktop_shortcut
 

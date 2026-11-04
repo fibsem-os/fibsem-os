@@ -143,7 +143,7 @@ fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 fibsem-agent = "fibsem.ai.agent.harness:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 
-# No console: the "fibsemOS Gateway" desktop shortcut runs it.
+# No console: the "Agent Gateway" desktop shortcut runs it.
 [project.gui-scripts]
 fibsem-gateway-open = "fibsem.gateway.launch:open_gateway_page"
 

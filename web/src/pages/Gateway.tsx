@@ -341,7 +341,7 @@ export function GatewayPage() {
     <div className="h-full overflow-auto">
       <div className="mx-auto flex max-w-[1100px] flex-col gap-4 px-4 py-5">
         <div className="flex items-baseline gap-3">
-          <h1 className="m-0 text-[17px] font-semibold">Gateway</h1>
+          <h1 className="m-0 text-[17px] font-semibold">Agent Gateway</h1>
           <span className="text-[13px] text-muted-foreground">
             {location.host}
             {state && ` · fibsemOS ${state.version}`}
