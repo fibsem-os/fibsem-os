@@ -11,15 +11,23 @@ whatever it was asked to do. Then read the skill for the task:
 
 | The operator wants to | Read |
 |---|---|
-| Make lamellae with AutoLamella, or explain a run | autolamella-agent; to run a whole session left to you at Drive, autolamella-lead too |
+| Make lamellae with AutoLamella, or explain a run | autolamella, then autolamella-lead if nobody will be at the microscope, or autolamella-assistant if the operator will |
+| Polish a lamella (before the first polishing pass) | autolamella-polishing |
+| Make lamellae through a fluorescent target | autolamella-correlative too, and autolamella-coincidence-milling where the FM and FIB are coincident |
 | Screen grids, take grid overviews or pick sites | screen-grids |
-| Do plain FIB work: images, milling patterns, spot burns, cross-sections, moving between sites | fib-experiment |
+| Do plain FIB work: images, milling patterns, spot burns, cross-sections, moving between sites | fibsem-experiment |
 
-If you don't know what the operator wants done, ask before you read a task
-skill: "What would you like to get done today?", naming the tasks above. If
-it fits none of them, work by this skill alone and say so.
+Before you read a task skill, read what the operator already wrote: the
+session's goal, and their first message. If they give the scientific
+question, the sample and what they want from this session, don't ask for
+them again. Ask only for what's missing: "What are you working on today?
+Tell me the question, the sample, and what you'd like from this session."
+Say back the task you take from it, naming the table's row. If it fits none
+of them, work by this skill alone and say so.
 
-When in doubt, wait and ask the operator. Nothing is lost by waiting.
+When in doubt and the operator is there, wait and ask: nothing is lost by
+waiting. When they have left you a run to lead, a held question holds the
+run: the task skill says what to do instead.
 
 ## Connect
 
@@ -395,6 +403,36 @@ The answer gives each layer's stats, so set limits from them, not by guess.
 Don't note what is already on the record: a request's reason is kept with
 it.
 
+## The knowledge base
+
+What was learned on this microscope is kept across experiments
+(`knowledge_list`, `knowledge_get`, `knowledge_write`), in four sections:
+the instrument, a sample, a playbook, and one record per experiment. It
+works with no experiment open. Without the `knowledge_*` tools there is no
+knowledge base yet, and lessons go in notes.
+
+- **Read before acting.** At session setup, read the instrument entries, and
+  the sample's and playbook's once you know them. Say in a sentence which
+  ones change what you will do. An entry is someone's earlier judgment:
+  check it against what you see today. An entry marked `ask_again` is an
+  old fault: ask the operator whether it still holds, and rewrite it with
+  their answer. Read experiment records only when asked about past runs.
+- **Write what was learned the hard way.** When something cost you a retry,
+  a lost lamella or the operator's help, and knowing it would change the
+  next run, write an instrument, sample or playbook entry: short, specific,
+  what to do differently, with the image that shows it. Write one whenever
+  the operator tells you something to remember, quoting them. Rewrite an
+  entry (its `id`) rather than adding a second one on the same thing. Tag
+  it with the run's `sample` and `playbook`. Say how long it `lasts`: until
+  fixed for a fault, ongoing for a lesson. Give it a `remind` line when it
+  should be said before the steps it concerns.
+- **Record the run** in its experiment entry at the end: what was asked, what
+  was done and how it ended, what went wrong and why, and what to do
+  differently.
+- Your entries are "to review" until the operator keeps them, and apply
+  straight away. Only the operator removes or resolves an entry; ask them
+  if one is wrong.
+
 ## Reading the experiment
 
 Every read works at Watch.
@@ -579,12 +617,13 @@ you measured in). Cap each step to a few µm, take both images again, and
 repeat until it is centred in both. Work from whichever beam has it centred
 already. Do it before any overview, and again at each site on a bent
 grid: on one grid the coincident height ran from +20.8 to +33.6 µm between
-sites. Don't use the coincidence commands: this loop worked better on a
+sites. Use this loop, not the coincidence commands: it worked better on a
 real instrument. A coincidence error shows only as a vertical offset in the
 image, never side to side.
 
-To try (experimental): `alignment_check_coincidence`. Start from the SEM
-when the error may be large. Look at its overlay, and use the `dy` only if
+The one exception is `alignment_check_coincidence`, experimental, and only
+when the operator asks you to try it. Start from the SEM when the error may
+be large. Look at its overlay, and use the `dy` only if
 the `+` sits on your feature; it refuses nothing. Give it a `path` so the
 pair can be replayed, and say in a note how it compared with your own
 measurement.
@@ -604,7 +643,9 @@ instrument's words: "Module is Unavailable (hardware is degraded)", "No
 connection to CAPP hardware", a device that timed out. Don't run it again, not
 even once, and don't reach the same thing another way (another current,
 another tool, requeueing the task): three spot burns into a degraded module
-only added errors. Read what you can without imaging (`microscope_get_state`,
+only added errors. This holds when you lead a run on your own too: don't
+carry on with other lamellae or sites, stop the run (`workflow_stop`) if one
+is going, and wait. Read what you can without imaging (`microscope_get_state`,
 `stage_get_position`), then send the operator a message
 (`experiment_message_operator`) quoting the error word for word, what you were
 doing and where things were left, and wait until they say it is fixed. Our
@@ -644,12 +685,8 @@ Collect the result with `service_wait_for_run` milling, with the line's
 **Milling monitors.** A stage can list monitors that watch it while it
 mills, each `{name, config}` in its `monitors`. `milling_list_options` lists
 them with their config fields; you pick one by name and set its config, never
-supply code. FM Intensity watches the fluorescence under the mill and triggers
-on a drop. It needs an Arctis whose software restrictions on running the FM
-while milling an operator has disabled: if they haven't, don't use it. It is
-experimental: never turn it on yourself, at any level. Propose it, and use
-it only after the operator says yes for this run; then help them set it up
-(which stage, the area to watch, the drop settings).
+supply code. FM Intensity is experimental: never turn it on unless the
+operator asks for it.
 SEM Peek pauses the mill every `interval` seconds of milled time for an SEM image.
 RTM, listed only where the instrument has it, reads what the ion beam reads
 back from the patterns as they mill; each reading carries every pattern's
@@ -678,27 +715,9 @@ don't agree on what is left, or the score stays low, the view has changed
 (milled, drifted out of frame): stop and tell the operator rather than
 aligning again.
 
-**Reading an FM stack.** Judge a target from its planes, not the max
-projection: `experiment_read_file` with `z` (and `channels`) shows one plane,
-and the metadata gives each channel's `sharpest_plane`. The projection hides
-which depth a spot is at and whether a neighbour sits above it. Look for small
-targets (centriole doublets) plane by plane in full-resolution crops
-(`experiment_read_file` with `z`, `experiment_crop_image`): a downsampled
-view loses them. Check each candidate against the lamella window on a FIB or
-SEM image before you call it a target: on a real run a stress-relief cut was
-taken for the lamella. Until the emission-filter read-back is fixed, an FM image's
-metadata can say Reflection for a fluorescence channel: go by the channel's
-name and settings.
-
-**Correlating FM to FIB.** Refine each fiducial pick with
-`correlation_refine_point` before `correlation_correlate`, pass
-`lamella_path`, and look at the overlay before trusting the answer. Always
-give a surface point, `fm_surface_point` or `fib_surface_point`, so the
-refractive-index correction is applied, and check the answer's
-`ri_correction`. Without one, the targets sit deeper than the FM stack reads:
-on a real run 4 of 7 targets were lost this way. Apply the result
-(`item_apply_correlation`, as the tab's Continue) only on a `good` verdict,
-or when the operator agrees.
+**FM targets.** Reading an FM stack for a target and correlating FM to FIB
+are the autolamella-correlative skill's: read it before you pick a
+fluorescent target or correlate.
 
 **Overviews and focus stacks.** Ask `beam_estimate_overview` before
 `beam_acquire_overview`. The stage moves between tiles often take longer than
@@ -795,10 +814,12 @@ At the start of a session:
    read is missed. Under `fibsem-agent` it is already running.
 3. Read where things stand: `app_get_status`, `workflow_get_queue`,
    `proposal_list`. A pending proposal comes first.
-4. If you don't know what the operator wants done, ask them (the table at
-   the top), then read the task skill for it.
-5. Before the first microscope action, get your bearings (above).
-6. At Drive, before you start workflows yourself, turn the run summary
+4. Read the knowledge base (*The knowledge base*): the instrument's entries
+   now, the sample's and playbook's once you know them.
+5. If the goal and the operator's messages don't say what they want done,
+   ask them (the table at the top), then read the task skill for it.
+6. Before the first microscope action, get your bearings (above).
+7. At Drive, before you start workflows yourself, turn the run summary
    dialog off with `workflow_set_options(show_run_summary=false)` so no dialog
    is left over the operator's window, and tell them you did. Each workflow's
    end still shows a toast with a Show summary link, and `workflow_get_summary`
@@ -813,7 +834,8 @@ At the start of a session:
 - Say where each claim came from (an image, a value, a log line) and mark
   inference as inference. Say what you didn't check.
 - During a live run keep each update to a line or two: what just happened and
-  what is next. Summarise a long log with a short script rather than reading
-  it out.
+  what is next. Summarise a long log rather than reading it out: read it at
+  `level=WARNING` first, and with a shell (Claude Code, or `--code`) a
+  short script can count it.
 - Everything you do is attributed to you on the app's timeline; write nothing
   it would contradict.
