@@ -1,7 +1,7 @@
 """The imaging tools: SEM/FIB images, overviews and focus, and the FM's."""
 
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from fibsem.ai.agent.catalog.spec import (
     NEAR_FOCUS,
@@ -23,9 +23,10 @@ _OVERVIEW_RULE = (
     "One image is beam_acquire_image or fm_acquire_image, never a 1 x 1 overview."
 )
 
-# A fresh image's settings when the agent leaves one out: the tool's defaults,
-# not the beam's current values (catalog: beam_acquire_image).
-_IMAGE_DEFAULTS = {"hfw": 150e-6, "resolution": [1536, 1024], "dwell_time": 1e-6}
+# The client's usual timeout (fibsem.client.transport.TIMEOUT); a long frame waits
+# for twice its scan time on top of a minute.
+_USUAL_TIMEOUT_S = 120.0
+_FRAME_MARGIN_S = 60.0
 
 
 # An image's settings as the imaging panel labels them, in display units.
@@ -116,7 +117,6 @@ def _beam_acquire_image(
             "what": wording.beam_name(a),
             "change": "Take an image, as the beam is set now" + saved,
         }
-    settings = {**_IMAGE_DEFAULTS, **settings}
     beam = _beam_device(a)
     rows = []
     for key, value in settings.items():
@@ -137,7 +137,7 @@ def _beam_acquire_image(
         # The caveat on a line of its own: a line about it after the fact
         # (Recent) reads the first only.
         "change": f"Take an image: {_image_settings(settings)}\n"
-        "These settings stay on the beam" + saved,
+        "These settings stay on the beam; the rest are as it is set now" + saved,
         "details": wording.table(("Setting", "Now", "New"), rows),
     }
 
@@ -431,6 +431,27 @@ def _fm_retract_objective(
     return {"what": "Fluorescence", "change": "Retract the objective"}
 
 
+def _acquire_timeout(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[float]:
+    """Seconds an acquire may take: a minute plus twice its scan time, at least the
+    usual timeout. A setting left out is the beam's own, as the server fills it."""
+    settings = a.get("image_settings")
+    settings = dict(settings) if isinstance(settings, dict) else {}
+    beam = _beam_device(a)
+    for key in ("resolution", "dwell_time"):
+        if settings.get(key) is None:
+            now = read(f"/microscope/devices/{beam}/{key}")
+            settings[key] = now.get("value") if isinstance(now, dict) else None
+    try:
+        width, height = settings["resolution"]
+        passes = int(settings.get("line_integration") or 1) * int(
+            settings.get("frame_integration") or 1
+        )
+        scan = float(settings["dwell_time"]) * int(width) * int(height) * passes
+    except (KeyError, TypeError, ValueError):
+        return None  # nothing to estimate from: the usual timeout
+    return max(_USUAL_TIMEOUT_S, _FRAME_MARGIN_S + 2 * scan)
+
+
 TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="beam_acquire_image",
@@ -438,8 +459,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "Acquire a fresh image and return an agent-sized JPEG preview with its "
             "scale (hfw, pixel size). With no image_settings the beam images as it "
             "is set now. image_settings set the beam first and stay set; a field "
-            "left out takes its default (resolution [1536, 1024], dwell_time 1e-6, "
-            "hfw 150e-6), not the beam's current value. Saved only given path: a "
+            "left out keeps the beam's current value. Saved only given path: a "
             "folder inside the open experiment (relative to it, e.g. "
             '"02-nice-dassie/checks"), as <filename>_eb or _ib, filename '
             "defaulting to when it was taken; the answer names the saved file, "
@@ -461,6 +481,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
         },
         optional=("beam_type", "image_settings", "path", "filename"),
         line=_beam_acquire_image,
+        timeout=_acquire_timeout,
         call=lambda a: (
             {},
             command_body(

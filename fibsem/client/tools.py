@@ -29,7 +29,31 @@ def send(
         return transport.request(method, path, params=query or None)
     if headers is None:
         headers = headers_for(tool, arguments, evidence=evidence)
-    return transport.request(method, path, json=body, headers=headers)
+    extra = {}
+    seconds = _timeout(TOOLS[tool], arguments, transport)
+    if seconds is not None:
+        extra["timeout"] = httpx.Timeout(seconds, connect=5.0)
+    return transport.request(method, path, json=body, headers=headers, **extra)
+
+
+def _timeout(spec, arguments: Dict[str, Any], transport: Any) -> Optional[float]:
+    """*spec*'s own timeout for this call, or None for the transport's."""
+    if spec.timeout is None:
+        return None
+
+    def read(path: str) -> Any:
+        try:
+            response = transport.request("GET", path)
+        except Exception:  # an unreachable server: the estimate does without
+            return None
+        if response.status_code >= 400:
+            return None
+        try:
+            return response.json()
+        except ValueError:
+            return None
+
+    return spec.timeout(arguments, read)
 
 
 def route(tool: str, arguments: Dict[str, Any]):
