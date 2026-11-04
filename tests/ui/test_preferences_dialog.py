@@ -95,7 +95,7 @@ def test_the_features_page_is_gone(qapp):
     """Coincidence milling and the connection chip were its last two flags."""
     dialog = PreferencesDialog(UserPreferences())
     pages = [dialog._sidebar.item(i).text() for i in range(dialog._sidebar.count())]
-    assert pages == ["Display", "Experiment", "Movement"]
+    assert pages == ["Display", "Experiment", "Movement", "Libraries"]
     dialog.deleteLater()
 
 
@@ -124,6 +124,17 @@ def _every_field_changed() -> UserPreferences:
     prefs.install.app_server.enabled = True
     prefs.install.app_server.microscope = False
     prefs.install.app_server.allow_local_agents = True
+    n = prefs.install.notifications
+    n.enabled = True
+    n.channel = "#microscope-alerts"
+    n.channel_id = "C0123"
+    n.wait_minutes = 10.0
+    n.answers = False
+    n.messages = False
+    n.failures = False
+    n.run_finished = True
+    n.images = True
+    n.link = "http://localhost:8001/ui"
     prefs.install.vendor_libraries = {"Vendor": "/opt/vendor/site-packages"}
     return prefs
 
@@ -202,3 +213,24 @@ def test_the_update_check_is_offered_only_to_a_release_install(qapp, monkeypatch
 def test_the_update_check_stays_off_by_default():
     assert UserPreferences().install.update_check_enabled is False
     assert UserPreferences.from_dict({}).install.update_check_enabled is False
+
+
+def test_a_library_row_shows_the_folder_and_version_in_use(qapp, monkeypatch):
+    from fibsem import vendor_libraries as vl
+
+    monkeypatch.setattr(
+        vl,
+        "resolve",
+        lambda driver, library: vl.LibraryFolder(
+            r"C:\Program Files\Python36\envs\AutoScript", vl.SOURCE_FOUND, ("x",), "4.9"
+        ),
+    )
+    dialog = PreferencesDialog(UserPreferences())
+    try:
+        edit = dialog._library_edits["ThermoFisher"]
+        assert edit.lineEdit.placeholderText() == (
+            r"C:\Program Files\Python36\envs\AutoScript (found, 4.9)"
+        )
+        assert edit.library.label == "AutoScript library"
+    finally:
+        dialog.deleteLater()

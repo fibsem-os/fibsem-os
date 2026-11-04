@@ -6,12 +6,15 @@
     fibsem-agent --list-hooks
 
 A profile is ``<name>.yaml`` in this machine's ``~/.fibsem/agent/profiles/``
-or in the checkout's ``.claude/fibsem-agent/`` (the machine's wins). It sets
+or in the checkout's ``.claude/fibsem-agent/`` (the machine's wins). It says
+what it is for (``description``, shown on the gateway's Agent card), and sets
 the model, effort, budget and turns, the mode and its folder (else work/ in
 the session's folder), extra skills, instructions added to the prompt, and
-reminders (hooks). Flags on the command line win over it. The level and any
-secret never go in a profile: the operator sets the level, and the API key and
-server token come from the environment.
+reminders (hooks), and the level the gateway's Agent card picks first. Flags on
+the command line win over it. The agent never sets its own level from a profile:
+the operator starts it at a level and changes it, and a launch that starts it
+unseen starts it at Watch. No secret goes in a profile: the API key and server
+token come from the environment.
 
 A reminder is said to the agent at the moment it makes a matching tool call,
 so it doesn't rely on remembering a skill. ``HOOK_OPTIONS`` is the one list of
@@ -32,8 +35,11 @@ PROFILE_DIR = Path(".claude") / "fibsem-agent"
 # The profile fibsem-agent and the gateway run with when none is named.
 DEFAULT_PROFILE = "fibsem-agent"
 MODES = ("none", "files", "code")
+LEVELS = ("watch", "assist", "drive")
 FIELDS = (
     "name",
+    "description",
+    "level",
     "model",
     "effort",
     "max_budget_usd",
@@ -129,6 +135,10 @@ class Profile:
     skills: List[str] = field(default_factory=list)
     prompt: Optional[str] = None
     hooks: List[Hook] = field(default_factory=list)
+    level: Optional[str] = None
+    """The level the gateway's Agent card picks first; the operator still starts it."""
+    description: Optional[str] = None
+    """What the profile is for, in a sentence, for the gateway's Agent card."""
 
 
 def dirs(checkout: Optional[Path]) -> List[Path]:
@@ -184,7 +194,11 @@ def load(path: Path, efforts=(), checkout: Optional[Path] = None) -> Profile:
         skills=_names(data.get("skills"), path),
         prompt=_text(data, "prompt", path),
         hooks=_hooks(data.get("hooks"), path),
+        level=_text(data, "level", path),
+        description=_text(data, "description", path),
     )
+    if profile.level is not None and profile.level not in LEVELS:
+        raise ProfileError(f"{path}: level is one of {', '.join(LEVELS)}")
     if profile.mode not in MODES:
         raise ProfileError(f"{path}: mode is one of {', '.join(MODES)}")
     if efforts and profile.effort is not None and profile.effort not in efforts:

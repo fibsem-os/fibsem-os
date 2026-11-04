@@ -132,6 +132,28 @@ if not os.path.exists(DEFAULT_CONFIGURATION_PATH):
     DEFAULT_CONFIGURATION_PATH = MICROSCOPE_CONFIGURATION_PATH
 
 
+def saved_configurations() -> List[Dict[str, Any]]:
+    """The registered configurations as ``{name, path, default}``, read from
+    the file now: another process (the app) may have registered one since this
+    one imported the module. Entries without a path are left out."""
+    data: Dict[str, Any] = {}
+    if os.path.exists(USER_CONFIGURATIONS_PATH):
+        with open(USER_CONFIGURATIONS_PATH) as f:
+            data = yaml.safe_load(f) or {}
+    configurations = dict(data.get("configurations") or USER_CONFIGURATIONS)
+    default = data.get("default")
+    entry = configurations.get(default) or {}
+    if not entry.get("path") or not os.path.exists(entry["path"]):
+        # As at import: a default with no usable file is the built-in one.
+        default = DEFAULT_CONFIGURATION_NAME
+        configurations[default] = {"path": DEFAULT_CONFIGURATION_PATH}
+    return [
+        {"name": name, "path": entry["path"], "default": name == default}
+        for name, entry in configurations.items()
+        if (entry or {}).get("path")
+    ]
+
+
 def _is_same_path(path: Optional[str], other: Optional[str]) -> bool:
     """Compare two configuration paths, either of which may be unset."""
     if path is None or other is None:
@@ -300,6 +322,34 @@ class AppServerPreferences:
 
 
 @dataclass
+class NotificationPreferences:
+    """Messages to Slack for someone away from this instrument
+    (``fibsem.alerts``): what needs an answer, the agent's messages, what
+    failed and, when asked for, a finished run.
+
+    Off unless enabled and the ``FIBSEM_SLACK_TOKEN`` environment variable is
+    set; the token is never stored here. A section that can't be read is these
+    defaults, so nothing is sent.
+    """
+
+    enabled: bool = False
+    # As typed (``#microscope-alerts``), and the ID Slack answered for it,
+    # which survives a rename. The ID wins when both are set.
+    channel: str = ""
+    channel_id: str = ""
+    # How long an ask waits for someone at the PC before anyone is told.
+    wait_minutes: float = 5.0
+    answers: bool = True
+    messages: bool = True
+    failures: bool = True
+    run_finished: bool = False
+    images: bool = False
+    # The web app's address as the reader reaches it, for the Open button;
+    # empty sends no button.
+    link: str = ""
+
+
+@dataclass
 class InstallPreferences:
     """About the program on this PC rather than how it looks."""
 
@@ -309,6 +359,9 @@ class InstallPreferences:
     # installs regardless of this setting (see fibsem.update_check.is_enabled).
     update_check_enabled: bool = False
     app_server: AppServerPreferences = field(default_factory=AppServerPreferences)
+    notifications: NotificationPreferences = field(
+        default_factory=NotificationPreferences
+    )
     # The folder of each driver's vendor library on this PC, by driver name
     # (``fibsem.vendor_libraries``).
     vendor_libraries: Dict[str, str] = field(default_factory=dict)
@@ -395,8 +448,10 @@ class UserPreferences:
         for name in sections:
             sections[name].update(d.get(name) or {})
         app_server.update(sections["install"].pop("app_server", None) or {})
+        notifications = sections["install"].pop("notifications", None) or {}
         install = _sub_from_dict(InstallPreferences, sections["install"])
         install.app_server = _sub_from_dict(AppServerPreferences, app_server)
+        install.notifications = _sub_from_dict(NotificationPreferences, notifications)
         return cls(
             shared=_sub_from_dict(SharedPreferences, sections["shared"]),
             qt=_sub_from_dict(QtPreferences, sections["qt"]),

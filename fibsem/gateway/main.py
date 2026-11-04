@@ -1,5 +1,7 @@
 """``fibsem-gateway``: run the gateway (with its tray icon when Qt is there),
-install it to start at logon, open pairing, or show whether the app runs.
+install it to start at logon, open pairing, show whether the app runs, open
+its page (`fibsem.gateway.launch`), and put a desktop shortcut for that on the
+Desktop.
 
 Microscope connection flags (``--manufacturer``, ``--ip-address``,
 ``--config``) after ``run`` are passed to the app as it starts, which then
@@ -31,9 +33,9 @@ from fibsem.gateway.gateway import (
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.operator_token import read_operator_token
 
-__all__ = ["call", "main", "shortcut_command"]
+__all__ = ["call", "main", "shortcut_command", "start_gateway"]
 
-SHORTCUT_NAME = "fibsemOS Gateway"
+SHORTCUT_NAME = "Agent Gateway"
 
 
 def call(method: str, route: str, body: Optional[dict] = None, timeout: float = 3.0):
@@ -78,6 +80,14 @@ def _parser() -> argparse.ArgumentParser:
         help="The hub may start and stop apps.",
     )
     commands.add_parser("status", help="Show whether the app runs.")
+    commands.add_parser(
+        "open",
+        help="Open the gateway's page, starting the gateway if it isn't running.",
+    )
+    commands.add_parser(
+        "shortcut",
+        help='Put a "Agent Gateway" shortcut on the Desktop that opens it.',
+    )
     return parser
 
 
@@ -165,11 +175,37 @@ def _startup_folder() -> Path:
     )
 
 
+def pythonw() -> Path:
+    """This environment's console-less Python (Windows)."""
+    exe = Path(sys.executable)
+    return exe.with_name("pythonw" + exe.suffix)
+
+
+def start_gateway() -> None:
+    """Run the gateway, with its tray, apart from this process (as the logon
+    shortcut does, without connection flags)."""
+    if sys.platform == "win32":
+        python = pythonw()
+        flags = {
+            "creationflags": subprocess.DETACHED_PROCESS
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+        }
+    else:
+        python = Path(sys.executable)
+        flags = {"start_new_session": True}
+    subprocess.Popen(
+        [str(python), "-m", "fibsem.gateway", "run"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        cwd=str(Path.home()),
+        **flags,
+    )
+
+
 def shortcut_command(path: Path, connection: List[str]) -> List[str]:
     """PowerShell that writes a shortcut at *path* running the gateway with no
     console (``pythonw``)."""
-    exe = Path(sys.executable)
-    pythonw = exe.with_name("pythonw" + exe.suffix)
     arguments = subprocess.list2cmdline(["-m", "fibsem.gateway", "run", *connection])
 
     def quoted(text: str) -> str:
@@ -177,7 +213,7 @@ def shortcut_command(path: Path, connection: List[str]) -> List[str]:
 
     script = (
         f"$s = (New-Object -ComObject WScript.Shell).CreateShortcut({quoted(str(path))}); "
-        f"$s.TargetPath = {quoted(str(pythonw))}; "
+        f"$s.TargetPath = {quoted(str(pythonw()))}; "
         f"$s.Arguments = {quoted(arguments)}; "
         f"$s.WorkingDirectory = {quoted(str(Path.home()))}; "
         f"$s.Description = {quoted('Runs apps on this microscope PC for a hub')}; "
@@ -207,6 +243,20 @@ def uninstall() -> int:
     return 0
 
 
+def gateway_shortcut() -> int:
+    """The "Agent Gateway" desktop shortcut, running ``fibsem-gateway-open``."""
+    from fibsem.tools.apps import GATEWAY
+    from fibsem.tools.desktop_shortcut import create_desktop_shortcut
+
+    try:
+        path = create_desktop_shortcut(overwrite=True, app=GATEWAY)
+    except (FileNotFoundError, OSError, subprocess.CalledProcessError) as error:
+        print(f"The shortcut wasn't made: {error}")
+        return 1
+    print(f"Shortcut made: {path}")
+    return 0
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0].startswith("-") and argv[0] not in ("-h", "--help"):
@@ -220,6 +270,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         return install(_connection(args.connection))
     if args.command == "uninstall":
         return uninstall()
+    if args.command == "open":
+        from fibsem.gateway.launch import open_gateway
+
+        return open_gateway()
+    if args.command == "shortcut":
+        return gateway_shortcut()
     if args.command == "pair":
         body = {"role": "hub" if args.hub else "operator"}
         if args.hub and args.may_switch:

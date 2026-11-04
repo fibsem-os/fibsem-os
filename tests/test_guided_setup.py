@@ -751,3 +751,27 @@ def test_the_library_folder_is_kept_for_this_pc_not_the_configuration(
     with open(result.path) as f:
         assert str(foldered) not in f.read()
     assert wizard.api_is_installed(wizard.get_manufacturer("Foldered")) is True
+
+
+def test_a_library_folder_found_unasked_is_not_pinned(
+    isolated_registry, foldered, monkeypatch
+):
+    from fibsem import vendor_libraries
+
+    monkeypatch.setattr(
+        vendor_libraries,
+        "resolve",
+        lambda driver, library: vendor_libraries.LibraryFolder(
+            str(foldered), vendor_libraries.SOURCE_FOUND, ("fclient",)
+        ),
+    )
+    choices = wizard.SetupChoices(
+        manufacturer_key="Foldered",
+        model_key="foldered-one",
+        name="foldered",
+        configuration_directory=str(isolated_registry),
+        library_folder=str(foldered),
+    )
+    wizard.apply_setup(choices)
+    # an upgrade in a newer folder is still found
+    assert "Foldered" not in cfg.load_user_preferences().install.vendor_libraries

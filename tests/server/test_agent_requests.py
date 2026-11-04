@@ -1499,6 +1499,20 @@ def test_a_spot_burn_and_an_overview_read_as_what_they_do_and_how_long():
         read=read,
     )
     assert burn["change"] == (
+        "Burn 2 spots (01 centre, edge), 60 pA for 5 s each, about 10 s, "
+        "aligned at the burn current first"
+    )
+    unaligned = describe_action(
+        "service_call_command",
+        {
+            "service": "spot_burn",
+            "command": "run",
+            "kwargs": {"settings": {**settings, "align": False}},
+        },
+        "/x",
+        read=read,
+    )
+    assert unaligned["change"] == (
         "Burn 2 spots (01 centre, edge), 60 pA for 5 s each, about 10 s"
     )
     fm = describe_action(

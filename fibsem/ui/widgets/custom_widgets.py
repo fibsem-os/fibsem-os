@@ -120,6 +120,9 @@ class QDirectoryLineEdit(QWidget):
     def setText(self, text: str) -> None:
         self.lineEdit.setText(text)
 
+    def setPlaceholderText(self, text: str) -> None:
+        self.lineEdit.setPlaceholderText(text)
+
 
 class QFileLineEdit(QWidget):
     """Line edit with a browse button that opens a file picker dialog."""

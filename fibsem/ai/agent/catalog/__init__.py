@@ -65,6 +65,8 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /app/agent/session": "The agent's own report, read back by the app and the dashboard; the agent knows what it reported.",
     "GET /app/knowledge/{section}/{id}/images/{name}": "One knowledge image as a file, for the web page; knowledge_get answers the agent its images as pictures.",
     "DELETE /app/knowledge/{section}/{id}": "Removing a knowledge entry is the operator's only (operator token).",
+    "POST /app/knowledge/{section}/{id}/keep": "Keeping an entry the agent wrote is the operator's only (operator token).",
+    "POST /app/knowledge/{section}/{id}/resolve": "Marking a fault fixed is the operator's only (operator token); the agent rewrites the entry with what the operator says.",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",
     "POST /app/agent/transcript": "fibsem-agent's harness sends what it printed; not the agent's to call.",
     "POST /app/agent/read": "fibsem-agent's harness, or fibsem-mcp watch, says which of the operator's messages the agent has read; not the agent's to call.",

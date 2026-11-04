@@ -124,7 +124,7 @@ unchanged.
 
 ```bash
 pip install -e ".[server,agent]"
-export ANTHROPIC_API_KEY=...       # a Claude API key
+fibsem-cli key set ANTHROPIC_API_KEY   # once: a Claude API key, kept in the OS store
 fibsem-agent
 ```
 
@@ -153,8 +153,9 @@ fibsem-agent
 - **Your Claude Code config stays out.** The session loads this checkout's
   project settings and skills, not `~/.claude`, and only this sidecar, not a
   `fibsem` server you registered with `claude mcp add`.
-- **Signing in.** Set `ANTHROPIC_API_KEY` to a Claude API key in its
-  environment, or configure Amazon Bedrock or Google Vertex as the Agent SDK
+- **Signing in.** A Claude API key: the `ANTHROPIC_API_KEY` environment
+  variable, else the one `fibsem-cli key set ANTHROPIC_API_KEY` stored in
+  Windows Credential Manager or the macOS Keychain. Or configure Amazon Bedrock or Google Vertex as the Agent SDK
   documents. Not a claude.ai login: products built on the Agent SDK use API
   keys. If the model refuses the sign-in, the harness stops with exit code 1
   rather than wait. Its log never shows a bearer token or an API key.

@@ -685,7 +685,10 @@ def test_spot_burns_leave_marks_in_every_view(microscope):
     # and right edges, on the horizontal centre line and a quarter down
     points = [Point(0.25, 0.5), Point(0.75, 0.25)]
     microscope.run_spot_burn(
-        SpotBurnSettings(coordinates=points, milling_current=60e-12, exposure_time=1.0),
+        # a blank scene has nothing to align on
+        SpotBurnSettings(
+            coordinates=points, milling_current=60e-12, exposure_time=1.0, align=False
+        ),
         beam_type=BeamType.ION,
     )
     assert len(scene.milled) == 2

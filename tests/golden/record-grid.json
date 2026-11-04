@@ -263,6 +263,8 @@
           "y": -2e-06
         },
         "spot_burn": {
+          "align": true,
+          "align_steps": 1,
           "coordinates": [
             {
               "name": null,

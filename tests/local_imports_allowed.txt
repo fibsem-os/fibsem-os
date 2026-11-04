@@ -45,7 +45,7 @@ fibsem/autofunctions/autofocus.py 8
 fibsem/autofunctions/brightness_contrast.py 3
 fibsem/autofunctions/charge_neutralisation.py 1
 fibsem/autofunctions/plotting.py 5
-fibsem/cli.py 13
+fibsem/cli.py 14
 fibsem/client/pairing.py 1
 fibsem/client/remote_microscope.py 4
 fibsem/codec/upgrades/fluorescence.py 1
@@ -83,8 +83,9 @@ fibsem/fm/preview.py 3
 fibsem/fm/reader.py 2
 fibsem/fm/remote.py 1
 fibsem/fm/structures.py 8
-fibsem/gateway/gateway.py 2
-fibsem/gateway/main.py 4
+fibsem/gateway/gateway.py 3
+fibsem/gateway/launch.py 1
+fibsem/gateway/main.py 8
 fibsem/geometry/orientations.py 1
 fibsem/geometry/projection.py 2
 fibsem/geometry/saved_images.py 10
@@ -130,13 +131,14 @@ fibsem/services/analysis.py 1
 fibsem/services/correlation.py 22
 fibsem/services/imaging.py 14
 fibsem/services/milling.py 12
+fibsem/services/spot_burn.py 1
 fibsem/services/stage_movement.py 5
 fibsem/session_state.py 1
 fibsem/structures/image.py 1
 fibsem/structures/params.py 2
 fibsem/structures/settings.py 7
 fibsem/structures/system.py 5
-fibsem/tools/desktop_launch.py 2
+fibsem/tools/desktop_launch.py 3
 fibsem/tools/hardware_check/__init__.py 1
 fibsem/ui/FibsemImageSettingsWidget.py 1
 fibsem/ui/FibsemMovementWidget.py 1

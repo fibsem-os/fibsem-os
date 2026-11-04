@@ -313,6 +313,7 @@ def launch(key: str, argv: Optional[List[str]] = None) -> None:
     if not gateway_allows(key, app):
         return
     splash = Splash(app)
+    watch_for_close()
     for status, modules in app.load_steps:
         splash.step(f"{status}…")
         for name in modules:
@@ -367,6 +368,32 @@ def gateway_allows(key: str, app: App) -> bool:
     return True
 
 
+_CLOSE_WATCH = None
+
+
+def watch_for_close(pid: Optional[int] = None, every_ms: int = 1000):
+    """Close the app's windows, as their close buttons do, when the gateway
+    asks (`fibsem.gateway.gateway.close_file`). A window that asks a question
+    as it closes waits for the answer at the PC."""
+    global _CLOSE_WATCH
+    from PyQt5.QtCore import QTimer
+    from PyQt5.QtWidgets import QApplication
+
+    from fibsem.gateway.gateway import close_file
+
+    ask = close_file(os.getpid() if pid is None else pid)
+
+    def check() -> None:
+        if ask.exists():
+            ask.unlink(missing_ok=True)
+            QApplication.closeAllWindows()
+
+    _CLOSE_WATCH = QTimer()
+    _CLOSE_WATCH.timeout.connect(check)
+    _CLOSE_WATCH.start(every_ms)
+    return _CLOSE_WATCH
+
+
 def _take_over(app: App, state: dict) -> bool:
     """Ask the operator whether to stop the remote run and open the window."""
     box, take = take_over_box(app, state)
@@ -374,11 +401,24 @@ def _take_over(app: App, state: dict) -> bool:
     return box.clickedButton() is take
 
 
+_QAPP = None
+
+
+def _qt_app():
+    """The QApplication, kept: one made and dropped at once is deleted, and a
+    dialog after it aborts ("Must construct a QApplication before a QWidget")."""
+    global _QAPP
+    from PyQt5.QtWidgets import QApplication
+
+    _QAPP = QApplication.instance() or QApplication(sys.argv)
+    return _QAPP
+
+
 def take_over_box(app: App, state: dict):
     """The Take over / Cancel question, and its Take over button."""
-    from PyQt5.QtWidgets import QApplication, QMessageBox
+    from PyQt5.QtWidgets import QMessageBox
 
-    QApplication.instance() or QApplication(sys.argv)
+    _qt_app()
     experiment = state.get("experiment") or "no experiment"
     who = state.get("who") or "remotely"
     box = QMessageBox()
@@ -394,9 +434,9 @@ def take_over_box(app: App, state: dict):
 
 
 def _say(app: App, text: str) -> None:
-    from PyQt5.QtWidgets import QApplication, QMessageBox
+    from PyQt5.QtWidgets import QMessageBox
 
-    QApplication.instance() or QApplication(sys.argv)
+    _qt_app()
     QMessageBox.warning(None, app.name, text)
 
 

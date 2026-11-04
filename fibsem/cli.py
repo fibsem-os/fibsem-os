@@ -4,20 +4,23 @@ Every microscope command is a call on the App Server, as the operator: the route
 the agent's tools take, with the server's checks, blocklist and record. The
 server is the one the flags name, else the one running on this machine.
 ``experiment list-all`` asks the app the server hosts; ``plugins`` and ``--version``
-describe this install and need no server.
+describe this install, and ``key`` keeps this PC's keys: they need no server.
 """
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import logging
 import math
+import os
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from fibsem import keystore
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
     BeamType,
@@ -560,6 +563,35 @@ def cmd_pair_device(args) -> int:
     return 0
 
 
+def cmd_key(args) -> int:
+    """This PC's API keys and tokens (`fibsem.keystore`): store one, remove it,
+    or say where it comes from. Never prints a key."""
+    name = args.name
+    try:
+        if args.verb == "set":
+            value = getpass.getpass(f"{name} (hidden as you type or paste): ").strip()
+            if not value:
+                print("Nothing entered, so nothing stored.", file=sys.stderr)
+                return 1
+            keystore.set_secret(name, value)
+            print(f"Stored {name} in {keystore.store_name()}.")
+        elif args.verb == "remove":
+            removed = keystore.delete_secret(name)
+            print(f"Removed {name}." if removed else f"No {name} was stored.")
+        else:
+            stored = keystore.stored_secret(name) is not None
+            print(f"{name}: {'stored' if stored else 'not stored'}.")
+    except keystore.SecretStoreError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
+    if os.environ.get(name):
+        print(
+            f"{name} is also set in the environment, which is used first: "
+            "remove it there to use the stored one."
+        )
+    return 0
+
+
 def cmd_plugins(args) -> int:
     """Print what resolved under each entry point group.
 
@@ -579,6 +611,49 @@ def cmd_plugins(args) -> int:
         logging.disable(logging.NOTSET)
 
     print(render_report(groups, show_builtins=args.show_builtins))
+    return 0
+
+
+def cmd_notify(args) -> int:
+    """Slack notifications on this PC (``fibsem.alerts``): set the channel and
+    send a test, send one again, turn them off, or say how they are set."""
+    from fibsem import alerts, config
+
+    if args.verb == "off":
+        config.update_user_preferences(
+            lambda p: setattr(p.install.notifications, "enabled", False)
+        )
+        print("Slack notifications are off.")
+        return 0
+    if args.verb == "setup":
+
+        def name(p):
+            p.install.notifications.channel = args.channel.strip()
+            p.install.notifications.channel_id = ""
+
+        config.update_user_preferences(name)
+    settings = config.load_user_preferences().install.notifications
+    if args.verb == "status":
+        state = "on" if settings.enabled else "off"
+        channel = settings.channel or "none"
+        if settings.channel_id:
+            channel += f" ({settings.channel_id})"
+        token = "set" if alerts.service.slack_token() else "not set"
+        print(
+            f"Slack notifications: {state}. Channel: {channel}. {alerts.service.TOKEN_ENV}: {token}."
+        )
+        return 0
+    channel_id = alerts.send_test(settings)
+
+    def keep(p):
+        p.install.notifications.channel_id = channel_id
+        if args.verb == "setup":
+            p.install.notifications.enabled = True
+
+    config.update_user_preferences(keep)
+    print(f"Sent a test to {settings.channel or channel_id} ({channel_id}).")
+    if args.verb == "setup":
+        print("Slack notifications are on; a running fibsem host starts sending now.")
     return 0
 
 
@@ -856,6 +931,52 @@ def _add_pair_device_parser(sub) -> None:
     p.set_defaults(func=cmd_pair_device, needs_server=False)
 
 
+def _add_notify_parser(sub) -> None:
+    """Takes no connection arguments: the settings are this PC's, read by the
+    host on its next pass."""
+    p = sub.add_parser(
+        "notify",
+        help="Slack notifications from this instrument",
+        description="The bot token is FIBSEM_SLACK_TOKEN: store it with fibsem-cli "
+        "key set FIBSEM_SLACK_TOKEN before starting the host. Add the bot to the "
+        "channel first.",
+    )
+    verbs = p.add_subparsers(dest="verb", metavar="VERB")
+    verbs.required = True
+    setup = verbs.add_parser(
+        "setup", help="Name the channel, send a test, and turn notifications on"
+    )
+    setup.add_argument("channel", metavar="CHANNEL", help="#name or channel ID")
+    verbs.add_parser("test", help="Send a test to the channel")
+    verbs.add_parser("off", help="Turn notifications off")
+    verbs.add_parser("status", help="Say how notifications are set")
+    p.set_defaults(func=cmd_notify, needs_server=False)
+
+
+def _add_key_parser(sub) -> None:
+    """Takes no connection arguments: the keys are this PC's."""
+    names = ", ".join(f"{name} ({what})" for name, what in keystore.KEYS.items())
+    p = sub.add_parser(
+        "key",
+        help="Store this PC's API keys and tokens",
+        description="Keep a key in this PC's own store (Windows Credential Manager, "
+        "or the Keychain on a Mac), where fibsemOS reads it when the environment "
+        f"variable of the same name isn't set. The keys: {names}. Turn a key off "
+        "where it was issued; removing it here only stops this PC using it.",
+    )
+    verbs = p.add_subparsers(dest="verb", metavar="VERB")
+    verbs.required = True
+    for verb, help in (
+        ("set", "Store a key: it asks for it, hidden"),
+        ("remove", "Remove the stored key"),
+        ("status", "Say whether a key is stored, never the key"),
+    ):
+        verbs.add_parser(verb, help=help).add_argument(
+            "name", metavar="NAME", choices=list(keystore.KEYS)
+        )
+    p.set_defaults(func=cmd_key, needs_server=False)
+
+
 def _add_plugins_parser(sub) -> None:
     """Takes no connection arguments: diagnosing a plugin is usually done away
     from the instrument."""
@@ -915,6 +1036,8 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_remote_parsers(sub, conn)
     _add_experiment_parsers(sub, conn)
     _add_pair_device_parser(sub)
+    _add_notify_parser(sub)
+    _add_key_parser(sub)
     _add_plugins_parser(sub)
     return root
 

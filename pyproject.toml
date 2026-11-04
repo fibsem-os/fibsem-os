@@ -20,7 +20,8 @@ classifiers = [
 
 dependencies = [
     "tifffile>=2021.7.2",
-    "numpy>=2.0.0",
+    # numpy 1 only for odemis PCs, through constraints/odemis.txt (INSTALLATION.md).
+    "numpy>=1.26",
     "scipy>=1.10.0",
     "opencv-python-headless>=4.7.0.72",
     "scikit-image>=0.19.3",
@@ -56,6 +57,9 @@ dependencies = [
     "websockets>=15.0",
     # fibsem.extras reads which extras are installed from the package metadata.
     "packaging",
+    # fibsem.keystore: API keys in Windows Credential Manager or the macOS Keychain.
+    # Elsewhere keys come from the environment only.
+    "keyring>=24; sys_platform == 'win32' or sys_platform == 'darwin'",
 ]
 
 [project.urls]
@@ -64,7 +68,7 @@ Homepage = "https://github.com/fibsem-os/fibsem-os"
 
 [project.optional-dependencies]
 ml = [
-    "torch>=2.0.0,<=2.3.0",
+    "torch>=2.0.0",
     "segmentation-models-pytorch>=0.3.2",
     "transformers>=4.36.2",
     # The ONNX backend, for an .onnx checkpoint.
@@ -89,7 +93,7 @@ odemis = ["pylibtiff", "shapely"]
 # labelling UI imports torch at module level.
 labelling = [
     "fibsem[ui,ml]",
-    "napari>=0.5.1,<=0.5.6", # NumPy 2 well supported from 0.5.1
+    "napari>=0.5.1,<0.10", # NumPy 2 well supported from 0.5.1; 0.6+ has Python 3.13 wheels (vispy>=0.15)
 ]
 
 # Empty: the server is in the base install. Kept so `pip install fibsem[server]` works.
@@ -139,6 +143,10 @@ fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 fibsem-agent = "fibsem.ai.agent.harness:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 
+# No console: the "Agent Gateway" desktop shortcut runs it.
+[project.gui-scripts]
+fibsem-gateway-open = "fibsem.gateway.launch:open_gateway_page"
+
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
 # only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc.
 [tool.setuptools.packages.find]
@@ -157,7 +165,10 @@ namespaces = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config"
+# napari ([labelling]) and npe2 register pytest plugins that import napari, which
+# warns under pydantic 2 at import and so fails collection under "error" below. No
+# test uses their fixtures.
+addopts = "-ra --strict-markers --strict-config -p no:napari -p no:npe2"
 markers = [
     "slow: tests dominated by simulated-hardware timing (deselect with -m 'not slow')",
     "hardware_sim: drives the Demo microscope simulator end-to-end",

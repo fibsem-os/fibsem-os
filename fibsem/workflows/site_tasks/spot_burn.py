@@ -9,7 +9,7 @@ from typing import ClassVar, Optional, Type
 from fibsem import timing
 from fibsem.imaging.spot import SpotBurnSettings, run_spot_burn, show_after_burn
 from fibsem.structures.params import Display, param
-from fibsem.structures.settings import BeamType, Point
+from fibsem.structures.settings import BeamType, ImageSettings, Point
 from fibsem.workflows.interaction import (
     INSTRUCTION_TIMEOUT_S,
     ClearSpotBurn,
@@ -41,6 +41,13 @@ class SpotBurnFiducialTaskConfig(SiteTaskConfig):
         display=Display(scale=1e12),
     )
     exposure_time: int = param(10, unit="s", doc="Exposure time in seconds")
+    align: bool = param(
+        True,
+        doc="Align the ion beam at the burn current before burning, on a full-frame "
+        "reference taken at the imaging current, so the spots land where they were "
+        "placed",
+        display=Display("Align at Burn Current"),
+    )
     autofocus: bool = param(
         False,
         doc="Run a FIB autofocus before acquiring the reference image, so the "
@@ -68,12 +75,16 @@ class SpotBurnFiducialTaskConfig(SiteTaskConfig):
         11 points at 10 s was 110 s of the task. But the burn alone left the estimate
         at 0.71x of the machine time, and the remainder is all here -- the move onto
         the milling pose, the alignment against the stored reference, and the beam
-        current switching into the burn current and back out.
+        current switching into the burn current and back out, and the alignment at
+        the burn current.
 
         Each point costs its exposure plus a blank/park/unblank cycle.
         """
         total = super().estimated_duration
         total += 2 * timing.BEAM_CURRENT_CHANGE_S  # into the burn current and back
+        if self.align:  # at the burn current: reference, one step, the check
+            total += timing.ALIGNMENT_AUTOCONTRAST_S
+            total += timing.image_cost(ImageSettings(), count=3)
         total += len(self.coordinates) * (
             self.exposure_time + timing.SPOT_BURN_POINT_OVERHEAD_S
         )
@@ -85,6 +96,7 @@ class SpotBurnFiducialTaskConfig(SiteTaskConfig):
             coordinates=list(self.coordinates),
             milling_current=self.milling_current,
             exposure_time=float(self.exposure_time),
+            align=self.align,
         )
 
     def apply_settings(self, settings: SpotBurnSettings) -> None:
@@ -92,6 +104,7 @@ class SpotBurnFiducialTaskConfig(SiteTaskConfig):
         self.coordinates = list(settings.coordinates)
         self.milling_current = settings.milling_current
         self.exposure_time = settings.exposure_time
+        self.align = settings.align
 
 
 class SpotBurnFiducialTask(SiteTask):
@@ -222,6 +235,7 @@ class SpotBurnFiducialTask(SiteTask):
                 settings=settings,
                 beam_type=BeamType.ION,
                 stop_event=self._stop_event,
+                path=None if self.output_dir is None else str(self.output_dir),
             )
         except Exception as exc:  # noqa: BLE001 - asked again, or raised, by the loop
             logging.error(f"Spot burn failed: {exc}", exc_info=True)

@@ -15,7 +15,7 @@ installed, nothing changes: desktop launches work as they always have.
 fibsem-gateway install
 ```
 
-On Windows this puts a "fibsemOS Gateway" shortcut in your Startup folder, so the gateway
+On Windows this puts a "Agent Gateway" shortcut in your Startup folder, so the gateway
 starts when you log on, with a tray icon and no console. It needs no admin rights.
 `fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run` (add
 `--no-tray` with no desktop).
@@ -35,7 +35,7 @@ Its menu does the following:
 
 - starts an app with its window;
 - starts an app without a window, with the last experiment or one you choose;
-- stops it (an app without its window);
+- stops it, closing its window if it has one;
 - ends the agent, while one runs;
 - pairs a computer;
 - opens the gateway's page. Quitting the gateway
@@ -43,13 +43,19 @@ stops an app without its window that isn't running a workflow.
 
 The page (`/ui/gateway`) shows:
 
+- the **Microscope**: before the app starts, a configuration saved on this PC (the default
+  first) and **Connect when the app starts**; while it runs, Connect and Disconnect, the same
+  as the web app's Microscope page;
 - the app: Start, with an app, an experiment folder and **Show the window on this PC**, or
-  what runs and Stop;
-- the microscope's **Connection** while the app runs: Connect and Disconnect, the same as
-  the web app's Microscope page;
+  what runs and Stop (with its window, Stop asks first, then closes the window);
 - the agent;
 - the paired computers;
 - every start and stop, with who made it and from where.
+
+At the top right, the page says when there is newer code: "fibsemOS 0.6.3 available" when a
+newer release is on PyPI, or "Update available" for a source checkout behind GitHub's
+`main` (hover it for how many changes). The gateway asks when it starts and once a day after. Offline, or with a commit that
+was never pushed, it shows nothing.
 
 ## The agent
 
@@ -57,9 +63,11 @@ The gateway can run the agent on this PC, next to the app. The **Agent** card on
 starts it with:
 
 - a **profile** (`default` is picked first);
-- a **level** (Watch, Assist or Drive);
+- a **level** (Watch, Assist or Drive): the profile's `level` is picked first, else Watch;
 - an optional **budget**, in place of the profile's;
 - a **goal** for the session.
+
+Under the goal, the profile's `description` says what it is for.
 
 **Show configuration** lists what the profile runs with: the model, budget, skills and
 reminders.
@@ -68,8 +76,7 @@ Start needs:
 
 - **The app running**, with its window or without. The agent acts through it.
 - **A microscope connected.** The agent works on it.
-- **An API key** in `ANTHROPIC_API_KEY`, set for this PC's user. Restart the gateway after
-  setting it. The key stays in the environment; it's never written to a file or a log.
+- **An API key**, stored once with `fibsem-cli key set ANTHROPIC_API_KEY` (see below).
 - **A profile that doesn't run code.** Windows has no sandbox for the agent's code.
 
 If another agent is already connected, such as Claude Code from another computer, Start asks
@@ -91,6 +98,39 @@ end the agent too. Each session's record and log are in
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
 
+### The API key
+
+Store it once on this PC:
+
+```
+fibsem-cli key set ANTHROPIC_API_KEY
+```
+
+It asks for the key without showing it and keeps it in Windows Credential Manager (the
+Keychain on a Mac), encrypted to this Windows login. The gateway reads it at each Start, so
+there's nothing to restart, and passes it only to the agent, never to the app.
+`fibsem-agent` run by hand reads it too. It's never shown, logged or sent anywhere else.
+`fibsem-cli key status ANTHROPIC_API_KEY` says whether one is stored, and `fibsem-cli key
+remove ANTHROPIC_API_KEY` removes it. An `ANTHROPIC_API_KEY` environment variable, if set,
+is used instead.
+
+Anyone using this Windows login can read the key, so use a key for this microscope alone, in
+its own Console workspace with a monthly spend limit. To retire a key, disable it in the
+Console first: that stops it everywhere. Then remove it here. To replace one, store the new
+key, check the agent starts, then disable the old one.
+
+## The desktop shortcut
+
+```
+fibsem-gateway shortcut
+```
+
+This puts a "Agent Gateway" shortcut on the desktop; AutoLamella's **Tools → Create Desktop
+Shortcut → Agent Gateway...** makes the same one. It starts the gateway if it isn't running
+and opens its page signed in as the operator, so this browser needs no pairing. Nothing else
+starts: pick the microscope, the app and the agent on the page. `fibsem-gateway open` does the
+same from a terminal.
+
 ## Pairing a hub
 
 Pair a hub as you pair a browser, with a 4-digit code: **Pair a computer → A hub that may
@@ -102,14 +142,17 @@ can.
 
 ## At the scope
 
-Double-click the desktop shortcut as usual.
+Double-click the AutoLamella desktop shortcut as usual.
 
 - With the gateway off, the window opens and the gateway shows the app running with its
   window until you close it.
 - With the app running without its window, you're asked first: **Take over** stops it (and
   any workflow it is running), then opens the window; **Cancel** leaves it running.
 
-A window is only ever closed at the PC: the gateway refuses to stop it.
+Only the operator closes a window: on the gateway's page, in the tray, or at the PC. A hub
+can't. The window closes as its own close button does, so it saves and disconnects first. If
+it asks a question as it closes, the gateway leaves it open to be answered at the PC and says
+so. It is never killed.
 
 Two things never hold the microscope at once: while a host the gateway didn't start is
 running (a hand-run `fibsem-autolamella-server`), the gateway refuses every start.

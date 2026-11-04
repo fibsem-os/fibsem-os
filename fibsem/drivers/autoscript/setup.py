@@ -1,6 +1,6 @@
 """What the guided setup offers for this driver: ThermoFisher and its instruments."""
 
-from fibsem.drivers.setup import DriverSetup, SetupModel
+from fibsem.drivers.setup import DriverSetup, SetupLibrary, SetupModel
 
 # The frame this driver reads and drives an ordinary stage in (``microscope.py`` sets
 # ``CoordinateSystem.RAW`` for it), while xT normally shows the linked frame. A
@@ -11,12 +11,33 @@ STAGE_NOTE = (
     "is wrong."
 )
 
+# AutoScript installs into a Python environment of its own. Its packages are served
+# from there, unless they were copied into this environment (INSTALLATION.md).
+LIBRARY = SetupLibrary(
+    label="AutoScript library",
+    packages=(
+        "autoscript_sdb_microscope_client",
+        "autoscript_core",
+        "autoscript_sdb_microscope_client_tests",
+        "autoscript_toolkit",
+        "thermoscientific_logging",
+    ),
+    candidates=(
+        r"C:\Program Files\Python*\envs\AutoScript\Lib\site-packages",
+        r"C:\Program Files\Python*\envs\AutoScript",
+        r"C:\Program Files\Thermo Scientific AutoScript",
+        r"C:\Program Files\Enthought\Python\envs\AutoScript\Lib\site-packages",
+    ),
+    env="FIBSEM_AUTOSCRIPT_PATH",
+)
+
 SETUP = DriverSetup(
     label="ThermoFisher",
     summary="Arctis, Hydra and Aquilos.",
     control_software="xT",
     api_module="autoscript_sdb_microscope_client",
     api_label="AutoScript",
+    library=LIBRARY,
     devices=(
         {"name": "ion", "column_tilt": 52},
         {"name": "electron", "column_tilt": 0},

@@ -6,7 +6,6 @@ today (see AutoLamellaTask._fire_hook and TaskManager).
 """
 
 import logging
-import threading
 import time
 from abc import ABC, abstractmethod
 from copy import deepcopy
@@ -14,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.structures.params import Configurable, Display, RangeLimit, param
+from fibsem.structures.params import Configurable, Display, param
 
 
 class HookEvent(str, Enum):
@@ -164,7 +163,7 @@ class HookContext:
     # left untyped so this module does not depend on any one application's structures.
     task_state: Optional[Any] = None
     # The exception message, not a traceback: this payload can leave the machine via a
-    # webhook, and a traceback is unbounded. The logfile has the full one.
+    # hook, and a traceback is unbounded. The logfile has the full one.
     error: Optional[str] = None
     # Why a task was skipped, on TASK_SKIPPED. The producer decides the vocabulary;
     # AutoLamella uses not_required / failure / missing_prereqs / lamella_not_found.
@@ -194,10 +193,9 @@ class HookContext:
         """Copy task_state, so a hook that defers work reads what happened here.
 
         Producers pass live state. AutoLamella's is a single object reused for every
-        run, so a hook that touches it asynchronously — a webhook posting from its
-        daemon thread, a callback queued onto another thread — would otherwise read
-        whatever the *next* task has since written into it. WebhookHook is safe today
-        only because it happens to read plain strings.
+        run, so a hook that touches it asynchronously — a callback queued onto
+        another thread — would otherwise read whatever the *next* task has since
+        written into it.
 
         Guarded, and deliberately so: this runs in the producer's call stack, before
         HookManager.fire's try/except exists to contain anything. An application object
@@ -326,171 +324,6 @@ class NotificationHook(Hook):
             logging.info(
                 f"[NotificationHook] {self.notification_type.upper()}: {message}"
             )
-
-
-_WEBHOOK_ALLOWED_METHODS = ("POST", "GET")
-_WEBHOOK_ALLOWED_SCHEMES = {"http", "https"}
-
-
-def _safe_url(url: str) -> str:
-    """The part of a webhook URL that is safe to write down: scheme and host.
-
-    For a Slack incoming webhook the path *is* the credential -- there is no separate
-    token -- so the host is as much as a log or an error message may carry.
-    """
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    if not parsed.netloc:
-        return "<invalid url>"
-    return f"{parsed.scheme}://{parsed.netloc}/<redacted>"
-
-
-def _redact_url(text: str, url: str) -> str:
-    """Strip a webhook URL, and its bare path, out of ``text``.
-
-    An HTTP library can report the path on its own -- "Max retries exceeded with
-    url: /services/T.../B.../TOKEN" -- so replacing the whole URL is not enough.
-    """
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    for secret in (url, parsed.path):
-        if secret and len(secret) > 1:
-            text = text.replace(secret, "/<redacted>")
-    return text
-
-
-def _validate_webhook_url(url: str) -> str:
-    """Raise ValueError if url is empty or uses a disallowed scheme."""
-    if not url:
-        raise ValueError("WebhookHook: url must not be empty")
-    from urllib.parse import urlparse
-
-    scheme = urlparse(url).scheme.lower()
-    if scheme not in _WEBHOOK_ALLOWED_SCHEMES:
-        raise ValueError(
-            f"WebhookHook: url scheme '{scheme}' is not allowed (must be http or https)"
-        )
-    return url
-
-
-@dataclass
-class WebhookHook(Hook):
-    """Hook that POSTs a JSON payload to a URL. Fires in a daemon thread (non-blocking)."""
-
-    url: str = param("", doc="Where the event is posted.", display=Display("URL"))
-    method: str = param(
-        "POST",
-        choices=_WEBHOOK_ALLOWED_METHODS,
-        doc="The HTTP method the event is sent with.",
-        display=Display("Method"),
-    )
-    timeout: int = param(
-        5,
-        unit="s",
-        limits=RangeLimit(1, 60),
-        doc="How long to wait for the service to answer.",
-        display=Display("Timeout"),
-    )
-
-    def __post_init__(self):
-        super().__post_init__()  # subscription validation
-        if self.method.upper() not in _WEBHOOK_ALLOWED_METHODS:
-            raise ValueError(
-                f"WebhookHook: method '{self.method}' is not allowed (must be one of {sorted(_WEBHOOK_ALLOWED_METHODS)})"
-            )
-        self.method = self.method.upper()
-        # Warned rather than refused. http is a real choice for a service on the lab's
-        # own network -- a self-hosted Mattermost, an internal automation endpoint --
-        # and there would be no way around a hard block. But for a hosted service the
-        # URL usually *is* the credential, and over http it crosses the network in
-        # clear text along with the experiment and item names, so it should be a
-        # decision someone made rather than a default they inherited.
-        if self.url.lower().startswith("http://"):
-            logging.warning(
-                f"{type(self).__name__} '{self.name}' posts over http, so its URL and "
-                f"payload cross the network unencrypted. Use https unless this is a "
-                f"service on your own network."
-            )
-
-    def run(self, context: HookContext) -> None:
-        _validate_webhook_url(self.url)
-        threading.Thread(target=self._post, args=(context,), daemon=True).start()
-
-    def _payload(self, context: HookContext) -> dict:
-        """The JSON body to post.
-
-        Subclasses override this for services that require a particular shape -- a
-        generic endpoint takes the structured event, Slack does not. See SlackHook.
-        """
-        return {
-            "event": context.event,
-            "task_name": context.task_name,
-            "task_type": context.task_type,
-            "item_name": context.item_name,
-            "item_id": context.item_id,
-            "task_id": context.task_id,
-            "experiment_id": context.experiment_id,
-            "experiment_name": context.experiment_name,
-            "tasks_remaining": context.tasks_remaining,
-            "tasks_total": context.tasks_total,
-            "error": context.error,
-            "skip_reason": context.skip_reason,
-            "timestamp": context.timestamp,
-        }
-
-    def _post(self, context: HookContext) -> None:
-        try:
-            import httpx
-
-            response = httpx.request(
-                self.method, self.url, json=self._payload(context), timeout=self.timeout
-            )
-            # A rejected request is not an exception, so without this check an endpoint
-            # that refuses the body -- Slack answering invalid_payload to a generic
-            # payload, an expired URL, a typo in the path -- fails in complete silence.
-            # The hook sits in the configuration looking connected and delivers nothing.
-            # The response body is where the reason lives, so include it, truncated
-            # because an error page can be arbitrarily long.
-            if not response.is_success:
-                logging.warning(
-                    f"{type(self).__name__} '{self.name}' was rejected: "
-                    f"HTTP {response.status_code} {response.text[:200]}"
-                )
-        except Exception as exc:
-            # Deliberately not logging.exception. The HTTP library puts the full URL in its
-            # message -- and the bare path separately -- and for an incoming webhook
-            # that path *is* the credential. Logfiles are the first thing a user sends
-            # when something goes wrong, so a DNS blip must not put a working Slack
-            # credential into a file that then gets emailed around. The exception type
-            # and a redacted message are the diagnosis; the traceback added nothing but
-            # frame locations here.
-            logging.error(
-                f"{type(self).__name__} '{self.name}' failed posting to "
-                f"{_safe_url(self.url)}: {type(exc).__name__}: "
-                f"{_redact_url(str(exc), self.url)}"
-            )
-
-
-@dataclass
-class SlackHook(WebhookHook):
-    """Posts a rendered message to a Slack incoming webhook.
-
-    Its own type rather than a WebhookHook pointed at a Slack URL, because Slack
-    rejects an arbitrary JSON body with ``invalid_payload``: an incoming webhook wants
-    ``{"text": ...}`` or a blocks array, not the structured event. Everything else --
-    URL validation, the daemon thread, the timeout, the rejection warning -- comes from
-    WebhookHook.
-
-    The same shape serves Discord with ``content`` instead of ``text``; each service
-    that dictates its own body is a few lines here.
-    """
-
-    message_template: str = DEFAULT_MESSAGE_TEMPLATE
-
-    def _payload(self, context: HookContext) -> dict:
-        return {"text": render_template(self.message_template, context)}
 
 
 @dataclass

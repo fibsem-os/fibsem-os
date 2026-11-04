@@ -66,7 +66,7 @@ def test_run_spot_burn_module_function_delegates_to_the_microscope(mock_microsco
         stop_event=None,
     )
     mock_microscope.run_spot_burn.assert_called_once_with(
-        settings=settings, beam_type=BeamType.ION, stop_event=None
+        settings=settings, beam_type=BeamType.ION, stop_event=None, path=None
     )
 
 
@@ -286,6 +286,9 @@ def test_update_spot_burn_ui_runs_stored_coordinates_headless(monkeypatch, tmp_p
     assert settings.coordinates == coords
     assert settings.milling_current == task.config.milling_current
     assert settings.exposure_time == task.config.exposure_time
+    assert settings.align is True
+    # the alignment at the burn current saves into the task's own folder
+    assert calls[0]["path"] == str(task.output_dir)
     passes = [p for p in lamella.proposals if p.kind == SPOT_BURN]
     assert [p.current.action for p in passes] == ["run", "accept"]
     assert {p.current.outcome for p in passes} == {DecisionOutcome.Unreviewed}

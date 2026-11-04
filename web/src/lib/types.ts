@@ -620,3 +620,21 @@ export interface StageDrawing {
   objective_inserted: boolean;
   map: StageMapPlaces | null;
 }
+
+/** This instrument's Slack notifications (`/app/notifications`); the token is never served. */
+export interface NotificationSettings {
+  settings: {
+    enabled: boolean;
+    channel: string;
+    channel_id: string;
+    wait_minutes: number;
+    answers: boolean;
+    messages: boolean;
+    failures: boolean;
+    run_finished: boolean;
+    images: boolean;
+    link: string;
+  };
+  token_set: boolean;
+  token_from: string;
+}
