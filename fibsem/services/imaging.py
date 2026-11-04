@@ -320,7 +320,7 @@ class Imaging(Service):
         data = np.vstack([strip.data for strip in strips])
         shape = tuple(settings.resolution[::-1])
         if data.shape != shape:
-            data = resize(data, shape, preserve_range=True).astype(np.uint8)
+            data = resize(data, shape, preserve_range=True).astype(data.dtype)
         metadata = copy.deepcopy(strips[(n_steps - 1) // 2].metadata)
         metadata.image_settings.reduced_area = None
         stacked = FibsemImage(data=data, metadata=metadata)

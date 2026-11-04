@@ -993,6 +993,13 @@ class ImageSettings(Configurable):
         doc="Correct drift between integrated frames. Needs frame integration above 1.",
         display=Display("Drift Correction", advanced=True),
     )  # (bool) # requires frame_integration > 1
+    # None takes the beam's own (its bit_depth parameter).
+    bit_depth: Optional[int] = param(
+        None,
+        device_parameter="beam.bit_depth",
+        doc="Bits per pixel, 8 or 16. Empty images at the beam's own.",
+        display=Display("Bit Depth", advanced=True),
+    )
 
     def __post_init__(self):
         assert isinstance(self.resolution, (list, tuple)) or self.resolution is None, (

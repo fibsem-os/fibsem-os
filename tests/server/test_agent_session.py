@@ -96,6 +96,9 @@ def test_a_new_session_id_or_a_report_after_the_end_starts_a_new_session(server)
         {"tokens": {"prompt": 1}},
         {"context": {"used": 1.5}},
         {"context": 412000},
+        {"playbook": {"hash": "abc"}},
+        {"playbook": {"name": "x", "skills": [{"skill": "y", "state": "half"}]}},
+        {"playbook": {"name": "x", "extra": 1}},
     ],
 )
 def test_a_bad_report_is_refused_and_records_nothing(server, body):
@@ -103,6 +106,25 @@ def test_a_bad_report_is_refused_and_records_nothing(server, body):
     response = client.post("/app/agent/session", json=body)
     assert response.status_code == 422
     assert auth.agent_session is None and recorded == []
+
+
+def test_the_sessions_playbook_is_reported_and_none_clears_it(server):
+    _, client, _ = server
+    playbook = {
+        "name": "autolamella",
+        "hash": "abc",
+        "chosen_by": "the operator",
+        "skills": [
+            {"skill": "autolamella-polishing", "state": "done", "summary": "180 nm"}
+        ],
+    }
+    hooks = [{"when": "setup_placement", "label": "Placing", "say": "Check."}]
+    body = {"session_id": "s1", "playbook": playbook, "hooks": hooks}
+    client.post("/app/agent/session", json=body)
+    session = client.get("/app/agent/session").json()["session"]
+    assert session["playbook"] == playbook
+    client.post("/app/agent/session", json={"playbook": {}})
+    assert client.get("/app/agent/session").json()["session"]["playbook"] == {}
 
 
 def test_reading_and_reporting_need_the_agent_token_and_work_at_watch(server):

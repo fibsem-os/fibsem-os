@@ -36,6 +36,8 @@ LOG = "fibsem-agent.log"
 STOP = "stop"
 # The agent's own files, when it was given no folder.
 WORK = "work"
+# Without a work folder a session runs in run/, which holds only its skills.
+RUN = "run"
 
 # fibsem-agent's exit codes.
 STOPPED, GONE, BUDGET = 0, 1, 2
@@ -94,14 +96,17 @@ def folders(root: Optional[Path] = None) -> List[Path]:
     return sorted(found, key=lambda path: path.name, reverse=True)
 
 
-def last_session(cwd: Optional[Path], root: Optional[Path] = None) -> Optional[str]:
-    """The newest session run in *cwd* (the work folder, else the checkout),
-    or with *cwd* None the newest that worked in its own folder's ``work/``;
-    None if there is none: the CLI keeps a session's transcript under its
-    folder, so one run elsewhere can't be resumed here."""
+def last_session(
+    cwd: Optional[Path], root: Optional[Path] = None, own: str = WORK
+) -> Optional[str]:
+    """The newest session run in *cwd* (a work folder, or the checkout a
+    session from before ``run/`` ran in), or with *cwd* None the newest that
+    ran in its own folder's *own* (``work/`` or ``run/``); None if there is
+    none: the CLI keeps a session's transcript under its folder, so one run
+    elsewhere can't be resumed here."""
     for folder in folders(root):
         record = read_json(folder / RECORD)
-        here = folder / WORK if cwd is None else cwd
+        here = folder / own if cwd is None else cwd
         if record.get("cwd") == str(here) and record.get("session_id"):
             return record["session_id"]
     return None
@@ -171,6 +176,13 @@ class SessionFolder:
             **({} if tokens is None else {"tokens": tokens}),
         )
         record["runs"] = runs
+        self._write(record)
+
+    def keep_playbook(self, state: dict) -> None:
+        """The session's playbook and its optional skills
+        (`playbooks.Reminders.state`), so a resume picks them up."""
+        record = self.record()
+        record["playbook"] = state.get("playbook")
         self._write(record)
 
     def _write(self, record: dict) -> None:

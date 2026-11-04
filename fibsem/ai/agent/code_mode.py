@@ -24,6 +24,8 @@ import sys
 from pathlib import Path, PurePath
 from typing import List, Mapping, Optional
 
+from fibsem.ai.agent import sources
+
 # The file tools on top of the harness's own, and the code tools: those and a
 # shell.
 FILE_TOOLS = ["Read", "Write", "Edit", "Glob", "Grep"]
@@ -234,27 +236,10 @@ def env(work: Path) -> dict:
 def prepare(
     work: Path, checkout: Path, skills: List[str], agents: List[str] = ()
 ) -> None:
-    """Make ``work`` ready: the agent's skills and specialists copied in from
-    the checkout (the CLI reads them from its working folder) and the
-    notebook. Its ``.claude`` is rebuilt every start, so nothing else there
-    (a settings file with hooks) outlives a session."""
-    work.mkdir(parents=True, exist_ok=True)
-    claude = work / ".claude"
-    if claude.is_symlink() or claude.is_file():
-        claude.unlink()
-    elif claude.exists():
-        shutil.rmtree(claude)
-    target = claude / "skills"
-    target.mkdir(parents=True, exist_ok=True)
-    for name in skills:
-        shutil.copytree(checkout / ".claude" / "skills" / name, target / name)
-    if agents:
-        (work / ".claude" / "agents").mkdir(exist_ok=True)
-    for name in agents:
-        shutil.copyfile(
-            checkout / ".claude" / "agents" / f"{name}.md",
-            work / ".claude" / "agents" / f"{name}.md",
-        )
+    """Make ``work`` ready: the agent's skills and specialists copied in (the
+    CLI reads them from its working folder; `sources.assemble`, the lab's
+    winning over the checkout's) and the notebook."""
+    sources.assemble(work, checkout, skills, agents)
     notebook = work / NOTEBOOK
     notebook.mkdir(exist_ok=True)
     if not (notebook / INDEX).exists():

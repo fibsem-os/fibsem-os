@@ -57,6 +57,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -79,6 +80,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -159,6 +161,7 @@
         "imaging": {
           "autocontrast": false,
           "beam_type": "ELECTRON",
+          "bit_depth": null,
           "drift_correction": false,
           "dwell_time": 1e-06,
           "filename": "default_image",
@@ -188,6 +191,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -210,6 +214,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -332,6 +337,7 @@
         "imaging": {
           "autocontrast": false,
           "beam_type": "ELECTRON",
+          "bit_depth": null,
           "drift_correction": false,
           "dwell_time": 1e-06,
           "filename": "default_image",
@@ -362,6 +368,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -384,6 +391,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -503,6 +511,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -525,6 +534,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -608,6 +618,7 @@
         "imaging": {
           "autocontrast": false,
           "beam_type": "ELECTRON",
+          "bit_depth": null,
           "drift_correction": false,
           "dwell_time": 1e-06,
           "filename": "default_image",
@@ -646,6 +657,7 @@
         "imaging": {
           "autocontrast": false,
           "beam_type": "ELECTRON",
+          "bit_depth": null,
           "drift_correction": false,
           "dwell_time": 1e-06,
           "filename": "default_image",
@@ -680,6 +692,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -702,6 +715,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -786,6 +800,7 @@
         "imaging": {
           "autocontrast": false,
           "beam_type": "ELECTRON",
+          "bit_depth": null,
           "drift_correction": false,
           "dwell_time": 1e-06,
           "filename": "default_image",
@@ -815,6 +830,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -837,6 +853,7 @@
             "imaging": {
               "autocontrast": false,
               "beam_type": "ELECTRON",
+              "bit_depth": null,
               "drift_correction": false,
               "dwell_time": 1e-06,
               "filename": "default_image",
@@ -962,6 +979,7 @@
         "imaging": {
           "autocontrast": false,
           "beam_type": "ELECTRON",
+          "bit_depth": null,
           "drift_correction": false,
           "dwell_time": 1e-06,
           "filename": "default_image",

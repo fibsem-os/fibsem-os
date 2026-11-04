@@ -30,6 +30,7 @@ from fibsem.ai.agent.manager import (
     END_WAIT_S,
     MANAGED,
     RECORD,
+    RUN,
     WORK,
     AgentRunning,
     AgentSessionManager,
@@ -46,8 +47,6 @@ from fibsem.util import timestamps
 __all__ = ["AGENT_NAME", "API_KEY", "GatewayAgent", "AgentState"]
 
 API_KEY = "ANTHROPIC_API_KEY"
-# A session's own run folder, without a work folder (fibsem-agent's run/).
-RUN = "run"
 # The agent's pairing, as the App Server's list of paired computers shows it.
 AGENT_NAME = "fibsem-agent (gateway)"
 SESSIONS_SHOWN = 5
