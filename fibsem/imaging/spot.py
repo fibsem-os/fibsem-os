@@ -45,6 +45,19 @@ class SpotBurnSettings(Configurable):
         doc="How long each spot is exposed.",
         display=Display("Exposure Time", decimals=3),
     )
+    align: bool = param(
+        True,
+        doc="Align the ion beam at the burn current before burning, on a full-frame "
+        "reference taken at the imaging current, so the spots land where they were "
+        "placed.",
+        display=Display("Align at Burn Current"),
+    )
+    align_steps: int = param(
+        1,
+        limits=RangeLimit(1, 9),
+        doc="How many times the alignment at the burn current is repeated.",
+        display=Display("Alignment Steps"),
+    )
 
     def to_dict(self) -> dict:
         return encode(self)
@@ -114,6 +127,7 @@ def run_spot_burn(
     settings: SpotBurnSettings,
     beam_type: BeamType = BeamType.ION,
     stop_event: Optional[threading.Event] = None,
+    path: Optional[str] = None,
 ) -> None:
     """Run a spot burn job on the microscope. Exposes the coordinates in *settings* for
     the exposure time at the milling current it specifies.
@@ -131,9 +145,11 @@ def run_spot_burn(
             point in seconds, and the milling current to burn at.
         beam_type: The type of beam to use. (Default: BeamType.ION)
         stop_event: Threading event to signal cancellation. (Default: None)
+        path: Where the alignment at the burn current saves its images.
+            (Default: the cross-correlation data folder)
     Returns:
         None
     """
     return microscope.run_spot_burn(
-        settings=settings, beam_type=beam_type, stop_event=stop_event
+        settings=settings, beam_type=beam_type, stop_event=stop_event, path=path
     )

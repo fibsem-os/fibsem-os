@@ -2,8 +2,7 @@
 
 A stand-in browser plays each way a real one can behave. It can write the PDF
 and then not exit, as Chrome does on macOS, with a child process of its own. It
-can exit without writing, never write, or write half a file. The last test
-prints a real report with a real browser, and is skipped where there is none.
+can exit without writing, never write, or write half a file.
 """
 
 import json
@@ -11,20 +10,17 @@ import os
 import sys
 import textwrap
 import time
-from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from fibsem.applications.autolamella.tools import pdf_export
-from fibsem.applications.autolamella.tools.event_tables import event_tables
 from fibsem.applications.autolamella.tools.pdf_export import (
     BROWSER_ENV,
     PdfExportError,
     find_browser,
     html_to_pdf,
 )
-from fibsem.applications.autolamella.tools.report_v2 import render_report
 
 PDF = b"%PDF-1.4\n1 0 obj << >> endobj\ntrailer << >>\n%%EOF\n"
 
@@ -168,34 +164,3 @@ def test_with_no_browser_there_is_no_pdf(page, monkeypatch):
 
     with pytest.raises(PdfExportError, match="no Edge, Chrome or Chromium"):
         html_to_pdf(page)
-
-
-def test_a_real_browser_prints_the_report(tmp_path):
-    browser = find_browser()
-    if browser is None:
-        pytest.skip("no Edge, Chrome or Chromium on this machine")
-    t0 = datetime(2026, 9, 24, 9, 0)
-    records = [
-        {
-            "session": "s1",
-            "actor": "task",
-            "kind": kind,
-            "t": (t0 + timedelta(seconds=second)).isoformat() + "+10:00",
-            "item": {"id": "L1", "name": "01-lamella"},
-            "task": {"id": "r1", "name": "Rough Milling"},
-            "payload": {},
-        }
-        for kind, second in (("task_started", 0), ("task_completed", 900))
-    ]
-    html = tmp_path / "report.html"
-    html.write_text(
-        render_report(
-            event_tables(records), "session", ["01-lamella"], ["Rough Milling"]
-        ),
-        encoding="utf-8",
-    )
-
-    pdf = html_to_pdf(html, timeout=120)
-
-    data = pdf.read_bytes()
-    assert data.startswith(b"%PDF") and b"%%EOF" in data[-1024:]

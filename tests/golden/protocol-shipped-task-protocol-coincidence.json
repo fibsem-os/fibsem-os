@@ -732,6 +732,7 @@
       "task_type": "SETUP_COINCIDENCE_MILLING"
     },
     "Spot Burn Fiducial": {
+      "align": true,
       "autofocus": false,
       "coordinates": [
         {
