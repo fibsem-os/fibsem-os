@@ -432,8 +432,9 @@ def _fm_retract_objective(
 
 
 def _acquire_timeout(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[float]:
-    """Seconds an acquire may take: a minute plus twice its scan time, at least the
-    usual timeout. A setting left out is the beam's own, as the server fills it."""
+    """Seconds an acquire may take: a minute plus twice its scan time, where that is
+    longer than the usual timeout (None keeps the usual). A setting left out is the
+    beam's own, as the server fills it."""
     settings = a.get("image_settings")
     settings = dict(settings) if isinstance(settings, dict) else {}
     beam = _beam_device(a)
@@ -449,7 +450,8 @@ def _acquire_timeout(a: Dict[str, Any], read: Callable[[str], Any]) -> Optional[
         scan = float(settings["dwell_time"]) * int(width) * int(height) * passes
     except (KeyError, TypeError, ValueError):
         return None  # nothing to estimate from: the usual timeout
-    return max(_USUAL_TIMEOUT_S, _FRAME_MARGIN_S + 2 * scan)
+    seconds = _FRAME_MARGIN_S + 2 * scan
+    return seconds if seconds > _USUAL_TIMEOUT_S else None  # None: the usual
 
 
 TOOLS: Tuple[ToolSpec, ...] = (

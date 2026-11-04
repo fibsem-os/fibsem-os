@@ -202,7 +202,7 @@ def test_a_long_frame_waits_long_enough():
         "/microscope/devices/electron/dwell_time",
     ]
     given = {"resolution": [1536, 1024], "dwell_time": 1e-6}
-    assert spec.timeout({"image_settings": given}, read) == 120.0
+    assert spec.timeout({"image_settings": given}, read) is None  # the usual
     assert spec.timeout({}, lambda path: None) is None  # nothing read: the usual
 
 
