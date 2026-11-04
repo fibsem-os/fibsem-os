@@ -166,6 +166,14 @@ class Beam(Device):
         limits=DEFAULT_DWELL_TIME_LIMITS,
         display=Display("Dwell Time", scale=1e6, step=0.01, decimals=3),
     )
+    bit_depth = DeviceParameter(
+        int,
+        unit="bit",
+        choices=(8, 16),
+        doc="Bits per pixel of each frame acquired. An image's own bit_depth sets it; "
+        "an image that names none takes this.",
+        display=Display("Bit Depth", advanced=True),
+    )
     stigmation = DeviceParameter(
         Point,
         limits=DEFAULT_STIGMATION_LIMITS,
@@ -457,6 +465,8 @@ class Beam(Device):
         # When the image was acquired, taken just before the driver runs, so every
         # backend's image carries it. A driver that reads a time off the
         # instrument has already set its own, and keeps it.
+        if image_settings is not None and image_settings.bit_depth is not None:
+            self._set_bit_depth(image_settings.bit_depth)
         started = now()
         if "scanner" in self.roles:
             image = self._acquire_with_scanner(image_settings)
@@ -475,6 +485,18 @@ class Beam(Device):
         if threading.current_thread() is not getattr(self, "_live_thread", None):
             self.image_acquired.emit(image)
         return image
+
+    def _set_bit_depth(self, bits: int) -> None:
+        # Set and left set, as the field width is. A beam without the setting
+        # images at its own, and says so.
+        if "bit_depth" not in self.parameters:
+            logging.warning(
+                f"{self.name} has no bit depth setting: a {bits}-bit image was asked "
+                "for, it images at its own."
+            )
+            return
+        if self.bit_depth.get_value() != bits:
+            self.bit_depth.set_value(bits)
 
     def scan_resolution(self, resolution: Tuple[int, int]) -> Tuple[int, int]:
         """The resolution an image asked for at *resolution* comes back at.

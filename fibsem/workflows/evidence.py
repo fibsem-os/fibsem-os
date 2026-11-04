@@ -35,6 +35,13 @@ MAX_LABEL = 32
 AGENT, OPERATOR = "agent", "operator"
 # A point's mark: a cross, or a ring crosshair.
 POINT_SHAPES = ("cross", "target")
+# What someone says of a mark, or of a whole picture: right or wrong.
+GOOD, BAD = "good", "bad"
+VERDICTS = (GOOD, BAD)
+# The kinds of marks, in the order they are listed.
+KINDS = ("points", "areas", "circles", "lines", "outlines")
+# An outline's corners: at least a triangle, at most this many.
+MAX_CORNERS = 64
 
 _ID = re.compile(r"^[0-9a-f]{8}$")
 
@@ -83,6 +90,31 @@ def _label(mark: Dict[str, Any]) -> str:
     return label
 
 
+def _verdict(mark: Dict[str, Any]) -> Dict[str, str]:
+    """A mark's ``{"verdict": good | bad}``, or nothing when it has none."""
+    verdict = mark.get("verdict")
+    if verdict is None:
+        return {}
+    if verdict not in VERDICTS:
+        raise ValueError
+    return {"verdict": verdict}
+
+
+def _corners(outline: Dict[str, Any]) -> List[List[float]]:
+    corners = [[_number(x), _number(y)] for x, y in outline["points"]]
+    if not 3 <= len(corners) <= MAX_CORNERS:
+        raise ValueError
+    return corners
+
+
+def centroid(corners: List[List[float]]) -> tuple:
+    """The centre of an outline's *corners*, the mean of its corners."""
+    return (
+        sum(x for x, _ in corners) / len(corners),
+        sum(y for _, y in corners) / len(corners),
+    )
+
+
 def _flag(mark: Dict[str, Any], name: str) -> bool:
     value = mark.get(name, False)
     if not isinstance(value, bool):
@@ -93,9 +125,11 @@ def _flag(mark: Dict[str, Any], name: str) -> bool:
 _SHAPE = (
     "marks is {points: [{x, y, shape?, label?}], areas: [{x, y, width, height, "
     "label?}], circles: [{x, y, radius, label?}], lines: [{x1, y1, x2, y2, "
-    "arrow?, measure?, label?}], crop?}, in the image's full-resolution pixels from "
+    "arrow?, measure?, label?}], outlines: [{points: [[x, y], ...], label?}], "
+    "crop?}, in the image's full-resolution pixels from "
     "its top left, or as read off a crop's picture when crop names it (a cell, B3, "
-    "or the box [x, y, width, height]); shape is cross or target. On a "
+    "or the box [x, y, width, height]); shape is cross or target; an outline has "
+    f"3 to {MAX_CORNERS} corners. Any mark may take verdict, good or bad. On a "
     "fluorescence stack any mark may take z, the plane it is on (0 the first, as "
     "the correlation tools count): a picture of the stack then shows that plane."
 )
@@ -107,12 +141,7 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
     if marks is None:
         return None
     try:
-        if not isinstance(marks, dict) or set(marks) - {
-            "points",
-            "areas",
-            "circles",
-            "lines",
-        }:
+        if not isinstance(marks, dict) or set(marks) - set(KINDS):
             raise ValueError
         checked = {
             "points": [
@@ -121,6 +150,7 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
                     "y": _number(p["y"]),
                     "shape": _shape(p),
                     "label": _label(p),
+                    **_verdict(p),
                     **_z(p),
                 }
                 for p in marks.get("points") or []
@@ -132,6 +162,7 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
                     "width": _number(a["width"]),
                     "height": _number(a["height"]),
                     "label": _label(a),
+                    **_verdict(a),
                     **_z(a),
                 }
                 for a in marks.get("areas") or []
@@ -142,6 +173,7 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
                     "y": _number(c["y"]),
                     "radius": _number(c["radius"]),
                     "label": _label(c),
+                    **_verdict(c),
                     **_z(c),
                 }
                 for c in marks.get("circles") or []
@@ -155,9 +187,19 @@ def _marks(marks: Any) -> Optional[Dict[str, List[Dict[str, Any]]]]:
                     "arrow": _flag(line, "arrow"),
                     "measure": _flag(line, "measure"),
                     "label": _label(line),
+                    **_verdict(line),
                     **_z(line),
                 }
                 for line in marks.get("lines") or []
+            ],
+            "outlines": [
+                {
+                    "points": _corners(o),
+                    "label": _label(o),
+                    **_verdict(o),
+                    **_z(o),
+                }
+                for o in marks.get("outlines") or []
             ],
         }
     except _LongLabel as long:
@@ -281,6 +323,8 @@ def _with_stage(
     for line in marks.get("lines", []):
         places.append((line, "stage1", line["x1"], line["y1"]))
         places.append((line, "stage2", line["x2"], line["y2"]))
+    for outline in marks.get("outlines", []):
+        places.append((outline, "stage", *centroid(outline["points"])))
     try:
         positions = image_points_to_stage(image_path, [(x, y) for _, _, x, y in places])
     except Exception:  # noqa: BLE001 - an image that doesn't read keeps pixels only
@@ -408,6 +452,139 @@ def _save_upload(data: Any, target: str) -> None:
     image.save(target, format="PNG")
 
 
+def _drawn_on(image_path: str, root: str) -> Dict[str, Any]:
+    """For a picture the draw tools drew: ``{source, source_marks,
+    source_plane}``, the image inside the experiment it was drawn on and the
+    marks drawn there; empty for any other image."""
+    from fibsem.imaging.marks import drawn_from
+
+    drawn = drawn_from(image_path)
+    if drawn is None:
+        return {}
+    try:
+        source = _inside(drawn["source"], root, "source")
+    except EvidenceRefused:
+        return {}
+    return {
+        "source": source,
+        "source_marks": drawn.get("marks"),
+        "source_plane": drawn.get("plane"),
+    }
+
+
+def marked_on(record: Dict[str, Any]) -> tuple:
+    """``(image, marks, plane)``: the image to answer the evidence *record* on
+    (absolute), and its marks there. The image a drawn picture or an upload
+    was drawn on, with the marks drawn (none known for an upload); else the
+    record's own image and marks."""
+    if record.get("source"):
+        return (
+            record["source"],
+            record.get("source_marks"),
+            record.get("source_plane"),
+        )
+    return record.get("image"), record.get("marks"), None
+
+
+def _answered(
+    experiment_path: Callable[[], Optional[str]], answers: Any
+) -> Optional[Dict[str, Any]]:
+    """The record of the picture *answers* names, or None for none."""
+    if answers is None:
+        return None
+    try:
+        return load(experiment_path, answers)
+    except EvidenceRefused as refusal:
+        raise EvidenceRefused(
+            refusal.status_code,
+            refusal.error_type,
+            f"answers is the evidence id of the picture: {refusal.message}",
+        )
+
+
+_JUDGED = (
+    "judged is [{kind, index, verdict?, moved_to?}]: a mark of the picture "
+    "answered, by its kind (points, areas, circles, lines, outlines) and place in "
+    "that list (0 the first), good or bad, and where it should be instead, "
+    "{x, y} in the image's pixels."
+)
+
+
+def _place(kind: str, mark: Dict[str, Any]) -> tuple:
+    """Where a mark of *kind* is, as one point in its image's pixels."""
+    if kind == "areas":
+        return mark["x"] + mark["width"] / 2, mark["y"] + mark["height"] / 2
+    if kind == "lines":
+        return mark["x1"], mark["y1"]
+    if kind == "outlines":
+        return centroid(mark["points"])
+    return mark["x"], mark["y"]
+
+
+def _judged(
+    judged: Any, answered: Dict[str, Any], image_path: str, root: str
+) -> List[Dict[str, Any]]:
+    """*judged* checked against the marks of the picture *answered* on the
+    image at *image_path*: each with the mark's label and place, and, when
+    moved, how far (pixels, and metres when the image says its pixel size)
+    and the stage position it was moved to."""
+    from fibsem.geometry.saved_images import image_pixel_size
+
+    on, marks, _ = marked_on(answered)
+    if os.path.realpath(str(on or "")) != os.path.realpath(image_path):
+        raise EvidenceRefused(
+            422,
+            "invalid",
+            "judged marks are on the image the picture was drawn on: "
+            f"{os.path.relpath(str(on), root) if on else 'none'}.",
+        )
+    try:
+        size = image_pixel_size(image_path)
+    except Exception:  # noqa: BLE001 - an image that doesn't read is unmeasured
+        size = None
+    out = []
+    try:
+        if not isinstance(judged, list) or len(judged) > MAX_MARKS:
+            raise ValueError
+        for entry in judged:
+            kind, index = entry["kind"], entry["index"]
+            if kind not in KINDS or isinstance(index, bool):
+                raise ValueError
+            mark = ((marks or {}).get(kind) or [])[int(index)]
+            if int(index) < 0:
+                raise IndexError
+            given = _verdict(entry)
+            moved = entry.get("moved_to")
+            if not given and moved is None:
+                raise ValueError
+            x, y = _place(kind, mark)
+            one = {"kind": kind, "index": int(index), "label": mark.get("label", "")}
+            one.update(given)
+            one["at"] = {"x": x, "y": y}
+            if moved is not None:
+                to = {"x": _number(moved["x"]), "y": _number(moved["y"])}
+                pixels = math.hypot(to["x"] - x, to["y"] - y)
+                one["moved_to"] = to
+                one["moved_px"] = pixels
+                one["moved_m"] = pixels * size if size else None
+            out.append(one)
+    except (IndexError, TypeError):
+        raise EvidenceRefused(
+            422, "invalid", f"{_JUDGED} The picture has no such mark."
+        )
+    except (KeyError, ValueError, AttributeError):
+        raise EvidenceRefused(422, "invalid", _JUDGED)
+    moved = [one for one in out if "moved_to" in one]
+    if moved:
+        staged = _with_stage(
+            {"points": [dict(m["moved_to"]) for m in moved]}, image_path
+        )
+        for one, point in zip(moved, staged["points"]):
+            if "stage" in point:
+                one["moved_to"]["stage"] = point["stage"]
+    return out
+
+
 def save(
     experiment_path: Callable[[], Optional[str]],
     image: Any = None,
@@ -417,6 +594,9 @@ def save(
     item_name: Optional[str] = None,
     by: str = AGENT,
     channels: Any = None,
+    answers: Any = None,
+    verdict: Any = None,
+    judged: Any = None,
 ) -> Dict[str, Any]:
     """Keep one piece of evidence in the open experiment; answer its record.
 
@@ -425,7 +605,18 @@ def save(
     given its stage position when the image says where it was taken;
     *source*, the experiment image an upload was drawn from; *by*, who marked
     it; *channels*, the fluorescence channels shown when the marks were made
-    on a stack's projection."""
+    on a stack's projection.
+
+    Feedback on a picture: *answers*, the evidence id of the picture it is
+    about; *verdict* on the whole picture, good or bad; *judged*, a verdict
+    on each of that picture's marks (`_judged`). With *answers* and no
+    *image*, the image is the one the picture was drawn on (`marked_on`).
+    A picture the draw tools drew (`fibsem.imaging.marks.drawn_from`) keeps
+    the image it was drawn on as *source*, with the marks drawn there."""
+    root = _root(experiment_path)
+    answered = _answered(experiment_path, answers)
+    if answered is not None and image is None and upload is None:
+        image = marked_on(answered)[0]
     if (image is None) == (upload is None):
         raise EvidenceRefused(
             422,
@@ -435,10 +626,16 @@ def save(
         )
     if item_name is not None and not isinstance(item_name, str):
         raise EvidenceRefused(422, "invalid", "item_name is a string.")
-    root = _root(experiment_path)
+    if verdict is not None and verdict not in VERDICTS:
+        raise EvidenceRefused(422, "invalid", "verdict is good or bad.")
+    if (verdict is not None or judged is not None) and answered is None:
+        raise EvidenceRefused(
+            422, "invalid", "verdict and judged are about a picture: give answers."
+        )
     checked_marks = _marks(_uncropped(marks))
     checked_channels = _channels(channels)
     checked_source = _inside(source, root, "source", item_name) if source else None
+    drawn_on: Dict[str, Any] = {}
     evidence_id = secrets.token_hex(4)
     where = folder(root)
     if upload is not None:
@@ -470,6 +667,14 @@ def save(
         checked_marks = _on_planes(checked_marks, image_path)
         checked_marks = _with_lengths(checked_marks, image_path)
         checked_marks = _with_stage(checked_marks, image_path)
+        if checked_source is None:
+            drawn_on = _drawn_on(image_path, root)
+            checked_source = drawn_on.pop("source", None)
+    checked_judged = (
+        _judged(judged, answered, os.path.join(root, path), root)
+        if judged is not None
+        else None
+    )
     record = {
         "evidence_id": evidence_id,
         "by": by,
@@ -480,7 +685,12 @@ def save(
         "channels": checked_channels,
         "item_name": item_name,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        **drawn_on,
     }
+    if answered is not None:
+        record["answers"] = answered["evidence_id"]
+        record["verdict"] = verdict
+        record["judged"] = checked_judged
     os.makedirs(where, exist_ok=True)
     with open(os.path.join(where, f"{evidence_id}.json"), "w") as f:
         json.dump(record, f, indent=2)

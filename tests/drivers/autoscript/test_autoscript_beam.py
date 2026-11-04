@@ -174,8 +174,11 @@ def test_the_moved_keys_are_the_ones_routed(recording, plasma, beam):
         else []
     )
     assert facts["routed"] == sorted(MOVED + gas + keys)
-    # live is the beam's own (is a live view running), not an AutoScript key.
-    assert facts["parameters"] == sorted(MOVED + gas + parameters + ["live"])
+    # live is the beam's own (is a live view running), not an AutoScript key, and
+    # bit_depth is new: no old key had it.
+    assert facts["parameters"] == sorted(
+        MOVED + gas + parameters + ["bit_depth", "live"]
+    )
     assert facts["commands"] == [
         "acquire",
         "auto_focus",

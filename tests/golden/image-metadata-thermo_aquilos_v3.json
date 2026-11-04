@@ -30,6 +30,7 @@
   "image": {
     "autocontrast": false,
     "beam_type": "ELECTRON",
+    "bit_depth": null,
     "drift_correction": false,
     "dwell_time": 1e-06,
     "filename": "ref_Mill Fiducial_start",

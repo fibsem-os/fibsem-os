@@ -152,6 +152,7 @@ class DemoBeam(Beam):
         self.sim_blanked: bool = start.blanked
         self.sim_scanning_mode: str = start.scanning_mode
         self.sim_scanning_mode_value = deepcopy(start.scanning_mode_value)
+        self.sim_bit_depth: int = 8  # frames as acquired; 16 stretches them over uint16
 
     def _choices(self, key: str) -> ParameterMetadata:
         """The simulator's values for a parameter, as Demo's old
@@ -265,6 +266,12 @@ class DemoBeam(Beam):
     def write_resolution(self, value: tuple) -> None:
         self.sim_beam.resolution = value
 
+    def read_bit_depth(self) -> int:
+        return self.sim_bit_depth
+
+    def write_bit_depth(self, value: int) -> None:
+        self.sim_bit_depth = int(value)
+
     def read_dwell_time(self) -> float:
         return self.sim_beam.dwell_time
 
@@ -348,7 +355,10 @@ class DemoBeam(Beam):
     # (``DemoSimulator``), so the contract suite still compares like with like.
 
     def _acquire(self, image_settings: Optional[ImageSettings]) -> FibsemImage:
-        return self.connection.acquire(image_settings, self.beam_type)
+        image = self.connection.acquire(image_settings, self.beam_type)
+        if self.sim_bit_depth == 16 and image.data.dtype == np.uint8:
+            image.data = image.data.astype(np.uint16) * 257  # 0-255 over 0-65535
+        return image
 
     def _autocontrast(self, reduced_area: Optional[FibsemRectangle]) -> None:
         self.connection.autocontrast(self.beam_type, reduced_area)

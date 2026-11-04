@@ -292,3 +292,22 @@ def test_evidence_keeps_the_plane_a_mark_is_on(tmp_path):
             upload=base64.b64encode(png.getvalue()).decode(),
             marks={"points": [{"x": 1, "y": 2, "z": 0}]},
         )
+
+
+def test_an_outline_is_drawn_and_a_verdict_shows_on_its_label():
+    corners = [[100, 100], [200, 100], [150, 200]]
+    outlined = _picture({"outlines": [{"points": corners}]})
+    assert _near(outlined[96:104, 120:180], AGENT_MARK_COLOR).any()
+    said = _picture(
+        {"outlines": [{"points": corners, "label": "ice", "verdict": "bad"}]}
+    )
+    plain = _picture({"outlines": [{"points": corners, "label": "ice"}]})
+    # The cross after the label makes its box wider.
+    assert (np.abs(said.astype(int) - plain.astype(int)).max(axis=-1) > 0).any()
+
+
+def test_an_outline_moves_with_its_image():
+    moved = scaled_marks(
+        {"outlines": [{"points": [[10, 20], [30, 40], [0, 0]]}]}, 2.0, 0.5
+    )
+    assert moved["outlines"][0]["points"] == [[20, 10], [60, 20], [0, 0]]

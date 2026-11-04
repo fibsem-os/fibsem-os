@@ -30,6 +30,7 @@
   "image": {
     "autocontrast": false,
     "beam_type": "ION",
+    "bit_depth": null,
     "drift_correction": false,
     "dwell_time": 1e-06,
     "filename": "ref_ot_initial_alignment_1785813018_628903",

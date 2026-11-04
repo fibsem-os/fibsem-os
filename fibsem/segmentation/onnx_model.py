@@ -37,6 +37,8 @@ class SegmentationModelONNX:
     def inference(self, img: np.ndarray, rgb: bool = True):
         # preprocess
         imgt = img.astype(np.float32)
+        if img.dtype == np.uint16:  # the 8-bit scale the models were trained on
+            imgt /= 257.0
         imgt = np.expand_dims(imgt, axis=0)
         imgt = np.expand_dims(imgt, axis=0)
         imgt /= 255.0
