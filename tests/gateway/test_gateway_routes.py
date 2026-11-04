@@ -46,9 +46,29 @@ class FakeGateway:
         return GatewayState(mode=call[0], version="test", who=call[1])
 
     def start_app(
-        self, who, via, app=None, window=True, experiment=None, last=False, force=False
+        self,
+        who,
+        via,
+        app=None,
+        window=True,
+        experiment=None,
+        last=False,
+        force=False,
+        connect=None,
+        configuration=None,
     ):
-        return self._do(RUNNING, who, via, app, window, experiment, last, force)
+        return self._do(
+            RUNNING,
+            who,
+            via,
+            app,
+            window,
+            experiment,
+            last,
+            force,
+            connect,
+            configuration,
+        )
 
     def stop(self, who, via, force=False):
         return self._do(OFF, who, via, force)
@@ -89,8 +109,29 @@ def test_the_operator_starts_and_forces(setup):
     )
     assert r.status_code == 200
     assert gateway.calls == [
-        (RUNNING, "operator", "page", "autolamella", False, None, True, True)
+        (
+            RUNNING,
+            "operator",
+            "page",
+            "autolamella",
+            False,
+            None,
+            True,
+            True,
+            None,
+            None,
+        )
     ]
+
+
+def test_a_start_can_name_the_configuration_to_connect(setup):
+    client, gateway, _ = setup
+    client.post(
+        "/gateway/start",
+        json={"app": "autolamella", "connect": True, "configuration": "arctis"},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert gateway.calls[0][-2:] == (True, "arctis")
 
 
 def test_a_start_shows_the_window_unless_asked_not_to(setup):

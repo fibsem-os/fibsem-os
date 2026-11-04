@@ -170,9 +170,10 @@ def build_gateway_app(
 
     @app.post("/gateway/start", response_model=GatewayState)
     def start(body: Dict[str, Any], found: Caller = Depends(switcher)):
-        """``{app, window, experiment | last, force}``: stop the running app
-        and start this one, with its window at this PC (the default) or
-        without."""
+        """``{app, window, experiment | last, force, connect, configuration}``:
+        stop the running app and start this one, with its window at this PC
+        (the default) or without, connecting *configuration* (the default one)
+        as it starts when *connect*."""
         return _act(
             found,
             body,
@@ -184,6 +185,8 @@ def build_gateway_app(
                 experiment=body.get("experiment"),
                 last=bool(body.get("last", False)),
                 force=force,
+                connect=None if body.get("connect") is None else bool(body["connect"]),
+                configuration=body.get("configuration"),
             ),
         )
 

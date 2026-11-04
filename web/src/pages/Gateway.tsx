@@ -28,6 +28,14 @@ interface GatewayState {
   apps: { key: string; name: string; headless: boolean }[];
   last_experiment: string | null;
   connection: string[];
+  configurations: { name: string; default: boolean }[];
+}
+
+/** What the next start connects: the page's choice, or the gateway's own
+ * flags when it was given some. */
+interface MicroscopeChoice {
+  connect: boolean;
+  configuration: string;
 }
 
 interface Switch {
@@ -56,7 +64,70 @@ function Status({ state }: { state: GatewayState }) {
   return <Facts className="[&_dd]:text-left" rows={rows} />;
 }
 
-function Starting({ state, start, busy }: { state: GatewayState; start: (body: unknown) => void; busy: boolean }) {
+/** Before the app starts: which configuration it connects as it starts. Once
+ * it runs, the Connection card takes this place. */
+function MicroscopeStart({
+  state,
+  choice,
+  setChoice,
+}: {
+  state: GatewayState;
+  choice: MicroscopeChoice;
+  setChoice: (choice: MicroscopeChoice) => void;
+}) {
+  const fallback = state.configurations.find((c) => c.default)?.name ?? state.configurations[0]?.name ?? "";
+  const configuration = choice.configuration || fallback;
+  return (
+    <Card className="flex flex-col gap-3">
+      <CardTitle>Microscope</CardTitle>
+      {state.connection.length > 0 ? (
+        <p className="m-0 text-[13px] text-muted-foreground">
+          The app connects as it starts, with this gateway's flags: {state.connection.join(" ")}.
+        </p>
+      ) : (
+        <>
+          <label className="flex max-w-[320px] flex-col gap-1 text-xs text-muted-foreground">
+            Configuration
+            <select
+              value={configuration}
+              onChange={(event) => setChoice({ ...choice, configuration: event.target.value })}
+              className={FIELD}
+            >
+              {state.configurations.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.default ? `${c.name} (default)` : c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 text-[13px]">
+            <input
+              type="checkbox"
+              checked={choice.connect}
+              onChange={(event) => setChoice({ ...choice, connect: event.target.checked })}
+            />
+            Connect when the app starts
+          </label>
+          {!choice.connect && (
+            <p className="m-0 text-xs text-muted-foreground">The app starts with no microscope: connect one once it is up.</p>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function Starting({
+  state,
+  start,
+  busy,
+  microscope,
+}: {
+  state: GatewayState;
+  start: (body: unknown) => void;
+  busy: boolean;
+  microscope: Record<string, unknown>;
+}) {
   const [app, setApp] = useState(state.apps[0]?.key ?? "");
   const [window, setWindow] = useState(true);
   const [experiment, setExperiment] = useState(state.last_experiment ?? "");
@@ -94,18 +165,18 @@ function Starting({ state, start, busy }: { state: GatewayState; start: (body: u
         Show the window on this PC
       </label>
       {!window && !host && <p className="m-0 text-xs text-muted-foreground">{chosen?.name} runs only with its window.</p>}
-      <p className="m-0 text-xs text-muted-foreground">
-        {state.connection.length > 0
-          ? `Connects as it starts: ${state.connection.join(" ")}.`
-          : "Starts with no microscope: connect one once it is up."}
-        {window && " A window is closed at this PC only."}
-      </p>
+      {window && <p className="m-0 text-xs text-muted-foreground">A window is closed at this PC only.</p>}
       <div className="flex justify-end">
         <Button
           variant="primary"
           disabled={busy || !chosen || (!window && !host)}
           onClick={() =>
-            start({ app, window, ...(host && experiment.trim() ? { experiment: experiment.trim() } : {}) })
+            start({
+              app,
+              window,
+              ...microscope,
+              ...(host && experiment.trim() ? { experiment: experiment.trim() } : {}),
+            })
           }
         >
           Start
@@ -115,7 +186,7 @@ function Starting({ state, start, busy }: { state: GatewayState; start: (body: u
   );
 }
 
-function AppSection({ state }: { state: GatewayState }) {
+function AppSection({ state, microscope }: { state: GatewayState; microscope: Record<string, unknown> }) {
   const client = useQueryClient();
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) =>
@@ -130,7 +201,12 @@ function AppSection({ state }: { state: GatewayState }) {
     <Card className="flex flex-col gap-3">
       <CardTitle>App</CardTitle>
       {state.mode === "off" ? (
-        <Starting state={state} busy={busy} start={(body) => act.mutate({ path: "/gateway/start", body })} />
+        <Starting
+          state={state}
+          busy={busy}
+          microscope={microscope}
+          start={(body) => act.mutate({ path: "/gateway/start", body })}
+        />
       ) : (
         <>
           <Status state={state} />
@@ -207,6 +283,14 @@ export function GatewayPage() {
   });
   const state = gateway.data;
   const running = state?.mode === "running";
+  const [choice, setChoice] = useState<MicroscopeChoice>({ connect: true, configuration: "" });
+  // The gateway's own flags stand when it has some; else the page's choice.
+  const microscope: Record<string, unknown> =
+    !state || state.connection.length > 0
+      ? {}
+      : choice.connect
+        ? { connect: true, ...(choice.configuration ? { configuration: choice.configuration } : {}) }
+        : { connect: false };
   const connection = useQuery({
     queryKey: ["/gateway/microscope/connection"],
     queryFn: () => api<Connection>("/gateway/microscope/connection"),
@@ -225,8 +309,9 @@ export function GatewayPage() {
           </span>
         </div>
         {gateway.error && <p className="m-0 text-[13px] text-destructive">{(gateway.error as Error).message}</p>}
-        {state && <AppSection state={state} />}
-        {running && <ConnectionCard base="/gateway" />}
+        {running && <ConnectionCard base="/gateway" title="Microscope" />}
+        {state && !running && <MicroscopeStart state={state} choice={choice} setChoice={setChoice} />}
+        {state && <AppSection state={state} microscope={microscope} />}
         {state && <AgentCard appRunning={running} connected={running && !!connection.data?.connected} />}
         <Card>
           <Connections roles={["operator", "hub"]} />

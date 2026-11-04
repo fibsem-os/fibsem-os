@@ -108,6 +108,16 @@ class GatewayState:
     last_experiment: Optional[str] = None
     connection: List[str] = field(default_factory=list)
     """The flags the app connects with as it starts; none: the operator connects."""
+    configurations: List[GatewayConfiguration] = field(default_factory=list)
+    """The microscope configurations saved on this PC, for a start to connect."""
+
+
+@dataclass
+class GatewayConfiguration:
+    """A microscope configuration saved on this PC."""
+
+    name: str
+    default: bool = False
 
 
 @dataclass
@@ -140,6 +150,13 @@ def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
     if not isinstance(data, dict) or "url" not in data:
         return None
     return data if _pid_alive(data.get("pid")) else None
+
+
+def saved_configurations() -> List[dict]:
+    """``fibsem.config.saved_configurations``: ``{name, path, default}`` each."""
+    from fibsem.config import saved_configurations
+
+    return saved_configurations()
 
 
 def last_experiment() -> Optional[str]:
@@ -190,6 +207,7 @@ class Gateway:
         home: Optional[Path] = None,
         app_registry: Callable[[], Dict[str, App]] = apps,
         last: Callable[[], Optional[str]] = last_experiment,
+        configurations: Callable[[], List[dict]] = saved_configurations,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         running: Callable[[str, Optional[str]], bool] = workflow_running,
         python: Optional[str] = None,
@@ -199,6 +217,7 @@ class Gateway:
         self._home = Path(home) if home is not None else DISCOVERY_DIR
         self._apps = app_registry
         self._last = last
+        self._configurations = configurations
         self._discovery = discovery
         self._running = running
         self._python = python or _python()
@@ -233,6 +252,10 @@ class Gateway:
         ]
         state.last_experiment = self._last()
         state.connection = list(self._connection)
+        state.configurations = [
+            GatewayConfiguration(name=c["name"], default=c["default"])
+            for c in self._configurations()
+        ]
         return state
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
@@ -272,10 +295,15 @@ class Gateway:
         experiment: Optional[str] = None,
         last: bool = False,
         force: bool = False,
+        connect: Optional[bool] = None,
+        configuration: Optional[str] = None,
     ) -> GatewayState:
         """Start *app*'s host, with its window at this PC or without, stopping
-        the running one first. Raises `GatewayRefused` when it can't."""
+        the running one first. *connect* connects *configuration* (the default
+        one without) as it starts, or nothing when False; None keeps the
+        gateway's own connection flags. Raises `GatewayRefused` when it can't."""
         chosen = self._app(app, window)
+        connection = self._start_connection(connect, configuration)
         with self._take(who, via, RUNNING, app, experiment, window):
             if self._state.mode != OFF:
                 self._stop_current(force)
@@ -287,7 +315,7 @@ class Gateway:
                     f"Another fibsem host (pid {holder.pid}) holds the microscope: "
                     "close it at the PC first.",
                 )
-            self._start(app, chosen, window, experiment, last)
+            self._start(app, chosen, window, experiment, last, connection)
             self._record(OFF, RUNNING, who, via, "started", app, experiment, window)
             with self._lock:
                 self._state.who, self._state.via = who, via
@@ -338,6 +366,31 @@ class Gateway:
             )
         return found
 
+    def _start_connection(
+        self, connect: Optional[bool], configuration: Optional[str]
+    ) -> List[str]:
+        """The connection flags for one start."""
+        if connect is None:
+            return list(self._connection)
+        if not connect:
+            return []
+        saved = self._configurations()
+        found = next(
+            (
+                c
+                for c in saved
+                if (c["name"] == configuration if configuration else c["default"])
+            ),
+            None,
+        )
+        if found is None:
+            raise GatewayRefused(
+                422,
+                "unknown_configuration",
+                f"No configuration {configuration or 'is the default'} on this PC.",
+            )
+        return ["--config", str(found["path"])]
+
     def _take(self, who, via, mode, app, experiment, window=None):
         gateway = self
 
@@ -379,6 +432,7 @@ class Gateway:
         window: bool,
         experiment: Optional[str],
         last: bool,
+        connection: List[str],
     ) -> None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
@@ -391,7 +445,7 @@ class Gateway:
         if window:
             # An app with a headless command has the host's flags, and hosts
             # whatever the preference; others none.
-            host = [*args, *self._connection, "--host"] if app.serve else []
+            host = [*args, *connection, "--host"] if app.serve else []
             command = [self._python, "-m", "fibsem.tools.desktop_launch", key, *host]
             env[CHILD_ENV] = "1"
         else:
@@ -404,7 +458,7 @@ class Gateway:
                 str(stop_file),
                 app.serve,
                 *args,
-                *(self._connection or ["--no-connect"]),
+                *(connection or ["--no-connect"]),
             ]
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
         with open(log, "w") as out:
