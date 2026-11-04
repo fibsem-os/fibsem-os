@@ -116,7 +116,7 @@ def shift_from_crosscorrelation(
 
         new_image.data = resize(
             new_image.data, ref_image.data.shape, preserve_range=True
-        ).astype(np.uint8)
+        ).astype(new_image.data.dtype)
 
     # normalise both images
     ref_data_norm = image_utils.normalise_image(ref_image)

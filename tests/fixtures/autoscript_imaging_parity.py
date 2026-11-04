@@ -40,6 +40,14 @@ S, LOG = B.S, B.LOG
 fibsem.utils.current_timestamp = lambda: "now"
 
 
+def _recorded(settings):
+    """*settings* as the recording has them: bit_depth is newer than it, so left
+    out while it is None."""
+    if settings.get("bit_depth") is None:
+        settings.pop("bit_depth", None)
+    return settings
+
+
 class FakeAdornedImage:
     """The SDK's AdornedImage, as much of it as the conversion reads."""
 
@@ -118,7 +126,7 @@ def _image(image):
     return {
         "shape": list(image.data.shape),
         "dtype": str(image.data.dtype),
-        "settings": metadata.image_settings.to_dict(),
+        "settings": _recorded(metadata.image_settings.to_dict()),
         "pixel_size": [metadata.pixel_size.x, metadata.pixel_size.y],
         "timestamp": metadata.microscope_state.timestamp,
         # Not in the old recording: added with the field (FIB-1190).
