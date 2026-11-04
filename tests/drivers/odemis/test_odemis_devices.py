@@ -44,6 +44,14 @@ RECORDED = os.path.join(
 LOG = []
 
 
+def _recorded(settings):
+    """*settings* as the recording has them: bit_depth is newer than it, so left
+    out while it is None."""
+    if settings.get("bit_depth") is None:
+        settings.pop("bit_depth", None)
+    return settings
+
+
 class _Future:
     def __init__(self, name):
         self.name = name
@@ -185,11 +193,11 @@ def _plain(value):
     if isinstance(value, (FibsemStagePosition, FibsemDetectorSettings)):
         return value.to_dict()
     if isinstance(value, ImageSettings):
-        return value.to_dict()
+        return _recorded(value.to_dict())
     if isinstance(value, FibsemImage):
         return {
             "shape": list(value.data.shape),
-            "settings": value.metadata.image_settings.to_dict(),
+            "settings": _recorded(value.metadata.image_settings.to_dict()),
             "pixel_size": _plain(value.metadata.pixel_size),
         }
     if isinstance(value, (list, tuple)):

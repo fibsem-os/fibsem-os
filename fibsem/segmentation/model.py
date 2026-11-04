@@ -111,6 +111,8 @@ class SegmentationModel:
 
     def pre_process(self, img: np.ndarray) -> torch.Tensor:
         """Pre-process the image for inference"""
+        if getattr(img, "dtype", None) == np.uint16:  # the 8-bit scale trained on
+            img = img.astype(np.float32) / 257.0
         img_t = torch.Tensor(img).float().to(self.device)
 
         if self._fix_numeric_scaling:

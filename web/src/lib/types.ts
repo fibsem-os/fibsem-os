@@ -329,6 +329,14 @@ export interface EvidenceAnswer {
   plane?: number | null;
   /** The experiment image to mark in reply, when there is one. */
   source?: string | null;
+  /** The marks drawn on *source*, when it is not this image. */
+  source_marks?: Marks | null;
+  /** Feedback: the picture this answers, good or bad of it, and of its marks. */
+  answers?: string | null;
+  verdict?: "good" | "bad" | null;
+  judged?:
+    | { kind: string; index: number; label?: string; verdict?: "good" | "bad"; moved_to?: { x: number; y: number } }[]
+    | null;
 }
 
 /** One experiment in /app/experiment/recent. */

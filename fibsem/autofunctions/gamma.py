@@ -63,7 +63,14 @@ def auto_gamma(
     """
 
     if method == "autogamma":
-        mean = np.mean(image.data)
+        # The mean's distance from mid-grey, in 8-bit counts whatever the depth, so
+        # scale_factor and gamma_threshold mean the same on a 16-bit image.
+        full = (
+            np.iinfo(image.data.dtype).max
+            if np.issubdtype(image.data.dtype, np.integer)
+            else 255
+        )
+        mean = np.mean(image.data) * 255 / full
         diff = mean - 255 / 2.0
         gam = np.clip(1 + diff * scale_factor, min_gamma, max_gamma)
         if abs(diff) < gamma_threshold:
@@ -133,7 +140,7 @@ def apply_clahe(
 
     temp = image.data
     temp = temp / temp.max()
-    temp = (temp * 2**8).astype(np.uint8)
+    temp = (temp * 255).astype(np.uint8)  # 2**8 wrapped the brightest pixel to 0
 
     if which_package == "OpenCV":
         import cv2
