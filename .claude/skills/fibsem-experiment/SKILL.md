@@ -1,5 +1,5 @@
 ---
-name: fib-experiment
+name: fibsem-experiment
 description: Plain FIB work with no app workflow — images, milling patterns you place, spot burns, cross-sections, an imaging series, moving between saved sites. Read fibsem-agent first, then this when the operator wants FIB work that isn't making lamellae with AutoLamella.
 ---
 

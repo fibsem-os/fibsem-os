@@ -1,15 +1,16 @@
 ---
 name: autolamella-lead
-description: Run a whole AutoLamella session at Drive that the operator starts and leaves, from the intake to the review, with the autolamella-verifier, -investigator and -auditor agents checking the key decisions. Read fibsem-agent and autolamella-agent first, then this when asked to run a session or an overnight run on your own.
+description: Run a whole AutoLamella session at Drive that the operator starts and leaves, from the intake to the review, with the autolamella-verifier, -investigator and -auditor agents checking the key decisions. The main way AutoLamella runs. Read fibsem-agent and autolamella first, then this when nobody will be at the microscope during the run.
 ---
 
 # Leading an AutoLamella run
 
-Read the fibsem-agent and autolamella-agent skills first. This skill is how
+Read the fibsem-agent and autolamella skills first. This skill is how
 to run a whole lamella session at **Drive** that the operator starts and
-leaves. Use it when asked to run a session or an overnight run and the
+leaves. Use it when nobody will be at the microscope during the run and the
 `autolamella-*` agents are in your Agent tool; without them, supervise the
-run as autolamella-agent says.
+run as autolamella says. If the operator says they'll stay, read
+autolamella-assistant instead.
 
 ## The team and the record
 
@@ -17,13 +18,13 @@ In lead mode you are the **Run Lead**. The operator starts the run, answers
 the intake and leaves; they may follow it and message you from the web
 page, but plan as if nobody will answer until the morning. You hold Drive,
 the watcher and the record. You make every decision yourself, by the
-sections of this skill, fibsem-agent and autolamella-agent, and three agents help: they
+sections of this skill, fibsem-agent and autolamella, and three agents help: they
 start fresh, read only, and answer in JSON.
 
 | Agent | Call it | What follows |
 |---|---|---|
 | `autolamella-verifier` | on the site list, on each Setup placement, and before every polishing pass | a second opinion on your decision, judged by the same rules without your reasoning (*The Verifier*) |
-| `autolamella-investigator` | when a task's result is bad | the cause, its evidence and a fix for you to apply (*After every task*) |
+| `autolamella-investigator` | when a task's result is bad | the cause, its evidence and a fix for you to apply (*A bad result*) |
 | `autolamella-auditor` | once, when the run is over | the session review, from the record |
 
 **How to call one.** One call at a time, and wait for it: you keep the
@@ -52,25 +53,36 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
 
 ## The run, phase by phase
 
-0. **Intake**, before the microscope, while the operator is there. Ask, and
-   post the answers as `[intake]`:
-   1. How many lamellae (target, maximum), how wide, the target thickness
+0. **Intake**, before the microscope, while the operator is there. Read the
+   session's goal and their messages first, and ask only what they don't
+   already answer. Once you know the sample, read its knowledge base entries
+   and say which change the plan. Post the answers as `[intake]`:
+   1. The scientific brief: the question, the sample and the target (a
+      cell, a structure, a label).
+   2. How many lamellae (target, maximum), how wide, the target thickness
       as a number and the range accepted.
-   2. Is losing a lamella on its last pass acceptable for thinner ones?
-   3. The placement rule, with one example site (default: screen-grids'
+   3. Stop thicker, or try thinner? Stop thicker accepts at the first pass
+      under the target; try thinner keeps going and may lose a lamella.
+      Default: stop thicker.
+   4. Has the grid been screened, or should you find sites first
+      (screen-grids)?
+   5. The placement rule, with one example site (default: screen-grids'
       *Finding sites*, one lamella per square).
-   4. What spare time is for: rework, re-imaging, more sites up to the
+   6. What spare time is for: rework, re-imaging, more sites up to the
       maximum, or stop.
-   5. When they are back, and what is worth a message.
-   6. Is this a dry run on the Demo microscope?
+   7. When they are back, and what is worth a message.
+   8. Is this a dry run on the Demo microscope?
    Sites, placements, skipping or failing a lamella and switching tasks to
-   auto are yours; say so, and that the Verifier checks them.
-1. **Sites.** Pick them by screen-grids' *Finding sites*. Call the Verifier with the
+   auto are yours; say so, and that the Verifier checks them. Say too that
+   a hardware error stops the run until they're back (fibsem-agent, *A
+   hardware error is the operator's*).
+1. **Sites.** Pick them by screen-grids' *Finding sites*, and check each
+   one there before you keep it. Call the Verifier with the
    marked overview, the intake's rules and the list; drop or replace each
    site it flags, and ask it again about the replacements. Then post
    `[sites]` with the overview as the evidence.
 2. **Setup** is always supervised. At each position question, check focus,
-   contrast and coincidence (autolamella-agent, *Before a position or a POI*). If Setup's
+   contrast and coincidence (autolamella, *Before a position or a POI*). If Setup's
    autofocus moved the working distance badly (its `AUTOFOCUS` line says
    `doubtful`), put the session's back on that beam alone
    (`device_set_parameter`, device `electron` or `ion`, parameter
@@ -104,9 +116,12 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
 4. **The first lamella** goes through every task supervised. Polish it with
    finer steps than the protocol's, measuring after each, and post what it
    showed as `[recipe_card v1]`: the band against the gap, what faint looked
-   like, the smallest gap and current that left the band intact, the stop
-   rules. Then switch the other tasks to auto (autolamella-agent, *When to propose auto*).
-5. **The batch.** Check every task when it finishes (*After every task*).
+   like, the smallest gap and current that left the band intact, the fields
+   of view it used, the stop rules. Switch the other tasks to auto only by
+   autolamella's *When to propose auto*: once one lamella has passed clean,
+   which the first may not.
+5. **The batch.** Check every task when it finishes (autolamella, *After
+   every task*, and *A bad result* below).
    Polishing stays supervised: at each proposal, go through *Each
    polishing pass*, then the Verifier, then decide.
 6. **Spare time.** When the queue empties inside the operator's window, do
@@ -115,33 +130,16 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    the morning.
 7. **Review.** Put supervision back as the protocol had it before the run
    (`protocol_set_supervision`), and say so. Then call the Auditor, and post
-   its review as notes.
+   its review as notes. Then write the knowledge base (fibsem-agent, *The
+   knowledge base*): the run's record from that review, and an entry for
+   each lesson it names that would change the next run.
 
-## After every task
+## A bad result
 
-When a task finishes, supervised or on auto, look at its result before the
-lamella goes on: its final images, the wide view with its neighbours, and
-the task's `ALIGNMENT` and `AUTOFOCUS` lines. Is anything torn, missing,
-shifted, or damaged next door? On a supervised task you saw each pass, so
-this is quick; on an auto one nobody watched, so look properly.
-
-If the lamella's next task is next in the queue, take it out first
-(`workflow_edit_queue`) and queue it again (`workflow_requeue`) once the
-result is good: otherwise it can start while you look.
-
-A bad result:
-
-1. If the task was on auto, set it back to supervised
-   (`protocol_set_supervision`).
-2. Hold the lamella: take its waiting tasks out of the queue
-   (`workflow_edit_queue`), so nothing more is milled on it.
-3. Call the Investigator with the task, its images, its checks, its config
-   and the time it ran. Post its cause as a note.
-4. Apply the fix if there is one (a config edit, a moved fiducial), and run
-   the task again, supervised (`workflow_requeue`). When it passes, queue
-   the lamella's held tasks again.
-5. Damage that could spread to a neighbour (film tearing) stops the run
-   (`workflow_stop`) before the neighbour is milled.
+Check every task as autolamella's *After every task* says. On a bad result,
+its step 3 is the Investigator's: call it with the task, its images, its
+checks, its config and the time it ran, and post its cause as a note. Then
+apply its fix as that section says.
 
 ## Each polishing pass
 
@@ -149,7 +147,8 @@ Gather this before you decide, and give the Verifier the same:
 
 - the proposal (`proposal_id`, `values`, `provenance`) and its image;
 - the lamella's lines in `[run_state]`;
-- the FIB after the pass and before it at the recipe card's field of view,
+- the FIB after the pass and before it at the recipe card's field of view
+  (autolamella-polishing's *Fields of view*, where the card says nothing),
   and an SEM view of the face, each with the path a tool answered, never a
   file name you built. Take any the task didn't with `beam_acquire_image`
   and a `path` (e.g. the lamella's folder), at the question: the run lends
@@ -182,4 +181,5 @@ lamella gets a fresh one.
 
 While the operator is away, a proposal held for them holds the whole run, so
 prefer the safe action that lets the run move on, and hold only where no
-safe action exists.
+safe action exists. A hardware error is the exception: it stops the run
+until the operator is back.

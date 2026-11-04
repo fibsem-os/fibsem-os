@@ -8,7 +8,7 @@ manipulator devices, stage moves, state, and image acquisition.
 
 The tests that take the `microscope` fixture run on every driver with a fake SDK that
 connects a whole microscope (`tests/fixtures/fake_drivers.py`): the Demo, which stands
-in for ThermoFisher, and Tescan. A driver joins by adding its fake there. Not every
+in for ThermoFisher, Tescan and JEOL. A driver joins by adding its fake there. Not every
 instrument has every part: a test asks the microscope what it has (a beam parameter,
 whether it is settable, a chamber or manipulator device) and skips with the reason, or
 pins what the API does without it, rather than keeping a skip list per driver. The
@@ -128,7 +128,32 @@ def test_a_backend_without_an_optional_part_says_so():
 
 @pytest.fixture(params=sorted(FAKE_DRIVERS))
 def microscope(request, monkeypatch):
-    return fake_drivers.connect(request.param, monkeypatch)
+    gap = FAKE_DRIVERS[request.param].known_gaps.get(
+        request.node.name.replace(f"{request.param}-", "", 1)
+    )
+    if gap is not None:
+        request.applymarker(pytest.mark.xfail(strict=True, reason=gap))
+    microscope = fake_drivers.connect(request.param, monkeypatch)
+    _TOLERANCES[id(microscope)] = FAKE_DRIVERS[request.param].tolerances
+    yield microscope
+    _TOLERANCES.pop(id(microscope), None)
+
+
+# Each connected microscope's FakeDriver.tolerances, while its test runs.
+_TOLERANCES: Dict[int, Dict[str, float]] = {}
+
+
+def _matches(microscope, key: str, read, value, close: bool = False) -> bool:
+    """Whether `read` is `value` (or close to it, if asked), or within the step the
+    instrument sets `key` to."""
+    rel = _TOLERANCES.get(id(microscope), {}).get(key)
+    if rel is None and close:
+        rel = 1e-6
+    if rel is None:
+        return read == value
+    if isinstance(value, Point):
+        return (read.x, read.y) == pytest.approx((value.x, value.y), rel=rel)
+    return read == pytest.approx(value, rel=rel)
 
 
 def _is_real(value) -> bool:
@@ -479,7 +504,10 @@ UNLISTED_VALUES: Dict[str, Any] = {"voltage": 2000.0}
 def _new_value(microscope, key: str, beam_type: BeamType):
     """A valid value for `key` that differs from the one it has now."""
     value = BEAM_KEYS[key][1]
-    if value is not None:
+    listed = _choices(microscope, key, beam_type)
+    # a listed parameter takes one of its choices (a JEOL's resolution and dwell
+    # time are the scan modes it has)
+    if value is not None and (not listed or value in listed):
         return value
     current = _read(microscope, key, beam_type)
     listed = _choices(microscope, key, beam_type)
@@ -487,6 +515,8 @@ def _new_value(microscope, key: str, beam_type: BeamType):
         assert UNLISTED_VALUES[key] != current
         return UNLISTED_VALUES[key]
     choices = [c for c in listed if c != current]
+    if listed and not choices:
+        pytest.skip(f"{key} has only the one choice on {beam_type.name}")
     assert choices, f"{key} offers nothing to change to on {beam_type.name}"
     return choices[0]
 
@@ -542,7 +572,7 @@ def test_beam_key_round_trips(microscope, key, beam_type):
     _require(microscope, key, beam_type, settable=True)
     value = _new_value(microscope, key, beam_type)
     _write(microscope, key, value, beam_type)
-    assert _read(microscope, key, beam_type) == value
+    assert _matches(microscope, key, _read(microscope, key, beam_type), value)
 
 
 @pytest.mark.parametrize(
@@ -767,8 +797,8 @@ def test_beam_wrappers_match_their_key(microscope, getter, setter, key, beam_typ
     _require(microscope, key, beam_type, settable=True)
     value = _new_value(microscope, key, beam_type)
     returned = getattr(microscope, setter)(value, beam_type)
-    assert returned == value
-    assert _read(microscope, key, beam_type) == value
+    assert _matches(microscope, key, returned, value)
+    assert _matches(microscope, key, _read(microscope, key, beam_type), value)
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
@@ -807,7 +837,8 @@ def test_beam_shift_adds_to_the_shift(microscope, beam_type):
     microscope.beam_shift(1e-6, -2e-6, beam_type)
     microscope.beam_shift(1e-6, -2e-6, beam_type)
     shift = microscope.get_beam_shift(beam_type)
-    assert (shift.x, shift.y) == pytest.approx((start.x + 2e-6, start.y - 4e-6))
+    expected = Point(start.x + 2e-6, start.y - 4e-6)
+    assert _matches(microscope, "shift", shift, expected, close=True)
 
 
 @pytest.mark.parametrize("beam_type", BEAMS)
@@ -1124,18 +1155,21 @@ def test_microscope_state_restores(microscope):
 
 @pytest.mark.parametrize("beam_type", BEAMS)
 def test_acquire_image(microscope, beam_type):
+    # a beam that scans only the resolutions it lists takes one of them
+    listed = [tuple(r) for r in _choices(microscope, "resolution", beam_type)]
+    resolution = (768, 512) if not listed or (768, 512) in listed else listed[0]
     settings = ImageSettings(
         beam_type=beam_type,
-        resolution=(768, 512),
+        resolution=resolution,
         hfw=100e-6,
         dwell_time=1e-6,
         save=False,
     )
     image = microscope.acquire_image(image_settings=settings)
     assert isinstance(image, FibsemImage)
-    assert image.data.shape == (512, 768)
+    assert image.data.shape == resolution[::-1]
     assert image.metadata.image_settings.beam_type is beam_type
-    assert tuple(image.metadata.image_settings.resolution) == (768, 512)
+    assert tuple(image.metadata.image_settings.resolution) == resolution
     assert np.isclose(image.metadata.image_settings.hfw, 100e-6)
     assert np.isclose(microscope.get_field_of_view(beam_type), 100e-6)
 

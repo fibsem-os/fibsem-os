@@ -44,9 +44,9 @@ def test_the_same_block_twice_is_refused():
 
 
 def test_another_instruments_block_saves_back_unchanged():
-    data = {"driver": {"Jeol": {"probe": 3, "mode": "fast"}}}
+    data = {"driver": {"Hitachi": {"probe": 3, "mode": "fast"}}}
     recipe = FibsemMillingSettings.from_dict(data)
-    assert recipe.driver["Jeol"] == {"probe": 3, "mode": "fast"}
+    assert recipe.driver["Hitachi"] == {"probe": 3, "mode": "fast"}
     assert recipe.to_dict()["driver"] == data["driver"]
 
 
@@ -64,8 +64,8 @@ def test_a_value_outside_its_limits_is_refused():
 
 
 def test_the_wire_refuses_an_unknown_block_or_key():
-    with pytest.raises(ValueError, match="no block is called 'Jeol'"):
-        decode(FibsemMillingSettings, {"driver": {"Jeol": {}}}, strict=True)
+    with pytest.raises(ValueError, match="no block is called 'Hitachi'"):
+        decode(FibsemMillingSettings, {"driver": {"Hitachi": {}}}, strict=True)
     with pytest.raises(ValueError, match="Tescan.ratee is not a setting"):
         decode(FibsemMillingSettings, {"driver": {"Tescan": {"ratee": 1}}}, strict=True)
 
