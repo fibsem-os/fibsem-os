@@ -244,6 +244,10 @@ export function describe(e: AppEvent, asked: Asked = new Map()): EventText {
         label: "read",
         detail: p.ids?.length > 1 ? "The agent read your messages" : "The agent read your message",
       };
+    case "agent_plan_edited":
+      return { label: "plan edited", detail: p.sections?.length ? p.sections.join(", ") : undefined };
+    case "agent_sample_set":
+      return { label: "sample", detail: p.was ? `${p.was} → ${p.sample}` : p.sample };
     case "agent_stop":
       return { label: "stopped", detail: `${p.what || p.action}${p.own ? " (its own)" : ""}`, note: p.reason };
     case "agent_session_budget": {
