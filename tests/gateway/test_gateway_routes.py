@@ -446,6 +446,10 @@ class FakeAgent:
         )
         return self.state()
 
+    def resume(self, session_id, level, who, via, budget_usd=None, replace=False):
+        self.calls.append(("resume", session_id, level, who, via, budget_usd, replace))
+        return self.state()
+
     def end(self, who, via, stop_app=False, force=False, window=False):
         self.calls.append(("end", who, via, stop_app, force, window))
         return self.state()
@@ -493,6 +497,37 @@ def test_a_start_with_no_profile_takes_the_default_and_checks_the_budget(with_ag
     assert agent.calls == [
         ("start", "fibsem-agent", None, "watch", "operator", "page", 7.5, True)
     ]
+
+
+def test_the_operator_resumes_a_session(with_agent):
+    client, agent = with_agent
+    r = client.post("/gateway/agent/resume", json={}, headers=_as(OPERATOR_TOKEN))
+    assert r.json()["detail"]["error_type"] == "no_session"
+    r = client.post(
+        "/gateway/agent/resume",
+        json={"session_id": "abc", "budget_usd": "lots"},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.json()["detail"]["error_type"] == "bad_budget"
+    r = client.post(
+        "/gateway/agent/resume",
+        json={"session_id": "abc", "level": "assist", "budget_usd": 3},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 200
+    assert agent.calls == [("resume", "abc", "assist", "operator", "page", 3.0, False)]
+
+
+def test_a_hub_needs_the_grant_to_resume_the_agent(with_agent):
+    client, agent = with_agent
+    reader = _pair_hub(client, [])
+    r = client.post(
+        "/gateway/agent/resume",
+        json={"session_id": "abc"},
+        headers=_as(reader["token"]),
+    )
+    assert r.status_code == 403
+    assert agent.calls == []
 
 
 def test_a_hub_needs_the_grant_to_start_the_agent(with_agent):

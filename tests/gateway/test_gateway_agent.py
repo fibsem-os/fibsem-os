@@ -11,7 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from fibsem.ai.agent.manager import MANAGED, RECORD, folders, read_json
+from fibsem.ai.agent.manager import (
+    MANAGED,
+    RECORD,
+    WORK,
+    SessionFolder,
+    folders,
+    read_json,
+)
 from fibsem.gateway.agent import AGENT_NAME, API_KEY, GatewayAgent
 from fibsem.gateway.gateway import OFF, RUNNING, GatewayRefused, GatewayState
 from fibsem.server.pairing import AGENT, PairedTokens
@@ -333,3 +340,130 @@ def test_the_profiles_and_a_configuration_come_from_fibsem_agent(made):
 def test_the_state_says_whether_the_api_key_is_set(made):
     assert made()[0].state().api_key is True
     assert made(key=None)[0].state().api_key is False
+
+
+def _by_hand(tmp_path, **about):
+    """A session someone ran with fibsem-agent in a terminal, now ended."""
+    session = SessionFolder.open(
+        "by-hand",
+        {"profile": "default", "mode": "none", **about},
+        tmp_path / "sessions",
+    )
+    session.end(0, "stopped")
+    return session.folder
+
+
+def test_resume_carries_an_ended_gateway_session_on(made, tmp_path):
+    agent, _, app = made()
+    agent.start("default", "Mill 01", "assist", "operator", "page")
+    assert until(lambda: _record(tmp_path).get("runs"))
+    session_id = agent.state().running["session_id"]
+    agent.end("operator", "page")
+    state = agent.resume(session_id, "drive", "operator", "page", budget_usd=4)
+    assert app.levels[-1] == (URL, "drive")
+    assert PairedTokens(tmp_path / "paired.json").agent().name == AGENT_NAME
+    assert state.running["session_id"] == session_id
+    assert state.running["resumed"] is True
+    assert state.running["goal"] == "Mill 01"
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
+    assert len(folders(tmp_path / "sessions")) == 1, "the same folder"
+    assert _record(tmp_path)["args"] == [
+        "--profile",
+        "default",
+        "--url",
+        URL,
+        "--max-budget-usd",
+        "4",
+    ]
+
+
+def test_resume_takes_a_terminal_session_as_its_record_says(made, tmp_path):
+    folder = _by_hand(tmp_path, model="claude-test", effort="low")
+    (folder / WORK).mkdir()
+    record = read_json(folder / RECORD)
+    record.update(mode="files", cwd=str(folder / WORK))
+    (folder / RECORD).write_text(json.dumps(record))
+    agent, _, _ = made()
+    assert agent.state().sessions[0]["cannot_resume"] is None
+    agent.resume("by-hand", "watch", "operator", "page")
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
+    assert _record(tmp_path)["args"] == [
+        "--profile",
+        "default",
+        "--url",
+        URL,
+        "--files",
+        "--model",
+        "claude-test",
+        "--effort",
+        "low",
+    ]
+
+
+def test_resume_names_a_working_folder_outside_the_session(made, tmp_path):
+    work = tmp_path / "elsewhere"
+    work.mkdir()
+    _by_hand(tmp_path, mode="code", cwd=str(work))
+    agent, _, _ = made()
+    agent.resume("by-hand", "watch", "operator", "page")
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
+    assert _record(tmp_path)["args"][-2:] == ["--code", str(work)]
+
+
+@pytest.mark.parametrize(
+    "about, platform, why",
+    [
+        ({"mode": "files", "cwd": "/no/such/folder"}, "linux", "folder is gone"),
+        ({"mode": "code", "cwd": "/tmp"}, "win32", "no sandbox on Windows"),
+    ],
+)
+def test_a_session_that_cant_resume_says_why(made, tmp_path, about, platform, why):
+    _by_hand(tmp_path, **about)
+    agent, _, app = made(platform=platform)
+    assert why in agent.state().sessions[0]["cannot_resume"]
+    with pytest.raises(GatewayRefused) as refused:
+        agent.resume("by-hand", "watch", "operator", "page")
+    assert refused.value.error_type == "cannot_resume"
+    assert app.levels == []
+    assert PairedTokens(tmp_path / "paired.json").agent() is None
+
+
+def test_resume_is_refused_with_starts_reasons(made, tmp_path):
+    _by_hand(tmp_path)
+    agent, _, _ = made()
+    with pytest.raises(GatewayRefused) as refused:
+        agent.resume("nowhere", "watch", "operator", "page")
+    assert refused.value.error_type == "no_session"
+    app = App()
+    app.connected = False
+    agent, _, _ = made(app=app)
+    with pytest.raises(GatewayRefused) as refused:
+        agent.resume("by-hand", "watch", "operator", "page")
+    assert refused.value.error_type == "not_connected"
+    agent, _, _ = made()
+    agent.start("default", None, "watch", "operator", "page")
+    with pytest.raises(GatewayRefused) as refused:
+        agent.resume("by-hand", "watch", "operator", "page")
+    assert refused.value.error_type == "agent_running"
+
+
+def test_a_session_from_before_run_resumes_in_its_checkout(made, tmp_path):
+    checkout = tmp_path / "fibsem-os"
+    checkout.mkdir()
+    _by_hand(tmp_path, cwd=str(checkout))
+    agent, _, _ = made()
+    agent.resume("by-hand", "watch", "operator", "page")
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
+    assert _record(tmp_path)["args"][-2:] == ["--checkout", str(checkout)]
+
+
+def test_a_session_in_its_own_run_folder_needs_no_folder_named(made, tmp_path):
+    folder = _by_hand(tmp_path)
+    record = read_json(folder / RECORD)
+    record["cwd"] = str(folder / "run")
+    (folder / RECORD).write_text(json.dumps(record))
+    agent, _, _ = made()
+    assert agent.state().sessions[0]["cannot_resume"] is None
+    agent.resume("by-hand", "watch", "operator", "page")
+    assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
+    assert _record(tmp_path)["args"] == ["--profile", "default", "--url", URL]
