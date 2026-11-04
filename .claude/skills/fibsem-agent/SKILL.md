@@ -11,7 +11,8 @@ whatever it was asked to do. Then read the skill for the task:
 
 | The operator wants to | Read |
 |---|---|
-| Make lamellae with AutoLamella, or explain a run | autolamella and autolamella-polishing, then autolamella-lead if nobody will be at the microscope, or autolamella-assistant if the operator will |
+| Make lamellae with AutoLamella, or explain a run | autolamella, then autolamella-lead if nobody will be at the microscope, or autolamella-assistant if the operator will |
+| Polish a lamella (before the first polishing pass) | autolamella-polishing |
 | Make lamellae through a fluorescent target | autolamella-correlative too, and autolamella-coincidence-milling where the FM and FIB are coincident |
 | Screen grids, take grid overviews or pick sites | screen-grids |
 | Do plain FIB work: images, milling patterns, spot burns, cross-sections, moving between sites | fibsem-experiment |
