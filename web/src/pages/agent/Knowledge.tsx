@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, ListFilter, Pencil, Search, Trash2 } from "lucide-react";
+import { Bell, ListFilter, Pencil, Search, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -74,17 +74,18 @@ const SHOW = [
 ] as const;
 type Kind = (typeof SHOW)[number][0];
 
-const BY = { agent: "the agent", operator: "the operator" };
-const LASTS = { "until fixed": "Until fixed", ongoing: "Ongoing", record: "Past run" };
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 function kindOf(row: Pick<KnowledgeRow, "section" | "tags">): string {
-  if (row.section === "sample") return `Sample: ${row.tags.sample ?? ""}`;
-  if (row.section === "playbook") return `Playbook: ${row.tags.playbook ?? ""}`;
-  return row.section === "instrument" ? "Instrument" : "Experiment";
+  if (row.section === "sample") return row.tags.sample ?? "Sample";
+  if (row.section === "playbook") return row.tags.playbook ?? "Playbook";
+  return row.section === "instrument" ? "Instrument" : "Past run";
 }
+
+const reviewing = (row: { status: string; resolved?: unknown }) =>
+  row.status === "to review" && !row.resolved;
 
 /** The folder a sample or playbook entry sits in, as the routes ask for it. */
 function group(row: Pick<KnowledgeRow, "section" | "tags">): string {
@@ -149,19 +150,27 @@ function KindFilter({ kind, onChange }: { kind: Kind; onChange: (kind: Kind) => 
   );
 }
 
-function EntryImage({ src, name }: { src: (name: string) => Promise<string>; name: string }) {
+function EntryImage({
+  src,
+  name,
+  file,
+}: {
+  src: (name: string) => Promise<string>;
+  name: string;
+  file: string;
+}) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    src(name).then((u) => live && setUrl(u), () => undefined);
+    src(file).then((u) => live && setUrl(u), () => undefined);
     return () => {
       live = false;
     };
-  }, [src, name]);
+  }, [src, file]);
   return url ? (
-    <img src={url} alt={name} className="max-h-64 max-w-full rounded border border-border" />
+    <img src={url} alt={name} title={name} className="max-h-52 max-w-full rounded" />
   ) : (
-    <div className="h-40 w-60 rounded border border-border bg-accent" />
+    <div className="h-40 w-60 rounded bg-accent" />
   );
 }
 
@@ -230,94 +239,86 @@ function Entry({
   }, [entry.path]);
   const meta = [
     kindOf(entry),
-    entry.resolved ? `Fixed ${day(entry.resolved)}` : LASTS[entry.lasts],
-    `Written by ${BY[entry.by]}, ${day(entry.written)}`,
-    entry.edited && `edited by ${BY[entry.edited_by ?? "operator"]}`,
-    entry.tags.session && `in ${entry.tags.session}`,
-    entry.source?.item,
+    entry.lasts === "until fixed" && (entry.resolved ? `fixed ${day(entry.resolved)}` : "until fixed"),
+    `${entry.by === "agent" ? "agent" : "operator"}, ${day(entry.written)}`,
   ].filter(Boolean);
-  const origin = entry.source?.images ?? {};
+  const from = [entry.tags.session, entry.source?.item].filter(Boolean).join(", ");
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border px-5">
-        <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground" title={entry.path}>
-          {entry.path}
-        </span>
-        {deleting ? (
-          <span className="flex gap-1">
-            <Button variant="danger" className="py-1" disabled={busy} onClick={onDelete}>
-              Delete
-            </Button>
-            <Button variant="ghost" className="py-1" onClick={() => setDeleting(false)}>
-              Cancel
-            </Button>
-          </span>
-        ) : (
-          !editing && (
-            <span className="flex items-center gap-1">
-              {entry.status === "to review" && (
-                <Button variant="primary" className="py-1" disabled={busy} onClick={onKeep}>
-                  <Check size={14} />
-                  Keep
-                </Button>
-              )}
-              {entry.lasts === "until fixed" && !entry.resolved && (
-                <Button variant="ghost" className="py-1" disabled={busy} onClick={onResolve}>
-                  Mark fixed
-                </Button>
-              )}
-              <Button variant="ghost" className="px-2" aria-label="Edit" title="Edit" onClick={() => setEditing(true)}>
-                <Pencil size={14} />
-              </Button>
-              <Button variant="ghost" className="px-2" aria-label="Delete" title="Delete" onClick={() => setDeleting(true)}>
-                <Trash2 size={14} />
-              </Button>
-            </span>
-          )
-        )}
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-4">
-        {editing ? (
-          <Editor
-            entry={entry}
-            busy={busy}
-            onCancel={() => setEditing(false)}
-            onSave={(title, text) => {
-              onSave(title, text);
-              setEditing(false);
-            }}
-          />
-        ) : (
-          <>
-            <h3 className="m-0 text-[15px] font-semibold">{entry.title}</h3>
-            <p className="m-0 mt-1 text-[12px] text-muted-foreground">{meta.join(" · ")}</p>
-            {entry.status === "to review" && (
-              <p className="m-0 mt-2 text-[12px] text-muted-foreground">
-                The agent is already using this. Keep it, edit it, or delete it.
-              </p>
-            )}
-            {entry.remind && (
-              <p className="m-0 mt-3 rounded border border-border px-3 py-2 text-[13px]">
-                <span className="text-muted-foreground">Reminder: </span>
-                {entry.remind}
-              </p>
-            )}
-            <div className="mt-3 text-[13px] leading-[1.55]">
-              <Markdown text={entry.text} />
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-5">
+      {editing ? (
+        <Editor
+          entry={entry}
+          busy={busy}
+          onCancel={() => setEditing(false)}
+          onSave={(title, text) => {
+            onSave(title, text);
+            setEditing(false);
+          }}
+        />
+      ) : (
+        <>
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <h3 className="m-0 text-[15px] font-semibold" title={entry.path}>
+                {entry.title}
+              </h3>
+              <p className="m-0 mt-0.5 text-[12px] text-muted-foreground">{meta.join(" · ")}</p>
             </div>
-            {entry.images.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-3">
-                {entry.images.map((name) => (
-                  <figure key={name} className="m-0 flex flex-col gap-1">
-                    <EntryImage src={image} name={name} />
-                    <figcaption className="text-[12px] text-muted-foreground">{origin[name] ?? name}</figcaption>
-                  </figure>
-                ))}
-              </div>
+            {deleting ? (
+              <span className="flex shrink-0 gap-1">
+                <Button variant="danger" className="py-1" disabled={busy} onClick={onDelete}>
+                  Delete
+                </Button>
+                <Button variant="ghost" className="py-1" onClick={() => setDeleting(false)}>
+                  Cancel
+                </Button>
+              </span>
+            ) : (
+              <span className="flex shrink-0 items-center text-muted-foreground">
+                {reviewing(entry) && (
+                  <Button
+                    variant="ghost"
+                    className="py-1 text-foreground"
+                    disabled={busy}
+                    title="The agent already uses it. Keep it to say it's right."
+                    onClick={onKeep}
+                  >
+                    Keep
+                  </Button>
+                )}
+                {entry.lasts === "until fixed" && !entry.resolved && (
+                  <Button variant="ghost" className="py-1" disabled={busy} onClick={onResolve}>
+                    Mark fixed
+                  </Button>
+                )}
+                <Button variant="ghost" className="px-2" aria-label="Edit" title="Edit" onClick={() => setEditing(true)}>
+                  <Pencil size={14} />
+                </Button>
+                <Button variant="ghost" className="px-2" aria-label="Delete" title="Delete" onClick={() => setDeleting(true)}>
+                  <Trash2 size={14} />
+                </Button>
+              </span>
             )}
-          </>
-        )}
-      </div>
+          </div>
+          {entry.remind && (
+            <p className="m-0 mt-3 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+              <Bell size={13} className="shrink-0" />
+              {entry.remind}
+            </p>
+          )}
+          <div className="mt-3 text-[13px] leading-[1.6]">
+            <Markdown text={entry.text} />
+          </div>
+          {entry.images.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-3">
+              {entry.images.map((name) => (
+                <EntryImage key={name} src={image} name={entry.source?.images?.[name] ?? name} file={name} />
+              ))}
+            </div>
+          )}
+          {from && <p className="m-0 mt-4 text-[12px] text-muted-foreground">From {from}</p>}
+        </>
+      )}
     </div>
   );
 }
@@ -355,14 +356,10 @@ export function KnowledgeBrowser({
       (!words || `${row.title} ${Object.values(row.tags).join(" ")}`.toLowerCase().includes(words)),
   );
   // To review first, newest first within each
-  const shown = [
-    ...matching.filter((row) => row.status === "to review" && !row.resolved),
-    ...matching.filter((row) => row.status !== "to review" || row.resolved),
-  ];
-  const reviewing = shown.filter((row) => row.status === "to review" && !row.resolved).length;
+  const shown = [...matching.filter(reviewing), ...matching.filter((row) => !reviewing(row))];
   return (
     <div className="flex h-[min(560px,76vh)] min-h-0">
-      <div className="flex w-[290px] shrink-0 flex-col border-r border-border">
+      <div className="flex w-[280px] shrink-0 flex-col border-r border-border">
         <div className="flex items-center gap-1 border-b border-border px-2.5 py-2">
           <label className="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 text-muted-foreground focus-within:bg-accent">
             <Search size={14} className="shrink-0" />
@@ -377,24 +374,29 @@ export function KnowledgeBrowser({
           <KindFilter kind={kind} onChange={setKind} />
         </div>
         <ul className="m-0 min-h-0 flex-1 list-none overflow-y-auto p-1.5">
-          {shown.map((row, i) => (
+          {shown.map((row) => (
             <li key={key(row)}>
-              {reviewing > 0 && (i === 0 || i === reviewing) && (
-                <p className="m-0 px-2.5 pt-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
-                  {i === 0 ? `To review (${reviewing})` : "Kept"}
-                </p>
-              )}
               <button
                 className={cn(
-                  "flex w-full cursor-pointer flex-col gap-0.5 rounded border-0 bg-transparent px-2.5 py-2 text-left hover:bg-accent",
+                  "flex w-full cursor-pointer items-baseline gap-2 rounded border-0 bg-transparent px-2.5 py-2 text-left hover:bg-accent",
                   selected === key(row) && "bg-accent",
                 )}
+                title={reviewing(row) ? "To review" : undefined}
                 onClick={() => onSelect(row)}
               >
-                <span className="text-[13px] text-foreground">{row.title}</span>
-                <span className="text-[12px] text-muted-foreground">
-                  {[kindOf(row), row.resolved ? "Fixed" : LASTS[row.lasts], day(row.written)].join(" · ")}
-                  {row.ask_again && <span className="text-foreground"> · Check it still holds</span>}
+                <span
+                  className={cn(
+                    "size-1.5 shrink-0 translate-y-[-2px] rounded-full",
+                    reviewing(row) ? "bg-primary" : "bg-transparent",
+                  )}
+                />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className={cn("truncate text-[13px]", row.resolved ? "text-muted-foreground" : "text-foreground")}>
+                    {row.title}
+                  </span>
+                  <span className="truncate text-[12px] text-muted-foreground">
+                    {row.ask_again ? "Is this still true?" : `${kindOf(row)} · ${day(row.written)}`}
+                  </span>
                 </span>
               </button>
             </li>
