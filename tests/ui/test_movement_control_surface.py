@@ -95,12 +95,9 @@ def moves(movement, monkeypatch):
     return seen
 
 
-def _settle(qapp, seen, tries: int = 40):
+def _settle(qapp, seen):
     """The move runs on a worker thread; pump until it lands."""
-    for _ in range(tries):
-        qapp.processEvents()
-        if seen:
-            return
+    _spin_until(qapp, lambda: bool(seen), timeout_s=5.0)
 
 
 def _spin_until(qapp, predicate, timeout_s: float = 15.0) -> bool:

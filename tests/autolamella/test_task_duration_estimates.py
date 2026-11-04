@@ -21,7 +21,7 @@ from fibsem.fm.structures import (
     FocusSweepPass,
 )
 from fibsem.fm.timing import estimate_acquisition_time, estimate_autofocus_time
-from fibsem.structures.settings import Point
+from fibsem.structures.settings import ImageSettings, Point
 from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
@@ -140,8 +140,19 @@ def test_spot_burn_counts_the_move_alignment_and_current_change():
         + timing.stage_move_cost(1)
         + timing.REFERENCE_ALIGNMENT_S
         + 2 * timing.BEAM_CURRENT_CHANGE_S
+        # aligning at the burn current: autocontrast, then three full frames
+        + timing.ALIGNMENT_AUTOCONTRAST_S
+        + timing.image_cost(ImageSettings(), count=3)
     )
     assert cfg.estimated_duration == pytest.approx(expected)
+
+
+def test_spot_burn_without_the_alignment_at_the_burn_current_costs_less():
+    aligned = SpotBurnFiducialTaskConfig(exposure_time=10)
+    unaligned = SpotBurnFiducialTaskConfig(exposure_time=10, align=False)
+    assert aligned.estimated_duration - unaligned.estimated_duration == pytest.approx(
+        timing.ALIGNMENT_AUTOCONTRAST_S + timing.image_cost(ImageSettings(), count=3)
+    )
 
 
 def test_spot_burn_with_no_points_costs_only_the_base():

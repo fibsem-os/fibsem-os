@@ -12,7 +12,9 @@ _HOLD_NOTE = (
 SPOT_BURN_SETTINGS = (
     "SpotBurnSettings dict: coordinates [{x, y, name}] (0-1 in the ion image), "
     "milling_current (A, default 100 pA), exposure_time (s per spot, 0.1-60, "
-    "default 10)"
+    "default 10), align (default true: a beam shift alignment at the burn current "
+    "onto a full-frame reference taken at the imaging current, before burning), "
+    "align_steps (1-9, default 1)"
 )
 
 TOOLS: Tuple[ToolSpec, ...] = (
@@ -79,7 +81,8 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "for exposure_time at milling_current, the beam blanked between them "
             "and its current put back after. settings.coordinates are points in "
             "the ion image, 0 to 1 on both axes ({x, y, name}); points outside "
-            "it are dropped. milling_estimate_spot_burn first for how long. A long "
+            "it are dropped. It aligns at the burn current first unless align is "
+            "false. milling_estimate_spot_burn first for how long. A long "
             "command: it answers with its run at once; service_wait_for_run "
             "spot_burn says how it ended; service_call_command spot_burn stop, "
             "with a reason, ends it."
@@ -89,8 +92,16 @@ TOOLS: Tuple[ToolSpec, ...] = (
         result_key="run",
         level="drive",
         hardware=True,
-        params={"settings": arg(SPOT_BURN_SETTINGS, dict)},
-        call=lambda a: ({}, kwargs_body(settings=dict(a["settings"]))),
+        params={
+            "settings": arg(SPOT_BURN_SETTINGS, dict),
+            "path": "optional folder inside the open experiment to save the "
+            "alignment into",
+        },
+        optional=("path",),
+        call=lambda a: (
+            {},
+            kwargs_body(settings=dict(a["settings"]), path=a.get("path")),
+        ),
     ),
     ToolSpec(
         name="milling_estimate_spot_burn",

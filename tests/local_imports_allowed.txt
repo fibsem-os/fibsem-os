@@ -131,6 +131,7 @@ fibsem/services/analysis.py 1
 fibsem/services/correlation.py 22
 fibsem/services/imaging.py 14
 fibsem/services/milling.py 12
+fibsem/services/spot_burn.py 1
 fibsem/services/stage_movement.py 5
 fibsem/session_state.py 1
 fibsem/structures/image.py 1

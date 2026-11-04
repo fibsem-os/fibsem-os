@@ -66,7 +66,7 @@ def window(qapp, tmp_path_factory):
 
     burns, failures, supervision = [], [], {"supervised": True}
 
-    def fake_run_spot_burn(microscope, settings, beam_type, stop_event=None):
+    def fake_run_spot_burn(microscope, settings, beam_type, stop_event=None, path=None):
         burns.append(
             SimpleNamespace(
                 settings=settings,
@@ -376,6 +376,7 @@ def test_an_agents_edit_lands_in_the_widget_and_asks_again(ui, qapp):
         coordinates=[Point(x=0.25, y=0.75), Point(x=0.6, y=0.1)],
         milling_current=3e-10,
         exposure_time=2.5,
+        align=False,
     )
     _decide(ui, qapp, ACTION_EDIT, edit)
     _wait_for_prompt(ui, qapp, FIRST_HINT)
@@ -384,18 +385,22 @@ def test_an_agents_edit_lands_in_the_widget_and_asks_again(ui, qapp):
     assert _points(shown) == [(0.25, 0.75), (0.6, 0.1)]
     assert shown.milling_current == pytest.approx(3e-10)
     assert shown.exposure_time == pytest.approx(2.5)
+    assert shown.align is False
+    assert not ui.panel.spot_burn_widget.checkBox_align.isChecked()
 
     _decide(ui, qapp, ACTION_RUN)
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
     (burn,) = ui._burns
     assert _points(burn.settings) == [(0.25, 0.75), (0.6, 0.1)]
     assert burn.settings.exposure_time == pytest.approx(2.5)
+    assert burn.settings.align is False
 
     ui.panel.prompt_bar.no.click()
     _finish(thread, qapp)
     assert "error" not in outcome
     # What was burned is what the protocol keeps.
     assert task.config.exposure_time == pytest.approx(2.5)
+    assert task.config.align is False
     assert len(task.config.coordinates) == 2
 
 

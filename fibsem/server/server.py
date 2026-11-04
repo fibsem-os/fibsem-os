@@ -232,7 +232,8 @@ async def _stop_reason(request: Request):
     """Every agent stop carries a reason: refused without one, and recorded as
     ``agent_stop`` (what was stopped, why, whether it was the agent's own) once
     it has stopped, for the operator to read. The operator's stop needs none and
-    is recorded as theirs."""
+    is recorded as theirs. Depend on it with ``scope="function"`` so the record
+    is written before the answer goes back."""
     command = request.path_params.get("command")
     if command is not None and command not in STOP_COMMANDS:
         yield
@@ -802,7 +803,7 @@ def build_server(
                 write=[Depends(_drive), Depends(take_control, scope="function")],
                 command=[
                     Depends(_device_command_gate, scope="function"),
-                    Depends(_stop_reason),
+                    Depends(_stop_reason, scope="function"),
                 ],
                 prefix=MICROSCOPE + "/devices",
                 listing=[Depends(require_monitoring())],
@@ -821,7 +822,7 @@ def build_server(
                 write=[Depends(_drive), Depends(take_control, scope="function")],
                 command=[
                     Depends(_device_command_gate, scope="function"),
-                    Depends(_stop_reason),
+                    Depends(_stop_reason, scope="function"),
                 ],
                 prefix=MICROSCOPE + "/services",
                 listing=[Depends(require_monitoring())],
@@ -857,7 +858,7 @@ def build_server(
         # the operator approved at Assist; with a reason.
         app.include_router(
             build_app_stop_router(app_context),
-            dependencies=[Depends(_drive), Depends(_stop_reason)],
+            dependencies=[Depends(_drive), Depends(_stop_reason, scope="function")],
         )
         # Suggesting on a pending proposal: Assist and Drive, with no request,
         # since the operator's approval is what decides.
