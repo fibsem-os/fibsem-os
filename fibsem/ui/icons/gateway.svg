@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect class="tile" width="32" height="32" rx="7" fill="#262930"/>
+  <rect class="dark" x="4" y="22" width="24" height="6" rx="1" fill="#5A626C"/>
+  <rect class="light" x="6" y="4" width="4" height="15" fill="#FFFFFF"/>
+  <rect class="light" x="22" y="4" width="4" height="15" fill="#FFFFFF"/>
+  <rect class="light" x="6" y="4" width="20" height="3" fill="#FFFFFF"/>
+  <rect class="accent" x="12" y="10" width="8" height="9" rx="1" fill="#007ACC"/>
+</svg>

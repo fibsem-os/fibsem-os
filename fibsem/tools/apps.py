@@ -95,15 +95,6 @@ AUTOLAMELLA = App(
     serve="fibsem.applications.autolamella.launch:main",
 )
 
-# Not a launcher app: its shortcut runs the gateway's one-click start
-# (fibsem.gateway.launch), which opens AutoLamella and the agent.
-AUTOLAMELLA_AGENT = replace(
-    AUTOLAMELLA,
-    name=f"{AUTOLAMELLA.name} with the agent",
-    command="fibsem-autolamella-agent",
-    icon=ICONS_DIR / "autolamella-agent.svg",
-)
-
 FIBSEM_UI = App(
     name="fibsemOS",
     app_id="fibsemOS.FibsemUI",
@@ -122,6 +113,17 @@ VOLUME = App(
     icon=ICONS_DIR / "fibsemos.svg",
     load_steps=_COMMON_STEPS
     + (("Loading Volume", ("fibsem.ui", "fibsem.applications.volume.ui.window")),),
+)
+
+# Not a launcher app: its desktop shortcut opens the gateway's page
+# (fibsem.gateway.launch), starting the gateway when none runs.
+GATEWAY = replace(
+    FIBSEM_UI,
+    name="fibsemOS Gateway",
+    app_id="fibsemOS.Gateway",
+    command="fibsem-gateway-open",
+    icon=ICONS_DIR / "gateway.svg",
+    load_steps=(),
 )
 
 BUILTIN_APPS: Dict[str, App] = {

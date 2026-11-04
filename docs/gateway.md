@@ -43,10 +43,11 @@ stops an app without its window that isn't running a workflow.
 
 The page (`/ui/gateway`) shows:
 
+- the **Microscope**: before the app starts, a configuration saved on this PC (the default
+  first) and **Connect when the app starts**; while it runs, Connect and Disconnect, the same
+  as the web app's Microscope page;
 - the app: Start, with an app, an experiment folder and **Show the window on this PC**, or
   what runs and Stop;
-- the microscope's **Connection** while the app runs: Connect and Disconnect, the same as
-  the web app's Microscope page;
 - the agent;
 - the paired computers;
 - every start and stop, with who made it and from where.
@@ -91,27 +92,17 @@ end the agent too. Each session's record and log are in
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
 
-## One shortcut: AutoLamella with the agent
+## The desktop shortcut
 
 ```
 fibsem-gateway shortcut
 ```
 
-This puts an "AutoLamella with the agent" shortcut on the desktop, with a purple
-AutoLamella icon. AutoLamella's **Tools → Create Desktop Shortcut → AutoLamella with the
-agent...** makes the same shortcut. It runs `fibsem-autolamella-agent`, which does the whole
-start in one go:
-
-1. Starts the gateway, if it isn't running.
-2. Starts AutoLamella with its window. A window the gateway starts always hosts the App
-   Server on this PC, whatever **Tools → Host** says. Turning Host off there stops it.
-3. Connects the default microscope configuration (`--configuration <name>` for another).
-4. Starts the agent with the `default` profile (`--profile <name>` for another), at **Watch**.
-5. Opens the Agent page in the browser.
-
-A step that's already done is skipped, so a second click only opens the page. If a step
-fails, the launch stops there and a dialog says why. The shortcut never raises the level:
-raise it on the Agent page. `fibsem-gateway launch` does the same from a terminal.
+This puts a "fibsemOS Gateway" shortcut on the desktop; AutoLamella's **Tools → Create Desktop
+Shortcut → fibsemOS Gateway...** makes the same one. It starts the gateway if it isn't running
+and opens its page signed in as the operator, so this browser needs no pairing. Nothing else
+starts: pick the microscope, the app and the agent on the page. `fibsem-gateway open` does the
+same from a terminal.
 
 ## Pairing a hub
 
