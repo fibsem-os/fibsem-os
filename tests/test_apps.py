@@ -13,10 +13,10 @@ def test_builtin_apps_ship_their_drawings(app):
     assert app.icon.is_file()
 
 
-def test_the_gateway_shortcut_has_its_own_windows_icon():
+def test_the_gateway_shortcut_has_fibsemos_windows_icon():
     assert GATEWAY.command == "fibsem-gateway-open"
     assert GATEWAY.windows_icon is not None
-    assert GATEWAY.windows_icon.stem == "gateway"
+    assert GATEWAY.windows_icon.stem == "fibsemos"
     assert "gateway" not in registry.apps()  # a shortcut, not a launcher app
 
 

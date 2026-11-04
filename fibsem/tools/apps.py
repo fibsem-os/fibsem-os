@@ -122,7 +122,6 @@ GATEWAY = replace(
     name="fibsemOS Gateway",
     app_id="fibsemOS.Gateway",
     command="fibsem-gateway-open",
-    icon=ICONS_DIR / "gateway.svg",
     load_steps=(),
 )
 

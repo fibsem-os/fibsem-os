@@ -40,18 +40,13 @@ BUILD = BRAND / "build"
 # name: (drawing, drawing used at 16 px and for the glyph, or None for the same)
 ICONS = {
     "autolamella": (APP_ICONS / "autolamella.svg", APP_ICONS / "autolamella-16.svg"),
-    "gateway": (APP_ICONS / "gateway.svg", None),
     "liftout": (BRAND / "liftout.svg", None),
     "volume": (BRAND / "volume.svg", None),
     "fibsemos": (APP_ICONS / "fibsemos.svg", APP_ICONS / "fibsemos-16.svg"),
 }
 
 # Per-icon changes to the colour variant.
-# fibsemOS and its gateway sit on the app's dark surface.
-ICON_COLOURS = {
-    "fibsemos": {"tile": "#262930", "dark": "#5A626C"},
-    "gateway": {"tile": "#262930", "dark": "#5A626C"},
-}
+ICON_COLOURS = {"fibsemos": {"tile": "#262930", "dark": "#5A626C"}}
 
 # Colour per role; None for the tile means no tile. A (colour, opacity) pair
 # draws that role at part strength.
