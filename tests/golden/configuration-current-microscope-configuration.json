@@ -28,6 +28,7 @@
     "imaging": {
       "autocontrast": true,
       "beam_type": "ELECTRON",
+      "bit_depth": null,
       "drift_correction": false,
       "dwell_time": 1e-06,
       "frame_integration": null,
