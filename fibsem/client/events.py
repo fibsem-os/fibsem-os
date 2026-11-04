@@ -91,7 +91,12 @@ class EventStream:
             for message in socket:
                 self._on_event(json.loads(message))
 
-    def close(self) -> None:
+    def close(self, wait: float = OPEN_TIMEOUT) -> None:
+        """Stop following, and wait up to *wait* seconds for the stream's thread
+        to end, so nothing it was doing (``on_open``'s reads) outlives this."""
         self.closing.set()
         if self._socket is not None:
             self._socket.close()
+        thread = self._thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(wait)
