@@ -12,8 +12,14 @@ blank, park the beam on the point (the ``spot`` command), unblank, wait the expo
 time, then back to full frame at the end. Demo, ThermoFisher and Odemis burn this way.
 A driver whose instrument burns another way overrides ``_burn``.
 
-What a run changes is the burn current, so that is what it saves and writes back
-(``saved_conditions``); a driver that burns with other conditions names them.
+Before burning, a run aligns at the burn current (``settings.align``): a full-frame
+reference at the imaging current, then the burn current, then a beam shift alignment
+onto that reference, so the shift a current change brings doesn't move the spots off
+where they were placed. The same alignment milling does before it mills.
+
+What a run changes is the burn current, and the beam shift when it aligns, so those
+are what it saves and writes back (``saved_conditions``); a driver that burns with
+other conditions names them.
 
 `FibsemMicroscope.run_spot_burn` goes to the microscope's service,
 ``microscope.spot_burn``, and keeps its signature on every backend.
@@ -22,8 +28,10 @@ What a run changes is the burn current, so that is what it saves and writes back
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
+from datetime import datetime
 from typing import (
     Any,
     Dict,
@@ -38,12 +46,14 @@ from typing import (
 
 # At import, not under TYPE_CHECKING: the App Server decodes a command's arguments
 # from its type hints (a SpotBurnSettings sent as a dict).
+from fibsem import config as fcfg
 from fibsem.cancellation import AnyStopEvent
+from fibsem.constants import TIME_FILE
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import DeviceParameter, ParameterMetadata, Role, command, query
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnSettings, SpotBurnStatus
 from fibsem.services.core import Service, save_beam_conditions
-from fibsem.structures.settings import BeamType, Point
+from fibsem.structures.settings import BeamType, ImageSettings, Point
 from fibsem.util import wording
 
 _S = TypeVar("_S", bound="SpotBurn")
@@ -73,6 +83,8 @@ def _run_line(kwargs: Dict[str, Any], ctx: wording.ActionContext) -> Dict[str, A
         change += wording.about(
             wording.result_of(ctx.get(_ESTIMATE, {"settings": settings}))
         )
+    if settings.get("align", True):
+        change += ", aligned at the burn current first"
     table = [
         (
             str(p.get("name") or i + 1),
@@ -106,11 +118,17 @@ class SpotBurn(Service):
     poll_interval: float = 1.0
 
     # The beam conditions a run changes and puts back, in the order they are written
-    # back.
+    # back. An aligned run puts the beam shift back after them.
     saved_conditions: Tuple[str, ...] = ("current",)
 
     # The `SpotBurnSettings` fields this driver's ``run`` reads; it ignores the rest.
-    setting_names: Tuple[str, ...] = ("coordinates", "exposure_time", "milling_current")
+    setting_names: Tuple[str, ...] = (
+        "coordinates",
+        "exposure_time",
+        "milling_current",
+        "align",
+        "align_steps",
+    )
 
     def __init__(self, name: str = "spot_burn", **kwargs: Any):
         super().__init__(name, **kwargs)
@@ -153,8 +171,13 @@ class SpotBurn(Service):
         self,
         settings: SpotBurnSettings,
         stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
+        path: Optional[str] = None,
     ) -> SpotBurnStatus:
         """Burn the points of ``settings`` and return how the run ended.
+
+        With ``settings.align`` it aligns at the burn current first, saving the
+        reference and the alignment run under *path* (by default the
+        cross-correlation data folder).
 
         A ``stop_event`` set while it runs, or ``stop`` from another thread, blanks
         the beam and ends the run as cancelled, without raising. A failure is
@@ -164,6 +187,7 @@ class SpotBurn(Service):
         # the settings belong to the caller.
         exposure_time = float(settings.exposure_time)
         current = float(settings.milling_current)
+        align = "align" in self.setting_names and bool(settings.align)
         points, dropped = in_bounds(settings.coordinates)
         beam = self.ion
         self._stop_requested.clear()
@@ -185,9 +209,13 @@ class SpotBurn(Service):
             self._report_end(SpotBurnStatus.FINISHED, 0)
             return SpotBurnStatus.FINISHED
 
-        saved = save_beam_conditions(beam, self.saved_conditions)
+        conditions = self.saved_conditions + (("shift",) if align else ())
+        saved = save_beam_conditions(beam, conditions)
         try:
+            reference = self._alignment_reference(beam, path) if align else None
             self._setup(beam, current)
+            if reference is not None:
+                self._align(reference, int(settings.align_steps), path, stop_event)
             status = self._burn(beam, points, exposure_time, current, stop_event)
             self._report_end(status, len(points))
             return status
@@ -197,7 +225,7 @@ class SpotBurn(Service):
             raise
         finally:
             self._finish(beam)
-            for name in self.saved_conditions:
+            for name in conditions:
                 if name in saved:
                     try:
                         getattr(beam, name).write_through(saved[name])
@@ -265,6 +293,44 @@ class SpotBurn(Service):
     def _report_end(self, status: SpotBurnStatus, points: int) -> None:
         self._report(
             SpotBurnProgress(status=status, current_point=points, total_points=points)
+        )
+
+    def _alignment_reference(self, beam: Beam, path: Optional[str]) -> Any:
+        """A full-frame ion image at the beam's present field of view and current
+        (the imaging current, before the burn current is set), saved under *path*."""
+        settings = ImageSettings(
+            hfw=beam.hfw.get_value(),
+            beam_type=BeamType.ION,
+            save=True,
+            path=path or fcfg.DATA_CC_PATH,
+            filename=f"ref_spot_burn_alignment_{datetime.now().strftime(TIME_FILE)}",
+        )
+        return self.parent.imaging.acquire_image(settings)
+
+    def _align(
+        self,
+        reference: Any,
+        steps: int,
+        path: Optional[str],
+        stop_event: Optional[Union[threading.Event, AnyStopEvent]],
+    ) -> None:
+        """Beam shift align onto *reference* at the burn current. A stop ends it
+        between steps, and the burn then ends as cancelled before any point."""
+        from fibsem import alignment
+
+        stop = (
+            self._stop_requested
+            if stop_event is None
+            else AnyStopEvent(self._stop_requested, stop_event)
+        )
+        alignment.multi_step_alignment_v2(
+            microscope=self.parent,
+            ref_image=reference,
+            steps=steps,
+            use_autocontrast=True,
+            run_name="spot_burn",
+            stop_event=stop,
+            path=os.path.join(path or fcfg.DATA_CC_PATH, alignment.ALIGNMENT_SUBDIR),
         )
 
     # -- what a driver may override ---------------------------------------------

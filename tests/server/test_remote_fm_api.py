@@ -19,6 +19,7 @@ from fibsem.fm.structures import (
     EmissionFilter,
     FluorescenceImage,
 )
+from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.devices import DeviceServer
 from fibsem.structures.system import InsertableDeviceState
 from tests.server.test_remote_fm import _unreachable
@@ -363,6 +364,8 @@ def test_without_offline_an_unserved_fm_refuses_to_connect():
 
 
 def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
+    # A Device Server on this computer: its install token is there before it starts.
+    DeviceAuth.from_disk()
     port = _free_port()
     client = DeviceClient("127.0.0.1", port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect(
@@ -409,7 +412,6 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
 
     import fibsem.config as cfg
     from fibsem import utils
-    from fibsem.server.device_auth import DeviceAuth
 
     # A Device Server on this computer: its install token is there before it starts.
     DeviceAuth.from_disk()

@@ -481,10 +481,12 @@ class TescanSpotBurn(SpotBurn):
         self,
         settings: SpotBurnSettings,
         stop_event: Optional[Union[threading.Event, AnyStopEvent]] = None,
+        path: Optional[str] = None,
     ) -> SpotBurnStatus:
         """Burn the points of ``settings`` and return how the run ended.
 
-        As `SpotBurn.run`, but an exposure time that isn't positive is refused before
+        As `SpotBurn.run`, without the alignment at the burn current (the preset
+        sets the current inside DrawBeam), but an exposure time that isn't positive is refused before
         anything is touched (DrawBeam would draw dots that burn nothing), and the burn
         current may be None: the preset sets it.
         """
@@ -498,7 +500,7 @@ class TescanSpotBurn(SpotBurn):
                 f"Spot burn milling_current is ignored on TESCAN; using preset "
                 f"{SPOT_BURN_PRESET!r}. (requested: {settings.milling_current})"
             )
-        return super().run(settings, stop_event=stop_event)
+        return super().run(settings, stop_event=stop_event, path=path)
 
     @staticmethod
     def _spot_burn_point_to_metres(
