@@ -171,10 +171,11 @@ class Control:
         finally:
             with self._cond:
                 if any(entry is e for e in self._joinable):
-                    self._joinable = [e for e in self._joinable if e is not entry]
-                    # Those that joined it end first, as with acting beside.
+                    # Those that joined it end first, as with acting beside. Still
+                    # joinable while it waits: a click then joins, never refused.
                     while self._joined:
                         self._cond.wait()
+                    self._joinable = [e for e in self._joinable if e is not entry]
                 if self._open is entry:
                     self._open = None
                     # What acts beside it ends first: nobody takes over mid-action.
