@@ -108,3 +108,4 @@ overview-image-*/
 # the app or a sweep from a checkout writes them into it. Same shape as the overview
 # tilesets above.
 autofocus/
+fibsem/ai/agent/shipped/

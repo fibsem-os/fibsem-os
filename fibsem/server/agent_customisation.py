@@ -5,7 +5,7 @@ profiles on this PC and what the agent may never touch. Read-only."""
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from fibsem.ai.agent import blocklist, harness, profiles
+from fibsem.ai.agent import blocklist, harness, profiles, sources
 from fibsem.ai.agent.catalog import CATALOG, GROUP_TITLES, ToolSpec
 from fibsem.server.responses import (
     AgentCustomisation,
@@ -60,10 +60,12 @@ def description(path: Path) -> str:
     return ""
 
 
-def _skills(names: Iterable[str], folder: Path, file: str) -> List[SkillRow]:
-    return [
-        SkillRow(name, description(folder / file.format(name=name))) for name in names
-    ]
+def _skills(names: Iterable[str], find) -> List[SkillRow]:
+    rows = []
+    for name in names:
+        found = find(name)
+        rows.append(SkillRow(name, description(found) if found else ""))
+    return rows
 
 
 def _profile(path: Path, checkout: Optional[Path]) -> ProfileRow:
@@ -96,12 +98,18 @@ def _profile(path: Path, checkout: Optional[Path]) -> ProfileRow:
 def customisation(tools: Iterable[ToolSpec] = CATALOG) -> AgentCustomisation:
     """What the agent runs with: *tools* are the ones this server offers."""
     checkout = harness.find_checkout()
-    claude = (checkout or Path(".")) / ".claude"
+
+    def skill(name: str) -> Optional[Path]:
+        found = sources.skill_dir(name, checkout)
+        return found / sources.SKILL_FILE if found else None
+
     return AgentCustomisation(
         tools=[_tool(spec) for spec in tools],
         categories=list(CATEGORIES),
-        skills=_skills(harness.SKILLS, claude / "skills", "{name}/SKILL.md"),
-        specialists=_skills(harness.SPECIALISTS, claude / "agents", "{name}.md"),
+        skills=_skills(harness.skills_for(), skill),
+        specialists=_skills(
+            harness.SPECIALISTS, lambda name: sources.agent_file(name, checkout)
+        ),
         profiles=[_profile(path, checkout) for path in profiles.available(checkout)],
         reminder_options=[option.label for option in profiles.HOOK_OPTIONS.values()],
         never=[BlockRow(**row) for row in blocklist.rules()],
