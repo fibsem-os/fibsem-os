@@ -13,6 +13,9 @@ interface Session {
   goal: string | null;
   spent_usd: number | null;
   ended: string | null;
+  resumed?: boolean;
+  // Why the session can't be resumed here; null when it can.
+  cannot_resume?: string | null;
 }
 
 interface Running extends Session {
@@ -302,7 +305,10 @@ function Run({ running }: { running: Running }) {
       ).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`,
     ]);
   }
-  rows.push(["Started", `${clock(running.started)}${running.who ? ` by ${running.who}, from the ${running.via}` : ""}`]);
+  rows.push([
+    running.resumed ? "Resumed" : "Started",
+    `${clock(running.started)}${running.who ? ` by ${running.who}, from the ${running.via}` : ""}`,
+  ]);
 
   return (
     <>
@@ -377,35 +383,147 @@ export function AgentCard({ appRunning, connected }: { appRunning: boolean; conn
   );
 }
 
-/** The latest agent sessions on this PC, run by the gateway or by hand. */
-export function AgentSessions() {
+/** Level and Budget for carrying an ended session on, then Resume. */
+function ResumeForm({
+  session,
+  ready,
+  onDone,
+}: {
+  session: Session;
+  ready: string | null;
+  onDone: () => void;
+}) {
+  const client = useQueryClient();
+  const [level, setLevel] = useState("watch");
+  const [budget, setBudget] = useState("");
+  const resume = useMutation({
+    mutationFn: (replace: boolean) =>
+      api<AgentState>("/gateway/agent/resume", {
+        method: "POST",
+        body: JSON.stringify({
+          session_id: session.session_id,
+          level,
+          ...(budget.trim() ? { budget_usd: budget.trim() } : {}),
+          replace,
+        }),
+      }),
+    onSuccess: (answer) => {
+      client.setQueryData(["gateway/agent"], answer);
+      onDone();
+    },
+  });
+  const paired = resume.error instanceof ApiError && resume.error.errorType === "agent_paired";
+  return (
+    <div className="flex flex-col gap-2.5 pt-2 sm:col-span-3">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
+        <Field label="Level">
+          <select value={level} onChange={(event) => setLevel(event.target.value)} className={FIELD}>
+            {LEVELS.map((l) => (
+              <option key={l} value={l}>
+                {title(l)}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Budget">
+          <input
+            value={budget}
+            onChange={(event) => setBudget(event.target.value)}
+            inputMode="decimal"
+            placeholder="From the profile"
+            className={FIELD}
+          />
+        </Field>
+      </div>
+      <p className="m-0 text-xs text-muted-foreground">
+        Carries on with the same profile, goal and folder it had.
+      </p>
+      {resume.error && (
+        <p
+          className={cn(
+            "m-0 text-[13px]",
+            paired ? "text-[var(--fibsem-semantic-warning-color)]" : "text-destructive",
+          )}
+        >
+          {(resume.error as Error).message}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2.5">
+        {ready && <span className="text-xs text-muted-foreground">{ready}</span>}
+        <Button onClick={onDone}>Cancel</Button>
+        <Button
+          variant="primary"
+          disabled={resume.isPending || !!ready}
+          onClick={() => resume.mutate(paired)}
+        >
+          {paired ? "Disconnect and resume" : resume.isPending ? "Resuming…" : "Resume"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** The latest agent sessions on this PC, run by the gateway or by hand; an
+ * ended one can be resumed while no agent runs. */
+export function AgentSessions({ appRunning, connected }: { appRunning: boolean; connected: boolean }) {
   const agent = useQuery({ queryKey: ["gateway/agent"], queryFn: () => api<AgentState>("/gateway/agent") });
-  const sessions = agent.data?.sessions ?? [];
+  const [open, setOpen] = useState<string | null>(null);
+  const state = agent.data;
+  const sessions = state?.sessions ?? [];
   if (sessions.length === 0) return null;
+  const ready = !appRunning
+    ? "Start the app first: the agent acts through it."
+    : !connected
+      ? "Connect the microscope first: the agent works on it."
+      : !state?.api_key
+        ? "No API key on this PC."
+        : null;
   return (
     <Card className="flex flex-col gap-2">
       <CardTitle>Recent agent sessions</CardTitle>
-      {sessions.map((s) => (
-        <div
-          key={s.session_id ?? s.started}
-          className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3"
-        >
-          <span className="text-muted-foreground tabular-nums">{day(s.started)}</span>
-          <span className="min-w-0 break-words">
-            {s.profile ?? "no profile"}
-            {s.goal && ` · ${s.goal}`}
-          </span>
-          <span
-            className={cn(
-              "text-muted-foreground",
-              s.ended === "restarts used up" && "text-[var(--fibsem-semantic-warning-color)]",
-            )}
+      {sessions.map((s) => {
+        const ended = s.ended != null && !!s.session_id;
+        const canResume = ended && !s.cannot_resume && !state?.running;
+        return (
+          <div
+            key={s.session_id ?? s.started}
+            className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3"
           >
-            {s.ended ?? "running"}
-            {s.spent_usd != null && ` · ${dollars(s.spent_usd)}`}
-          </span>
-        </div>
-      ))}
+            <span className="text-muted-foreground tabular-nums">{day(s.started)}</span>
+            <span className="min-w-0 break-words">
+              {s.profile ?? "no profile"}
+              {s.goal && ` · ${s.goal}`}
+            </span>
+            <span className="flex items-center gap-3">
+              <span
+                className={cn(
+                  "text-muted-foreground",
+                  s.ended === "restarts used up" && "text-[var(--fibsem-semantic-warning-color)]",
+                )}
+              >
+                {s.ended ?? "running"}
+                {s.spent_usd != null && ` · ${dollars(s.spent_usd)}`}
+              </span>
+              {canResume && open !== s.session_id && (
+                <button
+                  onClick={() => setOpen(s.session_id)}
+                  className="cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--primary)] hover:underline"
+                >
+                  Resume
+                </button>
+              )}
+            </span>
+            {ended && s.cannot_resume && (
+              <span className="text-xs text-muted-foreground sm:col-start-2 sm:col-span-2">
+                Can't resume: {s.cannot_resume.charAt(0).toLowerCase() + s.cannot_resume.slice(1)}
+              </span>
+            )}
+            {canResume && open === s.session_id && (
+              <ResumeForm session={s} ready={ready} onDone={() => setOpen(null)} />
+            )}
+          </div>
+        );
+      })}
     </Card>
   );
 }

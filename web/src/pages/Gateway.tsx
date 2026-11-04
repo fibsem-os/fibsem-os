@@ -361,7 +361,7 @@ export function GatewayPage() {
           <Connections roles={["operator", "hub"]} />
         </Card>
         <Recent apps={state?.apps ?? []} />
-        <AgentSessions />
+        <AgentSessions appRunning={running} connected={running && !!connection.data?.connected} />
       </div>
     </div>
   );

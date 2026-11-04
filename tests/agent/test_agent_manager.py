@@ -283,3 +283,40 @@ def test_a_bare_resume_finds_the_last_session_that_worked_in_its_own_folder(tmp_
     assert later.folder.parent == tmp_path
     assert manager.last_session(None, tmp_path) == "own"
     assert manager.last_session(work, tmp_path) == "later"
+
+
+def test_resume_carries_an_ended_session_on_in_its_own_folder(make, tmp_path):
+    mgr, env = make("0,wait")
+    agent = start(mgr, env, about={"who": "operator"})
+    until(lambda: agent.state == "ended", mgr)
+    again = mgr.resume(
+        "arctis-1", agent.session_id, ["--files", "/w"], env=env, about={"level": "x"}
+    )
+    assert again.folder == agent.folder
+    until(lambda: len(read_json(agent.folder / RECORD).get("runs", [])) == 2)
+    managed = read_json(agent.folder / MANAGED)
+    assert managed["args"] == ["--files", "/w"]
+    assert managed["about"] == {"level": "x"}
+    assert "ended" not in managed and managed["restarts"] == []
+    assert mgr.agent("arctis-1").state == "running"
+    mgr.end("arctis-1")
+
+
+def test_resume_takes_on_a_session_no_manager_started(make, tmp_path):
+    mgr, env = make("wait")
+    SessionFolder.open("by-hand", {"cwd": "/w"}, tmp_path)
+    assert mgr.folder("by-hand") is not None
+    agent = mgr.resume("arctis-1", "by-hand", [], env=env)
+    until(lambda: len(read_json(agent.folder / RECORD).get("runs", [])) == 2)
+    assert read_json(agent.folder / MANAGED)["microscope"] == "arctis-1"
+    mgr.end("arctis-1")
+
+
+def test_resume_is_refused_for_an_unknown_session_or_a_running_agent(make):
+    mgr, env = make("wait")
+    with pytest.raises(FileNotFoundError):
+        mgr.resume("arctis-1", "nowhere", [], env=env)
+    agent = start(mgr, env)
+    with pytest.raises(AgentRunning):
+        mgr.resume("arctis-1", agent.session_id, [], env=env)
+    mgr.end("arctis-1")
