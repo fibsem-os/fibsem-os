@@ -179,7 +179,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
             ))}
           </select>
         </Field>
-        <Field label={fromProfile && !picked ? "Level (from the profile)" : "Level"}>
+        <Field label="Level">
           <select value={level} onChange={(event) => setPicked(event.target.value)} className={FIELD}>
             {LEVELS.map((l) => (
               <option key={l} value={l}>
