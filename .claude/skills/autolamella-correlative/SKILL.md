@@ -25,6 +25,14 @@ a target: on a real run a stress-relief cut was taken for the lamella. Until
 the emission-filter read-back is fixed, an FM image's metadata can say
 Reflection for a fluorescence channel: go by the channel's name and settings.
 
+A dim target can hide under auto contrast (the 1st to 99th percentile),
+which a bright bead or neighbour sets. `experiment_read_file` and
+`experiment_crop_image` only auto-contrast; to look for a dim target, draw
+its plane with `experiment_draw_image` and `looks`, setting each channel's
+`clim` from the stats the answer gives: p1 to p99 first, then tighter around
+the target's own values. Check a candidate at two settings before you call
+it a target.
+
 ## Correlating FM to FIB
 
 Refine each fiducial pick with `correlation_refine_point` before
