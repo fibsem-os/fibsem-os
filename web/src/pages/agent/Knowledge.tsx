@@ -391,7 +391,7 @@ export function KnowledgeBrowser({
                   )}
                 />
                 <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className={cn("truncate text-[13px]", row.resolved ? "text-muted-foreground" : "text-foreground")}>
+                  <span className={cn("line-clamp-2 text-[13px]", row.resolved ? "text-muted-foreground" : "text-foreground")}>
                     {row.title}
                   </span>
                   <span className="truncate text-[12px] text-muted-foreground">
