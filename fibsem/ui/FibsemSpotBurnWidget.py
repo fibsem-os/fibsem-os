@@ -6,6 +6,7 @@ from typing import Any, Callable, Optional
 
 from PyQt5.QtCore import QTimer, pyqtSignal
 from PyQt5.QtWidgets import (
+    QCheckBox,
     QFormLayout,
     QLabel,
     QPushButton,
@@ -142,6 +143,11 @@ class FibsemSpotBurnWidget(QWidget):
             SpotBurnSettings.params["milling_current"].label, self.comboBox_beam_current
         )
         form.addRow(exposure.label, self.doubleSpinBox_exposure_time)
+        align = SpotBurnSettings.params["align"]
+        self.checkBox_align = QCheckBox(align.label)
+        self.checkBox_align.setChecked(SpotBurnSettings().align)
+        self.checkBox_align.setToolTip(align.doc)
+        form.addRow(self.checkBox_align)
         layout.addLayout(form)
 
         # info
@@ -304,6 +310,7 @@ class FibsemSpotBurnWidget(QWidget):
             )
         self.comboBox_beam_current.set_value(settings.milling_current)
         self.doubleSpinBox_exposure_time.setValue(settings.exposure_time)
+        self.checkBox_align.setChecked(settings.align)
 
         # the editor only owns coordinates; current/exposure live on the form
         self.set_coordinates(settings.coordinates)
@@ -321,6 +328,7 @@ class FibsemSpotBurnWidget(QWidget):
             coordinates=self.get_coordinates(),
             milling_current=self.comboBox_beam_current.value(),
             exposure_time=self.doubleSpinBox_exposure_time.value(),
+            align=self.checkBox_align.isChecked(),
         )
 
     def get_coordinates(self) -> list:

@@ -1686,6 +1686,7 @@ class FibsemMicroscope(ABC):
         settings: SpotBurnSettings,
         beam_type: BeamType = BeamType.ION,
         stop_event: Optional[threading.Event] = None,
+        path: Optional[str] = None,
     ) -> None:
         """Burn each coordinate in *settings* with the beam for the configured exposure time.
 
@@ -1699,6 +1700,8 @@ class FibsemMicroscope(ABC):
             beam_type: The type of beam to use. Only the ion beam burns.
                 (Default: BeamType.ION)
             stop_event: Threading event to signal cancellation. (Default: None)
+            path: Where the alignment at the burn current saves its images.
+                (Default: the cross-correlation data folder)
 
         Raises:
             ValueError: *beam_type* is not the ion beam, or there is no spot burn
@@ -1713,7 +1716,7 @@ class FibsemMicroscope(ABC):
                 "There is no spot burn on this microscope: the ION beam is not "
                 "enabled, or it can't blank and park."
             )
-        self.spot_burn.run(settings, stop_event=stop_event)
+        self.spot_burn.run(settings, stop_event=stop_event, path=path)
 
     def get_beam_current(self, beam_type: BeamType) -> float:
         """Get the beam current for the specified beam type."""

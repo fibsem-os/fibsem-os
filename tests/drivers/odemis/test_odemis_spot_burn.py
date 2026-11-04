@@ -23,8 +23,12 @@ def _no_sleep(monkeypatch):
 
 
 def _settings(*points, exposure_time=2.0):
+    # Without the alignment at the burn current: the calls the burn itself makes.
     return SpotBurnSettings(
-        coordinates=list(points), exposure_time=exposure_time, milling_current=1e-9
+        coordinates=list(points),
+        exposure_time=exposure_time,
+        milling_current=1e-9,
+        align=False,
     )
 
 

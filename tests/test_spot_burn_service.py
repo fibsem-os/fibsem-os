@@ -52,11 +52,13 @@ def burns(microscope, monkeypatch):
     return burned
 
 
-def _settings(*points, exposure_time=2.0, milling_current=BURN_CURRENT):
+def _settings(*points, exposure_time=2.0, milling_current=BURN_CURRENT, align=False):
+    # The burn alone unless a test aligns: the alignment has its own tests below.
     return SpotBurnSettings(
         coordinates=list(points),
         exposure_time=exposure_time,
         milling_current=milling_current,
+        align=align,
     )
 
 
@@ -240,7 +242,13 @@ def test_the_estimate_counts_only_the_points_it_burns(microscope):
 
 def test_the_supported_settings_carry_the_beam_current_choices(microscope):
     supported = microscope.spot_burn.supported_settings()
-    assert set(supported) == {"coordinates", "exposure_time", "milling_current"}
+    assert set(supported) == {
+        "coordinates",
+        "exposure_time",
+        "milling_current",
+        "align",
+        "align_steps",
+    }
     assert supported["milling_current"] == _ion(microscope).current.metadata
 
 
@@ -293,3 +301,133 @@ def test_a_microscope_with_no_spot_burn_service_refuses_to_burn(microscope, repo
     with pytest.raises(ValueError, match="no spot burn"):
         microscope.run_spot_burn(_settings(Point(0.5, 0.5)))
     assert reports == []
+
+
+# --- the alignment at the burn current ------------------------------------------
+
+
+@pytest.fixture
+def alignments(microscope, monkeypatch):
+    """Each alignment a run makes: the ion current it aligned at, its reference
+    and its arguments."""
+    from fibsem import alignment
+
+    seen = []
+
+    def record(**kwargs):
+        seen.append({"current": _ion(microscope).current.get_value(), **kwargs})
+
+    monkeypatch.setattr(alignment, "multi_step_alignment_v2", record)
+    return seen
+
+
+def test_it_aligns_at_the_burn_current_on_a_full_frame_reference(
+    microscope, alignments, tmp_path
+):
+    _ion(microscope).hfw.write_through(80e-6)
+    microscope.spot_burn.run(_settings(Point(0.5, 0.5), align=True), path=str(tmp_path))
+
+    [aligned] = alignments
+    assert aligned["current"] == BURN_CURRENT
+    assert aligned["steps"] == 1
+    reference = aligned["ref_image"].metadata.image_settings
+    assert reference.reduced_area is None
+    assert reference.hfw == pytest.approx(80e-6)
+    # taken at the imaging current, before the burn current was set
+    assert aligned["ref_image"].metadata.microscope_state.ion_beam.beam_current == (
+        pytest.approx(IMAGING_CURRENT)
+    )
+    assert reference.path == str(tmp_path)
+    assert aligned["path"] == str(tmp_path / "Alignment")
+
+
+def test_it_aligns_before_the_first_point(microscope, alignments, burns, monkeypatch):
+    order = []
+    monkeypatch.setattr(
+        microscope.spot_burn,
+        "_align",
+        lambda *a: order.append(("align", list(burns))),
+    )
+    microscope.spot_burn.run(_settings(Point(0.2, 0.2), Point(0.8, 0.8), align=True))
+    assert order == [("align", [])]
+    assert burns == [Point(0.2, 0.2), Point(0.8, 0.8)]
+
+
+def test_the_steps_are_the_settings(microscope, alignments):
+    settings = _settings(Point(0.5, 0.5), align=True)
+    settings.align_steps = 3
+    microscope.spot_burn.run(settings)
+    assert alignments[0]["steps"] == 3
+
+
+def test_it_aligns_unless_told_not_to():
+    assert SpotBurnSettings().align is True
+
+
+def test_without_align_it_burns_at_once(microscope, alignments, burns):
+    settings = _settings(Point(0.5, 0.5), align=False)
+    microscope.spot_burn.run(settings)
+    assert alignments == []
+    assert burns == [Point(0.5, 0.5)]
+
+
+def test_the_beam_shift_is_put_back_after_an_aligned_burn(microscope, monkeypatch):
+    from fibsem import alignment
+
+    ion = _ion(microscope)
+    before = ion.shift.get_value()
+    monkeypatch.setattr(
+        alignment,
+        "multi_step_alignment_v2",
+        lambda **_: ion.shift.write_through(Point(before.x + 1e-6, before.y)),
+    )
+    microscope.spot_burn.run(_settings(Point(0.5, 0.5), align=True))
+    after = ion.shift.get_value()
+    assert (after.x, after.y) == pytest.approx((before.x, before.y))
+    assert ion.current.get_value() == IMAGING_CURRENT
+
+
+def test_a_stop_during_the_alignment_burns_nothing(microscope, burns, monkeypatch):
+    from fibsem import alignment
+
+    spot_burn = microscope.spot_burn
+    stops = []
+
+    def stopped_mid_alignment(**kwargs):
+        spot_burn.stop()
+        stops.append(kwargs["stop_event"].is_set())
+
+    monkeypatch.setattr(alignment, "multi_step_alignment_v2", stopped_mid_alignment)
+    status = spot_burn.run(_settings(Point(0.5, 0.5), align=True))
+
+    assert stops == [True]  # the alignment sees the service's stop
+    assert status is SpotBurnStatus.CANCELLED
+    assert burns == []
+    assert _ion(microscope).current.get_value() == IMAGING_CURRENT
+
+
+def test_a_failed_alignment_fails_the_burn_and_puts_the_beam_back(
+    microscope, burns, reports, monkeypatch
+):
+    from fibsem import alignment
+
+    def fails(**_):
+        raise RuntimeError("no features")
+
+    monkeypatch.setattr(alignment, "multi_step_alignment_v2", fails)
+    with pytest.raises(RuntimeError, match="no features"):
+        microscope.spot_burn.run(_settings(Point(0.5, 0.5), align=True))
+    assert burns == []
+    assert reports[-1].status is SpotBurnStatus.FAILED
+    assert _ion(microscope).current.get_value() == IMAGING_CURRENT
+
+
+def test_the_aligned_burn_on_the_demo_lands_where_it_was_placed(microscope, burns):
+    """The real alignment on the simulated scene: it runs, and the spots go where
+    they were placed."""
+    points = [Point(0.3, 0.4)]
+    assert (
+        microscope.spot_burn.run(_settings(*points, align=True))
+        is SpotBurnStatus.FINISHED
+    )
+    assert burns == points
