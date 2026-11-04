@@ -32,6 +32,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.operator_token import read_operator_token
+from fibsem.unreleased import refuse
 
 __all__ = ["call", "main", "shortcut_command", "start_gateway"]
 
@@ -270,6 +271,7 @@ def agent_shortcut() -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    refuse("fibsem-gateway")
     argv = sys.argv[1:] if argv is None else argv
     if not argv or argv[0].startswith("-") and argv[0] not in ("-h", "--help"):
         argv = ["run", *argv]

@@ -23,6 +23,7 @@ from fibsem.ai.agent.profiles import DEFAULT_PROFILE
 from fibsem.gateway.gateway import OFF
 from fibsem.gateway.main import call, start_gateway
 from fibsem.tools.apps import apps
+from fibsem.unreleased import refuse
 
 __all__ = [
     "Launch",
@@ -234,6 +235,7 @@ def _show(app, text: str) -> None:
 
 def autolamella(argv: Optional[list] = None) -> None:
     """``fibsem-autolamella-agent``: the "AutoLamella with the agent" shortcut."""
+    refuse("fibsem-autolamella-agent")
     parser = argparse.ArgumentParser(
         prog="fibsem-autolamella-agent",
         description="Start AutoLamella, connect the microscope and start the agent "

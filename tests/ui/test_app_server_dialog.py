@@ -288,3 +288,15 @@ def test_a_computer_is_paired_and_unpaired_from_the_dialog(qapp, host, tmp_path)
     row.itemAt(2).widget().click()
     assert host.auth.pairing.tokens.computers() == []
     dialog.deleteLater()
+
+
+def test_no_agent_where_it_is_not_released(qapp, monkeypatch):
+    from fibsem import unreleased
+    from fibsem.ui.agent.app_server_dialog import AGENT_TIP
+
+    monkeypatch.setenv(unreleased.ENV, "0")
+    dialog = AppServerDialog(lambda: _Host(), set_enabled=lambda on: None)
+    assert dialog._agent_label.isHidden()
+    assert AGENT_TIP not in dialog._chk_enabled.toolTip()
+    assert "agent" not in dialog._btn_event_log.toolTip()
+    dialog.deleteLater()

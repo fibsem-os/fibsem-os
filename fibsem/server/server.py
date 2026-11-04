@@ -632,6 +632,8 @@ def build_server(
             },
             # The agent level: what the agent may do right now.
             "level": auth.level.value,
+            # Whether this install serves an agent at all (fibsem.unreleased).
+            "agent": auth.agent_allowed,
             # Whether a microscope is connected now.
             "connected": served.current is not None,
             # The code the server runs, so a sidecar can tell it imports

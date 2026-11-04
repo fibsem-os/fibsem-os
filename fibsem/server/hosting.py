@@ -36,6 +36,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from fibsem import unreleased
 from fibsem.acting import AGENT
 from fibsem.cancellation import NothingToStop
 from fibsem.workflows.events import EventBuffer
@@ -298,10 +299,14 @@ class AppServerHost:
         # token stays valid, so a connected sidecar carries on, and the level
         # the operator set stands. It starts at Watch at every launch and is
         # never written to disk. The override is Drive.
+        # Where the agent is not released, it stays Off: no level, no agent
+        # pairing, no asks to connect.
+        agent_allowed = unreleased.enabled()
         session = self._session
         if session.agent_auth is None:
             session.agent_auth = AuthConfig.generate(
-                level=AgentLevel.DRIVE if arm_control else AgentLevel.WATCH
+                level=AgentLevel.DRIVE if arm_control else AgentLevel.WATCH,
+                agent_allowed=agent_allowed,
             )
         self.auth = session.agent_auth
         if self.auth.operator_token is None:
@@ -309,10 +314,13 @@ class AppServerHost:
 
             self.auth.operator_token = load_operator_token(self._operator_token_path)
         if self.auth.pairing is None:
-            from fibsem.server.pairing import PairedTokens, Pairing
+            from fibsem.server.pairing import OPERATOR, ROLES, PairedTokens, Pairing
 
-            self.auth.pairing = Pairing(PairedTokens(self._paired_path))
-        if self.auth.connections is None:
+            self.auth.pairing = Pairing(
+                PairedTokens(self._paired_path),
+                roles=ROLES if agent_allowed else (OPERATOR,),
+            )
+        if self.auth.connections is None and agent_allowed:
             self.auth.connections = self._connections()
         app = build_server(
             session=session,
