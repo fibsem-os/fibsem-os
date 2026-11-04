@@ -6,11 +6,16 @@ description: Polishing with FM stacks between passes, on an instrument whose FM 
 # Milling with a coincident FM
 
 Read fibsem-agent, autolamella, autolamella-polishing and
-autolamella-correlative first. This skill
-is for an instrument whose FM and FIB look at the same point, so the FM can
-image the lamella between passes, or while it mills, without moving the
-stage. Without a coincident FM it doesn't apply: polish by autolamella-polishing's
-rules, with an SEM image each pass.
+autolamella-correlative first. This skill is for an instrument whose FM and
+FIB look at the same point, so the FM can image the lamella between passes
+without moving the stage. Without a coincident FM it doesn't apply: polish
+by autolamella-polishing's rules, with an SEM image each pass.
+
+**Experimental, and only when the operator turns it on.** Coincidence milling
+needs an instrument whose software restrictions on running the FM and the
+FIB together an operator has disabled: if they haven't, don't use it. Never
+start it yourself, at any level. Propose it, and use it only after the
+operator says yes for this run, and only at Drive.
 
 This is about the FM and the FIB. Bringing the SEM and FIB onto the same
 feature is fibsem-agent's *Coincidence: do it yourself*.
