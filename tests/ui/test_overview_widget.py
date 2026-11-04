@@ -17,6 +17,7 @@ Run directly (no display needed):
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -4692,6 +4693,66 @@ class TestAViewWithNothingInItSaysSo:
 
         hint = widget.canvas._hint_text
         assert hint and "2 other views" in hint, f"hint was {hint!r}"
+
+
+class TestAnOverviewAtAnotherScanRotationIsFlagged:
+    """An overview is drawn as it was taken, while the markers and clicks over it go
+    through the view's projection, read off the instrument. Taken at 0 degrees and
+    shown with the column at 180, every marker lands mirrored through the overview --
+    an Arctis user's lamellae came back on each other's sites after a restart. Not
+    corrected, but said: on the row, and under the canvas."""
+
+    @pytest.fixture
+    def rotate(self, microscope):
+        before = microscope.get_scan_rotation(BeamType.ELECTRON)
+        yield lambda radians: microscope.set_scan_rotation(radians, BeamType.ELECTRON)
+        microscope.set_scan_rotation(before, BeamType.ELECTRON)
+
+    def _overview_at(self, widget, microscope, radians):
+        image = _tile(microscope, _at(microscope.get_stage_position()))
+        image.metadata.microscope_state.electron_beam.scan_rotation = radians
+        return widget._records[widget.set_image(image)]
+
+    def test_taken_at_0_and_shown_at_180_is_flagged(self, widget, microscope, rotate):
+        rotate(math.pi)
+        widget.invalidate_projection()
+
+        record = self._overview_at(widget, microscope, 0.0)
+
+        assert record.flag == "SR 0°"
+        assert "the SEM is at 180° now" in record.flag_tooltip
+        assert not widget.overview_list._rows[record.id].flag_label.isHidden()
+        hint = widget.canvas._hint_text
+        assert hint and "mirrored" in hint, f"hint was {hint!r}"
+
+    def test_taken_at_the_rotation_it_is_shown_at_is_not(
+        self, widget, microscope, rotate
+    ):
+        rotate(math.pi)
+        widget.invalidate_projection()
+
+        record = self._overview_at(widget, microscope, math.pi)
+
+        assert record.flag is None
+        assert widget.overview_list._rows[record.id].flag_label.isHidden()
+        assert widget.canvas._hint_text is None
+
+    def test_a_rotation_changed_since_is_flagged_once_it_is_read(
+        self, widget, microscope, rotate
+    ):
+        """Changed at the console after the overview was placed. The view keeps the
+        projection it drew with until a click re-reads it, and the flag follows the
+        projection, since that is what the markers are drawn with."""
+        rotate(0.0)
+        widget.invalidate_projection()
+        record = self._overview_at(widget, microscope, 0.0)
+        assert record.flag is None
+
+        rotate(math.pi)
+        widget._projection(fresh=True)
+
+        assert record.flag == "SR 0°"
+        assert widget.overview_list._rows[record.id].flag_label.text() == "SR 0°"
 
 
 class TestTheOverlaysCanBeTurnedOff:

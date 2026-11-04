@@ -132,6 +132,16 @@ def test_beam_image_fields():
 
 
 @pytest.mark.parametrize(
+    "radians, expected",
+    [(0.0, "0°"), (np.pi, "180°"), (np.radians(359.8), "0°"), (-np.pi / 2, "270°")],
+)
+def test_the_scan_rotation_is_a_field_in_whole_degrees(radians, expected):
+    image = _sem_image()
+    image.metadata.microscope_state.electron_beam.scan_rotation = radians
+    assert _values(from_fibsem_image(image).fields)["scan_rotation"] == expected
+
+
+@pytest.mark.parametrize(
     "make, export",
     [(_sem_image, from_fibsem_image), (_fm_image, from_fluorescence_image)],
 )

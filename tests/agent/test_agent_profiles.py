@@ -162,14 +162,30 @@ def test_the_shipped_default_profile_loads(checkout):
     path = checkout / profiles.PROFILE_DIR / f"{profiles.DEFAULT_PROFILE}.yaml"
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)
     assert profile.mode == "files" and profile.max_budget_usd == 500
-    assert [hook.when for hook in profile.hooks] == [
-        "hardware_error",
-        "after_polish_pass",
-    ]
+    assert [hook.when for hook in profile.hooks] == ["hardware_error"]
     # The rules that hold on every task, read every turn after the harness's.
     prompt = harness_mod.system_prompt(profile=profile)
     assert "auto function" in prompt and "coincidence" in prompt
     assert "50 µm field of view" in prompt
+
+
+def test_the_autolamella_profile_is_the_default_plus_its_reminders(checkout):
+    def shipped(name):
+        path = checkout / profiles.PROFILE_DIR / f"{name}.yaml"
+        return profiles.load(path, harness_mod.EFFORTS, checkout)
+
+    default, autolamella = (
+        shipped(profiles.DEFAULT_PROFILE),
+        shipped("autolamella-agent"),
+    )
+    assert [hook.when for hook in autolamella.hooks] == [
+        "hardware_error",
+        "after_polish_pass",
+    ]
+    # Profiles don't inherit: the rest stays the same as the default's.
+    for name in ("model", "effort", "max_budget_usd", "max_turns", "mode", "prompt"):
+        assert getattr(autolamella, name) == getattr(default, name), name
+    assert autolamella.hooks[0] == default.hooks[0]
 
 
 def show(capsys, *argv):
@@ -206,10 +222,7 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
     config = show(capsys)
     assert config["profile"]["name"] == "fibsem-agent", "the default"
     assert config["mode"] == "files"
-    assert [hook["when"] for hook in config["hooks"]] == [
-        "hardware_error",
-        "after_polish_pass",
-    ]
+    assert [hook["when"] for hook in config["hooks"]] == ["hardware_error"]
 
 
 def test_with_no_folder_the_agent_works_in_its_sessions_folder(home, capsys):
