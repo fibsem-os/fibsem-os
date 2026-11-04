@@ -88,10 +88,12 @@ When you pick sites (cells, squares):
 candidates, not sites. Then go to each candidate (`stage_stable_move`) and
 check focus, brightness and contrast, and SEM/FIB coincidence there
 (fibsem-agent, *Coincidence: do it yourself*): the same feature centred in
-both beams at a 50 µm field of view, within 5 µm, aiming for 2-3 µm. Fix
-what you can; drop a candidate you can't bring into focus or coincidence and
-say why. Only a site that passes is recorded. Note each one's coincident
-height: on a bent grid it changes from site to site.
+both beams at a 50 µm field of view, within 5 µm, aiming for 2-3 µm. If it
+isn't, fix it there: focus, then the coincidence loop. Focus and coincidence
+are never a reason to reject a candidate. If you can't fix one, say what you
+tried and ask the operator; in a lead run, hold it in `[run_state]` and
+carry on with the others. Record each site once it passes, with its
+coincident height: on a bent grid it changes from site to site.
 
 **Recording sites.** For AutoLamella, each site is a lamella: `item_add`
 without `name`, so it gets the app's usual name, and how to find it again
