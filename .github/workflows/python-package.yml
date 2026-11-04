@@ -106,10 +106,10 @@ jobs:
       env:
         PYTHONTRACEMALLOC: "20"
       run: |
-        for i in 1 2 3; do
+        for i in 1 2; do
           pytest tests/server -n auto --dist worksteal --timeout=900 -m "not slow" -q -p no:cacheprovider > log-$i 2>&1 || true
           tail -1 log-$i
-          grep -n "ResourceWarning\|Exception ignored\|Object allocated at" -A40 log-$i | head -400 || true
+          grep -n "Object allocated at" -B8 -A100 log-$i | grep -v "site-packages/_pytest\|site-packages/pluggy\|site-packages/xdist" | head -1500 || true
         done
 
   slow-tests:
