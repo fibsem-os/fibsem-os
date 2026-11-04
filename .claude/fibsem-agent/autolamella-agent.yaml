@@ -2,6 +2,7 @@
 # default's settings and rules, plus the reminders only AutoLamella's stages
 # need. Profiles don't inherit, so a change to the default's rules goes in
 # both files.
+description: On-grid AutoLamella work, not correlative, with reminders for polishing.
 effort: high
 max_budget_usd: 500
 max_turns: 40
@@ -13,7 +14,7 @@ hooks:
     say: >-
       Look at the pass figure and its facts before the next pass: the band,
       both faces, the target against the control, and the SEM. Stop and ask on
-      any of autolamella-agent's Iterative Polishing stop points.
+      any of autolamella-polishing's Iterative Polishing stop points.
 # Read every turn, so only the rules that must hold on every task; the work
 # itself is in the skills.
 prompt: |-

@@ -47,10 +47,14 @@ from fibsem.util import timestamps
 BASE_SKILL = "fibsem-agent"
 # The skills for a task, read once the operator says what they want done.
 TASK_SKILLS = (
-    "autolamella-agent",
+    "autolamella",
     "autolamella-lead",
+    "autolamella-assistant",
+    "autolamella-polishing",
+    "autolamella-correlative",
+    "autolamella-coincidence-milling",
     "screen-grids",
-    "fib-experiment",
+    "fibsem-experiment",
 )
 SKILLS = (BASE_SKILL,) + TASK_SKILLS
 
@@ -1822,6 +1826,8 @@ def show_config(
             if profile
             else None
         ),
+        "level": profile.level if profile else None,
+        "description": profile.description if profile else None,
         "model": args.model,
         "effort": args.effort,
         "max_budget_usd": args.max_budget_usd,

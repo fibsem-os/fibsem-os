@@ -313,6 +313,7 @@ def launch(key: str, argv: Optional[List[str]] = None) -> None:
     if not gateway_allows(key, app):
         return
     splash = Splash(app)
+    watch_for_close()
     for status, modules in app.load_steps:
         splash.step(f"{status}…")
         for name in modules:
@@ -365,6 +366,32 @@ def gateway_allows(key: str, app: App) -> bool:
     except (OSError, ValueError) as e:
         logging.warning("Gateway claim failed (%s); opening anyway", e)
     return True
+
+
+_CLOSE_WATCH = None
+
+
+def watch_for_close(pid: Optional[int] = None, every_ms: int = 1000):
+    """Close the app's windows, as their close buttons do, when the gateway
+    asks (`fibsem.gateway.gateway.close_file`). A window that asks a question
+    as it closes waits for the answer at the PC."""
+    global _CLOSE_WATCH
+    from PyQt5.QtCore import QTimer
+    from PyQt5.QtWidgets import QApplication
+
+    from fibsem.gateway.gateway import close_file
+
+    ask = close_file(os.getpid() if pid is None else pid)
+
+    def check() -> None:
+        if ask.exists():
+            ask.unlink(missing_ok=True)
+            QApplication.closeAllWindows()
+
+    _CLOSE_WATCH = QTimer()
+    _CLOSE_WATCH.timeout.connect(check)
+    _CLOSE_WATCH.start(every_ms)
+    return _CLOSE_WATCH
 
 
 def _take_over(app: App, state: dict) -> bool:

@@ -106,7 +106,7 @@ def test_a_profile_loads_with_its_hash(tmp_path, checkout):
         tmp_path,
         "overnight",
         "model: opus\neffort: high\nmax_budget_usd: 40\nmode: files\nfolder: ~/w\n"
-        "skills: [autolamella-agent]\nprompt: Overnight run.\n"
+        "skills: [autolamella]\nprompt: Overnight run.\n"
         "hooks:\n  - when: site\n    say: Coincidence checked here?\n",
     )
     profile = profiles.load(path, harness_mod.EFFORTS, checkout)
@@ -118,14 +118,32 @@ def test_a_profile_loads_with_its_hash(tmp_path, checkout):
     )
     assert profile.hooks == [profiles.Hook("site", "Coincidence checked here?")]
     assert len(profile.hash) == 12
+    assert profile.level is None
     path.write_text(path.read_text() + "max_turns: 10\n")
     assert profiles.load(path).hash != profile.hash, "an edit changes the hash"
+
+
+def test_a_profile_says_what_it_is_for(tmp_path, checkout):
+    path = write(tmp_path, "lamella", "description: On-grid lamellae.\n")
+    assert profiles.load(path, harness_mod.EFFORTS, checkout).description == (
+        "On-grid lamellae."
+    )
+
+
+def test_the_shipped_profiles_say_what_they_are_for(checkout):
+    for path in (checkout / profiles.PROFILE_DIR).glob("*.yaml"):
+        assert profiles.load(path, harness_mod.EFFORTS, checkout).description, path
+
+
+def test_a_profile_names_the_level_the_gateway_picks_first(tmp_path, checkout):
+    path = write(tmp_path, "overnight", "level: drive\n")
+    assert profiles.load(path, harness_mod.EFFORTS, checkout).level == "drive"
 
 
 @pytest.mark.parametrize(
     "text, said",
     [
-        ("level: drive\n", "unknown setting(s) level"),
+        ("level: max\n", "level is one of"),
         ("api_key: sk\n", "unknown setting(s) api_key"),
         ("mode: everything\n", "mode is one of"),
         ("effort: huge\n", "effort is one of"),
@@ -194,12 +212,13 @@ def test_show_config_prints_what_the_agent_runs_with_and_starts_nothing(
     write(
         own,
         "night",
-        f"effort: low\nmax_turns: 10\nmode: files\nfolder: {home / 'w'}\n"
+        f"effort: low\nmax_turns: 10\nmode: files\nfolder: {home / 'w'}\nlevel: assist\n"
         "prompt: Prefer leaving a lamella unfinished.\n"
         "hooks:\n  - when: before_milling\n    say: Check the depth.\n",
     )
     config = show(capsys, "--profile", "night")
     assert config["profile"]["name"] == "night"
+    assert config["level"] == "assist", "for the gateway's Level picker"
     assert (config["effort"], config["max_turns"]) == ("low", 10)
     assert config["max_budget_usd"] == harness_mod.MAX_BUDGET_USD, "the default"
     assert (config["mode"], config["folder"]) == ("files", str(home / "w"))
