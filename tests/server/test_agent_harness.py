@@ -796,6 +796,12 @@ def test_a_gap_or_a_restart_asks_the_agent_to_re_read():
     assert harness_mod.REREAD_LEVEL in level
     plain = Wakes().add(["EVENT task_started 01"])
     assert plain == "The watcher printed:\nEVENT task_started 01"
+    for line in (
+        "WAKE check drift (you asked 30 min ago)",
+        "PLAN EDITED by the operator: Rules",
+    ):
+        assert harness_mod.REREAD_PLAN in Wakes().add([line])
+    assert harness_mod.REREAD_PLAN not in plain
 
 
 def test_lines_are_held_while_the_agent_is_off():
@@ -1239,3 +1245,40 @@ def test_with_no_server_the_agent_never_starts():
     running = Running(Harness(agent, lambda: None, server_wait_s=0.3, retry_s=0.05))
     assert running.ended() == 1
     assert not agent.started and not agent.prompts
+
+
+def test_a_compacted_context_asks_for_the_plan_on_the_next_turn():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import SystemMessage
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    assert not agent.compacted
+    _show(
+        SystemMessage(
+            subtype="compact_boundary",
+            data={"compact_metadata": {"trigger": "auto", "pre_tokens": 900000}},
+        ),
+        agent,
+    )
+    assert agent.compacted
+
+    class Turns(ScriptedAgent):
+        compacted = True
+
+    scripted = Turns()
+    harness = Harness(scripted, lambda: None)
+
+    async def main():
+        harness._stopping = asyncio.Event()
+        harness._report_read = lambda prompt: asyncio.sleep(0)
+        harness._send_transcript_every = lambda: asyncio.sleep(3600)
+        await scripted.start()
+        await harness._turn("The watcher printed:\nEVENT x")
+        await harness._turn("The watcher printed:\nEVENT y")
+
+    asyncio.run(main())
+    first, second = scripted.prompts
+    assert first.endswith("Your context was compacted. " + harness_mod.REREAD_PLAN)
+    assert "compacted" not in second

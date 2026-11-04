@@ -216,6 +216,7 @@ EVIDENCE_PARAM = (
 # here, or the group is added on purpose; the title names it.
 GROUP_TITLES: Dict[str, str] = {
     "server": "Server",
+    "plan": "Plan",
     "microscope": "Microscope",
     "device": "Device",
     "service": "Service",
@@ -246,7 +247,7 @@ _WRITES_AT_WATCH = frozenset(
         "knowledge_write",  # the microscope's knowledge base, not the experiment
         "server_report_session",  # the agent's own session, on the record
         "server_set_constraints",
-        "server_set_checklist",
+        "plan_set_section",  # the session's plan.md, beside the experiment
         "request_create",
         "request_withdraw",
         "item_measure_thickness",  # saves its result beside the image

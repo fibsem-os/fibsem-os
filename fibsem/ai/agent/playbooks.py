@@ -13,6 +13,7 @@
       before_milling: Confirm the current and depth.
     rules:
       - Stop at the operator's thickness target, 200 nm by default.
+    plan: [Brief, Playbook, Rules, Steps, Progress, Summary]   # plan.md's headings
 
 A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
@@ -37,7 +38,9 @@ import yaml
 from fibsem.ai.agent import profiles, sources
 
 PLAYBOOK_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "playbooks"
-FIELDS = ("description", "extends", "skills", "optional", "reminders", "rules")
+FIELDS = ("description", "extends", "skills", "optional", "reminders", "rules", "plan")
+# plan.md's headings when a playbook names none (fibsem.server.agent_plan).
+PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
@@ -67,6 +70,8 @@ class Playbook:
     optional: List[Optional_] = field(default_factory=list)
     hooks: List[profiles.Hook] = field(default_factory=list)
     rules: List[str] = field(default_factory=list)
+    # plan.md's headings, the nearest playbook's that names them.
+    plan: List[str] = field(default_factory=lambda: list(PLAN))
 
     def optional_skill(self, name: str) -> Optional[Optional_]:
         return next((o for o in self.optional if o.skill == name), None)
@@ -84,6 +89,7 @@ class Playbook:
                 for h in self.hooks
             ],
             "rules": list(self.rules),
+            "plan": list(self.plan),
         }
 
 
@@ -156,6 +162,11 @@ def _load(name: str, checkout: Optional[Path], seen: List[str]) -> Playbook:
     optional = _optional(data.get("optional"), path)
     hooks = _reminders(data.get("reminders"), path)
     rules = _names(data.get("rules"), "rules", path)
+    plan = _names(data.get("plan"), "plan", path)
+    if any("#" in h or len(h) > 60 for h in plan):
+        raise PlaybookError(
+            f"{path}: plan lists headings, no # and at most 60 characters"
+        )
     if checkout is not None:
         missing = [
             skill
@@ -178,6 +189,7 @@ def _load(name: str, checkout: Optional[Path], seen: List[str]) -> Playbook:
         optional=_merge_optional(parent.optional if parent else [], optional),
         hooks=(parent.hooks if parent else []) + hooks,
         rules=_merge(parent.rules if parent else [], rules),
+        plan=plan or (parent.plan if parent else list(PLAN)),
     )
     return playbook
 

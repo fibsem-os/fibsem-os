@@ -207,3 +207,13 @@ def test_a_finished_task_reminds_with_the_watchers_turn(lab, checkout):
     pytest.importorskip("claude_agent_sdk")
     matchers = reminders.sdk_hooks(SERVER)
     assert profiles.WATCHER not in matchers
+
+
+def test_a_playbook_names_its_plan_headings_or_has_the_default(lab, checkout):
+    assert playbooks.load("autolamella", checkout).plan == playbooks.PLAN
+    write(lab, "short", "plan: [Brief, Steps]\n")
+    write(lab, "shorter", "extends: short\n")
+    assert playbooks.load("shorter", checkout).summary()["plan"] == ["Brief", "Steps"]
+    write(lab, "bad-plan", "plan: ['## Brief']\n")
+    with pytest.raises(playbooks.PlaybookError, match="headings"):
+        playbooks.load("bad-plan", checkout)
