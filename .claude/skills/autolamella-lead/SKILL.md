@@ -55,7 +55,8 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
 
 0. **Intake**, before the microscope, while the operator is there. Read the
    session's goal and their messages first, and ask only what they don't
-   already answer. Post the answers as `[intake]`:
+   already answer. Once you know the sample, read its knowledge base entries
+   and say which change the plan. Post the answers as `[intake]`:
    1. The scientific brief: the question, the sample and the target (a
       cell, a structure, a label).
    2. How many lamellae (target, maximum), how wide, the target thickness
@@ -129,9 +130,9 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    the morning.
 7. **Review.** Put supervision back as the protocol had it before the run
    (`protocol_set_supervision`), and say so. Then call the Auditor, and post
-   its review as notes. With the knowledge base (fibsem-agent, *The
-   knowledge base*), write the run's summary entry from that review, and an
-   entry for each lesson it names that would change the next run.
+   its review as notes. Then write the knowledge base (fibsem-agent, *The
+   knowledge base*): the run's record from that review, and an entry for
+   each lesson it names that would change the next run.
 
 ## A bad result
 

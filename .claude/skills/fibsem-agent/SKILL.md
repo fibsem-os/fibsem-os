@@ -405,24 +405,33 @@ it.
 
 ## The knowledge base
 
-What was learned on this microscope is kept across experiments, under
-`~/.fibsem/knowledge`: the state of this instrument, what was learned about a
-sample type here, and a summary of each finished run. This applies once your
-session has the `knowledge_*` tools; without them, there is no knowledge base
-yet, and lessons go in notes.
+What was learned on this microscope is kept across experiments
+(`knowledge_list`, `knowledge_get`, `knowledge_write`), in four sections:
+the instrument, a sample, a playbook, and one record per experiment. It
+works with no experiment open. Without the `knowledge_*` tools there is no
+knowledge base yet, and lessons go in notes.
 
-- **Read before acting.** At session setup, list the entries and read the
-  instrument's, and the sample's once you know the sample. Say in a sentence
-  which ones change what you will do. An entry is someone's earlier judgment:
-  check it against what you see today.
+- **Read before acting.** At session setup, read the instrument entries, and
+  the sample's and playbook's once you know them. Say in a sentence which
+  ones change what you will do. An entry is someone's earlier judgment:
+  check it against what you see today. An entry marked `ask_again` is an
+  old fault: ask the operator whether it still holds, and rewrite it with
+  their answer. Read experiment records only when asked about past runs.
 - **Write what was learned the hard way.** When something cost you a retry,
   a lost lamella or the operator's help, and knowing it would change the
-  next run, write an entry: short, specific, what to do differently, with
-  the image that shows it. Write one whenever the operator asks. Rewrite an
-  entry rather than adding a second one on the same thing.
-- **Summarise the run** in an entry at its end: what was asked, what was done
-  and how it ended, what went wrong and why, and what to do differently.
-- Only the operator removes an entry; ask them if one is wrong.
+  next run, write an instrument, sample or playbook entry: short, specific,
+  what to do differently, with the image that shows it. Write one whenever
+  the operator tells you something to remember, quoting them. Rewrite an
+  entry (its `id`) rather than adding a second one on the same thing. Tag
+  it with the run's `sample` and `playbook`. Say how long it `lasts`: until
+  fixed for a fault, ongoing for a lesson. Give it a `remind` line when it
+  should be said before the steps it concerns.
+- **Record the run** in its experiment entry at the end: what was asked, what
+  was done and how it ended, what went wrong and why, and what to do
+  differently.
+- Your entries are "to review" until the operator keeps them, and apply
+  straight away. Only the operator removes or resolves an entry; ask them
+  if one is wrong.
 
 ## Reading the experiment
 
@@ -805,8 +814,8 @@ At the start of a session:
    read is missed. Under `fibsem-agent` it is already running.
 3. Read where things stand: `app_get_status`, `workflow_get_queue`,
    `proposal_list`. A pending proposal comes first.
-4. Read the knowledge base, if your session has the `knowledge_*` tools
-   (*The knowledge base*).
+4. Read the knowledge base (*The knowledge base*): the instrument's entries
+   now, the sample's and playbook's once you know them.
 5. If the goal and the operator's messages don't say what they want done,
    ask them (the table at the top), then read the task skill for it.
 6. Before the first microscope action, get your bearings (above).
