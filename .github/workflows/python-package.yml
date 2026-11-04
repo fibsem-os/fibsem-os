@@ -88,6 +88,30 @@ jobs:
       # rather than inside it; the nightly and release runs keep them on every leg.
       run: pytest tests/ -n auto --dist worksteal --timeout=300 ${{ github.event_name == 'pull_request' && '-m "not slow"' || '' }}
 
+  trace-socket-leak:
+    # Throwaway (do not merge): find where the leaked 127.0.0.1 socket is opened.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        python-version: "3.10"
+        cache: 'pip'
+    - run: |
+        python -m pip install --upgrade pip
+        python -m pip install ".[test]"
+    - name: tests/server three times with allocation tracing
+      env:
+        PYTHONTRACEMALLOC: "20"
+      run: |
+        for i in 1 2 3; do
+          pytest tests/server -n auto --dist worksteal --timeout=900 -m "not slow" -q -p no:cacheprovider > log-$i 2>&1 || true
+          tail -1 log-$i
+          grep -n "ResourceWarning\|Exception ignored\|Object allocated at" -A40 log-$i | head -400 || true
+        done
+
   slow-tests:
     # A pull request's `slow` tests, on Linux 3.10 only. They exercise the simulator
     # rather than anything platform-specific. In their own job they run alongside the
