@@ -703,8 +703,6 @@ def test_spot_burn(connected):
             coordinates=[Point(0.5, 0.5), Point(0.25, 0.75), Point(1.5, 0.5)],
             exposure_time=5,
             milling_current=100e-12,
-            # the fake's images are blank, so there is nothing to align on
-            align=False,
         )
     )
     assert status is SpotBurnStatus.FINISHED
