@@ -64,6 +64,7 @@ from fibsem.cancellation import (
 from fibsem.devices.beam import Beam, nearest_resolution, scanned_resolution
 from fibsem.devices.core import Role, RoleUnfilled, command, query
 from fibsem.devices.fm import FM
+from fibsem.devices.wire import decode_argument
 from fibsem.fm.microscope import AcquisitionRefused
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -152,15 +153,19 @@ class Imaging(Service):
     def acquire(
         self,
         beam_type: BeamType = BeamType.ELECTRON,
-        image_settings: Optional[ImageSettings] = None,
+        image_settings: Optional[Union[Dict[str, Any], ImageSettings]] = None,
         path: Optional[str] = None,
         filename: Optional[str] = None,
     ) -> FibsemImage:
         """Acquire an image with ``beam_type``: with ``image_settings`` when given
-        (their own beam type wins), else with the beam's current settings. Given
-        ``path`` (a folder), also save it there as ``<filename>_eb`` (or ``_ib``;
-        ``filename`` defaults to when it was taken) and record it as
-        ``image_acquired``, as `acquire_image` does."""
+        (their own beam type wins), else with the beam's current settings. Some of
+        the settings' fields, as a dict (the wire's form), take the rest from the
+        beam's current settings, not ImageSettings' defaults. Given ``path`` (a
+        folder), also save it there as ``<filename>_eb`` (or ``_ib``; ``filename``
+        defaults to when it was taken) and record it as ``image_acquired``, as
+        `acquire_image` does."""
+        if isinstance(image_settings, dict):
+            image_settings = self._filled(beam_type, image_settings)
         if image_settings is not None and image_settings.beam_type is not None:
             beam_type = image_settings.beam_type
         name = filename or f"image-{timestamps.now():%Y%m%d-%H%M%S}"
@@ -173,6 +178,15 @@ class Imaging(Service):
         saved = image.save(path=os.path.join(path, f"{name}_{suffix}"))
         self.session.record("image_acquired", acquisition_record(image, saved))
         return image
+
+    def _filled(self, beam_type: BeamType, fields: Dict[str, Any]) -> ImageSettings:
+        """*fields* over the beam's current settings (its own beam type wins)."""
+        if fields.get("beam_type") is not None:
+            beam_type = decode_argument(
+                "image_settings.beam_type", BeamType, fields["beam_type"]
+            )
+        current = self.beam(beam_type).image_settings().to_dict()
+        return decode_argument("image_settings", ImageSettings, {**current, **fields})
 
     @command
     def autocontrast(

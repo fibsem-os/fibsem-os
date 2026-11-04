@@ -130,7 +130,14 @@ def _selects_once(calls):
     return out
 
 
+# The one departure: the hfw clip is just inside the maximum by 0.1% of it, not by
+# 10 µm, and says so (test_hfw_is_clipped_just_inside_the_maximum).
+_HFW_CLIPS = ("set hfw 10.0", "set hfw 0.0")
+
+
 def _same(case):
+    if case["key"].endswith(_HFW_CLIPS):
+        return True
     old = _quiet(case["old"])
     new = case["new"]
     if " set detector_type " in case["key"]:
@@ -195,14 +202,38 @@ def test_hfw_is_clipped_just_inside_the_maximum(recording):
         for c in recording["cases"]
         if c["key"] == "plasma=False ELECTRON set hfw 10.0"
     )
-    writes = [call for call in case["new"][1] if call[0] == "set"]
+    _, calls, messages = case["new"]
+    writes = [call for call in calls if call[0] == "set"]
     assert writes == [
         [
             "set",
             "connection.beams.electron_beam.horizontal_field_width.value",
-            2e-3 - 10e-6,
+            pytest.approx(2e-3 * (1 - 1e-3)),
         ]
     ]
+    assert any(
+        level == "WARNING" and "is outside" in text and "set 1998" in text
+        for level, text, *_ in messages
+    ), messages
+
+
+def test_hfw_below_the_minimum_is_set_to_it_and_warns(recording):
+    case = next(
+        c for c in recording["cases"] if c["key"] == "plasma=False ELECTRON set hfw 0.0"
+    )
+    _, calls, messages = case["new"]
+    old_writes = [call for call in case["old"][1] if call[0] == "set"]
+    assert [call for call in calls if call[0] == "set"] == old_writes
+    assert any(level == "WARNING" and "outside" in text for level, text, *_ in messages)
+
+
+def test_a_small_maximum_keeps_a_field_below_it():
+    """SEM Mode 2's maximum is about 20 µm: a fixed 10 µm margin set 19.5 µm as
+    9.87 µm."""
+    from fibsem.drivers.autoscript.devices import _hfw_max
+
+    assert _hfw_max(19.87e-6) > 19.5e-6
+    assert _hfw_max(19.87e-6) < 19.87e-6
 
 
 def test_an_unlisted_gas_warns_and_is_still_set(recording):

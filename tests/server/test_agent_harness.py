@@ -349,10 +349,14 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         assert f"Agent({agent})" in options.disallowed_tools
     assert set(options.skills) == {
         "fibsem-agent",
-        "autolamella-agent",
+        "autolamella",
         "autolamella-lead",
+        "autolamella-assistant",
+        "autolamella-polishing",
+        "autolamella-correlative",
+        "autolamella-coincidence-milling",
         "screen-grids",
-        "fib-experiment",
+        "fibsem-experiment",
     }
     for skill in options.skills:
         assert (checkout / ".claude" / "skills" / skill / "SKILL.md").is_file()
@@ -393,7 +397,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert "--setting-sources=project" in command
     assert command[command.index("--permission-mode") + 1] == "dontAsk"
     allowed = command[command.index("--allowedTools") + 1].split(",")
-    assert "Skill(autolamella-agent)" in allowed and "mcp__fibsem__*" in allowed
+    assert "Skill(autolamella)" in allowed and "mcp__fibsem__*" in allowed
     assert "bypassPermissions" not in command
     assert not any("t0k" in part for part in command), "the token is in argv"
 
@@ -1090,12 +1094,12 @@ def test_the_skills_the_agent_reads_are_reported_when_it_reads_one():
     read("fibsem-agent")
     asyncio.run(harness._report())
     asyncio.run(harness._report())
-    read("fib-experiment")
+    read("fibsem-experiment")
     read("fibsem-agent")
     asyncio.run(harness._report())
     assert client.bodies[0]["skills"] == ["fibsem-agent"]
     assert "skills" not in client.bodies[1], "sent again only when it changes"
-    assert client.bodies[2]["skills"] == ["fibsem-agent", "fib-experiment"]
+    assert client.bodies[2]["skills"] == ["fibsem-agent", "fibsem-experiment"]
 
 
 def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():
