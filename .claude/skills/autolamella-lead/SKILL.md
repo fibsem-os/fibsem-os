@@ -60,7 +60,9 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
       cell, a structure, a label).
    2. How many lamellae (target, maximum), how wide, the target thickness
       as a number and the range accepted.
-   3. Is losing a lamella on its last pass acceptable for thinner ones?
+   3. Stop thicker, or try thinner? Stop thicker accepts at the first pass
+      under the target; try thinner keeps going and may lose a lamella.
+      Default: stop thicker.
    4. Has the grid been screened, or should you find sites first
       (screen-grids)?
    5. The placement rule, with one example site (default: screen-grids'

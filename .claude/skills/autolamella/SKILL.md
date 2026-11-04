@@ -124,9 +124,8 @@ values mills it as proposed.
 - Between passes the proposal lends control, as any other does: image,
   move or re-align before the next `run`. Never during a mill.
 - *Polishing passes*: the stop rules are *Polishing* below: step the gap
-  down gently, image FIB and SEM after every pass, and accept as soon as the
-  band reaches the operator's target (200 nm unless they gave another), goes
-  faint, or the SEM shows damage.
+  down gently, image FIB and SEM after every pass, and accept by the
+  stop rules there: under the operator's target, or a stop sign.
 
 **An `alignment_area` proposal** (rule 5):
 `values.alignment_area` is the rectangle (`left`, `top`, `width`,
@@ -519,9 +518,17 @@ Rough Milling moves the Polishing patterns to its own position
 the lamella (`sync_fluorescence_pose`, off by default). Turn a sync off in
 that task's config to keep your edit.
 
-**Polishing.** The target is the operator's thickness, 200 nm unless they
-gave another: stop there, and go thinner only if they asked for it. The same
-rules apply in the Polishing task's milling proposal and by hand (one
+**Polishing.** The target is a ceiling: done means the band is under the
+operator's target, 200 nm unless they gave another. How far below it to go
+is the operator's answer to "stop thicker, or try thinner?":
+
+- **Stop thicker** (the default, and whenever you can't ask): accept at the
+  first pass that measures under the target. A lost lamella is to be
+  avoided.
+- **Try thinner**: once under the target, keep polishing while nothing says
+  stop, accepting that a lamella may be lost.
+
+Either way, stop at once on a stop sign below. The same rules apply in the Polishing task's milling proposal and by hand (one
 `milling_run_stage` per step):
 
 - Start gently and step down. Begin with a wide gap and narrow it a step at
@@ -546,7 +553,7 @@ rules apply in the Polishing task's milling proposal and by hand (one
   FIB images 3072 px wide: on a real run, faces read on 1536 px images led
   to three passes that milled nothing.
 - Measure the band, don't trust the gap, and stop on the first of: the band
-  at the operator's target; the band faint or low in contrast, even if it still looks
+  under the target (with stop thicker); the band faint or low in contrast, even if it still looks
   wide (a faint band is already thin: a lamella milled through on the next
   pass when this was read as width); the SEM shows a crack, a break, a hole,
   bending or the face deteriorating.
