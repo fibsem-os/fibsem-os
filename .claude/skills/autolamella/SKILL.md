@@ -1,24 +1,33 @@
 ---
-name: autolamella-agent
-description: Making lamellae with AutoLamella at any level — watching and explaining a run or a finished experiment, suggesting or deciding the workflow's proposals, editing task configs, a lamella's record, and the rules for rough milling, polishing and thickness. Read fibsem-agent first, then this for any AutoLamella work.
-argument-hint: [optional mode: collaborative | exemplar | batch-review | lead, or an experiment folder to read offline]
+name: autolamella
+description: Making lamellae with AutoLamella at any level — watching and explaining a run or a finished experiment, suggesting or deciding the workflow's proposals, editing task configs, a lamella's record, and the rules for rough milling, polishing and thickness. Read fibsem-agent first, then this for any AutoLamella work, then autolamella-lead or autolamella-assistant.
 ---
 
 # Working with AutoLamella
 
 Read the fibsem-agent skill first: it covers connecting, the levels, asking
 at Assist, the watcher, messages, writing down why, reading the experiment
-and using the microscope. This skill adds what is particular to making
-lamellae with AutoLamella. Two more skills build on it:
+and using the microscope. This skill is the method for making
+lamellae with AutoLamella, however the run is led. Read one more skill for
+who is there, and ask if you don't know: "Will you be at the microscope
+during the run?"
 
-- **autolamella-lead**: at Drive, run a whole session the operator starts and
-  leaves, with the `autolamella-*` agents checking the key decisions.
-- **screen-grids**: screening grids and picking sites for lamellae.
+- **autolamella-lead**: nobody is at the microscope. The main way to run: at
+  Drive, a whole session the operator starts and leaves, with the
+  `autolamella-*` agents checking the key decisions.
+- **autolamella-assistant**: the operator is at the microscope, working with
+  you.
+
+Ask again when the level changes or the operator says they're leaving or
+staying, and read the other skill. Two more build on this one:
+**screen-grids** for screening grids and picking sites, and
+**autolamella-correlative** for lamellae targeted with the FM.
 
 The instrument mills real samples, and a wrong decision can ruin hours of
-work. When in doubt, this whole skill reduces to one rule: **hold the
-proposal and ask the operator.** A workflow's proposals have no timeout, so
-nothing is lost by waiting.
+work. When in doubt, and the operator is there, hold the proposal and ask:
+a workflow's proposals have no timeout, so nothing is lost by waiting. When
+they are away, a held proposal holds the whole run: autolamella-lead says
+what to do instead.
 
 ## Your level
 
@@ -114,9 +123,10 @@ values mills it as proposed.
   delegated, like any placement.
 - Between passes the proposal lends control, as any other does: image,
   move or re-align before the next `run`. Never during a mill.
-- *Polishing passes*: the stop rules are autolamella-agent's *Polishing*:
-  step the gap down gently, image FIB and SEM after every pass, and accept
-  as soon as the band is under 200 nm, goes faint, or the SEM shows damage.
+- *Polishing passes*: the stop rules are *Polishing* below: step the gap
+  down gently, image FIB and SEM after every pass, and accept as soon as the
+  band reaches the operator's target (200 nm unless they gave another), goes
+  faint, or the SEM shows damage.
 
 **An `alignment_area` proposal** (rule 5):
 `values.alignment_area` is the rectangle (`left`, `top`, `width`,
@@ -132,17 +142,17 @@ escalation). The task acquires its reference in the decided area.
 **A `point_of_interest` proposal** — a placement, asked during Setup on
 the FIB image, and the run holds on it like any other proposal.
 `values.poi` is `{"x", "y"}` in metres, milling frame (+y up, origin the
-image centre). In collaborative mode this is **held for the operator**:
-report it, show where the point is, and wait. Where placement has been
-delegated (exemplar mode, or an explicit "you place the rest"), confirm
-with the point you judge right; it is written through and the patterns
+image centre). With the operator at the microscope this is **held for
+them** (autolamella-assistant): report it, show where the point is, and
+wait. Where placement is yours (a lead run, or an explicit "you place the
+rest"), confirm with the point you judge right; it is written through and the patterns
 that follow it move with it. Rejecting it changes nothing: the point stays
 as it was and the task carries on.
 
 **A `detection` proposal** — feature positions (rule
 5): `values.features` are the model's points in source-image pixels
-(origin top-left), each with a name. Held for the operator in
-collaborative mode. Confirm with the features as they are to say the model
+(origin top-left), each with a name. Held for the operator when
+they are at the microscope. Confirm with the features as they are to say the model
 was right; move one only for a correction you can state
 (`{"features": [{"name", "px": {"x", "y"}}]}`). The model's points are
 kept beside your correction, as they are when the operator drags one.
@@ -237,10 +247,11 @@ see and that it's theirs with `experiment_message_operator`.
   intend, and let them confirm your policy (or decide it themselves).
 - **Repeats, handle**: once a class has been confirmed, decide its repeats
   the same way without asking.
-- **Interactive types never ladder** in collaborative mode: the
+- **Interactive types never ladder** while the operator is there: the
   `point_of_interest` and `detection` proposals, and any placement-flavoured
-  `state` proposal stay with the
-  operator unless they explicitly delegate ("you place the rest").
+  `state` proposal stay with the operator unless they explicitly delegate
+  ("you place the rest"). In a lead run they are yours, checked by the
+  Verifier.
 - **Anything novel or wrong-smelling breaks the ladder**: an unexpected
   value, a failed task, an image you cannot interpret, a proposal you did
   not predict from the task's anatomy — hold and escalate.
@@ -260,9 +271,7 @@ runs, not that nobody checks it.
 - **Then switch** the tasks other than Setup and Polishing to auto
   (`protocol_set_supervision`), and add a note with the lamella and the
   images behind it.
-- **Check every auto task when it finishes**: look at its final images and
-  its `ALIGNMENT` and `AUTOFOCUS` lines (autolamella-lead's *After every
-  task*).
+- **Check every auto task when it finishes** (*After every task*).
 - **Supervision comes back** on any failure or Rework, a bad result, a
   config edit, or a new sample or grid. Turn it back on for that task
   yourself, find out why, and say so; then supervise the next lamella
@@ -273,44 +282,33 @@ runs, not that nobody checks it.
 - **A switch on a running task** takes effect at that task's next
   proposal, not mid-mill.
 
-## Modes
+## After every task
 
-The argument selects a variation on the same loop:
+When a task finishes, supervised or on auto, look at its result before the
+lamella goes on: its final images, the wide view with its neighbours, and
+the task's `ALIGNMENT` and `AUTOFOCUS` lines. Is anything torn, missing,
+shifted, or damaged next door? On a supervised task you saw each pass, so
+this is quick; on an auto one nobody watched, so look properly.
 
-- **collaborative** (default): the ladder above, operator in the loop for
-  firsts and placements. Report progress as tasks complete.
-- **exemplar**: the operator handles the first item end to end; you extract
-  what made their decisions acceptable, then handle the remaining items. The
-  exemplar is an *example*, not a template: generalize each acceptance into
-  the criterion behind it, and judge later items by the criteria against
-  their own recorded config — never by literal match. The alignment area
-  does not have to sit where item 1's sat; it has to cover *this item's*
-  fiducial, stay clear of *this item's* POI, and be in bounds at a sensible
-  size. One mill pass sufficed on the exemplar means one pass with a fresh
-  image is acceptable — not that the pixels must match. Record from durable
-  state: after a `PROPOSAL RELEASED` line for a proposal the operator decided, read
-  `GET /app/experiment/items/{item_name}` — the accepted POI, alignment area, and
-  milling angle are there — and pair it with the display image. Never race
-  the operator for a proposal they are deciding. A small drift against a
-  criterion you can state is a correction, not an escalation: confirm with
-  values carrying the fixed geometry (the alignment rectangle nudged off
-  the POI, the point moved onto the feature).
-  Escalate when you cannot state the correction, when you cannot evaluate a
-  criterion, or when a proposal kind the exemplar never showed appears.
-- **batch-review**: supervision is off or minimal; let the run complete, then
-  present the outputs (`/app/workflow/summary`, `/app/experiment/items/{item}/outputs`,
-  `/app/experiment/items/{item}`, final images) and act on the verdicts —
-  `workflow_requeue` for items in a running workflow, `workflow_start` for a
-  fresh round. Whose verdicts is a **policy question you settle up front**,
-  never a judgment you assume: at the start of the session, ask the operator
-  (or take it from your instructions) whether you **propose** reruns for
-  their confirmation — the default — or **decide** them yourself. Deciding
-  is an explicit delegation; even then keep it bounded (at most one rerun
-  per item unless told otherwise) and report every rerun with the evidence
-  behind it. A rerun spends beam time and dose on a possibly marginal
-  lamella — whenever the delegation is unclear, propose.
-- **lead**: a whole session the operator starts and leaves, with the
-  `autolamella-*` agents checking the key decisions: read autolamella-lead.
+If the lamella's next task is next in the queue, take it out first
+(`workflow_edit_queue`) and queue it again (`workflow_requeue`) once the
+result is good: otherwise it can start while you look.
+
+A bad result:
+
+1. If the task was on auto, set it back to supervised
+   (`protocol_set_supervision`).
+2. Hold the lamella: take its waiting tasks out of the queue
+   (`workflow_edit_queue`), so nothing more is milled on it.
+3. Find out why (*Explaining a run*, *Why did Mill Fiducial fail?*) and post
+   the cause as a note. In a lead run the Investigator does this
+   (autolamella-lead).
+4. Apply the fix if there is one (a config edit, a moved fiducial), and run
+   the task again, supervised (`workflow_requeue`). When it passes, queue
+   the lamella's held tasks again. With the operator there, the fix is
+   theirs to agree first.
+5. Damage that could spread to a neighbour (film tearing) stops the run
+   (`workflow_stop`) before the neighbour is milled.
 
 Grid screening and review, and loading grids by hand, are the screen-grids
 skill's.
@@ -465,17 +463,17 @@ the run died: read `app_get_log` with the run's `task_id` and
 
 ## Reading a finished experiment offline
 
-Read the folder with the bundled reader. It needs a shell, which
-`fibsem-agent` doesn't give you: there, read the session through the MCP
-tools, and leave a folder to Claude Code. It reads `experiment.yaml`,
+Read the folder with the bundled reader. It needs a shell and the folder:
+Claude Code has both, `fibsem-agent` doesn't (fibsem-agent, *Connect*). There,
+read the session through the MCP tools, and leave a folder to Claude Code. It reads `experiment.yaml`,
 `protocol.yaml`, `events.jsonl` and `logfile.log`, and writes nothing into
 the folder. Run it with the Python AutoLamella is installed in:
 
 ```
-python .claude/skills/autolamella-agent/read_record.py <folder>              # lamellae, yield, timings, failures
-python .claude/skills/autolamella-agent/read_record.py <folder> --item 2     # one lamella: runs, steps, milling, decisions, edits, notes, images
-python .claude/skills/autolamella-agent/read_record.py <folder> --failures   # each failed run, with the log's warnings and errors around it
-python .claude/skills/autolamella-agent/read_record.py <folder> --preview <tif> --out <scratch dir>
+python .claude/skills/autolamella/read_record.py <folder>              # lamellae, yield, timings, failures
+python .claude/skills/autolamella/read_record.py <folder> --item 2     # one lamella: runs, steps, milling, decisions, edits, notes, images
+python .claude/skills/autolamella/read_record.py <folder> --failures   # each failed run, with the log's warnings and errors around it
+python .claude/skills/autolamella/read_record.py <folder> --preview <tif> --out <scratch dir>
 ```
 
 `--item` takes a name or a number ("2" finds `02-...`). `--preview` turns a
@@ -521,9 +519,10 @@ Rough Milling moves the Polishing patterns to its own position
 the lamella (`sync_fluorescence_pose`, off by default). Turn a sync off in
 that task's config to keep your edit.
 
-**Polishing.** The target is a lamella under 200 nm, thinner if it holds.
-The same rules apply in the Polishing task's milling proposal and by hand
-(one `milling_run_stage` per step):
+**Polishing.** The target is the operator's thickness, 200 nm unless they
+gave another: stop there, and go thinner only if they asked for it. The same
+rules apply in the Polishing task's milling proposal and by hand (one
+`milling_run_stage` per step):
 
 - Start gently and step down. Begin with a wide gap and narrow it a step at
   a time, lowering the current as it narrows; never jump to the final gap.
@@ -532,29 +531,43 @@ The same rules apply in the Polishing task's milling proposal and by hand
   250-300 nm gap there; other instruments differ, so measure, don't assume.
 - Preview every step's patterns on a fresh ion image first
   (`milling_preview_patterns`), and look at where they land.
-- Polish in passes at least 1 µm deep, each placed from a fresh 50 µm ion
-  image. 0.4 µm passes at 10 pA removed nothing seven times out of seven.
-- Re-align to the reference before every step. Below about 300 nm, if the
-  alignment methods disagree, align again before milling. For polish passes,
-  set the Polishing task's `alignment.full_frame_below` (80 pA, say) rather
-  than re-aligning by hand.
+- Polish in passes at least 1 µm deep, each placed from a fresh ion image
+  (the field of view is in the table below). 0.4 µm passes at 10 pA removed
+  nothing seven times out of seven.
+- Align before every step. In the Polishing task, the task aligns before
+  each pass: set its `alignment.full_frame_below` (80 pA, say) so the
+  low-current passes align on the full frame, and don't re-align by hand as
+  well. By hand (`milling_run_stage`), re-align to the reference yourself
+  before every step (fibsem-agent, *Align to the image you placed on*).
+  Either way, below about 300 nm, if the alignment methods disagree, align
+  again before milling.
 - After every step, a FIB image and an SEM image, both saved as files, not
-  previews, so the operator can review them later. Once the band is under
-  about 400 nm, image the FIB at a narrow field of view (15 µm, not 30 µm).
-  Read the faces only on FIB images 3072 px wide: on a real run, faces read
-  on 1536 px images led to three passes that milled nothing.
+  previews, so the operator can review them later. Read the faces only on
+  FIB images 3072 px wide: on a real run, faces read on 1536 px images led
+  to three passes that milled nothing.
 - Measure the band, don't trust the gap, and stop on the first of: the band
-  under 200 nm; the band faint or low in contrast, even if it still looks
+  at the operator's target; the band faint or low in contrast, even if it still looks
   wide (a faint band is already thin: a lamella milled through on the next
   pass when this was read as width); the SEM shows a crack, a break, a hole,
   bending or the face deteriorating.
-- On a correlative lamella, estimate the target's depth in the slab from the
-  FM stack and mill the face away from it first. Start the near face 150 nm
-  outside the target's half-maximum edge and step it in 50 nm at a time.
+- On a correlative lamella, the faces follow the target:
+  autolamella-correlative's *Polishing to a target*.
 - The polishing patterns can't be rotated to follow a tilted band. If the
   band is tilted enough to leave a wedge, say so before thinning further.
 - Report each step: current, gap, time, the alignment residual, the band
   measured, what the SEM showed.
+
+The field of view for each job:
+
+| Job | Field of view |
+|---|---|
+| Placing a polishing pass, and checking coincidence | 50 µm |
+| Imaging the band to judge a pass, until it is under about 400 nm | 30 µm |
+| Imaging the band once it is under about 400 nm | 15 µm |
+| Comparing thickness readings (`item_measure_thickness`) | 20 µm, at similar contrast |
+
+In a lead run, the recipe card records the fields of view the first lamella
+used; use the card's where it differs from this table.
 
 **Iterative Polishing.** Polishing one pass at a time, judging each pass on
 its images and readings before the next. Use it only when the operator asks
@@ -570,47 +583,36 @@ Each pass is one `milling_run_stage` with the strategy set:
              "width": 1e-05, "height": 1e-06, "depth": 1e-06},
  "strategy": {"name": "Iterative Polishing",
               "config": {"face": "top", "acquire_sem_image": true,
-                         "baseline": "<the last pass's Pass data>",
-                         "targets": [[212.4, 198.1]], "control": [140.0, 260.0]}}}
+                         "acquire_reflection_stack": false}}}
 ```
 
 The pass mills the stage as given (a Rectangle for one face, a Trench for
 both, `face` `both`), then takes its images. `service_wait_for_run` milling
 answers with its facts and a figure (pass.png): the FIB band's top and
 bottom edge (µm, +y up, the frame a pattern is placed in), its FWHM and
-centre offset, the file paths of each image and stack, and, with a coincident
-FM, each target's refit, signal, ratio to the control and change from the
-baseline. Look at the figure and the facts before the next pass.
+centre offset, and the file paths of each image. Look at the figure and the
+facts before the next pass. With a coincident FM, the pass also takes FM
+stacks and follows a target: coincidence-milling's *Iterative Polishing with
+the FM* adds its settings and stop points.
 
-- **Before the first pass.** Take a FIB image and measure the band. With a
-  coincident FM, also take an FM stack, pick the target and a control
-  punctum away from the mill, and note the objective's position.
-- **Each pass needs an SEM image or FM stacks.** Without a coincident FM, set
+- **Before the first pass.** Take a FIB image and measure the band.
+- **Each pass needs an SEM image.** Without a coincident FM, set
   `acquire_reflection_stack` false and `acquire_sem_image` true: stacks are
-  refused there. With one, set `objective_position` each pass (on the Arctis
-  it drifts about 90 nm down a pass), pass the last pass's `Pass data` as
-  `baseline` and its refitted points as `targets`.
+  refused there.
 - **Both faces.** It isn't done until the top and the bottom face have each
   reached their stop point, in either order; a `both` pass counts for both.
-  If you stop a face early, tell the operator.
-- **Where each face goes** (rectangles, from Arctis Grid-03): the face
-  farther from the target starts 100 nm inside the target's half-maximum edge
-  and moves 100 nm a pass; the nearer face starts 150 nm outside it and moves
-  50 nm a pass. With a trench, narrow its `spacing` by twice the step each
-  pass and keep its centre where it is; move the centre only to correct a
-  band centre offset, or to thin one face on purpose.
-- **Stop and ask the operator** (guidance, not hard limits) when: the target's
-  signal against the control falls two passes running, or a lot in one pass;
-  the target's fit fails; about 0.7 µm has come off a face; the FWHM nears
-  its floor (about 450 nm with the objective in, on Grid-03); the FIB or
-  reflection image shows damage; the SEM check finds a problem.
+  If you stop a face early, tell the operator. With a trench, narrow its
+  `spacing` by twice the step each pass and keep its centre where it is;
+  move the centre only to correct a band centre offset, or to thin one face
+  on purpose.
+- **Stop and ask the operator** (guidance, not hard limits) when: about
+  0.7 µm has come off a face; the FWHM nears its floor; the FIB image shows
+  damage; the SEM check finds a problem.
 - **The SEM check**, on every pass with an SEM image (on a system without a
   coincident FM it is the main one): the protective layer still covers the
   front; no cracks, breaks or holes; no curtaining, bending or bowing; no
   charging; an even thickness. Any of these: stop and ask.
-- **The final thickness** is the operator's, measured with the objective
-  out: readings with it in differ (560 against 483 nm, 474 against 467 nm).
-  Report your last reading as objective-in.
+- **The final thickness** is the operator's to measure.
 
 **Rough milling.** Run the rough stages in the protocol's order (Rough Mill
 01 before Rough Mill 02), and tell the operator before you turn one off.
@@ -618,8 +620,8 @@ Once the slab is under about 1.5 µm, don't add rough rounds: thin with the
 polishing stages. An extra rough round on a real run cut through the slab
 and left a double lamella.
 
-On a correlative run, rough mill to a 4-6 µm slab first. Then take an FM stack
-and correlate again, with a surface point, before polishing.
+On a correlative run, autolamella-correlative's *Rough milling to a target*
+adds to this.
 
 **How thick is the lamella?** Use `item_measure_thickness` instead of
 measuring a preview yourself, on an image taken at the item's milling

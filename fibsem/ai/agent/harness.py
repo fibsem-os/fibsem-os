@@ -47,10 +47,13 @@ from fibsem.util import timestamps
 BASE_SKILL = "fibsem-agent"
 # The skills for a task, read once the operator says what they want done.
 TASK_SKILLS = (
-    "autolamella-agent",
+    "autolamella",
     "autolamella-lead",
+    "autolamella-assistant",
+    "autolamella-correlative",
+    "coincidence-milling",
     "screen-grids",
-    "fib-experiment",
+    "fibsem-experiment",
 )
 SKILLS = (BASE_SKILL,) + TASK_SKILLS
 

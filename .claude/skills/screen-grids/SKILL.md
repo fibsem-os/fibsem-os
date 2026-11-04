@@ -8,7 +8,7 @@ description: Grids — loading and unloading them, screening runs, whole-grid ov
 Read the fibsem-agent skill first: it covers connecting, the levels, the
 watcher, and overviews (*Overview or tile set*). This skill adds the grids
 themselves and how to pick sites on them. Making lamellae at those sites is
-the autolamella-agent skill's.
+the autolamella skill's.
 
 ## Grids by hand
 
@@ -87,7 +87,7 @@ When you pick sites (cells, squares):
 **Recording sites.** For AutoLamella, each site is a lamella: `item_add`
 without `name`, so it gets the app's usual name, and how to find it again
 (grid, square, rank, why it was chosen) in its description, as
-autolamella-agent's *A lamella's record* says. Without AutoLamella, save each
+autolamella's *A lamella's record* says. Without AutoLamella, save each
 as a position (`stage_save_position`). Show the operator what you picked:
 `experiment_render_markers` draws the items on any beam image in the
 experiment, your own overview included, and its `path` is the evidence of
