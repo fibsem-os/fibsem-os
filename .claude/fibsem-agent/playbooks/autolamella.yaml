@@ -20,6 +20,12 @@ optional:
         both faces, the target against the control, and the SEM. Stop and ask
         on any of autolamella-polishing's Iterative Polishing stop points.
 reminders:
+  workflow_start: Read the knowledge base's entries for this sample and this playbook.
+  site: Check the site against the operator's placement rule.
   setup_placement: >-
     Before you place this lamella, check focus, brightness/contrast and
     SEM/FIB coincidence here, and that the site is flat and clear of grid bars.
+  after_auto: Check the auto step's result on its image before the next step.
+  before_milling: Confirm the current and depth against the protocol.
+rules:
+  - Stop at the operator's thickness target, 200 nm by default.

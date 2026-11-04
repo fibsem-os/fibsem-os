@@ -49,7 +49,11 @@ def test_the_shipped_playbooks_load_and_correlative_extends_autolamella(lab, che
     assert {h.when for h in polishing.hooks} == {"polishing_pass", "after_polish_pass"}
     summary = correlative.summary()
     assert summary["extends"] == ["autolamella"]
-    assert summary["reminders"][0]["label"] == "Placing a lamella at Setup"
+    labels = [r["label"] for r in summary["reminders"]]
+    assert "Placing a lamella at Setup" in labels
+    # Parent first: autolamella's before_milling, then the correlative one's.
+    milling = [r["say"] for r in summary["reminders"] if r["when"] == "before_milling"]
+    assert len(milling) == 2 and "FM stack" in milling[1]
 
 
 def test_the_labs_playbook_wins_and_a_bad_one_says_why(lab, checkout):
@@ -155,7 +159,7 @@ def test_the_playbook_tools_say_each_change_and_keep_it(lab, checkout):
         "Skill done: autolamella-polishing, at 180 nm",
     ]
     assert kept[-1]["playbook"]["skills"]
-    assert {row["when"] for row in control.hooks()} == {"setup_placement"}
+    assert "setup_placement" in {row["when"] for row in control.hooks()}
 
     control.set("", "the operator")
     assert lines[-1] == "Playbook set: none, the operator"

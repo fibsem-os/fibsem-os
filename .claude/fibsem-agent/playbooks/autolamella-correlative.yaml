@@ -5,5 +5,7 @@ skills: [autolamella-correlative]
 optional:
   - skill: autolamella-coincidence-milling
     when: the FM and FIB are coincident and the operator turned it on
+reminders:
+  before_milling: Check where the target sits in depth on the last FM stack.
 rules:
   - Correlate again, with a surface point, after rough milling and before polishing.
