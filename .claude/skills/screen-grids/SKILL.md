@@ -84,16 +84,25 @@ When you pick sites (cells, squares):
 - Confirm shorthand before acting on it. "3:3" or "C2" can name a square, a
   cell or a rank; ask which the operator means.
 
-**Check each site before you keep it.** Picking on the overview gives
-candidates, not sites. Then go to each candidate (`stage_stable_move`) and
-check focus, brightness and contrast, and SEM/FIB coincidence there
-(fibsem-agent, *Coincidence: do it yourself*): the same feature centred in
-both beams at a 50 µm field of view, within 5 µm, aiming for 2-3 µm. If it
-isn't, fix it there: focus, then the coincidence loop. Focus and coincidence
-are never a reason to reject a candidate. If you can't fix one, say what you
-tried and ask the operator; in a lead run, hold it in `[run_state]` and
-carry on with the others. Record each site once it passes, with its
-coincident height: on a bent grid it changes from site to site.
+**Two separate checks: is the site good, and is the microscope set up there.**
+
+- *Is the site good* is about the sample: the cell or target, the film, the
+  bars, the room for the trenches (the list above). It decides whether a
+  candidate is kept or rejected.
+- *Is the microscope set up there* is about the beams: focus, brightness and
+  contrast, and SEM/FIB coincidence. It never decides whether a site is good.
+  It is something you fix.
+
+Picking on the overview gives candidates by the first check. Then go to
+each candidate (`stage_stable_move`) and do the second there: the same
+feature centred in both beams at a 50 µm field of view, within 5 µm, aiming
+for 2-3 µm (fibsem-agent, *Coincidence: do it yourself*). If it isn't, fix it:
+focus, then the coincidence loop. Never reject a candidate for focus or
+coincidence. If you can't fix one, say what you tried and ask the operator;
+in a lead run, hold it in `[run_state]` and carry on with the others. With
+the beams on it, look at the site again: a closer look can still show it
+isn't good, and that is the first check, not the second. Record each site
+with its coincident height: on a bent grid it changes from site to site.
 
 **Recording sites.** For AutoLamella, each site is a lamella: `item_add`
 without `name`, so it gets the app's usual name, and how to find it again
