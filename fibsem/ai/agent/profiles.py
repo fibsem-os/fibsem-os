@@ -5,8 +5,10 @@
     fibsem-agent --list-profiles
     fibsem-agent --list-hooks
 
-A profile is ``<name>.yaml`` in this machine's ``~/.fibsem/agent/profiles/``
-or in the checkout's ``.claude/fibsem-agent/`` (the machine's wins). It says
+A profile is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/profiles/``,
+this machine's older ``~/.fibsem/agent/profiles/``, or the shipped
+``.claude/fibsem-agent/`` (a checkout's, or the package's copy), the first
+found winning. It says
 what it is for (``description``, shown on the gateway's Agent card), and sets
 the model, effort, budget and turns, the mode and its folder (else work/ in
 the session's folder), extra skills, instructions added to the prompt, and
@@ -30,6 +32,7 @@ from typing import Any, Dict, List, Optional
 import yaml
 
 from fibsem import paths
+from fibsem.ai.agent import sources
 
 PROFILE_DIR = Path(".claude") / "fibsem-agent"
 # The profile fibsem-agent and the gateway run with when none is named.
@@ -142,8 +145,9 @@ class Profile:
 
 
 def dirs(checkout: Optional[Path]) -> List[Path]:
-    """Where profiles are looked for, the first found winning."""
-    found = [machine_dir()]
+    """Where profiles are looked for, the first found winning: the lab's in
+    the knowledge base, this machine's older folder, then the shipped ones."""
+    found = [sources.lab_folder("profiles"), machine_dir()]
     if checkout is not None:
         found.append(checkout / PROFILE_DIR)
     return found
@@ -205,12 +209,13 @@ def load(path: Path, efforts=(), checkout: Optional[Path] = None) -> Profile:
         raise ProfileError(f"{path}: effort is one of {', '.join(efforts)}")
     if checkout is not None:
         missing = [
-            name
-            for name in profile.skills
-            if not (checkout / ".claude" / "skills" / name / "SKILL.md").is_file()
+            name for name in profile.skills if sources.skill_dir(name, checkout) is None
         ]
         if missing:
-            raise ProfileError(f"{path}: no skill {', '.join(missing)} in {checkout}")
+            raise ProfileError(
+                f"{path}: no skill {', '.join(missing)} in "
+                f"{sources.lab_folder('skills')} or {checkout}"
+            )
     return profile
 
 

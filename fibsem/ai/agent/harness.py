@@ -34,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode, mirror, profiles, usage
+from fibsem.ai.agent import code_mode, mirror, profiles, sources, usage
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
@@ -211,9 +211,13 @@ def system_prompt(
 
 
 def skills_for(profile: Optional[profiles.Profile] = None) -> List[str]:
-    """The skills the agent loads: the base and task skills, and a profile's."""
-    extra = [name for name in (profile.skills if profile else []) if name not in SKILLS]
-    return list(SKILLS) + extra
+    """The skills the agent loads: the base and task skills, the lab's own
+    (`sources.lab_skills`), and a profile's."""
+    names = list(SKILLS)
+    for name in sources.lab_skills() + list(profile.skills if profile else []):
+        if name not in names:
+            names.append(name)
+    return names
 
 
 REREAD_PROPOSALS = (
@@ -1300,16 +1304,10 @@ def _show(message, agent: SdkAgent) -> None:
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
-    """The fibsem-os checkout whose ``.claude/skills`` the agent reads: the
-    one given, else the one this module runs from, else the current folder."""
-    if given:
-        candidates = [Path(given).expanduser()]
-    else:
-        candidates = [Path(__file__).resolve().parents[3], Path.cwd()]
-    for candidate in candidates:
-        if (candidate / ".claude" / "skills" / BASE_SKILL / "SKILL.md").is_file():
-            return candidate.resolve()
-    return None
+    """The folder whose ``.claude`` holds the shipped skills: the checkout
+    given, else the one this module runs from, else the current folder, else
+    the copy in the package (`sources.find_root`)."""
+    return sources.find_root(given, BASE_SKILL)
 
 
 def sidecar_command() -> List[str]:
@@ -1338,6 +1336,7 @@ def build_options(
     alarm: Optional[Alarm] = None,
     profile: Optional[profiles.Profile] = None,
     transcript: Optional[Path] = None,
+    cwd: Optional[Path] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
@@ -1370,9 +1369,10 @@ def build_options(
     if alarm is not None:
         servers[HARNESS_SERVER] = wake_server(alarm)
     return ClaudeAgentOptions(
-        cwd=str(work or checkout),
-        # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
-        # ~/.claude: the user's own settings, hooks and skills stay out.
+        # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
+        # is off, see CLI_ENV), and none of ~/.claude: the user's own
+        # settings, hooks and skills stay out.
+        cwd=str(work or cwd or checkout),
         setting_sources=["project"],
         skills=skills_for(profile),
         tools=list(tools),
@@ -1458,11 +1458,18 @@ def status(
             "per wake-up",
         ),
         ("Session", f"{session_id} ({'resumed' if args.resume else 'new'})"),
-        ("Skills", str(checkout)),
+        ("Skills", _skills_line(checkout)),
         ("Code", code_mode.describe(work, code)),
         ("Log", str(log_path)),
     ]
     return [f"{label + ':':<9}{value}" for label, value in rows]
+
+
+def _skills_line(checkout: Path) -> str:
+    lab = sources.lab_skills()
+    if not lab:
+        return str(checkout)
+    return f"{checkout}; the lab's own: {', '.join(lab)}"
 
 
 def main(argv=None) -> int:
@@ -1596,8 +1603,8 @@ def main(argv=None) -> int:
     checkout = find_checkout(args.checkout)
     if checkout is None:
         print(
-            "fibsem-agent reads the agent's skills from a fibsem-os checkout "
-            "(.claude/skills); pass --checkout <path to the checkout>.",
+            "fibsem-agent found no skills: this fibsem has none shipped and "
+            "isn't a checkout; pass --checkout <path to a fibsem-os checkout>.",
             file=sys.stderr,
         )
         return 1
@@ -1628,9 +1635,13 @@ def main(argv=None) -> int:
     if given and not in_session:
         work = code_mode.workdir(given)
     if args.resume == LAST:
-        args.resume = sessions.last_session(None if in_session else work or checkout)
+        own = sessions.WORK if in_session else sessions.RUN
+        args.resume = sessions.last_session(work, own=own)
+        if args.resume is None and work is None and not in_session:
+            # A session from before run/: the CLI ran it in the checkout.
+            args.resume = sessions.last_session(checkout)
         if args.resume is None:
-            where = "its own folder" if in_session else work or checkout
+            where = work or "its own folder"
             print(
                 f"No earlier fibsem-agent session in {where} to resume: pass "
                 "its id (the Session line of its log).",
@@ -1642,6 +1653,9 @@ def main(argv=None) -> int:
     folder = sessions.session_folder(session_id)
     if in_session:
         work = folder / sessions.WORK
+    # Without a work folder the CLI runs in the session's run/, which holds
+    # only the session's skills; a session from before it keeps its folder.
+    run = None if work is not None else _run_folder(args.resume, folder, checkout)
     if work is not None:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
@@ -1661,7 +1675,7 @@ def main(argv=None) -> int:
     if key:
         os.environ[API_KEY] = key
     session = sessions.SessionFolder.open(
-        session_id, _about(args, checkout, work, code, profile), folder=folder
+        session_id, _about(args, checkout, work, code, profile, run), folder=folder
     )
     log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
@@ -1672,6 +1686,8 @@ def main(argv=None) -> int:
         code_mode.prepare(work, checkout, skills_for(profile), list(SPECIALISTS))
         for line in code_mode.details():
             log.debug(line)
+    elif run != checkout:
+        sources.assemble(run, checkout, skills_for(profile), SPECIALISTS)
 
     alarm = Alarm()
     options = build_options(
@@ -1689,6 +1705,7 @@ def main(argv=None) -> int:
         code=code,
         profile=profile,
         transcript=session.folder,
+        cwd=run,
     )
     agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
     harness = Harness(
@@ -1740,19 +1757,30 @@ def _session_id(text: str) -> str:
         raise argparse.ArgumentTypeError(f"not a UUID: {text}") from None
 
 
+def _run_folder(resume: Optional[str], folder: Path, checkout: Path) -> Path:
+    """Where a session without a work folder runs: its folder's run/, or for
+    one resumed from before run/ the folder its record says it ran in."""
+    if resume:
+        ran = sessions.read_json(folder / sessions.RECORD).get("cwd")
+        if ran and Path(ran) == checkout:
+            return checkout
+    return folder / sessions.RUN
+
+
 def _about(
     args,
     checkout: Path,
     work: Optional[Path],
     code: bool,
     profile: Optional[profiles.Profile] = None,
+    run: Optional[Path] = None,
 ) -> dict:
     """What a session runs with, for its record."""
     from fibsem import __version__
 
     return {
         "fibsem": __version__,
-        "cwd": str(work or checkout),
+        "cwd": str(work or run or checkout),
         "url": args.url,
         "goal": args.goal,
         "model": args.model,
