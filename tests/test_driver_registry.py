@@ -26,6 +26,7 @@ BUILT_IN = {
         "fibsem.drivers.odemis.microscope:OdemisThermoMicroscope",
         None,
     ),
+    "JEOL": ("fibsem.drivers.jeol.microscope:JeolMicroscope", 22218),
     "Demo": ("fibsem.drivers.demo.microscope:DemoMicroscope", 7520),
 }
 
@@ -265,18 +266,18 @@ def _read(monkeypatch, *entry_points):
 
 
 def test_a_plugin_driver_registers_the_record_it_returns(restore_registry, monkeypatch):
-    entry = DriverEntry("JEOL", f"{__name__}:_Recorder", port=5000)
-    records = _read(monkeypatch, _EntryPoint("jeol", lambda: entry))
+    entry = DriverEntry("Hitachi", f"{__name__}:_Recorder", port=5000)
+    records = _read(monkeypatch, _EntryPoint("hitachi", lambda: entry))
 
-    assert records["jeol"].loaded
-    assert records["jeol"].name == "JEOL" and records["jeol"].obj is entry
-    assert get_driver("JEOL") is entry
+    assert records["hitachi"].loaded
+    assert records["hitachi"].name == "Hitachi" and records["hitachi"].obj is entry
+    assert get_driver("Hitachi") is entry
 
 
 def test_get_driver_reads_the_entry_points(restore_registry, monkeypatch):
-    entry = DriverEntry("JEOL", f"{__name__}:_Recorder")
-    _install(monkeypatch, _EntryPoint("jeol", lambda: entry))
-    assert get_driver("JEOL") is entry
+    entry = DriverEntry("Hitachi", f"{__name__}:_Recorder")
+    _install(monkeypatch, _EntryPoint("hitachi", lambda: entry))
+    assert get_driver("Hitachi") is entry
 
 
 def test_a_plugin_cannot_take_a_built_in_manufacturer(restore_registry, monkeypatch):
@@ -292,49 +293,49 @@ def test_a_plugin_cannot_take_a_built_in_manufacturer(restore_registry, monkeypa
 
 
 def test_a_runtime_driver_comes_before_a_plugin(restore_registry, monkeypatch):
-    registered = DriverEntry("JEOL", f"{__name__}:_Recorder", port=1)
-    plugin = DriverEntry("JEOL", f"{__name__}:_Recorder", port=2)
-    _install(monkeypatch, _EntryPoint("jeol", lambda: plugin))
+    registered = DriverEntry("Hitachi", f"{__name__}:_Recorder", port=1)
+    plugin = DriverEntry("Hitachi", f"{__name__}:_Recorder", port=2)
+    _install(monkeypatch, _EntryPoint("hitachi", lambda: plugin))
     register_driver(registered)
 
-    assert get_driver("JEOL") is registered
-    assert registry.registered_manufacturers().count("JEOL") == 1
+    assert get_driver("Hitachi") is registered
+    assert registry.registered_manufacturers().count("Hitachi") == 1
 
 
 def test_a_later_plugin_takes_the_manufacturer(restore_registry, monkeypatch):
-    first = DriverEntry("JEOL", f"{__name__}:_Recorder", port=1)
-    second = DriverEntry("JEOL", f"{__name__}:_Recorder", port=2)
+    first = DriverEntry("Hitachi", f"{__name__}:_Recorder", port=1)
+    second = DriverEntry("Hitachi", f"{__name__}:_Recorder", port=2)
     records = _read(
         monkeypatch,
         _EntryPoint("first", lambda: first),
         _EntryPoint("second", lambda: second),
     )
 
-    assert get_driver("JEOL") is second
+    assert get_driver("Hitachi") is second
     assert records["first"].loaded and records["second"].loaded
 
 
 def test_a_plugin_that_looks_up_a_driver_as_it_loads_does_not_recurse(
     restore_registry, monkeypatch
 ):
-    entry = DriverEntry("JEOL", f"{__name__}:_Recorder")
+    entry = DriverEntry("Hitachi", f"{__name__}:_Recorder")
 
     def driver():
         with pytest.raises(NotImplementedError):
-            get_driver("JEOL")
+            get_driver("Hitachi")
         return entry
 
-    records = _read(monkeypatch, _EntryPoint("jeol", driver))
-    assert records["jeol"].loaded
-    assert get_driver("JEOL") is entry
+    records = _read(monkeypatch, _EntryPoint("hitachi", driver))
+    assert records["hitachi"].loaded
+    assert get_driver("Hitachi") is entry
 
 
 @pytest.mark.parametrize(
     "target,error",
     [
-        (ImportError("No module named 'jeol_sdk'"), "ImportError: No module named"),
-        (lambda: "fibsem_jeol:JeolMicroscope", "returned str, not a DriverEntry"),
-        (DriverEntry("JEOL", "x:Y"), "TypeError"),  # a record, not a function
+        (ImportError("No module named 'hitachi_sdk'"), "ImportError: No module named"),
+        (lambda: "fibsem_hitachi:HitachiMicroscope", "returned str, not a DriverEntry"),
+        (DriverEntry("Hitachi", "x:Y"), "TypeError"),  # a record, not a function
     ],
 )
 def test_a_broken_plugin_is_recorded_and_registers_nothing(
@@ -343,9 +344,9 @@ def test_a_broken_plugin_is_recorded_and_registers_nothing(
     records = _read(monkeypatch, _EntryPoint("broken", target))
 
     assert error in records["broken"].error
-    assert "JEOL" not in registry.registered_manufacturers()
+    assert "Hitachi" not in registry.registered_manufacturers()
     with pytest.raises(NotImplementedError):
-        get_driver("JEOL")
+        get_driver("Hitachi")
 
 
 def test_an_unset_port_is_saved_as_null():
@@ -519,12 +520,12 @@ def test_each_built_in_names_itself():
 
 
 def test_a_plugin_brings_its_own_spellings(restore_registry, monkeypatch):
-    entry = DriverEntry("JEOL", f"{__name__}:_Recorder", aliases=("jeol ltd",))
-    _install(monkeypatch, _EntryPoint("jeol", lambda: entry))
+    entry = DriverEntry("Hitachi", f"{__name__}:_Recorder", aliases=("hitachi hht",))
+    _install(monkeypatch, _EntryPoint("hitachi", lambda: entry))
 
-    assert registry.normalize_name("JEOL Ltd") == "JEOL"
-    assert registry.normalize_name("jeol") == "JEOL"
-    assert get_driver("jeol ltd") is entry
+    assert registry.normalize_name("Hitachi HHT") == "Hitachi"
+    assert registry.normalize_name("hitachi") == "Hitachi"
+    assert get_driver("hitachi hht") is entry
 
 
 def test_a_plugin_cannot_take_a_built_in_spelling(restore_registry, monkeypatch):
@@ -606,7 +607,7 @@ def test_the_headless_servers_offer_a_plugin_driver(restore_registry, monkeypatc
 
     _install(
         monkeypatch,
-        _EntryPoint("jeol", lambda: DriverEntry("JEOL", f"{__name__}:_Recorder")),
+        _EntryPoint("hitachi", lambda: DriverEntry("Hitachi", f"{__name__}:_Recorder")),
     )
-    args = headless.connection_parser().parse_args(["--manufacturer", "jeol"])
-    assert args.manufacturer == "JEOL"
+    args = headless.connection_parser().parse_args(["--manufacturer", "hitachi"])
+    assert args.manufacturer == "Hitachi"

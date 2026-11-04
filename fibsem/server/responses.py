@@ -16,6 +16,8 @@ from fibsem.codec import encode, saved
 from fibsem.config import NotificationPreferences
 from fibsem.control import InControl
 from fibsem.geometry.stage_places import StageMapPlaces
+from fibsem.knowledge import Entry as KnowledgeEntryFile
+from fibsem.knowledge import Row as KnowledgeRow
 from fibsem.structures.image import FibsemImageMetadata
 from fibsem.structures.params import Limits
 from fibsem.structures.settings import (
@@ -1066,6 +1068,40 @@ class RunPlan:
 
 
 @dataclass
+class KnowledgeIndex:
+    """The knowledge base's index, newest first, and the samples and playbooks
+    it has entries for."""
+
+    entries: List[KnowledgeRow] = field(default_factory=list)
+    samples: List[str] = field(default_factory=list)
+    playbooks: List[str] = field(default_factory=list)
+
+
+@dataclass
+class KnowledgePicture:
+    """One image an entry cites, by name; asked for, its preview."""
+
+    name: str
+    preview: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class KnowledgeEntry:
+    """One knowledge entry, and its images as pictures when asked for."""
+
+    entry: KnowledgeEntryFile
+    pictures: Optional[List[KnowledgePicture]] = None
+
+
+@dataclass
+class KnowledgeRemoved:
+    """The entry the operator removed, as it was."""
+
+    removed: bool
+    entry: KnowledgeEntryFile
+
+
+@dataclass
 class Recorded:
     """A note, a message or evidence put on the record; for a message, its
     ``id``; for evidence, its record (`fibsem.workflows.evidence.save`)."""
@@ -1491,9 +1527,17 @@ class EvidenceView:
     channels: Optional[List[str]] = None
     # The stack's plane shown (0 the first), when the marks are on one.
     plane: Optional[int] = None
-    # The experiment image to mark in reply: this one, or the one an upload
-    # was drawn from. None for a picture with no image behind it.
+    # The experiment image to mark in reply: this one, or the one a drawn
+    # picture or an upload was drawn on. None when there is none to mark.
     source: Optional[str] = None
+    # The marks drawn on *source* (its pixels), when it is not this image:
+    # the picks to say good or bad of. None when unknown.
+    source_marks: Optional[Any] = None
+    # Feedback: the evidence id of the picture this answers, the verdict on
+    # it (good or bad), and on each of its marks.
+    answers: Optional[str] = None
+    verdict: Optional[str] = None
+    judged: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass

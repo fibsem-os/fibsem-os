@@ -302,7 +302,10 @@ def _stage(position) -> str:
 
 def _named(kind, mark) -> str:
     label = mark.get("label")
-    return f'{kind} "{label}"' if label else kind
+    named = f'{kind} "{label}"' if label else kind
+    # What the operator said of it: right or wrong.
+    verdict = mark.get("verdict")
+    return f"{named} {verdict}" if verdict else named
 
 
 def _mark_parts(marks):
@@ -330,6 +333,45 @@ def _mark_parts(marks):
             f"{_stage(line.get('stage1'))} to {_px(line['x2'], line['y2'])}"
             f"{_stage(line.get('stage2'))}"
         )
+    for outline in marks.get("outlines") or []:
+        xs = [x for x, _ in outline["points"]]
+        ys = [y for _, y in outline["points"]]
+        yield (
+            f"{_named('outline', outline)} of {len(xs)} corners around "
+            f"{min(xs):.0f}-{max(xs):.0f},{min(ys):.0f}-{max(ys):.0f} px, centre"
+            f"{_stage(outline.get('stage')) or ' (no stage)'}"
+        )
+
+
+# A pick's kind, as the MESSAGE line names it.
+_PICK = {
+    "points": "point",
+    "areas": "area",
+    "circles": "circle",
+    "lines": "line",
+    "outlines": "outline",
+}
+
+
+def _judged_parts(judged):
+    """What the operator said of each of the agent's marks it answered."""
+    for one in judged or []:
+        label = one.get("label")
+        name = (
+            f'"{label}"'
+            if label
+            else f"{_PICK.get(one['kind'], 'mark')} {one['index'] + 1}"
+        )
+        part = f"{name} {one['verdict']}" if one.get("verdict") else name
+        moved = one.get("moved_to")
+        if moved:
+            far = one.get("moved_m")
+            how = f"{far * 1e6:.1f} µm" if far else f"{one.get('moved_px', 0):.0f} px"
+            part += (
+                f", moved {how} to {_px(moved['x'], moved['y'])}"
+                f"{_stage(moved.get('stage'))}"
+            )
+        yield part
 
 
 def _marks_part(evidence) -> str:
@@ -351,7 +393,22 @@ def _marks_part(evidence) -> str:
         else ""
     )
     head = f" -- marks on {on} (evidence {evidence.get('evidence_id')})"
-    return f"{head}: {shown}" if shown else f"{head}, no marks"
+    if not evidence.get("answers"):
+        return f"{head}: {shown}" if shown else f"{head}, no marks"
+    # Feedback on one of the agent's pictures: what was said of it, then
+    # the operator's own marks.
+    said = []
+    if evidence.get("verdict"):
+        said.append(f"the picture {evidence['verdict']}")
+    judged = list(_judged_parts(evidence.get("judged")))
+    if judged:
+        said.append("your marks: " + "; ".join(judged))
+    if shown:
+        said.append(f"operator's marks: {shown}")
+    return (
+        f" -- answers your picture (evidence {evidence['answers']}) on {on} "
+        f"(evidence {evidence.get('evidence_id')}): " + ("; ".join(said) or "no marks")
+    )
 
 
 def _unanswered(events):

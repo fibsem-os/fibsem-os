@@ -457,8 +457,8 @@ def test_evidence_names_its_image_for_the_files_panel(server):
     ).json()
     assert answer["path"] == f"evidence/{record['evidence_id']}.png"
     assert answer["preview"]["full_width"] == 32
-    # Nothing to mark in reply, unless the picture was drawn from an image.
-    assert answer["source"] is None
+    # Drawn from no image: the picture itself is marked in reply.
+    assert answer["source"] == answer["path"]
     image = _marked_image(server)
     drawn = evidence.save(
         lambda: root, upload=base64.b64encode(buffer.getvalue()).decode(), source=image
@@ -880,3 +880,128 @@ def test_the_agent_says_which_messages_it_has_read(server):
             "/app/agent/read", headers=server.agent, json={"ids": ids}
         )
         assert refused.status_code == 422
+
+
+def _agent_picks(server) -> str:
+    """The agent draws two picks on a saved FIB image and cites the drawn
+    picture as evidence: its id."""
+    image = _marked_image(server)
+    marks = {"points": [{"x": 30, "y": 30, "label": "1"}, {"x": 90, "y": 60}]}
+    drawn = server.post(
+        "/app/experiment/images/drawn",
+        headers=server.agent,
+        json={"path": image, "marks": marks},
+    )
+    assert drawn.status_code == 200, drawn.text
+    cited = server.post(
+        "/app/experiment/evidence",
+        headers=server.agent,
+        json={"image": drawn.json()["path"]},
+    )
+    assert cited.status_code == 200, cited.text
+    return cited.json()["evidence_id"]
+
+
+def test_a_drawn_picture_is_marked_on_the_image_it_was_drawn_on(server):
+    evidence_id = _agent_picks(server)
+    read = server.get(f"/app/agent/evidence/{evidence_id}", headers=server.operator)
+    assert read.status_code == 200, read.text
+    read = read.json()
+    assert read["path"].startswith("drawn/")
+    assert read["source"] == "ref_fib.tif"
+    # The picks, on that image, to say good or bad of.
+    assert [p["label"] for p in read["source_marks"]["points"]] == ["1", ""]
+
+
+def test_the_operator_says_which_picks_were_wrong(server):
+    picks = _agent_picks(server)
+    body = {
+        "text": "These are on grid bars, try the ones closer to the centre.",
+        "evidence": {
+            "answers": picks,
+            "judged": [
+                {"kind": "points", "index": 0, "verdict": "bad"},
+                {
+                    "kind": "points",
+                    "index": 1,
+                    "verdict": "good",
+                    "moved_to": {"x": 90, "y": 92},
+                },
+            ],
+            "marks": {
+                "points": [{"x": 64, "y": 48, "label": "cell 4", "verdict": "good"}],
+                "outlines": [
+                    {
+                        "points": [[10, 10], [20, 10], [15, 20]],
+                        "label": "ice",
+                        "verdict": "bad",
+                    }
+                ],
+            },
+        },
+    }
+    answer = server.post("/app/agent/messages", headers=server.operator, json=body)
+    assert answer.status_code == 201, answer.text
+    events = server.get("/app/events", headers=server.operator).json()["events"]
+    kept = [e for e in events if e["kind"] == "evidence"][-1]["payload"]
+    # Marked on the image the picture was drawn on, no image given.
+    assert kept["image"].endswith("ref_fib.tif")
+    assert kept["answers"] == picks
+    first, second = kept["judged"]
+    assert (first["label"], first["verdict"]) == ("1", "bad")
+    assert second["moved_px"] == pytest.approx(32)
+    # 128 px across 80 µm.
+    assert second["moved_m"] == pytest.approx(20e-6)
+    assert "stage" in second["moved_to"]
+    assert "stage" in kept["marks"]["outlines"][0]
+    read = server.get(
+        f"/app/agent/evidence/{answer.json()['evidence_id']}", headers=server.operator
+    ).json()
+    assert read["answers"] == picks and read["judged"][0]["verdict"] == "bad"
+
+
+def test_good_or_bad_alone_is_a_message(server):
+    picks = _agent_picks(server)
+    answer = server.post(
+        "/app/agent/messages",
+        headers=server.operator,
+        json={"text": "", "evidence": {"answers": picks, "verdict": "good"}},
+    )
+    assert answer.status_code == 201, answer.text
+    events = server.get("/app/events", headers=server.operator).json()["events"]
+    kept = [e for e in events if e["kind"] == "evidence"][-1]["payload"]
+    assert kept["verdict"] == "good" and kept["judged"] is None
+
+
+@pytest.mark.parametrize(
+    "said",
+    [
+        {"verdict": "maybe"},
+        {"judged": [{"kind": "points", "index": 5, "verdict": "bad"}]},
+        {"judged": [{"kind": "points", "index": 0}]},
+        {"judged": [{"kind": "stars", "index": 0, "verdict": "bad"}]},
+    ],
+)
+def test_feedback_that_names_no_pick_sends_nothing(server, said):
+    picks = _agent_picks(server)
+    before = len(_notes(server))
+    answer = server.post(
+        "/app/agent/messages",
+        headers=server.operator,
+        json={"text": "no", "evidence": {"answers": picks, **said}},
+    )
+    assert answer.status_code == 422, answer.text
+    assert len(_notes(server)) == before
+
+
+def test_a_verdict_is_on_a_picture(server):
+    answer = server.post(
+        "/app/agent/messages",
+        headers=server.operator,
+        json={
+            "text": "no",
+            "evidence": {"image": _marked_image(server), "verdict": "bad"},
+        },
+    )
+    assert answer.status_code == 422
+    assert "answers" in answer.json()["detail"]["message"]

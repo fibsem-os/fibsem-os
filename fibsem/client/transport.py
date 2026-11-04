@@ -203,6 +203,7 @@ class Transport:
         self._user_agent = user_agent or f"fibsem-client/{__version__}"
         self._timeout = timeout
         self._connect_wait_s = connect_wait_s
+        self._pool: Optional[httpx.HTTPTransport] = None
         self._http = self._connect()
 
     @property
@@ -233,7 +234,10 @@ class Transport:
 
     def _client(self, url: str, headers: Dict[str, str]) -> httpx.Client:
         """The HTTP client for *url*; a test's sends to its app in process."""
-        return httpx.Client(base_url=url, headers=headers, timeout=self._timeout)
+        self._pool = httpx.HTTPTransport()
+        return httpx.Client(
+            base_url=url, headers=headers, timeout=self._timeout, transport=self._pool
+        )
 
     def _reresolve(self) -> bool:
         if not self._discover:
@@ -336,7 +340,12 @@ class Transport:
         return answer_of(response, f"{method} {path}")
 
     def close(self) -> None:
+        """Close the client and its connections. Safe to call again: a request
+        in flight on another thread when it closed can still open a connection,
+        and closing again, once that request is done, closes it."""
         self._http.close()
+        if self._pool is not None:
+            self._pool.close()
 
     def __enter__(self) -> "Transport":
         return self

@@ -741,7 +741,7 @@ class AutoLamellaAppContext(AppContext):
             saved,
             [stage.name for stage in stages],
             [stage.name for stage in behind],
-            save_drawn(rgb, saved),
+            save_drawn(rgb, saved, target),
         )
 
     @staticmethod

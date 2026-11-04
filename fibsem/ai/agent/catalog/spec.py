@@ -54,6 +54,12 @@ class ToolSpec:
     call: Optional[
         Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Optional[dict]]]
     ] = field(default=None, compare=False)
+    # The seconds its call may take, from its arguments and a reader of the
+    # server's current values (path -> its answer), where the client's usual
+    # timeout is too short (a long frame); None keeps the usual one.
+    timeout: Optional[
+        Callable[[Dict[str, Any], Callable[[str], Any]], Optional[float]]
+    ] = field(default=None, compare=False)
     # The class its route answers, by its name in `fibsem.server.responses`
     # (`answer_class` writes it as the app's); "" for an image.
     returns: str = ""
@@ -162,8 +168,10 @@ class ToolSpec:
 MARKS_PARAM = (
     "{points: [{x, y, shape?, label?}], areas: [{x, y, width, height, label?}], "
     "circles: [{x, y, radius, label?}], lines: [{x1, y1, x2, y2, arrow?, measure?, "
-    "label?}]} in the image's full-resolution pixels from its top left: shape is "
-    "cross (default) or target (a ring crosshair); arrow puts a head at x2, y2; "
+    "label?}], outlines: [{points: [[x, y], ...], label?}]} in the image's "
+    "full-resolution pixels from its top left: shape is "
+    "cross (default) or target (a ring crosshair); an outline has 3 to 64 corners; "
+    "any mark may take verdict, good or bad; arrow puts a head at x2, y2; "
     "measure labels the line with its length, as the ruler does. Labels (at most "
     "32 characters) name what is where; at most 50 marks. Marks read off a crop "
     "take crop: the cell's name (B3) or the crop's box [x, y, width, height], "
@@ -227,6 +235,7 @@ GROUP_TITLES: Dict[str, str] = {
     "workflow": "Workflow",
     "proposal": "Proposal",
     "request": "Request",
+    "knowledge": "Knowledge",
 }
 
 # Watch tools that write a record (a note, a request) rather than only read.
@@ -234,6 +243,7 @@ _WRITES_AT_WATCH = frozenset(
     {
         "experiment_add_note",
         "experiment_message_operator",
+        "knowledge_write",  # the microscope's knowledge base, not the experiment
         "server_report_session",  # the agent's own session, on the record
         "server_set_constraints",
         "server_set_checklist",

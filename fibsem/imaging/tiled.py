@@ -502,6 +502,17 @@ class TiledAcquisitionRunner:
         self._mosaic_metadata.pixel_size = deepcopy(actual)
         self.result.pixel_size = actual.x
 
+    def _take_dtype_of(self, image: FibsemImage) -> None:
+        """Hold the mosaic in the tiles' own type (a 16-bit beam's uint16): the
+        planned canvas is uint8, and a wider tile would wrap in it. Nothing is
+        painted yet, so both start again empty."""
+        dtype = image.filtered_data.dtype
+        if self._canvas.dtype == dtype:
+            return
+        self._canvas = np.zeros(self._canvas.shape, dtype=dtype)
+        full_h, full_w = self._canvas.shape
+        self._preview = PreviewMosaic(full_w, full_h, dtype=dtype)
+
     def _init_preview(self, full_w: int, full_h: int) -> None:
         """A decimated copy of the mosaic, for a display to show as it fills.
 
@@ -598,6 +609,7 @@ class TiledAcquisitionRunner:
             if self._first_image is None:
                 self._first_image = image
                 self._correct_metadata_from(image)
+                self._take_dtype_of(image)
 
             # stitch tile into canvas (overlapping regions are overwritten by later tiles)
             self._canvas[
@@ -725,7 +737,7 @@ class TiledAcquisitionRunner:
         tiles, self._kept_tiles = self._kept_tiles, {}
         try:
             return compose_mosaic(
-                tiles, registration.positions, self._canvas.shape, np.uint8
+                tiles, registration.positions, self._canvas.shape, self._canvas.dtype
             )
         except Exception as e:  # noqa: BLE001 - the planned mosaic is still good
             registration.applied = False

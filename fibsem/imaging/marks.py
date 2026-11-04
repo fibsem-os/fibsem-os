@@ -1,7 +1,7 @@
 """Marks on an image, drawn with matplotlib off any GUI thread: the one marks
 vocabulary (`fibsem.workflows.evidence`) as evidence, the draw tools and the
 request card show it. Points (a cross or a ring crosshair), areas, circles and
-lines (an arrow, or measured as the ruler measures), each with its label
+lines (an arrow, or measured as the ruler measures) and outlines, each with its label
 placed by `fibsem.imaging.labels`; the agent's in its purple, the operator's
 in the accent blue. The picture keeps the export's scale bar and metadata bar
 (`fibsem.imaging.export.render_export`).
@@ -38,6 +38,10 @@ _HALO = (0, 0, 0, 0.6)
 
 # Whose marks they are, by evidence's `by`.
 MARK_COLOURS = {"agent": AGENT_MARK_COLOR, "operator": ACCENT_COLOR}
+
+
+# What a mark said right or wrong shows after its label.
+VERDICT_SIGNS = {"good": "\u2713", "bad": "\u2717"}
 
 
 def mark_colour(by: Optional[str]) -> str:
@@ -148,7 +152,7 @@ def draw_marks(
     placed by *placer*: every mark is kept clear first, so no label covers
     one."""
     from matplotlib import patheffects
-    from matplotlib.patches import Circle, FancyArrowPatch, Rectangle
+    from matplotlib.patches import Circle, FancyArrowPatch, Polygon, Rectangle
 
     if not marks:
         return
@@ -174,6 +178,7 @@ def draw_marks(
     areas = marks.get("areas") or []
     circles = marks.get("circles") or []
     lines = marks.get("lines") or []
+    outlines = marks.get("outlines") or []
     for point in points:
         x, y = float(point["x"]), float(point["y"])
         placer.keep_clear_source(x - arm, y - arm, x + arm, y + arm)
@@ -193,9 +198,20 @@ def draw_marks(
     for mark in lines:
         for piece in _segments(mark["x1"], mark["y1"], mark["x2"], mark["y2"]):
             placer.keep_clear_source(*piece, margin=line)
+    for outline in outlines:
+        corners = outline["points"]
+        for (x1, y1), (x2, y2) in zip(corners, corners[1:] + corners[:1]):
+            for piece in _segments(x1, y1, x2, y2):
+                placer.keep_clear_source(*piece, margin=line)
 
     def of(mark) -> str:
         return mark.get("colour") or colour
+
+    def named(mark) -> str:
+        # Said right or wrong: a tick or a cross after its label.
+        sign = VERDICT_SIGNS.get(mark.get("verdict"), "")
+        label = mark.get("label") or ""
+        return f"{label} {sign}".strip() if sign else label
 
     labelled: List[Tuple[Box, str, str]] = []
     for point in points:
@@ -220,7 +236,7 @@ def draw_marks(
             plot([x - arm, x + arm], [y, y], c)
             plot([x, x], [y - arm, y + arm], c)
         anchor = ((x - arm) * s, (y - arm) * s, (x + arm) * s, (y + arm) * s)
-        labelled.append((anchor, point.get("label") or "", c))
+        labelled.append((anchor, named(point), c))
     for area in areas:
         x, y = float(area["x"]), float(area["y"])
         c = of(area)
@@ -237,9 +253,7 @@ def draw_marks(
                 path_effects=halo,
             )
         )
-        labelled.append(
-            ((x * s, y * s, (x + w) * s, (y + h) * s), area.get("label") or "", c)
-        )
+        labelled.append(((x * s, y * s, (x + w) * s, (y + h) * s), named(area), c))
     for circle in circles:
         x, y, r = float(circle["x"]), float(circle["y"]), float(circle["radius"])
         c = of(circle)
@@ -257,7 +271,7 @@ def draw_marks(
         labelled.append(
             (
                 ((x - r) * s, (y - r) * s, (x + r) * s, (y + r) * s),
-                circle.get("label") or "",
+                named(circle),
                 c,
             )
         )
@@ -289,7 +303,24 @@ def draw_marks(
         else:
             cx, cy = x1, y1  # at the tail: the head stays clear
         anchor = ((cx * s) - line, (cy * s) - line, (cx * s) + line, (cy * s) + line)
-        labelled.append((anchor, mark.get("label") or "", c))
+        labelled.append((anchor, named(mark), c))
+    for outline in outlines:
+        corners = [(float(cx), float(cy)) for cx, cy in outline["points"]]
+        c = of(outline)
+        axes.add_patch(
+            Polygon(
+                corners,
+                closed=True,
+                fill=False,
+                edgecolor=c,
+                linewidth=width,
+                linestyle=style,
+                path_effects=halo,
+            )
+        )
+        xs, ys = [cx for cx, _ in corners], [cy for _, cy in corners]
+        anchor = (min(xs) * s, min(ys) * s, max(xs) * s, max(ys) * s)
+        labelled.append((anchor, named(outline), c))
     for anchor, label, c in labelled:
         placer.place(anchor, label, c)
 
@@ -462,6 +493,8 @@ def scaled_marks(
     for line in scaled.get("lines", []):
         line["x1"], line["x2"] = x(line["x1"]), x(line["x2"])
         line["y1"], line["y2"] = y(line["y1"]), y(line["y2"])
+    for outline in scaled.get("outlines", []):
+        outline["points"] = [[x(cx), y(cy)] for cx, cy in outline["points"]]
     return scaled
 
 
@@ -498,15 +531,63 @@ def drawn_path(beside: str, name: str) -> str:
     return os.path.join(os.path.dirname(beside), "drawn", f"{name}.png")
 
 
-def save_drawn(rgb: np.ndarray, path: str) -> Dict[str, str]:
-    """Save the drawn picture *rgb* as the PNG *path*; answers its preview."""
+def save_drawn(
+    rgb: np.ndarray,
+    path: str,
+    source: Optional[str] = None,
+    marks: Optional[Dict[str, Any]] = None,
+    plane: Optional[int] = None,
+) -> Dict[str, str]:
+    """Save the drawn picture *rgb* as the PNG *path*; answers its preview.
+    With *source*, the image it was drawn on, a note beside it says so, with
+    the *marks* drawn (*source*'s pixels) and the stack's *plane* shown: so
+    whoever answers the picture marks *source* itself (`drawn_from`)."""
     import base64
+    import json
     import os
 
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(png_bytes(rgb))
+    note = _drawn_note(path)
+    if source is not None:
+        drawn = {
+            # relative to the picture's folder, so a moved experiment still finds it
+            "source": os.path.relpath(source, os.path.dirname(path)).replace(
+                os.sep, "/"
+            ),
+            "marks": marks,
+            "plane": plane,
+        }
+        with open(note, "w") as f:
+            json.dump(drawn, f, indent=2)
+    elif os.path.exists(note):
+        os.remove(note)  # drawn again from nothing: the old note no longer holds
     return {"image_b64_jpeg": base64.b64encode(jpeg_bytes(rgb, 1536)).decode()}
+
+
+def _drawn_note(path: str) -> str:
+    import os
+
+    return os.path.splitext(path)[0] + ".json"
+
+
+def drawn_from(path: str) -> Optional[Dict[str, Any]]:
+    """What the picture at *path* was drawn on, when `save_drawn` noted it:
+    ``{source, marks, plane}``, *source* the image's absolute path; None for
+    any other picture, or a note whose image is gone."""
+    import json
+    import os
+
+    try:
+        with open(_drawn_note(path)) as f:
+            drawn = json.load(f)
+        source = os.path.normpath(os.path.join(os.path.dirname(path), drawn["source"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if not os.path.isfile(source):
+        return None
+    return {"source": source, "marks": drawn.get("marks"), "plane": drawn.get("plane")}
 
 
 # The widest a drawn picture is saved, each half of a pair too.

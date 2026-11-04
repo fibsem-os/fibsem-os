@@ -36,6 +36,8 @@ def write_thumbnail(
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     data = np.asarray(data)
+    if data.dtype == np.uint16:  # a 16-bit frame: its top byte, not wrapped
+        data = data >> 8
     if data.ndim == 2:
         data = np.stack([data, data, data], axis=2)
     handle, staged = tempfile.mkstemp(

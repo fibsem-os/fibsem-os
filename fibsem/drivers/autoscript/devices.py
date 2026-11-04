@@ -111,6 +111,12 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 
+def _hfw_max(vendor_max: float) -> float:
+    """Just inside the vendor's maximum field width, by a fraction of it: a fixed
+    10 µm cut a small maximum (SEM Mode 2, about 20 µm) in half."""
+    return vendor_max * (1 - 1e-3)
+
+
 class AutoscriptStage(Stage):
     """The AutoScript stage on an offset (non-compustage) mount.
 
@@ -382,18 +388,29 @@ class AutoscriptBeam(Beam):
         return self._beam.horizontal_field_width.value
 
     def write_hfw(self, value: float) -> None:
-        # clipped just inside the vendor's maximum
         beam = self._beam
         limits = beam.horizontal_field_width.limits
-        value = np.clip(value, limits.min, limits.max - 10e-6)
-        beam.horizontal_field_width.value = value
-        logging.debug(f"{self.beam_type.name} HFW set to {value} m.")
+        clipped = float(np.clip(value, limits.min, _hfw_max(limits.max)))
+        if clipped != value:
+            logging.warning(
+                f"{self.beam_type.name} HFW {value * 1e6:.2f} µm is outside "
+                f"{limits.min * 1e6:.2f}-{limits.max * 1e6:.2f} µm: set "
+                f"{clipped * 1e6:.2f} µm."
+            )
+        beam.horizontal_field_width.value = clipped
+        logging.debug(f"{self.beam_type.name} HFW set to {clipped} m.")
 
     def metadata_hfw(self) -> ParameterMetadata:
         limits = self._beam.horizontal_field_width.limits
         return ParameterMetadata(
-            limits=RangeLimit(min=limits.min, max=limits.max - 10e-6)
+            limits=RangeLimit(min=limits.min, max=_hfw_max(limits.max))
         )
+
+    def read_bit_depth(self) -> int:
+        return int(self._beam.scanning.bit_depth.value)
+
+    def write_bit_depth(self, value: int) -> None:
+        self._beam.scanning.bit_depth.value = int(value)
 
     def read_dwell_time(self) -> float:
         return self._beam.scanning.dwell_time.value

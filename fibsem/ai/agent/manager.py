@@ -306,6 +306,37 @@ class AgentSessionManager:
             log.info("Started the agent for %s (session %s).", microscope, session_id)
             return agent
 
+    def resume(
+        self,
+        microscope: str,
+        session_id: str,
+        args: List[str],
+        env: Optional[Dict[str, str]] = None,
+        about: Optional[dict] = None,
+    ) -> Agent:
+        """Carry on the ended session *session_id* for *microscope*, in its own
+        folder, whoever started it. *args* as for `start` (``--resume`` is
+        added); the manager's record starts again: new args, no restarts."""
+        with self._lock:
+            current = self._agents.get(microscope)
+            if current is not None and current.state != "ended":
+                raise AgentRunning(microscope)
+            folder = find_folder(session_id, self._root)
+            if folder is None or not (folder / RECORD).is_file():
+                raise FileNotFoundError(f"No session {session_id} on this PC.")
+            managed = {
+                "microscope": microscope,
+                "args": list(args),
+                "restarts": [],
+                **({"about": about} if about else {}),
+            }
+            write_json(folder / MANAGED, managed)
+            agent = Agent(microscope, session_id, folder, env=dict(env or {}))
+            agent.process = self._spawn(args + ["--resume", session_id], env)
+            self._agents[microscope] = agent
+            log.info("Resumed session %s for %s.", session_id, microscope)
+            return agent
+
     def end(self, microscope: str) -> Optional[Agent]:
         """Stop *microscope*'s agent: its stop file, then a kill once it has
         had ``end_wait_s``. Returns the agent, or None when there was none."""
@@ -330,6 +361,10 @@ class AgentSessionManager:
             else:
                 self._finish(agent, "ended by the operator")
             return agent
+
+    def folder(self, session_id: str) -> Optional[Path]:
+        """Session *session_id*'s folder, or None."""
+        return find_folder(session_id, self._root)
 
     def agent(self, microscope: str) -> Optional[Agent]:
         with self._lock:
