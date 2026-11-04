@@ -178,6 +178,13 @@ class SessionFolder:
         record["runs"] = runs
         self._write(record)
 
+    def keep_playbook(self, state: dict) -> None:
+        """The session's playbook and its optional skills
+        (`playbooks.Reminders.state`), so a resume picks them up."""
+        record = self.record()
+        record["playbook"] = state.get("playbook")
+        self._write(record)
+
     def _write(self, record: dict) -> None:
         try:
             write_json(self.folder / RECORD, record)

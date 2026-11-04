@@ -85,6 +85,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
             "checklist",
             "constraints",
             "hooks",
+            "playbook",
         }
         | set(_COUNTS)
     )
@@ -143,6 +144,8 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         report["constraints"] = _constraints(body["constraints"])
     if body.get("hooks") is not None:
         report["hooks"] = _hooks(body["hooks"])
+    if body.get("playbook") is not None:
+        report["playbook"] = _playbook(body["playbook"])
     ended = body.get("ended")
     if ended is not None and not isinstance(ended, bool):
         raise _invalid("ended is true or false.")
@@ -239,6 +242,52 @@ def _hooks(items: Any) -> List[Dict[str, str]]:
     return [
         {key: item[key].strip() for key in ("when", "label", "say")} for item in items
     ]
+
+
+PLAYBOOK_SKILL_STATES = ("not loaded", "loaded", "done")
+
+
+def _playbook(value: Any) -> Dict[str, Any]:
+    """The session's playbook: {name, hash, chosen_by, skills: [{skill, state,
+    summary?}]}; {} for none."""
+    if value == {}:
+        return {}
+    shape = (
+        "playbook is {name, hash, chosen_by, skills: [{skill, state, summary?}]}, "
+        "or {} for none."
+    )
+    if not isinstance(value, dict) or not set(value) <= {
+        "name",
+        "hash",
+        "chosen_by",
+        "skills",
+    }:
+        raise _invalid(shape)
+    checked: Dict[str, Any] = {}
+    for key in ("name", "hash", "chosen_by"):
+        text = value.get(key)
+        if text is not None:
+            if not isinstance(text, str) or len(text) > MAX_TEXT:
+                raise _invalid(shape)
+            checked[key] = text.strip()
+    if not checked.get("name"):
+        raise _invalid(shape)
+    skills = value.get("skills") or []
+    if not isinstance(skills, list) or len(skills) > MAX_SKILLS:
+        raise _invalid(shape)
+    checked["skills"] = []
+    for row in skills:
+        if (
+            not isinstance(row, dict)
+            or not set(row) <= {"skill", "state", "summary"}
+            or not isinstance(row.get("skill"), str)
+            or row.get("state") not in PLAYBOOK_SKILL_STATES
+            or not isinstance(row.get("summary", ""), str)
+            or len(row.get("summary", "")) > MAX_TEXT
+        ):
+            raise _invalid(shape)
+        checked["skills"].append(dict(row))
+    return checked
 
 
 def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:

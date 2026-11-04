@@ -22,7 +22,8 @@ from fibsem.server.auth import refusal_error, require_level
 from fibsem.util.timestamps import iso_from_posix
 
 FOLDER = "agent"
-KINDS = ("said", "step", "failed")
+# context: what the harness says of the session ("Playbook set: ...").
+KINDS = ("said", "step", "failed", "context")
 MAX_ENTRIES = 200
 MAX_TEXT = 2000
 MAX_AGE_S = 24 * 3600
