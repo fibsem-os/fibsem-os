@@ -3,7 +3,8 @@
 One per session, started by the host: it reads the session's record and what
 waits in it every few seconds (`AlertRules`), and posts what is due. Settings
 are read again on every pass, so a change in Settings counts at once; the token
-is read from ``FIBSEM_SLACK_TOKEN`` when it starts.
+is read when it starts (``FIBSEM_SLACK_TOKEN``: the environment's, else the
+stored one, `fibsem.keystore`).
 
 Off unless set up: nothing is sent while notifications are off, no token is
 set, no channel is named, or the settings can't be read. What happened
@@ -13,7 +14,6 @@ meanwhile is not sent later.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from typing import Any, Callable, Dict, List, Optional
@@ -28,6 +28,7 @@ from fibsem.alerts.rules import (
 )
 from fibsem.alerts.slack import SlackChannel
 from fibsem.config import NotificationPreferences, load_user_preferences
+from fibsem.keystore import get_secret
 
 TOKEN_ENV = "FIBSEM_SLACK_TOKEN"
 POLL_S = 3.0
@@ -42,7 +43,7 @@ _SETTING = {
 
 
 def slack_token() -> str:
-    return os.environ.get(TOKEN_ENV, "").strip()
+    return (get_secret(TOKEN_ENV) or "").strip()
 
 
 def notification_settings() -> NotificationPreferences:
@@ -69,7 +70,8 @@ def send_test(
     token = slack_token() if token is None else token
     if not token:
         raise ValueError(
-            f"No Slack token: set {TOKEN_ENV} on this PC and start fibsemOS again."
+            f"No Slack token: run fibsem-cli key set {TOKEN_ENV} on this PC, "
+            "then start fibsemOS again."
         )
     name = _channel_name(settings)
     if not name:
