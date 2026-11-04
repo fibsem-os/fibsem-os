@@ -74,6 +74,11 @@ class HookOption:
     answer_has: str = ""
     # Only when these arguments match (a pattern, searched, any case).
     input_matches: Tuple[Tuple[str, str], ...] = ()
+    # For event WATCHER: a pattern on the watcher's lines, said with that turn.
+    line: str = ""
+
+    def on_lines(self, lines: List[str]) -> bool:
+        return bool(self.line) and any(re.search(self.line, x) for x in lines)
 
     def applies(self, hook_input: dict, server: str) -> bool:
         name = str(hook_input.get("tool_name", ""))
@@ -92,6 +97,9 @@ class HookOption:
             return self.answer_has in str(hook_input.get("tool_response", ""))
         return True
 
+
+# An option said with a turn of watcher lines, not by an SDK hook on a call.
+WATCHER = "Watcher"
 
 HOOK_OPTIONS: Dict[str, HookOption] = {
     "site": HookOption(
@@ -126,6 +134,10 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PreToolUse",
         "proposal_decide|proposal_suggest",
         input_matches=(("task_name", r"polish"),),
+    ),
+    # A task finished: the watcher's line, not a tool call.
+    "after_task": HookOption(
+        "After a task finishes", WATCHER, "", line=r"^EVENT task_completed\b"
     ),
     "hardware_error": HookOption(
         "On a hardware error", "PostToolUseFailure", ".*", server_errors_only=True
@@ -323,6 +335,8 @@ def sdk_hooks(hooks: List[Hook], server: str) -> Optional[dict]:
     matchers: Dict[str, list] = {}
     for when, texts in said.items():
         option = HOOK_OPTIONS[when]
+        if option.event == WATCHER:
+            continue
         matchers.setdefault(option.event, []).append(
             HookMatcher(
                 matcher=f"mcp__{server}__({option.tools})",
@@ -340,8 +354,14 @@ def hook_rows() -> List[dict]:
             "PreToolUse": "before the call",
             "PostToolUse": "after the call",
             "PostToolUseFailure": "when the call fails with a server error",
+            WATCHER: "on the watcher's line",
         }[option.event]
         rows.append(
-            {"when": key, "label": option.label, "fires": timing, "tools": option.tools}
+            {
+                "when": key,
+                "label": option.label,
+                "fires": timing,
+                "tools": option.tools or option.line,
+            }
         )
     return rows

@@ -287,10 +287,12 @@ def _kickoff(resumed: bool) -> str:
     )
 
 
-def turn_prompt(lines: List[str]) -> str:
+def turn_prompt(lines: List[str], remind: Optional[List[str]] = None) -> str:
     """The watcher's lines as one turn, with what a GAP or a level change
-    asks of the agent first."""
+    asks of the agent first, and the reminders *remind* the lines call for."""
     prompt = "The watcher printed:\n" + "\n".join(lines)
+    if remind:
+        prompt += "\n\n" + profiles.reminder(remind)
     if any(line.startswith("GAP") for line in lines):
         prompt += "\n\n" + REREAD_PROPOSALS
     if any(line.startswith(("AGENT BACK", "RESTARTED", "LEVEL")) for line in lines):
@@ -302,9 +304,13 @@ class Wakes:
     """The watcher's lines, held while the operator has the agent at Off and
     given to the agent as one turn otherwise."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, remind: Optional[Callable[[List[str]], List[str]]] = None
+    ) -> None:
         self.off = False
         self._held: List[str] = []
+        # The reminders a turn's lines call for (`playbooks.Reminders.for_lines`).
+        self._remind = remind
 
     def add(self, lines: List[str]) -> Optional[str]:
         """The next turn's prompt, or None when there is nothing to say yet."""
@@ -320,7 +326,7 @@ class Wakes:
         if self.off or not self._held:
             return None
         lines, self._held = self._held, []
-        return turn_prompt(lines)
+        return turn_prompt(lines, self._remind(lines) if self._remind else None)
 
 
 class Alarm:
@@ -790,9 +796,13 @@ class Harness:
         # (watch, item): an item from a watch that has been replaced is dropped.
         self._items: Optional[asyncio.Queue] = None
         self._watcher: Optional[Watcher] = None
-        self._wakes = Wakes()
+        self._wakes = self._new_wakes()
         self._code = 0
         self._stop_requested = False
+
+    def _new_wakes(self) -> Wakes:
+        playbook = self._playbook
+        return Wakes(playbook.reminders.for_lines if playbook is not None else None)
 
     def outcome(self) -> dict:
         """How the run ended, for its session's record."""
@@ -1143,7 +1153,7 @@ class Harness:
             return None
         self._end_reason = "stopped at fibsem-agent"
         # A restarted app starts its own session, at Watch.
-        self._wakes = Wakes()
+        self._wakes = self._new_wakes()
         back = (
             f"The app could not be watched for {time.monotonic() - started:.0f} s "
             "and the harness is watching it again: events in between were not "

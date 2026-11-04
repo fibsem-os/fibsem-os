@@ -306,6 +306,15 @@ class Reminders:
                 said.append(hook.say)
         return said
 
+    def for_lines(self, lines: List[str]) -> List[str]:
+        """What is said with a turn of watcher *lines*: the reminders of the
+        watcher options a line matches."""
+        said: List[str] = []
+        for when, option in profiles.HOOK_OPTIONS.items():
+            if option.event == profiles.WATCHER and option.on_lines(lines):
+                said += [t for t in self.texts(when) if t not in said]
+        return said
+
     def state(self) -> dict:
         """For the session record and the Agent page."""
         if self.playbook is None:
@@ -357,6 +366,8 @@ class Reminders:
 
         matchers: Dict[str, list] = {}
         for when, option in profiles.HOOK_OPTIONS.items():
+            if option.event == profiles.WATCHER:
+                continue
             matchers.setdefault(option.event, []).append(
                 HookMatcher(
                     matcher=f"mcp__{server}__({option.tools})",

@@ -188,3 +188,22 @@ def _profile(tmp_path, text):
     path = tmp_path / "night.yaml"
     path.write_text(text, encoding="utf-8")
     return path
+
+
+def test_a_finished_task_reminds_with_the_watchers_turn(lab, checkout):
+    after = profiles.HOOK_OPTIONS["after_task"]
+    assert after.on_lines(["EVENT task_completed 01 Rough Mill"])
+    assert not after.on_lines(["EVENT task_started 01 Rough Mill"])
+    reminders = playbooks.Reminders()
+    reminders.set(playbooks.load("autolamella", checkout), "the operator")
+    wakes = harness_mod.Wakes(reminders.for_lines)
+    done = ["EVENT task_completed 01 Rough Mill"]
+    assert "Reminder:" not in wakes.add(done), "only while autolamella-lead is read"
+    reminders.loaded("autolamella-lead")
+    prompt = wakes.add(done)
+    assert prompt.endswith(profiles.reminder(reminders.texts("after_task")))
+    assert "Reminder:" not in wakes.add(["EVENT task_started 01 Polishing"])
+    # Never an SDK hook: no tool call means a task finished.
+    pytest.importorskip("claude_agent_sdk")
+    matchers = reminders.sdk_hooks(SERVER)
+    assert profiles.WATCHER not in matchers

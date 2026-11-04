@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import profiles
+from fibsem.ai.agent import profiles, watch
 from fibsem.ai.agent.catalog import CATALOG
 from fibsem.ai.agent.profiles import HOOK_OPTIONS, Profile, ProfileError
 
@@ -41,6 +41,10 @@ def write(folder: Path, name: str, text: str) -> Path:
 def test_every_hook_option_fires_on_a_tool_that_exists(when):
     """A renamed tool fails here rather than quietly turning a reminder off."""
     option = HOOK_OPTIONS[when]
+    if option.event == profiles.WATCHER:
+        # The watcher prints "EVENT <kind> ..." for the kinds it watches.
+        assert any(option.on_lines([f"EVENT {k} 01 Task"]) for k in watch.INTERESTING)
+        return
     for part in option.tools.split("|"):
         assert any(re.fullmatch(part, tool) for tool in TOOLS), (when, part)
 
