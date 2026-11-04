@@ -699,8 +699,14 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         # start the acquisition worker
         worker = self.acquisition_worker(self.image_settings, both=both)
-        worker.finished.connect(lambda: self.acquisition_finished(beams))
+        # A bound method, not a lambda: PyQt drops the connection when this
+        # widget is deleted, so a late ``finished`` can't call into a dead one.
+        self._acquiring_beams = beams
+        worker.finished.connect(self._acquisition_worker_finished)
         worker.start(control=control_of(self.microscope), action="acquire images")
+
+    def _acquisition_worker_finished(self) -> None:
+        self.acquisition_finished(self._acquiring_beams)
 
     @thread_worker
     def acquisition_worker(self, image_settings: ImageSettings, both: bool = False):

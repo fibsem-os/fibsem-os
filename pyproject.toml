@@ -142,7 +142,10 @@ fibsem-volume-ui = "fibsem.tools.desktop_launch:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
 fibsem-agent = "fibsem.ai.agent.harness:main"
 fibsem-gateway = "fibsem.gateway.main:main"
-fibsem-autolamella-agent = "fibsem.gateway.launch:autolamella"
+
+# No console: the "Agent Gateway" desktop shortcut runs it.
+[project.gui-scripts]
+fibsem-gateway-open = "fibsem.gateway.launch:open_gateway_page"
 
 # Recursive by design. A bare `packages = ["fibsem"]` is NOT recursive: it ships
 # only the top-level fibsem/*.py and none of fibsem/ui, fibsem/milling, etc.

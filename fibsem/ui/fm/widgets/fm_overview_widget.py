@@ -164,6 +164,10 @@ class PlacedOverviewImageRecord:
     label: str
     metadata: "FluorescenceImageMetadata"
     visible: bool = True
+    # A warning chip for the list row, and its tooltip. None on this side: a camera
+    # has no scan rotation to disagree about.
+    flag: Optional[str] = None
+    flag_tooltip: Optional[str] = None
 
     @property
     def detail(self) -> str:

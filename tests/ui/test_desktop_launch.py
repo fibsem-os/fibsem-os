@@ -177,3 +177,25 @@ def test_clicks_are_ignored_until_the_window_is_up(qapp):
     QTest.qWait(50)
     assert not splash._screen.isVisible()  # window up: the click closes it
     window.close()
+
+
+def test_the_window_closes_when_the_gateway_asks(qapp, tmp_path, monkeypatch):
+    from PyQt5.QtTest import QTest
+    from PyQt5.QtWidgets import QWidget
+
+    monkeypatch.setattr(
+        "fibsem.gateway.gateway.close_file", lambda pid: tmp_path / f"close-{pid}"
+    )
+    window = QWidget()
+    window.show()
+    timer = launcher.watch_for_close(pid=7, every_ms=20)
+    try:
+        QTest.qWait(100)
+        assert window.isVisible()
+        (tmp_path / "close-7").touch()
+        QTest.qWait(200)
+        assert not window.isVisible(), "closed as its close button does"
+        assert not (tmp_path / "close-7").exists()
+    finally:
+        timer.stop()
+        window.close()
