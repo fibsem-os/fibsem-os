@@ -1,7 +1,5 @@
 """The agent's session as the agent reports it: ``/app/agent/session``."""
 
-from datetime import datetime, timedelta
-
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -10,12 +8,10 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server import AuthConfig
 from fibsem.server.agent_session import (
     SESSION_BUDGET,
-    SESSION_CONSTRAINTS,
     SESSION_ENDED,
     SESSION_GOAL,
     SESSION_STARTED,
     build_agent_session_router,
-    deadline,
     report,
 )
 
@@ -146,7 +142,7 @@ def test_a_spend_that_is_not_a_number_is_refused():
     assert auth.agent_session is None
 
 
-def test_the_checklist_is_state_and_the_constraints_go_on_the_record(server):
+def test_the_checklist_is_state_and_a_new_session_starts_without_one(server):
     _, client, recorded = server
     client.post("/app/agent/session", json={"session_id": "s1"})
     checklist = [
@@ -155,23 +151,12 @@ def test_the_checklist_is_state_and_the_constraints_go_on_the_record(server):
         {"text": "Keep the ion beam off between lamellae", "state": "always"},
     ]
     session = client.post("/app/agent/session", json={"checklist": checklist})
-    assert session.json()["session"]["checklist"][1]["state"] == "open"
-    constraints = [{"text": "Finish", "by": "2026-10-24T07:00+11:00"}, {"text": "x"}]
-    session = client.post("/app/agent/session", json={"constraints": constraints})
-    client.post("/app/agent/session", json={"constraints": constraints})
-    assert _kinds(recorded) == [SESSION_STARTED, SESSION_CONSTRAINTS]
+    client.post("/app/agent/session", json={"checklist": checklist})
+    assert _kinds(recorded) == [SESSION_STARTED]
     kept = session.json()["session"]
-    assert kept["constraints"][0] == {"text": "Finish", "by": "2026-10-24T07:00+11:00"}
-    assert len(kept["checklist"]) == 3
-    # A new session starts with neither.
+    assert kept["checklist"][1]["state"] == "open" and len(kept["checklist"]) == 3
     fresh = client.post("/app/agent/session", json={"session_id": "s2"}).json()
-    assert "checklist" not in fresh["session"] and "constraints" not in fresh["session"]
-
-
-def test_a_clock_time_is_its_next_occurrence():
-    now = datetime(2026, 10, 23, 23, 30).astimezone()
-    assert deadline("07:00", now) == now.replace(hour=7, minute=0) + timedelta(days=1)
-    assert deadline("23:45", now) == now.replace(minute=45)
+    assert "checklist" not in fresh["session"]
 
 
 @pytest.mark.parametrize(
@@ -180,8 +165,8 @@ def test_a_clock_time_is_its_next_occurrence():
         {"checklist": [{"text": "x", "state": "maybe"}]},
         {"checklist": [{"text": ""}]},
         {"checklist": "x"},
-        {"constraints": [{"text": "x", "by": "tomorrow"}]},
-        {"constraints": [{"text": "x" * 201}]},
+        # Constraints are the plan's Rules now.
+        {"constraints": [{"text": "x"}]},
         {"hooks": [{"when": "site", "say": "x"}]},
         {"hooks": "x"},
     ],

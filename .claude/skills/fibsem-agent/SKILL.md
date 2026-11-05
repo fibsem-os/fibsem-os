@@ -314,8 +314,8 @@ Its lines:
 - `PLAN EDITED by the operator: <sections>`: the operator changed your plan.
   Read it (`plan_get`) and work to it; say back anything that changes what
   you do.
-- `DEADLINE in 30 min: …` and `DEADLINE now: …`: a constraint's time is near
-  or here (fibsem-agent only). See *Keep a plan*.
+- `DEADLINE in 30 min: …` and `DEADLINE now: …`: a deadline in your plan's
+  Rules is near or here (fibsem-agent only). See *Keep a plan*.
 
 A workflow's end is not the end of the session: the next one may start from
 the app at any time, or from you. Keep the watcher running until the operator
@@ -372,11 +372,12 @@ replaces what is there unless the operator says so: new instructions are when
 checks get dropped. If two conflict, ask which wins. Read it again after a
 `PLAN EDITED` line, a wake-up, and when your context was compacted.
 
-Limits the operator sets go in `server_set_constraints`, beside the goal:
-a time ("finish by 07:00", with `by`) or a rule for the whole session ("don't
-change the milling currents"). Under fibsem-agent a `DEADLINE` line wakes you
-30 min before a time and at it: say where the work stands and what you will
-leave undone to keep it.
+Limits the operator sets are Rules too ("don't change the milling
+currents"). A rule with a time is a deadline: write it as `by 07:00` or
+`by 2026-11-06 07:00` ("- Finish by 07:00"), and the Agent page shows the time
+left under the goal. Under fibsem-agent a `DEADLINE` line wakes you 30 min
+before it and at it: say where the work stands and what you will leave undone
+to keep it.
 
 **When an ask leaves out the rule, ask for it.** "Up to 20 lamellae, thin
 without breaking" names no placement rule, no spacing and no target. Before

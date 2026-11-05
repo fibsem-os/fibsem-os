@@ -1,5 +1,7 @@
 """The agent's plan for its session, plan.md: ``/app/agent/plan``."""
 
+from datetime import datetime, timedelta
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -12,8 +14,10 @@ from fibsem.server.agent_plan import (
     SAMPLE_SET,
     PlanStore,
     build_agent_plan_router,
+    deadline,
     parse,
     render,
+    rule_time,
 )
 from fibsem.server.agent_session import build_agent_session_router
 
@@ -134,6 +138,51 @@ def test_the_sessions_checklist_is_read_from_the_plan(server):
         {"text": "Sites", "state": "done"},
         {"text": "Polish", "state": "open"},
     ]
+
+
+def test_a_rule_with_a_time_is_a_deadline_the_session_reports(server):
+    agent, operator, _, _, _ = server
+    section(
+        agent,
+        "Rules",
+        "- Finish by 07:00\n- Don't change the milling currents\n"
+        "- Coat by **2026-11-06 21:30**",
+    )
+    found = agent.get("/app/agent/session").json()["session"]["deadlines"]
+    assert [d["text"] for d in found] == [
+        "Finish by 07:00",
+        "Coat by **2026-11-06 21:30**",
+    ]
+    first = found[0]["by"]
+    assert datetime.fromisoformat(first) > datetime.now().astimezone()
+    assert found[1]["by"].startswith("2026-11-06T21:30")
+    # The report the harness posts answers with them too, and a time is kept
+    # as first seen while the rule stays.
+    reported = agent.post("/app/agent/session", json={"turns": 1}).json()["session"]
+    assert reported["deadlines"][0]["by"] == first
+    operator.put("/app/agent/plan", json={"markdown": "## Rules\n\n- Finish by 07:00"})
+    assert agent.get("/app/agent/session").json()["session"]["deadlines"] == [
+        {"text": "Finish by 07:00", "by": first}
+    ]
+    # Rules without a time give none.
+    section(agent, "Rules", "- Stop at 180 nm")
+    assert "deadlines" not in agent.get("/app/agent/session").json()["session"]
+
+
+def test_a_clock_time_is_its_next_occurrence():
+    now = datetime(2026, 10, 23, 23, 30).astimezone()
+    assert deadline("07:00", now) == now.replace(hour=7, minute=0) + timedelta(days=1)
+    assert deadline("23:45", now) == now.replace(minute=45)
+    assert rule_time("Finish by 7:00", now) == (
+        now.replace(hour=7, minute=0) + timedelta(days=1)
+    ).isoformat(timespec="minutes")
+    for rule in (
+        "Stop at 180 nm",
+        "Finish by 25:00",
+        "Done by 12:30:15",
+        "nearby 07:00",
+    ):
+        assert rule_time(rule, now) is None
 
 
 def test_a_restarted_app_reads_the_plan_back_and_none_is_kept_without_a_session(

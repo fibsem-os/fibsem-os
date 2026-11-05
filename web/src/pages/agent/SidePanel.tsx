@@ -3,7 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { AgentPlan, ReportedSession } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-// The time left on a constraint turns orange in its last half hour.
+// The time left on a deadline turns orange in its last half hour.
 const SOON_MIN = 30;
 
 const WARN = "text-[var(--fibsem-warn-color)]";
@@ -94,7 +94,7 @@ export function hasPanel(session: ReportedSession | null | undefined): session i
         session.budget_usd != null ||
         session.spent_usd != null ||
         session.context ||
-        session.constraints?.length ||
+        session.deadlines?.length ||
         session.checklist?.length),
   );
 }
@@ -258,7 +258,7 @@ function Setup({ session }: { session: ReportedSession }) {
   );
 }
 
-/** Goal, constraints, the plan (or the agent's checklist), budget and context,
+/** Goal and deadlines, the plan (or the agent's checklist), budget and context,
  * then the playbook on one line at the bottom. */
 export function SidePanel({
   session,
@@ -280,29 +280,24 @@ export function SidePanel({
     spent_usd: spent,
     tokens,
     context,
-    constraints,
+    deadlines,
     checklist,
   } = session;
   return (
     <div className="flex flex-col gap-3.5 text-[13px] leading-[1.45]">
-      {goal && (
+      {(goal || deadlines?.length) ? (
         <Section title="Goal">
-          <p className="m-0 break-words">{goal}</p>
+          {goal && <p className="m-0 break-words">{goal}</p>}
           {started && !ended && (
             <p className="m-0 mt-1 text-muted-foreground">
               Running for {duration(Math.max(0, Math.floor((now - Date.parse(started)) / 60000)))}
             </p>
           )}
-        </Section>
-      )}
-      {constraints?.length ? (
-        <Section title="Constraints">
-          {constraints.map((c, i) => {
-            const left = c.by ? timeLeft(c.by, now) : null;
+          {deadlines?.map((d, i) => {
+            const left = timeLeft(d.by, now);
             return (
-              <p key={i} className="m-0 break-words">
-                {c.text}
-                {left && <span className={left.soon ? WARN : "text-muted-foreground"}> · {left.text}</span>}
+              <p key={i} className={cn("m-0 mt-1 break-words", left.soon ? WARN : "text-muted-foreground")}>
+                {d.text} · {left.text}
               </p>
             );
           })}

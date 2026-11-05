@@ -273,8 +273,8 @@ export interface ReportedSession {
   tokens?: { input: number; output: number; cache_read: number; cache_write: number };
   /** How full its context is, in tokens: compacted at `compact_at`. */
   context?: { used: number; window?: number; compact_at?: number };
-  /** `by`, when given, is an ISO time with its offset. */
-  constraints?: { text: string; by?: string }[];
+  /** The plan's Rules that give a time; `by` is an ISO time with its offset. */
+  deadlines?: { text: string; by: string }[];
   checklist?: { text: string; state: "open" | "done" | "always" }[];
   ended?: boolean;
 }

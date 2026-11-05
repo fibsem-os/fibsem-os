@@ -225,7 +225,7 @@ def test_the_wake_up_tool_is_the_harness_own_server():
     assert harness_mod.WAKE_TOOL in options.allowed_tools
 
 
-def test_a_constraints_time_wakes_the_agent_before_it_and_at_it():
+def test_a_deadline_wakes_the_agent_before_it_and_at_it():
     async def main():
         rang = []
         deadlines = harness_mod.Deadlines(warn_s=0.2)
@@ -244,7 +244,7 @@ def test_a_constraints_time_wakes_the_agent_before_it_and_at_it():
     asyncio.run(main())
 
 
-def test_a_constraint_taken_away_or_already_past_rings_nothing():
+def test_a_deadline_taken_away_or_already_past_rings_nothing():
     async def main():
         rang = []
         deadlines = harness_mod.Deadlines(warn_s=0.1)
@@ -260,14 +260,17 @@ def test_a_constraint_taken_away_or_already_past_rings_nothing():
     asyncio.run(main())
 
 
-def test_the_harness_keeps_the_constraints_the_agent_set(session):
-    by = (datetime.now().astimezone() + timedelta(hours=2)).replace(second=0)
+def test_the_harness_keeps_the_deadlines_in_the_agents_plan(session):
+    by = (datetime.now().astimezone() + timedelta(hours=2)).replace(
+        second=0, microsecond=0
+    )
 
     async def reply(prompt):
         with _http(session) as http:
+            http.post("/app/agent/session", json={"session_id": "scripted"})
             http.post(
-                "/app/agent/session",
-                json={"constraints": [{"text": "Finish", "by": by.isoformat()}]},
+                "/app/agent/plan/section",
+                json={"section": "Rules", "text": f"- Finish by {by:%H:%M}"},
             )
         return TurnEnd(session_id="scripted")
 

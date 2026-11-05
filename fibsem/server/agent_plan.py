@@ -16,6 +16,11 @@ writes is saved on the experiment. The agent writes it once; after that only
 the operator changes it. Setting it puts an ``agent_sample_set`` event on the
 record.
 
+A rule with a time ("Finish by 07:00", or a date and time) is a deadline: the
+session reports it, and fibsem-agent wakes the agent before it and at it. A
+clock time is its next occurrence when the rule is first seen, kept for the
+session, so it doesn't move to tomorrow once passed.
+
 Kept at ``agent/plan-<session id>.md`` in the open experiment, beside the
 transcript, and in memory when no experiment is open.
 """
@@ -23,7 +28,7 @@ transcript, and in memory when no experiment is open.
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -50,6 +55,10 @@ _BOX = re.compile(r"^\s*[-*] +\[( |x|X)\] +(.+?)\s*$")
 _BULLET = re.compile(r"^\s*[-*] +(.+?)\s*$")
 _SAMPLE = re.compile(r"^\s*\**sample\**\s*:\s*\**\s*(.+?)\s*$", re.IGNORECASE)
 _SESSION = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+# A rule's deadline: "by 07:00", "by 2026-11-06 07:00" or "by 2026-11-06T07:00".
+_BY = re.compile(
+    r"\bby\s+\**((?:\d{4}-\d{2}-\d{2}[T ])?\d{1,2}:\d{2})(?![\d:])", re.IGNORECASE
+)
 TITLE = "# Plan"
 
 
@@ -139,6 +148,30 @@ def rules(text: str) -> List[str]:
     return [m.group(1) for m in map(_BULLET.match, text.splitlines()) if m]
 
 
+def deadline(by: str, now: Optional[datetime] = None) -> datetime:
+    """*by* as a time with its offset: "07:00" is its next occurrence here, an
+    ISO date and time without an offset is this computer's local time."""
+    now = now or datetime.now().astimezone()
+    try:
+        clock = datetime.strptime(by, "%H:%M")
+    except ValueError:
+        when = datetime.fromisoformat(by.replace(" ", "T"))
+        return when if when.tzinfo else when.astimezone()
+    when = now.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0)
+    return when if when > now else when + timedelta(days=1)
+
+
+def rule_time(rule: str, now: Optional[datetime] = None) -> Optional[str]:
+    """The time a rule gives ("by 07:00"), with its offset; None for none."""
+    found = _BY.search(rule)
+    if not found:
+        return None
+    try:
+        return deadline(found.group(1), now).isoformat(timespec="minutes")
+    except ValueError:
+        return None
+
+
 def sample(sections: Dict[str, str]) -> Optional[str]:
     """The Brief's ``Sample:`` line, None when there is none."""
     for line in sections.get("Brief", "").splitlines():
@@ -167,6 +200,8 @@ class PlanStore:
         self.sections: Dict[str, str] = {}
         self.updated: Optional[str] = None
         self.updated_by: Optional[str] = None
+        # Each rule's deadline as first seen this session: {rule: time}.
+        self._times: Dict[str, Optional[str]] = {}
 
     def _folder(self) -> Optional[Path]:
         path = self._experiment_path()
@@ -184,6 +219,7 @@ class PlanStore:
         if session_id != self.session_id:
             self.session_id, self.sections = session_id, {}
             self.updated = self.updated_by = None
+            self._times = {}
             path = self._file(session_id) if session_id else None
             if path is not None and path.is_file():
                 try:
@@ -198,6 +234,8 @@ class PlanStore:
         return self.sections
 
     def write(self, session_id: str, sections: Dict[str, str], by: str) -> None:
+        if session_id != self.session_id:
+            self._times = {}
         self.session_id, self.sections = session_id, sections
         self.updated = datetime.now().astimezone().isoformat(timespec="seconds")
         self.updated_by = by
@@ -240,6 +278,19 @@ class PlanStore:
             self._set_experiment_sample(value)
         except Exception:  # noqa: BLE001 - the plan keeps it all the same
             logging.warning("could not set the experiment's sample", exc_info=True)
+
+    def deadlines(self, session_id: Optional[str]) -> Optional[List[Dict[str, str]]]:
+        """The Rules that give a time, each {text, by}. None with no plan."""
+        sections = self.current(session_id)
+        if not sections:
+            return None
+        found = []
+        for rule in rules(sections.get("Rules", "")):
+            if rule not in self._times:
+                self._times[rule] = rule_time(rule)
+            if self._times[rule]:
+                found.append({"text": rule, "by": self._times[rule]})
+        return found
 
     def checklist(self, session_id: Optional[str]) -> Optional[List[Dict[str, str]]]:
         """The session's checklist read from its plan: the Rules standing, the
