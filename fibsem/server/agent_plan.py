@@ -16,6 +16,11 @@ writes is saved on the experiment. The agent writes it once; after that only
 the operator changes it. Setting it puts an ``agent_sample_set`` event on the
 record.
 
+A rule with a time ("Finish by 07:00", or a date and time) is a deadline: the
+session reports it, and fibsem-agent wakes the agent before it and at it. A
+clock time alone is written out with its date as the plan is saved ("by
+2026-11-06 07:00", its next occurrence), so it doesn't move once passed.
+
 Kept at ``agent/plan-<session id>.md`` in the open experiment, beside the
 transcript, and in memory when no experiment is open.
 """
@@ -23,7 +28,7 @@ transcript, and in memory when no experiment is open.
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -50,6 +55,12 @@ _BOX = re.compile(r"^\s*[-*] +\[( |x|X)\] +(.+?)\s*$")
 _BULLET = re.compile(r"^\s*[-*] +(.+?)\s*$")
 _SAMPLE = re.compile(r"^\s*\**sample\**\s*:\s*\**\s*(.+?)\s*$", re.IGNORECASE)
 _SESSION = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+# A rule's deadline: "by 07:00", "by 2026-11-06 07:00" or "by 2026-11-06T07:00".
+_BY = re.compile(
+    r"\bby\s+\**((?:\d{4}-\d{2}-\d{2}[T ])?\d{1,2}:\d{2})(?![\d:])", re.IGNORECASE
+)
+# A clock time without its date, which the plan is saved with its date.
+_BARE = re.compile(r"\b(by\s+\**)(\d{1,2}:\d{2})(?![\d:])", re.IGNORECASE)
 TITLE = "# Plan"
 
 
@@ -137,6 +148,44 @@ def steps(text: str) -> List[Dict[str, Any]]:
 
 def rules(text: str) -> List[str]:
     return [m.group(1) for m in map(_BULLET.match, text.splitlines()) if m]
+
+
+def deadline(by: str, now: Optional[datetime] = None) -> datetime:
+    """*by* as a time with its offset: "07:00" is its next occurrence here, an
+    ISO date and time without an offset is this computer's local time."""
+    now = now or datetime.now().astimezone()
+    try:
+        clock = datetime.strptime(by, "%H:%M")
+    except ValueError:
+        when = datetime.fromisoformat(by.replace(" ", "T"))
+        return when if when.tzinfo else when.astimezone()
+    when = now.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0)
+    return when if when > now else when + timedelta(days=1)
+
+
+def rule_time(rule: str, now: Optional[datetime] = None) -> Optional[str]:
+    """The time a rule gives ("by 07:00"), with its offset; None for none."""
+    found = _BY.search(rule)
+    if not found:
+        return None
+    try:
+        return deadline(found.group(1), now).isoformat(timespec="minutes")
+    except ValueError:
+        return None
+
+
+def dated(text: str, now: Optional[datetime] = None) -> str:
+    """*text* with each "by 07:00" written "by 2026-11-06 07:00", its next
+    occurrence; a time that is not one is left as it is."""
+
+    def full(found: re.Match) -> str:
+        try:
+            when = deadline(found.group(2), now)
+        except ValueError:
+            return found.group(0)
+        return found.group(1) + when.strftime("%Y-%m-%d %H:%M")
+
+    return _BARE.sub(full, text)
 
 
 def sample(sections: Dict[str, str]) -> Optional[str]:
@@ -241,6 +290,18 @@ class PlanStore:
         except Exception:  # noqa: BLE001 - the plan keeps it all the same
             logging.warning("could not set the experiment's sample", exc_info=True)
 
+    def deadlines(self, session_id: Optional[str]) -> Optional[List[Dict[str, str]]]:
+        """The Rules that give a time, each {text, by}. None with no plan."""
+        sections = self.current(session_id)
+        if not sections:
+            return None
+        found = []
+        for rule in rules(sections.get("Rules", "")):
+            by = rule_time(rule)
+            if by:
+                found.append({"text": rule, "by": by})
+        return found
+
     def checklist(self, session_id: Optional[str]) -> Optional[List[Dict[str, str]]]:
         """The session's checklist read from its plan: the Rules standing, the
         Steps' boxes open or done. None with no plan."""
@@ -305,6 +366,8 @@ def build_agent_plan_router(
         before = store.current(session_id)
         if len(sections) > MAX_SECTIONS:
             raise _invalid(f"A plan has at most {MAX_SECTIONS} sections.")
+        if "Rules" in sections:
+            sections = {**sections, "Rules": dated(sections["Rules"])}
         was = sample(before) or store.experiment_sample()
         now = sample(sections)
         brief = sections.get("Brief") != before.get("Brief")

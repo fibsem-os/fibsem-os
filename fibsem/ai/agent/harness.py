@@ -85,7 +85,7 @@ PLAYBOOK_TOOLS = [
 ]
 # The longest a wake-up can be set for, in minutes.
 WAKE_MAX_MIN = 240
-# A constraint's time wakes the agent this long before it, and again at it.
+# A deadline wakes the agent this long before it, and again at it.
 DEADLINE_WARN_S = 30 * 60
 # The server's level gate decides what the fibsem tools may do, so they need no
 # prompt; ToolSearch only finds them.
@@ -185,8 +185,8 @@ instruction a MESSAGE gives goes in it, in their words, as it arrives: a \
 standing rule in Rules, a task as a Steps box. Read it (plan_get) before each \
 step, and tick a box only when it is done. A new instruction adds to the \
 plan; it never replaces what is there unless the operator says so. Limits \
-the operator sets ("finish by 07:00") go in server_set_constraints: a DEADLINE \
-line wakes you 30 min before such a time and at it.
+the operator sets are Rules too; one with a time ("Finish by 07:00") is a \
+deadline: a DEADLINE line wakes you 30 min before it and at it.
 - To look again later with nothing to wake you (after a long mill, to check \
 drift, before a deadline), set a wake-up with wake_after: a WAKE line with \
 your reason comes then. One at a time; a new one replaces it.
@@ -406,9 +406,10 @@ class Alarm:
 
 
 class Deadlines:
-    """The constraints' times: each wakes the agent `DEADLINE_WARN_S` before it
-    and at it, with a ``DEADLINE`` line, like the watcher's lines. A
-    constraint kept from one report to the next keeps its timers."""
+    """The plan's deadlines (Rules with a time): each wakes the agent
+    `DEADLINE_WARN_S` before it and at it, with a ``DEADLINE`` line, like the
+    watcher's lines. A deadline kept from one report to the next keeps its
+    timers."""
 
     def __init__(self, warn_s: float = DEADLINE_WARN_S) -> None:
         self.warn_s = warn_s
@@ -419,11 +420,11 @@ class Deadlines:
     def bind(self, loop: asyncio.AbstractEventLoop, ring: Callable[[str], None]):
         self._loop, self._ring = loop, ring
 
-    def set(self, constraints: Optional[List[Dict[str, Any]]]) -> None:
-        """The session's constraints as the App Server holds them."""
+    def set(self, deadlines: Optional[List[Dict[str, Any]]]) -> None:
+        """The session's deadlines as the App Server reports them."""
         wanted = {
             (c["text"], c["by"])
-            for c in constraints or []
+            for c in deadlines or []
             if isinstance(c, dict) and c.get("text") and c.get("by")
         }
         for key in set(self._timers) - wanted:
@@ -1073,7 +1074,7 @@ class Harness:
 
         reported = await asyncio.get_running_loop().run_in_executor(None, post)
         if isinstance(reported, dict) and not ended:
-            self._deadlines.set(reported.get("constraints"))
+            self._deadlines.set(reported.get("deadlines"))
         await self._send_transcript()
 
     async def _report_read(self, prompt: str) -> None:

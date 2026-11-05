@@ -6,9 +6,9 @@ goal, on what budget, how much spent, how many tokens and how full its context
 is -- only the agent's harness knows, so the harness reports it here:
 ``fibsem-agent`` after every turn, Claude Code through ``server_report_session``. fibsem-agent also says what it can do: code mode and
 its folder, effort, skills. Self-reported, like the client's name: a label for
-the operator, not an identity. The agent also keeps the operator's constraints
-(``server_set_constraints``) here, and its checklist, read from its plan
-(``fibsem.server.agent_plan``) when it keeps one, for the Agent page. A session starting, its goal or constraints changing and
+the operator, not an identity. Its checklist and deadlines are read from its
+plan (``fibsem.server.agent_plan``) when it keeps one, for the Agent page and
+for fibsem-agent's deadline wake-ups. A session starting, its goal changing and
 its end go on the record, and so does the spend first reaching 80% of the
 budget; the spend and the checklist in between are state, read with GET.
 
@@ -20,7 +20,7 @@ starts, ``fibsem-mcp watch`` as it prints them for any other agent.
 import logging
 import math
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -34,7 +34,6 @@ SESSION_STARTED = "agent_session_started"
 SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
 SESSION_BUDGET = "agent_session_budget"
-SESSION_CONSTRAINTS = "agent_session_constraints"
 MESSAGES_READ = "agent_messages_read"
 # A message's id (`AgentSession.message`), and how many one report names.
 _MESSAGE_ID = re.compile(r"^[0-9a-f]{1,32}$")
@@ -59,7 +58,6 @@ _COUNTS = {
 MAX_SKILLS = 20
 MAX_ITEM = 200
 MAX_CHECKLIST = 50
-MAX_CONSTRAINTS = 10
 MAX_HOOKS = 20
 CHECK_STATES = ("open", "done", "always")
 
@@ -81,7 +79,6 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
             "resumed",
             "skills",
             "checklist",
-            "constraints",
             "hooks",
             "playbook",
         }
@@ -138,8 +135,6 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         report["skills"] = [s.strip() for s in skills]
     if body.get("checklist") is not None:
         report["checklist"] = _checklist(body["checklist"])
-    if body.get("constraints") is not None:
-        report["constraints"] = _constraints(body["constraints"])
     if body.get("hooks") is not None:
         report["hooks"] = _hooks(body["hooks"])
     if body.get("playbook") is not None:
@@ -186,38 +181,6 @@ def _checklist(items: Any) -> List[Dict[str, str]]:
         if state not in CHECK_STATES:
             raise _invalid(f"An item's state is one of {list(CHECK_STATES)}.")
         checked.append({"text": _text(item, "item"), "state": state})
-    return checked
-
-
-def deadline(by: str, now: Optional[datetime] = None) -> datetime:
-    """*by* as a time with its offset: "07:00" is its next occurrence here, an
-    ISO date and time without an offset is this computer's local time."""
-    now = now or datetime.now().astimezone()
-    try:
-        clock = datetime.strptime(by, "%H:%M")
-    except ValueError:
-        when = datetime.fromisoformat(by)
-        return when if when.tzinfo else when.astimezone()
-    when = now.replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0)
-    return when if when > now else when + timedelta(days=1)
-
-
-def _constraints(items: Any) -> List[Dict[str, str]]:
-    """Each {text, by?}: by, when given, is stored as a time with its offset."""
-    if not isinstance(items, list) or len(items) > MAX_CONSTRAINTS:
-        raise _invalid(f"constraints is a list of at most {MAX_CONSTRAINTS} items.")
-    checked = []
-    for item in items:
-        constraint = {"text": _text(item, "constraint")}
-        by = item.get("by")
-        if by is not None:
-            try:
-                constraint["by"] = deadline(str(by)).isoformat(timespec="minutes")
-            except ValueError:
-                raise _invalid(
-                    "by is a time, 07:00, or an ISO date and time, 2026-10-24T07:00."
-                ) from None
-        checked.append(constraint)
     return checked
 
 
@@ -315,10 +278,6 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
         session = {**previous, **fields}
         if "goal" in fields and fields["goal"] != previous.get("goal"):
             kinds.append(SESSION_GOAL)
-        if "constraints" in fields and fields["constraints"] != previous.get(
-            "constraints"
-        ):
-            kinds.append(SESSION_CONSTRAINTS)
     if budget_low(session) and (starts or not budget_low(previous)):
         kinds.append(SESSION_BUDGET)
     if ended:
@@ -337,6 +296,20 @@ def build_agent_session_router(
         prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
 
+    def with_plan(request: Request, session: Optional[Dict[str, Any]]):
+        """With a plan, the checklist and deadlines are read from it."""
+        plan = getattr(request.app.state, "agent_plan", None)
+        if session is None or plan is None:
+            return session
+        session_id = session.get("session_id")
+        found = plan.checklist(session_id)
+        if found is not None:
+            session = {**session, "checklist": found}
+        deadlines = plan.deadlines(session_id)
+        if deadlines:
+            session = {**session, "deadlines": deadlines}
+        return session
+
     @router.post("/session", response_model=AgentSession)
     def report_session(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
@@ -348,7 +321,7 @@ def build_agent_session_router(
                 emit(kind, dict(session))
             except Exception:  # noqa: BLE001 - the record never costs the report
                 logging.debug("could not record %s", kind, exc_info=True)
-        return {"session": session}
+        return {"session": with_plan(request, session)}
 
     @router.post("/read")
     def report_read(body: Dict[str, Any]):
@@ -370,13 +343,6 @@ def build_agent_session_router(
     @router.get("/session", response_model=AgentSession)
     def get_session(request: Request):
         auth: AuthConfig = request.app.state.auth
-        session = auth.agent_session
-        # With a plan, the checklist is read from it (fibsem.server.agent_plan).
-        plan = getattr(request.app.state, "agent_plan", None)
-        if session is not None and plan is not None:
-            found = plan.checklist(session.get("session_id"))
-            if found is not None:
-                session = {**session, "checklist": found}
-        return {"session": session}
+        return {"session": with_plan(request, auth.agent_session)}
 
     return router
