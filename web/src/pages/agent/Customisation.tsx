@@ -17,6 +17,7 @@ export interface Filter {
   categories: string[];
 }
 export const FILTER_LABEL = "Filter the tools";
+const NEVER = "Never touches";
 export const NO_FILTER: Filter = { reads: false, acts: false, hardware: false, categories: [] };
 
 export function shown(tool: ToolRow, filter: Filter, text: string): boolean {
@@ -41,11 +42,14 @@ export function FilterMenu({
   categories,
   filter,
   set,
+  extra,
 }: {
   tools: ToolRow[];
   categories: string[];
   filter: Filter;
   set: (f: Filter) => void;
+  /** A category of rows that aren't tools, listed last, with its count. */
+  extra?: { name: string; count: number };
 }) {
   const on = Number(filter.reads) + Number(filter.acts) + Number(filter.hardware) + filter.categories.length;
   const flip = (key: "reads" | "acts" | "hardware") => set({ ...filter, [key]: !filter[key] });
@@ -95,6 +99,14 @@ export function FilterMenu({
               count={tools.filter((t) => t.category === name).length}
             />
           ))}
+          {extra && (
+            <Check
+              on={filter.categories.includes(extra.name)}
+              onChange={() => flipCategory(extra.name)}
+              label={extra.name}
+              count={extra.count}
+            />
+          )}
           <button
             className="mt-2 cursor-pointer border-0 border-t border-border bg-transparent px-0 pt-2 text-left text-[12px] text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-50"
             disabled={!on}
@@ -138,6 +150,16 @@ function Tools({ data }: { data: AgentCustomisation }) {
     }
     return [...found];
   }, [data.tools, filter, text]);
+  // What it may never touch: a category of its own, with no level.
+  const never = useMemo(() => {
+    const words = text.trim().toLowerCase();
+    const levels = filter.reads || filter.acts || filter.hardware;
+    const category = !filter.categories.length || filter.categories.includes(NEVER);
+    if (levels || !category) return [];
+    return data.never.filter(
+      (row) => !words || [row.device, row.blocked, row.why].some((t) => t.toLowerCase().includes(words)),
+    );
+  }, [data.never, filter, text]);
   return (
     <>
       <p className="m-0 mb-3 text-muted-foreground">
@@ -153,9 +175,15 @@ function Tools({ data }: { data: AgentCustomisation }) {
           value={text}
           onChange={(e) => setText(e.target.value)}
         />
-        <FilterMenu tools={data.tools} categories={data.categories} filter={filter} set={setFilter} />
+        <FilterMenu
+          tools={data.tools}
+          categories={data.categories}
+          filter={filter}
+          set={setFilter}
+          extra={{ name: NEVER, count: data.never.length }}
+        />
       </div>
-      {groups.length ? (
+      {groups.length || never.length ? (
         groups.map(([group, tools]) => (
           <section key={group}>
             <h4 className="mt-4 mb-1 text-[12px] font-semibold text-muted-foreground">
@@ -171,18 +199,26 @@ function Tools({ data }: { data: AgentCustomisation }) {
       ) : (
         <p className="mt-4 text-muted-foreground">No tool matches.</p>
       )}
+      {never.length > 0 && (
+        <section>
+          <h4 className="mt-4 mb-1 text-[12px] font-semibold text-muted-foreground">
+            {NEVER} <span className="font-normal">· {never.length}</span>
+          </h4>
+          <Never rows={never} />
+        </section>
+      )}
     </>
   );
 }
 
-function Never({ data }: { data: AgentCustomisation }) {
+function Never({ rows }: { rows: AgentCustomisation["never"] }) {
   return (
     <>
-      <p className="m-0 mb-3 text-muted-foreground">
+      <p className="m-0 mb-1 text-muted-foreground">
         Refused at every level, an approved request included. Their values stay readable.
       </p>
       <ul className="m-0 list-none p-0">
-        {data.never.map((row) => (
+        {rows.map((row) => (
           <li
             key={row.device}
             className="grid grid-cols-1 gap-x-3 border-b border-border/60 py-1.5 sm:grid-cols-[130px_1fr]"
@@ -199,7 +235,7 @@ function Never({ data }: { data: AgentCustomisation }) {
   );
 }
 
-/** What the agent may never touch, then what it can call, read-only: the knowledge
+/** What the agent can call, and what it may never touch, read-only: the knowledge
  * window's Tools tab. */
 export function AgentRules({ enabled }: { enabled: boolean }) {
   const data = useQuery({
@@ -211,18 +247,7 @@ export function AgentRules({ enabled }: { enabled: boolean }) {
   return (
     <div className="h-[min(560px,76vh)] min-h-0 overflow-auto px-5 py-4 text-[13px] leading-[1.45]">
       {data.data ? (
-        <>
-          <details className="mb-4 rounded border border-border px-3 py-2">
-            <summary className="cursor-pointer text-muted-foreground">
-              <span className="text-foreground">Never touches</span> ·{" "}
-              {data.data.never.map((row) => row.device).join(", ")}
-            </summary>
-            <div className="mt-2">
-              <Never data={data.data} />
-            </div>
-          </details>
-          <Tools data={data.data} />
-        </>
+        <Tools data={data.data} />
       ) : (
         <p className="m-0 text-muted-foreground">{data.error ? String(data.error) : "Reading…"}</p>
       )}
