@@ -7,8 +7,8 @@ is -- only the agent's harness knows, so the harness reports it here:
 ``fibsem-agent`` after every turn, Claude Code through ``server_report_session``. fibsem-agent also says what it can do: code mode and
 its folder, effort, skills. Self-reported, like the client's name: a label for
 the operator, not an identity. The agent also keeps the operator's constraints
-(``server_set_constraints``) and its checklist (``server_set_checklist``) here,
-for the Agent page. A session starting, its goal or constraints changing and
+(``server_set_constraints``) here, and its checklist, read from its plan
+(``fibsem.server.agent_plan``) when it keeps one, for the Agent page. A session starting, its goal or constraints changing and
 its end go on the record, and so does the spend first reaching 80% of the
 budget; the spend and the checklist in between are state, read with GET.
 
@@ -85,6 +85,7 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
             "checklist",
             "constraints",
             "hooks",
+            "playbook",
         }
         | set(_COUNTS)
     )
@@ -143,6 +144,8 @@ def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
         report["constraints"] = _constraints(body["constraints"])
     if body.get("hooks") is not None:
         report["hooks"] = _hooks(body["hooks"])
+    if body.get("playbook") is not None:
+        report["playbook"] = _playbook(body["playbook"])
     ended = body.get("ended")
     if ended is not None and not isinstance(ended, bool):
         raise _invalid("ended is true or false.")
@@ -241,6 +244,52 @@ def _hooks(items: Any) -> List[Dict[str, str]]:
     ]
 
 
+PLAYBOOK_SKILL_STATES = ("not loaded", "loaded", "done")
+
+
+def _playbook(value: Any) -> Dict[str, Any]:
+    """The session's playbook: {name, hash, chosen_by, skills: [{skill, state,
+    summary?}]}; {} for none."""
+    if value == {}:
+        return {}
+    shape = (
+        "playbook is {name, hash, chosen_by, skills: [{skill, state, summary?}]}, "
+        "or {} for none."
+    )
+    if not isinstance(value, dict) or not set(value) <= {
+        "name",
+        "hash",
+        "chosen_by",
+        "skills",
+    }:
+        raise _invalid(shape)
+    checked: Dict[str, Any] = {}
+    for key in ("name", "hash", "chosen_by"):
+        text = value.get(key)
+        if text is not None:
+            if not isinstance(text, str) or len(text) > MAX_TEXT:
+                raise _invalid(shape)
+            checked[key] = text.strip()
+    if not checked.get("name"):
+        raise _invalid(shape)
+    skills = value.get("skills") or []
+    if not isinstance(skills, list) or len(skills) > MAX_SKILLS:
+        raise _invalid(shape)
+    checked["skills"] = []
+    for row in skills:
+        if (
+            not isinstance(row, dict)
+            or not set(row) <= {"skill", "state", "summary"}
+            or not isinstance(row.get("skill"), str)
+            or row.get("state") not in PLAYBOOK_SKILL_STATES
+            or not isinstance(row.get("summary", ""), str)
+            or len(row.get("summary", "")) > MAX_TEXT
+        ):
+            raise _invalid(shape)
+        checked["skills"].append(dict(row))
+    return checked
+
+
 def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
     """Fold a report into the session the server holds: (the session, the
     record kinds it starts). A new ``session_id`` starts a new session."""
@@ -323,6 +372,13 @@ def build_agent_session_router(
     @router.get("/session", response_model=AgentSession)
     def get_session(request: Request):
         auth: AuthConfig = request.app.state.auth
-        return {"session": auth.agent_session}
+        session = auth.agent_session
+        # With a plan, the checklist is read from it (fibsem.server.agent_plan).
+        plan = getattr(request.app.state, "agent_plan", None)
+        if session is not None and plan is not None:
+            found = plan.checklist(session.get("session_id"))
+            if found is not None:
+                session = {**session, "checklist": found}
+        return {"session": session}
 
     return router

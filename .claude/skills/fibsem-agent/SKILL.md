@@ -310,9 +310,12 @@ Its lines:
 - `NOTE from the operator on <grid>`: the operator kept a note on a grid.
   It is not to you; nothing to answer.
 - `WAKE <reason>`: a wake-up you set with `wake_after` (fibsem-agent only)
-  has come. Do what you set it for.
+  has come. Read your plan again, then do what you set it for.
+- `PLAN EDITED by the operator: <sections>`: the operator changed your plan.
+  Read it (`plan_get`) and work to it; say back anything that changes what
+  you do.
 - `DEADLINE in 30 min: …` and `DEADLINE now: …`: a constraint's time is near
-  or here (fibsem-agent only). See *Keep a checklist*.
+  or here (fibsem-agent only). See *Keep a plan*.
 
 A workflow's end is not the end of the session: the next one may start from
 the app at any time, or from you. Keep the watcher running until the operator
@@ -341,15 +344,30 @@ a note (*Write down why*): messages about what
 can wait teach the operator to ignore them. A message decides nothing: a
 decision you want is a proposal or a request.
 
-**Keep a checklist of the operator's instructions.** Every instruction goes
-on your checklist (`server_set_checklist`, shown on the Agent page) in the
-operator's words, the moment it arrives: each MESSAGE that asks for something,
-and each standing rule ("check coincidence at every site", "a fluorescent
-target") as `always`. Read it before each step. Mark an item `done` only when
-it is done and you have said so; a standing rule stays until the operator
-lifts it or the session ends. A new instruction adds to the list and never
+**Keep a plan.** Your plan for the session is plan.md, which the operator
+reads and edits on the Agent page. Write it at intake under the playbook's
+plan headings (Brief, Playbook, Rules, Steps, Progress, Summary by default),
+one section at a time with `plan_set_section`:
+
+- **Brief**: the question, the sample and the target, and the goal, in the
+  operator's words. Its first line is `Sample: <name>`, the sample as the
+  operator names it: write it once, as soon as you know it. Feedback and the
+  knowledge base read it there, and after that only the operator changes it.
+- **Playbook**: which one runs, and who chose it.
+- **Rules**: each standing rule ("check coincidence at every site", "a
+  fluorescent target"), one `- ` line each, in the operator's words.
+- **Steps**: `- [ ]` boxes, grouped under `### ` lines (a phase, a grid).
+- **Progress**: what happened, newest last. A key picture goes on a line of
+  its own as `![caption](path)`, the path relative to the experiment folder
+  (`lamella-01/polish.png`); the Agent page shows it. **Summary**: at the end.
+
+Every instruction goes in the moment it arrives: a standing rule in Rules,
+a task as a Steps box. Read the plan before each step (`plan_get`). Tick a box
+only when it is done and you have said so; a rule stays until the operator
+lifts it or the session ends. A new instruction adds to the plan and never
 replaces what is there unless the operator says so: new instructions are when
-checks get dropped. If two items conflict, ask which wins.
+checks get dropped. If two conflict, ask which wins. Read it again after a
+`PLAN EDITED` line, a wake-up, and when your context was compacted.
 
 Limits the operator sets go in `server_set_constraints`, beside the goal:
 a time ("finish by 07:00", with `by`) or a rule for the whole session ("don't
@@ -818,6 +836,16 @@ At the start of a session:
    now, the sample's and playbook's once you know them.
 5. If the goal and the operator's messages don't say what they want done,
    ask them (the table at the top), then read the task skill for it.
+   Under `fibsem-agent`, the job runs from a playbook: its skills, its
+   reminders and its rules. If none is set yet (`playbook_list` says which
+   is), propose the one that fits the operator's brief and goal, say why,
+   and call `playbook_set` once they agree, or with no name if they agree
+   none fits. Until then only ask and read. Say "running the X playbook"
+   from then on. Read its skills at once; read an optional one when its
+   `when` holds, and call `skill_done` with a one-line summary when that
+   part of the job is over, so its reminders go off. When the job changes,
+   propose the other playbook the same way. Once you have the brief, write
+   your plan (*Keep a plan*), the Brief with its `Sample:` line first.
 6. Before the first microscope action, get your bearings (above).
 7. At Drive, before you start workflows yourself, turn the run summary
    dialog off with `workflow_set_options(show_run_summary=false)` so no dialog

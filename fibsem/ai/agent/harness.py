@@ -34,7 +34,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode, mirror, profiles, usage
+from fibsem.ai.agent import code_mode, mirror, playbooks, profiles, sources, usage
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
@@ -70,6 +70,11 @@ SPECIALISTS = (
 # The harness's own tools, in-process: the wake-up timer (`Alarm`).
 HARNESS_SERVER = "fibsem_agent"
 WAKE_TOOL = f"mcp__{HARNESS_SERVER}__wake_after"
+# The playbook tools (`PlaybookControl`), on the same in-process server.
+PLAYBOOK_TOOLS = [
+    f"mcp__{HARNESS_SERVER}__{name}"
+    for name in ("playbook_list", "playbook_set", "skill_done")
+]
 # The longest a wake-up can be set for, in minutes.
 WAKE_MAX_MIN = 240
 # A constraint's time wakes the agent this long before it, and again at it.
@@ -80,6 +85,7 @@ ALLOWED_TOOLS = (
     [f"mcp__{SERVER}__*", "ToolSearch", "SendMessage"]
     + [f"Agent({name})" for name in SPECIALISTS]
     + [WAKE_TOOL]
+    + PLAYBOOK_TOOLS
 )
 # The only built-in tools the agent has: reading its skills, finding the
 # sidecar's tools when the CLI defers them, calling a specialist or carrying
@@ -165,11 +171,12 @@ not be reading. Anything the operator must read now (you have stopped and \
 need them, or you answer their MESSAGE with its reply_to) goes to them with \
 experiment_message_operator; a judgment worth keeping goes on the record with \
 experiment_add_note.
-- Keep the operator's instructions on your checklist with \
-server_set_checklist, which the operator sees on the Agent page: each \
-instruction a MESSAGE gives, in their words, as it arrives. Read it before \
-each step and mark an item done only when it is. A new instruction adds to \
-the list; it never replaces what is there unless the operator says so. Limits \
+- Keep your plan for the session, plan.md, with plan_set_section, a section \
+at a time; the operator reads and edits it on the Agent page. Each \
+instruction a MESSAGE gives goes in it, in their words, as it arrives: a \
+standing rule in Rules, a task as a Steps box. Read it (plan_get) before each \
+step, and tick a box only when it is done. A new instruction adds to the \
+plan; it never replaces what is there unless the operator says so. Limits \
 the operator sets ("finish by 07:00") go in server_set_constraints: a DEADLINE \
 line wakes you 30 min before such a time and at it.
 - To look again later with nothing to wake you (after a long mill, to check \
@@ -178,6 +185,10 @@ your reason comes then. One at a time; a new one replaces it.
 - Your goal changes only when the operator's MESSAGE explicitly gives you a \
 new one. Then call server_report_session with just goal, so the app shows \
 it, and say back the goal you took.
+- The job runs from a playbook (skills, reminders, rules): playbook_list \
+says which is set and which there are; playbook_set sets one once the \
+operator agrees; skill_done ends an optional skill's part. The fibsem-agent \
+skill's Session setup says when.
 - The operator sets your level in the app; a LEVEL line means it changed. \
 Work as your level allows, as the skills say, and handle a refusal as they say: \
 it is the server's answer."""
@@ -212,15 +223,20 @@ def system_prompt(
 
 
 def skills_for(profile: Optional[profiles.Profile] = None) -> List[str]:
-    """The skills the agent loads: the base and task skills, and a profile's."""
-    extra = [name for name in (profile.skills if profile else []) if name not in SKILLS]
-    return list(SKILLS) + extra
+    """The skills the agent loads: the base and task skills, the lab's own
+    (`sources.lab_skills`), and a profile's."""
+    names = list(SKILLS)
+    for name in sources.lab_skills() + list(profile.skills if profile else []):
+        if name not in names:
+            names.append(name)
+    return names
 
 
 REREAD_PROPOSALS = (
     "Events were lost: re-read proposal_list and app_get_status before acting "
     "on the lines above."
 )
+REREAD_PLAN = "Read your plan again (plan_get) and your playbook's rules before acting."
 REREAD_LEVEL = (
     "Your level may have changed: re-read server_get_capabilities and work as "
     "the level it gives allows, then re-read app_get_status and proposal_list."
@@ -253,7 +269,8 @@ def _kickoff(resumed: bool) -> str:
             "lines. Call server_get_capabilities, read your skills again if they "
             f"are no longer in your context ({BASE_SKILL} first), tell "
             "the operator in a sentence what your level means now, re-read "
-            "app_get_status and proposal_list, then end your turn."
+            "your plan (plan_get), app_get_status and proposal_list, then end "
+            "your turn."
         )
     return (
         "You are the microscope's agent, run by fibsem-agent.\n"
@@ -268,18 +285,27 @@ def _kickoff(resumed: bool) -> str:
         "experiment_message_operator what they would like to get done today, "
         "naming the tasks in that table, and read the task skill for their "
         "answer when it comes.\n"
+        "5. Call playbook_list. With no playbook set, propose the one that fits "
+        "(Session setup) and set it once the operator agrees.\n"
+        "6. Once you have the brief, write your plan (plan_set_section) under "
+        "the playbook's plan headings, starting with the Brief and its Sample "
+        "line.\n"
         "Then end your turn. The harness wakes you with the watcher's lines."
     )
 
 
-def turn_prompt(lines: List[str]) -> str:
+def turn_prompt(lines: List[str], remind: Optional[List[str]] = None) -> str:
     """The watcher's lines as one turn, with what a GAP or a level change
-    asks of the agent first."""
+    asks of the agent first, and the reminders *remind* the lines call for."""
     prompt = "The watcher printed:\n" + "\n".join(lines)
+    if remind:
+        prompt += "\n\n" + profiles.reminder(remind)
     if any(line.startswith("GAP") for line in lines):
         prompt += "\n\n" + REREAD_PROPOSALS
     if any(line.startswith(("AGENT BACK", "RESTARTED", "LEVEL")) for line in lines):
         prompt += "\n\n" + REREAD_LEVEL
+    if any(line.startswith(("WAKE ", "PLAN EDITED")) for line in lines):
+        prompt += "\n\n" + REREAD_PLAN
     return prompt
 
 
@@ -287,9 +313,13 @@ class Wakes:
     """The watcher's lines, held while the operator has the agent at Off and
     given to the agent as one turn otherwise."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, remind: Optional[Callable[[List[str]], List[str]]] = None
+    ) -> None:
         self.off = False
         self._held: List[str] = []
+        # The reminders a turn's lines call for (`playbooks.Reminders.for_lines`).
+        self._remind = remind
 
     def add(self, lines: List[str]) -> Optional[str]:
         """The next turn's prompt, or None when there is nothing to say yet."""
@@ -305,7 +335,7 @@ class Wakes:
         if self.off or not self._held:
             return None
         lines, self._held = self._held, []
-        return turn_prompt(lines)
+        return turn_prompt(lines, self._remind(lines) if self._remind else None)
 
 
 class Alarm:
@@ -405,8 +435,87 @@ class Deadlines:
         return sorted(by for _, by in self._timers)
 
 
-def wake_server(alarm: Alarm):
-    """The harness's in-process MCP server: the ``wake_after`` tool on *alarm*."""
+class PlaybookControl:
+    """The session's playbook, as its tools set it: which one runs, who chose
+    it, and which of its optional skills are loaded (`playbooks.Reminders`).
+    Each change is said on the transcript (*say*) and kept (*keep*)."""
+
+    def __init__(
+        self,
+        reminders: playbooks.Reminders,
+        checkout: Optional[Path],
+        say: Optional[Callable[[str], None]] = None,
+        keep: Optional[Callable[[dict], None]] = None,
+    ) -> None:
+        self.reminders = reminders
+        self.checkout = checkout
+        self.say = say or (lambda text: None)
+        self.keep = keep or (lambda state: None)
+
+    def _changed(self, line: str) -> None:
+        log.info(line)
+        self.say(line)
+        self.keep(self.reminders.state())
+
+    def list(self) -> str:
+        rows = []
+        for name in playbooks.available(self.checkout):
+            try:
+                found = playbooks.load(name, self.checkout)
+            except playbooks.PlaybookError as error:
+                rows.append({"name": name, "error": str(error)})
+                continue
+            rows.append(found.summary())
+        current = self.reminders.playbook
+        return json.dumps(
+            {"current": current.name if current else None, "playbooks": rows},
+            ensure_ascii=False,
+        )
+
+    def set(self, name: str, chosen_by: str) -> str:
+        if not name:
+            self.reminders.set(None, chosen_by)
+            self._changed(f"Playbook set: none, {chosen_by}")
+            return "No playbook: only your profile's reminders hold."
+        try:
+            found = playbooks.load(name, self.checkout)
+        except playbooks.PlaybookError as error:
+            return f"Refused: {error}"
+        self.reminders.set(found, chosen_by)
+        self._changed(f"Playbook set: {found.name}, {chosen_by}")
+        return (
+            f"Running the {found.name} playbook. Its reminders are on now. "
+            "Read its skills, and an optional one when its when holds:\n"
+            + json.dumps(found.summary(), ensure_ascii=False)
+        )
+
+    def loaded(self, skill: str) -> None:
+        """The agent read *skill* with the Skill tool."""
+        entry = self.reminders.loaded(skill)
+        if entry is not None:
+            self._changed(f"Skill loaded: {skill}, because {entry.when}")
+
+    def done(self, skill: str, summary: str) -> str:
+        if not self.reminders.finished(skill, summary):
+            return (
+                f"Refused: {skill} is not an optional skill of this session's "
+                "playbook that you have read."
+            )
+        self._changed(f"Skill done: {skill}, {summary}".rstrip(", "))
+        return f"{skill} is done: its reminders are off."
+
+    def hooks(self) -> List[dict]:
+        """The reminders on now, as the Agent page shows them."""
+        rows = []
+        for when, option in profiles.HOOK_OPTIONS.items():
+            for say in self.reminders.texts(when):
+                rows.append({"when": when, "label": option.label, "say": say})
+        return rows
+
+
+def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
+    """The harness's in-process MCP server: the ``wake_after`` tool on
+    *alarm*, and with *control* the playbook tools."""
     from claude_agent_sdk import create_sdk_mcp_server, tool
 
     @tool(
@@ -422,7 +531,56 @@ def wake_server(alarm: Alarm):
         said = alarm.set(float(args.get("minutes", 0)), str(args.get("reason", "")))
         return {"content": [{"type": "text", "text": said}]}
 
-    return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after])
+    if control is None:
+        return create_sdk_mcp_server(HARNESS_SERVER, tools=[wake_after])
+
+    def text(said: str) -> dict:
+        return {"content": [{"type": "text", "text": said}]}
+
+    @tool(
+        "playbook_list",
+        "The playbooks you can run: each one's description, skills, optional "
+        "skills with when to read them, reminders and rules, and the one "
+        "running now.",
+        {},
+    )
+    async def playbook_list(args):
+        return text(control.list())
+
+    @tool(
+        "playbook_set",
+        "Run a playbook from now on: its reminders go on at once and its rules "
+        "hold. Set it once the operator has agreed to it, or when they name "
+        "one. chosen_by says who chose it, as the operator reads it: 'named by "
+        "the operator', or 'proposed by the agent, confirmed by the "
+        "operator'. An empty name runs none.",
+        {"name": str, "chosen_by": str},
+    )
+    async def playbook_set(args):
+        return text(
+            control.set(
+                str(args.get("name", "")).strip(),
+                str(args.get("chosen_by", "")).strip() or "by the agent",
+            )
+        )
+
+    @tool(
+        "skill_done",
+        "An optional skill of the playbook is done for this session: its "
+        "reminders go off. summary says in a few words what came of it, "
+        "('9 usable squares, 6 sites chosen').",
+        {"skill": str, "summary": str},
+    )
+    async def skill_done(args):
+        return text(
+            control.done(
+                str(args.get("skill", "")).strip(), str(args.get("summary", "")).strip()
+            )
+        )
+
+    return create_sdk_mcp_server(
+        HARNESS_SERVER, tools=[wake_after, playbook_list, playbook_set, skill_done]
+    )
 
 
 @dataclass
@@ -612,8 +770,12 @@ class Harness:
         budget_usd: Optional[float] = None,
         about: Optional[dict] = None,
         alarm: Optional[Alarm] = None,
+        playbook: Optional[PlaybookControl] = None,
     ) -> None:
         self._agent = agent
+        # The session's playbook: sent again when it or its skills change.
+        self._playbook = playbook
+        self._playbook_sent: Optional[dict] = None
         # The agent's wake-up timer: it rings into the watcher's lines.
         self._alarm = alarm
         self._deadlines = Deadlines()
@@ -643,9 +805,13 @@ class Harness:
         # (watch, item): an item from a watch that has been replaced is dropped.
         self._items: Optional[asyncio.Queue] = None
         self._watcher: Optional[Watcher] = None
-        self._wakes = Wakes()
+        self._wakes = self._new_wakes()
         self._code = 0
         self._stop_requested = False
+
+    def _new_wakes(self) -> Wakes:
+        playbook = self._playbook
+        return Wakes(playbook.reminders.for_lines if playbook is not None else None)
 
     def outcome(self) -> dict:
         """How the run ended, for its session's record."""
@@ -764,6 +930,11 @@ class Harness:
         if self._stopping.is_set():
             return False
         await self._report_read(prompt)
+        if getattr(self._agent, "compacted", False):
+            # The context was compacted during the last turn: the plan and the
+            # playbook's rules may be all that is left of the intake.
+            self._agent.compacted = False
+            prompt += "\n\nYour context was compacted. " + REREAD_PLAN
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
         sender = asyncio.ensure_future(self._send_transcript_every())
         try:
@@ -844,6 +1015,12 @@ class Harness:
         if skills != self._skills_sent:
             body["skills"] = skills
             self._skills_sent = skills
+        if self._playbook is not None:
+            state = self._playbook.reminders.state()
+            if state != self._playbook_sent:
+                body["playbook"] = state["playbook"] or {}
+                body["hooks"] = self._playbook.hooks()
+                self._playbook_sent = state
         body = {key: value for key, value in body.items() if value is not None}
         if ended:
             body.update(ended=True, reason=self._end_reason)
@@ -990,7 +1167,7 @@ class Harness:
             return None
         self._end_reason = "stopped at fibsem-agent"
         # A restarted app starts its own session, at Watch.
-        self._wakes = Wakes()
+        self._wakes = self._new_wakes()
         back = (
             f"The app could not be watched for {time.monotonic() - started:.0f} s "
             "and the harness is watching it again: events in between were not "
@@ -1047,6 +1224,8 @@ class SdkAgent:
         self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
+        # The context was compacted: the next turn asks for the plan again.
+        self.compacted = False
         # The skills it has read, in order: the session reports them.
         self.skills_read: List[str] = []
         # The lines printed, until the harness sends them (`Harness._send_transcript`).
@@ -1271,6 +1450,7 @@ def _show(message, agent: SdkAgent) -> None:
                         "MCP server %s is %s.", server.get("name"), server.get("status")
                     )
         elif message.subtype == "compact_boundary":
+            agent.compacted = True
             meta = data.get("compact_metadata") or {}
             log.info(
                 "Context compacted (%s, %s tokens before).",
@@ -1286,6 +1466,9 @@ def _show(message, agent: SdkAgent) -> None:
                 skill = block.input.get("skill") if block.name == "Skill" else None
                 if skill and skill not in agent.skills_read:
                     agent.skills_read.append(skill)
+                control = getattr(agent, "playbook", None)
+                if skill and control is not None:
+                    control.loaded(skill)
                 verb, text = step(block.name, block.input, getattr(agent, "cwd", None))
                 log.info("%s %s", verb, text)
                 seq = _line(agent, "step", text, verb=verb)
@@ -1301,16 +1484,10 @@ def _show(message, agent: SdkAgent) -> None:
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
-    """The fibsem-os checkout whose ``.claude/skills`` the agent reads: the
-    one given, else the one this module runs from, else the current folder."""
-    if given:
-        candidates = [Path(given).expanduser()]
-    else:
-        candidates = [Path(__file__).resolve().parents[3], Path.cwd()]
-    for candidate in candidates:
-        if (candidate / ".claude" / "skills" / BASE_SKILL / "SKILL.md").is_file():
-            return candidate.resolve()
-    return None
+    """The folder whose ``.claude`` holds the shipped skills: the checkout
+    given, else the one this module runs from, else the current folder, else
+    the copy in the package (`sources.find_root`)."""
+    return sources.find_root(given, BASE_SKILL)
 
 
 def sidecar_command() -> List[str]:
@@ -1339,6 +1516,8 @@ def build_options(
     alarm: Optional[Alarm] = None,
     profile: Optional[profiles.Profile] = None,
     transcript: Optional[Path] = None,
+    cwd: Optional[Path] = None,
+    control: Optional[PlaybookControl] = None,
 ):
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
@@ -1369,11 +1548,12 @@ def build_options(
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
     servers = {SERVER: server}
     if alarm is not None:
-        servers[HARNESS_SERVER] = wake_server(alarm)
+        servers[HARNESS_SERVER] = wake_server(alarm, control)
     return ClaudeAgentOptions(
-        cwd=str(work or checkout),
-        # The checkout's .claude/skills (CLAUDE.md is off, see CLI_ENV), and none of
-        # ~/.claude: the user's own settings, hooks and skills stay out.
+        # Its .claude holds the session's skills (`sources.assemble`; CLAUDE.md
+        # is off, see CLI_ENV), and none of ~/.claude: the user's own
+        # settings, hooks and skills stay out.
+        cwd=str(work or cwd or checkout),
         setting_sources=["project"],
         skills=skills_for(profile),
         tools=list(tools),
@@ -1390,7 +1570,14 @@ def build_options(
             "preset": "claude_code",
             "append": system_prompt(work, code, profile),
         },
-        hooks=profiles.sdk_hooks(profile.hooks, SERVER) if profile else None,
+        # With a playbook control, the reminders on now, asked at each call.
+        hooks=(
+            control.reminders.sdk_hooks(SERVER)
+            if control is not None
+            else profiles.sdk_hooks(profile.hooks, SERVER)
+            if profile
+            else None
+        ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
         verbatim_prompts=True,
         max_turns=max_turns,
@@ -1459,11 +1646,18 @@ def status(
             "per wake-up",
         ),
         ("Session", f"{session_id} ({'resumed' if args.resume else 'new'})"),
-        ("Skills", str(checkout)),
+        ("Skills", _skills_line(checkout)),
         ("Code", code_mode.describe(work, code)),
         ("Log", str(log_path)),
     ]
     return [f"{label + ':':<9}{value}" for label, value in rows]
+
+
+def _skills_line(checkout: Path) -> str:
+    lab = sources.lab_skills()
+    if not lab:
+        return str(checkout)
+    return f"{checkout}; the lab's own: {', '.join(lab)}"
 
 
 def main(argv=None) -> int:
@@ -1598,8 +1792,8 @@ def main(argv=None) -> int:
     checkout = find_checkout(args.checkout)
     if checkout is None:
         print(
-            "fibsem-agent reads the agent's skills from a fibsem-os checkout "
-            "(.claude/skills); pass --checkout <path to the checkout>.",
+            "fibsem-agent found no skills: this fibsem has none shipped and "
+            "isn't a checkout; pass --checkout <path to a fibsem-os checkout>.",
             file=sys.stderr,
         )
         return 1
@@ -1623,6 +1817,13 @@ def main(argv=None) -> int:
             print(error, file=sys.stderr)
             return 1
     _resolve(args, profile)
+    playbook = None
+    if profile is not None and profile.playbook:
+        try:
+            playbook = playbooks.load(profile.playbook, checkout)
+        except playbooks.PlaybookError as error:
+            print(f"{profile.path}: {error}", file=sys.stderr)
+            return 1
     work = None
     code = bool(args.code)
     given = args.code or args.files
@@ -1630,9 +1831,13 @@ def main(argv=None) -> int:
     if given and not in_session:
         work = code_mode.workdir(given)
     if args.resume == LAST:
-        args.resume = sessions.last_session(None if in_session else work or checkout)
+        own = sessions.WORK if in_session else sessions.RUN
+        args.resume = sessions.last_session(work, own=own)
+        if args.resume is None and work is None and not in_session:
+            # A session from before run/: the CLI ran it in the checkout.
+            args.resume = sessions.last_session(checkout)
         if args.resume is None:
-            where = "its own folder" if in_session else work or checkout
+            where = work or "its own folder"
             print(
                 f"No earlier fibsem-agent session in {where} to resume: pass "
                 "its id (the Session line of its log).",
@@ -1644,13 +1849,16 @@ def main(argv=None) -> int:
     folder = sessions.session_folder(session_id)
     if in_session:
         work = folder / sessions.WORK
+    # Without a work folder the CLI runs in the session's run/, which holds
+    # only the session's skills; a session from before it keeps its folder.
+    run = None if work is not None else _run_folder(args.resume, folder, checkout)
     if work is not None:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
             print(refused, file=sys.stderr)
             return 1
     if args.show_config:
-        config = show_config(args, checkout, work, code, profile)
+        config = show_config(args, checkout, work, code, profile, playbook)
         return _print(config, args.json, _config_text)
     missing = missing_extra_message("agent", "fibsem-agent")
     if missing:
@@ -1663,7 +1871,7 @@ def main(argv=None) -> int:
     if key:
         os.environ[API_KEY] = key
     session = sessions.SessionFolder.open(
-        session_id, _about(args, checkout, work, code, profile), folder=folder
+        session_id, _about(args, checkout, work, code, profile, run), folder=folder
     )
     log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
@@ -1674,11 +1882,31 @@ def main(argv=None) -> int:
         code_mode.prepare(work, checkout, skills_for(profile), list(SPECIALISTS))
         for line in code_mode.details():
             log.debug(line)
+    elif run != checkout:
+        sources.assemble(run, checkout, skills_for(profile), SPECIALISTS)
 
     alarm = Alarm()
+    control = PlaybookControl(
+        playbooks.Reminders(profile.hooks if profile else []),
+        checkout,
+        keep=session.keep_playbook,
+    )
+    record = session.record() if args.resume else {}
+    if record:
+        why = control.reminders.restore(record, checkout)
+        if why:
+            log.warning("The session's playbook can't be picked up again: %s", why)
+    # A resumed session whose operator chose none keeps none.
+    named = "playbook" not in record and playbook is not None
+    if named:
+        control.reminders.set(playbook, f"named by the {profile.name} profile")
+        session.keep_playbook(control.reminders.state())
+    if control.reminders.playbook is not None:
+        log.info("Playbook: %s", control.reminders.playbook.name)
     options = build_options(
         checkout,
         alarm=alarm,
+        control=control,
         url=args.url,
         token=token,
         model=args.model,
@@ -1691,8 +1919,13 @@ def main(argv=None) -> int:
         code=code,
         profile=profile,
         transcript=session.folder,
+        cwd=run,
     )
     agent = SdkAgent(options, usage_path=session.folder / usage.FILE)
+    agent.playbook = control
+    control.say = lambda text: _line(agent, "context", text)
+    if named:
+        control.say(f"Playbook set: {playbook.name}, {control.reminders.chosen_by}")
     harness = Harness(
         agent,
         lambda: watch_mod.connect(args.url, token),
@@ -1700,6 +1933,7 @@ def main(argv=None) -> int:
         server_wait_s=args.server_wait,
         goal=args.goal,
         budget_usd=args.max_budget_usd,
+        playbook=control,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,
@@ -1742,19 +1976,30 @@ def _session_id(text: str) -> str:
         raise argparse.ArgumentTypeError(f"not a UUID: {text}") from None
 
 
+def _run_folder(resume: Optional[str], folder: Path, checkout: Path) -> Path:
+    """Where a session without a work folder runs: its folder's run/, or for
+    one resumed from before run/ the folder its record says it ran in."""
+    if resume:
+        ran = sessions.read_json(folder / sessions.RECORD).get("cwd")
+        if ran and Path(ran) == checkout:
+            return checkout
+    return folder / sessions.RUN
+
+
 def _about(
     args,
     checkout: Path,
     work: Optional[Path],
     code: bool,
     profile: Optional[profiles.Profile] = None,
+    run: Optional[Path] = None,
 ) -> dict:
     """What a session runs with, for its record."""
     from fibsem import __version__
 
     return {
         "fibsem": __version__,
-        "cwd": str(work or checkout),
+        "cwd": str(work or run or checkout),
         "url": args.url,
         "goal": args.goal,
         "model": args.model,
@@ -1809,6 +2054,7 @@ def show_config(
     work: Optional[Path],
     code: bool,
     profile: Optional[profiles.Profile],
+    playbook: Optional[playbooks.Playbook] = None,
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
     pieces `build_options` uses, without the SDK and without starting."""
@@ -1843,6 +2089,8 @@ def show_config(
         "allowed_tools": list(allowed),
         "denied_tools": list(denied),
         "hooks": hooks,
+        # Its reminders are on from the start; without one, chosen at intake.
+        "playbook": playbook.summary() if playbook is not None else None,
         "system_prompt": system_prompt(work, code, profile),
     }
 
@@ -1914,6 +2162,18 @@ def _config_text(config: dict) -> str:
     lines += [f"  {hook['label']}: {hook['say']}" for hook in config["hooks"]] or [
         "  none"
     ]
+    playbook = config.get("playbook")
+    if playbook is None:
+        lines.append("Playbook: none named; the agent proposes one at intake")
+    else:
+        chain = " <- ".join(playbook["extends"] + [playbook["name"]])
+        lines.append(f"Playbook: {chain}")
+        lines.append(f"  Skills: {', '.join(playbook['skills']) or 'none'}")
+        lines += [
+            f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]
+        ]
+        lines += [f"  {r['label']}: {r['say']}" for r in playbook["reminders"]]
+        lines += [f"  Rule: {rule}" for rule in playbook["rules"]]
     return "\n".join(lines + ["", "System prompt (appended):", config["system_prompt"]])
 
 

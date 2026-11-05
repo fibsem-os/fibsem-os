@@ -220,6 +220,9 @@ def _print_events(events, since, out, marked=None):
             out(f"NOTE from the operator on {data.get('item_name')}: {text}")
         elif _is_message(event):
             out(_message_line(data, marked))
+        elif kind == "agent_plan_edited":
+            sections = ", ".join(str(s) for s in data.get("sections") or [])
+            out(f"PLAN EDITED by the operator: {sections}")
         elif kind == "agent_level_set":
             line = _level_line(data)
             if line:

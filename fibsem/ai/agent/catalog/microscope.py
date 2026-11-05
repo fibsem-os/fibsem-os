@@ -280,18 +280,23 @@ TOOLS: Tuple[ToolSpec, ...] = (
         },
     ),
     ToolSpec(
-        name="server_set_checklist",
-        returns="AgentSession",
-        description="Keep your checklist of the operator's instructions where the Agent page shows it: each item {text, state}, state open (the default), done when it is finished, or always for a standing rule that stays until the operator lifts it. Give the whole list each time, in the operator's words; it replaces the last one. Update it when an instruction arrives and when an item is done.",
+        name="plan_get",
+        description="Your plan for this session, plan.md, which the operator reads on the Agent page and can edit: its sections (Brief, Playbook, Rules, Steps, Progress, Summary, or your playbook's headings), the sample from the Brief's Sample line, the Steps' boxes ({group, text, done}) and who changed it last. Read it before each step, and again after a PLAN EDITED line, a wake-up or a compaction. Empty until you write it.",
+        method="GET",
+        path="/app/agent/plan",
+        level="watch",
+        router="app",
+    ),
+    ToolSpec(
+        name="plan_set_section",
+        description="Write one section of your plan (plan.md), replacing it; empty text removes it. Brief: the operator's question, the sample and the target, the goal, in their words, with a first line 'Sample: <name>' -- the sample is written once, and only the operator changes it after (409 sample_set). Playbook: which one runs and who chose it. Rules: the operator's standing rules, one '- ' line each, in their words. Steps: '- [ ] step' boxes, grouped under '### Group' lines, ticked '- [x]' only when done and said. Progress: what happened, newest last. Summary: at the end. No # or ## headings inside a section. Refused (409 no_session) before your session is reported.",
         method="POST",
-        path="/app/agent/session",
+        path="/app/agent/plan/section",
         level="watch",
         router="app",
         params={
-            "checklist": arg(
-                "the whole list, each {text, state}: state open, done or always",
-                List[Dict[str, Any]],
-            ),
+            "section": "the heading: Brief, Playbook, Rules, Steps, Progress, Summary, or one of your playbook's",
+            "text": "the section's markdown, all of it",
         },
     ),
     ToolSpec(

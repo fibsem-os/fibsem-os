@@ -32,6 +32,7 @@ from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.control import HOLD_COMMANDS, STOP_COMMANDS, MicroscopeBusy
 from fibsem.devices.wire import type_path
 from fibsem.microscope import FibsemMicroscope
+from fibsem.server.agent_plan import PlanStore, build_agent_plan_router
 from fibsem.server.agent_session import build_agent_session_router
 from fibsem.server.agent_transcript import build_agent_transcript_router
 from fibsem.server.app_routes import (
@@ -894,6 +895,16 @@ def build_server(
         # The agent's own report of its session: model, goal, budget, spend.
         app.include_router(
             build_agent_session_router(getattr(app_context, "record_event", None))
+        )
+        # The agent's plan for its session, kept beside the experiment.
+        app.state.agent_plan = PlanStore(
+            lambda: getattr(app_context, "experiment_path", None)
+        )
+        app.include_router(
+            build_agent_plan_router(
+                lambda: getattr(app_context, "experiment_path", None),
+                getattr(app_context, "record_event", None),
+            )
         )
         # What fibsem-agent printed, kept beside the experiment.
         app.include_router(
