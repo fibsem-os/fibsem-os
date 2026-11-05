@@ -7,8 +7,8 @@ is -- only the agent's harness knows, so the harness reports it here:
 ``fibsem-agent`` after every turn, Claude Code through ``server_report_session``. fibsem-agent also says what it can do: code mode and
 its folder, effort, skills. Self-reported, like the client's name: a label for
 the operator, not an identity. The agent also keeps the operator's constraints
-(``server_set_constraints``) and its checklist (``server_set_checklist``) here,
-for the Agent page. A session starting, its goal or constraints changing and
+(``server_set_constraints``) here, and its checklist, read from its plan
+(``fibsem.server.agent_plan``) when it keeps one, for the Agent page. A session starting, its goal or constraints changing and
 its end go on the record, and so does the spend first reaching 80% of the
 budget; the spend and the checklist in between are state, read with GET.
 
@@ -372,6 +372,13 @@ def build_agent_session_router(
     @router.get("/session", response_model=AgentSession)
     def get_session(request: Request):
         auth: AuthConfig = request.app.state.auth
-        return {"session": auth.agent_session}
+        session = auth.agent_session
+        # With a plan, the checklist is read from it (fibsem.server.agent_plan).
+        plan = getattr(request.app.state, "agent_plan", None)
+        if session is not None and plan is not None:
+            found = plan.checklist(session.get("session_id"))
+            if found is not None:
+                session = {**session, "checklist": found}
+        return {"session": session}
 
     return router
