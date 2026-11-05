@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional
 
 import fibsem
+from fibsem import unreleased
 from fibsem.theme.tokens import (
     BORDER_COLOR,
     SURFACE_COLOR,
@@ -329,6 +330,9 @@ def gateway_allows(key: str, app: App) -> bool:
     stopped) or Cancel. No gateway, or one that doesn't answer, changes
     nothing."""
     from urllib.error import HTTPError
+
+    if not unreleased.enabled():
+        return True
 
     from fibsem.gateway.gateway import CHILD_ENV, OFF, STOP_WAIT_S
     from fibsem.gateway.main import call

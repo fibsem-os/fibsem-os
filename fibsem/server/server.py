@@ -635,6 +635,8 @@ def build_server(
             },
             # The agent level: what the agent may do right now.
             "level": auth.level.value,
+            # Whether this install serves an agent at all (fibsem.unreleased).
+            "agent": auth.agent_allowed,
             # Whether a microscope is connected now.
             "connected": served.current is not None,
             # The code the server runs, so a sidecar can tell it imports
@@ -897,7 +899,9 @@ def build_server(
         )
         # The agent's plan for its session, kept beside the experiment.
         app.state.agent_plan = PlanStore(
-            lambda: getattr(app_context, "experiment_path", None)
+            lambda: getattr(app_context, "experiment_path", None),
+            lambda: getattr(app_context, "experiment_sample", None),
+            getattr(app_context, "set_experiment_sample", None),
         )
         app.include_router(
             build_agent_plan_router(
@@ -914,7 +918,8 @@ def build_server(
         # What was learned on this microscope, kept under the state root.
         app.include_router(
             build_knowledge_router(
-                lambda: getattr(app_context, "experiment_path", None)
+                lambda: getattr(app_context, "experiment_path", None),
+                lambda: getattr(app_context, "experiment_sample", None),
             )
         )
         # The agent's profiles, playbooks and skills: shipped and the lab's.

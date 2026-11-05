@@ -195,6 +195,8 @@ class AgentSession:
         auth = self._session.agent_auth
         if auth is None:
             return "The App Server isn't running."
+        if not getattr(auth, "agent_allowed", True) and level is not AgentLevel.OFF:
+            return "The agent is not part of this release of fibsemOS."
         if level in (AgentLevel.ASSIST, AgentLevel.DRIVE):
             try:
                 self._session.recording_experiment()
@@ -627,6 +629,33 @@ class AgentSession:
             for record in recorder.buffer.events_since(0).get("events", []):
                 rows.add(record)
         return rows.rows
+
+    def citing(self, evidence_id: str) -> Optional[str]:
+        """What the agent was doing when it cited the evidence *evidence_id*,
+        from the last record citing it: the tool or note, the item, the reason;
+        None when nothing on the record cites it."""
+        recorder = self._session.recorder
+        if recorder is None or not evidence_id:
+            return None
+        events = recorder.buffer.events_since(0).get("events", [])
+        for record in reversed(events):
+            payload = record.get("payload") or {}
+            if (
+                record.get("actor") == OPERATOR
+                or payload.get("evidence") != evidence_id
+            ):
+                continue
+            what = payload.get("tool") or payload.get("task_name") or record.get("kind")
+            item = (
+                payload.get("item")
+                or payload.get("item_name")
+                or payload.get("item_id")
+            )
+            why = payload.get("text") or payload.get("reason") or payload.get("why")
+            parts = [str(p) for p in (what, f"on {item}" if item else None) if p]
+            line = " ".join(parts)
+            return f"{line}: {' '.join(str(why).split())}" if why else line
+        return None
 
     def experiment_path(self) -> Optional[str]:
         """Where what the agent does is recorded: the open experiment, or the

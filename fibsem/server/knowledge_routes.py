@@ -107,7 +107,10 @@ def _source(request: Request, experiment: Optional[str], item: Optional[str]):
 
 def build_knowledge_router(
     experiment_path: Callable[[], Optional[str]],
+    experiment_sample: Optional[Callable[[], Optional[str]]] = None,
 ) -> APIRouter:
+    """*experiment_sample* is the open experiment's sample: an entry written
+    without one is tagged with it."""
     router = APIRouter(
         prefix="/app/knowledge", dependencies=[Depends(require_monitoring())]
     )
@@ -181,6 +184,8 @@ def build_knowledge_router(
         if not isinstance(title, str) or not isinstance(text, str):
             raise _invalid("title and text are strings.")
         sample = _optional_text(body, "sample")
+        if sample is None and experiment_sample is not None:
+            sample = experiment_sample() or None
         playbook = _optional_text(body, "playbook")
         lasts = _optional_text(body, "lasts")
         remind = body.get("remind")

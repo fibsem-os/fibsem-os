@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { FolderOpen, Grid3x3, Layers, MessageSquare, Microscope, ScrollText, Settings as Gear } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "@/lib/api";
-import { useVolume } from "@/lib/experiment";
+import { useAgentReleased, useVolume } from "@/lib/experiment";
 import type { Page } from "@/lib/route";
 import type { AgentState } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -39,9 +39,11 @@ function Tab({
 
 /** The pages down the left; along the bottom at phone width. */
 export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) => void; openSettings: () => void }) {
+  const released = useAgentReleased();
   const agent = useQuery({
     queryKey: ["app/agent"],
     queryFn: () => api<AgentState>("/app/agent"),
+    enabled: released,
   });
   const waiting = agent.data?.request?.status === "pending" || agent.data?.suggestion || agent.data?.asking ? 1 : 0;
   const volume = useVolume();
@@ -70,24 +72,26 @@ export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) 
           <Tab on={page === "grids"} onClick={() => go("grids")} icon={<Grid3x3 size={22} />} label="Grids" />
         </>
       )}
-      <Tab
-        on={page === "agent"}
-        onClick={() => go("agent")}
-        icon={<MessageSquare size={22} />}
-        label={
-          <>
-            Agent
-            {waiting > 0 && (
-              <span
-                className="rounded-full bg-[var(--fibsem-purple-color)] px-1.5 text-[11px] leading-4 text-white"
-                aria-label={`${waiting} request waiting`}
-              >
-                {waiting}
-              </span>
-            )}
-          </>
-        }
-      />
+      {released && (
+        <Tab
+          on={page === "agent"}
+          onClick={() => go("agent")}
+          icon={<MessageSquare size={22} />}
+          label={
+            <>
+              Agent
+              {waiting > 0 && (
+                <span
+                  className="rounded-full bg-[var(--fibsem-purple-color)] px-1.5 text-[11px] leading-4 text-white"
+                  aria-label={`${waiting} request waiting`}
+                >
+                  {waiting}
+                </span>
+              )}
+            </>
+          }
+        />
+      )}
       <Tab on={page === "events"} onClick={() => go("events")} icon={<ScrollText size={22} />} label="Events" />
       <div className="hidden md:block md:flex-1" />
       <Tab onClick={openSettings} icon={<Gear size={22} />} label="Settings" />

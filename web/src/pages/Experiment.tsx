@@ -71,6 +71,7 @@ function Metadata() {
         className="[&_dd]:text-left"
         rows={[
           ["Name", open.name],
+          ["Sample", open.sample || "–"],
           ["App", [caps.data?.app_name, caps.data?.fibsem?.version && `fibsemOS ${caps.data.fibsem.version}`].filter(Boolean).join(" · ") || "–"],
           ["Created", fmt.when(entry?.created_at) || "–"],
           ["Created with", entry?.software_version ? `fibsemOS ${entry.software_version}` : "–"],

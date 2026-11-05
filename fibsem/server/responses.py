@@ -321,6 +321,8 @@ class ExperimentRef:
     name: str
     path: str
     num_items: int
+    # The sample, from the experiment's metadata ("" when nobody has named it).
+    sample: str = ""
 
 
 @dataclass
@@ -1547,6 +1549,8 @@ class EvidenceView:
     answers: Optional[str] = None
     verdict: Optional[str] = None
     judged: Optional[List[Dict[str, Any]]] = None
+    # What the operator last said of this whole picture, good or bad.
+    said: Optional[str] = None
 
 
 @dataclass

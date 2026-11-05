@@ -2,6 +2,7 @@
 client, the sidecar's reconnecting client and the /app/events long-poll, with
 nothing faked but the moment events arrive (FIB-1269, FIB-870)."""
 
+import os
 import subprocess
 import sys
 import threading
@@ -939,6 +940,8 @@ def test_the_subcommand_runs_without_the_mcp_extra(tmp_path):
         text=True,
         timeout=60,
         cwd=tmp_path,
+        # Run from tmp_path, fibsem may be an installed copy, not this checkout.
+        env={**os.environ, "FIBSEM_UNRELEASED": "1"},
     )
     assert result.returncode == 1, result.stderr
     assert result.stdout.startswith("SERVER UNAVAILABLE"), result.stdout

@@ -17,6 +17,7 @@ from fibsem.gateway.gateway import read_gateway_file
 from fibsem.gateway.main import call, start_gateway
 from fibsem.server.operator_token import read_operator_token
 from fibsem.tools.apps import GATEWAY
+from fibsem.unreleased import refuse
 
 __all__ = ["OpenFailed", "gateway_page", "open_gateway", "open_gateway_page"]
 
@@ -85,4 +86,5 @@ def _show(text: str) -> None:
 
 def open_gateway_page() -> None:
     """``fibsem-gateway-open``: the "Agent Gateway" desktop shortcut."""
+    refuse("fibsem-gateway-open")
     sys.exit(open_gateway())

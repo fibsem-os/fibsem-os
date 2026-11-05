@@ -8,6 +8,8 @@ export interface Capabilities {
   routers: { microscope: boolean; services: boolean; app: boolean };
   app_name?: string;
   level?: string;
+  // whether this install serves an agent at all (fibsem.unreleased)
+  agent?: boolean;
   connected?: boolean;
   // the optional /app parts the app serves (fibsem.server.parts)
   parts?: string[];
@@ -42,7 +44,7 @@ export interface ProgressLine {
 
 export interface WorkflowStatus {
   microscope_connected: boolean;
-  experiment: { name: string; path: string; num_items: number } | null;
+  experiment: { name: string; path: string; num_items: number; sample?: string } | null;
   workflow: {
     running: boolean;
     current_task: string | null;
@@ -357,6 +359,8 @@ export interface EvidenceAnswer {
   judged?:
     | { kind: string; index: number; label?: string; verdict?: "good" | "bad"; moved_to?: { x: number; y: number } }[]
     | null;
+  /** What the operator last said of this whole picture. */
+  said?: "good" | "bad" | null;
 }
 
 /** One experiment in /app/experiment/recent. */

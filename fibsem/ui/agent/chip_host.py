@@ -11,6 +11,7 @@ from typing import Any, Callable, Optional
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
+from fibsem import unreleased
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ui import notification_service
 from fibsem.ui.agent.activity import AgentActivity
@@ -76,9 +77,10 @@ class AgentChipHost(QObject):
         return self._session().agent
 
     def refresh(self) -> None:
-        """Show the chip while the App Server runs, at the level its auth holds."""
+        """Show the chip while the App Server runs, at the level its auth holds.
+        Never where the agent is not released."""
         agent = self._agent
-        level = agent.level
+        level = agent.level if unreleased.enabled() else None
         self._follow_requests()
         self._follow_connections()
         if level is None:

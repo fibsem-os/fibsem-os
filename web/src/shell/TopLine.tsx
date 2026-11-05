@@ -46,7 +46,12 @@ export function TopLine({ go }: { go: Go }) {
     refetchInterval: (query) => (query.state.data?.workflow.running || query.state.data?.progress ? 2000 : false),
   });
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
-  const agent = useQuery({ queryKey: ["app/agent"], queryFn: () => api<AgentState>("/app/agent") });
+  const agentReleased = caps.data?.agent === true;
+  const agent = useQuery({
+    queryKey: ["app/agent"],
+    queryFn: () => api<AgentState>("/app/agent"),
+    enabled: agentReleased,
+  });
   const [dismissed, setDismissed] = useState(readDismissed);
   const reachable = useReachable();
   const data = status.data;
@@ -151,7 +156,7 @@ export function TopLine({ go }: { go: Go }) {
         )}
       </span>
       <div className="flex-1" />
-      <AgentChip go={go} />
+      {agentReleased && <AgentChip go={go} />}
       {experiment ? (
         <HoverCard
           trigger={

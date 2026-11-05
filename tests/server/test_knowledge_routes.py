@@ -328,3 +328,18 @@ def test_knowledge_get_answers_its_images_as_pictures(server):
         "name": "figure.png",
         "preview": {"width": 768, "height": 384, "image_index": 0},
     }
+
+
+def test_an_entry_is_tagged_with_the_open_experiment_s_sample(server):
+    client, host, _ = server
+    host.experiment.sample = "yeast"
+    entry = client.post(
+        "/app/knowledge",
+        json={"section": "sample", "title": "Thin ice", "text": "Mill slower."},
+    ).json()["entry"]
+    assert entry["tags"]["sample"] == "yeast"
+    named = client.post(
+        "/app/knowledge",
+        json={"section": "sample", "title": "x", "text": "y", "sample": "hela"},
+    ).json()["entry"]
+    assert named["tags"]["sample"] == "hela"
