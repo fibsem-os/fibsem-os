@@ -23,6 +23,8 @@ from fibsem.workflows.evidence import BAD, GOOD, KINDS, marked_on
 # A kept example's own copy of its image at full resolution, up to this size.
 MAX_SOURCE = 64 * 1024 * 1024
 
+UNRATED = "unrated"
+
 _SAID = {GOOD: "good", BAD: "bad"}
 
 
@@ -241,7 +243,8 @@ def _save_marks(
     for kind in KINDS:
         for index, mark in enumerate(picks.get(kind) or []):
             said = judged.get((kind, index), {})
-            row = {"kind": kind, "index": index, "mark": mark}
+            # every pick starts unrated; rating them all is never asked for
+            row = {"kind": kind, "index": index, "mark": mark, "verdict": UNRATED}
             for key in ("verdict", "moved_to", "moved_px", "moved_m"):
                 if said.get(key) is not None:
                     row[key] = said[key]

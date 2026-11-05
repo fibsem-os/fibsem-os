@@ -1072,6 +1072,8 @@ def test_kept_feedback_is_an_example_of_the_sample(server, monkeypatch, tmp_path
     first, second = saved["picks"]
     assert first["verdict"] == "bad" and first["mark"]["label"] == "1"
     assert second["moved_to"]["x"] == 90 and "stage" in second["moved_to"]
+    # moved, not rated
+    assert second["verdict"] == "unrated"
     assert saved["marks"]["points"][0]["verdict"] == "good"
     # the image itself, as the agent saw it
     assert saved["source_file"] == "source.tif"

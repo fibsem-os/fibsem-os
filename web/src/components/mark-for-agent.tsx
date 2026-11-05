@@ -524,7 +524,7 @@ function PickList({ editor, picks }: { editor: MarkEditor; picks: Mark[] }) {
     <>
       <h3 className="m-0 text-[13px] font-semibold">The agent's picks</h3>
       <p className="m-0 text-[12px] text-muted-foreground">
-        Click one on the image, or say here. Unrated picks stay unrated.
+        Rate the ones you care about: click one on the image, or here.
       </p>
       <ul className="m-0 flex max-h-[24vh] list-none flex-col gap-1.5 overflow-y-auto p-0">
         {picks.map((m, i) => {
@@ -537,6 +537,9 @@ function PickList({ editor, picks }: { editor: MarkEditor; picks: Mark[] }) {
               </span>
               <span className="min-w-0 truncate text-[13px]">
                 {name}
+                {!said?.verdict && !said?.moved_to && (
+                  <span className="text-[12px] text-muted-foreground"> · unrated</span>
+                )}
                 {said?.moved_to && (
                   <span className="text-[12px] text-muted-foreground">
                     {" "}
