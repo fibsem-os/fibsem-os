@@ -1062,6 +1062,17 @@ def test_kept_feedback_is_an_example_of_the_sample(server, monkeypatch, tmp_path
     assert '- "1": bad' in entry.text
     assert "point 2: moved 20.0 µm" in entry.text
     assert '- point "here": good' in entry.text
+    # and as data, for a scorer: each pick, what was said, where it should be
+    import json
+
+    saved = json.loads((Path(entry.path).parent / "marks.json").read_text())
+    assert saved["image"] == "ref_fib.tif"
+    assert (saved["width"], saved["height"]) == (128, 96)
+    assert saved["pixel_size"] == pytest.approx(80e-6 / 128)
+    first, second = saved["picks"]
+    assert first["verdict"] == "bad" and first["mark"]["label"] == "1"
+    assert second["moved_to"]["x"] == 90 and "stage" in second["moved_to"]
+    assert saved["marks"]["points"][0]["verdict"] == "good"
 
 
 def test_keep_needs_a_sample_and_a_verdict(server, monkeypatch, tmp_path):

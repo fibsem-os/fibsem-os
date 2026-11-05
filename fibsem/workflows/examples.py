@@ -8,11 +8,13 @@ each with a tick or a cross when one was said; a moved pick has an arrow to
 where it should be. Where it came from is metadata, never a path.
 """
 
+import json
 import os
 import tempfile
 from typing import Any, Dict, List, Optional
 
 from fibsem import knowledge
+from fibsem.geometry.saved_images import image_pixel_size
 from fibsem.imaging.marks import MARK_COLOURS, draw, png_bytes
 from fibsem.workflows.evidence import BAD, GOOD, KINDS, marked_on
 
@@ -159,7 +161,7 @@ def keep(
         picture = os.path.join(folder, os.path.basename(image).split(".")[0] + ".png")
         with open(picture, "wb") as f:
             f.write(png_bytes(rgb))
-        return knowledge.write(
+        entry = knowledge.write(
             knowledge.SAMPLE,
             _title(record, message),
             _text(record, picks, message, task),
@@ -171,3 +173,65 @@ def keep(
             images=[picture],
             image_names=[name.replace(os.sep, "/")],
         )
+    _save_marks(entry, record, picks, name.replace(os.sep, "/"), task)
+    return entry
+
+
+def _image_facts(image: str) -> Dict[str, Any]:
+    """The image's size in pixels and its pixel size, when it says."""
+    facts: Dict[str, Any] = {}
+    try:
+        if image.lower().endswith((".tif", ".tiff")):
+            import tifffile
+
+            with tifffile.TiffFile(image) as tif:
+                shape = tif.pages[0].shape
+        else:
+            from PIL import Image
+
+            with Image.open(image) as opened:
+                shape = (opened.height, opened.width)
+        facts["width"], facts["height"] = int(shape[1]), int(shape[0])
+    except Exception:  # noqa: BLE001 - an unread size is left out
+        pass
+    try:
+        size = image_pixel_size(image)
+    except Exception:  # noqa: BLE001 - an image that doesn't say is unmeasured
+        size = None
+    if size:
+        facts["pixel_size"] = size
+    return facts
+
+
+def _save_marks(
+    entry: knowledge.Entry,
+    record: Dict[str, Any],
+    picks: Dict[str, Any],
+    name: str,
+    task: Optional[str],
+) -> None:
+    """``marks.json`` beside the entry: the example as data, for a scorer. The
+    agent's picks in the image's pixels with what was said of each and where a
+    moved one should be, the operator's marks, and the image's size."""
+    judged = {(j["kind"], j["index"]): j for j in record.get("judged") or []}
+    rows = []
+    for kind in KINDS:
+        for index, mark in enumerate(picks.get(kind) or []):
+            said = judged.get((kind, index), {})
+            row = {"kind": kind, "index": index, "mark": mark}
+            for key in ("verdict", "moved_to", "moved_px", "moved_m"):
+                if said.get(key) is not None:
+                    row[key] = said[key]
+            rows.append(row)
+    data = {
+        "image": name,
+        **_image_facts(record.get("image")),
+        "task": task,
+        "verdict": record.get("verdict"),
+        "picks": rows,
+        "marks": record.get("marks") or {},
+        "channels": record.get("channels"),
+    }
+    path = os.path.join(os.path.dirname(entry.path), "marks.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=1)
