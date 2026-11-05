@@ -18,19 +18,19 @@ const SECTIONS = {
 } as const;
 type Section = keyof typeof SECTIONS;
 
-const LEVEL_WORD: Record<ToolRow["level"], string> = { watch: "Reads", assist: "Asks", drive: "Acts" };
-const acts = (tool: ToolRow) => tool.level !== "watch";
+export const LEVEL_WORD: Record<ToolRow["level"], string> = { watch: "Reads", assist: "Asks", drive: "Acts" };
+export const acts = (tool: ToolRow) => tool.level !== "watch";
 
-interface Filter {
+export interface Filter {
   reads: boolean;
   acts: boolean;
   hardware: boolean;
   categories: string[];
 }
-const FILTER_LABEL = "Filter the tools";
-const NO_FILTER: Filter = { reads: false, acts: false, hardware: false, categories: [] };
+export const FILTER_LABEL = "Filter the tools";
+export const NO_FILTER: Filter = { reads: false, acts: false, hardware: false, categories: [] };
 
-function shown(tool: ToolRow, filter: Filter, text: string): boolean {
+export function shown(tool: ToolRow, filter: Filter, text: string): boolean {
   if (filter.reads !== filter.acts && acts(tool) !== filter.acts) return false;
   if (filter.hardware && !tool.hardware) return false;
   if (filter.categories.length && !filter.categories.includes(tool.category)) return false;
@@ -47,7 +47,7 @@ function Check({ on, onChange, label, count }: { on: boolean; onChange: () => vo
   );
 }
 
-function FilterMenu({
+export function FilterMenu({
   tools,
   categories,
   filter,

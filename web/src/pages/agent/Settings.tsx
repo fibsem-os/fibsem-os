@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
+import { PickSummary } from "./Picker";
 
 /** What the profile, playbook and subagent forms offer to pick from (GET /app/library/options). */
 export interface LibraryOptions {
@@ -72,39 +73,6 @@ function Lines({ value, rows = 2, onChange }: { value: string; rows?: number; on
   );
 }
 
-function Skills({
-  value,
-  options,
-  onChange,
-}: {
-  value: string[];
-  options: string[];
-  onChange: (value: string[]) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((name) => {
-        const on = value.includes(name);
-        return (
-          <button
-            key={name}
-            aria-pressed={on}
-            className={cn(
-              "cursor-pointer rounded-full border px-2.5 py-0.5 text-[12px]",
-              on
-                ? "border-primary bg-primary/15 text-foreground"
-                : "border-input bg-transparent text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => onChange(on ? value.filter((v) => v !== name) : [...value, name])}
-          >
-            {name}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function Add({ label, onClick }: { label: string; onClick: () => void }) {
   return (
     <Button variant="ghost" className="mt-1 px-1.5 py-0.5 text-[12px]" onClick={onClick}>
@@ -167,58 +135,6 @@ function TextList({ value, add, onChange }: { value: string[]; add: string; onCh
       <div>
         <Add label={add} onClick={() => onChange([...value, ""])} />
       </div>
-    </div>
-  );
-}
-
-const FIBSEM_TOOL = "mcp__fibsem__";
-/** A tool's name without the fibsem server's prefix. */
-const toolName = (tool: string) => (tool.startsWith(FIBSEM_TOOL) ? tool.slice(FIBSEM_TOOL.length) : tool);
-
-function Tools({
-  value,
-  options,
-  onChange,
-}: {
-  value: string[];
-  options: string[];
-  onChange: (value: string[]) => void;
-}) {
-  const rest = options.filter((t) => !value.includes(t));
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap gap-1.5">
-        {value.map((tool) => (
-          <span
-            key={tool}
-            className="flex items-center gap-0.5 rounded-full border border-primary bg-primary/15 py-0.5 pr-0.5 pl-2.5 text-[12px]"
-          >
-            {toolName(tool)}
-            <button
-              aria-label={`Remove ${toolName(tool)}`}
-              className="flex cursor-pointer rounded-full border-0 bg-transparent p-0.5 text-muted-foreground hover:text-foreground"
-              onClick={() => onChange(value.filter((t) => t !== tool))}
-            >
-              <X size={12} />
-            </button>
-          </span>
-        ))}
-      </div>
-      {rest.length > 0 && (
-        <select
-          aria-label="Add tool"
-          className={cn(field, "w-fit py-1")}
-          value=""
-          onChange={(e) => e.target.value && onChange([...value, e.target.value])}
-        >
-          <option value="">Add tool</option>
-          {rest.map((t) => (
-            <option key={t} value={t}>
-              {toolName(t)}
-            </option>
-          ))}
-        </select>
-      )}
     </div>
   );
 }
@@ -357,7 +273,12 @@ export function ProfileSettings({
         />
       </Row>
       <Row form label="Extra skills">
-        <Skills value={strings(data.skills)} options={options.skills} onChange={(v) => set("skills", v)} />
+        <PickSummary
+          kind="skills"
+          value={strings(data.skills)}
+          options={options.skills}
+          onChange={(v) => set("skills", v)}
+        />
       </Row>
       <Row form label="Instructions">
         <Lines value={text(data.prompt)} rows={5} onChange={(v) => set("prompt", v)} />
@@ -454,10 +375,20 @@ export function PlaybookSettings({
         />
       </Row>
       <Row form label="Skills">
-        <Skills value={strings(data.skills)} options={options.skills} onChange={(v) => set("skills", v)} />
+        <PickSummary
+          kind="skills"
+          value={strings(data.skills)}
+          options={options.skills}
+          onChange={(v) => set("skills", v)}
+        />
       </Row>
       <Row form label="Subagents">
-        <Skills value={strings(data.agents)} options={options.agents} onChange={(v) => set("agents", v)} />
+        <PickSummary
+          kind="agents"
+          value={strings(data.agents)}
+          options={options.agents}
+          onChange={(v) => set("agents", v)}
+        />
       </Row>
       <Row form label="Optional skills">
         <div className="flex flex-col gap-2">
@@ -471,13 +402,16 @@ export function PlaybookSettings({
                   value={o.when}
                   onChange={(e) => setOptional(i, { when: e.target.value })}
                 />
-                {options.agents.length > 0 && (
-                  <Skills
+                <div className="text-[12px] text-muted-foreground">
+                  Subagents:{" "}
+                  <PickSummary
+                    kind="agents"
+                    inline
                     value={strings(o.agents)}
                     options={options.agents}
                     onChange={(agents) => setOptional(i, { agents })}
                   />
-                )}
+                </div>
               </div>
               <Remove
                 onClick={() =>
@@ -523,7 +457,7 @@ export function SubagentSettings({
       ["Model", text(data.model)],
       ["Effort", text(data.effort)],
       ["Skills", strings(data.skills).join(", ")],
-      ["Tools", strings(data.tools).map(toolName).join(", ")],
+      ["Tools", strings(data.tools).length ? <PickSummary kind="tools" value={strings(data.tools)} /> : undefined],
       ["Instructions", data.prompt ? <Markdown text={text(data.prompt)} /> : undefined],
     ];
     return (
@@ -560,10 +494,20 @@ export function SubagentSettings({
         />
       </Row>
       <Row form label="Skills">
-        <Skills value={strings(data.skills)} options={options.skills} onChange={(v) => set("skills", v)} />
+        <PickSummary
+          kind="skills"
+          value={strings(data.skills)}
+          options={options.skills}
+          onChange={(v) => set("skills", v)}
+        />
       </Row>
       <Row form label="Tools">
-        <Tools value={strings(data.tools)} options={options.tools} onChange={(v) => set("tools", v)} />
+        <PickSummary
+          kind="tools"
+          value={strings(data.tools)}
+          options={options.tools}
+          onChange={(v) => set("tools", v)}
+        />
       </Row>
       <Row form label="Instructions">
         <Lines value={text(data.prompt)} rows={8} onChange={(v) => set("prompt", v)} />
