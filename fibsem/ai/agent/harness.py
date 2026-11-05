@@ -41,6 +41,7 @@ from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
 from fibsem.extras import missing_extra_message
 from fibsem.keystore import get_secret
 from fibsem.logo import print_fibsem_logo
+from fibsem.unreleased import refuse
 from fibsem.util import timestamps
 
 # Read first, every session; it names the task skills and when to read each.
@@ -1660,6 +1661,7 @@ def _skills_line(checkout: Path) -> str:
 
 
 def main(argv=None) -> int:
+    refuse("fibsem-agent")
     parser = argparse.ArgumentParser(
         prog="fibsem-agent",
         description="Run an AutoLamella agent through the App Server, with no "

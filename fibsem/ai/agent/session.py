@@ -195,6 +195,8 @@ class AgentSession:
         auth = self._session.agent_auth
         if auth is None:
             return "The App Server isn't running."
+        if not getattr(auth, "agent_allowed", True) and level is not AgentLevel.OFF:
+            return "The agent is not part of this release of fibsemOS."
         if level in (AgentLevel.ASSIST, AgentLevel.DRIVE):
             try:
                 self._session.recording_experiment()
