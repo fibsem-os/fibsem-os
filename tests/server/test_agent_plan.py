@@ -14,6 +14,7 @@ from fibsem.server.agent_plan import (
     SAMPLE_SET,
     PlanStore,
     build_agent_plan_router,
+    dated,
     deadline,
     parse,
     render,
@@ -140,7 +141,7 @@ def test_the_sessions_checklist_is_read_from_the_plan(server):
     ]
 
 
-def test_a_rule_with_a_time_is_a_deadline_the_session_reports(server):
+def test_a_rule_with_a_time_is_a_deadline_saved_with_its_date(server, experiment_s1):
     agent, operator, _, _, _ = server
     section(
         agent,
@@ -148,25 +149,41 @@ def test_a_rule_with_a_time_is_a_deadline_the_session_reports(server):
         "- Finish by 07:00\n- Don't change the milling currents\n"
         "- Coat by **2026-11-06 21:30**",
     )
+    when = deadline("07:00")
+    finish = f"Finish by {when:%Y-%m-%d %H:%M}"
+    # The bare time is written out with its date, in the plan and its file.
+    assert (
+        agent.get("/app/agent/plan")
+        .json()["sections"][0]["text"]
+        .startswith(f"- {finish}\n")
+    )
+    assert finish in experiment_s1.read_text()
     found = agent.get("/app/agent/session").json()["session"]["deadlines"]
-    assert [d["text"] for d in found] == [
-        "Finish by 07:00",
-        "Coat by **2026-11-06 21:30**",
+    assert found == [
+        {"text": finish, "by": when.isoformat(timespec="minutes")},
+        {"text": "Coat by **2026-11-06 21:30**", "by": found[1]["by"]},
     ]
-    first = found[0]["by"]
-    assert datetime.fromisoformat(first) > datetime.now().astimezone()
     assert found[1]["by"].startswith("2026-11-06T21:30")
-    # The report the harness posts answers with them too, and a time is kept
-    # as first seen while the rule stays.
+    # The report the harness posts answers with them too, and the operator's
+    # edits are dated the same way.
     reported = agent.post("/app/agent/session", json={"turns": 1}).json()["session"]
-    assert reported["deadlines"][0]["by"] == first
-    operator.put("/app/agent/plan", json={"markdown": "## Rules\n\n- Finish by 07:00"})
+    assert reported["deadlines"] == found
+    operator.put("/app/agent/plan", json={"markdown": "## Rules\n\n- Done by 23:59"})
+    last = deadline("23:59")
     assert agent.get("/app/agent/session").json()["session"]["deadlines"] == [
-        {"text": "Finish by 07:00", "by": first}
+        {
+            "text": f"Done by {last:%Y-%m-%d %H:%M}",
+            "by": last.isoformat(timespec="minutes"),
+        }
     ]
     # Rules without a time give none.
     section(agent, "Rules", "- Stop at 180 nm")
     assert "deadlines" not in agent.get("/app/agent/session").json()["session"]
+
+
+@pytest.fixture
+def experiment_s1(server):
+    return server[3] / "agent" / "plan-s1.md"
 
 
 def test_a_clock_time_is_its_next_occurrence():
@@ -176,6 +193,10 @@ def test_a_clock_time_is_its_next_occurrence():
     assert rule_time("Finish by 7:00", now) == (
         now.replace(hour=7, minute=0) + timedelta(days=1)
     ).isoformat(timespec="minutes")
+    assert dated("- Finish by 7:00\n- Coat by **25:00**", now) == (
+        "- Finish by 2026-10-24 07:00\n- Coat by **25:00**"
+    )
+    assert dated("Done by 2026-11-06 07:00", now) == "Done by 2026-11-06 07:00"
     for rule in (
         "Stop at 180 nm",
         "Finish by 25:00",

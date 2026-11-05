@@ -18,8 +18,8 @@ record.
 
 A rule with a time ("Finish by 07:00", or a date and time) is a deadline: the
 session reports it, and fibsem-agent wakes the agent before it and at it. A
-clock time is its next occurrence when the rule is first seen, kept for the
-session, so it doesn't move to tomorrow once passed.
+clock time alone is written out with its date as the plan is saved ("by
+2026-11-06 07:00", its next occurrence), so it doesn't move once passed.
 
 Kept at ``agent/plan-<session id>.md`` in the open experiment, beside the
 transcript, and in memory when no experiment is open.
@@ -59,6 +59,8 @@ _SESSION = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 _BY = re.compile(
     r"\bby\s+\**((?:\d{4}-\d{2}-\d{2}[T ])?\d{1,2}:\d{2})(?![\d:])", re.IGNORECASE
 )
+# A clock time without its date, which the plan is saved with its date.
+_BARE = re.compile(r"\b(by\s+\**)(\d{1,2}:\d{2})(?![\d:])", re.IGNORECASE)
 TITLE = "# Plan"
 
 
@@ -172,6 +174,20 @@ def rule_time(rule: str, now: Optional[datetime] = None) -> Optional[str]:
         return None
 
 
+def dated(text: str, now: Optional[datetime] = None) -> str:
+    """*text* with each "by 07:00" written "by 2026-11-06 07:00", its next
+    occurrence; a time that is not one is left as it is."""
+
+    def full(found: re.Match) -> str:
+        try:
+            when = deadline(found.group(2), now)
+        except ValueError:
+            return found.group(0)
+        return found.group(1) + when.strftime("%Y-%m-%d %H:%M")
+
+    return _BARE.sub(full, text)
+
+
 def sample(sections: Dict[str, str]) -> Optional[str]:
     """The Brief's ``Sample:`` line, None when there is none."""
     for line in sections.get("Brief", "").splitlines():
@@ -200,8 +216,6 @@ class PlanStore:
         self.sections: Dict[str, str] = {}
         self.updated: Optional[str] = None
         self.updated_by: Optional[str] = None
-        # Each rule's deadline as first seen this session: {rule: time}.
-        self._times: Dict[str, Optional[str]] = {}
 
     def _folder(self) -> Optional[Path]:
         path = self._experiment_path()
@@ -219,7 +233,6 @@ class PlanStore:
         if session_id != self.session_id:
             self.session_id, self.sections = session_id, {}
             self.updated = self.updated_by = None
-            self._times = {}
             path = self._file(session_id) if session_id else None
             if path is not None and path.is_file():
                 try:
@@ -234,8 +247,6 @@ class PlanStore:
         return self.sections
 
     def write(self, session_id: str, sections: Dict[str, str], by: str) -> None:
-        if session_id != self.session_id:
-            self._times = {}
         self.session_id, self.sections = session_id, sections
         self.updated = datetime.now().astimezone().isoformat(timespec="seconds")
         self.updated_by = by
@@ -286,10 +297,9 @@ class PlanStore:
             return None
         found = []
         for rule in rules(sections.get("Rules", "")):
-            if rule not in self._times:
-                self._times[rule] = rule_time(rule)
-            if self._times[rule]:
-                found.append({"text": rule, "by": self._times[rule]})
+            by = rule_time(rule)
+            if by:
+                found.append({"text": rule, "by": by})
         return found
 
     def checklist(self, session_id: Optional[str]) -> Optional[List[Dict[str, str]]]:
@@ -356,6 +366,8 @@ def build_agent_plan_router(
         before = store.current(session_id)
         if len(sections) > MAX_SECTIONS:
             raise _invalid(f"A plan has at most {MAX_SECTIONS} sections.")
+        if "Rules" in sections:
+            sections = {**sections, "Rules": dated(sections["Rules"])}
         was = sample(before) or store.experiment_sample()
         now = sample(sections)
         brief = sections.get("Brief") != before.get("Brief")

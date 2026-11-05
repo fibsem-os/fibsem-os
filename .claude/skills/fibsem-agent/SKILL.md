@@ -374,8 +374,9 @@ checks get dropped. If two conflict, ask which wins. Read it again after a
 
 Limits the operator sets are Rules too ("don't change the milling
 currents"). A rule with a time is a deadline: write it as `by 07:00` or
-`by 2026-11-06 07:00` ("- Finish by 07:00"), and the Agent page shows the time
-left under the goal. Under fibsem-agent a `DEADLINE` line wakes you 30 min
+`by 2026-11-06 07:00` ("- Finish by 07:00"; a time alone is saved with its
+date, its next occurrence), and the Agent page shows the time left under the
+goal. Under fibsem-agent a `DEADLINE` line wakes you 30 min
 before it and at it: say where the work stands and what you will leave undone
 to keep it.
 
