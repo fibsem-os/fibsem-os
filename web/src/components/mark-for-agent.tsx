@@ -623,6 +623,7 @@ export function MarkPanel({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [keep, setKeep] = useState<boolean | null>(null);
+  const [complete, setComplete] = useState(false);
   const sample = usePlanSample();
   const { marks } = editor;
   const refs = markRefs(picks ?? []);
@@ -644,11 +645,12 @@ export function MarkPanel({
         marks: toMarks(marks),
         ...(channels ? { channels } : {}),
         ...(answers ? { answers, ...(judged.length ? { judged } : {}) } : {}),
-        ...(kept ? { keep: true } : {}),
+        ...(kept ? { keep: true, ...(complete ? { complete: true } : {}) } : {}),
       };
       await api("/app/agent/messages", { method: "POST", body: JSON.stringify({ text: text.trim(), evidence }) });
       setText("");
       setKeep(null);
+      setComplete(false);
       editor.clear();
       onSent();
     } catch (e) {
@@ -730,7 +732,23 @@ export function MarkPanel({
         }}
       />
       {error && <p className="m-0 text-[12px] text-destructive">{error}</p>}
-      <KeepTick said={said} sample={sample} keep={keep} setKeep={setKeep} />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        <KeepTick said={said} sample={sample} keep={keep} setKeep={setKeep} />
+        {kept && (
+          <label
+            className="flex cursor-pointer items-center gap-1.5 text-[12px]"
+            title="Every good target on this image has a good mark: anything not marked good isn't one"
+          >
+            <input
+              type="checkbox"
+              className="m-0 accent-[var(--primary)]"
+              checked={complete}
+              onChange={(e) => setComplete(e.target.checked)}
+            />
+            I marked every good one
+          </label>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         <span className="flex-1 text-[12px] text-muted-foreground">
           {channels

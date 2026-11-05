@@ -10,13 +10,18 @@ where it should be. Where it came from is metadata, never a path.
 
 import json
 import os
+import shutil
 import tempfile
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fibsem import knowledge
 from fibsem.geometry.saved_images import image_pixel_size
 from fibsem.imaging.marks import MARK_COLOURS, draw, png_bytes
 from fibsem.workflows.evidence import BAD, GOOD, KINDS, marked_on
+
+# A kept example's own copy of its image at full resolution, up to this size.
+MAX_SOURCE = 64 * 1024 * 1024
 
 _SAID = {GOOD: "good", BAD: "bad"}
 
@@ -144,12 +149,15 @@ def keep(
     root: Optional[str] = None,
     instrument: Optional[str] = None,
     source: Optional[Dict[str, Optional[str]]] = None,
+    complete: bool = False,
 ) -> knowledge.Entry:
     """Write the operator's feedback *record* (an evidence record, with the
     picture it *answered*) as a kept example of *sample*: the image drawn with
     the agent's picks and the operator's marks, the *message*, the *task* the
     picture was for. *root*, the experiment, names the image and the entry's
-    session tag; *instrument* and *source* as `knowledge.write` takes them."""
+    session tag; *instrument* and *source* as `knowledge.write` takes them.
+    *complete*: the operator marked every good target, so what isn't marked
+    good isn't one. The image itself is copied in too, when not too big."""
     image = record.get("image")
     picks = (marked_on(answered)[1] if answered else None) or {}
     marks = _marks_drawn(record, picks)
@@ -173,8 +181,24 @@ def keep(
             images=[picture],
             image_names=[name.replace(os.sep, "/")],
         )
-    _save_marks(entry, record, picks, name.replace(os.sep, "/"), task)
+    copied = _copy_source(entry, image)
+    _save_marks(entry, record, picks, name.replace(os.sep, "/"), task, complete, copied)
     return entry
+
+
+def _copy_source(entry: knowledge.Entry, image: str) -> Optional[str]:
+    """The image at full resolution beside the entry (``source.<ext>``), as
+    the agent saw it, for an eval to run on; None when over `MAX_SOURCE`."""
+    try:
+        if os.path.getsize(image) > MAX_SOURCE:
+            return None
+        lower = image.lower()
+        stack = lower.endswith((".ome.tif", ".ome.tiff"))
+        name = "source" + (".ome" if stack else "") + Path(lower).suffix
+        shutil.copy2(image, os.path.join(os.path.dirname(entry.path), name))
+    except OSError:
+        return None
+    return name
 
 
 def _image_facts(image: str) -> Dict[str, Any]:
@@ -209,6 +233,8 @@ def _save_marks(
     picks: Dict[str, Any],
     name: str,
     task: Optional[str],
+    complete: bool,
+    copied: Optional[str],
 ) -> None:
     """``marks.json`` beside the entry: the example as data, for a scorer. The
     agent's picks in the image's pixels with what was said of each and where a
@@ -225,9 +251,13 @@ def _save_marks(
             rows.append(row)
     data = {
         "image": name,
+        # the image as the agent saw it, copied beside this file; None when too big
+        "source_file": copied,
         **_image_facts(record.get("image")),
         "task": task,
         "verdict": record.get("verdict"),
+        # every good target is marked: unmarked places are not good ones
+        "complete": complete,
         "picks": rows,
         "marks": record.get("marks") or {},
         "channels": record.get("channels"),

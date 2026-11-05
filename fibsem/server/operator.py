@@ -218,7 +218,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     422,
                     "invalid",
                     "evidence is {image, marks, channels?, answers?, verdict?, "
-                    "judged?, keep?}.",
+                    "judged?, keep?, complete?}.",
                 )
             # Kept as an example of the session's sample, in the knowledge base.
             sample = _sample(request) if marked.get("keep") else None
@@ -252,7 +252,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     status_code=refusal.status_code, detail=refusal.detail
                 )
             if sample is not None:
-                _keep_example(request, record, sample, text)
+                _keep_example(
+                    request, record, sample, text, marked.get("complete") is True
+                )
         message_id = agent.message(text, evidence=record)
         if message_id is None:
             raise refusal_error(
@@ -303,7 +305,11 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         return answer(ConnectionDecided(ask_id, False))
 
     def _keep_example(
-        request: Request, record: Dict[str, Any], sample: str, text: str
+        request: Request,
+        record: Dict[str, Any],
+        sample: str,
+        text: str,
+        complete: bool,
     ) -> None:
         root = agent.experiment_path()
         answered = (
@@ -319,6 +325,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 root=root,
                 instrument=_instrument(request),
                 source=_source(request, root, None),
+                complete=complete,
             )
         except (knowledge.KnowledgeError, ValueError) as error:
             raise refusal_error(
