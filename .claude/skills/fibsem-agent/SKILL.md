@@ -357,7 +357,9 @@ one section at a time with `plan_set_section`:
 - **Rules**: each standing rule ("check coincidence at every site", "a
   fluorescent target"), one `- ` line each, in the operator's words.
 - **Steps**: `- [ ]` boxes, grouped under `### ` lines (a phase, a grid).
-- **Progress**: what happened, newest last. **Summary**: at the end.
+- **Progress**: what happened, newest last. A key picture goes on a line of
+  its own as `![caption](path)`, the path relative to the experiment folder
+  (`lamella-01/polish.png`); the Agent page shows it. **Summary**: at the end.
 
 Every instruction goes in the moment it arrives: a standing rule in Rules,
 a task as a Steps box. Read the plan before each step (`plan_get`). Tick a box
