@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronDown } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
+import { Popup } from "@/components/ui/popup";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -274,6 +276,9 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
   );
 }
 
+const menuItem =
+  "rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent cursor-pointer";
+
 function Run({ running }: { running: Running }) {
   const client = useQueryClient();
   const [confirm, setConfirm] = useState(false);
@@ -334,12 +339,12 @@ function Run({ running }: { running: Running }) {
       {confirm ? (
         <>
           <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-            End the agent and stop the app? Nothing holds the microscope afterwards.
+            Stop the agent and the app? Nothing holds the microscope afterwards.
           </p>
           <div className="flex flex-wrap items-center justify-end gap-2.5">
             <Button onClick={() => setConfirm(false)}>Cancel</Button>
             <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate(true)}>
-              End and stop the app
+              Stop the Agent and the App
             </Button>
           </div>
         </>
@@ -357,12 +362,42 @@ function Run({ running }: { running: Running }) {
           ) : (
             <span className="mr-auto" />
           )}
-          <Button disabled={end.isPending} onClick={() => setConfirm(true)}>
-            End and stop the app
-          </Button>
-          <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate(false)}>
-            {end.isPending ? "Ending…" : "End"}
-          </Button>
+          <Popup
+            label="End"
+            align="right"
+            side="below"
+            trigger={(open, toggle) => (
+              <Button variant="danger" disabled={end.isPending} aria-expanded={open} onClick={toggle}>
+                {end.isPending ? "Ending…" : "End"}
+                <ChevronDown size={14} />
+              </Button>
+            )}
+          >
+            {(close) => (
+              <div role="menu" className="flex w-56 flex-col">
+                <button
+                  role="menuitem"
+                  className={menuItem}
+                  onClick={() => {
+                    close();
+                    end.mutate(false);
+                  }}
+                >
+                  Stop the Agent
+                </button>
+                <button
+                  role="menuitem"
+                  className={menuItem}
+                  onClick={() => {
+                    close();
+                    setConfirm(true);
+                  }}
+                >
+                  Stop the Agent and the App
+                </button>
+              </div>
+            )}
+          </Popup>
         </div>
       )}
     </>
