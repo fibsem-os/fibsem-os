@@ -1,7 +1,8 @@
 """``/app/library``: the agent's profiles, playbooks and skills
 (`fibsem.ai.agent.library`), what fibsemOS ships beside the lab's own, for the
-web page's Knowledge window. Reading is at Watch; copying, editing and
-removing the lab's own are the operator's only. The agent never edits them.
+web page's Knowledge window. Reading is at Watch; saving (an edit to a
+shipped one makes the lab's copy) and removing are the operator's only. The
+agent never edits them.
 """
 
 from typing import Any, Dict, Optional
@@ -14,7 +15,7 @@ from fibsem.server.responses import LibraryIndex, LibraryItem, answer
 
 
 def _refused(error: library.LibraryError):
-    status = {"not_found": 404, "exists": 409}.get(error.error_type, 422)
+    status = 404 if error.error_type == "not_found" else 422
     return refusal_error(status, error.error_type, error.message)
 
 
@@ -35,15 +36,6 @@ def build_library_router() -> APIRouter:
     def library_read(kind: str, name: str, source: Optional[str] = None):
         try:
             return answer(library.read(kind, name, source))
-        except library.LibraryError as error:
-            raise _refused(error)
-
-    @router.post(
-        "/{kind}/{name}/copy", response_model=library.File, dependencies=operator
-    )
-    def library_copy(kind: str, name: str):
-        try:
-            return answer(library.copy(kind, name))
         except library.LibraryError as error:
             raise _refused(error)
 

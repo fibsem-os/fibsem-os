@@ -32,11 +32,6 @@ const EMPTY: Record<LibraryKind, string> = {
   skills: "No skills.",
 };
 
-function origin(item: Pick<LibraryItem, "lab" | "shipped">): string {
-  if (item.lab && item.shipped) return "Lab's copy";
-  return item.lab ? "Lab's own" : "Shipped";
-}
-
 /** A skill's front matter and body, split. */
 function skillParts(text: string): { front: string; body: string } {
   const match = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text);
@@ -48,7 +43,6 @@ function FileView({
   item,
   file,
   busy,
-  onCopy,
   onSave,
   onRemove,
 }: {
@@ -56,7 +50,6 @@ function FileView({
   item: LibraryItem;
   file: LibraryFile;
   busy: boolean;
-  onCopy: () => void;
   onSave: (text: string) => void;
   onRemove: () => void;
 }) {
@@ -68,12 +61,6 @@ function FileView({
     setRemoving(false);
     setText(file.text);
   }, [file.path, file.text]);
-  const meta =
-    file.source === "shipped"
-      ? "Shipped with fibsemOS. Copy it to make the lab's own."
-      : item.shipped
-        ? "The lab's copy, used in place of the shipped one."
-        : "The lab's own.";
   const skill = kind === "skills" ? skillParts(file.text) : null;
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto px-6 py-5">
@@ -82,7 +69,6 @@ function FileView({
           <h3 className="m-0 text-[15px] font-semibold" title={file.path}>
             {file.name}
           </h3>
-          <p className="m-0 mt-0.5 text-[12px] text-muted-foreground">{meta}</p>
         </div>
         {editing ? null : removing ? (
           <span className="flex shrink-0 gap-1">
@@ -93,13 +79,9 @@ function FileView({
               Cancel
             </Button>
           </span>
-        ) : file.source === "shipped" ? (
-          <Button variant="ghost" className="shrink-0 py-1 text-foreground" disabled={busy} onClick={onCopy}>
-            Copy to edit
-          </Button>
         ) : (
           <span className="flex shrink-0 items-center text-muted-foreground">
-            {item.shipped && (
+            {item.shipped && item.lab && (
               <Button
                 variant="ghost"
                 className="py-1"
@@ -112,7 +94,7 @@ function FileView({
             <Button variant="ghost" className="px-2" aria-label="Edit" title="Edit" onClick={() => setEditing(true)}>
               <Pencil size={14} />
             </Button>
-            {!item.shipped && (
+            {!item.shipped && item.lab && (
               <Button
                 variant="ghost"
                 className="px-2"
@@ -136,7 +118,6 @@ function FileView({
             onChange={(e) => setText(e.target.value)}
           />
           <div className="flex items-center justify-end gap-1">
-            <span className="mr-auto text-[12px] text-muted-foreground">The agent uses it from its next start.</span>
             <Button variant="ghost" onClick={() => setEditing(false)}>
               Cancel
             </Button>
@@ -158,7 +139,6 @@ function FileView({
         </>
       ) : (
         <>
-          {item.description && <p className="m-0 mt-3 text-[13px] text-muted-foreground">{item.description}</p>}
           <pre className="m-0 mt-3 overflow-x-auto rounded bg-accent px-3 py-2.5 font-mono text-[12px] leading-[1.55] whitespace-pre-wrap">
             {file.text}
           </pre>
@@ -190,10 +170,6 @@ export function LibraryBrowser({ kind, enabled }: { kind: LibraryKind; enabled: 
     enabled: enabled && name !== null,
   });
   const done = () => client.invalidateQueries({ queryKey: ["library", kind] });
-  const copy = useMutation({
-    mutationFn: () => api(url("/copy"), { method: "POST" }),
-    onSuccess: done,
-  });
   const save = useMutation({
     mutationFn: (text: string) => api(url(), { method: "PUT", body: JSON.stringify({ text }) }),
     onSuccess: done,
@@ -211,7 +187,7 @@ export function LibraryBrowser({ kind, enabled }: { kind: LibraryKind; enabled: 
     (item) => !words || `${item.name} ${item.description ?? ""}`.toLowerCase().includes(words),
   );
   const item = items.find((i) => i.name === name) ?? null;
-  const error = index.error || file.error || copy.error || save.error || remove.error;
+  const error = index.error || file.error || save.error || remove.error;
   return (
     <div className="flex min-h-0 flex-col">
       <div className="flex h-[min(560px,76vh)] min-h-0">
@@ -237,7 +213,6 @@ export function LibraryBrowser({ kind, enabled }: { kind: LibraryKind; enabled: 
                     name === row.name && "bg-accent",
                   )}
                   onClick={() => {
-                    copy.reset();
                     save.reset();
                     remove.reset();
                     setName(row.name);
@@ -245,7 +220,6 @@ export function LibraryBrowser({ kind, enabled }: { kind: LibraryKind; enabled: 
                 >
                   <span className="flex w-full items-baseline gap-2">
                     <span className="min-w-0 flex-1 truncate text-[13px] text-foreground">{row.name}</span>
-                    {row.lab && <span className="shrink-0 text-[11px] text-muted-foreground">{origin(row)}</span>}
                   </span>
                   {row.description && (
                     <span className="line-clamp-2 text-[12px] text-muted-foreground">{row.description}</span>
@@ -265,15 +239,12 @@ export function LibraryBrowser({ kind, enabled }: { kind: LibraryKind; enabled: 
             kind={kind}
             item={item}
             file={file.data}
-            busy={copy.isPending || save.isPending || remove.isPending}
-            onCopy={() => copy.mutate()}
+            busy={save.isPending || remove.isPending}
             onSave={(text) => save.mutate(text)}
             onRemove={() => remove.mutate()}
           />
         ) : (
-          <div className="flex flex-1 items-center justify-center text-[13px] text-muted-foreground">
-            {items.length ? `Pick one. The lab's own are used in place of the shipped ones.` : null}
-          </div>
+          <div className="flex flex-1 items-center justify-center text-[13px] text-muted-foreground"></div>
         )}
       </div>
       {error && (

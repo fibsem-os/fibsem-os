@@ -2,9 +2,9 @@
 fibsemOS ships and the lab's own, side by side.
 
 The lab's own sit in the knowledge base (``sources.lab_folder``) and win by
-name over the shipped ones. The operator copies a shipped one there to edit it,
-edits the lab's copy, or removes it to go back to the shipped one. The shipped
-files are never written.
+name over the shipped ones. Saving an edit to a
+shipped one makes the lab's copy there; removing the copy goes back to the
+shipped one. The shipped files are never written.
 """
 
 import os
@@ -27,8 +27,7 @@ _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
 
 
 class LibraryError(ValueError):
-    """Why a call is refused: ``error_type`` is ``invalid``, ``not_found`` or
-    ``exists``."""
+    """Why a call is refused: ``error_type`` is ``invalid`` or ``not_found``."""
 
     def __init__(self, error_type: str, message: str):
         super().__init__(message)
@@ -195,21 +194,17 @@ def read(kind: str, name: str, source: Optional[str] = None) -> File:
     return File(name, source, path.read_text(encoding="utf-8"), str(path), lab, shipped)
 
 
-def copy(kind: str, name: str) -> File:
-    """Copy a shipped one into the lab's folder, to edit there."""
-    kind, name = _kind(kind), _name(name)
+def _copy(kind: str, name: str) -> None:
+    """Copy a shipped one into the lab's folder, its first edit made there."""
     source = _shipped_path(kind, name)
     if source is None:
         raise LibraryError("not_found", f"fibsemOS ships no {kind[:-1]} {name!r}.")
     target = _path(_lab_dir(kind), kind, name)
-    if target.exists():
-        raise LibraryError("exists", f"The lab already has its own {name!r}.")
     target.parent.mkdir(parents=True, exist_ok=True)
     if kind == "skills":
         shutil.copytree(source.parent, target.parent, dirs_exist_ok=True)
     else:
         shutil.copyfile(source, target)
-    return read(kind, name, LAB)
 
 
 def _check(kind: str, name: str, text: str) -> None:
@@ -240,19 +235,7 @@ def _check(kind: str, name: str, text: str) -> None:
             raise LibraryError("invalid", str(error).replace(str(path), name)) from None
 
 
-def save(kind: str, name: str, text: str) -> File:
-    """Replace the lab's own copy's text; only the lab's are edited."""
-    kind, name = _kind(kind), _name(name)
-    if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
-        raise LibraryError("invalid", f"text is 1 to {MAX_TEXT} characters.")
-    path = _path(_lab_dir(kind), kind, name)
-    if not path.is_file():
-        raise LibraryError(
-            "not_found",
-            f"The lab has no {name!r} of its own: copy the shipped one first.",
-        )
-    _check(kind, name, text)
-    previous = path.read_text(encoding="utf-8")
+def _write(path: Path, text: str) -> None:
     handle, temporary = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as f:
@@ -262,12 +245,30 @@ def save(kind: str, name: str, text: str) -> File:
         if os.path.exists(temporary):
             os.remove(temporary)
         raise
+
+
+def save(kind: str, name: str, text: str) -> File:
+    """Save *text* as the lab's own; editing a shipped one makes the lab's copy."""
+    kind, name = _kind(kind), _name(name)
+    if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
+        raise LibraryError("invalid", f"text is 1 to {MAX_TEXT} characters.")
+    path = _path(_lab_dir(kind), kind, name)
+    _check(kind, name, text)
+    # Editing a shipped one makes the lab's copy; the shipped file is never written.
+    copied = not path.is_file()
+    if copied:
+        _copy(kind, name)
+    previous = path.read_text(encoding="utf-8")
+    _write(path, text)
     if kind == "playbooks":
         # what it extends must still resolve
         try:
             playbooks.load(name, sources.find_root())
         except playbooks.PlaybookError as error:
-            path.write_text(previous, encoding="utf-8")
+            if copied:
+                remove(kind, name)
+            else:
+                _write(path, previous)
             raise LibraryError("invalid", str(error)) from None
     return read(kind, name, LAB)
 
