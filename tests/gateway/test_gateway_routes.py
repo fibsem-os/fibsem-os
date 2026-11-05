@@ -561,3 +561,28 @@ def test_the_playbooks_routes(with_agent):
 def test_without_an_agent_there_are_no_agent_routes(setup):
     client, _, _ = setup
     assert client.get("/gateway/agent", headers=_as(OPERATOR_TOKEN)).status_code == 404
+
+
+def test_only_the_operator_stops_or_restarts_the_gateway(tmp_path):
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
+    auth = GatewayAuth.from_disk(token_file, tmp_path / "gateway-paired.json")
+    quits = []
+    client = TestClient(build_gateway_app(FakeGateway(), auth, on_quit=quits.append))
+    hub = _pair_hub(client, [SWITCH_MODES])
+    r = client.post("/gateway/quit", json={}, headers=_as(hub["token"]))
+    assert r.status_code == 403 and quits == []
+    assert client.post(
+        "/gateway/quit", json={}, headers=_as(OPERATOR_TOKEN)
+    ).json() == {
+        "stopping": True,
+        "restart": False,
+    }
+    client.post("/gateway/quit", json={"restart": True}, headers=_as(OPERATOR_TOKEN))
+    assert quits == [False, True]
+
+
+def test_without_a_quit_the_gateway_has_no_quit_route(setup):
+    client, _, _ = setup
+    r = client.post("/gateway/quit", json={}, headers=_as(OPERATOR_TOKEN))
+    assert r.status_code in (404, 405)
