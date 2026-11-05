@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar
 
+from fibsem.ai.agent.library import Item as LibraryItem
 from fibsem.ai.agent.recent import RecentRow
 from fibsem.codec import encode, saved
 from fibsem.config import NotificationPreferences
@@ -1101,6 +1102,14 @@ class KnowledgeRemoved:
 
     removed: bool
     entry: KnowledgeEntryFile
+
+
+@dataclass
+class LibraryIndex:
+    """The profiles, playbooks or skills (*kind*): the shipped and the lab's own."""
+
+    kind: str
+    items: List[LibraryItem] = field(default_factory=list)
 
 
 @dataclass
