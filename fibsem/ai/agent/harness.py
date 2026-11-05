@@ -170,11 +170,12 @@ not be reading. Anything the operator must read now (you have stopped and \
 need them, or you answer their MESSAGE with its reply_to) goes to them with \
 experiment_message_operator; a judgment worth keeping goes on the record with \
 experiment_add_note.
-- Keep the operator's instructions on your checklist with \
-server_set_checklist, which the operator sees on the Agent page: each \
-instruction a MESSAGE gives, in their words, as it arrives. Read it before \
-each step and mark an item done only when it is. A new instruction adds to \
-the list; it never replaces what is there unless the operator says so. Limits \
+- Keep your plan for the session, plan.md, with plan_set_section, a section \
+at a time; the operator reads and edits it on the Agent page. Each \
+instruction a MESSAGE gives goes in it, in their words, as it arrives: a \
+standing rule in Rules, a task as a Steps box. Read it (plan_get) before each \
+step, and tick a box only when it is done. A new instruction adds to the \
+plan; it never replaces what is there unless the operator says so. Limits \
 the operator sets ("finish by 07:00") go in server_set_constraints: a DEADLINE \
 line wakes you 30 min before such a time and at it.
 - To look again later with nothing to wake you (after a long mill, to check \
@@ -234,6 +235,7 @@ REREAD_PROPOSALS = (
     "Events were lost: re-read proposal_list and app_get_status before acting "
     "on the lines above."
 )
+REREAD_PLAN = "Read your plan again (plan_get) and your playbook's rules before acting."
 REREAD_LEVEL = (
     "Your level may have changed: re-read server_get_capabilities and work as "
     "the level it gives allows, then re-read app_get_status and proposal_list."
@@ -266,7 +268,8 @@ def _kickoff(resumed: bool) -> str:
             "lines. Call server_get_capabilities, read your skills again if they "
             f"are no longer in your context ({BASE_SKILL} first), tell "
             "the operator in a sentence what your level means now, re-read "
-            "app_get_status and proposal_list, then end your turn."
+            "your plan (plan_get), app_get_status and proposal_list, then end "
+            "your turn."
         )
     return (
         "You are the microscope's agent, run by fibsem-agent.\n"
@@ -283,6 +286,9 @@ def _kickoff(resumed: bool) -> str:
         "answer when it comes.\n"
         "5. Call playbook_list. With no playbook set, propose the one that fits "
         "(Session setup) and set it once the operator agrees.\n"
+        "6. Once you have the brief, write your plan (plan_set_section) under "
+        "the playbook's plan headings, starting with the Brief and its Sample "
+        "line.\n"
         "Then end your turn. The harness wakes you with the watcher's lines."
     )
 
@@ -297,6 +303,8 @@ def turn_prompt(lines: List[str], remind: Optional[List[str]] = None) -> str:
         prompt += "\n\n" + REREAD_PROPOSALS
     if any(line.startswith(("AGENT BACK", "RESTARTED", "LEVEL")) for line in lines):
         prompt += "\n\n" + REREAD_LEVEL
+    if any(line.startswith(("WAKE ", "PLAN EDITED")) for line in lines):
+        prompt += "\n\n" + REREAD_PLAN
     return prompt
 
 
@@ -921,6 +929,11 @@ class Harness:
         if self._stopping.is_set():
             return False
         await self._report_read(prompt)
+        if getattr(self._agent, "compacted", False):
+            # The context was compacted during the last turn: the plan and the
+            # playbook's rules may be all that is left of the intake.
+            self._agent.compacted = False
+            prompt += "\n\nYour context was compacted. " + REREAD_PLAN
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
         sender = asyncio.ensure_future(self._send_transcript_every())
         try:
@@ -1210,6 +1223,8 @@ class SdkAgent:
         self.session_id: Optional[str] = options.resume or options.session_id
         self.model: Optional[str] = options.model
         self.introduced = False
+        # The context was compacted: the next turn asks for the plan again.
+        self.compacted = False
         # The skills it has read, in order: the session reports them.
         self.skills_read: List[str] = []
         # The lines printed, until the harness sends them (`Harness._send_transcript`).
@@ -1434,6 +1449,7 @@ def _show(message, agent: SdkAgent) -> None:
                         "MCP server %s is %s.", server.get("name"), server.get("status")
                     )
         elif message.subtype == "compact_boundary":
+            agent.compacted = True
             meta = data.get("compact_metadata") or {}
             log.info(
                 "Context compacted (%s, %s tokens before).",

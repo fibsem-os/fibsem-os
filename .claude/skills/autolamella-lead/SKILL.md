@@ -56,7 +56,9 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
 0. **Intake**, before the microscope, while the operator is there. Read the
    session's goal and their messages first, and ask only what they don't
    already answer. Once you know the sample, read its knowledge base entries
-   and say which change the plan. Post the answers as `[intake]`:
+   and say which change the plan. Post the answers as `[intake]`, and put
+   them in your plan.md (fibsem-agent, *Keep a plan*): the brief and its
+   `Sample:` line, the rules, and the phases below as Steps:
    1. The scientific brief: the question, the sample and the target (a
       cell, a structure, a label).
    2. How many lamellae (target, maximum), how wide, the target thickness
