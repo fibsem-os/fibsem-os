@@ -1,22 +1,29 @@
 ---
 name: fibsem-experiment
-description: Plain FIB work with no app workflow — images, milling patterns you place, spot burns, cross-sections, an imaging series, moving between saved sites. Read fibsem-agent first, then this when the operator wants FIB work that isn't making lamellae with AutoLamella.
+description: General FIB experiments with no app workflow — the operator says what they want to try or find out (settings, patterns, a parameter search, a test), and you run it with images, milling patterns you place, spot burns, cross-sections, an imaging series and saved sites. Read fibsem-agent first, then this when the operator wants FIB work that isn't making lamellae with AutoLamella.
 ---
 
-# A plain FIB experiment
+# A general FIB experiment
 
-Read the fibsem-agent skill first. Here there is no workflow and no proposals:
-each step is one you take yourself (Drive) or ask for (Assist), as the
-operator asks for it. Nothing waits on you, so nothing is lost by stopping to
+Read the fibsem-agent skill first. The operator brings a question or
+something to try, not a workflow to finish: a milling current, a pattern, a
+parameter search, a test of the instrument. There is no workflow and no
+proposals: each step is one you take yourself (Drive) or ask for (Assist),
+as the operator asks for it. Nothing waits on you, so nothing is lost by stopping to
 ask.
 
 ## Before you start
+
+**Read what the lab knows** (fibsem-agent, *The knowledge base*): the
+instrument's entries, and the sample's and this playbook's once you know
+them, before you agree the plan. Say which ones change it.
 
 **Agree the plan.** Ask what the operator wants done, at which sites, and
 what counts as done: the patterns and their size and depth, the milling
 currents, which images to take after each step and where to save them. Say
 the plan back as a short numbered list and put each item in your plan's
-Steps (`plan_set_section`, fibsem-agent's *Keep a plan*). Ask for anything missing rather than guessing
+Steps (`plan_set_section`, fibsem-agent's *Keep a plan*). Ask for anything
+missing rather than guessing
 (fibsem-agent, *When an ask leaves out the rule*).
 
 **An experiment to save into.** Your images and mills are saved in the open
@@ -28,6 +35,32 @@ record, but you can't look at your own images again.
 
 **Get your bearings** before the first move (fibsem-agent, *Using the
 microscope*).
+
+## Running an experiment
+
+When the operator wants to find something out, not only to get something
+done, agree these with them before the first run and write them in the
+plan's Brief:
+
+- **The question**, in their words: "which current gives a clean face on
+  this resin", "does the stage come back within 1 µm".
+- **What changes** from run to run, and the values to try; and what stays
+  the same (the site, the pattern, the image settings).
+- **What you measure** on each run, and on which image.
+- **When to stop**: every value tried, an answer clear enough, or a limit
+  (time, sites, current).
+
+Change one thing at a time, so a difference has one cause. Put each run in
+Steps (`- [ ] Run 3: 1 nA, 2 µm deep`), and after each one add a line to a
+results table in Progress:
+
+| Run | What changed | Result | Image |
+|---|---|---|---|
+| 1 | 300 pA | face clean, 4 min | site-a/run-1_eb |
+
+Look at each result before the next run. If one surprises you (a run that
+does far better or worse, a result the question didn't expect), stop and
+tell the operator rather than carrying on through the list.
 
 ## Sites
 
@@ -99,6 +132,13 @@ mill, image) with the preview drawing named in the reason.
 
 ## When you're done
 
-Message the operator a short summary: for each site, what was milled and
-imaged and the files, then anything left undone and why. Add the same as a
-note, citing the last image of each site.
+Message the operator a short summary: the answer to the question, as far as
+the runs show it, then for each site what was milled and imaged and the
+files, then anything left undone and why. Write the same in the plan's
+Summary, citing the last image of each site.
+
+Then write the knowledge base (fibsem-agent, *The knowledge base*): the
+run's record with the question, the results table and the answer, and a
+sample or instrument entry for anything the next run should know (a current
+that works on this sample, a setting that doesn't), with the image that
+shows it.
