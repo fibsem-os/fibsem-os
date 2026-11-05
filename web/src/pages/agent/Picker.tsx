@@ -133,6 +133,8 @@ function PickList({
     return [...found].filter(([, list]) => list.length);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, filter, text, first]);
+  const tickAll = (names: string[], on: boolean) =>
+    onChange?.(on ? [...value, ...names.filter((n) => !value.includes(n))] : value.filter((v) => !names.includes(v)));
   const flip = (name: string) => onChange?.(value.includes(name) ? value.filter((v) => v !== name) : [...value, name]);
   return (
     <div className="flex min-h-0 flex-col px-5 py-4 text-[13px] leading-[1.45]">
@@ -156,7 +158,25 @@ function PickList({
             <section key={group}>
               {group && (
                 <h4 className="mt-4 mb-1 text-[12px] font-semibold text-muted-foreground">
-                  {group} <span className="font-normal">· {list.length}</span>
+                  {onChange && group !== "Chosen" ? (
+                    <label className="grid cursor-pointer grid-cols-[20px_1fr] items-baseline gap-x-3">
+                      <input
+                        type="checkbox"
+                        aria-label={`All of ${group}`}
+                        title="Tick or untick the whole group"
+                        className="m-0 accent-[var(--primary)]"
+                        checked={list.every((row) => value.includes(full(row)))}
+                        onChange={(e) => tickAll(list.map(full), e.target.checked)}
+                      />
+                      <span>
+                        {group} <span className="font-normal">· {list.length}</span>
+                      </span>
+                    </label>
+                  ) : (
+                    <>
+                      {group} <span className="font-normal">· {list.length}</span>
+                    </>
+                  )}
                 </h4>
               )}
               <ul className="m-0 list-none p-0">
