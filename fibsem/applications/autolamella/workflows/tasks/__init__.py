@@ -5,9 +5,9 @@ This module provides a plugin architecture for AutoLamellaTask implementations,
 similar to the BasePattern plugin system in fibsem.milling.patterning.
 """
 
-from typing import TYPE_CHECKING, Any, Dict, Type
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Type
 
-from fibsem.plugins.loader import PluginRegistry, subclass_of
+from fibsem.plugins.loader import PluginRecord, PluginRegistry, subclass_of
 from fibsem.workflows.site_task import SiteTask
 from fibsem.workflows.site_tasks import BUILTIN_SITE_TASKS
 
@@ -94,6 +94,20 @@ TASK_PLUGINS: PluginRegistry[Type[AutoLamellaTask]] = PluginRegistry(
 )
 
 
+# Runtime registrations, the same dict TASK_PLUGINS holds.
+REGISTERED_TASKS: Dict[str, Type[AutoLamellaTask]] = TASK_PLUGINS.registered
+
+
+def register_task(task_cls: Type[AutoLamellaTask]) -> None:
+    """Register a task class at runtime, under its config's task_type."""
+    TASK_PLUGINS.register(task_cls.config_cls.task_type, task_cls)
+
+
+def get_task_plugin_records() -> Tuple[PluginRecord, ...]:
+    """Every fibsem.autolamella.tasks entry point and what became of it."""
+    return TASK_PLUGINS.plugin_records()
+
+
 def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
     """Get all available tasks.
 
@@ -106,6 +120,11 @@ def get_tasks() -> Dict[str, Type[AutoLamellaTask]]:
         Dictionary mapping task type strings to task classes
     """
     return TASK_PLUGINS.all()
+
+
+def get_task_names() -> List[str]:
+    """The task types that can be used, built-in and plugin."""
+    return list(get_tasks())
 
 
 def load_task_config(
@@ -155,7 +174,6 @@ __all__ = [
     "QueueResult",
     "TaskQueue",
     "WorkItem",
-    "TaskNotRegisteredError",
     "BUILTIN_TASKS",
     "TASK_ENTRY_POINT_GROUP",
     "TASK_PLUGINS",
