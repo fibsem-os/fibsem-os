@@ -52,11 +52,17 @@ A change a user would notice carries a `Release-Note:` trailer:
 Release-Note: Toasts now appear on the window that raised them, rather than always on the main window.
 ```
 
-The changelog for a release is then one command:
+The changelog for a release starts from one command, run from the last release's tag:
 
 ```bash
-git log v0.5.1..HEAD --format='%(trailers:key=Release-Note,valueonly)' | grep .
+git log v0.5.3..main --first-parent --format=%B | grep '^Release-Note:'
 ```
+
+It reads the message bodies rather than git's trailers on purpose. A squash merge often
+ends with a `Co-authored-by:` line after the `Release-Note:` paragraph, and then git
+does not see the note as a trailer: `--format='%(trailers:key=Release-Note)'` missed
+more than half the notes between v0.5.3 and v0.6.0. `--first-parent` keeps to the merges
+on main, so a release branch's cherry-picks are not counted twice.
 
 The commit is the right home for it because it cannot drift from the code it describes —
 it ships in the same commit.
