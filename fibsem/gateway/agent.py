@@ -118,20 +118,30 @@ def _why_not(record: dict, platform: str) -> Optional[str]:
     return None
 
 
+def _playbook(record: dict) -> Tuple[Optional[str], Optional[str]]:
+    """The record's playbook name and hash: a name at start, then
+    ``{name, hash, chosen_by, skills}`` once the session keeps its playbook
+    (`SessionFolder.keep_playbook`)."""
+    playbook = record.get("playbook")
+    if isinstance(playbook, dict):
+        return playbook.get("name"), playbook.get("hash")
+    return playbook, record.get("playbook_hash")
+
+
 def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
     """One session as the page lists it."""
     managed = record.get("manager") or {}
     runs = record.get("runs") or [{}]
     ended = managed.get("ended")
+    playbook, playbook_hash = _playbook(record)
     if ended is None and "ended" in runs[-1]:
         ended = runs[-1].get("reason") or "ended"
     return {
         "session_id": record.get("session_id"),
         "started": runs[0].get("started")
         or (managed.get("about") or {}).get("started"),
-        "playbook": record.get("playbook")
-        or (managed.get("about") or {}).get("playbook"),
-        "playbook_hash": record.get("playbook_hash"),
+        "playbook": playbook or (managed.get("about") or {}).get("playbook"),
+        "playbook_hash": playbook_hash,
         "goal": record.get("goal"),
         "spent_usd": _spent(record),
         "ended": ended,
@@ -292,7 +302,7 @@ class GatewayAgent:
             if why:
                 raise GatewayRefused(409, "cannot_resume", why)
             started = read_json(folder / MANAGED).get("about") or {}
-            playbook = record.get("playbook") or started.get("playbook")
+            playbook = _playbook(record)[0] or started.get("playbook")
             mode = record.get("mode")
             level, url = self._ready(level, playbook, replace, mode)
             env = self._pair()
