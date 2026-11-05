@@ -195,6 +195,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 record.get("answers"),
                 record.get("verdict"),
                 record.get("judged"),
+                evidence.said_of(root, evidence_id)
+                if record.get("by") != evidence.OPERATOR
+                else None,
             )
         )
 

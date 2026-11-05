@@ -974,6 +974,24 @@ def test_good_or_bad_alone_is_a_message(server):
     assert kept["verdict"] == "good" and kept["judged"] is None
 
 
+def test_the_picture_reads_what_was_last_said_of_it(server):
+    picks = _agent_picks(server)
+
+    def said():
+        return server.get(
+            f"/app/agent/evidence/{picks}", headers=server.operator
+        ).json()["said"]
+
+    assert said() is None
+    for verdict in ("good", "bad"):
+        server.post(
+            "/app/agent/messages",
+            headers=server.operator,
+            json={"text": "", "evidence": {"answers": picks, "verdict": verdict}},
+        )
+        assert said() == verdict
+
+
 @pytest.mark.parametrize(
     "said",
     [

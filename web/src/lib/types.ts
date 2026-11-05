@@ -357,6 +357,8 @@ export interface EvidenceAnswer {
   judged?:
     | { kind: string; index: number; label?: string; verdict?: "good" | "bad"; moved_to?: { x: number; y: number } }[]
     | null;
+  /** What the operator last said of this whole picture. */
+  said?: "good" | "bad" | null;
 }
 
 /** One experiment in /app/experiment/recent. */

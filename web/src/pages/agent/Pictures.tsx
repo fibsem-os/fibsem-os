@@ -119,6 +119,7 @@ function VerdictField({
       setSending(false);
       await client.invalidateQueries({ queryKey: ["app/agent"] });
       await client.invalidateQueries({ queryKey: ["app/agent/recent"] });
+      await client.invalidateQueries({ queryKey: ["app/agent/evidence", id] });
       if (kept) await client.invalidateQueries({ queryKey: ["app/knowledge"] });
     }
   };
@@ -198,7 +199,7 @@ export function EvidenceImage({ id }: { id: string }) {
         </Enlargeable>
         {agents && (
           <FeedbackIcons
-            said={said?.verdict}
+            said={said?.verdict ?? answer.data?.said ?? undefined}
             asking={asking}
             canMark={!!source}
             onVerdict={(v) => setAsking(asking === v ? undefined : v)}
@@ -237,10 +238,10 @@ export function EvidenceImage({ id }: { id: string }) {
           ))}
         </p>
       )}
-      {said && !asking && (
+      {!asking && (said || answer.data?.said) && (
         <p className="m-0 mt-1 text-[12px] text-muted-foreground">
-          You: {SAID[said.verdict]}
-          {said.reason && `, ${said.reason}`}
+          You: {SAID[said?.verdict ?? (answer.data!.said as Verdict)]}
+          {said?.reason && `, ${said.reason}`}
         </p>
       )}
       {agents && source && (
