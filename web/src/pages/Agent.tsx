@@ -4,13 +4,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
-import type { AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
+import type { AgentPlan, AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { ConnectCard, RequestCard, SuggestionCard } from "./agent/Cards";
 import { carriesFiles, splitAttached, useAttachments } from "./agent/attach";
 import { SentFiles } from "./agent/Attachments";
 import { Composer } from "./agent/Composer";
 import { EvidenceImage } from "./agent/Pictures";
+import { PlanDialog } from "./agent/PlanDialog";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // Last heard moves with no events, so the agent is read again on a clock.
@@ -300,6 +301,13 @@ export function AgentPage() {
     queryFn: () => api<{ session: ReportedSession | null }>("/app/agent/session"),
     refetchInterval: AGENT_EVERY_MS,
   });
+  // plan.md: the side panel's steps and the plan dialog.
+  const plan = useQuery({
+    queryKey: ["app/agent", "plan"],
+    queryFn: () => api<AgentPlan>("/app/agent/plan"),
+    refetchInterval: AGENT_EVERY_MS,
+  });
+  const [planOpen, setPlanOpen] = useState(false);
   const rowsNow = recent.data?.rows ?? [];
   const since = rowsNow.find((r) => r.at)?.at;
   const transcript = useQuery({
@@ -361,7 +369,9 @@ export function AgentPage() {
   const suggestion = a.suggestion && a.request?.status !== "pending" ? a.suggestion : null;
   const label = SHOWS.find(([key]) => key === show)![1];
   const session = reported.data?.session;
-  const panel = hasPanel(session) ? <SidePanel session={session} budgetLow={a.budget_low} /> : null;
+  const panel = hasPanel(session) ? (
+    <SidePanel session={session} plan={plan.data} budgetLow={a.budget_low} onOpenPlan={() => setPlanOpen(true)} />
+  ) : null;
   return (
     <div className="flex h-full">
       <div
@@ -531,6 +541,7 @@ export function AgentPage() {
           {panel}
         </aside>
       )}
+      <PlanDialog plan={plan.data} open={planOpen} onOpenChange={setPlanOpen} />
     </div>
   );
 }
