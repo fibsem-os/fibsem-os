@@ -12,6 +12,7 @@ import httpx
 import pytest
 
 from fibsem.acting import OPERATOR
+from fibsem.ai.agent.calls import EVIDENCE_HEADER
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import MESSAGE_LIMIT
 from fibsem.applications.autolamella.server.context import (
@@ -973,6 +974,24 @@ def test_good_or_bad_alone_is_a_message(server):
     assert kept["verdict"] == "good" and kept["judged"] is None
 
 
+def test_the_picture_reads_what_was_last_said_of_it(server):
+    picks = _agent_picks(server)
+
+    def said():
+        return server.get(
+            f"/app/agent/evidence/{picks}", headers=server.operator
+        ).json()["said"]
+
+    assert said() is None
+    for verdict in ("good", "bad"):
+        server.post(
+            "/app/agent/messages",
+            headers=server.operator,
+            json={"text": "", "evidence": {"answers": picks, "verdict": verdict}},
+        )
+        assert said() == verdict
+
+
 @pytest.mark.parametrize(
     "said",
     [
@@ -1005,3 +1024,89 @@ def test_a_verdict_is_on_a_picture(server):
     )
     assert answer.status_code == 422
     assert "answers" in answer.json()["detail"]["message"]
+
+
+def _plan_sample(server, sample: str) -> None:
+    """The agent reports its session and names the sample in its plan."""
+    reported = server.post(
+        "/app/agent/session", headers=server.agent, json={"session_id": "s1"}
+    )
+    assert reported.status_code == 200, reported.text
+    brief = server.post(
+        "/app/agent/plan/section",
+        headers=server.agent,
+        json={"section": "Brief", "text": f"Sample: {sample}\nFind round cells."},
+    )
+    assert brief.status_code == 200, brief.text
+
+
+def test_kept_feedback_is_an_example_of_the_sample(server, monkeypatch, tmp_path):
+    from fibsem import knowledge
+
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "state"))
+    picks = _agent_picks(server)
+    server.post(
+        "/app/experiment/notes",
+        headers={**server.agent, EVIDENCE_HEADER: picks},
+        json={"text": "Picked two cells for lamellae."},
+    )
+    _plan_sample(server, "yeast")
+    body = {
+        "text": "Not on the grid bar.",
+        "evidence": {
+            "answers": picks,
+            "judged": [
+                {"kind": "points", "index": 0, "verdict": "bad"},
+                {"kind": "points", "index": 1, "moved_to": {"x": 90, "y": 92}},
+            ],
+            "marks": {
+                "points": [{"x": 64, "y": 48, "label": "here", "verdict": "good"}]
+            },
+            "keep": True,
+        },
+    }
+    answer = server.post("/app/agent/messages", headers=server.operator, json=body)
+    assert answer.status_code == 201, answer.text
+    [row] = knowledge.entries(knowledge.SAMPLE, sample="yeast")
+    entry = knowledge.read(knowledge.SAMPLE, row.id, sample="yeast")
+    assert entry.by == knowledge.OPERATOR and entry.status == knowledge.KEPT
+    assert entry.tags["sample"] == "yeast"
+    # its own copy of the picture, with where it came from as names, not a path
+    assert len(entry.images) == 1
+    assert (Path(entry.path).parent / entry.images[0]).is_file()
+    assert entry.source["images"] == {entry.images[0]: "ref_fib.tif"}
+    assert entry.source["evidence_id"] == answer.json()["evidence_id"]
+    assert "Task: note: Picked two cells for lamellae." in entry.text
+    assert '- "1": bad' in entry.text
+    assert "point 2: moved 20.0 µm" in entry.text
+    assert '- point "here": good' in entry.text
+    # and as data, for a scorer: each pick, what was said, where it should be
+    import json
+
+    saved = json.loads((Path(entry.path).parent / "marks.json").read_text())
+    assert saved["image"] == "ref_fib.tif"
+    assert (saved["width"], saved["height"]) == (128, 96)
+    assert saved["pixel_size"] == pytest.approx(80e-6 / 128)
+    first, second = saved["picks"]
+    assert first["verdict"] == "bad" and first["mark"]["label"] == "1"
+    assert second["moved_to"]["x"] == 90 and "stage" in second["moved_to"]
+    # moved, not rated
+    assert second["verdict"] == "unrated"
+    assert saved["marks"]["points"][0]["verdict"] == "good"
+    # the image itself, as the agent saw it
+    assert saved["source_file"] == "source.tif"
+    assert (Path(entry.path).parent / "source.tif").is_file()
+
+
+def test_keep_needs_a_sample_and_a_verdict(server, monkeypatch, tmp_path):
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "state"))
+    picks = _agent_picks(server)
+    body = {"text": "", "evidence": {"answers": picks, "verdict": "bad", "keep": True}}
+    refused = server.post("/app/agent/messages", headers=server.operator, json=body)
+    assert refused.status_code == 409 and "no_sample" in refused.text
+    _plan_sample(server, "yeast")
+    unsaid = {"text": "look", "evidence": {"answers": picks, "keep": True}}
+    refused = server.post("/app/agent/messages", headers=server.operator, json=unsaid)
+    assert refused.status_code == 422, refused.text
+    kept = server.post("/app/agent/messages", headers=server.operator, json=body)
+    assert kept.status_code == 201, kept.text

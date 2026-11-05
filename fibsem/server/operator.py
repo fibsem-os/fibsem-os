@@ -15,6 +15,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from fibsem import knowledge
 from fibsem.ai.agent.catalog import tools_for_capabilities
 from fibsem.ai.agent.levels import (
     LEVEL_NAMES,
@@ -26,10 +27,11 @@ from fibsem.ai.agent.levels import (
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
 from fibsem.codec import encode
 from fibsem.imaging.marks import plane_shown
-from fibsem.server import files
+from fibsem.server import agent_plan, files
 from fibsem.server.agent_customisation import customisation
 from fibsem.server.agent_setup import setup_text
 from fibsem.server.auth import refusal_error, require_operator
+from fibsem.server.knowledge_routes import _instrument, _source
 from fibsem.server.parts import served_parts
 from fibsem.server.requests import RequestRefused
 from fibsem.server.responses import (
@@ -52,7 +54,7 @@ from fibsem.server.responses import (
     Waiting,
     answer,
 )
-from fibsem.workflows import evidence
+from fibsem.workflows import evidence, examples
 
 
 def _text(body: Dict[str, Any], key: str, required: bool = True) -> str:
@@ -193,11 +195,14 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 record.get("answers"),
                 record.get("verdict"),
                 record.get("judged"),
+                evidence.said_of(root, evidence_id)
+                if record.get("by") != evidence.OPERATOR
+                else None,
             )
         )
 
     @router.post("/messages", status_code=201, response_model=MessageSent)
-    def send_message(body: Dict[str, Any]):
+    def send_message(request: Request, body: Dict[str, Any]):
         # A message with marks may say nothing more.
         text = _text(body, "text", required=body.get("evidence") is None)
         if len(text) > MESSAGE_LIMIT:
@@ -216,7 +221,23 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     422,
                     "invalid",
                     "evidence is {image, marks, channels?, answers?, verdict?, "
-                    "judged?}.",
+                    "judged?, keep?}.",
+                )
+            # Kept as an example of the session's sample, in the knowledge base.
+            sample = _sample(request) if marked.get("keep") else None
+            if marked.get("keep") and not examples.said(marked):
+                raise refusal_error(
+                    422,
+                    "invalid",
+                    "An example says good or bad of something: the picture, a "
+                    "pick or a mark.",
+                )
+            if marked.get("keep") and sample is None:
+                raise refusal_error(
+                    409,
+                    "no_sample",
+                    "The plan names no sample yet, so there is nothing to keep it "
+                    "under: send it without Keep as example, or set the sample.",
                 )
             try:
                 record = evidence.save(
@@ -233,6 +254,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 raise HTTPException(
                     status_code=refusal.status_code, detail=refusal.detail
                 )
+            if sample is not None:
+                _keep_example(request, record, sample, text)
         message_id = agent.message(text, evidence=record)
         if message_id is None:
             raise refusal_error(
@@ -281,6 +304,32 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
         except LookupError as exc:
             raise refusal_error(404, "not_found", str(exc))
         return answer(ConnectionDecided(ask_id, False))
+
+    def _keep_example(
+        request: Request,
+        record: Dict[str, Any],
+        sample: str,
+        text: str,
+    ) -> None:
+        root = agent.experiment_path()
+        answered = (
+            evidence.find(root, record["answers"]) if record.get("answers") else None
+        )
+        try:
+            examples.keep(
+                record,
+                answered,
+                sample,
+                message=text,
+                task=agent.citing(record["answers"]) if answered else None,
+                root=root,
+                instrument=_instrument(request),
+                source=_source(request, root, None),
+            )
+        except (knowledge.KnowledgeError, ValueError) as error:
+            raise refusal_error(
+                422, "invalid", f"Couldn't keep it as an example: {error}"
+            )
 
     def _store() -> None:
         if agent.requests is None:
@@ -331,6 +380,15 @@ def _decided(result: Any, proposal_id: str) -> Any:
 
 # The images the operator can mark: saved beam images and stacks, and pictures.
 _MARKABLE = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
+
+
+def _sample(request: Request) -> Optional[str]:
+    """The sample the running agent session's plan names, or None."""
+    store = getattr(request.app.state, "agent_plan", None)
+    found = (request.app.state.auth.agent_session or {}).get("session_id")
+    if store is None or not isinstance(found, str):
+        return None
+    return agent_plan.sample(store.current(found))
 
 
 def _markable(root: str, image: Optional[str]) -> Optional[str]:
