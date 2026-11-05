@@ -212,9 +212,15 @@ export function AgentRules({ enabled }: { enabled: boolean }) {
     <div className="h-[min(560px,76vh)] min-h-0 overflow-auto px-5 py-4 text-[13px] leading-[1.45]">
       {data.data ? (
         <>
-          <h4 className="m-0 mb-1 text-[12px] font-semibold text-muted-foreground">Never touches</h4>
-          <Never data={data.data} />
-          <h4 className="m-0 mt-5 mb-1 text-[12px] font-semibold text-muted-foreground">Tools</h4>
+          <details className="mb-4 rounded border border-border px-3 py-2">
+            <summary className="cursor-pointer text-muted-foreground">
+              <span className="text-foreground">Never touches</span> ·{" "}
+              {data.data.never.map((row) => row.device).join(", ")}
+            </summary>
+            <div className="mt-2">
+              <Never data={data.data} />
+            </div>
+          </details>
           <Tools data={data.data} />
         </>
       ) : (
