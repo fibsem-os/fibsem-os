@@ -1045,7 +1045,6 @@ def test_kept_feedback_is_an_example_of_the_sample(server, monkeypatch, tmp_path
                 "points": [{"x": 64, "y": 48, "label": "here", "verdict": "good"}]
             },
             "keep": True,
-            "complete": True,
         },
     }
     answer = server.post("/app/agent/messages", headers=server.operator, json=body)
@@ -1077,7 +1076,6 @@ def test_kept_feedback_is_an_example_of_the_sample(server, monkeypatch, tmp_path
     # the image itself, as the agent saw it
     assert saved["source_file"] == "source.tif"
     assert (Path(entry.path).parent / "source.tif").is_file()
-    assert saved["complete"] is True
 
 
 def test_keep_needs_a_sample_and_a_verdict(server, monkeypatch, tmp_path):

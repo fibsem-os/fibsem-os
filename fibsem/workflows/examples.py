@@ -149,15 +149,13 @@ def keep(
     root: Optional[str] = None,
     instrument: Optional[str] = None,
     source: Optional[Dict[str, Optional[str]]] = None,
-    complete: bool = False,
 ) -> knowledge.Entry:
     """Write the operator's feedback *record* (an evidence record, with the
     picture it *answered*) as a kept example of *sample*: the image drawn with
     the agent's picks and the operator's marks, the *message*, the *task* the
     picture was for. *root*, the experiment, names the image and the entry's
     session tag; *instrument* and *source* as `knowledge.write` takes them.
-    *complete*: the operator marked every good target, so what isn't marked
-    good isn't one. The image itself is copied in too, when not too big."""
+    The image itself is copied in too, when not too big."""
     image = record.get("image")
     picks = (marked_on(answered)[1] if answered else None) or {}
     marks = _marks_drawn(record, picks)
@@ -182,7 +180,7 @@ def keep(
             image_names=[name.replace(os.sep, "/")],
         )
     copied = _copy_source(entry, image)
-    _save_marks(entry, record, picks, name.replace(os.sep, "/"), task, complete, copied)
+    _save_marks(entry, record, picks, name.replace(os.sep, "/"), task, copied)
     return entry
 
 
@@ -233,7 +231,6 @@ def _save_marks(
     picks: Dict[str, Any],
     name: str,
     task: Optional[str],
-    complete: bool,
     copied: Optional[str],
 ) -> None:
     """``marks.json`` beside the entry: the example as data, for a scorer. The
@@ -256,8 +253,6 @@ def _save_marks(
         **_image_facts(record.get("image")),
         "task": task,
         "verdict": record.get("verdict"),
-        # every good target is marked: unmarked places are not good ones
-        "complete": complete,
         "picks": rows,
         "marks": record.get("marks") or {},
         "channels": record.get("channels"),
