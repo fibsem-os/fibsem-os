@@ -1,5 +1,6 @@
 # Open-ended FIB work: the operator says what they want to try or find out,
 # and there is no app workflow to follow.
+extends: fibsem-agent
 description: >-
   General FIB experiments the operator describes: trying settings, patterns,
   parameter searches and tests, with no fixed workflow.

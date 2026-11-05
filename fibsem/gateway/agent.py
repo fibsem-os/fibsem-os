@@ -4,7 +4,7 @@ and ended from the gateway's page or tray, kept by an `AgentSessionManager`.
 Start needs the app running with a microscope connected. It pairs the agent's
 token straight into the shared ``paired.json`` (the operator starting it is
 the Allow), sets the App Server's level, then starts
-``fibsem-agent --profile NAME``. The token and the API key go only in the
+``fibsem-agent --playbook NAME``. The token and the API key go only in the
 agent's environment. When the app comes back after a restart the manager
 resumes the agent, and the gateway sets the Start level again: the App Server
 starts at Watch on every launch. End stops the agent and unpairs it.
@@ -76,7 +76,7 @@ def fibsem_agent_json(flags: List[str]) -> Any:
     if done.returncode != 0:
         raise GatewayRefused(
             422,
-            "bad_profile",
+            "bad_playbook",
             (done.stderr or done.stdout).strip() or "fibsem-agent failed.",
         )
     return json.loads(done.stdout)
@@ -129,8 +129,9 @@ def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
         "session_id": record.get("session_id"),
         "started": runs[0].get("started")
         or (managed.get("about") or {}).get("started"),
-        "profile": record.get("profile") or (managed.get("about") or {}).get("profile"),
-        "profile_hash": record.get("profile_hash"),
+        "playbook": record.get("playbook")
+        or (managed.get("about") or {}).get("playbook"),
+        "playbook_hash": record.get("playbook_hash"),
         "goal": record.get("goal"),
         "spent_usd": _spent(record),
         "ended": ended,
@@ -210,17 +211,17 @@ class GatewayAgent:
             microscope=self.microscope,
         )
 
-    def profiles(self) -> List[dict]:
-        return self._agent_json(["--list-profiles"])
+    def playbooks(self) -> List[dict]:
+        return self._agent_json(["--list-playbooks"])
 
     def configuration(self, name: str) -> dict:
-        return self._agent_json(["--profile", name, "--show-config"])
+        return self._agent_json(["--playbook", name, "--show-config"])
 
     # -- acting ------------------------------------------------------------
 
     def start(
         self,
-        profile: str,
+        playbook: str,
         goal: Optional[str],
         level: str,
         who: str,
@@ -231,19 +232,19 @@ class GatewayAgent:
         """Pair, set the level, start ``fibsem-agent``; each failure undoes
         what came before it. Raises `GatewayRefused`."""
         with self._lock:
-            level, url = self._ready(level, profile, replace)
+            level, url = self._ready(level, playbook, replace)
             env = self._pair()
             try:
                 self._level(url, level)
             except GatewayRefused:
                 self._unpair()
                 raise
-            args = ["--profile", profile, "--url", url]
+            args = ["--playbook", playbook, "--url", url]
             if budget_usd is not None:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
             about = {
                 "started": timestamps.now().isoformat(),
-                "profile": profile,
+                "playbook": playbook,
                 "goal": goal or None,
                 "level": level,
                 "who": who,
@@ -263,7 +264,7 @@ class GatewayAgent:
                 self._undo(url)
                 raise GatewayRefused(409, "agent_not_started", str(error)) from None
             logging.info(
-                "Gateway started the agent (%s, %s) for %s", profile, level, who
+                "Gateway started the agent (%s, %s) for %s", playbook, level, who
             )
             return self.state()
 
@@ -277,7 +278,7 @@ class GatewayAgent:
         replace: bool = False,
     ) -> AgentState:
         """Carry on an ended session, started here or with ``fibsem-agent`` by
-        hand, as it ran: its profile, mode and folder from its record, with a
+        hand, as it ran: its playbook, mode and folder from its record, with a
         fresh pairing and the App Server's url now. Checks and undoes as
         Start does. Raises `GatewayRefused`."""
         with self._lock:
@@ -291,16 +292,16 @@ class GatewayAgent:
             if why:
                 raise GatewayRefused(409, "cannot_resume", why)
             started = read_json(folder / MANAGED).get("about") or {}
-            profile = record.get("profile") or started.get("profile")
+            playbook = record.get("playbook") or started.get("playbook")
             mode = record.get("mode")
-            level, url = self._ready(level, profile, replace, mode)
+            level, url = self._ready(level, playbook, replace, mode)
             env = self._pair()
             try:
                 self._level(url, level)
             except GatewayRefused:
                 self._unpair()
                 raise
-            args = (["--profile", profile] if profile else []) + ["--url", url]
+            args = (["--playbook", playbook] if playbook else []) + ["--url", url]
             cwd = record.get("cwd")
             if mode in ("code", "files"):
                 # Its own work/ is the flag alone; any other folder is named.
@@ -317,7 +318,7 @@ class GatewayAgent:
                 args += ["--max-budget-usd", f"{float(budget_usd):g}"]
             about = {
                 "started": timestamps.now().isoformat(),
-                "profile": profile,
+                "playbook": playbook,
                 "goal": record.get("goal"),
                 "level": level,
                 "who": who,
@@ -340,7 +341,7 @@ class GatewayAgent:
     def _ready(
         self,
         level: str,
-        profile: Optional[str],
+        playbook: Optional[str],
         replace: bool,
         mode: Optional[str] = None,
     ) -> Tuple[str, str]:
@@ -377,13 +378,13 @@ class GatewayAgent:
                 "no_api_key",
                 f"No API key: run fibsem-cli key set {API_KEY} on this PC.",
             )
-        config = self.configuration(profile) if profile else {}
+        config = self.configuration(playbook) if playbook else {}
         if "code" in (config.get("mode"), mode) and self._platform == "win32":
             raise GatewayRefused(
                 409,
                 "code_mode_windows",
-                f"Profile {profile} runs code, which has no sandbox on Windows: "
-                "pick a profile without code.",
+                f"Playbook {playbook} runs code, which has no sandbox on Windows: "
+                "pick a playbook without code.",
             )
         paired = self._tokens.agent()
         if paired is not None and paired.name != AGENT_NAME and not replace:

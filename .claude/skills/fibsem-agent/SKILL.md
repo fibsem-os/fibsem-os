@@ -840,10 +840,11 @@ At the start of a session:
 5. If the goal and the operator's messages don't say what they want done,
    ask them (the table at the top), then read the task skill for it.
    Under `fibsem-agent`, the job runs from a playbook: its skills, its
-   reminders and its rules. If none is set yet (`playbook_list` says which
-   is), propose the one that fits the operator's brief and goal, say why,
-   and call `playbook_set` once they agree, or with no name if they agree
-   none fits. Until then only ask and read. Say "running the X playbook"
+   reminders and its rules. A session starts on the playbook its launch
+   named, else on the base `fibsem-agent` (`playbook_list` says which). On
+   the base, propose the one that fits the operator's brief and goal, say
+   why, and call `playbook_set` once they agree; if they agree none fits,
+   stay on the base. Until then only ask and read. Say "running the X playbook"
    from then on. Read its skills at once; read an optional one when its
    `when` holds, and call `skill_done` with a one-line summary when that
    part of the job is over, so its reminders go off. When the job changes,

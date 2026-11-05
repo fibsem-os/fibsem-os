@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
-import { type Data, type LibraryOptions, PlaybookSettings, ProfileSettings, SubagentSettings } from "./Settings";
+import { type Data, type LibraryOptions, PlaybookSettings, SubagentSettings } from "./Settings";
 
-export type LibraryKind = "profiles" | "playbooks" | "skills" | "agents";
+export type LibraryKind = "playbooks" | "skills" | "agents";
 
 export interface LibraryItem {
   name: string;
@@ -25,15 +25,16 @@ export interface LibraryFile {
   path: string;
   lab: boolean;
   shipped: boolean;
-  /** A profile's, playbook's or subagent's settings; null for a skill. */
+  /** A playbook's or subagent's settings; null for a skill. */
   data: Data | null;
+  /** A playbook's session settings with what it extends, and where each comes from. */
+  session?: Record<string, { value: string | number; source: string }> | null;
 }
 
 /** What a save sends: the form's settings, or the file's text. */
 export type Saved = { data: Data } | { text: string };
 
 const ONE: Record<LibraryKind, string> = {
-  profiles: "profile",
   playbooks: "playbook",
   skills: "skill",
   agents: "subagent",
@@ -82,9 +83,7 @@ function FileView({
   const skill = kind === "skills" ? skillParts(file.text) : null;
   const description = typeof data.description === "string" ? data.description : item.description;
   const settings = (onChange?: (d: Data) => void) =>
-    kind === "profiles" ? (
-      <ProfileSettings data={data} options={options} onChange={onChange} />
-    ) : kind === "agents" ? (
+    kind === "agents" ? (
       <SubagentSettings data={data} options={options} onChange={onChange} />
     ) : (
       <PlaybookSettings name={file.name} data={data} options={options} onChange={onChange} />
@@ -200,7 +199,7 @@ function FileView({
   );
 }
 
-/** The profiles, playbooks, skills or subagents: what fibsemOS ships and the lab's own,
+/** The playbooks, skills or subagents: what fibsemOS ships and the lab's own,
  * on the left; the open one on the right. Editing a shipped one saves the
  * lab's copy. */
 export function LibraryBrowser({ kind, enabled }: { kind: LibraryKind; enabled: boolean }) {

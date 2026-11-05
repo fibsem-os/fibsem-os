@@ -88,8 +88,7 @@ export const hasPlan = (plan: AgentPlan | null | undefined): plan is AgentPlan =
 export function hasPanel(session: ReportedSession | null | undefined): session is ReportedSession {
   return Boolean(
     session &&
-      (session.profile ||
-        session.playbook?.name ||
+      (session.playbook?.name ||
         session.skills?.length ||
         session.goal ||
         session.budget_usd != null ||
@@ -187,13 +186,13 @@ function PlanSteps({ plan, onOpen }: { plan: AgentPlan; onOpen: () => void }) {
   );
 }
 
-/** The profile and playbook on one line; a click shows who chose the playbook,
+/** The playbook on one line; a click shows who chose the playbook,
  * its skills and the reminders on now. */
 function Setup({ session }: { session: ReportedSession }) {
   const [open, setOpen] = useState(() => stored(SETUP_OPEN));
-  const { profile, playbook, hooks, skills } = session;
+  const { playbook, hooks, skills } = session;
   const name = playbook?.name;
-  if (!profile && !name && !skills?.length && !hooks?.length) return null;
+  if (!name && !skills?.length && !hooks?.length) return null;
   const optional = playbook?.skills ?? [];
   const toggle = () => {
     setOpen(!open);
@@ -209,13 +208,9 @@ function Setup({ session }: { session: ReportedSession }) {
         className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-left text-[13px] text-muted-foreground hover:text-foreground"
         aria-expanded={open}
         onClick={toggle}
-        title={[profile && `Profile ${profile}`, name && `Playbook ${name}`].filter(Boolean).join(", ")}
+        title={name ? `Playbook ${name}` : undefined}
       >
-        <span className="min-w-0 flex-1 break-words">
-          {profile && <span className="text-foreground">{profile}</span>}
-          {profile && name && " · "}
-          {name ?? (profile ? null : "Setup")}
-        </span>
+        <span className="min-w-0 flex-1 break-words">{name ?? "Setup"}</span>
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
       </button>
       {open && (
@@ -264,7 +259,7 @@ function Setup({ session }: { session: ReportedSession }) {
 }
 
 /** Goal, constraints, the plan (or the agent's checklist), budget and context,
- * then the profile and playbook on one line at the bottom. */
+ * then the playbook on one line at the bottom. */
 export function SidePanel({
   session,
   plan,

@@ -1,11 +1,11 @@
-"""Where the agent's skills, specialists and profiles come from.
+"""Where the agent's skills, subagents and playbooks come from.
 
 Two places, the first found winning by name:
 
 1. The lab's own, in the knowledge base on this PC
    (``~/.fibsem/knowledge/skills/<name>/SKILL.md``,
    ``~/.fibsem/knowledge/agents/<name>.md`` and
-   ``~/.fibsem/knowledge/profiles/<name>.yaml``).
+   ``~/.fibsem/knowledge/playbooks/<name>.yaml``).
 2. What fibsemOS ships: a checkout's ``.claude/``, or, from a pip install, the
    copy of it inside the package (``SHIPPED``, made when the wheel is built).
 
@@ -24,7 +24,7 @@ SKILL_FILE = "SKILL.md"
 
 
 def lab_folder(kind: str) -> Path:
-    """The lab's own *kind* (skills, agents, profiles, playbooks), not made if missing:
+    """The lab's own *kind* (skills, agents, playbooks), not made if missing:
     `fibsem.knowledge.lab_folder` makes it."""
     # Here, not at the top: setup.py loads this file without fibsem.
     from fibsem import paths
@@ -115,7 +115,7 @@ def assemble(
 
 
 def ship(source: Path, target: Path) -> None:
-    """Copy a checkout's skills, specialists and profiles to *target*'s
+    """Copy a checkout's skills, subagents and playbooks to *target*'s
     ``.claude``: what the wheel ships (setup.py's build step)."""
     for kind in ("skills", "agents", "fibsem-agent"):
         found = source / CLAUDE / kind

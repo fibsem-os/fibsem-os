@@ -193,7 +193,7 @@ def test_keep_and_resolve(state_root):
 
 def test_the_lab_s_folders(state_root):
     knowledge.make_folders()
-    for kind in ("profiles", "playbooks", "skills"):
+    for kind in ("playbooks", "skills", "agents"):
         assert knowledge.lab_folder(kind) == state_root / "knowledge" / kind
         assert knowledge.lab_folder(kind).is_dir()
     with pytest.raises(knowledge.KnowledgeError):

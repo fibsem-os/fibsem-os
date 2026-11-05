@@ -9,7 +9,7 @@ fibsem/ai/agent/catalog/spec.py 2
 fibsem/ai/agent/code_mode.py 1
 fibsem/ai/agent/drawing.py 3
 fibsem/ai/agent/harness.py 3
-fibsem/ai/agent/library.py 3
+fibsem/ai/agent/library.py 4
 fibsem/ai/agent/manager.py 1
 fibsem/ai/agent/mcp/sidecar.py 4
 fibsem/ai/agent/pictures.py 17

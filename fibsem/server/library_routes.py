@@ -1,4 +1,4 @@
-"""``/app/library``: the agent's profiles, playbooks and skills
+"""``/app/library``: the agent's playbooks, skills and subagents
 (`fibsem.ai.agent.library`), what fibsemOS ships beside the lab's own, for the
 web page's Knowledge window. Reading is at Watch; saving (an edit to a
 shipped one makes the lab's copy) and removing are the operator's only. The

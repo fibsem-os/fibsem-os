@@ -432,17 +432,17 @@ class FakeAgent:
 
         return AgentState(microscope="arctis-pc")
 
-    def profiles(self):
+    def playbooks(self):
         return [{"name": "default"}]
 
     def configuration(self, name):
         if self.refuse is not None:
             raise self.refuse
-        return {"profile": {"name": name}}
+        return {"playbook": {"name": name}}
 
-    def start(self, profile, goal, level, who, via, budget_usd=None, replace=False):
+    def start(self, playbook, goal, level, who, via, budget_usd=None, replace=False):
         self.calls.append(
-            ("start", profile, goal, level, who, via, budget_usd, replace)
+            ("start", playbook, goal, level, who, via, budget_usd, replace)
         )
         return self.state()
 
@@ -466,7 +466,7 @@ def test_the_operator_starts_and_ends_the_agent(with_agent):
     client, agent = with_agent
     r = client.post(
         "/gateway/agent/start",
-        json={"profile": "overnight", "goal": " Mill 01 ", "level": "assist"},
+        json={"playbook": "overnight", "goal": " Mill 01 ", "level": "assist"},
         headers=_as(OPERATOR_TOKEN),
     )
     assert r.status_code == 200 and r.json()["microscope"] == "arctis-pc"
@@ -480,7 +480,7 @@ def test_the_operator_starts_and_ends_the_agent(with_agent):
     ]
 
 
-def test_a_start_with_no_profile_takes_the_default_and_checks_the_budget(with_agent):
+def test_a_start_with_no_playbook_takes_the_default_and_checks_the_budget(with_agent):
     client, agent = with_agent
     for budget in ("lots", -1):
         r = client.post(
@@ -546,16 +546,16 @@ def test_a_hub_needs_the_grant_to_start_the_agent(with_agent):
     assert r.json()["detail"]["error_type"] == "operator_only"
 
 
-def test_the_profiles_routes(with_agent):
+def test_the_playbooks_routes(with_agent):
     client, agent = with_agent
-    assert client.get("/gateway/agent/profiles").status_code == 401
-    r = client.get("/gateway/agent/profiles", headers=_as(OPERATOR_TOKEN))
+    assert client.get("/gateway/agent/playbooks").status_code == 401
+    r = client.get("/gateway/agent/playbooks", headers=_as(OPERATOR_TOKEN))
     assert r.json() == [{"name": "default"}]
-    r = client.get("/gateway/agent/profiles/default", headers=_as(OPERATOR_TOKEN))
-    assert r.json() == {"profile": {"name": "default"}}
-    agent.refuse = GatewayRefused(422, "bad_profile", "No profile 'x'")
-    r = client.get("/gateway/agent/profiles/x", headers=_as(OPERATOR_TOKEN))
-    assert (r.status_code, r.json()["detail"]["error_type"]) == (422, "bad_profile")
+    r = client.get("/gateway/agent/playbooks/default", headers=_as(OPERATOR_TOKEN))
+    assert r.json() == {"playbook": {"name": "default"}}
+    agent.refuse = GatewayRefused(422, "bad_playbook", "No playbook 'x'")
+    r = client.get("/gateway/agent/playbooks/x", headers=_as(OPERATOR_TOKEN))
+    assert (r.status_code, r.json()["detail"]["error_type"]) == (422, "bad_playbook")
 
 
 def test_without_an_agent_there_are_no_agent_routes(setup):

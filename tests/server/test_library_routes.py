@@ -1,4 +1,4 @@
-"""``/app/library``: the shipped profiles, playbooks, skills and subagents beside the
+"""``/app/library``: the shipped playbooks, skills and subagents beside the
 lab's own; only the operator edits, an edit to a shipped one saving the lab's
 copy, and removes the lab's."""
 
@@ -35,10 +35,11 @@ def _error(response):
 
 
 def test_the_shipped_ones_are_listed_and_only_the_agents_skills(client):
-    profiles = client.get("/app/library/profiles").json()["items"]
-    assert "fibsem-agent" in [p["name"] for p in profiles]
-    assert all(p["shipped"] and not p["lab"] for p in profiles)
-    assert all(p["description"] for p in profiles)
+    shipped = client.get("/app/library/playbooks").json()["items"]
+    assert "fibsem-agent" in [p["name"] for p in shipped]
+    assert all(p["shipped"] and not p["lab"] for p in shipped)
+    assert all(p["description"] for p in shipped)
+    assert _error(client.get("/app/library/profiles")) == (422, "invalid")
     rows = client.get("/app/library/skills").json()["items"]
     # front matter Claude Code reads, with a colon in a value, still describes
     assert all(s["description"] for s in rows)
@@ -95,15 +96,20 @@ def test_an_edit_to_a_shipped_one_saves_the_labs_copy(client):
 
 
 def test_a_file_that_would_not_load_is_refused_and_the_old_one_kept(client):
-    before = client.get("/app/library/profiles/fibsem-agent").json()["text"]
-    for text in ("budget: 5\n", "mode: everything\n", "skills: [no-such-skill]\n"):
+    before = client.get("/app/library/playbooks/fibsem-agent").json()["text"]
+    for text in (
+        "budget: 5\n",
+        "session:\n  mode: everything\n",
+        "session:\n  effort: huge\n",
+        "skills: [no-such-skill]\n",
+    ):
         refused = client.put(
-            "/app/library/profiles/fibsem-agent",
+            "/app/library/playbooks/fibsem-agent",
             json={"text": text},
             headers=OPERATOR_HEADERS,
         )
         assert _error(refused) == (422, "invalid"), text
-    after = client.get("/app/library/profiles/fibsem-agent").json()
+    after = client.get("/app/library/playbooks/fibsem-agent").json()
     # refused, nothing was copied: the shipped one is still the one used
     assert (after["text"], after["source"]) == (before, "shipped")
 
@@ -153,13 +159,13 @@ def test_names_are_checked(client):
     # nothing shipped and nothing of the lab's by that name
     assert _error(
         client.put(
-            "/app/library/profiles/nothing",
-            json={"text": "mode: files\n"},
+            "/app/library/playbooks/nothing",
+            json={"text": "description: x\n"},
             headers=OPERATOR_HEADERS,
         )
     ) == (404, "not_found")
     assert _error(
-        client.delete("/app/library/profiles/fibsem-agent", headers=OPERATOR_HEADERS)
+        client.delete("/app/library/playbooks/fibsem-agent", headers=OPERATOR_HEADERS)
     ) == (404, "not_found")
 
 
@@ -172,27 +178,28 @@ def test_the_forms_choices(client):
 
 
 def test_a_form_saves_settings_and_keeps_what_it_doesnt_show(client):
-    shipped = client.get("/app/library/profiles/fibsem-agent").json()
+    shipped = client.get("/app/library/playbooks/fibsem-agent").json()
     data = dict(shipped["data"])
-    assert data["mode"] == "files"
-    data["level"] = "assist"
-    data["max_turns"] = 60
-    data["model"] = ""  # left empty: left out
+    assert data["session"]["mode"] == "files"
+    # left empty: left out; an unknown setting dropped
+    data["session"] = {**data["session"], "level": "assist", "max_turns": 60}
+    data["session"].update(model="", colour="blue")
     saved = client.put(
-        "/app/library/profiles/fibsem-agent",
+        "/app/library/playbooks/fibsem-agent",
         json={"data": data},
         headers=OPERATOR_HEADERS,
     )
     assert saved.status_code == 200, saved.text
     got = saved.json()
     assert got["source"] == "lab"
-    assert got["data"]["level"] == "assist" and got["data"]["max_turns"] == 60
-    assert "model" not in got["data"]
-    # the prompt over several lines reads as typed, the hooks as they were
-    assert got["data"]["prompt"] == shipped["data"]["prompt"]
-    assert got["data"]["hooks"] == shipped["data"]["hooks"]
-    assert "prompt: |-\n  - Never trust" in got["text"]
-    assert got["text"].index("description:") < got["text"].index("level:")
+    session = got["data"]["session"]
+    assert session["level"] == "assist" and session["max_turns"] == 60
+    assert "model" not in session and "colour" not in session
+    # the rules and reminders as they were, in the documented order
+    assert got["data"]["rules"] == shipped["data"]["rules"]
+    assert got["data"]["reminders"] == shipped["data"]["reminders"]
+    assert got["text"].index("description:") < got["text"].index("session:")
+    assert got["text"].index("session:") < got["text"].index("rules:")
 
     refused = client.put(
         "/app/library/playbooks/autolamella",
@@ -204,7 +211,7 @@ def test_a_form_saves_settings_and_keeps_what_it_doesnt_show(client):
 
 def test_the_operator_makes_a_new_one(client):
     assert client.post("/app/library/playbooks/ours").status_code == 403
-    for kind in ("profiles", "playbooks", "skills"):
+    for kind in ("playbooks", "skills"):
         made = client.post(f"/app/library/{kind}/ours", headers=OPERATOR_HEADERS)
         assert made.status_code == 200, made.text
         assert made.json()["source"] == "lab"
@@ -219,7 +226,8 @@ def test_the_operator_makes_a_new_one(client):
     assert _error(taken) == (409, "exists")
     # the new playbook loads as one
     assert library.read("playbooks", "ours").data == {
-        "description": "What this playbook is for."
+        "description": "What this playbook is for.",
+        "extends": "fibsem-agent",
     }
 
 
@@ -257,3 +265,16 @@ def test_subagents_are_edited_through_their_settings(client):
     made = client.post("/app/library/agents/my-checker", headers=OPERATOR_HEADERS)
     assert made.status_code == 200, made.text
     assert made.json()["data"]["tools"] == ["mcp__fibsem__app_get_status"]
+
+
+def test_a_playbook_says_where_each_session_setting_comes_from(client):
+    found = client.get("/app/library/playbooks/autolamella").json()["session"]
+    assert found["max_budget_usd"] == {"value": 500, "source": "fibsem-agent"}
+    saved = client.put(
+        "/app/library/playbooks/autolamella",
+        json={"text": "extends: fibsem-agent\nsession:\n  max_turns: 9\n"},
+        headers=OPERATOR_HEADERS,
+    ).json()["session"]
+    assert saved["max_turns"] == {"value": 9, "source": "autolamella"}
+    assert saved["mode"] == {"value": "files", "source": "fibsem-agent"}
+    assert client.get("/app/library/skills/fibsem-agent").json()["session"] is None

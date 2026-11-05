@@ -49,8 +49,6 @@ _TEXT = (
     "harness",
     "effort",
     "workdir",
-    "profile",
-    "profile_hash",
 )
 _NUMBERS = ("budget_usd", "spent_usd")
 # Counts of tokens: what its model calls used, and how full its context is.
@@ -224,7 +222,7 @@ def _constraints(items: Any) -> List[Dict[str, str]]:
 
 
 def _hooks(items: Any) -> List[Dict[str, str]]:
-    """A profile's reminders, each {when, label, say}."""
+    """The reminders on now, each {when, label, say}."""
     if (
         not isinstance(items, list)
         or len(items) > MAX_HOOKS

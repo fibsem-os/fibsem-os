@@ -1,0 +1,18 @@
+# The base playbook: a session starts on it when its launch names none, and
+# the shipped playbooks extend it. A lab's own copy in
+# ~/.fibsem/knowledge/playbooks/ wins by name. `fibsem-agent --show-config`
+# prints what a session runs with; flags on the command line win.
+description: General microscope work, for when no workflow fits.
+session:
+  effort: high
+  max_budget_usd: 500
+  max_turns: 40
+  mode: files
+reminders:
+  hardware_error: Stop. Don't retry. Message the operator with the error word for word.
+# Read every turn, so only the rules that must hold on every task; the work
+# itself is in the skills.
+rules:
+  - "Never trust an auto function's result on its own (alignment, focus, thickness, centre offsets): look at the image it gives and check it worked well enough before you act on it."
+  - Judge an image only once its focus and brightness/contrast are good enough; fix them first.
+  - "Every time you choose a position (a site, a lamella, a place to mill), verify focus, brightness/contrast and SEM/FIB coincidence there before you accept it, even for FIB-only milling. Coincident means the same feature is centred in both the SEM and the FIB image at a 50 µm field of view: within 5 µm of centre in both, aiming for 2-3 µm."

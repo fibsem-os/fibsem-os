@@ -1,11 +1,13 @@
+import { useQuery } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import { PickSummary } from "./Picker";
 
-/** What the profile, playbook and subagent forms offer to pick from (GET /app/library/options). */
+/** What the playbook and subagent forms offer to pick from (GET /app/library/options). */
 export interface LibraryOptions {
   levels: string[];
   modes: string[];
@@ -157,12 +159,6 @@ function ReminderList({ value, options }: { value: Reminder[]; options?: Library
   );
 }
 
-const profileReminders = (data: Data): Reminder[] =>
-  list(data.hooks).map((h) => {
-    const r = (h ?? {}) as Data;
-    return { when: text(r.when), say: text(r.say) };
-  });
-
 const playbookReminders = (value: unknown): Reminder[] =>
   value && typeof value === "object" && !Array.isArray(value)
     ? Object.entries(value as Data).map(([when, say]) => ({ when, say: text(say) }))
@@ -170,123 +166,141 @@ const playbookReminders = (value: unknown): Reminder[] =>
 
 const asMapping = (value: Reminder[]) => Object.fromEntries(value.map((r) => [r.when, r.say]));
 
-/** A profile's settings: read, or as a form when *onChange* is given. */
-export function ProfileSettings({
-  data,
+/** A playbook's session settings in one line: what a session started on it runs with. */
+function sessionLine(session: Data) {
+  return [
+    session.level ? LEVELS[text(session.level)] : undefined,
+    session.mode ? (MODES[text(session.mode)] ?? text(session.mode)) : undefined,
+    session.model ? text(session.model) : undefined,
+    session.effort ? `${text(session.effort)} effort` : undefined,
+    session.max_budget_usd != null ? `US$${session.max_budget_usd}` : undefined,
+    session.max_turns != null ? `${session.max_turns} turns` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+type Inherited = Record<string, { value: string | number; source: string }>;
+
+/** The session settings of the playbook *base*, with where each comes from. */
+function useInherited(base: string): Inherited {
+  const parent = useQuery({
+    queryKey: ["library", "playbooks", base],
+    queryFn: () => api<{ session?: Inherited | null }>(`/app/library/playbooks/${encodeURIComponent(base)}`),
+    enabled: !!base,
+  });
+  return (base && parent.data?.session) || {};
+}
+
+/** Where an empty setting's value comes from, beside it. */
+function From({ found }: { found?: { source: string } }) {
+  return found ? <span className="shrink-0 text-[12px] text-muted-foreground">from {found.source}</span> : null;
+}
+
+/** The session settings as form rows. An empty one shows the value of the playbook it builds on,
+ * and where that comes from. */
+function SessionForm({
+  value,
+  base,
   options,
   onChange,
 }: {
-  data: Data;
-  options?: LibraryOptions;
-  onChange?: (data: Data) => void;
+  value: Data;
+  base: string;
+  options: LibraryOptions;
+  onChange: (value: Data) => void;
 }) {
-  const set = (key: string, value: unknown) => onChange?.({ ...data, [key]: value });
+  const inherited = useInherited(base);
+  const set = (key: string, v: unknown) => onChange({ ...value, [key]: v });
   const number = (key: string, v: string) => set(key, v === "" ? null : Number(v));
-  const reminders = profileReminders(data);
-  if (!onChange || !options) {
-    const rows: [string, ReactNode][] = [
-      ["Level", LEVELS[text(data.level)]],
-      ["Playbook", text(data.playbook)],
-      ["Mode", MODES[text(data.mode)] ?? (data.mode ? text(data.mode) : undefined)],
-      ["Effort", text(data.effort)],
-      ["Model", text(data.model)],
-      ["Budget", data.max_budget_usd != null ? `US$${data.max_budget_usd}` : undefined],
-      ["Turns", data.max_turns != null ? String(data.max_turns) : undefined],
-      ["Extra skills", strings(data.skills).join(", ")],
-      ["Instructions", data.prompt ? <Markdown text={text(data.prompt)} /> : undefined],
-      ["Reminders", reminders.length ? <ReminderList value={reminders} options={options} /> : undefined],
-    ];
-    return (
-      <div>
-        {rows
-          .filter(([, v]) => v)
-          .map(([k, v]) => (
-            <Row key={k} label={k}>
-              {v}
-            </Row>
-          ))}
-      </div>
-    );
-  }
+  // Set here, or else the inherited value and where it comes from.
+  const own = (key: string) => value[key] != null && value[key] !== "";
+  const from = (key: string) => (own(key) ? undefined : inherited[key]);
+  const shown = (key: string, labels: Record<string, string> = {}, fallback = "") => {
+    const found = inherited[key];
+    return found ? (labels[String(found.value)] ?? String(found.value)) : fallback;
+  };
+  const line = (key: string, control: ReactNode) => (
+    <div className="flex items-center gap-2">
+      {control}
+      <From found={from(key)} />
+    </div>
+  );
   return (
-    <div>
-      <Row form label="Description">
-        <Lines value={text(data.description)} onChange={(v) => set("description", v)} />
-      </Row>
+    <>
       <Row form label="Level">
-        <Choice
-          value={text(data.level)}
-          options={options.levels}
-          labels={LEVELS}
-          empty="Watch"
-          onChange={(v) => set("level", v)}
-        />
+        {line(
+          "level",
+          <Choice
+            value={text(value.level)}
+            options={options.levels}
+            labels={LEVELS}
+            empty={shown("level", LEVELS, "Watch")}
+            onChange={(v) => set("level", v)}
+          />,
+        )}
       </Row>
-      <Row form label="Playbook">
-        <Choice
-          value={text(data.playbook)}
-          options={options.playbooks}
-          empty="The agent proposes one"
-          onChange={(v) => set("playbook", v)}
-        />
-      </Row>
-      <Row form label="Mode">
-        <Choice
-          value={text(data.mode) || "none"}
-          options={options.modes}
-          labels={MODES}
-          onChange={(v) => set("mode", v)}
-        />
-      </Row>
-      <Row form label="Effort">
-        <Choice
-          value={text(data.effort)}
-          options={options.efforts}
-          empty="Default"
-          onChange={(v) => set("effort", v)}
-        />
+      <Row form label="Files and code">
+        {line(
+          "mode",
+          <Choice
+            value={text(value.mode)}
+            options={options.modes}
+            labels={MODES}
+            empty={shown("mode", MODES, MODES.none)}
+            onChange={(v) => set("mode", v)}
+          />,
+        )}
       </Row>
       <Row form label="Model">
-        <input
-          className={cn(field, "w-full")}
-          placeholder="Default"
-          value={text(data.model)}
-          onChange={(e) => set("model", e.target.value)}
-        />
+        {line(
+          "model",
+          <input
+            className={cn(field, "min-w-0 flex-1")}
+            placeholder={shown("model", {}, "Default")}
+            value={text(value.model)}
+            onChange={(e) => set("model", e.target.value)}
+          />,
+        )}
+      </Row>
+      <Row form label="Effort">
+        {line(
+          "effort",
+          <Choice
+            value={text(value.effort)}
+            options={options.efforts}
+            empty={shown("effort", {}, "Default")}
+            onChange={(v) => set("effort", v)}
+          />,
+        )}
       </Row>
       <Row form label="Budget (US$)">
-        <input
-          type="number"
-          min={0}
-          className={cn(field, "w-28")}
-          value={data.max_budget_usd == null ? "" : String(data.max_budget_usd)}
-          onChange={(e) => number("max_budget_usd", e.target.value)}
-        />
+        {line(
+          "max_budget_usd",
+          <input
+            type="number"
+            min={0}
+            className={cn(field, "w-28")}
+            placeholder={shown("max_budget_usd")}
+            value={value.max_budget_usd == null ? "" : String(value.max_budget_usd)}
+            onChange={(e) => number("max_budget_usd", e.target.value)}
+          />,
+        )}
       </Row>
       <Row form label="Turns">
-        <input
-          type="number"
-          min={1}
-          className={cn(field, "w-28")}
-          value={data.max_turns == null ? "" : String(data.max_turns)}
-          onChange={(e) => number("max_turns", e.target.value)}
-        />
+        {line(
+          "max_turns",
+          <input
+            type="number"
+            min={1}
+            className={cn(field, "w-28")}
+            placeholder={shown("max_turns")}
+            value={value.max_turns == null ? "" : String(value.max_turns)}
+            onChange={(e) => number("max_turns", e.target.value)}
+          />,
+        )}
       </Row>
-      <Row form label="Extra skills">
-        <PickSummary
-          kind="skills"
-          value={strings(data.skills)}
-          options={options.skills}
-          onChange={(v) => set("skills", v)}
-        />
-      </Row>
-      <Row form label="Instructions">
-        <Lines value={text(data.prompt)} rows={5} onChange={(v) => set("prompt", v)} />
-      </Row>
-      <Row form label="Reminders">
-        <Reminders value={reminders} options={options} onChange={(v) => set("hooks", v)} />
-      </Row>
-    </div>
+    </>
   );
 }
 
@@ -312,9 +326,23 @@ export function PlaybookSettings({
     return { ...entry, skill: text(entry.skill), when: text(entry.when) } as Optional_;
   });
   const rules = strings(data.rules);
+  const session = (data.session && typeof data.session === "object" ? data.session : {}) as Data;
+  // What a session started on it runs with, its own settings and those it builds on.
+  const resolved = useInherited(name);
   if (!onChange || !options) {
+    const values = Object.fromEntries(Object.entries(resolved).map(([k, v]) => [k, v.value]));
+    const elsewhere = [...new Set(Object.values(resolved).map((v) => v.source))].filter((n) => n !== name);
     const rows: [string, ReactNode][] = [
       ["Builds on", text(data.extends)],
+      [
+        "Session",
+        sessionLine(values) ? (
+          <>
+            {sessionLine(values)}
+            {elsewhere.length > 0 && <span className="text-muted-foreground"> · from {elsewhere.join(", ")}</span>}
+          </>
+        ) : undefined,
+      ],
       ["Skills", strings(data.skills).join(", ")],
       ["Subagents", strings(data.agents).join(", ")],
       [
@@ -374,6 +402,9 @@ export function PlaybookSettings({
           onChange={(v) => set("extends", v)}
         />
       </Row>
+      <h4 className="mt-3 mb-0 text-[12px] font-semibold text-muted-foreground">A session started on this playbook</h4>
+      <SessionForm value={session} base={text(data.extends)} options={options} onChange={(v) => set("session", v)} />
+      <h4 className="mt-3 mb-0 text-[12px] font-semibold text-muted-foreground">The work</h4>
       <Row form label="Skills">
         <PickSummary
           kind="skills"

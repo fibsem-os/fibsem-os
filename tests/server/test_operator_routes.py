@@ -148,7 +148,7 @@ def test_the_operator_reads_what_the_agent_runs_with(server):
     assert found["skills"][0]["name"] == "fibsem-agent"
     assert all(skill["description"] for skill in found["skills"])
     assert all(agent["description"] for agent in found["specialists"])
-    assert "Before milling" in found["reminder_options"]
+    assert "profiles" not in found
     assert any(row["device"] == "Chamber" for row in found["never"])
 
 

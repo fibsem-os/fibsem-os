@@ -8,8 +8,8 @@ import { cn } from "@/lib/utils";
 interface Session {
   session_id: string | null;
   started: string | null;
-  profile: string | null;
-  profile_hash: string | null;
+  playbook: string | null;
+  playbook_hash: string | null;
   goal: string | null;
   spent_usd: number | null;
   ended: string | null;
@@ -34,14 +34,21 @@ interface AgentState {
   microscope: string;
 }
 
-interface Profile {
+interface Playbook {
   name: string;
   hash?: string;
   error?: string;
 }
 
 interface Configuration {
-  profile: { name: string; path: string; hash: string } | null;
+  playbook: {
+    name: string;
+    path: string;
+    hash: string;
+    extends: string[];
+    reminders: { when: string; label: string; say: string }[];
+    rules: string[];
+  };
   level: string | null;
   description: string | null;
   model: string | null;
@@ -51,7 +58,6 @@ interface Configuration {
   mode: "none" | "files" | "code";
   folder: string | null;
   skills: string[];
-  hooks: { when: string; label: string; say: string }[];
   system_prompt: string;
 }
 
@@ -76,15 +82,17 @@ function Field({ label, wide, children }: { label: string; wide?: boolean; child
 
 function ConfigurationFacts({ name }: { name: string }) {
   const config = useQuery({
-    queryKey: ["gateway/agent/profiles", name],
-    queryFn: () => api<Configuration>(`/gateway/agent/profiles/${encodeURIComponent(name)}`),
+    queryKey: ["gateway/agent/playbooks", name],
+    queryFn: () => api<Configuration>(`/gateway/agent/playbooks/${encodeURIComponent(name)}`),
     staleTime: 30_000,
   });
   if (config.error) return <p className="m-0 text-[13px] text-destructive">{(config.error as Error).message}</p>;
   const c = config.data;
-  if (!c) return <p className="m-0 text-[13px] text-muted-foreground">Reading the profile…</p>;
+  if (!c) return <p className="m-0 text-[13px] text-muted-foreground">Reading the playbook…</p>;
   const rows: [string, ReactNode][] = [];
-  if (c.profile) rows.push(["File", <span className="font-mono text-xs">{`${c.profile.path} · ${c.profile.hash}`}</span>]);
+  const p = c.playbook;
+  rows.push(["File", <span className="font-mono text-xs">{`${p.path} · ${p.hash}`}</span>]);
+  if (p.extends.length) rows.push(["Builds on", p.extends.join(", ")]);
   rows.push(["Model", [c.model ?? "the default model", c.effort && `effort ${c.effort}`].filter(Boolean).join(", ")]);
   rows.push([
     "Budget and turns",
@@ -99,11 +107,11 @@ function ConfigurationFacts({ name }: { name: string }) {
   rows.push(["Skills", c.skills.join(", ") || "–"]);
   rows.push([
     "Reminders",
-    c.hooks.length === 0 ? (
+    p.reminders.length === 0 ? (
       "None"
     ) : (
       <span className="flex flex-col gap-1">
-        {c.hooks.map((hook, i) => (
+        {p.reminders.map((hook, i) => (
           <span key={i}>
             <span className="text-muted-foreground">{hook.label}:</span> {hook.say}
           </span>
@@ -111,38 +119,47 @@ function ConfigurationFacts({ name }: { name: string }) {
       </span>
     ),
   ]);
+  if (p.rules.length)
+    rows.push([
+      "Rules",
+      <span className="flex flex-col gap-1">
+        {p.rules.map((rule, i) => (
+          <span key={i}>{rule}</span>
+        ))}
+      </span>,
+    ]);
   return <Facts className="border-t border-border pt-2.5 [&_dd]:text-left" rows={rows} />;
 }
 
 function Start({ state, appRunning, connected }: { state: AgentState; appRunning: boolean; connected: boolean }) {
   const client = useQueryClient();
-  const profiles = useQuery({
-    queryKey: ["gateway/agent/profiles"],
-    queryFn: () => api<Profile[]>("/gateway/agent/profiles"),
+  const playbooks = useQuery({
+    queryKey: ["gateway/agent/playbooks"],
+    queryFn: () => api<Playbook[]>("/gateway/agent/playbooks"),
     staleTime: 30_000,
   });
-  const usable = (profiles.data ?? []).filter((p) => !p.error);
-  const [profile, setProfile] = useState("");
-  // Picked here, or else the profile's level, or Watch.
+  const usable = (playbooks.data ?? []).filter((p) => !p.error);
+  const [playbook, setPlaybook] = useState("");
+  // Picked here, or else the playbook's level, or Watch.
   const [picked, setPicked] = useState<string | null>(null);
   const [budget, setBudget] = useState("");
   const [goal, setGoal] = useState("");
   const [shown, setShown] = useState(false);
-  const chosen = profile || usable.find((p) => p.name === "default")?.name || usable[0]?.name || "";
+  const chosen = playbook || usable.find((p) => p.name === "fibsem-agent")?.name || usable[0]?.name || "";
   const config = useQuery({
-    queryKey: ["gateway/agent/profiles", chosen],
-    queryFn: () => api<Configuration>(`/gateway/agent/profiles/${encodeURIComponent(chosen)}`),
+    queryKey: ["gateway/agent/playbooks", chosen],
+    queryFn: () => api<Configuration>(`/gateway/agent/playbooks/${encodeURIComponent(chosen)}`),
     enabled: !!chosen,
     staleTime: 30_000,
   });
-  const fromProfile = config.data?.level ?? null;
-  const level = picked ?? fromProfile ?? "watch";
+  const fromPlaybook = config.data?.level ?? null;
+  const level = picked ?? fromPlaybook ?? "watch";
   const start = useMutation({
     mutationFn: (replace: boolean) =>
       api<AgentState>("/gateway/agent/start", {
         method: "POST",
         body: JSON.stringify({
-          profile: chosen,
+          playbook: chosen,
           goal: goal.trim(),
           level,
           ...(budget.trim() ? { budget_usd: budget.trim() } : {}),
@@ -166,11 +183,11 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
         </p>
       )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
-        <Field label="Profile">
+        <Field label="Playbook">
           <select
             value={chosen}
             onChange={(event) => {
-              setProfile(event.target.value);
+              setPlaybook(event.target.value);
               setPicked(null);
             }}
             className={FIELD}
@@ -196,7 +213,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
             value={budget}
             onChange={(event) => setBudget(event.target.value)}
             inputMode="decimal"
-            placeholder="From the profile"
+            placeholder="From the playbook"
             className={FIELD}
           />
         </Field>
@@ -209,7 +226,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
           />
         </Field>
       </div>
-      {profiles.error && <p className="m-0 text-[13px] text-destructive">{(profiles.error as Error).message}</p>}
+      {playbooks.error && <p className="m-0 text-[13px] text-destructive">{(playbooks.error as Error).message}</p>}
       {chosen && (
         <div className="flex flex-col gap-2.5">
           {config.data?.description && <p className="m-0 text-[13px] text-muted-foreground">{config.data.description}</p>}
@@ -279,10 +296,10 @@ function Run({ running }: { running: Running }) {
   if (running.state === "waiting") rows.push(["State", "Waiting for the app to come back, then it resumes"]);
   rows.push(["Goal", running.goal ?? "None given"]);
   rows.push([
-    "Profile",
+    "Playbook",
     <>
-      {running.profile ?? "–"}
-      {running.profile_hash && <span className="text-muted-foreground"> · {running.profile_hash}</span>}
+      {running.playbook ?? "–"}
+      {running.playbook_hash && <span className="text-muted-foreground"> · {running.playbook_hash}</span>}
     </>,
   ]);
   if (running.level) {
@@ -352,7 +369,7 @@ function Run({ running }: { running: Running }) {
   );
 }
 
-/** This PC's agent: start one with a profile, or the one running and its End. */
+/** This PC's agent: start one with a playbook, or the one running and its End. */
 export function AgentCard({ appRunning, connected }: { appRunning: boolean; connected: boolean }) {
   const agent = useQuery({
     queryKey: ["gateway/agent"],
@@ -430,13 +447,13 @@ function ResumeForm({
             value={budget}
             onChange={(event) => setBudget(event.target.value)}
             inputMode="decimal"
-            placeholder="From the profile"
+            placeholder="From the playbook"
             className={FIELD}
           />
         </Field>
       </div>
       <p className="m-0 text-xs text-muted-foreground">
-        Carries on with the same profile, goal and folder it had.
+        Carries on with the same playbook, goal and folder it had.
       </p>
       {resume.error && (
         <p
@@ -491,7 +508,7 @@ export function AgentSessions({ appRunning, connected }: { appRunning: boolean; 
           >
             <span className="text-muted-foreground tabular-nums">{day(s.started)}</span>
             <span className="min-w-0 break-words">
-              {s.profile ?? "no profile"}
+              {s.playbook ?? "no playbook"}
               {s.goal && ` · ${s.goal}`}
             </span>
             <span className="flex items-center gap-3">

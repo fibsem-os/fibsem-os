@@ -1,5 +1,5 @@
 """The build step pyproject.toml can't state: the agent's skills, specialists
-and profiles live in the checkout's .claude/ (Claude Code reads them there),
+and playbooks live in the checkout's .claude/ (Claude Code reads them there),
 and the wheel ships a copy in fibsem/ai/agent/shipped/, so a pip install can
 run fibsem-agent (fibsem.ai.agent.sources)."""
 
