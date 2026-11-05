@@ -265,21 +265,6 @@ TOOLS: Tuple[ToolSpec, ...] = (
         ),
     ),
     ToolSpec(
-        name="server_set_constraints",
-        returns="AgentSession",
-        description='Keep the operator\'s constraints for this session where the Agent page shows them, beside the goal: limits the work must keep, in the operator\'s words, such as "finish by 07:00" or "don\'t change the milling currents". Give the whole list each time; an empty list clears it. A constraint with a time takes it as by: 07:00 (its next occurrence) or an ISO date and time. Under fibsem-agent you are woken 30 min before each time and at it.',
-        method="POST",
-        path="/app/agent/session",
-        level="watch",
-        router="app",
-        params={
-            "constraints": arg(
-                "the whole list, each {text, by?}: text in the operator's words, by the time it must be done by",
-                List[Dict[str, Any]],
-            ),
-        },
-    ),
-    ToolSpec(
         name="plan_get",
         description="Your plan for this session, plan.md, which the operator reads on the Agent page and can edit: its sections (Brief, Playbook, Rules, Steps, Progress, Summary, or your playbook's headings), the sample from the Brief's Sample line, the Steps' boxes ({group, text, done}) and who changed it last. Read it before each step, and again after a PLAN EDITED line, a wake-up or a compaction. Empty until you write it.",
         method="GET",
