@@ -7,6 +7,7 @@ import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
+import { AgentRules } from "./Customisation";
 import { LibraryBrowser, type LibraryKind } from "./Library";
 
 export type KnowledgeSection = "instrument" | "sample" | "playbook" | "experiment";
@@ -558,19 +559,21 @@ export function KnowledgeBrowser({
   );
 }
 
-type Tab = "entries" | LibraryKind;
+type Tab = "entries" | LibraryKind | "tools" | "never";
 const TABS: [Tab, string][] = [
   ["entries", "Entries"],
   ["profiles", "Profiles"],
   ["playbooks", "Playbooks"],
   ["skills", "Skills"],
   ["agents", "Subagents"],
+  ["tools", "Tools"],
+  ["never", "Never touches"],
 ];
 
 /** The Knowledge window: what the agent and the operator have recorded about
  * this microscope, its samples and playbooks, and past runs; the agent's own
- * entries to review first; and the agent's profiles, playbooks, skills and subagents,
- * the shipped and the lab's own. */
+ * entries to review first; the agent's profiles, playbooks, skills and subagents,
+ * the shipped and the lab's own; and, read-only, its tools and what it never touches. */
 export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const client = useQueryClient();
   const [tab, setTab] = useState<Tab>("entries");
@@ -681,6 +684,8 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
               </p>
             )}
           </>
+        ) : tab === "tools" || tab === "never" ? (
+          <AgentRules section={tab} enabled={open} />
         ) : (
           <LibraryBrowser kind={tab} enabled={open} />
         )}
