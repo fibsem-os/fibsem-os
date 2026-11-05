@@ -1,6 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import { Plus, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import { PickSummary } from "./Picker";
@@ -178,7 +180,25 @@ function sessionLine(session: Data) {
     .join(" · ");
 }
 
-/** The session settings as form rows; an empty one is as the playbook it builds on. */
+type Inherited = Record<string, { value: string | number; source: string }>;
+
+/** The session settings of the playbook *base*, with where each comes from. */
+function useInherited(base: string): Inherited {
+  const parent = useQuery({
+    queryKey: ["library", "playbooks", base],
+    queryFn: () => api<{ session?: Inherited | null }>(`/app/library/playbooks/${encodeURIComponent(base)}`),
+    enabled: !!base,
+  });
+  return (base && parent.data?.session) || {};
+}
+
+/** Where an empty setting's value comes from, beside it. */
+function From({ found }: { found?: { source: string } }) {
+  return found ? <span className="shrink-0 text-[12px] text-muted-foreground">from {found.source}</span> : null;
+}
+
+/** The session settings as form rows. An empty one shows the value of the playbook it builds on,
+ * and where that comes from. */
 function SessionForm({
   value,
   base,
@@ -190,59 +210,95 @@ function SessionForm({
   options: LibraryOptions;
   onChange: (value: Data) => void;
 }) {
+  const inherited = useInherited(base);
   const set = (key: string, v: unknown) => onChange({ ...value, [key]: v });
   const number = (key: string, v: string) => set(key, v === "" ? null : Number(v));
-  const empty = base ? `As ${base}` : "Default";
+  // Set here, or else the inherited value and where it comes from.
+  const own = (key: string) => value[key] != null && value[key] !== "";
+  const from = (key: string) => (own(key) ? undefined : inherited[key]);
+  const shown = (key: string, labels: Record<string, string> = {}, fallback = "") => {
+    const found = inherited[key];
+    return found ? (labels[String(found.value)] ?? String(found.value)) : fallback;
+  };
+  const line = (key: string, control: ReactNode) => (
+    <div className="flex items-center gap-2">
+      {control}
+      <From found={from(key)} />
+    </div>
+  );
   return (
     <>
       <Row form label="Level">
-        <Choice
-          value={text(value.level)}
-          options={options.levels}
-          labels={LEVELS}
-          empty={base ? empty : "Watch"}
-          onChange={(v) => set("level", v)}
-        />
+        {line(
+          "level",
+          <Choice
+            value={text(value.level)}
+            options={options.levels}
+            labels={LEVELS}
+            empty={shown("level", LEVELS, "Watch")}
+            onChange={(v) => set("level", v)}
+          />,
+        )}
       </Row>
       <Row form label="Files and code">
-        <Choice
-          value={text(value.mode)}
-          options={options.modes}
-          labels={MODES}
-          empty={base ? empty : MODES.none}
-          onChange={(v) => set("mode", v)}
-        />
+        {line(
+          "mode",
+          <Choice
+            value={text(value.mode)}
+            options={options.modes}
+            labels={MODES}
+            empty={shown("mode", MODES, MODES.none)}
+            onChange={(v) => set("mode", v)}
+          />,
+        )}
       </Row>
       <Row form label="Model">
-        <input
-          className={cn(field, "w-full")}
-          placeholder={empty}
-          value={text(value.model)}
-          onChange={(e) => set("model", e.target.value)}
-        />
+        {line(
+          "model",
+          <input
+            className={cn(field, "min-w-0 flex-1")}
+            placeholder={shown("model", {}, "Default")}
+            value={text(value.model)}
+            onChange={(e) => set("model", e.target.value)}
+          />,
+        )}
       </Row>
       <Row form label="Effort">
-        <Choice value={text(value.effort)} options={options.efforts} empty={empty} onChange={(v) => set("effort", v)} />
+        {line(
+          "effort",
+          <Choice
+            value={text(value.effort)}
+            options={options.efforts}
+            empty={shown("effort", {}, "Default")}
+            onChange={(v) => set("effort", v)}
+          />,
+        )}
       </Row>
       <Row form label="Budget (US$)">
-        <input
-          type="number"
-          min={0}
-          className={cn(field, "w-44")}
-          placeholder={base ? empty : ""}
-          value={value.max_budget_usd == null ? "" : String(value.max_budget_usd)}
-          onChange={(e) => number("max_budget_usd", e.target.value)}
-        />
+        {line(
+          "max_budget_usd",
+          <input
+            type="number"
+            min={0}
+            className={cn(field, "w-28")}
+            placeholder={shown("max_budget_usd")}
+            value={value.max_budget_usd == null ? "" : String(value.max_budget_usd)}
+            onChange={(e) => number("max_budget_usd", e.target.value)}
+          />,
+        )}
       </Row>
       <Row form label="Turns">
-        <input
-          type="number"
-          min={1}
-          className={cn(field, "w-44")}
-          placeholder={base ? empty : ""}
-          value={value.max_turns == null ? "" : String(value.max_turns)}
-          onChange={(e) => number("max_turns", e.target.value)}
-        />
+        {line(
+          "max_turns",
+          <input
+            type="number"
+            min={1}
+            className={cn(field, "w-28")}
+            placeholder={shown("max_turns")}
+            value={value.max_turns == null ? "" : String(value.max_turns)}
+            onChange={(e) => number("max_turns", e.target.value)}
+          />,
+        )}
       </Row>
     </>
   );
@@ -271,10 +327,22 @@ export function PlaybookSettings({
   });
   const rules = strings(data.rules);
   const session = (data.session && typeof data.session === "object" ? data.session : {}) as Data;
+  // What a session started on it runs with, its own settings and those it builds on.
+  const resolved = useInherited(name);
   if (!onChange || !options) {
+    const values = Object.fromEntries(Object.entries(resolved).map(([k, v]) => [k, v.value]));
+    const elsewhere = [...new Set(Object.values(resolved).map((v) => v.source))].filter((n) => n !== name);
     const rows: [string, ReactNode][] = [
       ["Builds on", text(data.extends)],
-      ["Session", sessionLine(session) || (data.extends ? `As ${text(data.extends)}` : undefined)],
+      [
+        "Session",
+        sessionLine(values) ? (
+          <>
+            {sessionLine(values)}
+            {elsewhere.length > 0 && <span className="text-muted-foreground"> · from {elsewhere.join(", ")}</span>}
+          </>
+        ) : undefined,
+      ],
       ["Skills", strings(data.skills).join(", ")],
       ["Subagents", strings(data.agents).join(", ")],
       [

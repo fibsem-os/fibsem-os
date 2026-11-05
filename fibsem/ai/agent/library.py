@@ -61,6 +61,9 @@ class File:
     # A playbook's or subagent's settings, for the window's form; None for a
     # skill, or a file that isn't a mapping.
     data: Optional[Dict[str, Any]] = None
+    # A playbook's session settings with what it extends added in: each
+    # setting's {value, source}, the playbook that sets it.
+    session: Optional[Dict[str, Dict[str, Any]]] = None
 
 
 @dataclass
@@ -215,7 +218,31 @@ def read(kind: str, name: str, source: Optional[str] = None) -> File:
     if path is None or not path.is_file():
         raise LibraryError("not_found", f"No {source} {kind[:-1]} {name!r}.")
     text = path.read_text(encoding="utf-8")
-    return File(name, source, text, str(path), lab, shipped, _data(kind, text))
+    data = _data(kind, text)
+    session = _session(name, data) if kind == "playbooks" else None
+    return File(name, source, text, str(path), lab, shipped, data, session)
+
+
+def _session(name: str, data: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """*name*'s session settings and the playbook each comes from, walking
+    ``extends`` (the one used of each: the lab's, else the shipped)."""
+    found: Dict[str, Dict[str, Any]] = {}
+    seen = set()
+    while isinstance(data, dict) and name not in seen:
+        seen.add(name)
+        own = data.get("session")
+        if isinstance(own, dict):
+            for key in playbooks.SESSION:
+                if own.get(key) not in (None, "") and key not in found:
+                    found[key] = {"value": own[key], "source": name}
+        parent = data.get("extends")
+        if not isinstance(parent, str):
+            break
+        try:
+            name, data = parent, read("playbooks", parent).data
+        except LibraryError:
+            break
+    return found
 
 
 def _data(kind: str, text: str) -> Optional[Dict[str, Any]]:

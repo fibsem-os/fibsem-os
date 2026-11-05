@@ -265,3 +265,16 @@ def test_subagents_are_edited_through_their_settings(client):
     made = client.post("/app/library/agents/my-checker", headers=OPERATOR_HEADERS)
     assert made.status_code == 200, made.text
     assert made.json()["data"]["tools"] == ["mcp__fibsem__app_get_status"]
+
+
+def test_a_playbook_says_where_each_session_setting_comes_from(client):
+    found = client.get("/app/library/playbooks/autolamella").json()["session"]
+    assert found["max_budget_usd"] == {"value": 500, "source": "fibsem-agent"}
+    saved = client.put(
+        "/app/library/playbooks/autolamella",
+        json={"text": "extends: fibsem-agent\nsession:\n  max_turns: 9\n"},
+        headers=OPERATOR_HEADERS,
+    ).json()["session"]
+    assert saved["max_turns"] == {"value": 9, "source": "autolamella"}
+    assert saved["mode"] == {"value": "files", "source": "fibsem-agent"}
+    assert client.get("/app/library/skills/fibsem-agent").json()["session"] is None
