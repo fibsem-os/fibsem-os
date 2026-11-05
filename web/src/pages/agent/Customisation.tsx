@@ -162,10 +162,6 @@ function Tools({ data }: { data: AgentCustomisation }) {
   }, [data.never, filter, text]);
   return (
     <>
-      <p className="m-0 mb-3 text-muted-foreground">
-        What the agent can call. Reads work at every level; Acts needs Drive, or your approval at Assist. What it may
-        never touch is refused at every level. Click a tool for its whole description.
-      </p>
       <div className="mb-1 flex items-center gap-2">
         <input
           type="search"
@@ -213,25 +209,20 @@ function Tools({ data }: { data: AgentCustomisation }) {
 
 function Never({ rows }: { rows: AgentCustomisation["never"] }) {
   return (
-    <>
-      <p className="m-0 mb-1 text-muted-foreground">
-        Refused at every level, an approved request included. Their values stay readable.
-      </p>
-      <ul className="m-0 list-none p-0">
-        {rows.map((row) => (
-          <li
-            key={row.device}
-            className="grid grid-cols-1 gap-x-3 border-b border-border/60 py-1.5 sm:grid-cols-[130px_1fr]"
-          >
-            <span>{row.device}</span>
-            <span>
-              {row.blocked}
-              <span className="block text-muted-foreground">{row.why}</span>
-            </span>
-          </li>
-        ))}
-      </ul>
-    </>
+    <ul className="m-0 list-none p-0">
+      {rows.map((row) => (
+        <li
+          key={row.device}
+          className="grid grid-cols-1 gap-x-3 border-b border-border/60 py-1.5 sm:grid-cols-[130px_1fr]"
+        >
+          <span>{row.device}</span>
+          <span>
+            {row.blocked}
+            <span className="block text-muted-foreground">{row.why}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

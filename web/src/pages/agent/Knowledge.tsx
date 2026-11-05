@@ -578,7 +578,7 @@ const TAB_ABOUT: Partial<Record<Tab, string>> = {
     "Workflows: the skills, rules, reminders and subagents one kind of work uses, and the settings a session started on it runs with.",
   skills: "How to do a kind of task.",
   agents: "Second opinions and analysis, each in a fresh context. Several can run at once, but not on the microscope.",
-  tools: "Actions: what the agent can call at each level, and what it never touches. Read-only.",
+  tools: "Reads work at every level. Acts need Drive, or your approval at Assist. Never touches is refused at every level.",
 };
 
 /** The Knowledge window: what the agent and the operator have recorded about
