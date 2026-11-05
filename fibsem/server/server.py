@@ -898,7 +898,9 @@ def build_server(
         )
         # The agent's plan for its session, kept beside the experiment.
         app.state.agent_plan = PlanStore(
-            lambda: getattr(app_context, "experiment_path", None)
+            lambda: getattr(app_context, "experiment_path", None),
+            lambda: getattr(app_context, "experiment_sample", None),
+            getattr(app_context, "set_experiment_sample", None),
         )
         app.include_router(
             build_agent_plan_router(
@@ -915,7 +917,8 @@ def build_server(
         # What was learned on this microscope, kept under the state root.
         app.include_router(
             build_knowledge_router(
-                lambda: getattr(app_context, "experiment_path", None)
+                lambda: getattr(app_context, "experiment_path", None),
+                lambda: getattr(app_context, "experiment_sample", None),
             )
         )
     if operator is not None:

@@ -207,6 +207,25 @@ class AppContext:
         experiment = self._experiment
         return str(experiment.path) if experiment is not None else None
 
+    @property
+    def experiment_sample(self) -> Optional[str]:
+        """The open experiment's sample, or None when it has none."""
+        experiment = self._experiment
+        return (getattr(experiment, "sample", "") or None) if experiment else None
+
+    def set_experiment_sample(self, sample: str) -> bool:
+        """Name the open experiment's sample and save it; whether it saved."""
+        experiment = self._experiment
+        if experiment is None:
+            return False
+        experiment.sample = sample
+        try:
+            experiment.save()
+        except Exception:
+            logging.exception("could not save the experiment's sample")
+            return False
+        return True
+
     def experiment_root(self, experiment: Optional[str] = None) -> Optional[str]:
         """The folder an experiment's files are read from: the open one's, or
         *experiment*, a past one by its path from the recents or the
@@ -521,7 +540,10 @@ class AppContext:
         )
         if experiment is not None:
             status.experiment = ExperimentRef(
-                experiment.name, str(experiment.path), len(experiment.positions)
+                experiment.name,
+                str(experiment.path),
+                len(experiment.positions),
+                getattr(experiment, "sample", "") or "",
             )
             # The proposals a task is stopped on, for an agent that has just
             # connected: their events are behind its cursor.
@@ -1481,6 +1503,7 @@ class AppContext:
         name: str,
         protocol: Optional[str] = None,
         description: Optional[str] = None,
+        sample: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create an experiment at *name*, a folder path under the experiments
         folder (made as needed), and open it, with *protocol* from the protocol
@@ -1508,7 +1531,11 @@ class AppContext:
         task_protocol, refusal = self._protocol_or_refusal(protocol)
         if refusal:
             return refusal
-        metadata = {"description": description} if description else None
+        metadata = {
+            key: value
+            for key, value in (("description", description), ("sample", sample))
+            if value
+        } or None
         experiment = self._new_experiment(
             os.path.dirname(path), os.path.basename(path), task_protocol, metadata
         )

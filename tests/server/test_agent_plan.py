@@ -163,3 +163,39 @@ def test_a_plan_reads_back_as_it_was_written():
     assert list(parse("# Plan\n\n## notes\nx\n## brief\ny\n")) == ["notes", "Brief"]
     own = render({"Summary": "s", "Results": "r", "Brief": "b"})
     assert list(parse(own)) == ["Brief", "Results", "Summary"]
+
+
+def test_the_experiments_sample_is_the_sessions_and_the_agents_is_saved_on_it(
+    tmp_path,
+):
+    """A sample named when the experiment was made holds from the start; one the
+    agent writes is saved on the experiment."""
+    kept = {"sample": None}
+
+    def set_sample(value):
+        kept["sample"] = value
+        return True
+
+    app = FastAPI()
+    app.state.auth = AuthConfig.generate(level=AgentLevel.WATCH)
+    app.state.agent_plan = PlanStore(
+        lambda: str(tmp_path), lambda: kept["sample"], set_sample
+    )
+    app.include_router(build_agent_session_router(lambda kind, data: None))
+    app.include_router(
+        build_agent_plan_router(lambda: str(tmp_path), lambda *a, **k: None)
+    )
+    agent = TestClient(app, headers={"Authorization": f"Bearer {app.state.auth.token}"})
+    agent.post("/app/agent/session", json={"session_id": "s1"})
+
+    section(agent, "Brief", "Sample: yeast\nThe question.")
+    assert kept["sample"] == "yeast"
+
+    # A new session over the same experiment starts with its sample.
+    agent.post("/app/agent/session", json={"session_id": "s2"})
+    assert agent.get("/app/agent/plan").json()["sample"] == "yeast"
+    assert section(agent, "Steps", "- [ ] Setup").status_code == 200
+    refused = section(agent, "Brief", "Sample: HeLa\nThe question.")
+    assert refused.status_code == 409 and "Sample: yeast" in str(refused.json())
+    assert section(agent, "Brief", "Sample: yeast\nThe question.").status_code == 200
+    assert kept["sample"] == "yeast"

@@ -1420,8 +1420,9 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "name": "the new experiment's folder under the experiments folder: a name, or a relative path of folders",
             "protocol": "optional protocol name from protocol_list",
             "description": "optional one-line description",
+            "sample": "optional: the sample, as the operator names it",
         },
-        optional=("protocol", "description"),
+        optional=("protocol", "description", "sample"),
         line=_experiment_create,
     ),
     ToolSpec(

@@ -194,6 +194,16 @@ class BaseExperiment:
         self.metadata["description"] = value
 
     @property
+    def sample(self) -> str:
+        """The sample, as the operator names it ("yeast", "HeLa"): feedback
+        and the knowledge base are tagged with it."""
+        return self.metadata.get("sample", "")
+
+    @sample.setter
+    def sample(self, value: str):
+        self.metadata["sample"] = value
+
+    @property
     def user(self) -> str:
         """Get the user name from metadata."""
         return self.metadata.get("user", "")

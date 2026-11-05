@@ -320,6 +320,8 @@ class ExperimentRef:
     name: str
     path: str
     num_items: int
+    # The sample, from the experiment's metadata ("" when nobody has named it).
+    sample: str = ""
 
 
 @dataclass

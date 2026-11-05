@@ -77,6 +77,9 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         self.lineEdit_experiment_description = QtWidgets.QLineEdit()
         self.lineEdit_experiment_description.setEnabled(False)
 
+        self.lineEdit_experiment_sample = QtWidgets.QLineEdit()
+        self.lineEdit_experiment_sample.setEnabled(False)
+
         self.lineEdit_experiment_directory = QtWidgets.QLineEdit()
         self.lineEdit_experiment_directory.setEnabled(False)
         self.lineEdit_experiment_directory.setCursorPosition(0)
@@ -86,6 +89,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
         exp_form_layout.addRow("Name", self.lineEdit_experiment_name)
         exp_form_layout.addRow("Description", self.lineEdit_experiment_description)
+        exp_form_layout.addRow("Sample", self.lineEdit_experiment_sample)
         exp_form_layout.addRow("Directory", self.lineEdit_experiment_directory)
         exp_form_layout.addRow("Lamella", self.lineEdit_experiment_lamella)
 
@@ -170,6 +174,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         # Clear placeholder and show empty text if no description
         self.lineEdit_experiment_description.setPlaceholderText("")
         self.lineEdit_experiment_description.setText(self.experiment.description or "")
+        self.lineEdit_experiment_sample.setText(self.experiment.sample or "")
 
         self.lineEdit_experiment_directory.setText(str(self.experiment.path) or "")
         self.lineEdit_experiment_directory.setCursorPosition(0)
