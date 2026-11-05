@@ -15,7 +15,7 @@ from fibsem.server.responses import LibraryIndex, LibraryItem, answer
 
 
 def _refused(error: library.LibraryError):
-    status = 404 if error.error_type == "not_found" else 422
+    status = {"not_found": 404, "exists": 409}.get(error.error_type, 422)
     return refusal_error(status, error.error_type, error.message)
 
 
@@ -24,6 +24,10 @@ def build_library_router() -> APIRouter:
         prefix="/app/library", dependencies=[Depends(require_monitoring())]
     )
     operator = [Depends(require_operator())]
+
+    @router.get("/options", response_model=library.Options)
+    def library_options():
+        return answer(library.options())
 
     @router.get("/{kind}", response_model=LibraryIndex)
     def library_index(kind: str):
@@ -42,7 +46,17 @@ def build_library_router() -> APIRouter:
     @router.put("/{kind}/{name}", response_model=library.File, dependencies=operator)
     def library_save(kind: str, name: str, body: Dict[str, Any]):
         try:
-            return answer(library.save(kind, name, body.get("text")))
+            text = body.get("text")
+            if "data" in body:
+                text = library.dump(kind, body["data"])
+            return answer(library.save(kind, name, text))
+        except library.LibraryError as error:
+            raise _refused(error)
+
+    @router.post("/{kind}/{name}", response_model=library.File, dependencies=operator)
+    def library_create(kind: str, name: str):
+        try:
+            return answer(library.create(kind, name))
         except library.LibraryError as error:
             raise _refused(error)
 

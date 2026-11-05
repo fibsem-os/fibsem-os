@@ -69,6 +69,8 @@ NOT_TOOLS: Dict[str, str] = {
     "POST /app/knowledge/{section}/{id}/resolve": "Marking a fault fixed is the operator's only (operator token); the agent rewrites the entry with what the operator says.",
     "GET /app/library/{kind}": "The web page's Knowledge window lists the shipped and the lab's profiles, playbooks and skills; the agent loads its own when it starts.",
     "GET /app/library/{kind}/{name}": "One profile, playbook or skill's file for the Knowledge window; the agent has the skills it loaded.",
+    "GET /app/library/options": "The choices the Knowledge window's profile and playbook forms offer; the agent doesn't edit them.",
+    "POST /app/library/{kind}/{name}": "Making a new profile, playbook or skill is the operator's only (operator token).",
     "PUT /app/library/{kind}/{name}": "Editing profiles, playbooks and skills is the operator's only (operator token); an edit to a shipped one saves the lab's copy.",
     "DELETE /app/library/{kind}/{name}": "Removing the lab's own copy is the operator's only (operator token).",
     "GET /app/agent/transcript": "What fibsem-agent printed, read back by the web page; the agent has its own context.",

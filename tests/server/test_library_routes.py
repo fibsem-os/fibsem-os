@@ -161,3 +161,63 @@ def test_names_are_checked(client):
     assert _error(
         client.delete("/app/library/profiles/fibsem-agent", headers=OPERATOR_HEADERS)
     ) == (404, "not_found")
+
+
+def test_the_forms_choices(client):
+    options = client.get("/app/library/options").json()
+    assert options["levels"] == ["watch", "assist", "drive"]
+    assert {"when": "before_milling", "label": "Before milling"} in options["reminders"]
+    assert "autolamella-lead" in options["skills"]
+    assert "autolamella" in options["playbooks"]
+
+
+def test_a_form_saves_settings_and_keeps_what_it_doesnt_show(client):
+    shipped = client.get("/app/library/profiles/fibsem-agent").json()
+    data = dict(shipped["data"])
+    assert data["mode"] == "files"
+    data["level"] = "assist"
+    data["max_turns"] = 60
+    data["model"] = ""  # left empty: left out
+    saved = client.put(
+        "/app/library/profiles/fibsem-agent",
+        json={"data": data},
+        headers=OPERATOR_HEADERS,
+    )
+    assert saved.status_code == 200, saved.text
+    got = saved.json()
+    assert got["source"] == "lab"
+    assert got["data"]["level"] == "assist" and got["data"]["max_turns"] == 60
+    assert "model" not in got["data"]
+    # the prompt over several lines reads as typed, the hooks as they were
+    assert got["data"]["prompt"] == shipped["data"]["prompt"]
+    assert got["data"]["hooks"] == shipped["data"]["hooks"]
+    assert "prompt: |-\n  - Never trust" in got["text"]
+    assert got["text"].index("description:") < got["text"].index("level:")
+
+    refused = client.put(
+        "/app/library/playbooks/autolamella",
+        json={"data": {"reminders": {"nowhen": "x"}}},
+        headers=OPERATOR_HEADERS,
+    )
+    assert _error(refused) == (422, "invalid")
+
+
+def test_the_operator_makes_a_new_one(client):
+    assert client.post("/app/library/playbooks/ours").status_code == 403
+    for kind in ("profiles", "playbooks", "skills"):
+        made = client.post(f"/app/library/{kind}/ours", headers=OPERATOR_HEADERS)
+        assert made.status_code == 200, made.text
+        assert made.json()["source"] == "lab"
+        listed = client.get(f"/app/library/{kind}").json()["items"]
+        row = next(i for i in listed if i["name"] == "ours")
+        assert (row["lab"], row["shipped"]) == (True, False)
+        assert row["description"]
+        again = client.post(f"/app/library/{kind}/ours", headers=OPERATOR_HEADERS)
+        assert _error(again) == (409, "exists")
+    # a name fibsemOS already ships is edited, not made again
+    taken = client.post("/app/library/playbooks/autolamella", headers=OPERATOR_HEADERS)
+    assert _error(taken) == (409, "exists")
+    # the new playbook loads as one
+    assert library.read("playbooks", "ours").data == {
+        "description": "What this playbook is for."
+    }
