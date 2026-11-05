@@ -161,3 +161,5 @@ def test_a_plan_reads_back_as_it_was_written():
     sections = {"Brief": "Sample: yeast\nQ", "Steps": "### A\n- [ ] one", "Notes": "x"}
     assert parse(render(sections)) == sections
     assert list(parse("# Plan\n\n## notes\nx\n## brief\ny\n")) == ["notes", "Brief"]
+    own = render({"Summary": "s", "Results": "r", "Brief": "b"})
+    assert list(parse(own)) == ["Brief", "Results", "Summary"]

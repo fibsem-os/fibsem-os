@@ -275,6 +275,13 @@ export interface ReportedSession {
   hooks?: { when: string; label: string; say: string }[];
   /** The skills it has read, in order. */
   skills?: string[];
+  /** The playbook it runs ({} for none): who chose it and its optional skills. */
+  playbook?: {
+    name?: string;
+    hash?: string;
+    chosen_by?: string;
+    skills?: { skill: string; state: "not loaded" | "loaded" | "done" | string; summary?: string }[];
+  };
   /** When the server first heard of it, as an ISO time with its offset. */
   started?: string;
   goal?: string;
@@ -288,6 +295,19 @@ export interface ReportedSession {
   constraints?: { text: string; by?: string }[];
   checklist?: { text: string; state: "open" | "done" | "always" }[];
   ended?: boolean;
+}
+
+/** GET /app/agent/plan: the session's plan.md, "" before the agent writes one. */
+export interface AgentPlan {
+  session_id: string | null;
+  markdown: string;
+  sections: { name: string; text: string }[];
+  sample: string | null;
+  /** The Steps' boxes; group is the ### line above, "" for none. */
+  steps: { group: string; text: string; done: boolean }[];
+  done: number;
+  updated: string | null;
+  updated_by: "agent" | "operator" | null;
 }
 
 /** One row of GET /app/agent/recent. */
