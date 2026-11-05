@@ -1,6 +1,16 @@
-# Looking at and reporting on saved experiments, with no milling.
-description: Reading, comparing and reporting on saved experiments.
+# Open-ended FIB work: the operator says what they want to try or find out,
+# and there is no app workflow to follow.
+description: >-
+  General FIB experiments the operator describes: trying settings, patterns,
+  parameter searches and tests, with no fixed workflow.
 skills: [fibsem-experiment]
 reminders:
-  before_milling: Confirm the current and depth against the experiment's plan.
+  before_milling: >-
+    Check the pattern, current and depth against the plan you agreed with
+    the operator, and that this run changes only what the plan says it does.
   after_auto: Check the auto step's result on its image before the next step.
+rules:
+  - Agree the question, what you will vary and what counts as done before the first step.
+  - Change one thing at a time between runs, and write down what changed.
+  - Save every image you judge from, named for the run and the step.
+  - Ask before any step outside the agreed plan.
