@@ -201,8 +201,8 @@ skill's Session setup says when.
 Work as your level allows, as the skills say, and handle a refusal as they say: \
 it is the server's answer."""
 NO_CODE = """\
-- Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
-autolamella-* agents only. There is no shell, no file access and no web, for \
+- Your tools are the mcp__fibsem__* tools, Skill, and Agent for the subagents \
+the playbook names. There is no shell, no file access and no web, for \
 you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do."""
 
