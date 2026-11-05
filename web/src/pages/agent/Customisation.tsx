@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 const SECTIONS = {
   tools: "Tools",
   skills: "Skills",
-  specialists: "Specialists",
+  specialists: "Subagents",
   profiles: "Profiles & reminders",
   never: "Never touches",
 } as const;
@@ -305,7 +305,12 @@ function Body({ section, data }: { section: Section; data: AgentCustomisation })
       />
     );
   if (section === "specialists")
-    return <Skills rows={data.specialists} intro="The checkers a Run Lead calls, each in a fresh context." />;
+    return (
+      <Skills
+        rows={data.specialists}
+        intro="What the agent calls for a check or a second opinion. A playbook names the ones it uses."
+      />
+    );
   if (section === "profiles") return <Profiles data={data} />;
   return <Never data={data} />;
 }

@@ -6,8 +6,8 @@ Under ``<state root>/knowledge``:
   ``sample/<sample>/<id>``, ``playbook/<playbook>/<id>`` and
   ``experiment/<experiment>`` (a past run's record), each holding ``entry.md``
   and the images it cites.
-- ``profiles/``, ``playbooks/`` and ``skills/``: the lab's own, read beside
-  the ones fibsem ships.
+- ``profiles/``, ``playbooks/``, ``skills/`` and ``agents/`` (subagents): the
+  lab's own, read beside the ones fibsem ships.
 
 An entry is self-contained: its images are copied in (at most ``IMAGE_PX`` on
 their long side), so it still reads after the experiment is moved or gone. Where
@@ -59,7 +59,7 @@ TAGS = ("instrument", "sample", "playbook", "session")
 # Where an entry came from, besides its tags: ids and names, never a path.
 SOURCE = ("experiment_id", "instrument_serial", "agent_session", "item", "evidence_id")
 # The lab's own profiles, playbooks and skills, beside the shipped ones.
-LAB_FOLDERS = ("profiles", "playbooks", "skills")
+LAB_FOLDERS = ("profiles", "playbooks", "skills", "agents")
 # An "until fixed" entry not checked for this long is asked about again.
 ASK_AGAIN = timedelta(days=14)
 

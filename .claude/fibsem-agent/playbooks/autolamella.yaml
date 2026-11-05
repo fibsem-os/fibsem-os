@@ -11,6 +11,7 @@ optional:
         After every task); take its next task out of the queue while you look.
       setup_placement: Ask the Verifier about this placement before you decide.
       polishing_pass: Ask the Verifier about this pass before you decide.
+    agents: [autolamella-verifier, autolamella-investigator, autolamella-auditor]
   - skill: autolamella-assistant
     when: the operator runs the workflow and asks you to help
   - skill: screen-grids

@@ -108,7 +108,7 @@ def customisation(tools: Iterable[ToolSpec] = CATALOG) -> AgentCustomisation:
         categories=list(CATEGORIES),
         skills=_skills(harness.skills_for(), skill),
         specialists=_skills(
-            harness.SPECIALISTS, lambda name: sources.agent_file(name, checkout)
+            harness.subagents_for(), lambda name: sources.agent_file(name, checkout)
         ),
         profiles=[_profile(path, checkout) for path in profiles.available(checkout)],
         reminder_options=[option.label for option in profiles.HOOK_OPTIONS.values()],
