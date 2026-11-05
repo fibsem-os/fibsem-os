@@ -70,6 +70,7 @@ from fibsem.server.devices import (
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.knowledge_routes import build_knowledge_router
 from fibsem.server.leases import LEASE_HEADER
+from fibsem.server.library_routes import build_library_router
 from fibsem.server.models import ControlRequest, MicroscopeStateRequest
 from fibsem.server.notifications import build_notifications_router
 from fibsem.server.operator import build_operator_router
@@ -916,6 +917,8 @@ def build_server(
                 lambda: getattr(app_context, "experiment_path", None)
             )
         )
+        # The agent's profiles, playbooks and skills: shipped and the lab's.
+        app.include_router(build_library_router())
     if operator is not None:
         app.include_router(build_operator_router(operator))
         app.include_router(build_notifications_router())

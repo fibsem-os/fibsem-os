@@ -7,6 +7,7 @@ import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
+import { LibraryBrowser, type LibraryKind } from "./Library";
 
 export type KnowledgeSection = "instrument" | "sample" | "playbook" | "experiment";
 export type KnowledgeLasts = "until fixed" | "ongoing" | "record";
@@ -427,11 +428,21 @@ export function KnowledgeBrowser({
   );
 }
 
+type Tab = "entries" | LibraryKind;
+const TABS: [Tab, string][] = [
+  ["entries", "Entries"],
+  ["profiles", "Profiles"],
+  ["playbooks", "Playbooks"],
+  ["skills", "Skills"],
+];
+
 /** The Knowledge window: what the agent and the operator have recorded about
  * this microscope, its samples and playbooks, and past runs; the agent's own
- * entries to review first. */
+ * entries to review first; and the agent's profiles, playbooks and skills,
+ * the shipped and the lab's own. */
 export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const client = useQueryClient();
+  const [tab, setTab] = useState<Tab>("entries");
   const index = useQuery({
     queryKey: ["knowledge"],
     queryFn: () =>
@@ -475,22 +486,44 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Knowledge" className="w-[min(960px,calc(100vw-32px))]">
-        <KnowledgeBrowser
-          rows={index.data?.entries ?? []}
-          entry={entry.data ?? null}
-          selected={row && key(row)}
-          onSelect={setRow}
-          image={image}
-          busy={save.isPending || remove.isPending || mark.isPending}
-          onSave={(title, text) => save.mutate({ title, text })}
-          onDelete={() => remove.mutate()}
-          onKeep={() => mark.mutate("keep")}
-          onResolve={() => mark.mutate("resolve")}
-        />
-        {(index.error || save.error || remove.error || mark.error) && (
-          <p className="m-0 border-t border-border px-4 py-2 text-[13px] text-destructive">
-            {((index.error || save.error || remove.error || mark.error) as Error).message}
-          </p>
+        <div role="tablist" className="flex gap-4 border-b border-border px-4">
+          {TABS.map(([t, word]) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={t === tab}
+              className={cn(
+                "-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-0.5 py-2 text-[13px]",
+                t === tab ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setTab(t)}
+            >
+              {word}
+            </button>
+          ))}
+        </div>
+        {tab === "entries" ? (
+          <>
+            <KnowledgeBrowser
+              rows={index.data?.entries ?? []}
+              entry={entry.data ?? null}
+              selected={row && key(row)}
+              onSelect={setRow}
+              image={image}
+              busy={save.isPending || remove.isPending || mark.isPending}
+              onSave={(title, text) => save.mutate({ title, text })}
+              onDelete={() => remove.mutate()}
+              onKeep={() => mark.mutate("keep")}
+              onResolve={() => mark.mutate("resolve")}
+            />
+            {(index.error || save.error || remove.error || mark.error) && (
+              <p className="m-0 border-t border-border px-4 py-2 text-[13px] text-destructive">
+                {((index.error || save.error || remove.error || mark.error) as Error).message}
+              </p>
+            )}
+          </>
+        ) : (
+          <LibraryBrowser kind={tab} enabled={open} />
         )}
       </DialogContent>
     </Dialog>
