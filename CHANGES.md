@@ -2,17 +2,31 @@
 
 ## v0.6.0 (unreleased)
 
-A minor bump, not a patch: since v0.5.2 main has taken the agent server, the app router,
-config schema v1, propose-and-review and a Grids preview. Calling that 0.5.3 would be the
-same mislabelling that made the last release awkward.
+0.6.0 is everything on main since v0.5.3 except the agent and the gateway, which are not
+part of this release. Its headlines:
+
+- **Python 3.10 or newer**, and the old `microscope.get`/`set` scripting calls are gone
+  (see Requirements and Scripting API below).
+- **A web app.** The App Server (Tools → Host, off until you turn it on) serves a web app
+  in the browser: the microscope, the open experiment and its files, lamellae, grids and
+  Slack notifications.
+- **METEOR and other offset fluorescence microscopes** join through a Device Server on
+  the METEOR PC, with SEM to FM calibration and guarded moves to and from the FM.
+- **Grid screening for everyone**: a Grids tab, grid tasks and a screening report, no
+  longer behind a preference.
+- **A record of every run** (`events.jsonl`), an experiment replay and a new HTML report.
+- **A new image file format** (0.60), smaller and quicker to preview. 0.5.x cannot read
+  its metadata.
+- **Settings and experiments move to `~/.fibsem`**, out of the installed package.
+
+The agent and the gateway stay in the code, and a git checkout of fibsem-os runs them
+as before. An install from PyPI shows neither: there is no agent chip or Agent page,
+`fibsem-agent`, `fibsem-mcp` and `fibsem-gateway` say they are not part of this release,
+and a `FibsemClient` script acts as the operator. `FIBSEM_UNRELEASED=1` turns them on.
 
 Fixes for v0.5 are cut from `release/v0.5.x`, the branch v0.5.2 and v0.5.3 were tagged
 from, and are listed under their own version below; a fix that belongs in both lands on
 main first and is cherry-picked there.
-
-The entries below were first written into the v0.5.2 section, after v0.5.2rc2 was cut,
-and so describe work that is not in v0.5.2. Everything else since v0.5.2 still needs
-writing up.
 
 ### Requirements
 
@@ -20,6 +34,40 @@ writing up.
   Python 3.8 and 3.9, and pip on those versions keeps installing it. Windows 7
   cannot run Python 3.10: a Windows 7 support PC can stay on 0.5.3, or fibsemOS can
   run on a Windows 10 or newer computer on the microscope network.
+- **AutoScript 4.9 or later is required**, up from 4.7. With an older AutoScript the
+  ThermoFisher microscope is unavailable, and the connection error names the version
+  found.
+- `imagecodecs` is now installed with fibsemOS, so compressed TIFFs (Zeiss ZEN exports,
+  METEOR ImageJ stacks) open on a fresh install. The reports no longer need the
+  `reporting` extra.
+
+### Files and folders
+
+- **fibsemOS keeps its settings, session state, logs, new experiments, and your
+  protocols and scripts in `~/.fibsem`** (or `FIBSEM_HOME`) instead of inside the
+  installed package. The first start copies or moves them there and logs what it did.
+- **Images are saved in the 0.60 format.** FIB/SEM images are OME-TIFF with fibsemOS's
+  metadata inside, like the FM stacks already were. Pages are zlib-compressed, and a
+  large image or a z-stack carries 1/4 and 1/8 size copies so previews open quickly.
+  Every image saved by an earlier version opens as before and is never rewritten.
+  **fibsemOS 0.5.x cannot read the metadata of an image saved by 0.6**, so update
+  every computer that opens your experiments.
+- **Each run of a task saves into its own folder**, `<lamella>/<task name>/<date-time>/`,
+  so running a task again keeps the earlier run's images. Experiments from earlier
+  versions keep their files where they are.
+- Correlation runs are saved as `correlation.json` version 2. Runs saved by earlier
+  versions open and are converted the next time they are saved; earlier versions cannot
+  fully open runs saved by 0.6.
+- An overview's record beside its tiles is now `overview-metadata.json` (was
+  `tile-layout.json`).
+- The Legacy protocol buttons are gone: an old AutoLamella protocol opens with Select
+  Protocol and is saved as a task protocol, the original kept beside it as
+  `<file>.before-v1`.
+- AutoLamella refuses to open an experiment written by another application, instead of
+  dropping its data on the next save. Experiments saved with `app: volume` open as
+  volume milling experiments.
+- Create Experiment shows the free space on the chosen drive beside the expected size of
+  a 20-lamella experiment, and Load Experiment shows how much space the experiment uses.
 
 ### Scripting API: the old string-key calls are removed
 
@@ -88,173 +136,288 @@ lists where each key went.
   values are unchanged, and saved experiments load as before. A plugin task that
   imports the old name from `fibsem.applications.autolamella.structures` imports
   `from fibsem.workflows.status import TaskStatus` instead.
+- **`microscope.move_to_milling_angle` takes the angle and the rotation in degrees**,
+  like the other milling-angle methods, not radians.
+- **`microscope.last_image` and the beam's `last_image` command are removed.** Acquire a
+  new image with `microscope.acquire_image` or `beam.acquire`.
+- **`fibsem.manufacturers`, `config.DEFAULT_MANUFACTURER` and
+  `config.get_default_user_config` are removed.** Driver names come from
+  `fibsem.drivers.registry` (`normalize_name`), and `microscope.manufacturer` reports
+  each driver's own name (Demo reports "Demo"). Import `ThermoMicroscope` from
+  `fibsem.drivers.autoscript.microscope`, not `fibsem.microscope`.
+- **`fibsem.calibration` is removed.** The EasyLift needle calibration runs as
+  `python -m fibsem.drivers.autoscript.manipulator_calibration`, and
+  `insert_manipulator()` with no name inserts to the instrument's own insert position
+  (PARK on ThermoFisher and Demo). `run_multi_position_autofocus` is removed from
+  `fibsem.fm.calibration`.
+- **Plugin entry points moved.** Milling patterns and strategies register under
+  `fibsem.milling.patterns` and `fibsem.milling.strategies` (were `fibsem.patterns` and
+  `fibsem.strategies`), AutoLamella tasks under `fibsem.autolamella.tasks` (was
+  `fibsem.tasks`), and grid tasks under `fibsem.grid.tasks`. Grid task plugins import
+  from `fibsem.workflows.grid`, and `Attention` from `fibsem.workflows.attention`.
+- `FibsemClient.wait_for_run` raises the run's own exception
+  (`OperationCancelledError` for a stopped run, `DeviceFault` for a hardware refusal)
+  instead of `RuntimeError`.
+- A new image-based brightness and contrast routine,
+  `microscope.imaging.auto_brightness_contrast`, limits how many images it takes and
+  raises rather than leave a mostly black or white image.
+- A script or headless run on a METEOR no longer hangs at exit after moving the
+  objective or changing the filter. The example scripts and demos run again.
+- The two FM notebooks (`fibsem/fm/fm-notebook.ipynb`, `fm-example-notebook.ipynb`) are
+  removed.
+- **For task and plugin authors:** a task type lists the questions it asks in `asks`
+  (was `questions`) and asks them with `ask`; every decision lands through
+  `Experiment.decide`. Milling stages can list monitors (plugins that run during each
+  mill), and a strategy can return a `MillingStrategyResult` for the record. Dataclass
+  fields declare their metadata as device parameters do (an SI unit, SI limits,
+  choices, a doc); plugins written with the v0.5 field metadata still load, and log
+  what replaced it.
+
+### Web app and App Server
+
+The App Server lets a browser on this PC, or one you pair, see and run the microscope.
+It is off by default: turn it on, and choose whether it serves the microscope and its
+devices, in Tools → Host. Both choices are remembered.
+
+- **The web app** is at `/ui/` on the App Server. Its pages:
+  - **Microscope**: connect and disconnect the microscope (refused while a run is on),
+    and the latest SEM, FIB and FM images with a scalebar and the same metadata bar as
+    the window.
+  - **Experiment**: what the open experiment is and a file explorer for its files.
+    TIFF images open in a full image viewer.
+  - **Lamellae** and **Grids**: each lamella's History and each grid's overview,
+    read-only. Grid overviews open in the image viewer.
+  - Volume experiments show their positions with a slice scrubber.
+  - **Settings**, including Slack notifications (below).
+- A browser pairs with a code shown in the window. Decisions made from the web app are
+  recorded as the operator's.
+- `FibsemClient` and the App Server's routes can insert the FM objective at a safe tilt,
+  plan a lamella run or a queue addition with its time estimate, save and return to
+  named stage positions, set and move to Volume positions, and export an image with its
+  scalebar or a lamella's animation as the window does.
+- The microscope routes are under `/microscope` (`/microscope/state`,
+  `/microscope/devices`, `/microscope/services`); read-only queries are at
+  `/services/{service}/queries/{query}`. A refused move or bad value answers 4xx with
+  `error_type` and `message`, a cancelled command 409, a bad argument 422 naming the
+  parameter, and a key the command does not read is refused naming where it belongs.
+- `fibsem-autolamella-server` and `fibsem-volume` with `--config` connect to that
+  configuration's microscope instead of the Demo one.
+
+### Slack notifications
+
+- **The instrument can post to a Slack channel**: what needs an answer, what failed and
+  when a run finishes. Set it up in the web app's Settings → Notifications, or with
+  `fibsem-cli notify setup '#channel'`, which sends a test.
+- **Store the Slack token once** with `fibsem-cli key set FIBSEM_SLACK_TOKEN`. It is kept
+  in Windows Credential Manager or the macOS Keychain instead of an environment
+  variable.
+
+### METEOR and offset fluorescence microscopes
+
+- **A Device Server on the METEOR PC serves its FM.** Name it as an `fm` entry in
+  `~/.fibsem/device-server.yaml` and start the server with `--config`. Pair the
+  microscope PC with it once with `fibsem-cli pair-device <address>:<port> <code>`;
+  remote entries no longer take `code:` or `token:`.
+- **SEM to FM calibration.** Microscope Configuration → Calibration has "Calibrate SEM
+  to FM…", and the Movement tab has "Move to FM", off until the fitted holder is
+  calibrated. The way back to the beams is always allowed, and a move that travels
+  between the beams and the FM asks first, listing the route.
+- **Moves at the FM are guarded.** A stage move that would leave the FM, or rotate there,
+  with the objective inserted is refused: retract it first or use move to device.
+- Moving to the SEM, FIB or milling orientation by name keeps the sample under the
+  beam, rather than turning the stage and leaving it off-centre.
+- Lamellae marked at the beams get a fluorescence pose, and lamellae can be marked from
+  the FM view. Update position keeps a lamella's stored FM objective position.
+- Light power in watts matches the selected source, and a relative focus move stops at
+  the objective's user-defined limit.
+- On Odemis systems, drawing the fiducial pattern and any move or setting computed with
+  numpy no longer fail with "No module named 'numpy._core'" or hang.
+- The microscope configuration can turn the FM off with `fm.enabled: false` on every
+  system, including compustage and Odemis systems.
+
+### Devices
+
+- **Arctis**: the gas injection system (GIS port or multichem) is the `gis` device, with
+  its needle, heater, valve and temperature, and the sputter coater is the
+  `sputter_coater` device. The autoloader's working slot can be calibrated from the
+  Sample view with the pencil, and is kept across connects, so grid overviews centre on
+  the loaded grid.
+- **Hydra Bio**: the GIS and the MicroSputter coater are the `gis` and `sputter_coater`
+  devices; a sputter run names the grids to coat.
+- **Thermo cryo systems**: the chamber and sample loader report the touch alarm,
+  nitrogen flow, temperatures and dewar levels (read-only). The electron beam's source
+  tilt and lens alignment can be read and set as advanced beam settings.
+- **Tescan**: Link stage leaves the stage as it is instead of failing, the manipulator
+  panel offers the Parking preset, and stage moves (also on Odemis) return the position
+  they ended at.
+- A manipulator driver can give per-axis limits, and the needle refuses moves outside
+  them. A manipulator position no longer has to name a coordinate system.
+- A driver can ask for its vendor library's folder in the guided setup and in
+  Preferences, kept per computer.
+- A stage move outside the stage limits is refused with an error instead of being sent
+  to the microscope. A rotation of 359.9° counts as the same place as 0.1°.
+- On a stage with a built-in shuttle, its slot is "Shuttle" and its holder "Built-in
+  holder" (a slot calibrated under the old name is kept).
+- Turn the microscope's devices on or off for the session in Tools → Host; Preferences
+  sets what a new session starts with. Disabling a beam in an applied configuration
+  now takes effect.
 
 ### Workflow
 
-- **What a task asks is on the record.** Each proposal a task asks while it runs
-  (a position, a point of interest, an alignment area, a detection, a mill's pass)
-  stays in the experiment record in every mode, with who decided it and where: your
-  answer in the workflow when supervised; nobody when automated, in which case the
-  value is used as proposed and recorded as unreviewed rather than as agreed. A
-  finished task is its history and its outputs: nothing is proposed or waits on a
-  decision after it ends. Grid overviews no longer leave an empty positions
-  record. The "Review workflow (early
-  access)" preference is gone, and a preferences file that still names it loads.
-  An experiment saved while a task was awaiting a decision loads with that task
-  completed.
-- **One `attention` per task in the protocol.** A workflow task says `attention:
-  automated` or `supervised` in place of the `supervise` and `review` flags;
-  protocols saved with the flags still load and are written back in the new form.
-  Supervised means you decide: a question the task needs answered is asked while
-  it runs, on the widget it is answered on (the prompt bar, the Detection tab, the
-  milling editor, the marker or rectangle on the FIB view), and the run waits for
-  your answer. A milling task's Continue, after you have watched the mill, is your
-  decision on its result and is recorded as yours. There is no third mode:
-  development builds had one, `review`, and it is read as `supervised`.
-- **Setup's confirmations are on the record, and each has a switch.** The tilt to
-  the milling angle and the move to the milling position are asked on the prompt
-  bar as before, and each Continue is recorded as your decision with the stage
-  position as it stood. Two new task settings, `confirm_tilt` and
-  `confirm_position` (both on), turn either prompt off: the task
-  then tilts, or uses the position as arrived at, and the record says nobody was
-  asked. Off, `confirm_position` is only as safe as the automatic positioning that
-  put the stage there. The tilt has Tilt and Skip: Skip (or an agent rejecting
-  the question) leaves the stage at the angle it is at, and the task carries on.
-- **A supervised question always waits for an answer.** You answer it at the
-  window, or a connected agent at Drive does. With nobody to answer, a run with
-  no window and no agent, the run holds on the question until someone does.
-- **The fluorescence tasks' confirmations are on the record.** Select Fluorescence
-  Position's "move to the fluorescence position" and Acquire Fluorescence Image's
-  "run autofocus" prompts are asked on the prompt bar as before, and each Continue
-  is recorded as your decision with the stage position as it stood. Automated,
-  the position is used as arrived at and the record says nobody was asked.
-- **The undercut's detections are on the record.** Each of Mill Undercut's four
-  detections (two in the coincident alignment, one per undercut, one to finish) is
-  a question on the lamella, answered on the Detection tab as before: the run
-  holds, and Continue, with a marker dragged or not, is the decision the stage
-  moves by. The training data is still written. Automated, nobody is asked and
-  each detection is recorded as used unreviewed.
-- **A question the app closed on is withdrawn when the experiment loads.** A
-  detection or a position confirmation a task was waiting on when the app closed or
-  crashed used to reappear as a decision to make; nothing is waiting on it, so it now
-  loads as withdrawn.
-- **The alignment area is checked on the record.** Setup and Mill Fiducial ask you to
-  check the alignment area as the rectangle on the FIB view, as before, before the
-  alignment reference is taken in it; the answer, and how far you moved it, are on
-  the lamella's record. Each task has a Confirm Alignment Area setting;
-  off, the area is used as it stands and still recorded.
-- **For task authors: a task declares what it asks.** A task type lists the
-  proposal kinds it asks in `asks` (was `questions`), and asks them with `ask`;
-  every decision lands through `Experiment.decide`. There is no end-of-task
-  proposer.
-- **For agents: proposals and decisions.** `GET /app/workflow/proposals` (was
-  `reviews`) and the tools `proposal_list` and `proposal_decide` (were
-  `review_list` and `review_decide`); a stale decision is refused with
-  `stale_proposal`. The listing no longer carries `holding_the_run`,
-  `rejected_fails_task`, `confidence`, `alternatives` or `reference_image_eb`, and a
-  decision's answer no longer carries `delta`: the tool text says per kind what
-  Reject does. The run's hold events are `proposal_held`, `proposal_waiting` and
-  `proposal_released` (were `question_*`), the hold kind is `proposal`, and the
-  `review_decided` event is gone (`proposal_decided` says the same).
-- **One way for a run to ask: proposals.** The old prompt path is gone: the
-  `Confirm`, `ConfirmDetection`, `EditAlignmentArea` and `PickPOI` requests,
-  `update_detection_ui`, `GET /app/workflow/prompt`, `POST
-  /app/workflow/prompt/answer` and `/prompt/suggest`, the tools `prompt_get`,
-  `prompt_answer` and `prompt_suggest_answer`, the `prompt_*` events and the
-  agent card's suggested answer. No task raised a prompt any more, so an
-  operator sees nothing change; old event logs still read. The window's
-  responder only carries instructions (images, milling config, detections).
-  Suggestions come back on pending proposals.
-- **One record for an act, one for a note.** Every act on the session's record
-  is an `action` event (what, whether it worked, why, and how: tool,
-  arguments, route, level, a request's step, what a stop `stops`), whoever did
-  it: the agent's calls and refusals, an approved request's steps, the agent's
-  stops, the operator's Stop, Stop Task, Stop agent and Stop Milling (the last
-  was not recorded before). Notes are `note` events: the agent's notes and
-  replies, the operator's messages. `agent_called`, `agent_refused`,
-  `agent_stop`, `agent_stopped`, `request_applied`, `workflow_stop`,
-  `agent_note` and `operator_message` are no longer written; old logs still
-  read in the card, the watcher and the dashboards.
-- **The operator's beam settings and grid notes are on the record.** A change
-  at the beam and detector settings (field width, dwell time, resolution,
-  current, voltage, preset, working distance, scan rotation, shift,
-  stigmation, detector type, mode, brightness, contrast) and the beam on/off
-  and blank buttons are `action` events by the operator; they were debug log
-  lines. A grid's note, kept by the operator or the agent, is a `note` event on
-  the grid: the watcher says `NOTE from the operator on <grid>` and the
-  dashboards show it as a note, not a message to the agent. The debug log
-  lines for proposals decided, recorded Unreviewed and withdrawn are gone:
-  `proposal_decided` has them.
-- **The agent shows its evidence.** Every acting agent tool takes an optional
-  `evidence`: the image it judged from, one of the experiment's or one it drew
-  itself (uploaded, saved under `<experiment>/evidence/`, at most 2048 px), with
-  labelled points and areas marked on it; its reason says what it saw. Its
-  calls, requests, suggestions, decisions and notes cite it by id (the
-  `X-Agent-Evidence` header; `POST /app/experiment/evidence` keeps it). The
-  Agent card shows it as its picture, a beam image with the request's values
-  drawn on it, "No evidence" under Why when there is none, and Recent opens it.
-  The `image` argument of `request_create` and `proposal_suggest` is replaced
-  by it.
-- **The agent's requests are on the experiment's record.** A request at Assist
-  is an `actions` proposal on the experiment, saved in `experiment.yaml` with
-  its decision: approved, rejected (with the operator's reason) or withdrawn
-  (the agent took it back, the level changed, Stop agent, or the app closed
-  with it waiting). The chip, the card and the request tools are unchanged.
-  `request_raised`, `request_decided` and `request_cancelled` give way to
-  `proposal_asked` and `proposal_decided` of kind `actions`; old logs still
-  read. Proposals about the experiment itself are decided by id
-  (`decide(None, ...)`), and the plain session experiment takes them too.
-- **Agent suggestions on proposals.** At Assist an agent suggests a decision
-  on a pending proposal (`proposal_suggest`, `POST
-  /app/workflow/proposals/suggest`), with its reason and optionally its
-  evidence image. The Agent chip says "Agent suggests" and the card shows the
-  suggestion drawn on the proposal's image, with Approve (decides it as
-  suggested, as the operator's decision, naming the suggestion) and Decline
-  (an optional reason goes back to the agent). One suggestion is kept per
-  proposal, in `experiment.yaml`; decisions carry `suggestion_id`. Events
-  `proposal_suggested` and `suggestion_declined`; `proposal_decided` gains
-  `suggested_by`.
-- **The point-of-interest kind is named for what it is.** The proposal kind Setup
-  records is `point_of_interest` (was `milling_setup`): a point on an image that later
-  tasks follow, which is not a milling matter. Its schema carries `poi` only; the
-  `fiducial` value nothing wrote is gone until something proposes it.
-- **The window says who holds the run.** A run waiting on a question or on a
-  connected agent carries one value (`AutoLamellaUI.hold`) in place of the flags
-  that meant the same thing; the border, the attention button, the status bar and
-  the timeline pause all read it.
-- **For agents: the `/app` routes come as a core plus optional parts.** An app
-  serves the core (status, queue, runs, proposals, events, log, notes, experiment
-  and protocol) and whichever parts its context implements: items, poses, grids,
-  milling stages and lamellae (`fibsem.server.parts`). `/capabilities` lists them
-  under `parts`, and the agent is offered only the tools of those parts. AutoLamella
-  serves all five, so its routes are unchanged.
-- **For developers: a tool's request line lives with the tool.** The line an agent's
-  request shows the operator for an action is now `ToolSpec.line`, next to the tool,
-  and a service command's is `command(line=...)` on the command, whichever tool calls
-  it. The catalog is a package of modules by group (`fibsem.ai.agent.catalog`), each
-  tool carrying its route call (`ToolSpec.call`); `fibsem/ai/agent/request_text.py`
-  is gone. Adding a tool is one entry in one module. A test fails for an acting tool
-  with no line.
+- **What a task asks is on the record.** Each question a task asks while it runs (a
+  position, a point of interest, an alignment area, a detection, a mill's result) stays
+  in the experiment record with who decided it: your answer when supervised; nobody
+  when automated, in which case the value is used as proposed and recorded as
+  unreviewed. The Review tab is always on, and the "Review workflow (early access)"
+  preference is gone.
+- **One `attention` per task in the protocol**: `automated` or `supervised`, in place
+  of the `supervise` and `review` flags. Protocols saved with the flags still load and
+  are written back in the new form. A supervised question always waits for an answer.
+- **The milling question reads Run Milling / Skip, then Mill Again / Accept**, and the
+  spot burn question works the same way, with a fresh FIB image after each burn. Skip
+  records the task as Skipped, so later tasks don't run on a lamella that was never
+  milled.
+- **Setup's confirmations each have a switch.** The tilt to the milling angle and the
+  move to the milling position are asked as before, and each answer is recorded with
+  the stage position. `confirm_tilt` and `confirm_position` (both on) turn either
+  prompt off. Setup and Mill Fiducial ask you to check the alignment area, with a
+  Confirm Alignment Area setting; the fluorescence tasks' position and autofocus
+  confirmations and Mill Undercut's four detections are recorded the same way.
+- A question the app closed on is withdrawn when the experiment loads, instead of
+  reappearing as a decision to make.
+- On the Workflow tab, a task can't be dragged above a task it requires. Run again no
+  longer queues a task twice. Mill Fiducial requires Setup Lamella Position in the
+  default protocol.
+- Global Edit with "Also update existing lamella configurations" changes only each
+  lamella's reference imaging and milling field of view, not its own pattern depths,
+  currents and task settings.
+- With no lamella card selected, the Lamella tab's Protocol page is empty instead of
+  showing (and editing) the last lamella.
+- A lamella card's menu has **Export GIF**: the images its tasks took as an animated GIF
+  or WebP, one labelled frame per task, or its fluorescence z-stacks by channel.
+- A workflow that fails before its first task, or dies with an error, now says it
+  failed. A save that fails during a run (a read-only or locked file, a full disk) fails
+  the run instead of closing the app, and a task whose result can't be saved is
+  recorded as failed.
+- "Turn beams off after completion" applies to headless runs too. Stopping a run from
+  a script stops the mill at once, as the window's Stop does.
+- A finished run shows one toast with a Show summary link; the run summary no longer
+  blocks the window and can be turned off ("Show summary after completion").
+- Decisions and verdicts are saved with an actor (`operator:`, `task:`) instead of an
+  author; experiments saved by older versions still load.
+
+### Grids
+
+- **The grid workflow is available to everyone**: the Grids tab (a card per grid with
+  its overviews and history), the Workflow tab's Grids view, the Protocol tab's Grid
+  page and the grid screening report no longer need a preference.
+- New experiments' default protocol includes grid screening: an SEM overview (3 × 3 at
+  500 µm) and a FIB overview (5 × 5 at 250 µm), sized to stay within the Arctis stage's
+  reach.
+- A grid overview larger than the stage can reach acquires the tiles in reach and names
+  the ones it skipped, and the Grid page warns about it beforehand.
+- A grid can be marked Rework or Failed as well as Poor, a verdict records who set it,
+  and a grid's card has Edit note; the note shows in the screening report.
+- **The grid screening report** opens as a page in the browser, with a PDF beside it
+  where Edge or Chrome is installed.
+- A grid can't be renamed once a task has run on it, and naming a grid on the Sample
+  view renames the experiment's grid instead of adding a second one.
+- Starting a grid run clears the ticked grids, so Add to Queue doesn't queue them twice;
+  a grid task removed during a run is skipped on the grids still to run.
+- The sample holder and magazine controls are a Sample tab under Microscope. The Arctis
+  simulator's autoloader takes five seconds per load and each grid shows its own
+  content.
+
+### Overview tab and correlation
+
+- **An image from another microscope can be laid over the Overview tab**: a fluorescence
+  image, or any TIFF, PNG or JPEG. An import dialog confirms its axes, pixel size,
+  channels and mirroring; place it from its metadata, by dragging and turning, by
+  clicking three matching points, or by resizing a corner. It is saved with the grid,
+  and each channel can be recoloured, hidden or re-contrasted. Large images open and
+  respond quickly.
+- The grid bars can be dragged and turned into place with Align bars, are drawn
+  foreshortened in a tilted view, and are saved with the grid. These controls are under
+  a new Align button on the canvas toolbar.
+- After each overview the tiles are checked against each other, with a warning when
+  they don't match the stage moves; an experimental "Align tiles" option places tiles
+  where they match their neighbours. Tiles are laid out at the resolution the
+  instrument actually scans, and the estimate names tiles out of the stage's reach.
+- The stage limits box, grid boundary and holder slots are drawn at the stage's height,
+  so a click inside the box is no longer refused in a tilted view. Opening the tab and
+  "reset view" frame the planned tiles and the stage, and "Centre on stage" works.
+- The overview pre-flight dialog says how far the run moves in z.
+- Correlation fits no longer use random restarts: the same points give the same answer.
+  Fit from points says when the points fit much better mirrored, and reopens with the
+  points last picked. Selection between the point list and the image stays in step.
+- Fitting a reflection hole works on the lower planes of a z-stack and near the image
+  edges. The refractive-index correction works offline.
+
+### Milling
+
+- **Milling monitors** watch a stage while it mills and can pause it, report or end it.
+  Two are built in: FM Intensity (ends or flags the stage on a fluorescence drop) and
+  SEM Peek (an SEM image every N seconds). The History tab shows what each one said.
+- Alignment can use the whole frame for stages at or below a chosen current ("Full
+  Frame At Or Below", off by default). Alignment scores now say how good each match
+  was.
+- Prepare and the time estimate say which ion current the patterns mill at, and warn
+  when the recipe asks for one the instrument doesn't list. A pattern the instrument
+  can't draw (a bitmap on Tescan) stops with an error before anything is drawn.
+- The record names the strategy that milled each stage, how each stage ended and why a
+  coincidence mill stopped.
+- The trench bitmap's image paths can be chosen in the form; the coincidence strategy's
+  counts are whole numbers; the overtilt strategy offers the beam's own resolutions.
+- Fixes a stage that could hang after a failed pause, and the Arctis FM live view ending
+  during FM-monitored milling. Double-clicking a beam view during milling is refused in
+  AutoLamella, as in the standalone UI.
 
 ### Fluorescence
 
-- Acquire Fluorescence Image with no channels configured now fails up front saying so,
-  instead of with an IndexError from the autofocus.
+- A channel's emission is its emission filter, shown by name with its bands drawn; the
+  Arctis and iFLM filter shows as "Quad-band". Saved channels and images load as before.
+- OME-TIFFs from other software, ImageJ hyperstacks and RGB TIFFs open, and stacks with
+  as many channels as z-slices load the right way round.
+- Interpolating an FM volume along z is over ten times faster.
+- The fluorescence autofocus records how it ended and where it saved, and the History
+  tab shows it.
+- Acquire Fluorescence Image with no channels configured fails up front saying so.
+- FM settings are kept in the session state; the Development menu's Load and Save
+  Fluorescence Configuration items are removed.
 
-### Grids (preview)
+### The experiment's record and reports
 
-- **A grid workflow, behind a preference.** Preferences → Enable Grid Workflow adds a
-  Grids tab (a card per grid the inventory found, with its overviews and history), a
-  Grid page beside Lamella on the Protocol tab, and a Workflow → Grids view that runs the
-  grid tasks over the selected grids, loading each from the magazine as it comes up, or
-  screens every grid in the magazine in one go. Off by default; it has run end to end on
-  the simulator and is waiting on bench time.
-- **The sample holder and magazine controls are a Sample tab** under Microscope, always
-  shown, in place of the block on the Movement tab and the preference that gated it.
-  Load and unload are icons on the grid's row; inventory is a refresh icon that asks
-  first.
-- The protocol's name, description and version panel on the Protocol tab is now one
-  line with a pencil that opens a dialog, and the settings columns are wider.
+- **Each experiment records `events.jsonl`** beside `logfile.log`: task starts and ends,
+  each question and decision, stage moves and beam shifts, images and FM stacks with
+  their files, milling stages and their results, alignments, autofocus, spot burns,
+  grid loads, every edit to a lamella's plan with its value before and after, and who
+  did each (the operator or the task). Runs from scripts record it too.
+- **The experiment replay** reads it: stage moves, alignment, milling and FM activity,
+  each question and its decision, each plan edit, and who took each action.
+- **Tools → Reporting → Generate Report** writes an HTML report from the record, and its
+  PDF where Edge, Chrome or Chromium is installed: where the session's time went, a card
+  per lamella with its final images, runs and decisions, and what is worth a look. The
+  older report built from the log file is gone.
+- **The History tab** shows each milling run and how its stages ended, drift correction
+  under each mill, autofocus and alignment done outside a task, and folds a run's steps
+  into one line when they all completed. It can show newest first.
+- The event log opens on the experiment's whole record, so an overnight run can be read
+  the next morning. The dashboard shows when a run stopped, stalled or failed.
+- The fibsem revision recorded in experiments and shown in About is the commit alone.
+
+### The app
+
+- AutoLamella and the fibsemOS UI show a splash screen while they start, and have their
+  own icons in the window, the taskbar and desktop shortcuts. Tools → Create Desktop
+  Shortcut offers both; shortcuts from a venv or uv environment start without an
+  activated terminal.
+- A chip in the tab bar says when a newer release is available; turn the check on at
+  start-up in Preferences → Display.
+- Preferences and the View menu have "Toasts for Problems Only".
+- The Imaging defaults offer the resolutions the instrument reports.
+- The Overview tab's Lamella Positions list comes back after a reconnect, the milling
+  settings form no longer comes up empty on an unrecognised manufacturer, and figures no
+  longer come out in the wrong colours.
 
 ### Image export
 
@@ -297,26 +460,29 @@ lists where each key went.
 
 - **`fibsem-cli` acts through the App Server, as the operator.** It no longer connects
   to the microscope itself: it reaches the App Server running on this machine (or
-  `--url`) with the operator token, so its moves and writes take the same routes as the
-  window and the agent, with the server's checks, blocklist and record. `--manufacturer`,
+  `--url`) with the operator token, so its moves and writes take the same routes and
+  checks as the window, and go on the experiment's record. `--manufacturer`,
   `--ip-address` and `--config` are gone from it (the headless servers keep them).
-- Commands are named as the agent's tools are, in groups: `microscope get-info` and
-  `get-state`; `stage get-position`, `move-absolute`, `move-relative`,
-  `move-to-orientation`, `move-to-device`, `move-to-milling-angle`; `beam acquire-image`,
-  `auto-focus`, `auto-contrast`, `blank`, `unblank`, `set-parameters`;
-  `hardware-check`; `experiment list-all`; `device` and `service` with `list`,
-  `describe`, `get-parameter`, `set-parameter`, `call-command`, `call-query`. Beams are
-  chosen with `--beam-type ELECTRON|ION`, stage axes with `--x --y --z --r --t`.
+- Commands are in groups: `microscope get-info` and `get-state`; `stage get-position`,
+  `move-absolute`, `move-relative`, `move-to-orientation`, `move-to-device`,
+  `move-to-milling-angle`; `beam acquire-image`, `auto-focus`, `auto-contrast`, `blank`,
+  `unblank`, `set-parameters`, `turn-on`, `turn-off`; `hardware-check`;
+  `experiment list-all`; `device` and `service` with `list`, `describe`,
+  `get-parameter`, `set-parameter`, `call-command`, `call-query`. Beams are chosen with
+  `--beam-type ELECTRON|ION`, stage axes with `--x --y --z --r --t`.
 - `stage move-absolute` is the safe move, and crosses to another device by the
   traverse. `beam set-parameters` refuses a read-only or invalid value and says when a
-  value was clipped to its limits. Turning a beam on or off stays at the microscope.
+  value was clipped to its limits.
 - Every length is in µm and dwell times in µs (`acquire --hfw` was in metres). `beam
   acquire-image --out DIR` saves the images on this machine.
 - `device`/`service call-command` waits for a long command; Ctrl-C stops it.
-- `experiment list-all` lists the app's experiments folder (`GET /app/experiment/all`,
-  which now takes `instrument`, `operator`, `since` and `until`, and gives each
-  experiment's operator, serial and `relative_path`). `--root` and `--recent` are gone.
-- `hardware-check` checks the devices the App Server serves.
+- `experiment list-all` lists the app's experiments folder, filtered by `--instrument`,
+  `--operator`, `--days`, `--since` and `--until`. `--root` and `--recent` are gone.
+- `hardware-check` checks the devices the App Server serves, including every
+  fluorescence setting; it never moves the objective or the stage.
+- New commands that need no App Server: `pair-device` (pair with a Device Server),
+  `notify` (Slack notifications) and `key` (store a key or token in this PC's
+  credential store).
 
 ### Changes to what v0.5.2 shipped
 
@@ -327,8 +493,6 @@ lists where each key went.
 - **The "Report an Issue" bug reporter and user scripts are on for everyone**, and their
   flags are gone. In v0.5.2 both were opt-in. A user script still has the application's
   access to the microscope and none of its checks, so read one before running it.
-- **AutoScript 4.9 or later is required**, up from 4.7. With an older AutoScript the
-  ThermoFisher microscope is unavailable, and the connection error names the version found.
 
 ## v0.5.3 (30/09/2026)
 
