@@ -1,4 +1,4 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Button } from "@/components/ui/button";
@@ -553,6 +553,52 @@ function PickList({ editor, picks }: { editor: MarkEditor; picks: Mark[] }) {
   );
 }
 
+/** The sample the agent's plan names, or null before it names one. */
+export function usePlanSample(): string | null {
+  const plan = useQuery({
+    queryKey: ["app/agent/plan"],
+    queryFn: () => api<{ sample: string | null }>("/app/agent/plan"),
+    staleTime: 30_000,
+  });
+  return plan.data?.sample ?? null;
+}
+
+/** Keep as example: on by default once something is said good or bad; off, and why,
+ * before the plan names a sample. *keep* null follows the default. */
+export function KeepTick({
+  said,
+  sample,
+  keep,
+  setKeep,
+}: {
+  said: boolean;
+  sample: string | null;
+  keep: boolean | null;
+  setKeep: (on: boolean) => void;
+}) {
+  const can = said && !!sample;
+  const why = !sample
+    ? "The plan names no sample yet"
+    : !said
+      ? "Say good or bad of something to keep it"
+      : `Kept in the knowledge base as an example of ${sample}`;
+  return (
+    <label
+      className={cn("flex items-center gap-1.5 text-[12px]", can ? "cursor-pointer" : "text-muted-foreground")}
+      title={why}
+    >
+      <input
+        type="checkbox"
+        className="m-0 accent-[var(--primary)]"
+        disabled={!can}
+        checked={can && (keep ?? true)}
+        onChange={(e) => setKeep(e.target.checked)}
+      />
+      Keep as example
+    </label>
+  );
+}
+
 /** The side panel while marking: the marks with their labels, the message, and Send. *image* is the file's path; *channels* the FM channels shown. */
 export function MarkPanel({
   editor,
@@ -576,6 +622,8 @@ export function MarkPanel({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [keep, setKeep] = useState<boolean | null>(null);
+  const sample = usePlanSample();
   const { marks } = editor;
   const refs = markRefs(picks ?? []);
   const judged = Object.entries(editor.judged)
@@ -585,6 +633,8 @@ export function MarkPanel({
       ...(j.verdict ? { verdict: j.verdict } : {}),
       ...(j.moved_to ? { moved_to: { x: Math.round(j.moved_to.x), y: Math.round(j.moved_to.y) } } : {}),
     }));
+  const said = judged.some((j) => j.verdict) || marks.some((m) => m.verdict);
+  const kept = said && !!sample && (keep ?? true);
   const send = async () => {
     setError(null);
     setSending(true);
@@ -594,9 +644,11 @@ export function MarkPanel({
         marks: toMarks(marks),
         ...(channels ? { channels } : {}),
         ...(answers ? { answers, ...(judged.length ? { judged } : {}) } : {}),
+        ...(kept ? { keep: true } : {}),
       };
       await api("/app/agent/messages", { method: "POST", body: JSON.stringify({ text: text.trim(), evidence }) });
       setText("");
+      setKeep(null);
       editor.clear();
       onSent();
     } catch (e) {
@@ -605,6 +657,7 @@ export function MarkPanel({
       setSending(false);
       await client.invalidateQueries({ queryKey: ["app/agent"] });
       await client.invalidateQueries({ queryKey: ["app/agent/recent"] });
+      if (kept) await client.invalidateQueries({ queryKey: ["app/knowledge"] });
     }
   };
   return (
@@ -677,6 +730,7 @@ export function MarkPanel({
         }}
       />
       {error && <p className="m-0 text-[12px] text-destructive">{error}</p>}
+      <KeepTick said={said} sample={sample} keep={keep} setKeep={setKeep} />
       <div className="flex items-center gap-2">
         <span className="flex-1 text-[12px] text-muted-foreground">
           {channels
