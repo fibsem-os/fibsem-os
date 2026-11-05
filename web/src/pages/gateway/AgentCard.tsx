@@ -1,9 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
-import { Popup } from "@/components/ui/popup";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -276,12 +274,8 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
   );
 }
 
-const menuItem =
-  "rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent cursor-pointer";
-
 function Run({ running }: { running: Running }) {
   const client = useQueryClient();
-  const [confirm, setConfirm] = useState(false);
   // The app's own Agent page, signed in as the operator; absent while it is away.
   const page = useQuery({
     queryKey: ["gateway/app/agent-page"],
@@ -290,8 +284,7 @@ function Run({ running }: { running: Running }) {
     retry: false,
   });
   const end = useMutation({
-    mutationFn: (stopApp: boolean) =>
-      api<AgentState>("/gateway/agent/end", { method: "POST", body: JSON.stringify({ stop_app: stopApp }) }),
+    mutationFn: () => api<AgentState>("/gateway/agent/end", { method: "POST", body: "{}" }),
     onSuccess: (answer) => {
       client.setQueryData(["gateway/agent"], answer);
       client.invalidateQueries({ queryKey: ["gateway"] });
@@ -336,70 +329,23 @@ function Run({ running }: { running: Running }) {
     <>
       <Facts className="[&_dd]:text-left" rows={rows} />
       {end.error && <p className="m-0 text-[13px] text-destructive">{(end.error as Error).message}</p>}
-      {confirm ? (
-        <>
-          <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-            Stop the agent and the app? Nothing holds the microscope afterwards.
-          </p>
-          <div className="flex flex-wrap items-center justify-end gap-2.5">
-            <Button onClick={() => setConfirm(false)}>Cancel</Button>
-            <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate(true)}>
-              Stop the Agent and the App
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="flex flex-wrap items-center justify-end gap-2.5">
-          {page.data ? (
-            <a
-              href={page.data.url}
-              target="_blank"
-              rel="noopener"
-              className="mr-auto text-xs text-[var(--primary)] hover:underline"
-            >
-              Open the Agent page
-            </a>
-          ) : (
-            <span className="mr-auto" />
-          )}
-          <Popup
-            label="End"
-            align="right"
-            side="below"
-            trigger={(open, toggle) => (
-              <Button variant="danger" disabled={end.isPending} aria-expanded={open} onClick={toggle}>
-                {end.isPending ? "Ending…" : "End"}
-                <ChevronDown size={14} />
-              </Button>
-            )}
+      <div className="flex flex-wrap items-center justify-end gap-2.5">
+        {page.data ? (
+          <a
+            href={page.data.url}
+            target="_blank"
+            rel="noopener"
+            className="mr-auto text-xs text-[var(--primary)] hover:underline"
           >
-            {(close) => (
-              <div role="menu" className="flex w-56 flex-col">
-                <button
-                  role="menuitem"
-                  className={menuItem}
-                  onClick={() => {
-                    close();
-                    end.mutate(false);
-                  }}
-                >
-                  Stop the Agent
-                </button>
-                <button
-                  role="menuitem"
-                  className={menuItem}
-                  onClick={() => {
-                    close();
-                    setConfirm(true);
-                  }}
-                >
-                  Stop the Agent and the App
-                </button>
-              </div>
-            )}
-          </Popup>
-        </div>
-      )}
+            Open the Agent page
+          </a>
+        ) : (
+          <span className="mr-auto" />
+        )}
+        <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate()}>
+          {end.isPending ? "Ending…" : "End"}
+        </Button>
+      </div>
     </>
   );
 }

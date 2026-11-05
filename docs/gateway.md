@@ -88,8 +88,7 @@ While it runs, the card shows the goal, playbook, level and spend.
 - **If the app restarts,** the agent waits for it and resumes the same session. That's at
   most 3 times an hour after the app restarts, and once an hour after a crash. The gateway
   sets the Start level again each time, because the app starts at Watch.
-- **End** opens a menu. **Stop the Agent** stops the agent and keeps the app. **Stop the Agent
-  and the App** asks first, then stops both.
+- **End** stops the agent and keeps the app.
 - **Stopping the app** from the gateway (Stop, a new start, or Quit) ends the agent first.
 
 The tray has **End agent** while one runs. A hub with "may start and stop apps" can start and
