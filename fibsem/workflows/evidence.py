@@ -733,6 +733,35 @@ def find(experiment_path: Optional[str], evidence_id: Any) -> Optional[Dict[str,
         return None
 
 
+def said_of(experiment_path: Optional[str], evidence_id: str) -> Optional[str]:
+    """What the operator last said of the whole picture *evidence_id*, good
+    or bad, from the feedback records answering it; None when nothing."""
+    if not experiment_path:
+        return None
+    last: tuple = ("", None)
+    try:
+        names = os.listdir(folder(experiment_path))
+    except OSError:
+        return None
+    for name in names:
+        if not name.endswith(".json"):
+            continue
+        try:
+            with open(os.path.join(folder(experiment_path), name)) as f:
+                record = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if (
+            isinstance(record, dict)
+            and record.get("by") == OPERATOR
+            and record.get("answers") == evidence_id
+            and record.get("verdict") in VERDICTS
+            and str(record.get("created_at") or "") >= last[0]
+        ):
+            last = (str(record.get("created_at") or ""), record["verdict"])
+    return last[1]
+
+
 def frame_path(evidence: Optional[Dict[str, Any]]) -> Optional[str]:
     """The beam image *evidence* is, to draw values on; None for none or for an
     image the agent made (uploaded, or a picture it rendered such as markers on

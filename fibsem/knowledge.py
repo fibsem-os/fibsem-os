@@ -57,7 +57,7 @@ RECORD = "record"
 LASTS = (UNTIL_FIXED, ONGOING, RECORD)
 TAGS = ("instrument", "sample", "playbook", "session")
 # Where an entry came from, besides its tags: ids and names, never a path.
-SOURCE = ("experiment_id", "instrument_serial", "agent_session", "item")
+SOURCE = ("experiment_id", "instrument_serial", "agent_session", "item", "evidence_id")
 # The lab's own profiles, playbooks and skills, beside the shipped ones.
 LAB_FOLDERS = ("profiles", "playbooks", "skills")
 # An "until fixed" entry not checked for this long is asked about again.
