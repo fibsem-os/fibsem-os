@@ -15,8 +15,8 @@ part of this release. Its headlines:
 - **Grid screening for everyone**: a Grids tab, grid tasks and a screening report, no
   longer behind a preference.
 - **A record of every run** (`events.jsonl`), an experiment replay and a new HTML report.
-- **A new image file format** (0.60), smaller and quicker to preview. 0.5.x cannot read
-  its metadata.
+- **A new image file format** (0.60), smaller and quicker to preview. 0.5.x opens its
+  FIB/SEM images without their metadata.
 - **Settings and experiments move to `~/.fibsem`**, out of the installed package.
 
 The agent and the gateway stay in the code, and a git checkout of fibsem-os runs them
@@ -50,8 +50,9 @@ main first and is cherry-picked there.
   metadata inside, like the FM stacks already were. Pages are zlib-compressed, and a
   large image or a z-stack carries 1/4 and 1/8 size copies so previews open quickly.
   Every image saved by an earlier version opens as before and is never rewritten.
-  **fibsemOS 0.5.x cannot read the metadata of an image saved by 0.6**, so update
-  every computer that opens your experiments.
+  **fibsemOS 0.5.x opens a FIB/SEM image saved by 0.6 without its metadata** (no pixel
+  size, stage position or beam settings), so update every computer that opens your
+  experiments. FM stacks open fully in either version.
 - **Each run of a task saves into its own folder**, `<lamella>/<task name>/<date-time>/`,
   so running a task again keeps the earlier run's images. Experiments from earlier
   versions keep their files where they are.
