@@ -102,10 +102,14 @@ def parse(markdown: str) -> Dict[str, str]:
 
 
 def render(sections: Dict[str, str]) -> str:
-    """The plan as markdown: the default headings first, in their order."""
-    order = [s for s in SECTIONS if s in sections] + [
-        s for s in sections if s not in SECTIONS
-    ]
+    """The plan as markdown: the default headings in their order, a
+    playbook's own (Results) in the order written, before Summary."""
+    *main, last = SECTIONS
+    order = (
+        [s for s in main if s in sections]
+        + [s for s in sections if s not in SECTIONS]
+        + [last] * (last in sections)
+    )
     parts = [TITLE]
     for name in order:
         parts.append(f"## {name}\n\n{sections[name]}".rstrip())
