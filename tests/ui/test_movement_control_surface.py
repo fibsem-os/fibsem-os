@@ -50,6 +50,7 @@ from test_viewer_less_widgets import (  # noqa: E402
 from fibsem import config as cfg  # noqa: E402
 from fibsem import constants  # noqa: E402
 from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
+from fibsem.ui.qt.threading import _ACTIVE_WORKERS  # noqa: E402
 
 # Inside every shipped configuration's stage limits -- z starts at 0 on the default
 # configuration and tilt only reaches -10 there. A spin box clamps silently, so a value
@@ -78,6 +79,11 @@ def movement(qapp):
     _image_widget(host)
     widget = _movement_widget(host)
     yield widget.control_widget
+    # A move holds the shared microscope's control until its thread ends: let it end
+    # here, or the next test's move is refused and its buttons come straight back on.
+    for worker in list(_ACTIVE_WORKERS):
+        worker.join(timeout=10)
+    qapp.processEvents()
     widget._teardown_connections()
     host.deleteLater()
 
