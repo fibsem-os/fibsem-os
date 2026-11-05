@@ -185,28 +185,33 @@ def test_the_shipped_default_profile_loads(checkout):
     assert "50 µm field of view" in prompt
 
 
-def test_the_autolamella_profile_is_the_default_running_its_playbook(checkout):
+def test_the_workflow_profiles_are_the_default_running_their_playbook(checkout):
     def shipped(name):
         path = checkout / profiles.PROFILE_DIR / f"{name}.yaml"
         return profiles.load(path, harness_mod.EFFORTS, checkout)
 
-    default, autolamella = (
-        shipped(profiles.DEFAULT_PROFILE),
-        shipped("autolamella-agent"),
-    )
-    assert autolamella.playbook == "autolamella"
+    default = shipped(profiles.DEFAULT_PROFILE)
     assert default.playbook is None
-    # Profiles don't inherit: the rest stays the same as the default's.
-    for name in (
-        "model",
-        "effort",
-        "max_budget_usd",
-        "max_turns",
-        "mode",
-        "prompt",
-        "hooks",
+    for profile_name, playbook in (
+        ("autolamella-agent", "autolamella"),
+        ("fibsem-experiment", "fibsem-experiment"),
     ):
-        assert getattr(autolamella, name) == getattr(default, name), name
+        profile = shipped(profile_name)
+        assert profile.playbook == playbook
+        # Profiles don't inherit: the rest stays the same as the default's.
+        for name in (
+            "model",
+            "effort",
+            "max_budget_usd",
+            "max_turns",
+            "mode",
+            "prompt",
+            "hooks",
+        ):
+            assert getattr(profile, name) == getattr(default, name), (
+                profile_name,
+                name,
+            )
 
 
 def show(capsys, *argv):
