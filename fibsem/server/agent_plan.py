@@ -10,8 +10,11 @@ session's ``checklist`` is read from it (the Rules as standing rules, the
 Steps' boxes as items).
 
 The Brief's ``Sample:`` line is the session's sample tag, which feedback and
-knowledge read. The agent writes it once; after that only the operator
-changes it. Setting it puts an ``agent_sample_set`` event on the record.
+knowledge read. It is the open experiment's sample too (its metadata): one
+named when the experiment was made holds from the start, and one the agent
+writes is saved on the experiment. The agent writes it once; after that only
+the operator changes it. Setting it puts an ``agent_sample_set`` event on the
+record.
 
 Kept at ``agent/plan-<session id>.md`` in the open experiment, beside the
 transcript, and in memory when no experiment is open.
@@ -148,8 +151,18 @@ def sample(sections: Dict[str, str]) -> Optional[str]:
 class PlanStore:
     """The session's plan, in memory and beside the open experiment."""
 
-    def __init__(self, experiment_path: Callable[[], Optional[str]]) -> None:
+    def __init__(
+        self,
+        experiment_path: Callable[[], Optional[str]],
+        experiment_sample: Optional[Callable[[], Optional[str]]] = None,
+        set_experiment_sample: Optional[Callable[[str], bool]] = None,
+    ) -> None:
         self._experiment_path = experiment_path
+        # The open experiment's sample (its metadata), read and written with
+        # the Brief's: a sample named when the experiment was made is the
+        # session's from the start.
+        self._experiment_sample = experiment_sample or (lambda: None)
+        self._set_experiment_sample = set_experiment_sample or (lambda sample: False)
         self.session_id: Optional[str] = None
         self.sections: Dict[str, str] = {}
         self.updated: Optional[str] = None
@@ -206,12 +219,27 @@ class PlanStore:
             "session_id": self.session_id,
             "markdown": render(sections) if sections else "",
             "sections": [{"name": n, "text": t} for n, t in sections.items()],
-            "sample": sample(sections),
+            "sample": sample(sections) or self.experiment_sample(),
             "steps": found,
             "done": sum(1 for s in found if s["done"]),
             "updated": self.updated,
             "updated_by": self.updated_by,
         }
+
+    def experiment_sample(self) -> Optional[str]:
+        try:
+            return self._experiment_sample() or None
+        except Exception:  # noqa: BLE001 - the plan still reads without it
+            logging.debug("could not read the experiment's sample", exc_info=True)
+            return None
+
+    def set_experiment_sample(self, value: str) -> None:
+        if value == self.experiment_sample():
+            return
+        try:
+            self._set_experiment_sample(value)
+        except Exception:  # noqa: BLE001 - the plan keeps it all the same
+            logging.warning("could not set the experiment's sample", exc_info=True)
 
     def checklist(self, session_id: Optional[str]) -> Optional[List[Dict[str, str]]]:
         """The session's checklist read from its plan: the Rules standing, the
@@ -277,18 +305,22 @@ def build_agent_plan_router(
         before = store.current(session_id)
         if len(sections) > MAX_SECTIONS:
             raise _invalid(f"A plan has at most {MAX_SECTIONS} sections.")
-        was, now = sample(before), sample(sections)
-        if by == "agent" and was and now != was:
+        was = sample(before) or store.experiment_sample()
+        now = sample(sections)
+        brief = sections.get("Brief") != before.get("Brief")
+        if by == "agent" and brief and was and now != was:
             raise refusal_error(
                 409,
                 "sample_set",
-                f"The sample is {was}, written once at intake: only the operator "
-                "changes it. Keep the Brief's Sample line as it is.",
+                f"The sample is {was}, named once: only the operator changes it. "
+                f"Keep the Brief's first line as 'Sample: {was}'.",
             )
         changed = [
             n for n in {**before, **sections} if before.get(n) != sections.get(n)
         ]
         store.write(session_id, sections, by)
+        if now:
+            store.set_experiment_sample(now)
         if now and now != was:
             _record(
                 SAMPLE_SET, {"sample": now, "was": was, "session_id": session_id}, by

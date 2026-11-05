@@ -145,6 +145,12 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
             "Optional description of the experiment..."
         )
 
+        # Sample (optional): feedback and the knowledge base are tagged with it
+        self.lineEdit_experiment_sample = QtWidgets.QLineEdit()
+        self.lineEdit_experiment_sample.setPlaceholderText(
+            "Optional sample, e.g. yeast or HeLa..."
+        )
+
         # User (optional)
         self.lineEdit_experiment_user = QtWidgets.QLineEdit()
         self.lineEdit_experiment_user.setPlaceholderText("Optional user name...")
@@ -174,6 +180,7 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
         exp_form_layout.addRow("Name", self.lineEdit_experiment_name)
         exp_form_layout.addRow("Description", self.lineEdit_experiment_description)
+        exp_form_layout.addRow("Sample", self.lineEdit_experiment_sample)
         exp_form_layout.addRow("User", self.lineEdit_experiment_user)
         exp_form_layout.addRow("Project", self.lineEdit_experiment_project)
         exp_form_layout.addRow("Organisation", self.lineEdit_experiment_organisation)
@@ -449,6 +456,9 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
 
             if experiment_description:
                 metadata["description"] = experiment_description
+            experiment_sample = self.lineEdit_experiment_sample.text().strip()
+            if experiment_sample:
+                metadata["sample"] = experiment_sample
             if experiment_user:
                 metadata["user"] = experiment_user
             if experiment_project:

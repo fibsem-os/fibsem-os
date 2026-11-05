@@ -83,7 +83,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "section": _SECTION,
             "title": "a one-line title, at most 200 characters",
             "text": "the entry, Markdown, at most 20000 characters",
-            "sample": f"optional: {_SAMPLE}; any entry may be tagged with the run's sample",
+            "sample": f"optional: {_SAMPLE}; the open experiment's sample when left out",
             "playbook": f"optional: {_PLAYBOOK}; any entry may be tagged with the run's playbook",
             "lasts": f"optional: {_LASTS}; ongoing when left out",
             "remind": "optional: one line said before the steps it concerns (e.g. 'the 10 pA aperture is down: use 30 pA'); an empty one removes it",

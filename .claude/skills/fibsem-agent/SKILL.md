@@ -351,8 +351,11 @@ one section at a time with `plan_set_section`:
 
 - **Brief**: the question, the sample and the target, and the goal, in the
   operator's words. Its first line is `Sample: <name>`, the sample as the
-  operator names it: write it once, as soon as you know it. Feedback and the
-  knowledge base read it there, and after that only the operator changes it.
+  operator names it: write it once, as soon as you know it. It is saved on
+  the experiment too; when the experiment already names one
+  (`app_get_status`'s experiment `sample`), use that and don't ask. Feedback
+  and the knowledge base read it there, and after that only the operator
+  changes it.
 - **Playbook**: which one runs, and who chose it.
 - **Rules**: each standing rule ("check coincidence at every site", "a
   fluorescent target"), one `- ` line each, in the operator's words.

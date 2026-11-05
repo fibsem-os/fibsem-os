@@ -355,3 +355,15 @@ def test_the_sidecar_fetches_a_file_into_the_working_folder(
     answer = fetch({"path": absolute})
     assert answer["path"] == "protocol.yaml"
     assert (work / "fetched" / "second" / "protocol.yaml").is_file()
+
+
+def test_an_experiment_is_created_with_its_sample_and_the_status_names_it(
+    driver, host, places
+):
+    made = driver.post("/app/experiment/create", json={"name": "s", "sample": "yeast"})
+    assert made.status_code == 200, made.text
+    assert host.experiment.sample == "yeast"
+    assert driver.get("/app/workflow/status").json()["experiment"]["sample"] == "yeast"
+    # the sample is kept in the experiment's metadata, on disk
+    text = (places / "s" / "experiment.yaml").read_text(encoding="utf-8")
+    assert "sample: yeast" in text

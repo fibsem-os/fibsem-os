@@ -1590,7 +1590,10 @@ def build_app_config_router(context: Any) -> APIRouter:
         )
         return _answer_or_refusal(
             context.create_experiment(
-                name, protocol=body.get("protocol"), description=body.get("description")
+                name,
+                protocol=body.get("protocol"),
+                description=body.get("description"),
+                sample=body.get("sample"),
             )
         )
 

@@ -42,7 +42,7 @@ export interface ProgressLine {
 
 export interface WorkflowStatus {
   microscope_connected: boolean;
-  experiment: { name: string; path: string; num_items: number } | null;
+  experiment: { name: string; path: string; num_items: number; sample?: string } | null;
   workflow: {
     running: boolean;
     current_task: string | null;
