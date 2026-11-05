@@ -377,6 +377,27 @@ def test_resume_carries_an_ended_gateway_session_on(made, tmp_path):
     ]
 
 
+def test_a_session_that_kept_its_playbook_is_listed_and_resumed_by_name(made, tmp_path):
+    """Once a session keeps its playbook, the record holds
+    {name, hash, chosen_by, skills}: the page still gets the name."""
+    folder = _by_hand(tmp_path)
+    SessionFolder(folder).keep_playbook(
+        {
+            "playbook": {
+                "name": "default",
+                "hash": "3f9c",
+                "chosen_by": "x",
+                "skills": [],
+            }
+        }
+    )
+    agent, _, _ = made()
+    row = agent.state().sessions[0]
+    assert (row["playbook"], row["playbook_hash"]) == ("default", "3f9c")
+    agent.resume("by-hand", "watch", "operator", "page")
+    assert agent.state().running["playbook"] == "default"
+
+
 def test_resume_takes_a_terminal_session_as_its_record_says(made, tmp_path):
     folder = _by_hand(tmp_path, model="claude-test", effort="low")
     (folder / WORK).mkdir()
