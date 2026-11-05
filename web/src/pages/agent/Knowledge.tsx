@@ -570,6 +570,15 @@ const TABS: [Tab, string][] = [
   ["never", "Never touches"],
 ];
 
+/** What each tab holds, in a line. */
+const TAB_ABOUT: Partial<Record<Tab, string>> = {
+  entries: "Persistent information: what the lab knows about its instrument, samples and past runs.",
+  profiles: "Session settings: the level, budget, mode and model a session starts with, and its playbook.",
+  playbooks: "Workflows: the skills, rules, reminders and subagents one kind of work uses.",
+  skills: "How to do a kind of task.",
+  agents: "Second opinions and analysis, each in a fresh context. Several can run at once, but not on the microscope.",
+};
+
 /** The Knowledge window: what the agent and the operator have recorded about
  * this microscope, its samples and playbooks, and past runs; the agent's own
  * entries to review first; the agent's profiles, playbooks, skills and subagents,
@@ -646,6 +655,9 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
             </button>
           ))}
         </div>
+        {TAB_ABOUT[tab] && (
+          <p className="m-0 border-b border-border px-4 py-2 text-[12px] text-muted-foreground">{TAB_ABOUT[tab]}</p>
+        )}
         {tab === "entries" ? (
           <>
             <KnowledgeBrowser
