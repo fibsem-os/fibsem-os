@@ -1,4 +1,4 @@
-"""The agent's profiles, playbooks and skills, as the operator sees them: what
+"""The agent's profiles, playbooks, skills and subagents, as the operator sees them: what
 fibsemOS ships and the lab's own, side by side.
 
 The lab's own sit in the knowledge base (``sources.lab_folder``) and win by
@@ -17,9 +17,9 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from fibsem.ai.agent import playbooks, profiles, sources
+from fibsem.ai.agent import playbooks, profiles, sources, subagents
 
-KINDS = ("profiles", "playbooks", "skills")
+KINDS = ("profiles", "playbooks", "skills", "agents")
 LAB = "lab"
 SHIPPED = "shipped"
 MAX_TEXT = 100_000
@@ -74,6 +74,9 @@ class Options:
     reminders: List[Dict[str, str]]
     skills: List[str]
     playbooks: List[str]
+    # The subagents a playbook can name, and the tools a subagent can list.
+    agents: List[str]
+    tools: List[str]
 
 
 # A new one's file, before the operator writes it.
@@ -83,6 +86,10 @@ STARTING = {
     "skills": (
         "---\nname: {name}\ndescription: When the agent should read this skill.\n"
         "---\n\nWhat the agent should know.\n"
+    ),
+    "agents": (
+        "---\nname: {name}\ndescription: When the agent should call this subagent.\n"
+        "tools: mcp__fibsem__app_get_status\n---\n\nWhat the subagent does and answers.\n"
     ),
 }
 
@@ -109,7 +116,7 @@ def _shipped_dir(kind: str) -> Optional[Path]:
         return root / profiles.PROFILE_DIR
     if kind == "playbooks":
         return root / playbooks.PLAYBOOK_DIR
-    return root / sources.CLAUDE / "skills"
+    return root / sources.CLAUDE / kind
 
 
 def _agent_skills() -> List[str]:
@@ -141,6 +148,8 @@ def _lab_dir(kind: str) -> Path:
 def _path(folder: Path, kind: str, name: str) -> Path:
     if kind == "skills":
         return folder / name / sources.SKILL_FILE
+    if kind == "agents":
+        return folder / f"{name}.md"
     return folder / f"{name}.yaml"
 
 
@@ -149,25 +158,12 @@ def _names(folder: Optional[Path], kind: str) -> List[str]:
         return []
     if kind == "skills":
         return sorted(p.parent.name for p in folder.glob(f"*/{sources.SKILL_FILE}"))
-    return sorted(p.stem for p in folder.glob("*.yaml"))
+    return sorted(p.stem for p in folder.glob("*.md" if kind == "agents" else "*.yaml"))
 
 
 def _front_matter(text: str) -> Optional[dict]:
-    """A skill's front matter, or None without one. Claude Code reads it a
-    line at a time, so a value with a colon in it, not quoted, still counts."""
-    front, sep, _ = (
-        text[4:].partition("\n---") if text.startswith("---\n") else ("", "", "")
-    )
-    if not sep:
-        return None
-    try:
-        data = yaml.safe_load(front)
-    except yaml.YAMLError:
-        data = None
-    if isinstance(data, dict):
-        return data
-    found = re.findall(r"^([A-Za-z][\w-]*):[ \t]*(.*)$", front, re.MULTILINE)
-    return dict(found) if found else None
+    """A skill's or subagent's front matter, or None without one."""
+    return subagents.front_matter(text)[0]
 
 
 def _description(path: Path, kind: str) -> Optional[str]:
@@ -175,7 +171,7 @@ def _description(path: Path, kind: str) -> Optional[str]:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return None
-    if kind == "skills":
+    if kind in ("skills", "agents"):
         data = _front_matter(text)
     else:
         try:
@@ -226,6 +222,19 @@ def read(kind: str, name: str, source: Optional[str] = None) -> File:
 def _data(kind: str, text: str) -> Optional[Dict[str, Any]]:
     if kind == "skills":
         return None
+    if kind == "agents":
+        # Its settings, its lists as lists, and its instructions as `prompt`.
+        front, body = subagents.front_matter(text)
+        if front is None:
+            return None
+        data = dict(front)
+        for key in ("tools", "skills"):
+            try:
+                data[key] = subagents.names(data.get(key))
+            except subagents.SubagentError:
+                return None
+        data["prompt"] = body.strip()
+        return data
     try:
         data = yaml.safe_load(text)
     except yaml.YAMLError:
@@ -266,7 +275,18 @@ def dump(kind: str, data: Dict[str, Any]) -> str:
     """A form's settings as the file's text, in the order the settings are
     documented, without the ones left empty."""
     if kind == "skills" or not isinstance(data, dict):
-        raise LibraryError("invalid", "data is a profile's or playbook's settings.")
+        raise LibraryError(
+            "invalid", "data is a profile's, playbook's or subagent's settings."
+        )
+    if kind == "agents":
+        data = _clean(data)
+        prompt = data.pop("prompt", "")
+        if not isinstance(prompt, str):
+            raise LibraryError("invalid", "a subagent's prompt is text.")
+        try:
+            return subagents.render(data, prompt)
+        except subagents.SubagentError as error:
+            raise LibraryError("invalid", str(error)) from None
     fields = profiles.FIELDS if kind == "profiles" else playbooks.FIELDS
     data = _clean(data)
     ordered = {k: data[k] for k in fields if k in data}
@@ -290,6 +310,8 @@ def options() -> Options:
         ],
         skills=[item.name for item in items("skills")],
         playbooks=[item.name for item in items("playbooks")],
+        agents=[item.name for item in items("agents")],
+        tools=subagents.known_tools(),
     )
 
 
@@ -319,6 +341,15 @@ def _copy(kind: str, name: str) -> None:
 
 def _check(kind: str, name: str, text: str) -> None:
     """Refuse *text* that would not load as a *kind*."""
+    if kind == "agents":
+        # Here, not at the top: the server's answers import this module.
+        from fibsem.ai.agent import harness
+
+        try:
+            subagents.check(text, harness.EFFORTS)
+        except subagents.SubagentError as error:
+            raise LibraryError("invalid", str(error)) from None
+        return
     if kind == "skills":
         data = _front_matter(text)
         if not data or not data.get("description"):

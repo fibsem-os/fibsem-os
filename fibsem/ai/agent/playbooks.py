@@ -9,6 +9,8 @@
         when: before the first polishing pass
         reminders:                   # on only while that skill is loaded
           polishing_pass: Measure the band before you decide.
+        agents: [autolamella-verifier]   # subagents, on while it is loaded
+    agents: [my-checker]             # subagents, on with the playbook
     reminders:
       before_milling: Confirm the current and depth.
     rules:
@@ -17,7 +19,7 @@
 
 A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
-optional skills, reminders and rules add up along ``extends``, the parent's
+optional skills, subagents, reminders and rules add up along ``extends``, the parent's
 first. A profile can name one (``playbook:``); else the agent proposes one at
 intake and sets it with ``playbook_set`` once the operator agrees. No
 playbook is a valid state: the profile's reminders still hold.
@@ -38,7 +40,16 @@ import yaml
 from fibsem.ai.agent import profiles, sources
 
 PLAYBOOK_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "playbooks"
-FIELDS = ("description", "extends", "skills", "optional", "reminders", "rules", "plan")
+FIELDS = (
+    "description",
+    "extends",
+    "skills",
+    "optional",
+    "agents",
+    "reminders",
+    "rules",
+    "plan",
+)
 # plan.md's headings when a playbook names none (fibsem.server.agent_plan).
 PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
@@ -56,6 +67,8 @@ class Optional_:
     skill: str
     when: str
     hooks: List[profiles.Hook] = field(default_factory=list)
+    # Subagents on while it is loaded.
+    agents: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -70,6 +83,8 @@ class Playbook:
     optional: List[Optional_] = field(default_factory=list)
     hooks: List[profiles.Hook] = field(default_factory=list)
     rules: List[str] = field(default_factory=list)
+    # The subagents its work calls (`subagents`), by name.
+    agents: List[str] = field(default_factory=list)
     # plan.md's headings, the nearest playbook's that names them.
     plan: List[str] = field(default_factory=lambda: list(PLAN))
 
@@ -83,12 +98,20 @@ class Playbook:
             "description": self.description,
             "extends": self.chain[:-1],
             "skills": list(self.skills),
-            "optional": [{"skill": o.skill, "when": o.when} for o in self.optional],
+            "optional": [
+                {
+                    "skill": o.skill,
+                    "when": o.when,
+                    **({"agents": o.agents} if o.agents else {}),
+                }
+                for o in self.optional
+            ],
             "reminders": [
                 {"when": h.when, "label": _label(h.when), "say": h.say}
                 for h in self.hooks
             ],
             "rules": list(self.rules),
+            "agents": list(self.agents),
             "plan": list(self.plan),
         }
 
@@ -162,6 +185,7 @@ def _load(name: str, checkout: Optional[Path], seen: List[str]) -> Playbook:
     optional = _optional(data.get("optional"), path)
     hooks = _reminders(data.get("reminders"), path)
     rules = _names(data.get("rules"), "rules", path)
+    agents = _names(data.get("agents"), "agents", path)
     plan = _names(data.get("plan"), "plan", path)
     if any("#" in h or len(h) > 60 for h in plan):
         raise PlaybookError(
@@ -175,6 +199,10 @@ def _load(name: str, checkout: Optional[Path], seen: List[str]) -> Playbook:
         ]
         if missing:
             raise PlaybookError(f"{path}: no skill {', '.join(missing)}")
+        named = agents + [a for o in optional for a in o.agents]
+        missing = [a for a in named if sources.agent_file(a, checkout) is None]
+        if missing:
+            raise PlaybookError(f"{path}: no subagent {', '.join(missing)}")
     digest = hashlib.sha256(raw)
     if parent is not None:
         digest.update(parent.hash.encode())
@@ -189,6 +217,7 @@ def _load(name: str, checkout: Optional[Path], seen: List[str]) -> Playbook:
         optional=_merge_optional(parent.optional if parent else [], optional),
         hooks=(parent.hooks if parent else []) + hooks,
         rules=_merge(parent.rules if parent else [], rules),
+        agents=_merge(parent.agents if parent else [], agents),
         plan=plan or (parent.plan if parent else list(PLAN)),
     )
     return playbook
@@ -232,7 +261,7 @@ def _optional(value: Any, path: Path) -> List[Optional_]:
     for entry in value:
         if not isinstance(entry, dict) or not {"skill", "when"} <= set(entry):
             raise PlaybookError(f"{path}: each optional skill has a skill and a when")
-        extra = sorted(set(entry) - {"skill", "when", "reminders"})
+        extra = sorted(set(entry) - {"skill", "when", "reminders", "agents"})
         if extra:
             raise PlaybookError(f"{path}: unknown field(s) {', '.join(extra)}")
         skill, when = entry["skill"], entry["when"]
@@ -240,7 +269,10 @@ def _optional(value: Any, path: Path) -> List[Optional_]:
             raise PlaybookError(f"{path}: an optional skill's skill and when are text")
         found.append(
             Optional_(
-                skill, " ".join(when.split()), _reminders(entry.get("reminders"), path)
+                skill,
+                " ".join(when.split()),
+                _reminders(entry.get("reminders"), path),
+                _names(entry.get("agents"), "agents", path),
             )
         )
     return found
@@ -253,13 +285,17 @@ def _merge(first: List[str], then: List[str]) -> List[str]:
 def _merge_optional(first: List[Optional_], then: List[Optional_]) -> List[Optional_]:
     """The parent's, then the child's; a child's entry for the same skill
     replaces its when and adds its reminders."""
-    merged = {o.skill: Optional_(o.skill, o.when, list(o.hooks)) for o in first}
+    merged = {
+        o.skill: Optional_(o.skill, o.when, list(o.hooks), list(o.agents))
+        for o in first
+    }
     for o in then:
         if o.skill in merged:
             merged[o.skill].when = o.when
             merged[o.skill].hooks += o.hooks
+            merged[o.skill].agents = _merge(merged[o.skill].agents, o.agents)
         else:
-            merged[o.skill] = Optional_(o.skill, o.when, list(o.hooks))
+            merged[o.skill] = Optional_(o.skill, o.when, list(o.hooks), list(o.agents))
     return list(merged.values())
 
 
@@ -304,6 +340,17 @@ class Reminders:
         self.done[skill] = summary
         self._changed()
         return True
+
+    def subagents(self) -> List[str]:
+        """The subagents on now: the playbook's, and those of its optional
+        skills while they are loaded. None without a playbook."""
+        if self.playbook is None:
+            return []
+        on = list(self.playbook.agents)
+        for entry in self.playbook.optional:
+            if self.skills.get(entry.skill) == "loaded":
+                on += [a for a in entry.agents if a not in on]
+        return on
 
     def texts(self, when: str) -> List[str]:
         said: List[str] = []

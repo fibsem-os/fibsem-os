@@ -1,4 +1,4 @@
-"""``/app/library``: the shipped profiles, playbooks and skills beside the
+"""``/app/library``: the shipped profiles, playbooks, skills and subagents beside the
 lab's own; only the operator edits, an edit to a shipped one saving the lab's
 copy, and removes the lab's."""
 
@@ -221,3 +221,39 @@ def test_the_operator_makes_a_new_one(client):
     assert library.read("playbooks", "ours").data == {
         "description": "What this playbook is for."
     }
+
+
+def test_subagents_are_edited_through_their_settings(client):
+    rows = client.get("/app/library/agents").json()["items"]
+    assert "autolamella-verifier" in [r["name"] for r in rows]
+    options = client.get("/app/library/options").json()
+    assert "autolamella-verifier" in options["agents"]
+    assert "mcp__fibsem__app_get_status" in options["tools"]
+    shipped = client.get("/app/library/agents/autolamella-verifier").json()
+    assert shipped["data"]["description"] and shipped["data"]["prompt"]
+    assert isinstance(shipped["data"]["tools"], list)
+    # a tool fibsemOS doesn't have is refused, with the reason
+    data = dict(shipped["data"], tools=["mcp__fibsem__vent_now"])
+    refused = client.put(
+        "/app/library/agents/autolamella-verifier",
+        json={"data": data},
+        headers=OPERATOR_HEADERS,
+    )
+    assert _error(refused) == (422, "invalid")
+    assert "vent_now" in refused.json()["detail"]["message"]
+    # an edit to a shipped one saves the lab's copy
+    data = dict(shipped["data"], model="opus")
+    saved = client.put(
+        "/app/library/agents/autolamella-verifier",
+        json={"data": data},
+        headers=OPERATOR_HEADERS,
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["source"] == "lab"
+    assert saved.json()["data"]["model"] == "opus"
+    assert saved.json()["data"]["prompt"] == shipped["data"]["prompt"]
+    assert (sources.lab_folder("agents") / "autolamella-verifier.md").is_file()
+    # a new one starts from a file that passes its checks
+    made = client.post("/app/library/agents/my-checker", headers=OPERATOR_HEADERS)
+    assert made.status_code == 200, made.text
+    assert made.json()["data"]["tools"] == ["mcp__fibsem__app_get_status"]

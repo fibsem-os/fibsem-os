@@ -3,7 +3,8 @@
 Two places, the first found winning by name:
 
 1. The lab's own, in the knowledge base on this PC
-   (``~/.fibsem/knowledge/skills/<name>/SKILL.md`` and
+   (``~/.fibsem/knowledge/skills/<name>/SKILL.md``,
+   ``~/.fibsem/knowledge/agents/<name>.md`` and
    ``~/.fibsem/knowledge/profiles/<name>.yaml``).
 2. What fibsemOS ships: a checkout's ``.claude/``, or, from a pip install, the
    copy of it inside the package (``SHIPPED``, made when the wheel is built).
@@ -23,7 +24,7 @@ SKILL_FILE = "SKILL.md"
 
 
 def lab_folder(kind: str) -> Path:
-    """The lab's own *kind* (skills, profiles, playbooks), not made if missing:
+    """The lab's own *kind* (skills, agents, profiles, playbooks), not made if missing:
     `fibsem.knowledge.lab_folder` makes it."""
     # Here, not at the top: setup.py loads this file without fibsem.
     from fibsem import paths
@@ -62,9 +63,19 @@ def lab_skills() -> List[str]:
 
 
 def agent_file(name: str, root: Optional[Path]) -> Optional[Path]:
-    """A specialist's file: only fibsemOS ships them."""
-    path = root / CLAUDE / "agents" / f"{name}.md" if root else None
-    return path if path and path.is_file() else None
+    """A subagent's file: the lab's, else the shipped one."""
+    for folder in (lab_folder("agents"), root and root / CLAUDE / "agents"):
+        if folder and (folder / f"{name}.md").is_file():
+            return folder / f"{name}.md"
+    return None
+
+
+def lab_agents() -> List[str]:
+    """The names of the lab's own subagents, sorted."""
+    folder = lab_folder("agents")
+    if not folder.is_dir():
+        return []
+    return sorted(p.stem for p in folder.glob("*.md"))
 
 
 def assemble(
@@ -96,7 +107,9 @@ def assemble(
     for name in agents:
         found = agent_file(name, root)
         if found is None:
-            raise FileNotFoundError(f"No specialist {name} in {root}")
+            raise FileNotFoundError(
+                f"No subagent {name} in {lab_folder('agents')} or {root}"
+            )
         shutil.copyfile(found, claude / "agents" / f"{name}.md")
     return from_lab
 

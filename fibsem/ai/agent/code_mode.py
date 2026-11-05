@@ -55,8 +55,8 @@ One line per entry: what it is, and its file.
 """
 
 CODE_PROMPT = """\
-- Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
-autolamella-* agents only, and code mode's shell, \
+- Your tools are the mcp__fibsem__* tools, Skill, Agent for the subagents the \
+playbook names, and code mode's shell, \
 Read, Write, Edit, Glob and Grep, which work in {work} only, in a sandbox with no \
 network: code can't reach the App Server or the web, so the mcp__fibsem__* \
 tools are the only way to the microscope and its data. \
@@ -65,8 +65,8 @@ with {python}: it has fibsem and what fibsem-agent's environment has. You \
 can't install anything: say what you are missing.
 """
 FILES_PROMPT = """\
-- Your tools are the mcp__fibsem__* tools, Skill, Agent for the \
-autolamella-* agents only, and Read, Write, Edit, Glob and Grep, which work in {work} \
+- Your tools are the mcp__fibsem__* tools, Skill, Agent for the subagents the \
+playbook names, and Read, Write, Edit, Glob and Grep, which work in {work} \
 only. There is no shell and no web: you can't run code. Where a skill shows \
 curl, python or a script, use the matching mcp__fibsem__ tool, or say what \
 you can't do. experiment_fetch_file saves a file under fetched/ for you to \

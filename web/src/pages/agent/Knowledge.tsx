@@ -564,11 +564,12 @@ const TABS: [Tab, string][] = [
   ["profiles", "Profiles"],
   ["playbooks", "Playbooks"],
   ["skills", "Skills"],
+  ["agents", "Subagents"],
 ];
 
 /** The Knowledge window: what the agent and the operator have recorded about
  * this microscope, its samples and playbooks, and past runs; the agent's own
- * entries to review first; and the agent's profiles, playbooks and skills,
+ * entries to review first; and the agent's profiles, playbooks, skills and subagents,
  * the shipped and the lab's own. */
 export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const client = useQueryClient();

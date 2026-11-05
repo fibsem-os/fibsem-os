@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
+import { PickSummary } from "./Picker";
 
-/** What a profile's and a playbook's form offer to pick from (GET /app/library/options). */
+/** What the profile, playbook and subagent forms offer to pick from (GET /app/library/options). */
 export interface LibraryOptions {
   levels: string[];
   modes: string[];
@@ -12,6 +13,8 @@ export interface LibraryOptions {
   reminders: { when: string; label: string }[];
   skills: string[];
   playbooks: string[];
+  agents: string[];
+  tools: string[];
 }
 
 export type Data = Record<string, unknown>;
@@ -67,39 +70,6 @@ function Lines({ value, rows = 2, onChange }: { value: string; rows?: number; on
       value={value}
       onChange={(e) => onChange(e.target.value)}
     />
-  );
-}
-
-function Skills({
-  value,
-  options,
-  onChange,
-}: {
-  value: string[];
-  options: string[];
-  onChange: (value: string[]) => void;
-}) {
-  return (
-    <div className="flex flex-wrap gap-1.5">
-      {options.map((name) => {
-        const on = value.includes(name);
-        return (
-          <button
-            key={name}
-            aria-pressed={on}
-            className={cn(
-              "cursor-pointer rounded-full border px-2.5 py-0.5 text-[12px]",
-              on
-                ? "border-primary bg-primary/15 text-foreground"
-                : "border-input bg-transparent text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => onChange(on ? value.filter((v) => v !== name) : [...value, name])}
-          >
-            {name}
-          </button>
-        );
-      })}
-    </div>
   );
 }
 
@@ -303,7 +273,12 @@ export function ProfileSettings({
         />
       </Row>
       <Row form label="Extra skills">
-        <Skills value={strings(data.skills)} options={options.skills} onChange={(v) => set("skills", v)} />
+        <PickSummary
+          kind="skills"
+          value={strings(data.skills)}
+          options={options.skills}
+          onChange={(v) => set("skills", v)}
+        />
       </Row>
       <Row form label="Instructions">
         <Lines value={text(data.prompt)} rows={5} onChange={(v) => set("prompt", v)} />
@@ -341,6 +316,7 @@ export function PlaybookSettings({
     const rows: [string, ReactNode][] = [
       ["Builds on", text(data.extends)],
       ["Skills", strings(data.skills).join(", ")],
+      ["Subagents", strings(data.agents).join(", ")],
       [
         "Optional skills",
         optional.length ? (
@@ -348,6 +324,9 @@ export function PlaybookSettings({
             {optional.map((o, i) => (
               <li key={i}>
                 {o.skill} <span className="text-muted-foreground">when {o.when}</span>
+                {strings(o.agents).length > 0 && (
+                  <span className="text-muted-foreground"> · subagents {strings(o.agents).join(", ")}</span>
+                )}
               </li>
             ))}
           </ul>
@@ -396,7 +375,20 @@ export function PlaybookSettings({
         />
       </Row>
       <Row form label="Skills">
-        <Skills value={strings(data.skills)} options={options.skills} onChange={(v) => set("skills", v)} />
+        <PickSummary
+          kind="skills"
+          value={strings(data.skills)}
+          options={options.skills}
+          onChange={(v) => set("skills", v)}
+        />
+      </Row>
+      <Row form label="Subagents">
+        <PickSummary
+          kind="agents"
+          value={strings(data.agents)}
+          options={options.agents}
+          onChange={(v) => set("agents", v)}
+        />
       </Row>
       <Row form label="Optional skills">
         <div className="flex flex-col gap-2">
@@ -410,6 +402,16 @@ export function PlaybookSettings({
                   value={o.when}
                   onChange={(e) => setOptional(i, { when: e.target.value })}
                 />
+                <div className="text-[12px] text-muted-foreground">
+                  Subagents:{" "}
+                  <PickSummary
+                    kind="agents"
+                    inline
+                    value={strings(o.agents)}
+                    options={options.agents}
+                    onChange={(agents) => setOptional(i, { agents })}
+                  />
+                </div>
               </div>
               <Remove
                 onClick={() =>
@@ -434,6 +436,81 @@ export function PlaybookSettings({
       </Row>
       <Row form label="Rules">
         <TextList value={rules} add="Add rule" onChange={(v) => set("rules", v)} />
+      </Row>
+    </div>
+  );
+}
+
+/** A subagent's settings: read, or as a form when *onChange* is given. */
+export function SubagentSettings({
+  data,
+  options,
+  onChange,
+}: {
+  data: Data;
+  options?: LibraryOptions;
+  onChange?: (data: Data) => void;
+}) {
+  const set = (key: string, value: unknown) => onChange?.({ ...data, [key]: value });
+  if (!onChange || !options) {
+    const rows: [string, ReactNode][] = [
+      ["Model", text(data.model)],
+      ["Effort", text(data.effort)],
+      ["Skills", strings(data.skills).join(", ")],
+      ["Tools", strings(data.tools).length ? <PickSummary kind="tools" value={strings(data.tools)} /> : undefined],
+      ["Instructions", data.prompt ? <Markdown text={text(data.prompt)} /> : undefined],
+    ];
+    return (
+      <div>
+        {rows
+          .filter(([, v]) => v)
+          .map(([k, v]) => (
+            <Row key={k} label={k}>
+              {v}
+            </Row>
+          ))}
+      </div>
+    );
+  }
+  return (
+    <div>
+      <Row form label="Description">
+        <Lines value={text(data.description)} onChange={(v) => set("description", v)} />
+      </Row>
+      <Row form label="Model">
+        <input
+          className={cn(field, "w-full")}
+          placeholder="Same as the agent"
+          value={text(data.model)}
+          onChange={(e) => set("model", e.target.value)}
+        />
+      </Row>
+      <Row form label="Effort">
+        <Choice
+          value={text(data.effort)}
+          options={options.efforts}
+          empty="Default"
+          onChange={(v) => set("effort", v)}
+        />
+      </Row>
+      <Row form label="Skills">
+        <PickSummary
+          kind="skills"
+          value={strings(data.skills)}
+          options={options.skills}
+          onChange={(v) => set("skills", v)}
+        />
+      </Row>
+      <Row form label="Tools">
+        <PickSummary
+          kind="tools"
+          value={strings(data.tools)}
+          options={options.tools}
+          onChange={(v) => set("tools", v)}
+        />
+      </Row>
+      <Row form label="Instructions">
+        <Lines value={text(data.prompt)} rows={8} onChange={(v) => set("prompt", v)} />
       </Row>
     </div>
   );

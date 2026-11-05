@@ -5,9 +5,9 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
-import { type Data, type LibraryOptions, PlaybookSettings, ProfileSettings } from "./Settings";
+import { type Data, type LibraryOptions, PlaybookSettings, ProfileSettings, SubagentSettings } from "./Settings";
 
-export type LibraryKind = "profiles" | "playbooks" | "skills";
+export type LibraryKind = "profiles" | "playbooks" | "skills" | "agents";
 
 export interface LibraryItem {
   name: string;
@@ -25,14 +25,19 @@ export interface LibraryFile {
   path: string;
   lab: boolean;
   shipped: boolean;
-  /** A profile's or playbook's settings; null for a skill. */
+  /** A profile's, playbook's or subagent's settings; null for a skill. */
   data: Data | null;
 }
 
 /** What a save sends: the form's settings, or the file's text. */
 export type Saved = { data: Data } | { text: string };
 
-const ONE: Record<LibraryKind, string> = { profiles: "profile", playbooks: "playbook", skills: "skill" };
+const ONE: Record<LibraryKind, string> = {
+  profiles: "profile",
+  playbooks: "playbook",
+  skills: "skill",
+  agents: "subagent",
+};
 const NAME = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$/;
 
 /** A skill's front matter and body, split. */
@@ -79,6 +84,8 @@ function FileView({
   const settings = (onChange?: (d: Data) => void) =>
     kind === "profiles" ? (
       <ProfileSettings data={data} options={options} onChange={onChange} />
+    ) : kind === "agents" ? (
+      <SubagentSettings data={data} options={options} onChange={onChange} />
     ) : (
       <PlaybookSettings name={file.name} data={data} options={options} onChange={onChange} />
     );
@@ -193,7 +200,7 @@ function FileView({
   );
 }
 
-/** The profiles, playbooks or skills: what fibsemOS ships and the lab's own,
+/** The profiles, playbooks, skills or subagents: what fibsemOS ships and the lab's own,
  * on the left; the open one on the right. Editing a shipped one saves the
  * lab's copy. */
 export function LibraryBrowser({ kind, enabled }: { kind: LibraryKind; enabled: boolean }) {

@@ -34,7 +34,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent import code_mode, mirror, playbooks, profiles, sources, usage
+from fibsem.ai.agent import (
+    code_mode,
+    mirror,
+    playbooks,
+    profiles,
+    sources,
+    subagents,
+    usage,
+)
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
@@ -193,8 +201,8 @@ skill's Session setup says when.
 Work as your level allows, as the skills say, and handle a refusal as they say: \
 it is the server's answer."""
 NO_CODE = """\
-- Your tools are the mcp__fibsem__* tools, Skill, and Agent for the \
-autolamella-* agents only. There is no shell, no file access and no web, for \
+- Your tools are the mcp__fibsem__* tools, Skill, and Agent for the subagents \
+the playbook names. There is no shell, no file access and no web, for \
 you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do."""
 
@@ -220,6 +228,20 @@ def system_prompt(
             + profile.prompt
         )
     return prompt
+
+
+def subagents_for() -> List[str]:
+    """The subagents the agent can call: the shipped specialists, then the
+    lab's own (`subagents`), a lab copy of a shipped one replacing it."""
+    return list(SPECIALISTS) + [
+        name for name in sources.lab_agents() if name not in SPECIALISTS
+    ]
+
+
+def subagent_tools(names: List[str]) -> List[str]:
+    """The ``Agent(<name>)`` rules for the lab's new subagents: the shipped
+    specialists' are in `ALLOWED_TOOLS`."""
+    return [f"Agent({name})" for name in names if name not in SPECIALISTS]
 
 
 def skills_for(profile: Optional[profiles.Profile] = None) -> List[str]:
@@ -483,6 +505,7 @@ class PlaybookControl:
             return f"Refused: {error}"
         self.reminders.set(found, chosen_by)
         self._changed(f"Playbook set: {found.name}, {chosen_by}")
+        self._subagents([])
         return (
             f"Running the {found.name} playbook. Its reminders are on now. "
             "Read its skills, and an optional one when its when holds:\n"
@@ -491,9 +514,17 @@ class PlaybookControl:
 
     def loaded(self, skill: str) -> None:
         """The agent read *skill* with the Skill tool."""
+        before = self.reminders.subagents()
         entry = self.reminders.loaded(skill)
         if entry is not None:
             self._changed(f"Skill loaded: {skill}, because {entry.when}")
+            self._subagents(before)
+
+    def _subagents(self, before: List[str]) -> None:
+        """Say the subagents on now, when they changed."""
+        now = self.reminders.subagents()
+        if now != before and now:
+            self._changed(f"Subagents on: {', '.join(now)}")
 
     def done(self, skill: str, summary: str) -> str:
         if not self.reminders.finished(skill, summary):
@@ -1537,13 +1568,14 @@ def build_options(
         env[SERVER_URL_ENV] = url
     if token:
         env[SERVER_TOKEN_ENV] = token
-    tools, allowed, denied = BUILT_IN_TOOLS, ALLOWED_TOOLS, DENIED_TOOLS
+    base = ALLOWED_TOOLS + subagent_tools(subagents_for())
+    tools, allowed, denied = BUILT_IN_TOOLS, base, DENIED_TOOLS
     settings = None
     if work is not None:
         env.update(code_mode.env(work))
         given = code_mode.tools(code)
         tools = BUILT_IN_TOOLS + given
-        allowed = ALLOWED_TOOLS + code_mode.allowed_tools(work, code)
+        allowed = base + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
         settings = code_mode.settings_json(work, {**os.environ, **env}, code)
     servers = {SERVER: server}
@@ -1824,6 +1856,12 @@ def main(argv=None) -> int:
         except playbooks.PlaybookError as error:
             print(f"{profile.path}: {error}", file=sys.stderr)
             return 1
+    try:
+        for name in subagents_for():
+            subagents.check_file(name, checkout, EFFORTS)
+    except subagents.SubagentError as error:
+        print(error, file=sys.stderr)
+        return 1
     work = None
     code = bool(args.code)
     given = args.code or args.files
@@ -1879,11 +1917,11 @@ def main(argv=None) -> int:
     for line in status(args, checkout, log_path, work, session_id, code):
         log.info(line)
     if work is not None:
-        code_mode.prepare(work, checkout, skills_for(profile), list(SPECIALISTS))
+        code_mode.prepare(work, checkout, skills_for(profile), subagents_for())
         for line in code_mode.details():
             log.debug(line)
     elif run != checkout:
-        sources.assemble(run, checkout, skills_for(profile), SPECIALISTS)
+        sources.assemble(run, checkout, skills_for(profile), subagents_for())
 
     alarm = Alarm()
     control = PlaybookControl(
@@ -2058,11 +2096,12 @@ def show_config(
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
     pieces `build_options` uses, without the SDK and without starting."""
-    tools, allowed, denied = BUILT_IN_TOOLS, ALLOWED_TOOLS, DENIED_TOOLS
+    base = ALLOWED_TOOLS + subagent_tools(subagents_for())
+    tools, allowed, denied = BUILT_IN_TOOLS, base, DENIED_TOOLS
     if work is not None:
         given = code_mode.tools(code)
         tools = BUILT_IN_TOOLS + given
-        allowed = ALLOWED_TOOLS + code_mode.allowed_tools(work, code)
+        allowed = base + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
     hooks = []
     for hook in profile.hooks if profile else []:
@@ -2084,7 +2123,7 @@ def show_config(
         "folder": str(work) if work is not None else None,
         "checkout": str(checkout),
         "skills": skills_for(profile),
-        "specialists": list(SPECIALISTS),
+        "specialists": subagents_for(),
         "tools": list(tools),
         "allowed_tools": list(allowed),
         "denied_tools": list(denied),
