@@ -1,4 +1,4 @@
-"""Where the agent's skills, specialists and profiles come from: the lab's own
+"""Where the agent's skills, subagents and playbooks come from: the lab's own
 in the knowledge base first, then the shipped ones (a checkout's .claude, or
 the package's copy of it)."""
 
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import manager, profiles, sources
+from fibsem.ai.agent import manager, playbooks, sources
 
 
 @pytest.fixture
@@ -60,34 +60,28 @@ def test_a_skill_found_nowhere_is_refused(lab, checkout, tmp_path):
         sources.assemble(tmp_path / "run", checkout, ["no-such-skill"])
 
 
-def test_the_labs_profile_wins_then_this_machines_then_the_shipped(
-    lab, checkout, tmp_path, monkeypatch
-):
-    monkeypatch.setattr(profiles.Path, "home", lambda: tmp_path)
-    shipped = profiles.find(profiles.DEFAULT_PROFILE, checkout)
+def test_the_labs_playbook_wins_over_the_shipped(lab, checkout):
+    shipped = playbooks.find(playbooks.DEFAULT, checkout)
     assert shipped.is_relative_to(checkout)
-    machine = profiles.machine_dir() / f"{profiles.DEFAULT_PROFILE}.yaml"
-    machine.parent.mkdir(parents=True)
-    machine.write_text("effort: high\n", encoding="utf-8")
-    assert profiles.find(profiles.DEFAULT_PROFILE, checkout) == machine
-    ours = lab / "profiles" / f"{profiles.DEFAULT_PROFILE}.yaml"
+    ours = lab / "playbooks" / f"{playbooks.DEFAULT}.yaml"
     ours.parent.mkdir(parents=True)
-    ours.write_text("effort: low\nskills: [yeast-lamellae]\n", encoding="utf-8")
-    assert profiles.find(profiles.DEFAULT_PROFILE, checkout) == ours
-    with pytest.raises(profiles.ProfileError, match="no skill yeast-lamellae"):
-        profiles.load(ours, checkout=checkout)
+    ours.write_text("skills: [yeast-lamellae]\n", encoding="utf-8")
+    assert playbooks.find(playbooks.DEFAULT, checkout) == ours
+    with pytest.raises(playbooks.PlaybookError, match="no skill yeast-lamellae"):
+        playbooks.load(playbooks.DEFAULT, checkout)
     _skill(lab / "skills", "yeast-lamellae", "what works on yeast here")
-    assert profiles.load(ours, checkout=checkout).skills == ["yeast-lamellae"]
+    assert playbooks.load(playbooks.DEFAULT, checkout).skills == ["yeast-lamellae"]
 
 
-def test_the_wheel_ships_skills_specialists_and_profiles(checkout, tmp_path):
+def test_the_wheel_ships_skills_subagents_and_playbooks(checkout, tmp_path):
     sources.ship(checkout, tmp_path)
     shipped = tmp_path / ".claude"
     for name in harness_mod.SKILLS:
         assert (shipped / "skills" / name / "SKILL.md").is_file()
     for name in harness_mod.SPECIALISTS:
         assert (shipped / "agents" / f"{name}.md").is_file()
-    assert (shipped / "fibsem-agent" / f"{profiles.DEFAULT_PROFILE}.yaml").is_file()
+    playbook = shipped / "fibsem-agent" / "playbooks" / f"{playbooks.DEFAULT}.yaml"
+    assert playbook.is_file()
     assert not list(shipped.rglob("__pycache__"))
     assert not (shipped / "settings.json").exists(), "only the agent's files"
     # A pip install has no checkout: the shipped copy is found instead.

@@ -5,7 +5,7 @@ import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import { PickSummary } from "./Picker";
 
-/** What the profile, playbook and subagent forms offer to pick from (GET /app/library/options). */
+/** What the playbook and subagent forms offer to pick from (GET /app/library/options). */
 export interface LibraryOptions {
   levels: string[];
   modes: string[];
@@ -157,12 +157,6 @@ function ReminderList({ value, options }: { value: Reminder[]; options?: Library
   );
 }
 
-const profileReminders = (data: Data): Reminder[] =>
-  list(data.hooks).map((h) => {
-    const r = (h ?? {}) as Data;
-    return { when: text(r.when), say: text(r.say) };
-  });
-
 const playbookReminders = (value: unknown): Reminder[] =>
   value && typeof value === "object" && !Array.isArray(value)
     ? Object.entries(value as Data).map(([when, say]) => ({ when, say: text(say) }))
@@ -170,96 +164,73 @@ const playbookReminders = (value: unknown): Reminder[] =>
 
 const asMapping = (value: Reminder[]) => Object.fromEntries(value.map((r) => [r.when, r.say]));
 
-/** A profile's settings: read, or as a form when *onChange* is given. */
-export function ProfileSettings({
-  data,
+/** A playbook's session settings in one line: what a session started on it runs with. */
+function sessionLine(session: Data) {
+  return [
+    session.level ? LEVELS[text(session.level)] : undefined,
+    session.mode ? (MODES[text(session.mode)] ?? text(session.mode)) : undefined,
+    session.model ? text(session.model) : undefined,
+    session.effort ? `${text(session.effort)} effort` : undefined,
+    session.max_budget_usd != null ? `US$${session.max_budget_usd}` : undefined,
+    session.max_turns != null ? `${session.max_turns} turns` : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+/** The session settings as form rows; an empty one is as the playbook it builds on. */
+function SessionForm({
+  value,
+  base,
   options,
   onChange,
 }: {
-  data: Data;
-  options?: LibraryOptions;
-  onChange?: (data: Data) => void;
+  value: Data;
+  base: string;
+  options: LibraryOptions;
+  onChange: (value: Data) => void;
 }) {
-  const set = (key: string, value: unknown) => onChange?.({ ...data, [key]: value });
+  const set = (key: string, v: unknown) => onChange({ ...value, [key]: v });
   const number = (key: string, v: string) => set(key, v === "" ? null : Number(v));
-  const reminders = profileReminders(data);
-  if (!onChange || !options) {
-    const rows: [string, ReactNode][] = [
-      ["Level", LEVELS[text(data.level)]],
-      ["Playbook", text(data.playbook)],
-      ["Mode", MODES[text(data.mode)] ?? (data.mode ? text(data.mode) : undefined)],
-      ["Effort", text(data.effort)],
-      ["Model", text(data.model)],
-      ["Budget", data.max_budget_usd != null ? `US$${data.max_budget_usd}` : undefined],
-      ["Turns", data.max_turns != null ? String(data.max_turns) : undefined],
-      ["Extra skills", strings(data.skills).join(", ")],
-      ["Instructions", data.prompt ? <Markdown text={text(data.prompt)} /> : undefined],
-      ["Reminders", reminders.length ? <ReminderList value={reminders} options={options} /> : undefined],
-    ];
-    return (
-      <div>
-        {rows
-          .filter(([, v]) => v)
-          .map(([k, v]) => (
-            <Row key={k} label={k}>
-              {v}
-            </Row>
-          ))}
-      </div>
-    );
-  }
+  const empty = base ? `As ${base}` : "Default";
   return (
-    <div>
-      <Row form label="Description">
-        <Lines value={text(data.description)} onChange={(v) => set("description", v)} />
-      </Row>
+    <>
       <Row form label="Level">
         <Choice
-          value={text(data.level)}
+          value={text(value.level)}
           options={options.levels}
           labels={LEVELS}
-          empty="Watch"
+          empty={base ? empty : "Watch"}
           onChange={(v) => set("level", v)}
         />
       </Row>
-      <Row form label="Playbook">
+      <Row form label="Files and code">
         <Choice
-          value={text(data.playbook)}
-          options={options.playbooks}
-          empty="The agent proposes one"
-          onChange={(v) => set("playbook", v)}
-        />
-      </Row>
-      <Row form label="Mode">
-        <Choice
-          value={text(data.mode) || "none"}
+          value={text(value.mode)}
           options={options.modes}
           labels={MODES}
+          empty={base ? empty : MODES.none}
           onChange={(v) => set("mode", v)}
-        />
-      </Row>
-      <Row form label="Effort">
-        <Choice
-          value={text(data.effort)}
-          options={options.efforts}
-          empty="Default"
-          onChange={(v) => set("effort", v)}
         />
       </Row>
       <Row form label="Model">
         <input
           className={cn(field, "w-full")}
-          placeholder="Default"
-          value={text(data.model)}
+          placeholder={empty}
+          value={text(value.model)}
           onChange={(e) => set("model", e.target.value)}
         />
+      </Row>
+      <Row form label="Effort">
+        <Choice value={text(value.effort)} options={options.efforts} empty={empty} onChange={(v) => set("effort", v)} />
       </Row>
       <Row form label="Budget (US$)">
         <input
           type="number"
           min={0}
-          className={cn(field, "w-28")}
-          value={data.max_budget_usd == null ? "" : String(data.max_budget_usd)}
+          className={cn(field, "w-44")}
+          placeholder={base ? empty : ""}
+          value={value.max_budget_usd == null ? "" : String(value.max_budget_usd)}
           onChange={(e) => number("max_budget_usd", e.target.value)}
         />
       </Row>
@@ -267,26 +238,13 @@ export function ProfileSettings({
         <input
           type="number"
           min={1}
-          className={cn(field, "w-28")}
-          value={data.max_turns == null ? "" : String(data.max_turns)}
+          className={cn(field, "w-44")}
+          placeholder={base ? empty : ""}
+          value={value.max_turns == null ? "" : String(value.max_turns)}
           onChange={(e) => number("max_turns", e.target.value)}
         />
       </Row>
-      <Row form label="Extra skills">
-        <PickSummary
-          kind="skills"
-          value={strings(data.skills)}
-          options={options.skills}
-          onChange={(v) => set("skills", v)}
-        />
-      </Row>
-      <Row form label="Instructions">
-        <Lines value={text(data.prompt)} rows={5} onChange={(v) => set("prompt", v)} />
-      </Row>
-      <Row form label="Reminders">
-        <Reminders value={reminders} options={options} onChange={(v) => set("hooks", v)} />
-      </Row>
-    </div>
+    </>
   );
 }
 
@@ -312,9 +270,11 @@ export function PlaybookSettings({
     return { ...entry, skill: text(entry.skill), when: text(entry.when) } as Optional_;
   });
   const rules = strings(data.rules);
+  const session = (data.session && typeof data.session === "object" ? data.session : {}) as Data;
   if (!onChange || !options) {
     const rows: [string, ReactNode][] = [
       ["Builds on", text(data.extends)],
+      ["Session", sessionLine(session) || (data.extends ? `As ${text(data.extends)}` : undefined)],
       ["Skills", strings(data.skills).join(", ")],
       ["Subagents", strings(data.agents).join(", ")],
       [
@@ -374,6 +334,9 @@ export function PlaybookSettings({
           onChange={(v) => set("extends", v)}
         />
       </Row>
+      <h4 className="mt-3 mb-0 text-[12px] font-semibold text-muted-foreground">A session started on this playbook</h4>
+      <SessionForm value={session} base={text(data.extends)} options={options} onChange={(v) => set("session", v)} />
+      <h4 className="mt-3 mb-0 text-[12px] font-semibold text-muted-foreground">The work</h4>
       <Row form label="Skills">
         <PickSummary
           kind="skills"

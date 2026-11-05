@@ -131,7 +131,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
     @router.get("/customisation", response_model=AgentCustomisation)
     def get_customisation(request: Request):
         """What the agent runs with: the tools this server offers, its skills,
-        specialists and profiles, and what it may never touch."""
+        and subagents, and what it may never touch."""
         app_context = getattr(request.app.state, "app_context", None)
         tools = tools_for_capabilities(
             {

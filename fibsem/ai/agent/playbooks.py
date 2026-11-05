@@ -2,7 +2,14 @@
 
     # playbooks/autolamella.yaml
     description: On-grid lamellae, not correlative.
-    extends: other-playbook          # optional
+    extends: fibsem-agent            # optional
+    session:                         # what a session STARTED on it runs with
+      level: watch                   # the level the gateway's card picks first
+      model: opus
+      effort: high
+      max_budget_usd: 500
+      max_turns: 40
+      mode: files                    # none, files or code
     skills: [autolamella]            # read at the start of the job
     optional:                        # read only when the job needs them
       - skill: autolamella-polishing
@@ -20,11 +27,13 @@
 A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
 optional skills, subagents, reminders and rules add up along ``extends``, the parent's
-first. A profile can name one (``playbook:``); else the agent proposes one at
-intake and sets it with ``playbook_set`` once the operator agrees. No
-playbook is a valid state: the profile's reminders still hold.
+first; ``session`` settings too, the child's winning. A session starts on the
+playbook its launch names, else on ``fibsem-agent``, the base the shipped ones
+extend; the agent proposes a better fit at intake and sets it with
+``playbook_set`` once the operator agrees. ``session`` counts only at the
+start: a running session keeps its model, budget and mode.
 
-`Reminders` is what is on now: the profile's, the playbook's, and those of the
+`Reminders` is what is on now: the playbook's, and those of the
 optional skills the agent has loaded and not yet finished. The SDK's hooks ask
 it at each call, so setting a playbook or loading a skill needs no restart.
 """
@@ -37,12 +46,15 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-from fibsem.ai.agent import profiles, sources
+from fibsem.ai.agent import reminders, sources
 
 PLAYBOOK_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "playbooks"
+# The playbook a session starts on when its launch names none.
+DEFAULT = "fibsem-agent"
 FIELDS = (
     "description",
     "extends",
+    "session",
     "skills",
     "optional",
     "agents",
@@ -53,10 +65,43 @@ FIELDS = (
 # plan.md's headings when a playbook names none (fibsem.server.agent_plan).
 PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+SESSION = ("level", "model", "effort", "max_budget_usd", "max_turns", "mode", "folder")
+MODES = ("none", "files", "code")
+LEVELS = ("watch", "assist", "drive")
 
 
 class PlaybookError(ValueError):
     """A playbook that can't be used, with the reason in words."""
+
+
+@dataclass
+class Session:
+    """What a session started on the playbook runs with; None is the default."""
+
+    level: Optional[str] = None
+    """The level the gateway's Agent card picks first; the operator still starts it."""
+    model: Optional[str] = None
+    effort: Optional[str] = None
+    max_budget_usd: Optional[float] = None
+    max_turns: Optional[int] = None
+    mode: Optional[str] = None
+    folder: Optional[str] = None
+
+    def merged(self, child: "Session") -> "Session":
+        """This, with *child*'s settings winning where it has them."""
+        return Session(
+            **{
+                key: getattr(child, key)
+                if getattr(child, key) is not None
+                else getattr(self, key)
+                for key in SESSION
+            }
+        )
+
+    def as_dict(self) -> dict:
+        return {
+            key: getattr(self, key) for key in SESSION if getattr(self, key) is not None
+        }
 
 
 @dataclass
@@ -66,7 +111,7 @@ class Optional_:
 
     skill: str
     when: str
-    hooks: List[profiles.Hook] = field(default_factory=list)
+    hooks: List[reminders.Hook] = field(default_factory=list)
     # Subagents on while it is loaded.
     agents: List[str] = field(default_factory=list)
 
@@ -81,12 +126,13 @@ class Playbook:
     chain: List[str] = field(default_factory=list)
     skills: List[str] = field(default_factory=list)
     optional: List[Optional_] = field(default_factory=list)
-    hooks: List[profiles.Hook] = field(default_factory=list)
+    hooks: List[reminders.Hook] = field(default_factory=list)
     rules: List[str] = field(default_factory=list)
     # The subagents its work calls (`subagents`), by name.
     agents: List[str] = field(default_factory=list)
     # plan.md's headings, the nearest playbook's that names them.
     plan: List[str] = field(default_factory=lambda: list(PLAN))
+    session: Session = field(default_factory=Session)
 
     def optional_skill(self, name: str) -> Optional[Optional_]:
         return next((o for o in self.optional if o.skill == name), None)
@@ -113,11 +159,12 @@ class Playbook:
             "rules": list(self.rules),
             "agents": list(self.agents),
             "plan": list(self.plan),
+            "session": self.session.as_dict(),
         }
 
 
 def _label(when: str) -> str:
-    option = profiles.HOOK_OPTIONS.get(when)
+    option = reminders.HOOK_OPTIONS.get(when)
     return option.label if option else when
 
 
@@ -148,13 +195,13 @@ def available(checkout: Optional[Path]) -> List[str]:
     return sorted(names)
 
 
-def load(name: str, checkout: Optional[Path]) -> Playbook:
+def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
     """Playbook *name* with what it extends added in; a `PlaybookError` says
-    what is wrong with it."""
-    return _load(name, checkout, [])
+    what is wrong with it. *efforts*, when given, are the efforts allowed."""
+    return _load(name, checkout, [], tuple(efforts))
 
 
-def _load(name: str, checkout: Optional[Path], seen: List[str]) -> Playbook:
+def _load(name: str, checkout: Optional[Path], seen: List[str], efforts=()) -> Playbook:
     if name in seen:
         raise PlaybookError(
             f"playbook {name} extends itself: {' -> '.join(seen + [name])}"
@@ -180,13 +227,14 @@ def _load(name: str, checkout: Optional[Path], seen: List[str]) -> Playbook:
         extends = data["extends"]
         if not isinstance(extends, str):
             raise PlaybookError(f"{path}: extends is one playbook's name")
-        parent = _load(extends, checkout, seen + [name])
+        parent = _load(extends, checkout, seen + [name], efforts)
     skills = _names(data.get("skills"), "skills", path)
     optional = _optional(data.get("optional"), path)
     hooks = _reminders(data.get("reminders"), path)
     rules = _names(data.get("rules"), "rules", path)
     agents = _names(data.get("agents"), "agents", path)
     plan = _names(data.get("plan"), "plan", path)
+    session = _session(data.get("session"), path, efforts)
     if any("#" in h or len(h) > 60 for h in plan):
         raise PlaybookError(
             f"{path}: plan lists headings, no # and at most 60 characters"
@@ -219,8 +267,41 @@ def _load(name: str, checkout: Optional[Path], seen: List[str]) -> Playbook:
         rules=_merge(parent.rules if parent else [], rules),
         agents=_merge(parent.agents if parent else [], agents),
         plan=plan or (parent.plan if parent else list(PLAN)),
+        session=(parent.session if parent else Session()).merged(session),
     )
     return playbook
+
+
+def _session(value: Any, path: Path, efforts=()) -> Session:
+    if value is None:
+        return Session()
+    if not isinstance(value, dict):
+        raise PlaybookError(f"{path}: session is a mapping of settings")
+    unknown = sorted(set(value) - set(SESSION))
+    if unknown:
+        raise PlaybookError(f"{path}: unknown session setting(s) {', '.join(unknown)}")
+    found = {}
+    for key in ("level", "model", "effort", "mode", "folder"):
+        given = value.get(key)
+        if given is None:
+            continue
+        if not isinstance(given, str) or not given.strip():
+            raise PlaybookError(f"{path}: session {key} must be text")
+        found[key] = given.strip()
+    for key, kind in (("max_budget_usd", float), ("max_turns", int)):
+        given = value.get(key)
+        if given is None:
+            continue
+        if isinstance(given, bool) or not isinstance(given, (int, float)) or given <= 0:
+            raise PlaybookError(f"{path}: session {key} must be a number above 0")
+        found[key] = kind(given)
+    if found.get("level", "watch") not in LEVELS:
+        raise PlaybookError(f"{path}: session level is one of {', '.join(LEVELS)}")
+    if found.get("mode", "none") not in MODES:
+        raise PlaybookError(f"{path}: session mode is one of {', '.join(MODES)}")
+    if efforts and found.get("effort", efforts[0]) not in efforts:
+        raise PlaybookError(f"{path}: session effort is one of {', '.join(efforts)}")
+    return Session(**found)
 
 
 def _names(value: Any, key: str, path: Path) -> List[str]:
@@ -233,7 +314,7 @@ def _names(value: Any, key: str, path: Path) -> List[str]:
     return [v.strip() for v in value]
 
 
-def _reminders(value: Any, path: Path) -> List[profiles.Hook]:
+def _reminders(value: Any, path: Path) -> List[reminders.Hook]:
     """``{when: say}`` as hooks, in the file's order."""
     if value is None:
         return []
@@ -241,14 +322,14 @@ def _reminders(value: Any, path: Path) -> List[profiles.Hook]:
         raise PlaybookError(f"{path}: reminders is a mapping of when to what to say")
     hooks = []
     for when, say in value.items():
-        if when not in profiles.HOOK_OPTIONS:
+        if when not in reminders.HOOK_OPTIONS:
             raise PlaybookError(
                 f"{path}: no hook option {when!r} "
-                f"(one of {', '.join(profiles.HOOK_OPTIONS)}; fibsem-agent --list-hooks)"
+                f"(one of {', '.join(reminders.HOOK_OPTIONS)}; fibsem-agent --list-hooks)"
             )
         if not isinstance(say, str) or not say.strip():
             raise PlaybookError(f"{path}: the {when} reminder says nothing")
-        hooks.append(profiles.Hook(when, " ".join(say.split())))
+        hooks.append(reminders.Hook(when, " ".join(say.split())))
     return hooks
 
 
@@ -300,16 +381,11 @@ def _merge_optional(first: List[Optional_], then: List[Optional_]) -> List[Optio
 
 
 class Reminders:
-    """What is said at each moment now: the profile's reminders, the
-    playbook's, and those of its optional skills while they are loaded. All
-    that apply are said together, profile first, duplicates dropped."""
+    """What is said at each moment now: the playbook's reminders, and those
+    of its optional skills while they are loaded. All that apply are said
+    together, duplicates dropped."""
 
-    def __init__(
-        self,
-        base: Optional[List[profiles.Hook]] = None,
-        on_change: Optional[Callable[[], None]] = None,
-    ) -> None:
-        self.base = list(base or [])
+    def __init__(self, on_change: Optional[Callable[[], None]] = None) -> None:
         self.playbook: Optional[Playbook] = None
         self.chosen_by: Optional[str] = None
         # Optional skills: name -> "loaded" | "done".
@@ -354,7 +430,7 @@ class Reminders:
 
     def texts(self, when: str) -> List[str]:
         said: List[str] = []
-        hooks = list(self.base)
+        hooks: List[reminders.Hook] = []
         if self.playbook is not None:
             hooks += self.playbook.hooks
             for entry in self.playbook.optional:
@@ -369,8 +445,8 @@ class Reminders:
         """What is said with a turn of watcher *lines*: the reminders of the
         watcher options a line matches."""
         said: List[str] = []
-        for when, option in profiles.HOOK_OPTIONS.items():
-            if option.event == profiles.WATCHER and option.on_lines(lines):
+        for when, option in reminders.HOOK_OPTIONS.items():
+            if option.event == reminders.WATCHER and option.on_lines(lines):
                 said += [t for t in self.texts(when) if t not in said]
         return said
 
@@ -424,8 +500,8 @@ class Reminders:
         from claude_agent_sdk import HookMatcher
 
         matchers: Dict[str, list] = {}
-        for when, option in profiles.HOOK_OPTIONS.items():
-            if option.event == profiles.WATCHER:
+        for when, option in reminders.HOOK_OPTIONS.items():
+            if option.event == reminders.WATCHER:
                 continue
             matchers.setdefault(option.event, []).append(
                 HookMatcher(
@@ -436,7 +512,7 @@ class Reminders:
         return matchers
 
     def callback(self, when: str, server: str):
-        option = profiles.HOOK_OPTIONS[when]
+        option = reminders.HOOK_OPTIONS[when]
 
         async def hook(hook_input, tool_use_id, context):
             texts = self.texts(when)
@@ -445,7 +521,7 @@ class Reminders:
             return {
                 "hookSpecificOutput": {
                     "hookEventName": option.event,
-                    "additionalContext": profiles.reminder(texts),
+                    "additionalContext": reminders.reminder(texts),
                 }
             }
 

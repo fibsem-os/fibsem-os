@@ -1,17 +1,15 @@
 """What the agent runs with, for the operator's Customisation dialog: the tools
-this server offers, the skills and specialists ``fibsem-agent`` loads, the
-profiles on this PC and what the agent may never touch. Read-only."""
+this server offers, the skills and specialists ``fibsem-agent`` loads, and
+what the agent may never touch. Read-only."""
 
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from fibsem.ai.agent import blocklist, harness, profiles, sources
+from fibsem.ai.agent import blocklist, harness, sources
 from fibsem.ai.agent.catalog import CATALOG, GROUP_TITLES, ToolSpec
 from fibsem.server.responses import (
     AgentCustomisation,
     BlockRow,
-    ProfileRow,
-    ReminderRow,
     SkillRow,
     ToolRow,
 )
@@ -68,33 +66,6 @@ def _skills(names: Iterable[str], find) -> List[SkillRow]:
     return rows
 
 
-def _profile(path: Path, checkout: Optional[Path]) -> ProfileRow:
-    try:
-        found = profiles.load(path, checkout=checkout)
-    except profiles.ProfileError as error:
-        return ProfileRow(name=path.stem, path=str(path), hash="", error=str(error))
-    options = profiles.HOOK_OPTIONS
-    return ProfileRow(
-        name=found.name,
-        path=str(found.path),
-        hash=found.hash,
-        model=found.model,
-        effort=found.effort,
-        max_budget_usd=found.max_budget_usd,
-        max_turns=found.max_turns,
-        mode=found.mode,
-        skills=list(found.skills),
-        prompt=found.prompt,
-        reminders=[
-            ReminderRow(
-                options[hook.when].label if hook.when in options else hook.when,
-                hook.say,
-            )
-            for hook in found.hooks
-        ],
-    )
-
-
 def customisation(tools: Iterable[ToolSpec] = CATALOG) -> AgentCustomisation:
     """What the agent runs with: *tools* are the ones this server offers."""
     checkout = harness.find_checkout()
@@ -110,7 +81,5 @@ def customisation(tools: Iterable[ToolSpec] = CATALOG) -> AgentCustomisation:
         specialists=_skills(
             harness.subagents_for(), lambda name: sources.agent_file(name, checkout)
         ),
-        profiles=[_profile(path, checkout) for path in profiles.available(checkout)],
-        reminder_options=[option.label for option in profiles.HOOK_OPTIONS.values()],
         never=[BlockRow(**row) for row in blocklist.rules()],
     )

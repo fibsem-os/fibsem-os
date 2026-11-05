@@ -1,4 +1,4 @@
-"""The agent's profiles, playbooks, skills and subagents, as the operator sees them: what
+"""The agent's playbooks, skills and subagents, as the operator sees them: what
 fibsemOS ships and the lab's own, side by side.
 
 The lab's own sit in the knowledge base (``sources.lab_folder``) and win by
@@ -17,9 +17,9 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
-from fibsem.ai.agent import playbooks, profiles, sources, subagents
+from fibsem.ai.agent import playbooks, reminders, sources, subagents
 
-KINDS = ("profiles", "playbooks", "skills", "agents")
+KINDS = ("playbooks", "skills", "agents")
 LAB = "lab"
 SHIPPED = "shipped"
 MAX_TEXT = 100_000
@@ -38,7 +38,7 @@ class LibraryError(ValueError):
 
 @dataclass
 class Item:
-    """One profile, playbook or skill in the list."""
+    """One playbook, skill or subagent in the list."""
 
     name: str
     description: Optional[str] = None
@@ -50,7 +50,7 @@ class Item:
 
 @dataclass
 class File:
-    """One profile, playbook or skill's file, from the lab or as shipped."""
+    """One playbook, skill or subagent's file, from the lab or as shipped."""
 
     name: str
     source: str
@@ -58,19 +58,19 @@ class File:
     path: str
     lab: bool = False
     shipped: bool = False
-    # A profile's or playbook's settings, for the window's form; None for a
+    # A playbook's or subagent's settings, for the window's form; None for a
     # skill, or a file that isn't a mapping.
     data: Optional[Dict[str, Any]] = None
 
 
 @dataclass
 class Options:
-    """What a profile's and a playbook's form offer to pick from."""
+    """What the playbook and subagent forms offer to pick from."""
 
     levels: List[str]
     modes: List[str]
     efforts: List[str]
-    # Each reminder's ``when`` and its label, in `profiles.HOOK_OPTIONS` order.
+    # Each reminder's ``when`` and its label, in `reminders.HOOK_OPTIONS` order.
     reminders: List[Dict[str, str]]
     skills: List[str]
     playbooks: List[str]
@@ -81,8 +81,9 @@ class Options:
 
 # A new one's file, before the operator writes it.
 STARTING = {
-    "profiles": "description: What this profile is for.\nmode: none\n",
-    "playbooks": "description: What this playbook is for.\n",
+    "playbooks": (
+        f"description: What this playbook is for.\nextends: {playbooks.DEFAULT}\n"
+    ),
     "skills": (
         "---\nname: {name}\ndescription: When the agent should read this skill.\n"
         "---\n\nWhat the agent should know.\n"
@@ -112,8 +113,6 @@ def _shipped_dir(kind: str) -> Optional[Path]:
     root = sources.find_root()
     if root is None:
         return None
-    if kind == "profiles":
-        return root / profiles.PROFILE_DIR
     if kind == "playbooks":
         return root / playbooks.PLAYBOOK_DIR
     return root / sources.CLAUDE / kind
@@ -183,7 +182,7 @@ def _description(path: Path, kind: str) -> Optional[str]:
 
 
 def items(kind: str) -> List[Item]:
-    """Every profile, playbook or skill, by name, the lab's described when it has one."""
+    """Every playbook, skill or subagent, by name, the lab's described when it has one."""
     kind = _kind(kind)
     shipped_dir = _shipped_dir(kind)
     lab = set(_names(_lab_dir(kind), kind))
@@ -275,9 +274,7 @@ def dump(kind: str, data: Dict[str, Any]) -> str:
     """A form's settings as the file's text, in the order the settings are
     documented, without the ones left empty."""
     if kind == "skills" or not isinstance(data, dict):
-        raise LibraryError(
-            "invalid", "data is a profile's, playbook's or subagent's settings."
-        )
+        raise LibraryError("invalid", "data is a playbook's or subagent's settings.")
     if kind == "agents":
         data = _clean(data)
         prompt = data.pop("prompt", "")
@@ -287,9 +284,11 @@ def dump(kind: str, data: Dict[str, Any]) -> str:
             return subagents.render(data, prompt)
         except subagents.SubagentError as error:
             raise LibraryError("invalid", str(error)) from None
-    fields = profiles.FIELDS if kind == "profiles" else playbooks.FIELDS
     data = _clean(data)
-    ordered = {k: data[k] for k in fields if k in data}
+    if isinstance(data.get("session"), dict):
+        session = data["session"]
+        data["session"] = {k: session[k] for k in playbooks.SESSION if k in session}
+    ordered = {k: data[k] for k in playbooks.FIELDS if k in data}
     ordered.update({k: v for k, v in data.items() if k not in ordered})
     return yaml.dump(
         ordered, Dumper=_Dumper, sort_keys=False, allow_unicode=True, width=88
@@ -301,12 +300,12 @@ def options() -> Options:
     from fibsem.ai.agent import harness
 
     return Options(
-        levels=list(profiles.LEVELS),
-        modes=list(profiles.MODES),
+        levels=list(playbooks.LEVELS),
+        modes=list(playbooks.MODES),
         efforts=list(harness.EFFORTS),
         reminders=[
             {"when": when, "label": option.label}
-            for when, option in profiles.HOOK_OPTIONS.items()
+            for when, option in reminders.HOOK_OPTIONS.items()
         ],
         skills=[item.name for item in items("skills")],
         playbooks=[item.name for item in items("playbooks")],
@@ -358,22 +357,12 @@ def _check(kind: str, name: str, text: str) -> None:
                 "A skill starts with front matter between '---' lines, with its name and description.",
             )
         return
-    with tempfile.TemporaryDirectory() as folder:
-        path = Path(folder) / f"{name}.yaml"
-        path.write_text(text, encoding="utf-8")
-        try:
-            if kind == "profiles":
-                profiles.load(path, checkout=sources.find_root())
-            else:
-                data = yaml.safe_load(text)
-                if not isinstance(data, dict):
-                    raise playbooks.PlaybookError("a playbook is a mapping of settings")
-        except (
-            profiles.ProfileError,
-            playbooks.PlaybookError,
-            yaml.YAMLError,
-        ) as error:
-            raise LibraryError("invalid", str(error).replace(str(path), name)) from None
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as error:
+        raise LibraryError("invalid", str(error)) from None
+    if not isinstance(data, dict):
+        raise LibraryError("invalid", "a playbook is a mapping of settings")
 
 
 def _write(path: Path, text: str) -> None:
@@ -402,9 +391,11 @@ def save(kind: str, name: str, text: str) -> File:
     previous = path.read_text(encoding="utf-8")
     _write(path, text)
     if kind == "playbooks":
-        # what it extends must still resolve
+        # It must load, and what it extends must still resolve.
+        from fibsem.ai.agent import harness
+
         try:
-            playbooks.load(name, sources.find_root())
+            playbooks.load(name, sources.find_root(), harness.EFFORTS)
         except playbooks.PlaybookError as error:
             if copied:
                 remove(kind, name)

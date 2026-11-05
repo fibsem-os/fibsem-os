@@ -23,7 +23,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
-from fibsem.ai.agent.profiles import DEFAULT_PROFILE
+from fibsem.ai.agent.playbooks import DEFAULT as DEFAULT_PLAYBOOK
 from fibsem.gateway.agent import AgentState, GatewayAgent
 from fibsem.gateway.gateway import (
     Gateway,
@@ -261,13 +261,13 @@ def build_gateway_app(
             """The running agent, or none, and the latest sessions."""
             return agent.state()
 
-        @app.get("/gateway/agent/profiles")
-        def get_profiles(found: Caller = Depends(caller)) -> List[dict]:
-            """The profiles on this PC, as ``fibsem-agent --list-profiles``."""
-            return _act(found, {}, lambda force, via: agent.profiles())
+        @app.get("/gateway/agent/playbooks")
+        def get_playbooks(found: Caller = Depends(caller)) -> List[dict]:
+            """The playbooks on this PC, as ``fibsem-agent --list-playbooks``."""
+            return _act(found, {}, lambda force, via: agent.playbooks())
 
-        @app.get("/gateway/agent/profiles/{name}")
-        def get_profile(name: str, found: Caller = Depends(caller)) -> dict:
+        @app.get("/gateway/agent/playbooks/{name}")
+        def get_playbook(name: str, found: Caller = Depends(caller)) -> dict:
             """What *name* runs with, as ``fibsem-agent --show-config``."""
             return _act(found, {}, lambda force, via: agent.configuration(name))
 
@@ -283,16 +283,16 @@ def build_gateway_app(
 
         @app.post("/gateway/agent/start", response_model=AgentState)
         def start_agent(body: Dict[str, Any], found: Caller = Depends(switcher)):
-            """``{profile, goal, level, budget_usd, replace}``: pair the agent,
+            """``{playbook, goal, level, budget_usd, replace}``: pair the agent,
             set the level, start it. ``replace`` disconnects an agent paired
             some other way."""
             budget = _budget(body)
-            profile = str(body.get("profile") or DEFAULT_PROFILE)
+            playbook = str(body.get("playbook") or DEFAULT_PLAYBOOK)
             return _act(
                 found,
                 body,
                 lambda force, via: agent.start(
-                    profile,
+                    playbook,
                     str(body.get("goal") or "").strip() or None,
                     str(body.get("level") or "watch"),
                     who=found.who,

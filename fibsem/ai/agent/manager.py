@@ -293,7 +293,7 @@ class AgentSessionManager:
         about: Optional[dict] = None,
     ) -> Agent:
         """Start a new session *session_id* for *microscope*. *args* are
-        ``fibsem-agent``'s flags (``--url``, ``--profile``, ...), passed again
+        ``fibsem-agent``'s flags (``--url``, ``--playbook``, ...), passed again
         on each resume; *env* is added to this process's environment (the
         server token: never on the command line); *about* is the host's own
         record of the start (who, the level), kept in ``manager.json``."""

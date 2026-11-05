@@ -243,37 +243,17 @@ export interface SkillRow {
   description: string;
 }
 
-export interface ProfileRow {
-  name: string;
-  path: string;
-  hash: string;
-  model: string | null;
-  effort: string | null;
-  max_budget_usd: number | null;
-  max_turns: number | null;
-  mode: string;
-  skills: string[];
-  prompt: string | null;
-  reminders: { label: string; say: string }[];
-  /** Why it can't be used, for a profile that doesn't load. */
-  error: string | null;
-}
-
 /** GET /app/agent/customisation: what the agent runs with. */
 export interface AgentCustomisation {
   tools: ToolRow[];
   categories: string[];
   skills: SkillRow[];
   specialists: SkillRow[];
-  profiles: ProfileRow[];
-  reminder_options: string[];
   never: { device: string; blocked: string; why: string }[];
 }
 
 export interface ReportedSession {
-  /** The fibsem-agent profile it runs with, and its reminders. */
-  profile?: string;
-  profile_hash?: string;
+  /** The reminders on now. */
   hooks?: { when: string; label: string; say: string }[];
   /** The skills it has read, in order. */
   skills?: string[];

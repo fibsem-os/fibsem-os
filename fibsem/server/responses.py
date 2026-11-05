@@ -1106,7 +1106,7 @@ class KnowledgeRemoved:
 
 @dataclass
 class LibraryIndex:
-    """The profiles, playbooks or skills (*kind*): the shipped and the lab's own."""
+    """The playbooks, skills or subagents (*kind*): the shipped and the lab's own."""
 
     kind: str
     items: List[LibraryItem] = field(default_factory=list)
@@ -1466,29 +1466,6 @@ class SkillRow:
 
 
 @dataclass
-class ReminderRow:
-    label: str
-    say: str
-
-
-@dataclass
-class ProfileRow:
-    name: str
-    path: str
-    hash: str
-    model: Optional[str] = None
-    effort: Optional[str] = None
-    max_budget_usd: Optional[float] = None
-    max_turns: Optional[int] = None
-    mode: str = "none"
-    skills: List[str] = field(default_factory=list)
-    prompt: Optional[str] = None
-    reminders: List[ReminderRow] = field(default_factory=list)
-    # why it can't be used, for a profile that doesn't load
-    error: Optional[str] = None
-
-
-@dataclass
 class BlockRow:
     device: str
     blocked: str
@@ -1503,9 +1480,6 @@ class AgentCustomisation:
     categories: List[str]
     skills: List[SkillRow]
     specialists: List[SkillRow]
-    profiles: List[ProfileRow]
-    # when a profile's reminder can fire, by its label
-    reminder_options: List[str]
     never: List[BlockRow]
 
 

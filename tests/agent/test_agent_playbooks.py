@@ -3,11 +3,13 @@ intake and switched while the session runs."""
 
 import asyncio
 import json
+import re
 
 import pytest
 
 from fibsem.ai.agent import harness as harness_mod
-from fibsem.ai.agent import playbooks, profiles
+from fibsem.ai.agent import playbooks
+from fibsem.ai.agent import reminders as reminder_mod
 
 SERVER = harness_mod.SERVER
 
@@ -39,7 +41,11 @@ def test_the_shipped_playbooks_load_and_correlative_extends_autolamella(lab, che
         playbooks.available(checkout)
     )
     correlative = playbooks.load("autolamella-correlative", checkout)
-    assert correlative.chain == ["autolamella", "autolamella-correlative"]
+    assert correlative.chain == [
+        "fibsem-agent",
+        "autolamella",
+        "autolamella-correlative",
+    ]
     assert correlative.skills == ["autolamella", "autolamella-correlative"]
     optional = [o.skill for o in correlative.optional]
     assert "autolamella-polishing" in optional
@@ -48,7 +54,7 @@ def test_the_shipped_playbooks_load_and_correlative_extends_autolamella(lab, che
     assert polishing.when == "before the first polishing pass"
     assert {h.when for h in polishing.hooks} == {"polishing_pass", "after_polish_pass"}
     summary = correlative.summary()
-    assert summary["extends"] == ["autolamella"]
+    assert summary["extends"] == ["fibsem-agent", "autolamella"]
     labels = [r["label"] for r in summary["reminders"]]
     assert "Placing a lamella at Setup" in labels
     # Parent first: autolamella's before_milling, then the correlative one's.
@@ -77,14 +83,14 @@ def test_the_labs_playbook_wins_and_a_bad_one_says_why(lab, checkout):
 
 
 def test_an_optional_skills_reminders_are_on_only_while_it_is_loaded(lab, checkout):
-    base = [profiles.Hook("hardware_error", "Stop.")]
     changes = []
-    reminders = playbooks.Reminders(base, on_change=lambda: changes.append(1))
+    reminders = playbooks.Reminders(on_change=lambda: changes.append(1))
     assert reminders.texts("polishing_pass") == []
-    assert reminders.texts("hardware_error") == ["Stop."]
+    assert reminders.texts("hardware_error") == [], "none without a playbook"
 
-    reminders.set(playbooks.load("autolamella", checkout), "named by the profile")
+    reminders.set(playbooks.load("autolamella", checkout), "named at launch")
     assert reminders.texts("setup_placement"), "the playbook's own are on at once"
+    assert reminders.texts("hardware_error"), "and those of the base it extends"
     assert reminders.texts("polishing_pass") == []
     assert reminders.loaded("autolamella-polishing") is not None
     assert reminders.texts("polishing_pass")
@@ -104,15 +110,15 @@ def test_an_optional_skills_reminders_are_on_only_while_it_is_loaded(lab, checko
     assert rows["screen-grids"]["state"] == "not loaded"
     assert changes
 
-    resumed = playbooks.Reminders(base)
+    resumed = playbooks.Reminders()
     assert resumed.restore({"playbook": state}, checkout) is None
     assert resumed.state() == reminders.state()
     assert "no-such" in resumed.restore({"playbook": {"name": "no-such"}}, checkout)
 
 
 def test_setup_and_polishing_reminders_fire_on_their_own_tasks():
-    setup = profiles.HOOK_OPTIONS["setup_placement"]
-    polishing = profiles.HOOK_OPTIONS["polishing_pass"]
+    setup = reminder_mod.HOOK_OPTIONS["setup_placement"]
+    polishing = reminder_mod.HOOK_OPTIONS["polishing_pass"]
     assert setup.applies(call("proposal_decide", task_name="Setup Lamella"), SERVER)
     assert setup.applies(
         call("proposal_suggest", task_name="Select Milling Position"), SERVER
@@ -161,37 +167,55 @@ def test_the_playbook_tools_say_each_change_and_keep_it(lab, checkout):
     assert kept[-1]["playbook"]["skills"]
     assert "setup_placement" in {row["when"] for row in control.hooks()}
 
-    control.set("", "the operator")
-    assert lines[-1] == "Playbook set: none, the operator"
-    assert kept[-1] == {"playbook": None}
+    answer = control.set("", "the operator")
+    assert lines[-1] == "Playbook set: fibsem-agent, the operator"
+    assert kept[-1]["playbook"]["name"] == "fibsem-agent"
+    assert '"session"' not in answer, "a running session keeps its settings"
 
 
-def test_show_config_names_the_profiles_playbook(
+def test_show_config_names_the_playbook_it_starts_on(
     lab, checkout, tmp_path, monkeypatch, capsys
 ):
-    monkeypatch.setattr(profiles.Path, "home", lambda: tmp_path)
-    argv = ["--show-config", "--json", "--profile", "autolamella-agent"]
+    monkeypatch.setattr(harness_mod.Path, "home", lambda: tmp_path)
+    argv = ["--show-config", "--json", "--playbook", "autolamella"]
     assert harness_mod.main(argv) == 0
     shown = json.loads(capsys.readouterr().out)["playbook"]
     assert shown["name"] == "autolamella"
     assert "autolamella-polishing" in [o["skill"] for o in shown["optional"]]
 
     write(lab, "broken", "extends: broken\n")
-    monkeypatch.setattr(
-        profiles, "find", lambda *a, **k: _profile(tmp_path, "playbook: broken\n")
-    )
-    assert harness_mod.main(["--show-config", "--profile", "night"]) == 1
+    assert harness_mod.main(["--show-config", "--playbook", "broken"]) == 1
     assert "extends itself" in capsys.readouterr().err
 
 
-def _profile(tmp_path, text):
-    path = tmp_path / "night.yaml"
-    path.write_text(text, encoding="utf-8")
-    return path
+def test_a_session_setting_that_cant_be_used_says_why(lab, checkout):
+    for text, said in (
+        ("session:\n  level: max\n", "level is one of"),
+        ("session:\n  api_key: sk\n", "unknown session setting(s) api_key"),
+        ("session:\n  mode: everything\n", "mode is one of"),
+        ("session:\n  effort: huge\n", "effort is one of"),
+        ("session:\n  max_budget_usd: -1\n", "above 0"),
+        ("session: [a]\n", "a mapping"),
+    ):
+        write(lab, "bad", text)
+        with pytest.raises(playbooks.PlaybookError, match=re.escape(said)):
+            playbooks.load("bad", checkout, harness_mod.EFFORTS)
+
+
+def test_session_settings_add_up_along_extends_the_child_winning(lab, checkout):
+    write(lab, "parent", "session:\n  effort: low\n  max_turns: 5\n  mode: code\n")
+    write(lab, "child", "extends: parent\nsession:\n  max_turns: 9\n")
+    found = playbooks.load("child", checkout).session
+    assert (found.effort, found.max_turns, found.mode) == ("low", 9, "code")
+    assert playbooks.load("child", checkout).summary()["session"] == {
+        "effort": "low",
+        "max_turns": 9,
+        "mode": "code",
+    }
 
 
 def test_a_finished_task_reminds_with_the_watchers_turn(lab, checkout):
-    after = profiles.HOOK_OPTIONS["after_task"]
+    after = reminder_mod.HOOK_OPTIONS["after_task"]
     assert after.on_lines(["EVENT task_completed 01 Rough Mill"])
     assert not after.on_lines(["EVENT task_started 01 Rough Mill"])
     reminders = playbooks.Reminders()
@@ -201,12 +225,12 @@ def test_a_finished_task_reminds_with_the_watchers_turn(lab, checkout):
     assert "Reminder:" not in wakes.add(done), "only while autolamella-lead is read"
     reminders.loaded("autolamella-lead")
     prompt = wakes.add(done)
-    assert prompt.endswith(profiles.reminder(reminders.texts("after_task")))
+    assert prompt.endswith(reminder_mod.reminder(reminders.texts("after_task")))
     assert "Reminder:" not in wakes.add(["EVENT task_started 01 Polishing"])
     # Never an SDK hook: no tool call means a task finished.
     pytest.importorskip("claude_agent_sdk")
     matchers = reminders.sdk_hooks(SERVER)
-    assert profiles.WATCHER not in matchers
+    assert reminder_mod.WATCHER not in matchers
 
 
 def test_a_playbook_names_its_plan_headings_or_has_the_default(lab, checkout):

@@ -26,7 +26,7 @@ from fibsem.server.pairing import AGENT, PairedTokens
 ROOT = Path(__file__).resolve().parents[2]
 STAND_IN = ROOT / "tests" / "agent" / "stand_in.py"
 URL = "http://127.0.0.1:8001"
-DEFAULT = {"profile": {"name": "default"}, "mode": "none", "model": None}
+DEFAULT = {"playbook": {"name": "default"}, "mode": "none", "model": None}
 
 
 class FakeGateway:
@@ -84,10 +84,10 @@ def made(tmp_path, monkeypatch):
         configs = configs if configs is not None else {"default": DEFAULT}
 
         def agent_json(flags):
-            if flags[0] == "--list-profiles":
+            if flags[0] == "--list-playbooks":
                 return [{"name": name} for name in configs]
             if flags[1] not in configs:
-                raise GatewayRefused(422, "bad_profile", f"No profile {flags[1]!r}")
+                raise GatewayRefused(422, "bad_playbook", f"No playbook {flags[1]!r}")
             return configs[flags[1]]
 
         agent = GatewayAgent(
@@ -133,18 +133,18 @@ def _record(tmp_path):
     return read_json(found[0] / RECORD) if found else {}
 
 
-def test_start_pairs_the_agent_sets_the_level_and_runs_the_profile(made, tmp_path):
+def test_start_pairs_the_agent_sets_the_level_and_runs_the_playbook(made, tmp_path):
     agent, _, app = made()
     state = agent.start("default", "Mill 01 to 04", "assist", "operator", "page")
     assert app.levels == [(URL, "assist")]
     paired = PairedTokens(tmp_path / "paired.json").agent()
     assert paired is not None and paired.name == AGENT_NAME and paired.role == AGENT
-    assert state.running["profile"] == "default"
+    assert state.running["playbook"] == "default"
     assert state.running["level"] == "assist"
     assert state.running["goal"] == "Mill 01 to 04"
     assert until(lambda: _record(tmp_path).get("args"))
     record = _record(tmp_path)
-    assert record["args"] == ["--profile", "default", "--url", URL]
+    assert record["args"] == ["--playbook", "default", "--url", URL]
     assert record["goal"] == "Mill 01 to 04"
     managed = read_json(folders(tmp_path / "sessions")[0] / MANAGED)
     assert managed["about"]["who"] == "operator"
@@ -194,9 +194,9 @@ def test_a_budget_override_is_passed_and_nothing_else_is(made, tmp_path):
 )
 def test_start_is_refused_with_its_reason(made, tmp_path, setup, error):
     agent, _, app = made(**setup)
-    profile = next(iter(setup.get("configs", {"default": None})))
+    playbook = next(iter(setup.get("configs", {"default": None})))
     with pytest.raises(GatewayRefused) as refused:
-        agent.start(profile, None, "watch", "operator", "page")
+        agent.start(playbook, None, "watch", "operator", "page")
     assert refused.value.error_type == error
     assert app.levels == []
     assert PairedTokens(tmp_path / "paired.json").agent() is None
@@ -223,19 +223,19 @@ def test_start_needs_a_microscope_connected(made, tmp_path):
     assert PairedTokens(tmp_path / "paired.json").agent() is None
 
 
-def test_a_code_profile_runs_off_windows(made):
+def test_a_code_playbook_runs_off_windows(made):
     agent, _, _ = made(configs={"coder": {**DEFAULT, "mode": "code"}})
     assert agent.start("coder", None, "watch", "operator", "page").running
 
 
-def test_an_unknown_level_or_profile_is_refused(made):
+def test_an_unknown_level_or_playbook_is_refused(made):
     agent, _, _ = made()
     with pytest.raises(GatewayRefused) as refused:
         agent.start("default", None, "fly", "operator", "page")
     assert refused.value.error_type == "bad_level"
     with pytest.raises(GatewayRefused) as refused:
         agent.start("nightly", None, "watch", "operator", "page")
-    assert refused.value.error_type == "bad_profile"
+    assert refused.value.error_type == "bad_playbook"
 
 
 def test_a_second_start_is_refused_while_one_runs(made):
@@ -331,9 +331,9 @@ def test_a_restarted_gateway_takes_the_agent_back(made, tmp_path):
     assert PairedTokens(tmp_path / "paired.json").agent() is None
 
 
-def test_the_profiles_and_a_configuration_come_from_fibsem_agent(made):
+def test_the_playbooks_and_a_configuration_come_from_fibsem_agent(made):
     agent, _, _ = made(configs={"default": DEFAULT, "overnight": DEFAULT})
-    assert [row["name"] for row in agent.profiles()] == ["default", "overnight"]
+    assert [row["name"] for row in agent.playbooks()] == ["default", "overnight"]
     assert agent.configuration("default") == DEFAULT
 
 
@@ -346,7 +346,7 @@ def _by_hand(tmp_path, **about):
     """A session someone ran with fibsem-agent in a terminal, now ended."""
     session = SessionFolder.open(
         "by-hand",
-        {"profile": "default", "mode": "none", **about},
+        {"playbook": "default", "mode": "none", **about},
         tmp_path / "sessions",
     )
     session.end(0, "stopped")
@@ -368,7 +368,7 @@ def test_resume_carries_an_ended_gateway_session_on(made, tmp_path):
     assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
     assert len(folders(tmp_path / "sessions")) == 1, "the same folder"
     assert _record(tmp_path)["args"] == [
-        "--profile",
+        "--playbook",
         "default",
         "--url",
         URL,
@@ -388,7 +388,7 @@ def test_resume_takes_a_terminal_session_as_its_record_says(made, tmp_path):
     agent.resume("by-hand", "watch", "operator", "page")
     assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
     assert _record(tmp_path)["args"] == [
-        "--profile",
+        "--playbook",
         "default",
         "--url",
         URL,
@@ -466,4 +466,4 @@ def test_a_session_in_its_own_run_folder_needs_no_folder_named(made, tmp_path):
     assert agent.state().sessions[0]["cannot_resume"] is None
     agent.resume("by-hand", "watch", "operator", "page")
     assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
-    assert _record(tmp_path)["args"] == ["--profile", "default", "--url", URL]
+    assert _record(tmp_path)["args"] == ["--playbook", "default", "--url", URL]

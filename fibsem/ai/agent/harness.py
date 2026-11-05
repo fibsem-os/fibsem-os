@@ -13,8 +13,8 @@ decides what the agent may do, and the harness never sets the level. Needs the
     fibsem-agent --code                       # it writes and runs code, sandboxed,
                                               # in work/ in the session's folder
     fibsem-agent --files ~/fibsem-work        # it reads and writes files there, runs nothing
-    fibsem-agent --profile overnight-lamella  # what it runs with, from a profile
-    fibsem-agent --profile overnight-lamella --show-config
+    fibsem-agent --playbook autolamella       # what it runs with, from a playbook
+    fibsem-agent --playbook autolamella --show-config
 """
 
 import argparse
@@ -38,7 +38,7 @@ from fibsem.ai.agent import (
     code_mode,
     mirror,
     playbooks,
-    profiles,
+    reminders,
     sources,
     subagents,
     usage,
@@ -218,14 +218,15 @@ def harness_prompt(work: Optional[Path] = None, code: bool = True) -> str:
 def system_prompt(
     work: Optional[Path] = None,
     code: bool = True,
-    profile: Optional[profiles.Profile] = None,
+    playbook: Optional[playbooks.Playbook] = None,
 ) -> str:
-    """The harness's prompt, and the profile's instructions after it."""
+    """The harness's prompt, and the rules of the playbook the session
+    started on after it, so they are read every turn."""
     prompt = harness_prompt(work, code)
-    if profile is not None and profile.prompt:
+    if playbook is not None and playbook.rules:
         prompt += (
-            f"\n\nInstructions from the {profile.name} profile you run with:\n"
-            + profile.prompt
+            f"\n\nRules of the {playbook.name} playbook you started on:\n"
+            + "\n".join(f"- {rule}" for rule in playbook.rules)
         )
     return prompt
 
@@ -244,11 +245,11 @@ def subagent_tools(names: List[str]) -> List[str]:
     return [f"Agent({name})" for name in names if name not in SPECIALISTS]
 
 
-def skills_for(profile: Optional[profiles.Profile] = None) -> List[str]:
-    """The skills the agent loads: the base and task skills, the lab's own
-    (`sources.lab_skills`), and a profile's."""
+def skills_for() -> List[str]:
+    """The skills the agent loads: the base and task skills, and the lab's own
+    (`sources.lab_skills`)."""
     names = list(SKILLS)
-    for name in sources.lab_skills() + list(profile.skills if profile else []):
+    for name in sources.lab_skills():
         if name not in names:
             names.append(name)
     return names
@@ -307,8 +308,9 @@ def _kickoff(resumed: bool) -> str:
         "experiment_message_operator what they would like to get done today, "
         "naming the tasks in that table, and read the task skill for their "
         "answer when it comes.\n"
-        "5. Call playbook_list. With no playbook set, propose the one that fits "
-        "(Session setup) and set it once the operator agrees.\n"
+        f"5. Call playbook_list. On the base {playbooks.DEFAULT} playbook, "
+        "propose the one that fits (Session setup) and set it once the operator "
+        "agrees.\n"
         "6. Once you have the brief, write your plan (plan_set_section) under "
         "the playbook's plan headings, starting with the Brief and its Sample "
         "line.\n"
@@ -321,7 +323,7 @@ def turn_prompt(lines: List[str], remind: Optional[List[str]] = None) -> str:
     asks of the agent first, and the reminders *remind* the lines call for."""
     prompt = "The watcher printed:\n" + "\n".join(lines)
     if remind:
-        prompt += "\n\n" + profiles.reminder(remind)
+        prompt += "\n\n" + reminders.reminder(remind)
     if any(line.startswith("GAP") for line in lines):
         prompt += "\n\n" + REREAD_PROPOSALS
     if any(line.startswith(("AGENT BACK", "RESTARTED", "LEVEL")) for line in lines):
@@ -495,21 +497,22 @@ class PlaybookControl:
         )
 
     def set(self, name: str, chosen_by: str) -> str:
-        if not name:
-            self.reminders.set(None, chosen_by)
-            self._changed(f"Playbook set: none, {chosen_by}")
-            return "No playbook: only your profile's reminders hold."
+        """Run playbook *name* from now on; an empty name, the base one. Its
+        session settings count only at a session's start, so are not given."""
         try:
-            found = playbooks.load(name, self.checkout)
+            found = playbooks.load(name or playbooks.DEFAULT, self.checkout)
         except playbooks.PlaybookError as error:
             return f"Refused: {error}"
         self.reminders.set(found, chosen_by)
         self._changed(f"Playbook set: {found.name}, {chosen_by}")
         self._subagents([])
+        summary = found.summary()
+        summary.pop("session", None)
         return (
-            f"Running the {found.name} playbook. Its reminders are on now. "
+            f"Running the {found.name} playbook. Its reminders are on now and its "
+            "rules hold. The model, budget and mode stay as this session started. "
             "Read its skills, and an optional one when its when holds:\n"
-            + json.dumps(found.summary(), ensure_ascii=False)
+            + json.dumps(summary, ensure_ascii=False)
         )
 
     def loaded(self, skill: str) -> None:
@@ -538,7 +541,7 @@ class PlaybookControl:
     def hooks(self) -> List[dict]:
         """The reminders on now, as the Agent page shows them."""
         rows = []
-        for when, option in profiles.HOOK_OPTIONS.items():
+        for when, option in reminders.HOOK_OPTIONS.items():
             for say in self.reminders.texts(when):
                 rows.append({"when": when, "label": option.label, "say": say})
         return rows
@@ -584,7 +587,7 @@ def wake_server(alarm: Alarm, control: Optional[PlaybookControl] = None):
         "hold. Set it once the operator has agreed to it, or when they name "
         "one. chosen_by says who chose it, as the operator reads it: 'named by "
         "the operator', or 'proposed by the agent, confirmed by the "
-        "operator'. An empty name runs none.",
+        "operator'. An empty name runs the base fibsem-agent playbook.",
         {"name": str, "chosen_by": str},
     )
     async def playbook_set(args):
@@ -1545,7 +1548,7 @@ def build_options(
     session_id: Optional[str] = None,
     code: bool = True,
     alarm: Optional[Alarm] = None,
-    profile: Optional[profiles.Profile] = None,
+    playbook: Optional[playbooks.Playbook] = None,
     transcript: Optional[Path] = None,
     cwd: Optional[Path] = None,
     control: Optional[PlaybookControl] = None,
@@ -1553,8 +1556,9 @@ def build_options(
     """The SDK session: the sidecar as the only MCP server, the project's
     skills and nothing of the user's Claude Code config. With ``work``, code
     mode: the code tools, sandboxed, in ``work`` (``code_mode.prepare`` has
-    copied the skills there); without ``code``, the file tools only. A
-    *profile* adds its skills, its instructions and its reminders. With
+    copied the skills there); without ``code``, the file tools only. The
+    *playbook* the session starts on puts its rules in the prompt, and its
+    reminders hold when there is no *control* to ask. With
     *transcript*, a folder, the CLI's transcript is copied there as it is
     written (`mirror.TranscriptMirror`)."""
     from claude_agent_sdk import ClaudeAgentOptions
@@ -1587,7 +1591,7 @@ def build_options(
         # settings, hooks and skills stay out.
         cwd=str(work or cwd or checkout),
         setting_sources=["project"],
-        skills=skills_for(profile),
+        skills=skills_for(),
         tools=list(tools),
         allowed_tools=list(allowed),
         disallowed_tools=list(denied),
@@ -1600,14 +1604,14 @@ def build_options(
         system_prompt={
             "type": "preset",
             "preset": "claude_code",
-            "append": system_prompt(work, code, profile),
+            "append": system_prompt(work, code, playbook),
         },
         # With a playbook control, the reminders on now, asked at each call.
         hooks=(
             control.reminders.sdk_hooks(SERVER)
             if control is not None
-            else profiles.sdk_hooks(profile.hooks, SERVER)
-            if profile
+            else reminders.sdk_hooks(playbook.hooks, SERVER)
+            if playbook
             else None
         ),
         # Watcher lines carry operator-typed text: never expand an @path in it.
@@ -1669,7 +1673,7 @@ def status(
     rows = [
         ("fibsem", __version__),
         ("Server", args.url or "this computer's App Server"),
-        ("Profile", getattr(args, "profile", None) or "none"),
+        ("Playbook", getattr(args, "playbook", None) or "none"),
         ("Model", args.model or "Claude Code's default"),
         ("Goal", args.goal or "none: the skills decide"),
         (
@@ -1682,7 +1686,7 @@ def status(
         ("Code", code_mode.describe(work, code)),
         ("Log", str(log_path)),
     ]
-    return [f"{label + ':':<9}{value}" for label, value in rows]
+    return [f"{label + ':':<10}{value}" for label, value in rows]
 
 
 def _skills_line(checkout: Path) -> str:
@@ -1786,12 +1790,13 @@ def main(argv=None) -> int:
         "session's folder) and runs nothing: no shell",
     )
     parser.add_argument(
-        "--profile",
+        "--playbook",
         default=None,
         metavar="NAME",
-        help="run with the profile NAME.yaml, from ~/.fibsem/agent/profiles/ or "
-        f"the checkout's .claude/fibsem-agent/ (default: {profiles.DEFAULT_PROFILE}); "
-        "flags given here win over it",
+        help="start on the playbook NAME.yaml, from ~/.fibsem/knowledge/playbooks/ "
+        "or the checkout's .claude/fibsem-agent/playbooks/ (default: "
+        f"{playbooks.DEFAULT}); its session settings apply, and flags given here "
+        "win over them",
     )
     parser.add_argument(
         "--show-config",
@@ -1799,12 +1804,12 @@ def main(argv=None) -> int:
         help="print what the agent would run with, and start nothing",
     )
     parser.add_argument(
-        "--list-profiles", action="store_true", help="list the profiles found"
+        "--list-playbooks", action="store_true", help="list the playbooks found"
     )
     parser.add_argument(
         "--list-hooks",
         action="store_true",
-        help="list when a profile's reminders can fire",
+        help="list when a playbook's reminders can fire",
     )
     parser.add_argument(
         "--json", action="store_true", help="with --show-config or --list-*: JSON"
@@ -1815,7 +1820,7 @@ def main(argv=None) -> int:
     if args.session_id and args.resume:
         parser.error("--session-id starts a new session: --resume carries one on")
     if args.list_hooks:
-        return _print(profiles.hook_rows(), args.json, _hook_text)
+        return _print(reminders.hook_rows(), args.json, _hook_text)
 
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -1829,33 +1834,14 @@ def main(argv=None) -> int:
             file=sys.stderr,
         )
         return 1
-    if args.list_profiles:
-        return _print(_profile_rows(checkout), args.json, _profile_text)
-    profile = None
-    name = args.profile or profiles.DEFAULT_PROFILE
-    path = profiles.find(name, checkout)
-    if path is not None or args.profile:
-        if path is None:
-            print(
-                f"No profile {args.profile!r} in "
-                + " or ".join(str(d) for d in profiles.dirs(checkout))
-                + " (fibsem-agent --list-profiles).",
-                file=sys.stderr,
-            )
-            return 1
-        try:
-            profile = profiles.load(path, EFFORTS, checkout)
-        except profiles.ProfileError as error:
-            print(error, file=sys.stderr)
-            return 1
-    _resolve(args, profile)
-    playbook = None
-    if profile is not None and profile.playbook:
-        try:
-            playbook = playbooks.load(profile.playbook, checkout)
-        except playbooks.PlaybookError as error:
-            print(f"{profile.path}: {error}", file=sys.stderr)
-            return 1
+    if args.list_playbooks:
+        return _print(_playbook_rows(checkout), args.json, _playbook_text)
+    try:
+        playbook = playbooks.load(args.playbook or playbooks.DEFAULT, checkout, EFFORTS)
+    except playbooks.PlaybookError as error:
+        print(f"{error} (fibsem-agent --list-playbooks).", file=sys.stderr)
+        return 1
+    _resolve(args, playbook.session)
     try:
         for name in subagents_for():
             subagents.check_file(name, checkout, EFFORTS)
@@ -1896,7 +1882,7 @@ def main(argv=None) -> int:
             print(refused, file=sys.stderr)
             return 1
     if args.show_config:
-        config = show_config(args, checkout, work, code, profile, playbook)
+        config = show_config(args, checkout, work, code, playbook)
         return _print(config, args.json, _config_text)
     missing = missing_extra_message("agent", "fibsem-agent")
     if missing:
@@ -1909,7 +1895,7 @@ def main(argv=None) -> int:
     if key:
         os.environ[API_KEY] = key
     session = sessions.SessionFolder.open(
-        session_id, _about(args, checkout, work, code, profile, run), folder=folder
+        session_id, _about(args, checkout, work, code, playbook, run), folder=folder
     )
     log_path = Path(args.log).expanduser() if args.log else session.log_path
     print_fibsem_logo()
@@ -1917,15 +1903,15 @@ def main(argv=None) -> int:
     for line in status(args, checkout, log_path, work, session_id, code):
         log.info(line)
     if work is not None:
-        code_mode.prepare(work, checkout, skills_for(profile), subagents_for())
+        code_mode.prepare(work, checkout, skills_for(), subagents_for())
         for line in code_mode.details():
             log.debug(line)
     elif run != checkout:
-        sources.assemble(run, checkout, skills_for(profile), subagents_for())
+        sources.assemble(run, checkout, skills_for(), subagents_for())
 
     alarm = Alarm()
     control = PlaybookControl(
-        playbooks.Reminders(profile.hooks if profile else []),
+        playbooks.Reminders(),
         checkout,
         keep=session.keep_playbook,
     )
@@ -1934,10 +1920,12 @@ def main(argv=None) -> int:
         why = control.reminders.restore(record, checkout)
         if why:
             log.warning("The session's playbook can't be picked up again: %s", why)
-    # A resumed session whose operator chose none keeps none.
-    named = "playbook" not in record and playbook is not None
+    # A resumed session keeps the playbook it had, or none if one was cleared.
+    named = "playbook" not in record
     if named:
-        control.reminders.set(playbook, f"named by the {profile.name} profile")
+        control.reminders.set(
+            playbook, "named at launch" if args.playbook else "the default"
+        )
         session.keep_playbook(control.reminders.state())
     if control.reminders.playbook is not None:
         log.info("Playbook: %s", control.reminders.playbook.name)
@@ -1955,7 +1943,7 @@ def main(argv=None) -> int:
         work=work,
         session_id=None if args.resume else session_id,
         code=code,
-        profile=profile,
+        playbook=playbook,
         transcript=session.folder,
         cwd=run,
     )
@@ -1979,7 +1967,6 @@ def main(argv=None) -> int:
             "workdir": str(work) if work is not None else None,
             "effort": args.effort,
             "resumed": args.resume is not None,
-            **(_profile_report(profile) if profile else {}),
         },
     )
 
@@ -2029,7 +2016,7 @@ def _about(
     checkout: Path,
     work: Optional[Path],
     code: bool,
-    profile: Optional[profiles.Profile] = None,
+    playbook: Optional[playbooks.Playbook] = None,
     run: Optional[Path] = None,
 ) -> dict:
     """What a session runs with, for its record."""
@@ -2046,30 +2033,14 @@ def _about(
         "max_turns": args.max_turns,
         "mode": ("code" if code else "files") if work is not None else "none",
         "checkout": str(checkout),
-        "profile": profile.name if profile else None,
-        "profile_hash": profile.hash if profile else None,
+        "playbook": playbook.name if playbook else None,
+        "playbook_hash": playbook.hash if playbook else None,
     }
 
 
-def _profile_report(profile: profiles.Profile) -> dict:
-    """The profile for the Agent page: its name, hash and reminders."""
-    return {
-        "profile": profile.name,
-        "profile_hash": profile.hash,
-        "hooks": [
-            {
-                "when": hook.when,
-                "label": profiles.HOOK_OPTIONS[hook.when].label,
-                "say": hook.say,
-            }
-            for hook in profile.hooks
-        ],
-    }
-
-
-def _resolve(args, profile: Optional[profiles.Profile]) -> None:
-    """Fill what the command line left out: the profile's, else the default."""
-    given = profile or profiles.Profile(name="", path=Path(), hash="")
+def _resolve(args, given: playbooks.Session) -> None:
+    """Fill what the command line left out: the playbook's session settings,
+    else the defaults."""
     if args.model is None:
         args.model = given.model
     if args.effort is None:
@@ -2078,7 +2049,7 @@ def _resolve(args, profile: Optional[profiles.Profile]) -> None:
         args.max_turns = given.max_turns or MAX_TURNS
     if args.max_budget_usd is None:
         args.max_budget_usd = given.max_budget_usd or MAX_BUDGET_USD
-    if not (args.code or args.files) and given.mode != "none":
+    if not (args.code or args.files) and given.mode not in (None, "none"):
         folder = str(Path(given.folder).expanduser()) if given.folder else IN_SESSION
         if given.mode == "code":
             args.code = folder
@@ -2091,8 +2062,7 @@ def show_config(
     checkout: Path,
     work: Optional[Path],
     code: bool,
-    profile: Optional[profiles.Profile],
-    playbook: Optional[playbooks.Playbook] = None,
+    playbook: playbooks.Playbook,
 ) -> dict:
     """``--show-config``: everything the agent would run with, from the same
     pieces `build_options` uses, without the SDK and without starting."""
@@ -2103,18 +2073,9 @@ def show_config(
         tools = BUILT_IN_TOOLS + given
         allowed = base + code_mode.allowed_tools(work, code)
         denied = [tool for tool in DENIED_TOOLS if tool not in given]
-    hooks = []
-    for hook in profile.hooks if profile else []:
-        option = profiles.HOOK_OPTIONS[hook.when]
-        hooks.append({"when": hook.when, "label": option.label, "say": hook.say})
     return {
-        "profile": (
-            {"name": profile.name, "path": str(profile.path), "hash": profile.hash}
-            if profile
-            else None
-        ),
-        "level": profile.level if profile else None,
-        "description": profile.description if profile else None,
+        "level": playbook.session.level,
+        "description": playbook.description,
         "model": args.model,
         "effort": args.effort,
         "max_budget_usd": args.max_budget_usd,
@@ -2122,33 +2083,37 @@ def show_config(
         "mode": ("code" if code else "files") if work is not None else "none",
         "folder": str(work) if work is not None else None,
         "checkout": str(checkout),
-        "skills": skills_for(profile),
+        "skills": skills_for(),
         "specialists": subagents_for(),
         "tools": list(tools),
         "allowed_tools": list(allowed),
         "denied_tools": list(denied),
-        "hooks": hooks,
-        # Its reminders are on from the start; without one, chosen at intake.
-        "playbook": playbook.summary() if playbook is not None else None,
-        "system_prompt": system_prompt(work, code, profile),
+        # Its reminders are on from the start; the agent may propose another.
+        "playbook": {
+            **playbook.summary(),
+            "path": str(playbook.path),
+            "hash": playbook.hash,
+        },
+        "system_prompt": system_prompt(work, code, playbook),
     }
 
 
-def _profile_rows(checkout: Path) -> List[dict]:
+def _playbook_rows(checkout: Path) -> List[dict]:
     rows = []
-    for path in profiles.available(checkout):
+    for name in playbooks.available(checkout):
         try:
-            profile = profiles.load(path, EFFORTS, checkout)
-        except profiles.ProfileError as error:
-            rows.append({"name": path.stem, "path": str(path), "error": str(error)})
+            found = playbooks.load(name, checkout, EFFORTS)
+        except playbooks.PlaybookError as error:
+            rows.append({"name": name, "error": str(error)})
             continue
         rows.append(
             {
-                "name": profile.name,
-                "path": str(path),
-                "hash": profile.hash,
-                "mode": profile.mode,
-                "hooks": len(profile.hooks),
+                "name": found.name,
+                "path": str(found.path),
+                "hash": found.hash,
+                "description": found.description,
+                "level": found.session.level,
+                "mode": found.session.mode or "none",
             }
         )
     return rows
@@ -2166,26 +2131,22 @@ def _hook_text(rows: List[dict]) -> str:
     )
 
 
-def _profile_text(rows: List[dict]) -> str:
+def _playbook_text(rows: List[dict]) -> str:
     if not rows:
-        return "No profiles."
+        return "No playbooks."
     return "\n".join(
-        f"{row['name']:<20}"
+        f"{row['name']:<26}"
         + (f"error: {row['error']}" if "error" in row else f"{row['mode']:<6}")
-        + f"  {row['path']}"
+        + (f"  {row['path']}" if "path" in row else "")
         for row in rows
     )
 
 
 def _config_text(config: dict) -> str:
-    profile = config["profile"]
+    playbook = config["playbook"]
     lines = [
-        "Profile:  "
-        + (
-            f"{profile['name']} ({profile['path']}, {profile['hash']})"
-            if profile
-            else "none"
-        ),
+        f"Playbook: {' <- '.join(playbook['extends'] + [playbook['name']])} "
+        f"({playbook['path']}, {playbook['hash']})",
         f"Model:    {config['model'] or 'the CLI default'}, {config['effort']} effort",
         f"Budget:   ${config['max_budget_usd']:g} per run, "
         f"{config['max_turns']} tool calls per wake-up",
@@ -2196,23 +2157,14 @@ def _config_text(config: dict) -> str:
         f"Tools:    {', '.join(config['tools'])}",
         f"Allowed:  {', '.join(config['allowed_tools'])}",
         f"Denied:   {', '.join(config['denied_tools'])}",
-        "Reminders:",
+        f"Playbook skills: {', '.join(playbook['skills']) or 'none'}",
     ]
-    lines += [f"  {hook['label']}: {hook['say']}" for hook in config["hooks"]] or [
+    lines += [f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]]
+    lines.append("Reminders:")
+    lines += [f"  {r['label']}: {r['say']}" for r in playbook["reminders"]] or [
         "  none"
     ]
-    playbook = config.get("playbook")
-    if playbook is None:
-        lines.append("Playbook: none named; the agent proposes one at intake")
-    else:
-        chain = " <- ".join(playbook["extends"] + [playbook["name"]])
-        lines.append(f"Playbook: {chain}")
-        lines.append(f"  Skills: {', '.join(playbook['skills']) or 'none'}")
-        lines += [
-            f"  When needed: {o['skill']}, {o['when']}" for o in playbook["optional"]
-        ]
-        lines += [f"  {r['label']}: {r['say']}" for r in playbook["reminders"]]
-        lines += [f"  Rule: {rule}" for rule in playbook["rules"]]
+    lines += [f"Rule: {rule}" for rule in playbook["rules"]]
     return "\n".join(lines + ["", "System prompt (appended):", config["system_prompt"]])
 
 

@@ -62,27 +62,28 @@ was never pushed, it shows nothing.
 The gateway can run the agent on this PC, next to the app. The **Agent** card on the page
 starts it with:
 
-- a **profile** (`default` is picked first);
-- a **level** (Watch, Assist or Drive): the profile's `level` is picked first, else Watch;
-- an optional **budget**, in place of the profile's;
+- a **playbook** (`fibsem-agent`, the general one, is picked first);
+- a **level** (Watch, Assist or Drive): the playbook's session `level` is picked first, else
+  Watch;
+- an optional **budget**, in place of the playbook's;
 - a **goal** for the session.
 
-Under the goal, the profile's `description` says what it is for.
+Under the goal, the playbook's `description` says what it is for.
 
-**Show configuration** lists what the profile runs with: the model, budget, skills and
-reminders.
+**Show configuration** lists what the playbook runs with: the model, budget, skills,
+reminders and rules.
 
 Start needs:
 
 - **The app running**, with its window or without. The agent acts through it.
 - **A microscope connected.** The agent works on it.
 - **An API key**, stored once with `fibsem-cli key set ANTHROPIC_API_KEY` (see below).
-- **A profile that doesn't run code.** Windows has no sandbox for the agent's code.
+- **A playbook that doesn't run code.** Windows has no sandbox for the agent's code.
 
 If another agent is already connected, such as Claude Code from another computer, Start asks
 first. **Disconnect and start** replaces it.
 
-While it runs, the card shows the goal, profile, level and spend.
+While it runs, the card shows the goal, playbook, level and spend.
 
 - **If the app restarts,** the agent waits for it and resumes the same session. That's at
   most 3 times an hour after the app restarts, and once an hour after a crash. The gateway

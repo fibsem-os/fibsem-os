@@ -102,17 +102,19 @@ def session_line(session: Optional[Dict[str, Any]]) -> Optional[str]:
 
 def session_facts(session: Optional[Dict[str, Any]]) -> List[Tuple[str, str]]:
     """What the agent said it can do, as (name, value) rows for the chip's
-    details: its harness, profile, model and effort, code mode, skills,
+    details: its harness, playbook, model and effort, code mode, skills,
     session id."""
     if not session:
         return []
     facts = []
     if session.get("harness"):
         facts.append(("Harness", session["harness"]))
-    if session.get("profile"):
-        hash_ = session.get("profile_hash")
-        profile = f"{session['profile']} ({hash_})" if hash_ else session["profile"]
-        facts.append(("Profile", profile))
+    playbook = session.get("playbook")
+    if isinstance(playbook, dict) and playbook.get("name"):
+        hash_ = playbook.get("hash")
+        facts.append(
+            ("Playbook", f"{playbook['name']} ({hash_})" if hash_ else playbook["name"])
+        )
     model = ", ".join(
         part
         for part in (

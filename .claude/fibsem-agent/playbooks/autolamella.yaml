@@ -1,5 +1,6 @@
 # On-grid AutoLamella: the shipped starting point. A lab's own copy in
 # ~/.fibsem/knowledge/playbooks/ wins by name.
+extends: fibsem-agent
 description: On-grid lamellae, not correlative.
 skills: [autolamella]
 optional:

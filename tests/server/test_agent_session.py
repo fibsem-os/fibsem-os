@@ -200,12 +200,10 @@ def test_a_session_without_an_id_takes_the_first_one_reported(server):
     assert _kinds(recorded) == [SESSION_STARTED]
 
 
-def test_the_profile_and_its_reminders_are_kept(server):
+def test_the_reminders_are_kept(server):
     _, client, _ = server
     hooks = [{"when": "site", "label": "At a site", "say": "Check the film."}]
-    body = {"profile": "night", "profile_hash": "abc", "hooks": hooks}
-    session = client.post("/app/agent/session", json=body).json()["session"]
-    assert (session["profile"], session["profile_hash"]) == ("night", "abc")
+    session = client.post("/app/agent/session", json={"hooks": hooks}).json()["session"]
     assert session["hooks"] == hooks
 
 

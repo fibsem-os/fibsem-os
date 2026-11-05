@@ -6,7 +6,7 @@ Under ``<state root>/knowledge``:
   ``sample/<sample>/<id>``, ``playbook/<playbook>/<id>`` and
   ``experiment/<experiment>`` (a past run's record), each holding ``entry.md``
   and the images it cites.
-- ``profiles/``, ``playbooks/``, ``skills/`` and ``agents/`` (subagents): the
+- ``playbooks/``, ``skills/`` and ``agents/`` (subagents): the
   lab's own, read beside the ones fibsem ships.
 
 An entry is self-contained: its images are copied in (at most ``IMAGE_PX`` on
@@ -58,8 +58,8 @@ LASTS = (UNTIL_FIXED, ONGOING, RECORD)
 TAGS = ("instrument", "sample", "playbook", "session")
 # Where an entry came from, besides its tags: ids and names, never a path.
 SOURCE = ("experiment_id", "instrument_serial", "agent_session", "item", "evidence_id")
-# The lab's own profiles, playbooks and skills, beside the shipped ones.
-LAB_FOLDERS = ("profiles", "playbooks", "skills", "agents")
+# The lab's own playbooks, skills and subagents, beside the shipped ones.
+LAB_FOLDERS = ("playbooks", "skills", "agents")
 # An "until fixed" entry not checked for this long is asked about again.
 ASK_AGAIN = timedelta(days=14)
 
@@ -155,7 +155,7 @@ def root() -> Path:
 
 
 def lab_folder(kind: str) -> Path:
-    """The folder of the lab's own profiles, playbooks or skills, made if missing."""
+    """The folder of the lab's own playbooks, skills or subagents, made if missing."""
     if kind not in LAB_FOLDERS:
         raise KnowledgeError("invalid", f"kind is one of {list(LAB_FOLDERS)}.")
     folder = root() / kind

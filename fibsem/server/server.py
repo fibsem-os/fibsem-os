@@ -922,7 +922,7 @@ def build_server(
                 lambda: getattr(app_context, "experiment_sample", None),
             )
         )
-        # The agent's profiles, playbooks and skills: shipped and the lab's.
+        # The agent's playbooks, skills and subagents: shipped and the lab's.
         app.include_router(build_library_router())
     if operator is not None:
         app.include_router(build_operator_router(operator))

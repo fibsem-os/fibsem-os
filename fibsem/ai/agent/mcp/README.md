@@ -183,19 +183,19 @@ fibsem-agent
   agent to re-read the status. If the app can't be watched, the harness waits
   up to `--server-wait` seconds (default 600) for it to answer again, then
   stops with exit code 1.
-- **Profiles.** `--profile NAME` runs with `NAME.yaml` from the lab's
-  `~/.fibsem/knowledge/profiles/`, this computer's older
-  `~/.fibsem/agent/profiles/`, or the shipped `.claude/fibsem-agent/`, the
-  first found winning: model, effort, budget and turns, the mode and its folder,
-  extra skills, instructions added to the prompt, and reminders. Flags on the
-  command line win over it; the level and the API key are never in it.
-  `--show-config` prints what the agent would run with and starts nothing,
-  `--list-profiles` lists them, and `--json` gives either as JSON. The
-  checkout ships `default`.
-- **Reminders.** A profile's `hooks` are `when` plus `say`: the text reaches
-  the agent at the moment it makes a matching tool call, before it or after it
-  (`--list-hooks` lists the options and their tools). The tools and the App
-  Server know nothing of them.
+- **Playbooks.** `--playbook NAME` starts the session on `NAME.yaml` from the
+  lab's `~/.fibsem/knowledge/playbooks/` or the shipped
+  `.claude/fibsem-agent/playbooks/`, the lab's winning; with none named it starts on
+  `fibsem-agent`, which the shipped ones extend. A playbook names its skills,
+  reminders, rules and subagents, and its `session:` sets the model, effort,
+  budget and turns, the mode and its folder, and the level the gateway's card
+  picks first. Flags on the command line win over it; the API key is never in
+  it. `--show-config` prints what the agent would run with and starts nothing,
+  `--list-playbooks` lists them, and `--json` gives either as JSON.
+- **Reminders.** A playbook's `reminders` map a `when` to what to say: the text
+  reaches the agent at the moment it makes a matching tool call, before it or
+  after it (`--list-hooks` lists the options and their tools). The tools and
+  the App Server know nothing of them.
 - **Limits.** `--max-turns` (default 40) caps the tool calls in one
   wake-up; the next wake-up starts a fresh count. `--max-budget-usd`
   (default 5) caps what one run of `fibsem-agent` spends, and reaching it

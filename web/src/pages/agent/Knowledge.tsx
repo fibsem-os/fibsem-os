@@ -562,7 +562,6 @@ export function KnowledgeBrowser({
 type Tab = "entries" | LibraryKind | "tools" | "never";
 const TABS: [Tab, string][] = [
   ["entries", "Entries"],
-  ["profiles", "Profiles"],
   ["playbooks", "Playbooks"],
   ["skills", "Skills"],
   ["agents", "Subagents"],
@@ -573,15 +572,15 @@ const TABS: [Tab, string][] = [
 /** What each tab holds, in a line. */
 const TAB_ABOUT: Partial<Record<Tab, string>> = {
   entries: "Persistent information: what the lab knows about its instrument, samples and past runs.",
-  profiles: "Session settings: the level, budget, mode and model a session starts with, and its playbook.",
-  playbooks: "Workflows: the skills, rules, reminders and subagents one kind of work uses.",
+  playbooks:
+    "Workflows: the skills, rules, reminders and subagents one kind of work uses, and the settings a session started on it runs with.",
   skills: "How to do a kind of task.",
   agents: "Second opinions and analysis, each in a fresh context. Several can run at once, but not on the microscope.",
 };
 
 /** The Knowledge window: what the agent and the operator have recorded about
  * this microscope, its samples and playbooks, and past runs; the agent's own
- * entries to review first; the agent's profiles, playbooks, skills and subagents,
+ * entries to review first; the agent's playbooks, skills and subagents,
  * the shipped and the lab's own; and, read-only, its tools and what it never touches. */
 export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const client = useQueryClient();

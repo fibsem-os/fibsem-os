@@ -269,7 +269,7 @@ def test_an_experiment_entry_is_the_open_experiment_s_record(server):
 
 
 def test_the_lab_s_own_folders_are_made_with_the_server(server, tmp_path):
-    for kind in ("profiles", "playbooks", "skills"):
+    for kind in ("playbooks", "skills", "agents"):
         assert (tmp_path / "state" / "knowledge" / kind).is_dir()
 
 
