@@ -187,7 +187,7 @@ function PickList({
                     <li key={name} className="border-b border-border/60">
                       <label
                         className={cn(
-                          "grid grid-cols-[20px_220px_minmax(0,1fr)_44px] items-baseline gap-x-3 py-1.5",
+                          "grid grid-cols-[20px_220px_minmax(0,1fr)_64px] items-baseline gap-x-3 py-1.5",
                           onChange && "cursor-pointer",
                           kind !== "tools" && "grid-cols-[20px_220px_minmax(0,1fr)]",
                         )}

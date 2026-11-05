@@ -7,7 +7,7 @@ import { api } from "@/lib/api";
 import type { AgentCustomisation, ToolRow } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export const LEVEL_WORD: Record<ToolRow["level"], string> = { watch: "Reads", assist: "Asks", drive: "Acts" };
+export const LEVEL_WORD: Record<ToolRow["level"], string> = { watch: "Any level", assist: "Asks", drive: "Acts" };
 export const acts = (tool: ToolRow) => tool.level !== "watch";
 
 export interface Filter {
@@ -79,7 +79,7 @@ export function FilterMenu({
           <Check
             on={filter.reads}
             onChange={() => flip("reads")}
-            label="Reads"
+            label="Any level"
             count={tools.filter((t) => !acts(t)).length}
           />
           <Check on={filter.acts} onChange={() => flip("acts")} label="Acts" count={tools.filter(acts).length} />
@@ -124,7 +124,7 @@ function Tool({ tool }: { tool: ToolRow }) {
   const [open, setOpen] = useState(false);
   return (
     <li
-      className="grid cursor-pointer grid-cols-1 gap-x-3 gap-y-0.5 border-b border-border/60 py-1.5 sm:grid-cols-[240px_minmax(0,1fr)_44px_76px]"
+      className="grid cursor-pointer grid-cols-1 gap-x-3 gap-y-0.5 border-b border-border/60 py-1.5 sm:grid-cols-[240px_minmax(0,1fr)_64px_76px]"
       onClick={() => setOpen(!open)}
     >
       <span className="min-w-0 font-mono text-[12px] break-all">{tool.name}</span>
