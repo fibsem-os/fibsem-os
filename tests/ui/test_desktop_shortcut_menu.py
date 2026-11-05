@@ -37,3 +37,16 @@ def test_it_writes_the_gateway_shortcut_where_chosen(window, tmp_path, monkeypat
     monkeypatch.setattr(window.menu_bar, "_show_toast", lambda *a, **k: None)
     window.menu_bar.shortcut_actions["gateway"].trigger()
     assert made == [{"directory": tmp_path, "app": GATEWAY}]
+
+
+def test_no_gateway_shortcut_where_it_is_not_released(window, monkeypatch):
+    from fibsem import unreleased
+
+    monkeypatch.setenv(unreleased.ENV, "0")
+    menu_bar = window.menu_bar
+    bar = menu_bar._host.menuBar()
+    before = list(bar.actions())
+    menu_bar._create_menu_bar()
+    assert "gateway" not in menu_bar.shortcut_actions
+    for action in bar.actions()[len(before) :]:
+        bar.removeAction(action)

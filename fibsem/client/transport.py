@@ -16,7 +16,7 @@ from typing import Any, Dict, Iterator, Mapping, Optional, Tuple
 import httpx
 import numpy as np
 
-from fibsem import __version__
+from fibsem import __version__, unreleased
 from fibsem.client.pairing import (
     DEFAULT_URL,
     agent_token,
@@ -101,7 +101,12 @@ def resolve(
     else from the discovery file the App Server on this machine writes (the
     agent token this agent was allowed, else the file's connect token, which
     asks to be allowed), else the agent token paired at the SSH tunnel's end.
-    None when none is known (yet). Never an operator's paired token."""
+    None when none is known (yet). Never an operator's paired token.
+
+    Where the agent is not released (`fibsem.unreleased`), a client is the
+    operator: `resolve_operator`."""
+    if not unreleased.enabled():
+        return resolve_operator(url, token)
     env_url, env_token = server_env()
     url = url or env_url
     token = token or env_token

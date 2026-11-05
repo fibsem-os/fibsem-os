@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, forgetToken } from "@/lib/api";
+import { useAgentReleased } from "@/lib/experiment";
 import * as fmt from "@/lib/format";
 import { setNoticePrefs, systemNotices, useNoticePrefs } from "@/lib/notify";
 import type { Capabilities, NotificationSettings, Pairing, PairingRole } from "@/lib/types";
@@ -222,6 +223,7 @@ function SlackCard() {
     mutationFn: () => api<{ channel_id: string }>("/app/notifications/test", { method: "POST" }),
     onSuccess: () => client.invalidateQueries({ queryKey: ["app/notifications"] }),
   });
+  const agent = useAgentReleased();
   // Not the operator (a dashboard, an agent), or a host without the routes.
   if (!slack.data) return null;
   const { settings: s, token_set, token_from } = slack.data;
@@ -299,7 +301,7 @@ function SlackCard() {
         />
         min
       </label>
-      {check("messages", "The agent's messages")}
+      {agent && check("messages", "The agent's messages")}
       {check("failures", "Something failed")}
       {check("run_finished", "A run finished")}
       {check(
@@ -326,6 +328,7 @@ function Notifications() {
   const prefs = useNoticePrefs();
   const can = systemNotices();
   const [permission, setPermission] = useState(() => (can ? Notification.permission : "denied"));
+  const agent = useAgentReleased();
   const state = !can
     ? "Not available here: system notifications need localhost or the SSH tunnel."
     : permission === "granted"
@@ -333,6 +336,13 @@ function Notifications() {
       : permission === "denied"
         ? "Blocked in this browser: allow notifications for this site in its settings."
         : "The browser asks for permission when you turn it on.";
+  // This browser's part is only about the agent.
+  if (!agent)
+    return (
+      <div className="flex flex-col gap-3 text-[13px]">
+        <SlackCard />
+      </div>
+    );
   return (
     <div className="flex flex-col gap-3 text-[13px]">
       <h3 className="m-0 text-[13px] font-semibold text-muted-foreground">
@@ -411,6 +421,7 @@ function About() {
 /** The gear: settings that are not a page. */
 export function Settings({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const [section, setSection] = useState<Section>("connections");
+  const agent = useAgentReleased();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Settings">
@@ -433,7 +444,7 @@ export function Settings({ open, onOpenChange }: { open: boolean; onOpenChange: 
             ))}
           </nav>
           <div className="min-w-0 flex-1 px-5 py-4">
-            {section === "connections" ? <Connections /> : section === "notifications" ? <Notifications /> : <About />}
+            {section === "connections" ? <Connections roles={agent ? ["operator", "agent"] : ["operator"]} /> : section === "notifications" ? <Notifications /> : <About />}
           </div>
         </div>
       </DialogContent>

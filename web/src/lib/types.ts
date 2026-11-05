@@ -8,6 +8,8 @@ export interface Capabilities {
   routers: { microscope: boolean; services: boolean; app: boolean };
   app_name?: string;
   level?: string;
+  // whether this install serves an agent at all (fibsem.unreleased)
+  agent?: boolean;
   connected?: boolean;
   // the optional /app parts the app serves (fibsem.server.parts)
   parts?: string[];

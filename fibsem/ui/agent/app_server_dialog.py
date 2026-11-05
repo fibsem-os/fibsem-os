@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
 )
 
+from fibsem import unreleased
 from fibsem.server.hosting import event_log_url
 from fibsem.theme.tokens import (
     ACCENT_COLOR,
@@ -44,17 +45,20 @@ SETTLE_MS = 600
 ENABLED_LABEL = "Serve this session"
 ENABLED_TIP = (
     "Serve this session, with or without a microscope connected: a local, "
-    "token-protected API over this session that an AI agent (through the fibsem-mcp sidecar) and "
-    "the event log can reach. Kept for the next launch. What the agent may do "
-    "is its level, set from the Agent chip in the status bar, which resets to "
-    "Watch at every launch."
+    "token-protected API over this session that the web app, your scripts and "
+    "the event log can reach. Kept for the next launch."
+)
+AGENT_TIP = (
+    " An AI agent can reach it too, through the fibsem-mcp sidecar. What the "
+    "agent may do is its level, set from the Agent chip in the status bar, which "
+    "resets to Watch at every launch."
 )
 MICROSCOPE_LABEL = "Serve the microscope"
 MICROSCOPE_TIP = (
     "Also serve the routes that reach the instrument: its devices, stage, beams "
     "and milling state, reads included. Off, clients see the session but cannot "
-    "query the microscope. Changing this restarts the host's server; a "
-    "connected agent carries on. Kept for the next launch."
+    "query the microscope. Changing this restarts the host's server; connected "
+    "clients carry on. Kept for the next launch."
 )
 
 PAIR_LABEL = "Pair a computer"
@@ -129,8 +133,8 @@ class AppServerDialog(QDialog):
         self._btn_event_log.setStyleSheet(_LINK_STYLE)
         self._btn_event_log.setCursor(Qt.PointingHandCursor)
         self._btn_event_log.setToolTip(
-            "Open the event log in your browser: what the agent, the operator "
-            "and the run did. It reads the session and can't act on it."
+            "Open the event log in your browser: what was done in the session, "
+            "and by whom. It reads the session and can't act on it."
         )
         self._btn_event_log.clicked.connect(self._on_event_log_clicked)
         status_row.addWidget(self._status_dot)
@@ -140,7 +144,9 @@ class AppServerDialog(QDialog):
         self._services_label = note("")
         layout.addWidget(self._services_label)
         self._chk_enabled = QCheckBox(ENABLED_LABEL)
-        self._chk_enabled.setToolTip(ENABLED_TIP)
+        self._chk_enabled.setToolTip(
+            ENABLED_TIP + (AGENT_TIP if unreleased.enabled() else "")
+        )
         self._chk_enabled.setChecked(bool(enabled))
         self._chk_enabled.setVisible(set_enabled is not None)
         self._chk_microscope = QCheckBox(MICROSCOPE_LABEL)
@@ -161,15 +167,18 @@ class AppServerDialog(QDialog):
         layout.addSpacing(6)
 
         # --- agent ------------------------------------------------------------
-        layout.addWidget(section("Agent"))
         self._agent_label = QLabel("")
         self._agent_label.setWordWrap(True)
         self._agent_label.setToolTip(
             "Set what the agent may do, or connect one, from the Agent chip in "
             "the status bar."
         )
+        # Not shown where the agent is not released.
+        agent_section = section("Agent")
+        layout.addWidget(agent_section)
         layout.addWidget(self._agent_label)
-
+        for widget in (agent_section, self._agent_label):
+            widget.setVisible(unreleased.enabled())
         layout.addSpacing(6)
 
         # --- operator ---------------------------------------------------------
