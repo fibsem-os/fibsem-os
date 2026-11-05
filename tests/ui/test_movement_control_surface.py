@@ -81,11 +81,10 @@ def movement(qapp):
     yield widget.control_widget
     # A move holds the shared microscope's control until its thread ends: let it end
     # here, or the next test's move is refused and its buttons come straight back on.
-    for worker in list(_ACTIVE_WORKERS):
-        worker.join(timeout=10)
-    qapp.processEvents()
+    settled = _spin_until(qapp, lambda: not _ACTIVE_WORKERS)
     widget._teardown_connections()
     host.deleteLater()
+    assert settled, "a worker was still running 15 s after the test"
 
 
 @pytest.fixture
