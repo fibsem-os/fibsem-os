@@ -98,6 +98,9 @@ class AuthConfig:
     connections: Optional["Connections"] = None
     # The agent level: the only gate.
     level: AgentLevel = AgentLevel.WATCH
+    # False where the agent is not released (fibsem.unreleased): the level
+    # stays Off.
+    agent_allowed: bool = True
     # Set by stop_agent, cleared by the next set_level: the operator braked, so a
     # refusal says so rather than only naming the level.
     stopped: bool = False
@@ -165,6 +168,8 @@ class AuthConfig:
             self._listeners.append(lambda: callback)
 
     def _set_level(self, level: AgentLevel, stopped: bool) -> None:
+        if not self.agent_allowed:
+            level, stopped = AgentLevel.OFF, False
         changed = level is not self.level or stopped
         # Atomic rebinds, read independently by requests.
         self.level = level
@@ -215,13 +220,17 @@ class AuthConfig:
 
     @classmethod
     def generate(
-        cls, level: AgentLevel = AgentLevel.WATCH, token: Optional[str] = None
+        cls,
+        level: AgentLevel = AgentLevel.WATCH,
+        token: Optional[str] = None,
+        agent_allowed: bool = True,
     ) -> "AuthConfig":
         return cls(
             token=token or secrets.token_urlsafe(32),
             dashboard_token=secrets.token_urlsafe(32),
             connect_token=secrets.token_urlsafe(32),
-            level=AgentLevel(level),
+            level=AgentLevel(level) if agent_allowed else AgentLevel.OFF,
+            agent_allowed=agent_allowed,
         )
 
 

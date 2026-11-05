@@ -40,7 +40,7 @@ _TIP_BORDER = "Highlight the viewport border while an automated workflow is runn
 _LBL_TOAST_PROBLEMS = "Toasts for Problems Only"
 _TIP_TOAST_PROBLEMS = (
     "Pop up only errors, warnings and the end of a run. Everything else still goes "
-    "to the notification bell. Useful while an agent or a long run is working."
+    "to the notification bell. Useful while a long run is working."
 )
 _LBL_CARD_MODE = "Lamella Card Layout"
 _TIP_CARD_MODE = (

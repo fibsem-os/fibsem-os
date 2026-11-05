@@ -14,13 +14,14 @@ import { Settings } from "@/shell/Settings";
 import { TopLine } from "@/shell/TopLine";
 import { forgotten, getToken, loadToken, onTokenChange } from "@/lib/api";
 import { useEventLoop } from "@/lib/events";
-import { useVolume } from "@/lib/experiment";
+import { useAgentReleased, useVolume } from "@/lib/experiment";
 import { usePage, useSettingsPath } from "@/lib/route";
 
 function Shell() {
   const [asked, go] = usePage();
   // Volume's items are positions: a link to lamellae or grids opens them there.
   const volume = useVolume();
+  const agent = useAgentReleased();
   const page =
     volume === true && (asked === "lamellae" || asked === "grids")
       ? "positions"
@@ -40,11 +41,11 @@ function Shell() {
           {page === "lamellae" && <LamellaePage />}
           {page === "grids" && <GridsPage go={go} />}
           {page === "positions" && <PositionsPage />}
-          {page === "agent" && <AgentPage />}
+          {page === "agent" && agent && <AgentPage />}
           {page === "events" && <EventsPage />}
         </div>
       </div>
-      <Notices page={page} go={go} />
+      {agent && <Notices page={page} go={go} />}
       <Settings open={settings} onOpenChange={setSettings} />
     </div>
   );

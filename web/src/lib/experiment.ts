@@ -20,6 +20,12 @@ export function useOpenExperiment() {
   return { status, open, entry, loading: status.isPending || (!!open && recent.isPending) };
 }
 
+/** Whether this install has the agent: false where it is not released, and until the server says. */
+export function useAgentReleased(): boolean {
+  const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
+  return caps.data?.agent === true;
+}
+
 /** Whether the server runs the volume app, whose items are positions, not lamellae on grids;
  * undefined until the server says. */
 export function useVolume(): boolean | undefined {

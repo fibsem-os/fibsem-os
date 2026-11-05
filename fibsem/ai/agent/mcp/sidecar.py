@@ -46,6 +46,7 @@ from fibsem.ai.agent.catalog import (
 from fibsem.client import tools
 from fibsem.client.transport import ServerUnreachable, Transport
 from fibsem.extras import missing_extra_message
+from fibsem.unreleased import refuse
 
 # How long start-up looks for the server before answering the MCP client anyway:
 # a client gives a server only so long to start.
@@ -1486,6 +1487,7 @@ def _pair(argv) -> int:
 
 
 def main(argv=None):
+    refuse("fibsem-mcp")
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["pair"]:
         sys.exit(_pair(argv[1:]))
