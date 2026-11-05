@@ -7,6 +7,7 @@ import { Popup } from "@/components/ui/popup";
 import { api, imageUrl } from "@/lib/api";
 import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
+import { AgentRules } from "./Customisation";
 import { LibraryBrowser, type LibraryKind } from "./Library";
 
 export type KnowledgeSection = "instrument" | "sample" | "playbook" | "experiment";
@@ -558,19 +559,30 @@ export function KnowledgeBrowser({
   );
 }
 
-type Tab = "entries" | LibraryKind;
+type Tab = "entries" | LibraryKind | "tools" | "never";
 const TABS: [Tab, string][] = [
   ["entries", "Entries"],
   ["profiles", "Profiles"],
   ["playbooks", "Playbooks"],
   ["skills", "Skills"],
   ["agents", "Subagents"],
+  ["tools", "Tools"],
+  ["never", "Never touches"],
 ];
+
+/** What each tab holds, in a line. */
+const TAB_ABOUT: Partial<Record<Tab, string>> = {
+  entries: "Persistent information: what the lab knows about its instrument, samples and past runs.",
+  profiles: "Session settings: the level, budget, mode and model a session starts with, and its playbook.",
+  playbooks: "Workflows: the skills, rules, reminders and subagents one kind of work uses.",
+  skills: "How to do a kind of task.",
+  agents: "Second opinions and analysis, each in a fresh context. Several can run at once, but not on the microscope.",
+};
 
 /** The Knowledge window: what the agent and the operator have recorded about
  * this microscope, its samples and playbooks, and past runs; the agent's own
- * entries to review first; and the agent's profiles, playbooks, skills and subagents,
- * the shipped and the lab's own. */
+ * entries to review first; the agent's profiles, playbooks, skills and subagents,
+ * the shipped and the lab's own; and, read-only, its tools and what it never touches. */
 export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const client = useQueryClient();
   const [tab, setTab] = useState<Tab>("entries");
@@ -643,6 +655,9 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
             </button>
           ))}
         </div>
+        {TAB_ABOUT[tab] && (
+          <p className="m-0 border-b border-border px-4 py-2 text-[12px] text-muted-foreground">{TAB_ABOUT[tab]}</p>
+        )}
         {tab === "entries" ? (
           <>
             <KnowledgeBrowser
@@ -681,6 +696,8 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
               </p>
             )}
           </>
+        ) : tab === "tools" || tab === "never" ? (
+          <AgentRules section={tab} enabled={open} />
         ) : (
           <LibraryBrowser kind={tab} enabled={open} />
         )}

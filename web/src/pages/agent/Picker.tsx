@@ -205,7 +205,7 @@ function PickList({
                         <span className="min-w-0 font-mono text-[12px] break-all">{row.name}</span>
                         <span className="line-clamp-2 text-muted-foreground">{row.description}</span>
                         {kind === "tools" && (
-                          <span className={acts(row) ? "text-[var(--fibsem-warn-color)]" : "text-muted-foreground"}>
+                          <span className={acts(row) ? "text-foreground" : "text-muted-foreground"}>
                             {row.group === "Files and other" ? "" : LEVEL_WORD[row.level]}
                           </span>
                         )}
