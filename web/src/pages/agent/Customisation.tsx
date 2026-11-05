@@ -199,9 +199,9 @@ function Never({ data }: { data: AgentCustomisation }) {
   );
 }
 
-/** What the agent can call and what it may never touch, read-only: two tabs of the
- * knowledge window. */
-export function AgentRules({ section, enabled }: { section: "tools" | "never"; enabled: boolean }) {
+/** What the agent may never touch, then what it can call, read-only: the knowledge
+ * window's Tools tab. */
+export function AgentRules({ enabled }: { enabled: boolean }) {
   const data = useQuery({
     queryKey: ["app/agent", "customisation"],
     queryFn: () => api<AgentCustomisation>("/app/agent/customisation"),
@@ -211,11 +211,12 @@ export function AgentRules({ section, enabled }: { section: "tools" | "never"; e
   return (
     <div className="h-[min(560px,76vh)] min-h-0 overflow-auto px-5 py-4 text-[13px] leading-[1.45]">
       {data.data ? (
-        section === "tools" ? (
-          <Tools data={data.data} />
-        ) : (
+        <>
+          <h4 className="m-0 mb-1 text-[12px] font-semibold text-muted-foreground">Never touches</h4>
           <Never data={data.data} />
-        )
+          <h4 className="m-0 mt-5 mb-1 text-[12px] font-semibold text-muted-foreground">Tools</h4>
+          <Tools data={data.data} />
+        </>
       ) : (
         <p className="m-0 text-muted-foreground">{data.error ? String(data.error) : "Reading…"}</p>
       )}

@@ -559,14 +559,16 @@ export function KnowledgeBrowser({
   );
 }
 
-type Tab = "entries" | LibraryKind | "tools" | "never";
-const TABS: [Tab, string][] = [
-  ["entries", "Entries"],
-  ["playbooks", "Playbooks"],
-  ["skills", "Skills"],
-  ["agents", "Subagents"],
-  ["tools", "Tools"],
-  ["never", "Never touches"],
+type Tab = "entries" | LibraryKind | "tools";
+// In groups: what the lab knows; how the agent works; what it can act on.
+const TABS: [Tab, string][][] = [
+  [["entries", "Entries"]],
+  [
+    ["playbooks", "Playbooks"],
+    ["skills", "Skills"],
+    ["agents", "Subagents"],
+  ],
+  [["tools", "Tools"]],
 ];
 
 /** What each tab holds, in a line. */
@@ -576,6 +578,7 @@ const TAB_ABOUT: Partial<Record<Tab, string>> = {
     "Workflows: the skills, rules, reminders and subagents one kind of work uses, and the settings a session started on it runs with.",
   skills: "How to do a kind of task.",
   agents: "Second opinions and analysis, each in a fresh context. Several can run at once, but not on the microscope.",
+  tools: "Actions: what the agent can call at each level, and what it never touches. Read-only.",
 };
 
 /** The Knowledge window: what the agent and the operator have recorded about
@@ -638,20 +641,26 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent title="Knowledge" className="w-[min(960px,calc(100vw-32px))]">
-        <div role="tablist" className="flex gap-4 border-b border-border px-4">
-          {TABS.map(([t, word]) => (
-            <button
-              key={t}
-              role="tab"
-              aria-selected={t === tab}
-              className={cn(
-                "-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-0.5 py-2 text-[13px]",
-                t === tab ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setTab(t)}
-            >
-              {word}
-            </button>
+        <div role="tablist" className="flex items-stretch gap-4 border-b border-border px-4">
+          {TABS.map((group, i) => (
+            <div key={i} className={cn("flex gap-4", i > 0 && "border-l border-border pl-4")}>
+              {group.map(([t, word]) => (
+                <button
+                  key={t}
+                  role="tab"
+                  aria-selected={t === tab}
+                  className={cn(
+                    "-mb-px cursor-pointer border-0 border-b-2 bg-transparent px-0.5 py-2 text-[13px]",
+                    t === tab
+                      ? "border-primary text-foreground"
+                      : "border-transparent text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => setTab(t)}
+                >
+                  {word}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
         {TAB_ABOUT[tab] && (
@@ -695,8 +704,8 @@ export function KnowledgeDialog({ open, onOpenChange }: { open: boolean; onOpenC
               </p>
             )}
           </>
-        ) : tab === "tools" || tab === "never" ? (
-          <AgentRules section={tab} enabled={open} />
+        ) : tab === "tools" ? (
+          <AgentRules enabled={open} />
         ) : (
           <LibraryBrowser kind={tab} enabled={open} />
         )}
