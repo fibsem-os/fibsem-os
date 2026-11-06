@@ -56,7 +56,9 @@ class FakeGateway:
         force=False,
         connect=None,
         configuration=None,
+        create=False,
     ):
+        self.create = create
         return self._do(
             RUNNING,
             who,
@@ -132,6 +134,42 @@ def test_a_start_can_name_the_configuration_to_connect(setup):
         headers=_as(OPERATOR_TOKEN),
     )
     assert gateway.calls[0][-2:] == (True, "arctis")
+
+
+def test_a_start_can_make_a_new_experiment(setup):
+    client, gateway, _ = setup
+    r = client.post(
+        "/gateway/start",
+        json={"app": "autolamella", "experiment": "/data/grid-4", "create": True},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 200
+    assert gateway.calls[0][5] == "/data/grid-4" and gateway.create
+
+
+def test_only_the_operator_browses_folders(setup, tmp_path):
+    client, _, _ = setup
+    (tmp_path / "grid-1").mkdir()
+    (tmp_path / "grid-1" / "experiment.yaml").write_text("name: grid-1\n")
+    (tmp_path / "loose").mkdir()
+    r = client.get(
+        "/gateway/folders", params={"path": str(tmp_path)}, headers=_as(OPERATOR_TOKEN)
+    )
+    assert r.status_code == 200
+    listed = {f["name"]: f["experiment"] for f in r.json()["folders"]}
+    assert listed["grid-1"] is True and listed["loose"] is False
+    assert r.json()["parent"] == str(tmp_path.resolve().parent)
+    missing = client.get(
+        "/gateway/folders",
+        params={"path": str(tmp_path / "nope")},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert missing.status_code == 404
+    hub = _pair_hub(client, [SWITCH_MODES])
+    r = client.get(
+        "/gateway/folders", params={"path": str(tmp_path)}, headers=_as(hub["token"])
+    )
+    assert r.status_code == 403
 
 
 def test_a_start_shows_the_window_unless_asked_not_to(setup):

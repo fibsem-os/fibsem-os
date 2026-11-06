@@ -22,7 +22,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import fibsem
 from fibsem.server.discovery import DISCOVERY_DIR, _pid_alive, read_discovery_file
@@ -54,6 +54,7 @@ STOP_WAIT_S = 60.0
 POLL_S = 1.0
 NEWER_EVERY_S = 24 * 3600.0
 HISTORY_SHOWN = 50
+EXPERIMENT_FILE = "experiment.yaml"
 
 
 class GatewayRefused(Exception):
@@ -168,6 +169,57 @@ def saved_configurations() -> List[dict]:
     from fibsem.config import saved_configurations
 
     return saved_configurations()
+
+
+def _check_experiment(experiment: Optional[str], create: bool) -> None:
+    """Refuse an experiment folder the app could not open or make."""
+    if create and not experiment:
+        raise GatewayRefused(422, "no_folder", "Name the new experiment's folder.")
+    if not experiment:
+        return
+    folder = Path(experiment)
+    if create:
+        if folder.exists():
+            raise GatewayRefused(409, "exists", f"{folder} already exists.")
+        if not folder.parent.is_dir():
+            raise GatewayRefused(
+                422, "no_parent", f"There is no folder {folder.parent}."
+            )
+    elif not (folder / EXPERIMENT_FILE).is_file():
+        raise GatewayRefused(422, "no_experiment", f"No experiment in {folder}.")
+
+
+def list_folders(path: Optional[str]) -> Dict[str, Any]:
+    """The folders in *path* (the default experiments folder without), each
+    marked when it holds an experiment, for picking one on the gateway's page."""
+    from fibsem.workflows.experiments import default_experiment_directory
+
+    default = default_experiment_directory()
+    folder = Path(path or default).expanduser()
+    if not folder.is_dir():
+        raise GatewayRefused(404, "no_folder", f"There is no folder {folder}.")
+    folder = folder.resolve()
+    found = []
+    try:
+        children = sorted(folder.iterdir(), key=lambda p: p.name.lower())
+    except OSError as exc:
+        raise GatewayRefused(403, "unreadable", f"Can't read {folder}: {exc}") from None
+    for child in children:
+        try:
+            if not child.is_dir() or child.name.startswith("."):
+                continue
+            experiment = (child / EXPERIMENT_FILE).is_file()
+        except OSError:
+            continue
+        found.append({"name": child.name, "path": str(child), "experiment": experiment})
+    parent = folder.parent
+    return {
+        "path": str(folder),
+        "parent": None if parent == folder else str(parent),
+        "experiment": (folder / EXPERIMENT_FILE).is_file(),
+        "default": str(Path(default).expanduser().resolve()),
+        "folders": found,
+    }
 
 
 def last_experiment() -> Optional[str]:
@@ -319,12 +371,16 @@ class Gateway:
         force: bool = False,
         connect: Optional[bool] = None,
         configuration: Optional[str] = None,
+        create: bool = False,
     ) -> GatewayState:
         """Start *app*'s host, with its window at this PC or without, stopping
-        the running one first. *connect* connects *configuration* (the default
-        one without) as it starts, or nothing when False; None keeps the
-        gateway's own connection flags. Raises `GatewayRefused` when it can't."""
+        the running one first. *experiment* is a folder to open, or with
+        *create* a new one to make. *connect* connects *configuration* (the
+        default one without) as it starts, or nothing when False; None keeps
+        the gateway's own connection flags. Raises `GatewayRefused` when it
+        can't."""
         chosen = self._app(app, window)
+        _check_experiment(experiment, create)
         connection = self._start_connection(connect, configuration)
         with self._take(who, via, RUNNING, app, experiment, window):
             if self._state.mode != OFF:
@@ -337,7 +393,7 @@ class Gateway:
                     f"Another fibsem host (pid {holder.pid}) holds the microscope: "
                     "close it at the PC first.",
                 )
-            self._start(app, chosen, window, experiment, last, connection)
+            self._start(app, chosen, window, experiment, last, connection, create)
             self._record(OFF, RUNNING, who, via, "started", app, experiment, window)
             with self._lock:
                 self._state.who, self._state.via = who, via
@@ -457,6 +513,7 @@ class Gateway:
         experiment: Optional[str],
         last: bool,
         connection: List[str],
+        create: bool = False,
     ) -> None:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         logs = self._home / "logs" / "gateway"
@@ -466,6 +523,8 @@ class Gateway:
         stop_file = None
         # An app with neither starts with no experiment open, if it can.
         args = [experiment] if experiment else ["--last"] if last else []
+        if experiment and create:
+            args.append("--create")
         if window:
             # An app with a headless command has the host's flags, and hosts
             # whatever the preference; others none.

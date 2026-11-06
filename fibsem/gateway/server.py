@@ -30,6 +30,7 @@ from fibsem.gateway.gateway import (
     GatewayRefused,
     GatewayState,
     History,
+    list_folders,
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.auth import _bearer_token, _matches
@@ -171,7 +172,8 @@ def build_gateway_app(
 
     @app.post("/gateway/start", response_model=GatewayState)
     def start(body: Dict[str, Any], found: Caller = Depends(switcher)):
-        """``{app, window, experiment | last, force, connect, configuration}``:
+        """``{app, window, experiment | last, create, force, connect,
+        configuration}``:
         stop the running app and start this one, with its window at this PC
         (the default) or without, connecting *configuration* (the default one)
         as it starts when *connect*."""
@@ -188,8 +190,17 @@ def build_gateway_app(
                 force=force,
                 connect=None if body.get("connect") is None else bool(body["connect"]),
                 configuration=body.get("configuration"),
+                create=bool(body.get("create", False)),
             ),
         )
+
+    @app.get("/gateway/folders")
+    def folders(path: Optional[str] = None, found: Caller = Depends(caller)) -> dict:
+        """The folders in *path* (the default experiments folder without),
+        for picking an experiment: the operator's only."""
+        if not found.operator:
+            raise _refused(403, "operator_only", "Only the operator browses folders.")
+        return _act(found, {}, lambda force, via: list_folders(path))
 
     @app.post("/gateway/stop", response_model=GatewayState)
     def stop(body: Optional[Dict[str, Any]] = None, found: Caller = Depends(switcher)):
