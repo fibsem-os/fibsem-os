@@ -320,3 +320,20 @@ def test_resume_is_refused_for_an_unknown_session_or_a_running_agent(make):
     with pytest.raises(AgentRunning):
         mgr.resume("arctis-1", agent.session_id, [], env=env)
     mgr.end("arctis-1")
+
+
+def test_on_windows_the_agent_gets_a_hidden_console_not_none(monkeypatch):
+    """With no console (DETACHED_PROCESS), the Claude CLI the agent starts
+    would open a console window of its own."""
+    import subprocess
+
+    monkeypatch.setattr(manager.sys, "platform", "win32")
+    for name, value in (
+        ("CREATE_NEW_PROCESS_GROUP", 0x200),
+        ("CREATE_NO_WINDOW", 0x8000000),
+        ("DETACHED_PROCESS", 0x8),
+    ):
+        monkeypatch.setattr(subprocess, name, value, raising=False)
+    flags = manager._detached()["creationflags"]
+    assert flags & 0x8000000 and flags & 0x200
+    assert not flags & 0x8

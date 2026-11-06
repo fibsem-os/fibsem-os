@@ -1098,15 +1098,63 @@ def test_kept_feedback_is_an_example_of_the_sample(server, monkeypatch, tmp_path
     assert (Path(entry.path).parent / "source.tif").is_file()
 
 
-def test_keep_needs_a_sample_and_a_verdict(server, monkeypatch, tmp_path):
+def test_keep_needs_a_verdict_and_what_it_is_kept_under(server, monkeypatch, tmp_path):
+    from fibsem import knowledge
+
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "state"))
     picks = _agent_picks(server)
-    body = {"text": "", "evidence": {"answers": picks, "verdict": "bad", "keep": True}}
-    refused = server.post("/app/agent/messages", headers=server.operator, json=body)
+
+    def keep(under, **evidence):
+        evidence = {"answers": picks, "verdict": "bad", "keep": under, **evidence}
+        return server.post(
+            "/app/agent/messages",
+            headers=server.operator,
+            json={"text": "", "evidence": evidence},
+        )
+
+    # nothing said good or bad is no example
+    assert keep(True, verdict=None).status_code == 422
+    # under a sample or a playbook, there has to be one
+    refused = keep("sample")
     assert refused.status_code == 409 and "no_sample" in refused.text
+    refused = keep("playbook")
+    assert refused.status_code == 409 and "no_playbook" in refused.text
+    assert keep("elsewhere").status_code == 422
+    # with no sample named, an example is this microscope's
+    assert keep(True).status_code == 201
+    assert keep("instrument").status_code == 201
+    assert len(knowledge.entries(knowledge.INSTRUMENT)) == 2
+    # the playbook the session runs
+    reported = server.post(
+        "/app/agent/session",
+        headers=server.agent,
+        json={"session_id": "s1", "playbook": {"name": "lamella-sites"}},
+    )
+    assert reported.status_code == 200, reported.text
+    plan = server.get("/app/agent/plan", headers=server.operator).json()
+    assert plan["playbook"] == "lamella-sites"
+    assert keep("playbook").status_code == 201
+    assert len(knowledge.entries(knowledge.PLAYBOOK, playbook="lamella-sites")) == 1
+    # once the plan names a sample, that is where an example goes
     _plan_sample(server, "yeast")
-    unsaid = {"text": "look", "evidence": {"answers": picks, "keep": True}}
-    refused = server.post("/app/agent/messages", headers=server.operator, json=unsaid)
-    assert refused.status_code == 422, refused.text
-    kept = server.post("/app/agent/messages", headers=server.operator, json=body)
+    assert keep(True).status_code == 201
+    assert len(knowledge.entries(knowledge.SAMPLE, sample="yeast")) == 1
+
+
+def test_the_operator_names_the_sample_when_keeping(server, monkeypatch, tmp_path):
+    from fibsem import knowledge
+
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "state"))
+    picks = _agent_picks(server)
+    evidence = {"answers": picks, "verdict": "good", "keep": True}
+    named = {"text": "", "evidence": {**evidence, "sample": "  root   tips "}}
+    kept = server.post("/app/agent/messages", headers=server.operator, json=named)
     assert kept.status_code == 201, kept.text
+    # it is the experiment's sample now: the plan answers it, the next keep uses it
+    plan = server.get("/app/agent/plan", headers=server.operator).json()
+    assert plan["sample"] == "root tips"
+    again = {"text": "", "evidence": evidence}
+    kept = server.post("/app/agent/messages", headers=server.operator, json=again)
+    assert kept.status_code == 201, kept.text
+    rows = knowledge.entries(knowledge.SAMPLE, sample="root tips")
+    assert len(rows) == 2

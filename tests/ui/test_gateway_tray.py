@@ -88,3 +88,24 @@ def test_the_icon_colour_follows_the_app():
     assert mode_colour(state(RUNNING, window=True)) == PRIMARY_COLOR
     assert mode_colour(state(RUNNING, switching=True)) == SEMANTIC_WARNING_COLOR
     assert mode_colour(state(OFF)) != mode_colour(state(RUNNING))
+
+
+def test_restart_is_offered_when_the_gateway_can_restart(qapp, tmp_path):
+    import threading
+
+    gateway = Gateway(home=tmp_path, discovery=lambda: None)
+    auth = GatewayAuth.from_disk(tmp_path / "token.json", tmp_path / "paired.json")
+    stopping, restarts = threading.Event(), []
+    tray = GatewayTray(gateway, auth, 8010, None, stopping, restarts.append)
+    try:
+        tray._build_menu()
+        assert dict(_texts(tray.menu))["Restart gateway"] is True
+    finally:
+        tray._timer.stop()
+        tray.hide()
+
+
+def test_without_a_restart_the_tray_offers_none(tray):
+    tray, _ = tray
+    tray._build_menu()
+    assert dict(_texts(tray.menu))["Restart gateway"] is False

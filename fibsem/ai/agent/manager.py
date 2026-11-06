@@ -236,11 +236,9 @@ class Agent:
 def _detached() -> dict:
     """Popen arguments for a child that outlives its parent."""
     if sys.platform == "win32":
-        flags = (
-            subprocess.CREATE_NEW_PROCESS_GROUP
-            | subprocess.DETACHED_PROCESS
-            | getattr(subprocess, "CREATE_NO_WINDOW", 0)
-        )
+        # A hidden console, not none (DETACHED_PROCESS): the Claude CLI the
+        # agent starts is a console program and would open a window of its own.
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
         return {"creationflags": flags}
     return {"start_new_session": True}
 

@@ -556,49 +556,85 @@ function PickList({ editor, picks }: { editor: MarkEditor; picks: Mark[] }) {
   );
 }
 
-/** The sample the agent's plan names, or null before it names one. */
-export function usePlanSample(): string | null {
+/** The sample the agent's plan names and the playbook its session runs, null for none. */
+export function usePlanNames(): { sample: string | null; playbook: string | null } {
   const plan = useQuery({
     queryKey: ["app/agent/plan"],
-    queryFn: () => api<{ sample: string | null }>("/app/agent/plan"),
+    queryFn: () => api<{ sample: string | null; playbook?: string | null }>("/app/agent/plan"),
     staleTime: 30_000,
   });
-  return plan.data?.sample ?? null;
+  return { sample: plan.data?.sample ?? null, playbook: plan.data?.playbook ?? null };
 }
 
-/** Keep as example: on by default once something is said good or bad; off, and why,
- * before the plan names a sample. *keep* null follows the default. */
+type KeepUnder = "sample" | "instrument" | "playbook";
+
+/** Keep as example, as a message's evidence sends it: on by default once *said* (something is
+ * good or bad), kept under the sample when there is one, else this microscope. The operator can
+ * pick the playbook, or name a sample when none is, and it becomes the experiment's. */
+export function useKeep(said: boolean) {
+  const { sample, playbook } = usePlanNames();
+  const [keep, setKeep] = useState<boolean | null>(null);
+  const [chosen, setUnder] = useState<KeepUnder | null>(null);
+  const [named, setNamed] = useState("");
+  const under: KeepUnder = chosen ?? (sample ? "sample" : "instrument");
+  const ready = under !== "sample" || !!sample || !!named.trim();
+  const kept = said && ready && (keep ?? true);
+  return {
+    tick: { said, sample, playbook, under, setUnder, named, setNamed, ready, keep, setKeep },
+    evidence: kept ? { keep: under, ...(under === "sample" && !sample ? { sample: named.trim() } : {}) } : {},
+    kept,
+    reset: () => setKeep(null),
+  };
+}
+
+/** The Keep as example tick and what it keeps it under, with why it can't be ticked written
+ * beside it, not hidden. */
 export function KeepTick({
   said,
   sample,
+  playbook,
+  under,
+  setUnder,
+  named,
+  setNamed,
+  ready,
   keep,
   setKeep,
-}: {
-  said: boolean;
-  sample: string | null;
-  keep: boolean | null;
-  setKeep: (on: boolean) => void;
-}) {
-  const can = said && !!sample;
-  const why = !sample
-    ? "The plan names no sample yet"
-    : !said
-      ? "Say good or bad of something to keep it"
-      : `Kept in the knowledge base as an example of ${sample}`;
+}: ReturnType<typeof useKeep>["tick"]) {
+  const can = said && ready;
   return (
-    <label
-      className={cn("flex items-center gap-1.5 text-[12px]", can ? "cursor-pointer" : "text-muted-foreground")}
-      title={why}
-    >
-      <input
-        type="checkbox"
-        className="m-0 accent-[var(--primary)]"
-        disabled={!can}
-        checked={can && (keep ?? true)}
-        onChange={(e) => setKeep(e.target.checked)}
-      />
-      Keep as example
-    </label>
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px]">
+      <label className={cn("flex items-center gap-1.5", can ? "cursor-pointer" : "text-muted-foreground")}>
+        <input
+          type="checkbox"
+          className="m-0 accent-[var(--primary)]"
+          disabled={!can}
+          checked={can && (keep ?? true)}
+          onChange={(e) => setKeep(e.target.checked)}
+        />
+        Keep as example of
+      </label>
+      <select
+        className="h-6 rounded border border-border bg-transparent px-1 text-[12px]"
+        aria-label="Keep it under"
+        value={under}
+        onChange={(e) => setUnder(e.target.value as KeepUnder)}
+      >
+        <option value="sample">{sample ? sample : "a sample…"}</option>
+        <option value="instrument">this microscope</option>
+        {playbook && <option value="playbook">the {playbook} playbook</option>}
+      </select>
+      {under === "sample" && !sample && (
+        <input
+          className="h-6 w-32 rounded border border-border bg-transparent px-1.5 text-[12px]"
+          aria-label="Sample"
+          placeholder="which sample?"
+          value={named}
+          onChange={(e) => setNamed(e.target.value)}
+        />
+      )}
+      {!said && <span className="text-muted-foreground">Mark something good or bad to keep it.</span>}
+    </div>
   );
 }
 
@@ -625,8 +661,6 @@ export function MarkPanel({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [keep, setKeep] = useState<boolean | null>(null);
-  const sample = usePlanSample();
   const { marks } = editor;
   const refs = markRefs(picks ?? []);
   const judged = Object.entries(editor.judged)
@@ -637,7 +671,8 @@ export function MarkPanel({
       ...(j.moved_to ? { moved_to: { x: Math.round(j.moved_to.x), y: Math.round(j.moved_to.y) } } : {}),
     }));
   const said = judged.some((j) => j.verdict) || marks.some((m) => m.verdict);
-  const kept = said && !!sample && (keep ?? true);
+  const keeping = useKeep(said);
+  const { kept } = keeping;
   const send = async () => {
     setError(null);
     setSending(true);
@@ -647,11 +682,11 @@ export function MarkPanel({
         marks: toMarks(marks),
         ...(channels ? { channels } : {}),
         ...(answers ? { answers, ...(judged.length ? { judged } : {}) } : {}),
-        ...(kept ? { keep: true } : {}),
+        ...keeping.evidence,
       };
       await api("/app/agent/messages", { method: "POST", body: JSON.stringify({ text: text.trim(), evidence }) });
       setText("");
-      setKeep(null);
+      keeping.reset();
       editor.clear();
       onSent();
     } catch (e) {
@@ -660,7 +695,10 @@ export function MarkPanel({
       setSending(false);
       await client.invalidateQueries({ queryKey: ["app/agent"] });
       await client.invalidateQueries({ queryKey: ["app/agent/recent"] });
-      if (kept) await client.invalidateQueries({ queryKey: ["app/knowledge"] });
+      if (kept) {
+        await client.invalidateQueries({ queryKey: ["app/knowledge"] });
+        await client.invalidateQueries({ queryKey: ["app/agent/plan"] });
+      }
     }
   };
   return (
@@ -733,7 +771,7 @@ export function MarkPanel({
         }}
       />
       {error && <p className="m-0 text-[12px] text-destructive">{error}</p>}
-      <KeepTick said={said} sample={sample} keep={keep} setKeep={setKeep} />
+      <KeepTick {...keeping.tick} />
       <div className="flex items-center gap-2">
         <span className="flex-1 text-[12px] text-muted-foreground">
           {channels

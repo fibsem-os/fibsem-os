@@ -6,7 +6,8 @@ granted "may start and stop apps" (`SWITCH_MODES`); forcing past a running
 workflow, and ``/gateway/claim`` (a desktop launch on this PC), for the
 operator only. ``/gateway/microscope/...`` connects and disconnects the
 running host's microscope, ``/gateway/app/agent-page`` links the operator to
-its Agent page, and ``/gateway/agent`` reads, starts and ends this
+its Agent page, ``/gateway/quit`` stops (or restarts) the gateway for the
+operator, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
 the same rules as starting the app.
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
@@ -17,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import HTTPConnection
@@ -112,6 +113,7 @@ def build_gateway_app(
     auth: GatewayAuth,
     agent: Optional[GatewayAgent] = None,
     microscope: Optional[HostMicroscope] = None,
+    on_quit: Optional[Callable[[bool], None]] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
     app.state.auth = auth
@@ -342,6 +344,22 @@ def build_gateway_app(
                     window=found.operator,
                 ),
             )
+
+    if on_quit is not None:
+
+        @app.post("/gateway/quit")
+        def quit_gateway(
+            body: Optional[Dict[str, Any]] = None, found: Caller = Depends(caller)
+        ) -> dict:
+            """``{restart}``: stop the gateway as the tray's Quit does; with
+            ``restart``, it then starts again. The operator only."""
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator stops the gateway."
+                )
+            restart = bool((body or {}).get("restart", False))
+            on_quit(restart)
+            return {"stopping": True, "restart": restart}
 
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
