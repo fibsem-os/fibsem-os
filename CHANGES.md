@@ -10,8 +10,6 @@ part of this release. Its headlines:
 - **A web app.** The App Server (Tools → Host, off until you turn it on) serves a web app
   in the browser: the microscope, the open experiment and its files, lamellae, grids and
   Slack notifications.
-- **METEOR and other offset fluorescence microscopes** join through a Device Server on
-  the METEOR PC, with SEM to FM calibration and guarded moves to and from the FM.
 - **Grid screening for everyone**: a Grids tab, grid tasks and a screening report, no
   longer behind a preference.
 - **A record of every run** (`events.jsonl`), an experiment replay and a new HTML report.
@@ -23,6 +21,10 @@ The agent and the gateway stay in the code, and a git checkout of fibsem-os runs
 as before. An install from PyPI shows neither: there is no agent chip or Agent page,
 `fibsem-agent`, `fibsem-mcp` and `fibsem-gateway` say they are not part of this release,
 and a `FibsemClient` script acts as the operator. `FIBSEM_UNRELEASED=1` turns them on.
+
+METEOR and other offset fluorescence microscopes are a preview in 0.6.0: the support
+below is in, and tested on the simulator and in one session at a METEOR, but not yet
+checked end to end on one. 0.6.1 is the release that says it works.
 
 Fixes for v0.5 are cut from `release/v0.5.x`, the branch v0.5.2 and v0.5.3 were tagged
 from, and are listed under their own version below; a fix that belongs in both lands on
@@ -213,7 +215,9 @@ devices, in Tools → Host. Both choices are remembered.
   in Windows Credential Manager or the macOS Keychain instead of an environment
   variable.
 
-### METEOR and offset fluorescence microscopes
+### METEOR and offset fluorescence microscopes (preview)
+
+Not yet checked end to end on a METEOR; expect fixes in 0.6.1.
 
 - **A Device Server on the METEOR PC serves its FM.** Name it as an `fm` entry in
   `~/.fibsem/device-server.yaml` and start the server with `--config`. Pair the
