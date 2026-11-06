@@ -14,6 +14,8 @@ export interface Capabilities {
   // the optional /app parts the app serves (fibsem.server.parts)
   parts?: string[];
   fibsem?: { version: string; path: string };
+  // the gateway on this PC; given to this PC's operator only
+  gateway?: string | null;
 }
 
 /** The microscope connection, as the operator sees it (`/microscope/connection`). */

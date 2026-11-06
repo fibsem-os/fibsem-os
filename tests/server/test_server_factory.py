@@ -313,3 +313,19 @@ def test_move_to_orientation_over_http(armed_client, microscope):
     assert resp.status_code == 200
     assert microscope.get_stage_orientation() == "SEM"
     assert "r" in resp.json()["result"]
+
+
+def test_capabilities_name_the_gateway_for_this_pcs_operator_only(
+    microscope, monkeypatch
+):
+    import fibsem.server.server as server
+
+    monkeypatch.setattr(server, "_gateway_url", lambda: "http://127.0.0.1:8010")
+    auth = AuthConfig(token=TOKEN, operator_token="operator-token")
+    with TestClient(build_server(microscope, auth=auth)) as client:
+        operator = client.get(
+            "/capabilities", headers={"Authorization": "Bearer operator-token"}
+        ).json()
+        agent = client.get("/capabilities", headers=AUTH).json()
+    assert operator["gateway"] == "http://127.0.0.1:8010"
+    assert agent["gateway"] is None

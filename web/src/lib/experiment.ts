@@ -26,6 +26,12 @@ export function useAgentReleased(): boolean {
   return caps.data?.agent === true;
 }
 
+/** The gateway on this PC, for its page; only this PC's operator is told. */
+export function useGateway(): string | null {
+  const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
+  return caps.data?.gateway ?? null;
+}
+
 /** Whether the server runs the volume app, whose items are positions, not lamellae on grids;
  * undefined until the server says. */
 export function useVolume(): boolean | undefined {
