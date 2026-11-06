@@ -56,7 +56,9 @@ class FakeGateway:
         force=False,
         connect=None,
         configuration=None,
+        create=False,
     ):
+        self.create = create
         return self._do(
             RUNNING,
             who,
@@ -132,6 +134,17 @@ def test_a_start_can_name_the_configuration_to_connect(setup):
         headers=_as(OPERATOR_TOKEN),
     )
     assert gateway.calls[0][-2:] == (True, "arctis")
+
+
+def test_a_start_can_make_a_new_experiment(setup):
+    client, gateway, _ = setup
+    r = client.post(
+        "/gateway/start",
+        json={"app": "autolamella", "experiment": "/data/grid-4", "create": True},
+        headers=_as(OPERATOR_TOKEN),
+    )
+    assert r.status_code == 200
+    assert gateway.calls[0][5] == "/data/grid-4" and gateway.create
 
 
 def test_a_start_shows_the_window_unless_asked_not_to(setup):

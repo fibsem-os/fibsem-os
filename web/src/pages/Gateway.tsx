@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { Loader } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { api } from "@/lib/api";
@@ -24,12 +25,25 @@ interface GatewayState {
   via: string | null;
   switching: boolean;
   holder: { pid: number; url: string } | null;
-  last_exit: { window: boolean; app: string | null; code: number | null; at: number; killed: boolean; log: string | null } | null;
+  last_exit: {
+    window: boolean;
+    app: string | null;
+    code: number | null;
+    at: number;
+    killed: boolean;
+    log: string | null;
+  } | null;
   apps: { key: string; name: string; headless: boolean }[];
   last_experiment: string | null;
+  recent_experiments: { name: string; folder: string; app: string | null }[];
+  experiments_folder: string | null;
   connection: string[];
   configurations: { name: string; default: boolean }[];
-  newer: { latest: string | null; behind: number | null; branch: string } | null;
+  newer: {
+    latest: string | null;
+    behind: number | null;
+    branch: string;
+  } | null;
 }
 
 /** What the next start connects: the page's choice, or the gateway's own
@@ -52,11 +66,18 @@ interface Switch {
   window?: boolean | null;
 }
 
-const FIELD = "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
+const FIELD =
+  "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
 
 /** What is newer than the code the gateway runs: a release, or commits on main. */
-function newerLabel(newer: GatewayState["newer"]): { text: string; detail: string } | null {
-  if (newer?.latest) return { text: `fibsemOS ${newer.latest} available`, detail: "A newer release is on PyPI." };
+function newerLabel(
+  newer: GatewayState["newer"],
+): { text: string; detail: string } | null {
+  if (newer?.latest)
+    return {
+      text: `fibsemOS ${newer.latest} available`,
+      detail: "A newer release is on PyPI.",
+    };
   if (newer?.behind)
     return {
       text: "Update available",
@@ -71,8 +92,13 @@ function Status({ state }: { state: GatewayState }) {
     ["App", app ?? "–"],
     ["Window", state.window ? "On this PC" : "None"],
   ];
-  if (!state.window || state.experiment) rows.push(["Experiment", state.experiment ?? "None open"]);
-  if (state.since) rows.push(["Started", `${fmt.when(state.since)} by ${state.who ?? "–"}, from the ${state.via ?? "–"}`]);
+  if (!state.window || state.experiment)
+    rows.push(["Experiment", state.experiment ?? "None open"]);
+  if (state.since)
+    rows.push([
+      "Started",
+      `${fmt.when(state.since)} by ${state.who ?? "–"}, from the ${state.via ?? "–"}`,
+    ]);
   return <Facts className="[&_dd]:text-left" rows={rows} />;
 }
 
@@ -87,14 +113,18 @@ function MicroscopeStart({
   choice: MicroscopeChoice;
   setChoice: (choice: MicroscopeChoice) => void;
 }) {
-  const fallback = state.configurations.find((c) => c.default)?.name ?? state.configurations[0]?.name ?? "";
+  const fallback =
+    state.configurations.find((c) => c.default)?.name ??
+    state.configurations[0]?.name ??
+    "";
   const configuration = choice.configuration || fallback;
   return (
     <Card className="flex flex-col gap-3">
       <CardTitle>Microscope</CardTitle>
       {state.connection.length > 0 ? (
         <p className="m-0 text-[13px] text-muted-foreground">
-          The app connects as it starts, with this gateway's flags: {state.connection.join(" ")}.
+          The app connects as it starts, with this gateway's flags:{" "}
+          {state.connection.join(" ")}.
         </p>
       ) : (
         <>
@@ -102,7 +132,9 @@ function MicroscopeStart({
             Configuration
             <select
               value={configuration}
-              onChange={(event) => setChoice({ ...choice, configuration: event.target.value })}
+              onChange={(event) =>
+                setChoice({ ...choice, configuration: event.target.value })
+              }
               className={FIELD}
             >
               {state.configurations.map((c) => (
@@ -116,17 +148,30 @@ function MicroscopeStart({
             <input
               type="checkbox"
               checked={choice.connect}
-              onChange={(event) => setChoice({ ...choice, connect: event.target.checked })}
+              onChange={(event) =>
+                setChoice({ ...choice, connect: event.target.checked })
+              }
             />
             Connect when the app starts
           </label>
           {!choice.connect && (
-            <p className="m-0 text-xs text-muted-foreground">The app starts with no microscope: connect one once it is up.</p>
+            <p className="m-0 text-xs text-muted-foreground">
+              The app starts with no microscope: connect one once it is up.
+            </p>
           )}
         </>
       )}
     </Card>
   );
+}
+
+/** The name the app's own New dialog suggests: the app and the time,
+ * e.g. AutoLamella-2026-11-06-12-30. */
+function defaultName(app: string): string {
+  const now = new Date();
+  const two = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}-${two(now.getMinutes())}`;
+  return `${app.replace(/\s+/g, "")}-${stamp}`;
 }
 
 function Starting({
@@ -142,62 +187,171 @@ function Starting({
 }) {
   const [app, setApp] = useState(state.apps[0]?.key ?? "");
   const [window, setWindow] = useState(true);
+  const [creating, setCreating] = useState(false);
   const [experiment, setExperiment] = useState(state.last_experiment ?? "");
+  const [name, setName] = useState("");
   const chosen = state.apps.find((a) => a.key === app);
   // Only an app with a host (a headless command) opens an experiment as it starts.
   const host = !!chosen?.headless;
+  // This app's recent experiments (one that doesn't say which app wrote it too).
+  const recent = state.recent_experiments.filter(
+    (r) =>
+      !r.app ||
+      !chosen ||
+      [chosen.key, chosen.name].some(
+        (n) => n.toLowerCase() === r.app!.toLowerCase(),
+      ),
+  );
+  // A new experiment goes in the experiments folder.
+  const into = state.experiments_folder ?? "";
+  const badName = /[\\/]/.test(name);
+  const newFolder =
+    into && name.trim() && !badName
+      ? `${into.replace(/[\\/]+$/, "")}${into.includes("\\") ? "\\" : "/"}${name.trim()}`
+      : "";
+  const experimentBody = !host
+    ? {}
+    : creating
+      ? { experiment: newFolder, create: true }
+      : experiment
+        ? { experiment }
+        : {};
+  const ready = !host || !creating || !!newFolder;
   return (
     <>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[200px_minmax(0,1fr)]">
-        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-          App
-          <select value={app} onChange={(event) => setApp(event.target.value)} className={FIELD}>
-            {state.apps.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        {host && (
-          <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-            Experiment folder
-            <input
-              value={experiment}
-              onChange={(event) => setExperiment(event.target.value)}
-              placeholder="None: start with no experiment open"
-              className={cn(FIELD, "font-mono text-xs")}
-            />
-            {experiment && experiment === state.last_experiment && <span>The last experiment opened on this PC.</span>}
-          </label>
-        )}
-      </div>
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        App
+        <select
+          value={app}
+          onChange={(event) => {
+            setApp(event.target.value);
+            setExperiment("");
+          }}
+          className={cn(FIELD, "sm:w-60")}
+        >
+          {state.apps.map((a) => (
+            <option key={a.key} value={a.key}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {host && (
+        <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Experiment
+          <div className="flex gap-2">
+            <select
+              value={creating ? "new" : "load"}
+              onChange={(event) => {
+                const making = event.target.value === "new";
+                setCreating(making);
+                if (making && !name.trim())
+                  setName(defaultName(chosen?.name ?? "Experiment"));
+              }}
+              aria-label="Load or new experiment"
+              className={FIELD}
+            >
+              <option value="load">Load</option>
+              <option value="new">New</option>
+            </select>
+            {creating ? (
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Name"
+                aria-label="New experiment name"
+                className={cn(FIELD, "min-w-0 flex-1")}
+              />
+            ) : (
+              <select
+                value={experiment}
+                onChange={(event) => setExperiment(event.target.value)}
+                aria-label="Recent experiment"
+                className={cn(FIELD, "min-w-0 flex-1")}
+              >
+                <option value="">None</option>
+                {recent.map((r) => (
+                  <option key={r.folder} value={r.folder} title={r.folder}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {creating && into && (
+            <span className="truncate" title={into}>
+              In {into}
+            </span>
+          )}
+          {!creating && experiment && (
+            <span className="truncate" title={experiment}>
+              {experiment}
+            </span>
+          )}
+          {creating && badName && (
+            <span className="text-destructive">A name, not a path.</span>
+          )}
+        </div>
+      )}
       <label className="flex items-center gap-2 text-[13px]">
-        <input type="checkbox" checked={window} onChange={(event) => setWindow(event.target.checked)} />
+        <input
+          type="checkbox"
+          checked={window}
+          onChange={(event) => setWindow(event.target.checked)}
+        />
         Show the window on this PC
       </label>
-      {!window && !host && <p className="m-0 text-xs text-muted-foreground">{chosen?.name} runs only with its window.</p>}
+      {!window && !host && (
+        <p className="m-0 text-xs text-muted-foreground">
+          {chosen?.name} runs only with its window.
+        </p>
+      )}
       <div className="flex justify-end">
         <Button
           variant="primary"
-          disabled={busy || !chosen || (!window && !host)}
+          disabled={busy || !chosen || (!window && !host) || !ready}
           onClick={() =>
-            start({
-              app,
-              window,
-              ...microscope,
-              ...(host && experiment.trim() ? { experiment: experiment.trim() } : {}),
-            })
+            start({ app, window, ...microscope, ...experimentBody })
           }
         >
-          Start
+          {busy ? "Starting…" : "Start"}
         </Button>
       </div>
     </>
   );
 }
 
-function AppSection({ state, microscope }: { state: GatewayState; microscope: Record<string, unknown> }) {
+/** While the app starts: what it is waiting for, and for how long. */
+function StartingLine({ state }: { state: GatewayState }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  const app = state.apps.find((a) => a.key === state.app)?.name ?? "the app";
+  const secs = state.since
+    ? Math.max(0, Math.round(now / 1000 - state.since))
+    : 0;
+  return (
+    <p className="m-0 flex items-center gap-2 text-[13px] text-muted-foreground">
+      <Loader size={14} className="shrink-0 animate-spin" />
+      {state.window
+        ? `Starting ${app}: its window opens on this PC`
+        : `Starting ${app}`}
+      … {secs} s{secs > 90 && " (slower than usual)"}
+    </p>
+  );
+}
+
+function AppSection({
+  state,
+  microscope,
+  starting = false,
+}: {
+  state: GatewayState;
+  microscope: Record<string, unknown>;
+  starting?: boolean;
+}) {
   const client = useQueryClient();
   const act = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) =>
@@ -226,10 +380,12 @@ function AppSection({ state, microscope }: { state: GatewayState; microscope: Re
       ) : (
         <>
           <Status state={state} />
+          {starting && <StartingLine state={state} />}
           {confirmClose ? (
             <>
               <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-                Close the app's window on this PC? Anyone at the PC sees it close.
+                Close the app's window on this PC? Anyone at the PC sees it
+                close.
               </p>
               <div className="flex justify-end gap-2.5">
                 <Button onClick={() => setConfirmClose(false)}>Cancel</Button>
@@ -240,8 +396,16 @@ function AppSection({ state, microscope }: { state: GatewayState; microscope: Re
             </>
           ) : (
             <div className="flex justify-end">
-              <Button variant="danger" disabled={busy} onClick={state.window ? () => setConfirmClose(true) : stop}>
-                {act.isPending ? "Stopping…" : state.window ? "Close the window" : "Stop"}
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={state.window ? () => setConfirmClose(true) : stop}
+              >
+                {act.isPending
+                  ? "Stopping…"
+                  : state.window
+                    ? "Close the window"
+                    : "Stop"}
               </Button>
             </div>
           )}
@@ -249,15 +413,22 @@ function AppSection({ state, microscope }: { state: GatewayState; microscope: Re
       )}
       {state.holder && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          Another fibsem host runs here (pid {state.holder.pid}) that the gateway didn't start: close it at the PC
-          before starting the app.
+          Another fibsem host runs here (pid {state.holder.pid}) that the
+          gateway didn't start: close it at the PC before starting the app.
         </p>
       )}
-      {act.error && <p className="m-0 text-[13px] text-destructive">{(act.error as Error).message}</p>}
+      {act.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(act.error as Error).message}
+        </p>
+      )}
       {state.last_exit && (
         <p className="m-0 text-xs text-muted-foreground">
           Last ended: {state.last_exit.app ?? "the app"},{" "}
-          {state.last_exit.killed ? "killed" : `exit ${state.last_exit.code ?? "–"}`}, {fmt.when(state.last_exit.at)}
+          {state.last_exit.killed
+            ? "killed"
+            : `exit ${state.last_exit.code ?? "–"}`}
+          , {fmt.when(state.last_exit.at)}
           {state.last_exit.log && ` · log ${state.last_exit.log}`}
         </p>
       )}
@@ -267,10 +438,12 @@ function AppSection({ state, microscope }: { state: GatewayState; microscope: Re
 
 /** One line of the history in words: what happened to which app. */
 function happened(s: Switch, name: string): string {
-  if (s.result.startsWith("refused")) return `Refused: ${s.result.replace(/^refused:\s*/, "")}`;
+  if (s.result.startsWith("refused"))
+    return `Refused: ${s.result.replace(/^refused:\s*/, "")}`;
   if (s.result === "started")
     return `Started ${name}${s.window === true ? " with its window" : s.window === false ? " without a window" : ""}`;
-  if (s.result === "stopped") return s.window ? `Closed ${name}'s window` : `Stopped ${name}`;
+  if (s.result === "stopped")
+    return s.window ? `Closed ${name}'s window` : `Stopped ${name}`;
   if (s.result === "closed") return `${name}'s window was closed at the PC`;
   const exit = s.result.match(/^exited \((.*)\)$/);
   if (exit) return `${name} ended on its own (exit ${exit[1]})`;
@@ -287,14 +460,30 @@ function Recent({ apps }: { apps: GatewayState["apps"] }) {
   return (
     <Card className="flex flex-col gap-2">
       <CardTitle>Recent</CardTitle>
-      {switches.length === 0 && <p className="m-0 text-[13px] text-muted-foreground">No starts or stops yet.</p>}
+      {switches.length === 0 && (
+        <p className="m-0 text-[13px] text-muted-foreground">
+          No starts or stops yet.
+        </p>
+      )}
       {switches.map((s, i) => (
-        <div key={i} className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3">
-          <span className="text-muted-foreground tabular-nums">{fmt.when(s.at)}</span>
+        <div
+          key={i}
+          className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3"
+        >
+          <span className="text-muted-foreground tabular-nums">
+            {fmt.when(s.at)}
+          </span>
           <span
-            className={cn("min-w-0 break-words", s.result.startsWith("refused") && "text-[var(--fibsem-semantic-warning-color)]")}
+            className={cn(
+              "min-w-0 break-words",
+              s.result.startsWith("refused") &&
+                "text-[var(--fibsem-semantic-warning-color)]",
+            )}
           >
-            {happened(s, apps.find((a) => a.key === s.app)?.name ?? s.app ?? "the app")}
+            {happened(
+              s,
+              apps.find((a) => a.key === s.app)?.name ?? s.app ?? "the app",
+            )}
             {s.experiment && (
               <span className="text-muted-foreground" title={s.experiment}>
                 {" "}
@@ -322,21 +511,35 @@ export function GatewayPage() {
   const state = gateway.data;
   const running = state?.mode === "running";
   const newer = state ? newerLabel(state.newer) : null;
-  const [choice, setChoice] = useState<MicroscopeChoice>({ connect: true, configuration: "" });
+  const [choice, setChoice] = useState<MicroscopeChoice>({
+    connect: true,
+    configuration: "",
+  });
   // The gateway's own flags stand when it has some; else the page's choice.
   const microscope: Record<string, unknown> =
     !state || state.connection.length > 0
       ? {}
       : choice.connect
-        ? { connect: true, ...(choice.configuration ? { configuration: choice.configuration } : {}) }
+        ? {
+            connect: true,
+            ...(choice.configuration
+              ? { configuration: choice.configuration }
+              : {}),
+          }
         : { connect: false };
   const connection = useQuery({
     queryKey: ["/gateway/microscope/connection"],
     queryFn: () => api<Connection>("/gateway/microscope/connection"),
     enabled: running,
     retry: false,
-    refetchInterval: 5000,
+    // Often while the app starts, to say so as soon as it answers.
+    refetchInterval: (query) => (query.state.data ? 5000 : 1000),
   });
+  // The app is up once its server answers; until then it is starting.
+  const appUp = running && !!connection.data;
+  // Only an app with a host has a server to wait for.
+  const hosted = !!state?.apps.find((a) => a.key === state.app)?.headless;
+  const appStarting = running && hosted && !connection.data;
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto flex max-w-[1100px] flex-col gap-4 px-4 py-5">
@@ -347,21 +550,50 @@ export function GatewayPage() {
             {state && ` · fibsemOS ${state.version}`}
           </span>
           {newer && (
-            <span className="ml-auto text-[13px] text-muted-foreground" title={newer.detail}>
+            <span
+              className="ml-auto text-[13px] text-muted-foreground"
+              title={newer.detail}
+            >
               {newer.text}
             </span>
           )}
         </div>
-        {gateway.error && <p className="m-0 text-[13px] text-destructive">{(gateway.error as Error).message}</p>}
+        {gateway.error && (
+          <p className="m-0 text-[13px] text-destructive">
+            {(gateway.error as Error).message}
+          </p>
+        )}
         {running && <ConnectionCard base="/gateway" title="Microscope" />}
-        {state && !running && <MicroscopeStart state={state} choice={choice} setChoice={setChoice} />}
-        {state && <AppSection state={state} microscope={microscope} />}
-        {state && <AgentCard appRunning={running} connected={running && !!connection.data?.connected} />}
+        {state && !running && (
+          <MicroscopeStart
+            state={state}
+            choice={choice}
+            setChoice={setChoice}
+          />
+        )}
+        {state && (
+          <AppSection
+            state={state}
+            microscope={microscope}
+            starting={appStarting}
+          />
+        )}
+        {state && (
+          <AgentCard
+            appRunning={appUp}
+            appStarting={appStarting}
+            connected={appUp && !!connection.data?.connected}
+          />
+        )}
         <Card>
           <Connections roles={["operator", "hub"]} />
         </Card>
         <Recent apps={state?.apps ?? []} />
-        <AgentSessions appRunning={running} connected={running && !!connection.data?.connected} />
+        <AgentSessions
+          appRunning={appUp}
+          appStarting={appStarting}
+          connected={appUp && !!connection.data?.connected}
+        />
       </div>
     </div>
   );

@@ -11,7 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from fibsem.gateway.gateway import OFF, RUNNING, Gateway, GatewayRefused
+from fibsem.gateway.gateway import (
+    OFF,
+    RUNNING,
+    Gateway,
+    GatewayRefused,
+    RecentExperiment,
+)
 from fibsem.tools.apps import App
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +66,8 @@ def _gateway(tmp_path, fakes, serve="serve", stop_wait_s=20.0, connection=None):
         home=tmp_path,
         app_registry=lambda: registry,
         last=lambda: "/experiments/grid3",
+        recent=lambda: [RecentExperiment("grid3", "/experiments/grid3", "AutoLamella")],
+        new_folder=lambda: "/experiments",
         discovery=lambda: fakes.found,
         running=lambda url, token: fakes.running,
         configurations=lambda: CONFIGURATIONS,
@@ -84,21 +92,63 @@ def _headless(gateway, who="operator", via="page", **kwargs):
     return gateway.start_app(who, via, app="stand-in", window=False, **kwargs)
 
 
+def _experiment(tmp_path, name="exp-1"):
+    folder = tmp_path / name
+    folder.mkdir()
+    (folder / "experiment.yaml").write_text(f"name: {name}\n")
+    return str(folder)
+
+
 def test_without_a_window_it_runs_the_apps_serve_and_stops_it_cleanly(tmp_path, fakes):
     gateway = _gateway(tmp_path, fakes)
-    state = _headless(gateway, experiment="exp-1")
+    exp = _experiment(tmp_path)
+    state = _headless(gateway, experiment=exp)
     assert (state.mode, state.window) == (RUNNING, False)
-    assert (state.app, state.experiment) == ("stand-in", "exp-1")
+    assert (state.app, state.experiment) == ("stand-in", exp)
     assert state.who == "operator" and state.pid
     state = gateway.stop("mac-mini", "hub")
     assert state.mode == OFF
     assert state.last_exit.code == 0 and not state.last_exit.killed
-    assert "serving exp-1 --no-connect" in _log(state), "the operator connects"
+    assert f"serving {exp} --no-connect" in _log(state), "the operator connects"
     switches = gateway.history().switches
     assert [(s.to_mode, s.who, s.result, s.window) for s in switches] == [
         (OFF, "mac-mini", "stopped", False),
         (RUNNING, "operator", "started", False),
     ]
+
+
+def test_a_new_experiment_is_made_with_create(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    new = str(tmp_path / "grid-4")
+    _headless(gateway, experiment=new, create=True)
+    assert f"serving {new} --create --no-connect" in _log(
+        gateway.stop("operator", "page")
+    )
+
+
+@pytest.mark.parametrize(
+    "folder, create, error",
+    [
+        ("exp-1", True, "exists"),
+        ("missing/grid-4", True, "no_parent"),
+        ("loose", False, "no_experiment"),
+        (None, True, "no_folder"),
+    ],
+)
+def test_an_experiment_the_app_could_not_open_is_refused(
+    tmp_path, fakes, folder, create, error
+):
+    _experiment(tmp_path)
+    (tmp_path / "loose").mkdir()
+    gateway = _gateway(tmp_path, fakes)
+    with pytest.raises(GatewayRefused) as refused:
+        _headless(
+            gateway,
+            experiment=str(tmp_path / folder) if folder else None,
+            create=create,
+        )
+    assert refused.value.error_type == error
+    assert gateway.state().mode == OFF
 
 
 def test_the_gateways_connection_flags_connect_as_it_starts(tmp_path, fakes):
@@ -108,6 +158,14 @@ def test_the_gateways_connection_flags_connect_as_it_starts(tmp_path, fakes):
     assert "serving --last --manufacturer Demo\n" in _log(
         gateway.stop("operator", "page")
     )
+
+
+def test_the_state_lists_recent_experiments_and_where_new_ones_go(tmp_path, fakes):
+    state = _gateway(tmp_path, fakes).state()
+    assert [(r.name, r.folder) for r in state.recent_experiments] == [
+        ("grid3", "/experiments/grid3")
+    ]
+    assert state.experiments_folder == "/experiments"
 
 
 def test_the_state_lists_the_saved_configurations(tmp_path, fakes):
