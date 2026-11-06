@@ -85,6 +85,7 @@ fibsem/fm/preview.py 3
 fibsem/fm/reader.py 2
 fibsem/fm/remote.py 1
 fibsem/fm/structures.py 8
+fibsem/gateway/agent.py 2
 fibsem/gateway/gateway.py 4
 fibsem/gateway/launch.py 1
 fibsem/gateway/main.py 8
