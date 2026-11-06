@@ -20,6 +20,10 @@ starts when you log on, with a tray icon and no console. It needs no admin right
 `fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run` (add
 `--no-tray` with no desktop).
 
+To stop the gateway, choose **Quit gateway** in the tray, or run `fibsem-gateway stop`.
+**Restart gateway** in the tray, or `fibsem-gateway restart`, stops it and starts it again with
+the same flags. A gateway that doesn't answer is ended by its process id.
+
 The app starts with no microscope. Connect one in the window, or on the gateway's page once
 the app is up (**Connection**, with the configurations saved on this PC). To have the app
 connect as it starts, give connection flags to `install` or `run` (`--manufacturer`,
