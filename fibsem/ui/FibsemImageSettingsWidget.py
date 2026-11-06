@@ -23,7 +23,7 @@ from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.item_selection import ItemSelection
-from fibsem.ui.qt.threading import thread_worker
+from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
 from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
@@ -33,6 +33,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
     viewer_update_signal = pyqtSignal()  # when the viewer is updated
     acquisition_progress_signal = pyqtSignal(dict)
     alignment_area_updated = pyqtSignal(FibsemRectangle)
+    _live_changed = pyqtSignal()  # a beam's live view started or ended
 
     def __init__(
         self,
@@ -85,6 +86,9 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             None  # beam currently live (canvas LIVE badge)
         )
         self._overlay_edited_wired = False  # subscribed to controller.overlay_edited
+        self._stopping_live = False  # a Stop is waiting for the live view's last frame
+        self._live_stop_worker: Optional[FunctionWorker] = None
+        self._beam_connections: List[tuple] = []
 
         self._setup_ui()
         self.setup_connections()
@@ -326,6 +330,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             self.microscope.imaging.image_shown.connect(self._on_acquire)
         for beam in getattr(self.microscope, "beams", {}).values():
             beam.live_frame.connect(self._on_acquire)
+            # The button follows live view however it ends: pausing in xT ends it too.
+            beam.changed.connect(self._on_beam_changed)
+            self._beam_connections.append((beam.changed, self._on_beam_changed))
+        self._live_changed.connect(self._sync_live_controls)
         self.pushButton_start_acquisition.clicked.connect(self.toggle_live_acquisition)
 
         self._connect_canvas_controls()
@@ -405,28 +413,64 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self.viewer_update_signal.emit()
 
-    def toggle_live_acquisition(self, event=None):
-        if self.microscope.is_acquiring:
-            logging.info("Microscope is already acquiring. Stopping acquisition...")
-            self.microscope.stop_acquisition()
-            self._set_live_indicator(None)  # clear the green border + LIVE badge
-            self.pushButton_start_acquisition.setText("Start Acquisition")
-            self.pushButton_start_acquisition.setStyleSheet(
-                stylesheets.SECONDARY_BUTTON_STYLESHEET
-            )
-            for btn in self.acquisition_buttons:
-                btn.setEnabled(True)
-                btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
-            for btn in [
-                self.pushButton_run_autocontrast,
-                self.pushButton_run_autofocus,
-            ]:
-                btn.setEnabled(True)
-            self.image_group.setEnabled(True)
-            self._spinner.stop()
-            self._spinner.setVisible(False)
-            return
+    def _on_beam_changed(self, name: str, value: Any) -> None:
+        """Called by psygnal, on whichever thread changed the beam. No widgets here."""
+        if name == "live":
+            self._live_changed.emit()
 
+    def _sync_live_controls(self) -> None:
+        """Live view ended without this widget's Stop: show it stopped."""
+        if self._stopping_live or self._live_beam is None:
+            return
+        if not self.microscope.is_acquiring:
+            self._show_live_stopped()
+
+    def toggle_live_acquisition(self, event=None):
+        if self._stopping_live:
+            return
+        if self.microscope.is_acquiring:
+            self._stop_live()
+            return
+        self._start_live()
+
+    def _stop_live(self) -> None:
+        """Stop live view off the GUI thread: stopping waits for the frame in flight."""
+        logging.info("Microscope is already acquiring. Stopping acquisition...")
+        self._stopping_live = True
+        self.pushButton_start_acquisition.setEnabled(False)
+        self.pushButton_start_acquisition.setText("Stopping…")
+        self._live_stop_worker = FunctionWorker(self.microscope.stop_acquisition)
+        self._live_stop_worker.finished.connect(self._on_live_stop_done)
+        self._live_stop_worker.start()
+
+    def _on_live_stop_done(self) -> None:
+        self._stopping_live = False
+        self.pushButton_start_acquisition.setEnabled(True)
+        if self.microscope.is_acquiring:
+            # Its last frame outlasted the wait; the end is signalled when it comes.
+            self.pushButton_start_acquisition.setText("Stop Acquisition")
+            return
+        self._show_live_stopped()
+
+    def _show_live_stopped(self) -> None:
+        self._set_live_indicator(None)  # clear the green border + LIVE badge
+        self.pushButton_start_acquisition.setText("Start Acquisition")
+        self.pushButton_start_acquisition.setStyleSheet(
+            stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        for btn in self.acquisition_buttons:
+            btn.setEnabled(True)
+            btn.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
+        for btn in [
+            self.pushButton_run_autocontrast,
+            self.pushButton_run_autofocus,
+        ]:
+            btn.setEnabled(True)
+        self.image_group.setEnabled(True)
+        self._spinner.stop()
+        self._spinner.setVisible(False)
+
+    def _start_live(self) -> None:
         # disable other buttons while live acquisition is running
         for btn in self.acquisition_buttons:
             btn.setEnabled(False)
@@ -772,6 +816,13 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
                 beam_widget.beam_settings_widget._execute_wd_wheel_move.cancel()
             except Exception:
                 pass
+
+        for signal, slot in self._beam_connections:
+            try:
+                signal.disconnect(slot)
+            except (TypeError, RuntimeError):
+                pass
+        self._beam_connections = []
 
         # View <-> beam-radio sync: drop both directions (controller is persistent).
         for signal, slot in getattr(self, "_view_sync_connections", []):
