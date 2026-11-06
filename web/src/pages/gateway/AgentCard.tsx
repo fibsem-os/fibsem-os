@@ -276,7 +276,6 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
 
 function Run({ running }: { running: Running }) {
   const client = useQueryClient();
-  const [confirm, setConfirm] = useState(false);
   // The app's own Agent page, signed in as the operator; absent while it is away.
   const page = useQuery({
     queryKey: ["gateway/app/agent-page"],
@@ -285,8 +284,7 @@ function Run({ running }: { running: Running }) {
     retry: false,
   });
   const end = useMutation({
-    mutationFn: (stopApp: boolean) =>
-      api<AgentState>("/gateway/agent/end", { method: "POST", body: JSON.stringify({ stop_app: stopApp }) }),
+    mutationFn: () => api<AgentState>("/gateway/agent/end", { method: "POST", body: "{}" }),
     onSuccess: (answer) => {
       client.setQueryData(["gateway/agent"], answer);
       client.invalidateQueries({ queryKey: ["gateway"] });
@@ -331,40 +329,23 @@ function Run({ running }: { running: Running }) {
     <>
       <Facts className="[&_dd]:text-left" rows={rows} />
       {end.error && <p className="m-0 text-[13px] text-destructive">{(end.error as Error).message}</p>}
-      {confirm ? (
-        <>
-          <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-            End the agent and stop the app? Nothing holds the microscope afterwards.
-          </p>
-          <div className="flex flex-wrap items-center justify-end gap-2.5">
-            <Button onClick={() => setConfirm(false)}>Cancel</Button>
-            <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate(true)}>
-              End and stop the app
-            </Button>
-          </div>
-        </>
-      ) : (
-        <div className="flex flex-wrap items-center justify-end gap-2.5">
-          {page.data ? (
-            <a
-              href={page.data.url}
-              target="_blank"
-              rel="noopener"
-              className="mr-auto text-xs text-[var(--primary)] hover:underline"
-            >
-              Open the Agent page
-            </a>
-          ) : (
-            <span className="mr-auto" />
-          )}
-          <Button disabled={end.isPending} onClick={() => setConfirm(true)}>
-            End and stop the app
-          </Button>
-          <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate(false)}>
-            {end.isPending ? "Ending…" : "End"}
-          </Button>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center justify-end gap-2.5">
+        {page.data ? (
+          <a
+            href={page.data.url}
+            target="_blank"
+            rel="noopener"
+            className="mr-auto text-xs text-[var(--primary)] hover:underline"
+          >
+            Open the Agent page
+          </a>
+        ) : (
+          <span className="mr-auto" />
+        )}
+        <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate()}>
+          {end.isPending ? "Ending…" : "End"}
+        </Button>
+      </div>
     </>
   );
 }
