@@ -537,7 +537,9 @@ export function GatewayPage() {
   });
   // The app is up once its server answers; until then it is starting.
   const appUp = running && !!connection.data;
-  const appStarting = running && !connection.data;
+  // Only an app with a host has a server to wait for.
+  const hosted = !!state?.apps.find((a) => a.key === state.app)?.headless;
+  const appStarting = running && hosted && !connection.data;
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto flex max-w-[1100px] flex-col gap-4 px-4 py-5">
