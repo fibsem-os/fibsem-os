@@ -480,17 +480,10 @@ function Run({ running }: { running: Running }) {
         </p>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2.5">
-        {page.data ? (
-          <a
-            href={page.data.url}
-            target="_blank"
-            rel="noopener"
-            className="mr-auto text-xs text-[var(--primary)] hover:underline"
-          >
+        {page.data && (
+          <Button onClick={() => window.open(page.data.url, "_blank", "noopener")}>
             Open the Agent page
-          </a>
-        ) : (
-          <span className="mr-auto" />
+          </Button>
         )}
         <Button
           variant="danger"

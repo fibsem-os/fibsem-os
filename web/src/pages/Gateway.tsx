@@ -403,7 +403,11 @@ function AppSection({
               {up && state.app_url && (
                 <Button
                   onClick={() =>
-                    location.assign(`${state.app_url}/ui/#token=${getToken() ?? ""}`)
+                    window.open(
+                      `${state.app_url}/ui/#token=${getToken() ?? ""}`,
+                      "_blank",
+                      "noopener",
+                    )
                   }
                 >
                   Open the app
