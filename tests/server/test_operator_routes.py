@@ -1110,3 +1110,22 @@ def test_keep_needs_a_sample_and_a_verdict(server, monkeypatch, tmp_path):
     assert refused.status_code == 422, refused.text
     kept = server.post("/app/agent/messages", headers=server.operator, json=body)
     assert kept.status_code == 201, kept.text
+
+
+def test_the_operator_names_the_sample_when_keeping(server, monkeypatch, tmp_path):
+    from fibsem import knowledge
+
+    monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "state"))
+    picks = _agent_picks(server)
+    evidence = {"answers": picks, "verdict": "good", "keep": True}
+    named = {"text": "", "evidence": {**evidence, "sample": "  root   tips "}}
+    kept = server.post("/app/agent/messages", headers=server.operator, json=named)
+    assert kept.status_code == 201, kept.text
+    # it is the experiment's sample now: the plan answers it, the next keep uses it
+    plan = server.get("/app/agent/plan", headers=server.operator).json()
+    assert plan["sample"] == "root tips"
+    again = {"text": "", "evidence": evidence}
+    kept = server.post("/app/agent/messages", headers=server.operator, json=again)
+    assert kept.status_code == 201, kept.text
+    rows = knowledge.entries(knowledge.SAMPLE, sample="root tips")
+    assert len(rows) == 2

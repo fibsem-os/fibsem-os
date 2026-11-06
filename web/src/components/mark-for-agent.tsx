@@ -566,39 +566,50 @@ export function usePlanSample(): string | null {
   return plan.data?.sample ?? null;
 }
 
-/** Keep as example: on by default once something is said good or bad; off, and why,
- * before the plan names a sample. *keep* null follows the default. */
-export function KeepTick({
-  said,
-  sample,
-  keep,
-  setKeep,
-}: {
-  said: boolean;
-  sample: string | null;
-  keep: boolean | null;
-  setKeep: (on: boolean) => void;
-}) {
-  const can = said && !!sample;
-  const why = !sample
-    ? "The plan names no sample yet"
-    : !said
-      ? "Say good or bad of something to keep it"
-      : `Kept in the knowledge base as an example of ${sample}`;
+/** Keep as example, as a message's evidence sends it: on by default once *said* (something is
+ * good or bad). With no sample named yet, the operator names one here, and it becomes the
+ * experiment's. */
+export function useKeep(said: boolean) {
+  const sample = usePlanSample();
+  const [keep, setKeep] = useState<boolean | null>(null);
+  const [named, setNamed] = useState("");
+  const under = sample ?? (named.trim() || null);
+  const kept = said && !!under && (keep ?? true);
+  return {
+    tick: { said, sample, named, setNamed, keep, setKeep },
+    evidence: kept ? { keep: true, ...(sample ? {} : { sample: under }) } : {},
+    kept,
+    reset: () => setKeep(null),
+  };
+}
+
+/** The Keep as example tick, with why it can't be ticked written beside it, not hidden. */
+export function KeepTick({ said, sample, named, setNamed, keep, setKeep }: ReturnType<typeof useKeep>["tick"]) {
+  const under = sample ?? (named.trim() || null);
+  const can = said && !!under;
   return (
-    <label
-      className={cn("flex items-center gap-1.5 text-[12px]", can ? "cursor-pointer" : "text-muted-foreground")}
-      title={why}
-    >
-      <input
-        type="checkbox"
-        className="m-0 accent-[var(--primary)]"
-        disabled={!can}
-        checked={can && (keep ?? true)}
-        onChange={(e) => setKeep(e.target.checked)}
-      />
-      Keep as example
-    </label>
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px]">
+      <label className={cn("flex items-center gap-1.5", can ? "cursor-pointer" : "text-muted-foreground")}>
+        <input
+          type="checkbox"
+          className="m-0 accent-[var(--primary)]"
+          disabled={!can}
+          checked={can && (keep ?? true)}
+          onChange={(e) => setKeep(e.target.checked)}
+        />
+        Keep as example{sample ? ` of ${sample}` : ""}
+      </label>
+      {!sample && (
+        <input
+          className="h-6 w-36 rounded border border-border bg-transparent px-1.5 text-[12px]"
+          aria-label="Sample"
+          placeholder="of which sample?"
+          value={named}
+          onChange={(e) => setNamed(e.target.value)}
+        />
+      )}
+      {!said && <span className="text-muted-foreground">Mark something good or bad to keep it.</span>}
+    </div>
   );
 }
 
@@ -625,8 +636,6 @@ export function MarkPanel({
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [keep, setKeep] = useState<boolean | null>(null);
-  const sample = usePlanSample();
   const { marks } = editor;
   const refs = markRefs(picks ?? []);
   const judged = Object.entries(editor.judged)
@@ -637,7 +646,8 @@ export function MarkPanel({
       ...(j.moved_to ? { moved_to: { x: Math.round(j.moved_to.x), y: Math.round(j.moved_to.y) } } : {}),
     }));
   const said = judged.some((j) => j.verdict) || marks.some((m) => m.verdict);
-  const kept = said && !!sample && (keep ?? true);
+  const keeping = useKeep(said);
+  const { kept } = keeping;
   const send = async () => {
     setError(null);
     setSending(true);
@@ -647,11 +657,11 @@ export function MarkPanel({
         marks: toMarks(marks),
         ...(channels ? { channels } : {}),
         ...(answers ? { answers, ...(judged.length ? { judged } : {}) } : {}),
-        ...(kept ? { keep: true } : {}),
+        ...keeping.evidence,
       };
       await api("/app/agent/messages", { method: "POST", body: JSON.stringify({ text: text.trim(), evidence }) });
       setText("");
-      setKeep(null);
+      keeping.reset();
       editor.clear();
       onSent();
     } catch (e) {
@@ -660,7 +670,10 @@ export function MarkPanel({
       setSending(false);
       await client.invalidateQueries({ queryKey: ["app/agent"] });
       await client.invalidateQueries({ queryKey: ["app/agent/recent"] });
-      if (kept) await client.invalidateQueries({ queryKey: ["app/knowledge"] });
+      if (kept) {
+        await client.invalidateQueries({ queryKey: ["app/knowledge"] });
+        await client.invalidateQueries({ queryKey: ["app/agent/plan"] });
+      }
     }
   };
   return (
@@ -733,7 +746,7 @@ export function MarkPanel({
         }}
       />
       {error && <p className="m-0 text-[12px] text-destructive">{error}</p>}
-      <KeepTick said={said} sample={sample} keep={keep} setKeep={setKeep} />
+      <KeepTick {...keeping.tick} />
       <div className="flex items-center gap-2">
         <span className="flex-1 text-[12px] text-muted-foreground">
           {channels

@@ -221,10 +221,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     422,
                     "invalid",
                     "evidence is {image, marks, channels?, answers?, verdict?, "
-                    "judged?, keep?}.",
+                    "judged?, keep?, sample?}.",
                 )
             # Kept as an example of the session's sample, in the knowledge base.
-            sample = _sample(request) if marked.get("keep") else None
             if marked.get("keep") and not examples.said(marked):
                 raise refusal_error(
                     422,
@@ -232,6 +231,9 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     "An example says good or bad of something: the picture, a "
                     "pick or a mark.",
                 )
+            sample = (
+                _sample(request, marked.get("sample")) if marked.get("keep") else None
+            )
             if marked.get("keep") and sample is None:
                 raise refusal_error(
                     409,
@@ -382,13 +384,20 @@ def _decided(result: Any, proposal_id: str) -> Any:
 _MARKABLE = (".tif", ".tiff", ".png", ".jpg", ".jpeg")
 
 
-def _sample(request: Request) -> Optional[str]:
-    """The sample the running agent session's plan names, or None."""
+def _sample(request: Request, named: Any = None) -> Optional[str]:
+    """The session's sample as the plan answers it: the one its Brief names,
+    else the open experiment's. With none, *named*, the one the operator
+    names with Keep as example, becomes the experiment's."""
     store = getattr(request.app.state, "agent_plan", None)
-    found = (request.app.state.auth.agent_session or {}).get("session_id")
-    if store is None or not isinstance(found, str):
+    if store is None:
         return None
-    return agent_plan.sample(store.current(found))
+    found = (request.app.state.auth.agent_session or {}).get("session_id")
+    sections = store.current(found if isinstance(found, str) else None)
+    sample = agent_plan.sample(sections) or store.experiment_sample()
+    if sample is None and isinstance(named, str) and named.strip():
+        sample = " ".join(named.split())[:200]
+        store.set_experiment_sample(sample)
+    return sample
 
 
 def _markable(root: str, image: Optional[str]) -> Optional[str]:
