@@ -61,19 +61,44 @@ interface Configuration {
   system_prompt: string;
 }
 
-const FIELD = "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
+const FIELD =
+  "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
 const LEVELS = ["watch", "assist", "drive"];
 
 const title = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
-const dollars = (value: number) => (Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`);
+const dollars = (value: number) =>
+  Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`;
 const clock = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "–";
+  iso
+    ? new Date(iso).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : "–";
 const day = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "–";
+  iso
+    ? new Date(iso).toLocaleString([], {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
+    : "–";
 
-function Field({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
+function Field({
+  label,
+  wide,
+  children,
+}: {
+  label: string;
+  wide?: boolean;
+  children: ReactNode;
+}) {
   return (
-    <label className={cn("flex flex-col gap-1 text-xs text-muted-foreground", wide && "sm:col-span-3")}>
+    <label
+      className={cn(
+        "flex flex-col gap-1 text-xs text-muted-foreground",
+        wide && "sm:col-span-3",
+      )}
+    >
       {label}
       {children}
     </label>
@@ -83,26 +108,52 @@ function Field({ label, wide, children }: { label: string; wide?: boolean; child
 function ConfigurationFacts({ name }: { name: string }) {
   const config = useQuery({
     queryKey: ["gateway/agent/playbooks", name],
-    queryFn: () => api<Configuration>(`/gateway/agent/playbooks/${encodeURIComponent(name)}`),
+    queryFn: () =>
+      api<Configuration>(
+        `/gateway/agent/playbooks/${encodeURIComponent(name)}`,
+      ),
     staleTime: 30_000,
   });
-  if (config.error) return <p className="m-0 text-[13px] text-destructive">{(config.error as Error).message}</p>;
+  if (config.error)
+    return (
+      <p className="m-0 text-[13px] text-destructive">
+        {(config.error as Error).message}
+      </p>
+    );
   const c = config.data;
-  if (!c) return <p className="m-0 text-[13px] text-muted-foreground">Reading the playbook…</p>;
+  if (!c)
+    return (
+      <p className="m-0 text-[13px] text-muted-foreground">
+        Reading the playbook…
+      </p>
+    );
   const rows: [string, ReactNode][] = [];
   const p = c.playbook;
-  rows.push(["File", <span className="font-mono text-xs">{`${p.path} · ${p.hash}`}</span>]);
+  rows.push([
+    "File",
+    <span className="font-mono text-xs">{`${p.path} · ${p.hash}`}</span>,
+  ]);
   if (p.extends.length) rows.push(["Builds on", p.extends.join(", ")]);
-  rows.push(["Model", [c.model ?? "the default model", c.effort && `effort ${c.effort}`].filter(Boolean).join(", ")]);
+  rows.push([
+    "Model",
+    [c.model ?? "the default model", c.effort && `effort ${c.effort}`]
+      .filter(Boolean)
+      .join(", "),
+  ]);
   rows.push([
     "Budget and turns",
-    [c.max_budget_usd != null && dollars(c.max_budget_usd), c.max_turns != null && `${c.max_turns} turns`]
+    [
+      c.max_budget_usd != null && dollars(c.max_budget_usd),
+      c.max_turns != null && `${c.max_turns} turns`,
+    ]
       .filter(Boolean)
       .join(", ") || "–",
   ]);
   rows.push([
     "Files and code",
-    c.mode === "none" ? "Off" : `${c.mode === "code" ? "Writes and runs code" : "Reads and writes files"} in ${c.folder}`,
+    c.mode === "none"
+      ? "Off"
+      : `${c.mode === "code" ? "Writes and runs code" : "Reads and writes files"} in ${c.folder}`,
   ]);
   rows.push(["Skills", c.skills.join(", ") || "–"]);
   rows.push([
@@ -113,7 +164,8 @@ function ConfigurationFacts({ name }: { name: string }) {
       <span className="flex flex-col gap-1">
         {p.reminders.map((hook, i) => (
           <span key={i}>
-            <span className="text-muted-foreground">{hook.label}:</span> {hook.say}
+            <span className="text-muted-foreground">{hook.label}:</span>{" "}
+            {hook.say}
           </span>
         ))}
       </span>
@@ -128,10 +180,23 @@ function ConfigurationFacts({ name }: { name: string }) {
         ))}
       </span>,
     ]);
-  return <Facts className="border-t border-border pt-2.5 [&_dd]:text-left" rows={rows} />;
+  return (
+    <Facts
+      className="border-t border-border pt-2.5 [&_dd]:text-left"
+      rows={rows}
+    />
+  );
 }
 
-function Start({ state, appRunning, connected }: { state: AgentState; appRunning: boolean; connected: boolean }) {
+function Start({
+  state,
+  appRunning,
+  connected,
+}: {
+  state: AgentState;
+  appRunning: boolean;
+  connected: boolean;
+}) {
   const client = useQueryClient();
   const playbooks = useQuery({
     queryKey: ["gateway/agent/playbooks"],
@@ -142,18 +207,29 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
   const [playbook, setPlaybook] = useState("");
   // Picked here, or else the playbook's level, or Watch.
   const [picked, setPicked] = useState<string | null>(null);
-  const [budget, setBudget] = useState("");
+  // Typed here, or else the playbook's own budget.
+  const [budget, setBudget] = useState<string | null>(null);
   const [goal, setGoal] = useState("");
   const [shown, setShown] = useState(false);
-  const chosen = playbook || usable.find((p) => p.name === "fibsem-agent")?.name || usable[0]?.name || "";
+  const chosen =
+    playbook ||
+    usable.find((p) => p.name === "fibsem-agent")?.name ||
+    usable[0]?.name ||
+    "";
   const config = useQuery({
     queryKey: ["gateway/agent/playbooks", chosen],
-    queryFn: () => api<Configuration>(`/gateway/agent/playbooks/${encodeURIComponent(chosen)}`),
+    queryFn: () =>
+      api<Configuration>(
+        `/gateway/agent/playbooks/${encodeURIComponent(chosen)}`,
+      ),
     enabled: !!chosen,
     staleTime: 30_000,
   });
   const fromPlaybook = config.data?.level ?? null;
   const level = picked ?? fromPlaybook ?? "watch";
+  const playbookBudget = config.data?.max_budget_usd ?? null;
+  const shownBudget =
+    budget ?? (playbookBudget != null ? String(playbookBudget) : "");
   const start = useMutation({
     mutationFn: (replace: boolean) =>
       api<AgentState>("/gateway/agent/start", {
@@ -162,13 +238,14 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
           playbook: chosen,
           goal: goal.trim(),
           level,
-          ...(budget.trim() ? { budget_usd: budget.trim() } : {}),
+          ...(budget?.trim() ? { budget_usd: budget.trim() } : {}),
           replace,
         }),
       }),
     onSuccess: (answer) => client.setQueryData(["gateway/agent"], answer),
   });
-  const paired = start.error instanceof ApiError && start.error.errorType === "agent_paired";
+  const paired =
+    start.error instanceof ApiError && start.error.errorType === "agent_paired";
   const last = state.sessions[0];
 
   return (
@@ -179,7 +256,8 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
       </p>
       {!state.api_key && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          No API key on this PC, so the agent can't start. Run fibsem-cli key set ANTHROPIC_API_KEY on this PC.
+          No API key on this PC, so the agent can't start. Run fibsem-cli key
+          set ANTHROPIC_API_KEY on this PC.
         </p>
       )}
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
@@ -189,6 +267,7 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
             onChange={(event) => {
               setPlaybook(event.target.value);
               setPicked(null);
+              setBudget(null);
             }}
             className={FIELD}
           >
@@ -200,7 +279,11 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
           </select>
         </Field>
         <Field label="Level">
-          <select value={level} onChange={(event) => setPicked(event.target.value)} className={FIELD}>
+          <select
+            value={level}
+            onChange={(event) => setPicked(event.target.value)}
+            className={FIELD}
+          >
             {LEVELS.map((l) => (
               <option key={l} value={l}>
                 {title(l)}
@@ -208,12 +291,14 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
             ))}
           </select>
         </Field>
-        <Field label="Budget">
+        <Field label="Budget ($)">
           <input
-            value={budget}
+            value={shownBudget}
             onChange={(event) => setBudget(event.target.value)}
+            // Left empty, it goes back to the playbook's budget.
+            onBlur={() => !budget?.trim() && setBudget(null)}
             inputMode="decimal"
-            placeholder="From the playbook"
+            placeholder="No limit"
             className={FIELD}
           />
         </Field>
@@ -226,10 +311,18 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
           />
         </Field>
       </div>
-      {playbooks.error && <p className="m-0 text-[13px] text-destructive">{(playbooks.error as Error).message}</p>}
+      {playbooks.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(playbooks.error as Error).message}
+        </p>
+      )}
       {chosen && (
         <div className="flex flex-col gap-2.5">
-          {config.data?.description && <p className="m-0 text-[13px] text-muted-foreground">{config.data.description}</p>}
+          {config.data?.description && (
+            <p className="m-0 text-[13px] text-muted-foreground">
+              {config.data.description}
+            </p>
+          )}
           <button
             onClick={() => setShown(!shown)}
             className="w-fit cursor-pointer border-0 bg-transparent p-0 text-xs text-[var(--primary)] hover:underline"
@@ -241,28 +334,50 @@ function Start({ state, appRunning, connected }: { state: AgentState; appRunning
       )}
       {paired ? (
         <>
-          <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">{(start.error as Error).message}</p>
+          <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+            {(start.error as Error).message}
+          </p>
           <div className="flex flex-wrap items-center justify-end gap-2.5">
             <Button onClick={() => start.reset()}>Cancel</Button>
-            <Button variant="primary" disabled={start.isPending} onClick={() => start.mutate(true)}>
+            <Button
+              variant="primary"
+              disabled={start.isPending}
+              onClick={() => start.mutate(true)}
+            >
               Disconnect and start
             </Button>
           </div>
         </>
       ) : (
         <>
-          {start.error && <p className="m-0 text-[13px] text-destructive">{(start.error as Error).message}</p>}
+          {start.error && (
+            <p className="m-0 text-[13px] text-destructive">
+              {(start.error as Error).message}
+            </p>
+          )}
           <div className="flex flex-wrap items-center justify-end gap-2.5">
             {!appRunning ? (
-              <span className="text-xs text-muted-foreground">Start the app first: the agent acts through it.</span>
+              <span className="text-xs text-muted-foreground">
+                Start the app first: the agent acts through it.
+              </span>
             ) : !connected ? (
-              <span className="text-xs text-muted-foreground">Connect the microscope first: the agent works on it.</span>
+              <span className="text-xs text-muted-foreground">
+                Connect the microscope first: the agent works on it.
+              </span>
             ) : !state.api_key ? null : (
-              <span className="text-xs text-muted-foreground">Uses ANTHROPIC_API_KEY on this PC.</span>
+              <span className="text-xs text-muted-foreground">
+                Uses ANTHROPIC_API_KEY on this PC.
+              </span>
             )}
             <Button
               variant="primary"
-              disabled={start.isPending || !appRunning || !connected || !state.api_key || !chosen}
+              disabled={
+                start.isPending ||
+                !appRunning ||
+                !connected ||
+                !state.api_key ||
+                !chosen
+              }
               onClick={() => start.mutate(false)}
             >
               Start
@@ -284,20 +399,27 @@ function Run({ running }: { running: Running }) {
     retry: false,
   });
   const end = useMutation({
-    mutationFn: () => api<AgentState>("/gateway/agent/end", { method: "POST", body: "{}" }),
+    mutationFn: () =>
+      api<AgentState>("/gateway/agent/end", { method: "POST", body: "{}" }),
     onSuccess: (answer) => {
       client.setQueryData(["gateway/agent"], answer);
       client.invalidateQueries({ queryKey: ["gateway"] });
     },
   });
   const rows: [string, ReactNode][] = [];
-  if (running.state === "waiting") rows.push(["State", "Waiting for the app to come back, then it resumes"]);
+  if (running.state === "waiting")
+    rows.push(["State", "Waiting for the app to come back, then it resumes"]);
   rows.push(["Goal", running.goal ?? "None given"]);
   rows.push([
     "Playbook",
     <>
       {running.playbook ?? "–"}
-      {running.playbook_hash && <span className="text-muted-foreground"> · {running.playbook_hash}</span>}
+      {running.playbook_hash && (
+        <span className="text-muted-foreground">
+          {" "}
+          · {running.playbook_hash}
+        </span>
+      )}
     </>,
   ]);
   if (running.level) {
@@ -305,12 +427,22 @@ function Run({ running }: { running: Running }) {
       "Level",
       <>
         {title(running.level)}
-        {running.level !== "watch" && <span className="text-muted-foreground"> · set again after each app restart</span>}
+        {running.level !== "watch" && (
+          <span className="text-muted-foreground">
+            {" "}
+            · set again after each app restart
+          </span>
+        )}
       </>,
     ]);
   }
   const spent = running.spent_usd != null ? dollars(running.spent_usd) : "$0";
-  rows.push(["Spent", running.budget_usd != null ? `${spent} of ${dollars(running.budget_usd)}` : spent]);
+  rows.push([
+    "Spent",
+    running.budget_usd != null
+      ? `${spent} of ${dollars(running.budget_usd)}`
+      : spent,
+  ]);
   if (running.restarts.length > 0) {
     const lastRestart = running.restarts[running.restarts.length - 1];
     rows.push([
@@ -328,7 +460,11 @@ function Run({ running }: { running: Running }) {
   return (
     <>
       <Facts className="[&_dd]:text-left" rows={rows} />
-      {end.error && <p className="m-0 text-[13px] text-destructive">{(end.error as Error).message}</p>}
+      {end.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(end.error as Error).message}
+        </p>
+      )}
       <div className="flex flex-wrap items-center justify-end gap-2.5">
         {page.data ? (
           <a
@@ -342,7 +478,11 @@ function Run({ running }: { running: Running }) {
         ) : (
           <span className="mr-auto" />
         )}
-        <Button variant="danger" disabled={end.isPending} onClick={() => end.mutate()}>
+        <Button
+          variant="danger"
+          disabled={end.isPending}
+          onClick={() => end.mutate()}
+        >
           {end.isPending ? "Ending…" : "End"}
         </Button>
       </div>
@@ -351,7 +491,13 @@ function Run({ running }: { running: Running }) {
 }
 
 /** This PC's agent: start one with a playbook, or the one running and its End. */
-export function AgentCard({ appRunning, connected }: { appRunning: boolean; connected: boolean }) {
+export function AgentCard({
+  appRunning,
+  connected,
+}: {
+  appRunning: boolean;
+  connected: boolean;
+}) {
   const agent = useQuery({
     queryKey: ["gateway/agent"],
     queryFn: () => api<AgentState>("/gateway/agent"),
@@ -364,8 +510,16 @@ export function AgentCard({ appRunning, connected }: { appRunning: boolean; conn
         <CardTitle>Agent</CardTitle>
         {state?.running && (
           <span
-            title={state.running.state === "running" ? "Running" : "Waiting for the app"}
-            aria-label={state.running.state === "running" ? "Running" : "Waiting for the app"}
+            title={
+              state.running.state === "running"
+                ? "Running"
+                : "Waiting for the app"
+            }
+            aria-label={
+              state.running.state === "running"
+                ? "Running"
+                : "Waiting for the app"
+            }
             className={cn(
               "size-2 rounded-full",
               state.running.state === "running"
@@ -375,8 +529,17 @@ export function AgentCard({ appRunning, connected }: { appRunning: boolean; conn
           />
         )}
       </div>
-      {agent.error && <p className="m-0 text-[13px] text-destructive">{(agent.error as Error).message}</p>}
-      {state && (state.running ? <Run running={state.running} /> : <Start state={state} appRunning={appRunning} connected={connected} />)}
+      {agent.error && (
+        <p className="m-0 text-[13px] text-destructive">
+          {(agent.error as Error).message}
+        </p>
+      )}
+      {state &&
+        (state.running ? (
+          <Run running={state.running} />
+        ) : (
+          <Start state={state} appRunning={appRunning} connected={connected} />
+        ))}
     </Card>
   );
 }
@@ -393,7 +556,20 @@ function ResumeForm({
 }) {
   const client = useQueryClient();
   const [level, setLevel] = useState("watch");
-  const [budget, setBudget] = useState("");
+  // Typed here, or else the playbook's own budget.
+  const [budget, setBudget] = useState<string | null>(null);
+  const config = useQuery({
+    queryKey: ["gateway/agent/playbooks", session.playbook],
+    queryFn: () =>
+      api<Configuration>(
+        `/gateway/agent/playbooks/${encodeURIComponent(session.playbook ?? "")}`,
+      ),
+    enabled: !!session.playbook,
+    staleTime: 30_000,
+  });
+  const playbookBudget = config.data?.max_budget_usd ?? null;
+  const shownBudget =
+    budget ?? (playbookBudget != null ? String(playbookBudget) : "");
   const resume = useMutation({
     mutationFn: (replace: boolean) =>
       api<AgentState>("/gateway/agent/resume", {
@@ -401,7 +577,7 @@ function ResumeForm({
         body: JSON.stringify({
           session_id: session.session_id,
           level,
-          ...(budget.trim() ? { budget_usd: budget.trim() } : {}),
+          ...(budget?.trim() ? { budget_usd: budget.trim() } : {}),
           replace,
         }),
       }),
@@ -410,12 +586,18 @@ function ResumeForm({
       onDone();
     },
   });
-  const paired = resume.error instanceof ApiError && resume.error.errorType === "agent_paired";
+  const paired =
+    resume.error instanceof ApiError &&
+    resume.error.errorType === "agent_paired";
   return (
     <div className="flex flex-col gap-2.5 pt-2 sm:col-span-3">
       <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         <Field label="Level">
-          <select value={level} onChange={(event) => setLevel(event.target.value)} className={FIELD}>
+          <select
+            value={level}
+            onChange={(event) => setLevel(event.target.value)}
+            className={FIELD}
+          >
             {LEVELS.map((l) => (
               <option key={l} value={l}>
                 {title(l)}
@@ -423,12 +605,14 @@ function ResumeForm({
             ))}
           </select>
         </Field>
-        <Field label="Budget">
+        <Field label="Budget ($)">
           <input
-            value={budget}
+            value={shownBudget}
             onChange={(event) => setBudget(event.target.value)}
+            // Left empty, it goes back to the playbook's budget.
+            onBlur={() => !budget?.trim() && setBudget(null)}
             inputMode="decimal"
-            placeholder="From the playbook"
+            placeholder="No limit"
             className={FIELD}
           />
         </Field>
@@ -440,21 +624,29 @@ function ResumeForm({
         <p
           className={cn(
             "m-0 text-[13px]",
-            paired ? "text-[var(--fibsem-semantic-warning-color)]" : "text-destructive",
+            paired
+              ? "text-[var(--fibsem-semantic-warning-color)]"
+              : "text-destructive",
           )}
         >
           {(resume.error as Error).message}
         </p>
       )}
       <div className="flex flex-wrap items-center justify-end gap-2.5">
-        {ready && <span className="text-xs text-muted-foreground">{ready}</span>}
+        {ready && (
+          <span className="text-xs text-muted-foreground">{ready}</span>
+        )}
         <Button onClick={onDone}>Cancel</Button>
         <Button
           variant="primary"
           disabled={resume.isPending || !!ready}
           onClick={() => resume.mutate(paired)}
         >
-          {paired ? "Disconnect and resume" : resume.isPending ? "Resuming…" : "Resume"}
+          {paired
+            ? "Disconnect and resume"
+            : resume.isPending
+              ? "Resuming…"
+              : "Resume"}
         </Button>
       </div>
     </div>
@@ -463,8 +655,17 @@ function ResumeForm({
 
 /** The latest agent sessions on this PC, run by the gateway or by hand; an
  * ended one can be resumed while no agent runs. */
-export function AgentSessions({ appRunning, connected }: { appRunning: boolean; connected: boolean }) {
-  const agent = useQuery({ queryKey: ["gateway/agent"], queryFn: () => api<AgentState>("/gateway/agent") });
+export function AgentSessions({
+  appRunning,
+  connected,
+}: {
+  appRunning: boolean;
+  connected: boolean;
+}) {
+  const agent = useQuery({
+    queryKey: ["gateway/agent"],
+    queryFn: () => api<AgentState>("/gateway/agent"),
+  });
   const [open, setOpen] = useState<string | null>(null);
   const state = agent.data;
   const sessions = state?.sessions ?? [];
@@ -487,7 +688,9 @@ export function AgentSessions({ appRunning, connected }: { appRunning: boolean; 
             key={s.session_id ?? s.started}
             className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3"
           >
-            <span className="text-muted-foreground tabular-nums">{day(s.started)}</span>
+            <span className="text-muted-foreground tabular-nums">
+              {day(s.started)}
+            </span>
             <span className="min-w-0 break-words">
               {s.playbook ?? "no playbook"}
               {s.goal && ` · ${s.goal}`}
@@ -496,7 +699,8 @@ export function AgentSessions({ appRunning, connected }: { appRunning: boolean; 
               <span
                 className={cn(
                   "text-muted-foreground",
-                  s.ended === "restarts used up" && "text-[var(--fibsem-semantic-warning-color)]",
+                  s.ended === "restarts used up" &&
+                    "text-[var(--fibsem-semantic-warning-color)]",
                 )}
               >
                 {s.ended ?? "running"}
@@ -513,11 +717,17 @@ export function AgentSessions({ appRunning, connected }: { appRunning: boolean; 
             </span>
             {ended && s.cannot_resume && (
               <span className="text-xs text-muted-foreground sm:col-start-2 sm:col-span-2">
-                Can't resume: {s.cannot_resume.charAt(0).toLowerCase() + s.cannot_resume.slice(1)}
+                Can't resume:{" "}
+                {s.cannot_resume.charAt(0).toLowerCase() +
+                  s.cannot_resume.slice(1)}
               </span>
             )}
             {canResume && open === s.session_id && (
-              <ResumeForm session={s} ready={ready} onDone={() => setOpen(null)} />
+              <ResumeForm
+                session={s}
+                ready={ready}
+                onDone={() => setOpen(null)}
+              />
             )}
           </div>
         );
