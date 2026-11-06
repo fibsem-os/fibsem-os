@@ -581,6 +581,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     _fib_acquire_done = pyqtSignal()
     _fm_acquire_done = pyqtSignal()
     _intensity_ready = pyqtSignal(float)
+    _fm_live_frame = pyqtSignal(object)
 
     def __init__(
         self,
@@ -607,6 +608,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._last_timelapse_time: float = 0.0
         self._is_scrubbing: bool = False
         self._is_milling_active: bool = False
+        self._fm_stopping: bool = False
 
         # Optional sub-widgets (created only when microscope/fm is available)
         self.fib_beam_widget = None
@@ -1105,6 +1107,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._fm_image_ready.connect(self.set_fm_image)
         self._fib_acquire_done.connect(self._on_fib_acquire_done)
         self._fm_acquire_done.connect(self._on_fm_acquire_done)
+        self._fm_live_frame.connect(self._show_fm_live_frame)
 
         # Lamella list
         self.lamella_list_widget.lamella_selected.connect(self._on_lamella_selected)
@@ -1141,6 +1144,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         # Live FM acquisition → FM canvas
         self.microscope.fm.acquisition_signal.connect(self._on_fm_live_image)
+        # The controls follow the stream whoever ends it: pausing in xT ends it too.
+        self.microscope.fm.acquiring_changed.connect(self._on_fm_acquiring_changed)
 
         # A FIB image someone asked to show (e.g. post-milling) → FIB canvas
         def show_fib(image) -> None:
@@ -1339,9 +1344,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.btn_acquire_fm.setText("Acquire Fluorescence Image")
 
     def _on_fm_live_image(self, image):
-        """Slot for live FM acquisition — routes each frame to the FM canvas and line plot."""
+        """Called on the FM's acquisition thread: hand the frame to the GUI thread."""
+        self._fm_live_frame.emit(image)
+
+    def _show_fm_live_frame(self, image):
+        """A live FM frame, on the GUI thread: the FM canvas, line plot and timelapse."""
         if not self._is_scrubbing:
-            self._fm_image_ready.emit(image)
+            self.set_fm_image(image)
         self._compute_and_emit_intensity(image)
         self._maybe_accumulate_timelapse(image)
 
@@ -1617,12 +1626,10 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None or self.microscope.fm is None:
             return
         fm = self.microscope.fm
+        if self._fm_stopping:
+            return
         if fm.is_streaming:
-            fm.stop_acquisition()
-            self.btn_toggle_fm_acquisition.setText("Start Acquisition")
-            self.btn_toggle_fm_acquisition.setStyleSheet(
-                stylesheets.SECONDARY_BUTTON_STYLESHEET
-            )
+            self._stop_fm_stream()
         else:
             # The third place in the app that can start a live stream, and so the third
             # that has to ask whether the microscope is free -- a tileset never streams,
@@ -1644,10 +1651,47 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
                 )
                 return
             fm.start_acquisition(channel_settings=selected_channel_settings)
-            self.btn_toggle_fm_acquisition.setText("Stop Acquisition")
-            self.btn_toggle_fm_acquisition.setStyleSheet(
-                stylesheets.DANGER_BUTTON_STYLESHEET
-            )
+            self._sync_fm_acquisition_controls()
+
+    def _stop_fm_stream(self) -> None:
+        """Stop live FM off the GUI thread: stopping waits for the frame in flight."""
+        fm = self.microscope.fm
+        self._fm_stopping = True
+        self._sync_fm_acquisition_controls()
+
+        self._fm_stop_worker = FunctionWorker(fm.stop_acquisition)
+        self._fm_stop_worker.finished.connect(self._on_fm_stop_done)
+        self._fm_stop_worker.start()
+
+    def _on_fm_stop_done(self) -> None:
+        self._fm_stopping = False
+        self._sync_fm_acquisition_controls()
+
+    @ensure_main_thread
+    def _on_fm_acquiring_changed(self, _acquiring: bool) -> None:
+        self._sync_fm_acquisition_controls()
+
+    def _sync_fm_acquisition_controls(self) -> None:
+        """Set the start/stop button and the pause menu from whether live FM runs."""
+        fm = getattr(self.microscope, "fm", None)
+        button = getattr(self, "btn_toggle_fm_acquisition", None)
+        if fm is None or button is None:
+            return
+        streaming = fm.is_streaming
+        if self._fm_stopping:
+            button.setText("Stopping…")
+            button.setEnabled(False)
+        else:
+            button.setText("Stop Acquisition" if streaming else "Start Acquisition")
+            button.setEnabled(True)
+        button.setStyleSheet(
+            stylesheets.DANGER_BUTTON_STYLESHEET
+            if streaming and not self._fm_stopping
+            else stylesheets.SECONDARY_BUTTON_STYLESHEET
+        )
+        action = getattr(self, "_act_pause_acquisition", None)
+        if action is not None:
+            action.setText("Pause Acquisition" if streaming else "Resume Acquisition")
 
     def _on_pause_milling_action(self):
         """Pause/resume milling from the pause menu, toggling the action label."""
@@ -1667,12 +1711,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         if self.microscope is None or self.microscope.fm is None:
             return
         fm = self.microscope.fm
+        if self._fm_stopping:
+            return
         if fm.is_streaming:
-            fm.stop_acquisition()
-            self._act_pause_acquisition.setText("Resume Acquisition")
+            self._stop_fm_stream()
         else:
             fm.start_acquisition()
-            self._act_pause_acquisition.setText("Pause Acquisition")
+            self._sync_fm_acquisition_controls()
 
     def _on_channel_field_changed(self, channel, field: str, value) -> None:
         """Update a single FM parameter live during acquisition (mirrors FMControlWidget)."""

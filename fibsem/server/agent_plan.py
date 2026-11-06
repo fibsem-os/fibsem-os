@@ -398,7 +398,10 @@ def build_agent_plan_router(
         session = auth.agent_session or {}
         store = _store(request)
         store.current(session.get("session_id"))
-        return store.answer()
+        playbook = session.get("playbook")
+        name = playbook.get("name") if isinstance(playbook, dict) else None
+        # the playbook the session runs, for what an example is kept under
+        return {**store.answer(), "playbook": name or None}
 
     @router.post("/plan/section")
     def set_section(request: Request, body: Dict[str, Any]):

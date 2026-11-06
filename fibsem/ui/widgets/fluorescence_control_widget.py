@@ -97,6 +97,8 @@ class FMControlWidget(QWidget):
         # Consolidated acquisition threading
         self._acquisition_thread: Optional[FunctionWorker] = None
         self._current_acquisition_type: Optional[str] = None
+        # A Stop waiting for the live view's last frame, on a worker
+        self._live_stop_worker: Optional[FunctionWorker] = None
 
         # FM canvas click context (quad-view): retained from the latest image so a
         # double-click can convert pixel -> stage
@@ -699,9 +701,22 @@ class FMControlWidget(QWidget):
     def stop_acquisition(self):
         """Stop the fluorescence acquisition."""
 
+        if self._live_stopping:
+            return
         logging.info("Acquisition stopped")
+        # Off the GUI thread: stopping waits for the frame in flight.
+        self._live_stop_worker = FunctionWorker(self.fm.stop_acquisition)
+        self._live_stop_worker.finished.connect(self._on_live_stop_done)
+        self._live_stop_worker.start()
+        self._update_acquisition_button_states()
 
-        self.fm.stop_acquisition()
+    @property
+    def _live_stopping(self) -> bool:
+        worker = getattr(self, "_live_stop_worker", None)
+        return worker is not None and worker.is_alive()
+
+    def _on_live_stop_done(self) -> None:
+        self._live_stop_worker = None
         self._update_acquisition_button_states()
 
     def cancel_acquisition(self):
@@ -710,8 +725,8 @@ class FMControlWidget(QWidget):
         # Cancel consolidated acquisition (single image or future consolidated types)
         if self._has_worker:
             logging.info(f"Cancelling {self._current_acquisition_type} acquisition")
+            # The worker's own finish resets the controls; waiting here froze the window.
             self.microscope.imaging.stop()
-            self._acquisition_thread.join(timeout=5)  # type: ignore[union-attr]
 
         logging.info("All acquisitions cancelled")
 
@@ -954,14 +969,19 @@ class FMControlWidget(QWidget):
         self.pushButton_cancel_acquisition.setVisible(self.is_acquisition_active)
 
         # Update toggle acquisition button text based on state
+        stopping = self._live_stopping
         self.pushButton_toggle_acquisition.setText(
-            "Stop Acquisition" if streaming else "Start Acquisition"
+            "Stopping…"
+            if stopping
+            else ("Stop Acquisition" if streaming else "Start Acquisition")
         )
         # Clickable while the live stream *is* what is running -- it is the only way to
         # stop one, and stopping is allowed from any pose -- but not while anything else
         # has the microscope: starting a stream mid-tileset changes the settings the
         # remaining tiles are acquired at.
-        self.pushButton_toggle_acquisition.setEnabled(streaming or may_start)
+        self.pushButton_toggle_acquisition.setEnabled(
+            not stopping and (streaming or may_start)
+        )
 
         # Anything that starts new work waits for whatever is running to finish.
         for button in (

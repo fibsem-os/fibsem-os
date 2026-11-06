@@ -13,7 +13,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fibsem import knowledge
 from fibsem.geometry.saved_images import image_pixel_size
@@ -145,7 +145,7 @@ def _title(record: Dict[str, Any], message: str) -> str:
 def keep(
     record: Dict[str, Any],
     answered: Optional[Dict[str, Any]],
-    sample: str,
+    under: Tuple[str, Optional[str]],
     message: str = "",
     task: Optional[str] = None,
     root: Optional[str] = None,
@@ -153,7 +153,9 @@ def keep(
     source: Optional[Dict[str, Optional[str]]] = None,
 ) -> knowledge.Entry:
     """Write the operator's feedback *record* (an evidence record, with the
-    picture it *answered*) as a kept example of *sample*: the image drawn with
+    picture it *answered*) as a kept example *under* a knowledge section and
+    its name: (``sample``, the sample), (``playbook``, the playbook) or
+    (``instrument``, None), this microscope's: the image drawn with
     the agent's picks and the operator's marks, the *message*, the *task* the
     picture was for. *root*, the experiment, names the image and the entry's
     session tag; *instrument* and *source* as `knowledge.write` takes them.
@@ -169,12 +171,14 @@ def keep(
         picture = os.path.join(folder, os.path.basename(image).split(".")[0] + ".png")
         with open(picture, "wb") as f:
             f.write(png_bytes(rgb))
+        section, named = under
         entry = knowledge.write(
-            knowledge.SAMPLE,
+            section,
             _title(record, message),
             _text(record, picks, message, task),
             knowledge.OPERATOR,
-            sample=sample,
+            sample=named if section == knowledge.SAMPLE else None,
+            playbook=named if section == knowledge.PLAYBOOK else None,
             instrument=instrument,
             session=os.path.basename(os.path.normpath(root)) if root else None,
             source={**(source or {}), "evidence_id": record.get("evidence_id")},

@@ -70,9 +70,14 @@ class _Report(QObject):
 
 
 class GatewayTray(QSystemTrayIcon):
-    def __init__(self, gateway: Gateway, auth, port: int, agent=None):
+    def __init__(
+        self, gateway: Gateway, auth, port: int, agent=None, stopping=None, on_quit=None
+    ):
         super().__init__()
         self._gateway = gateway
+        # The quit route's: *stopping* set means quit; *on_quit(True)* restarts.
+        self._stopping = stopping
+        self._on_quit = on_quit
         self._agent = agent
         self._auth = auth
         self._port = port
@@ -88,6 +93,9 @@ class GatewayTray(QSystemTrayIcon):
         self.refresh()
 
     def refresh(self) -> None:
+        if self._stopping is not None and self._stopping.is_set():
+            self._quit()
+            return
         state = self._gateway.state()
         shown = (state.mode, state.window, state.switching, state.app, state.experiment)
         if shown == self._shown:
@@ -145,6 +153,7 @@ class GatewayTray(QSystemTrayIcon):
         self._add(pair, "A hub that only reads", True, lambda: self._pair(HUB, ()))
         self._add(menu, "Open gateway page", True, self._open_page)
         menu.addSeparator()
+        self._add(menu, "Restart gateway", self._on_quit is not None, self._restart)
         self._add(menu, "Quit gateway", True, self._quit)
 
     @staticmethod
@@ -239,14 +248,22 @@ class GatewayTray(QSystemTrayIcon):
         quit_gateway(self._gateway)
         QApplication.instance().quit()
 
+    def _restart(self) -> None:
+        """Quit; the gateway starts again once this one has stopped."""
+        self._on_quit(True)
+        self._quit()
 
-def run_tray(gateway: Gateway, auth, port: int, agent=None) -> bool:
-    """The tray until Quit; False when this desktop has no tray."""
+
+def run_tray(
+    gateway: Gateway, auth, port: int, agent=None, stopping=None, on_quit=None
+) -> bool:
+    """The tray until Quit (or *stopping* is set); False when this desktop
+    has no tray."""
     app = QApplication.instance() or QApplication(sys.argv)
     if not QSystemTrayIcon.isSystemTrayAvailable():
         return False
     app.setQuitOnLastWindowClosed(False)
-    tray = GatewayTray(gateway, auth, port, agent)
+    tray = GatewayTray(gateway, auth, port, agent, stopping, on_quit)
     tray.show()
     app.exec_()
     return True

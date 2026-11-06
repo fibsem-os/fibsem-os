@@ -666,10 +666,20 @@ class Beam(Device):
             if scanned:
                 self._hold_scanner()  # refused here if the other beam is live on it
             self._live_stop.clear()
+            if "live" in self._bound:
+                self.live.get_value()  # a first value, so the start is signalled
+            # Before the thread, which reports the end: a run ending at once ends False.
+            self._report_live(True)
             self._live_thread = threading.Thread(
                 target=self._run_live, name=f"{self.name}-live", daemon=True
             )
             self._live_thread.start()
+
+    def _report_live(self, live: bool) -> None:
+        """Signal ``live`` changing, however live view ended: a stop, an error, or the
+        vendor's own UI stopping the acquisition."""
+        if "live" in self._bound:
+            self.live.report(live)
 
     @command(
         available=lambda beam: implements(beam, "_live") or "scanner" in beam.roles
@@ -703,6 +713,7 @@ class Beam(Device):
         finally:
             if scanned:
                 self.scanner.resources.release(SCANNER_RESOURCE, self.name)
+            self._report_live(False)
 
     def _live(self, stop: threading.Event) -> None:
         raise NotImplementedError
