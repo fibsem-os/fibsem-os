@@ -556,37 +556,52 @@ function PickList({ editor, picks }: { editor: MarkEditor; picks: Mark[] }) {
   );
 }
 
-/** The sample the agent's plan names, or null before it names one. */
-export function usePlanSample(): string | null {
+/** The sample the agent's plan names and the playbook its session runs, null for none. */
+export function usePlanNames(): { sample: string | null; playbook: string | null } {
   const plan = useQuery({
     queryKey: ["app/agent/plan"],
-    queryFn: () => api<{ sample: string | null }>("/app/agent/plan"),
+    queryFn: () => api<{ sample: string | null; playbook?: string | null }>("/app/agent/plan"),
     staleTime: 30_000,
   });
-  return plan.data?.sample ?? null;
+  return { sample: plan.data?.sample ?? null, playbook: plan.data?.playbook ?? null };
 }
 
+type KeepUnder = "sample" | "instrument" | "playbook";
+
 /** Keep as example, as a message's evidence sends it: on by default once *said* (something is
- * good or bad). With no sample named yet, the operator names one here, and it becomes the
- * experiment's. */
+ * good or bad), kept under the sample when there is one, else this microscope. The operator can
+ * pick the playbook, or name a sample when none is, and it becomes the experiment's. */
 export function useKeep(said: boolean) {
-  const sample = usePlanSample();
+  const { sample, playbook } = usePlanNames();
   const [keep, setKeep] = useState<boolean | null>(null);
+  const [chosen, setUnder] = useState<KeepUnder | null>(null);
   const [named, setNamed] = useState("");
-  const under = sample ?? (named.trim() || null);
-  const kept = said && !!under && (keep ?? true);
+  const under: KeepUnder = chosen ?? (sample ? "sample" : "instrument");
+  const ready = under !== "sample" || !!sample || !!named.trim();
+  const kept = said && ready && (keep ?? true);
   return {
-    tick: { said, sample, named, setNamed, keep, setKeep },
-    evidence: kept ? { keep: true, ...(sample ? {} : { sample: under }) } : {},
+    tick: { said, sample, playbook, under, setUnder, named, setNamed, ready, keep, setKeep },
+    evidence: kept ? { keep: under, ...(under === "sample" && !sample ? { sample: named.trim() } : {}) } : {},
     kept,
     reset: () => setKeep(null),
   };
 }
 
-/** The Keep as example tick, with why it can't be ticked written beside it, not hidden. */
-export function KeepTick({ said, sample, named, setNamed, keep, setKeep }: ReturnType<typeof useKeep>["tick"]) {
-  const under = sample ?? (named.trim() || null);
-  const can = said && !!under;
+/** The Keep as example tick and what it keeps it under, with why it can't be ticked written
+ * beside it, not hidden. */
+export function KeepTick({
+  said,
+  sample,
+  playbook,
+  under,
+  setUnder,
+  named,
+  setNamed,
+  ready,
+  keep,
+  setKeep,
+}: ReturnType<typeof useKeep>["tick"]) {
+  const can = said && ready;
   return (
     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px]">
       <label className={cn("flex items-center gap-1.5", can ? "cursor-pointer" : "text-muted-foreground")}>
@@ -597,13 +612,23 @@ export function KeepTick({ said, sample, named, setNamed, keep, setKeep }: Retur
           checked={can && (keep ?? true)}
           onChange={(e) => setKeep(e.target.checked)}
         />
-        Keep as example{sample ? ` of ${sample}` : ""}
+        Keep as example of
       </label>
-      {!sample && (
+      <select
+        className="h-6 rounded border border-border bg-transparent px-1 text-[12px]"
+        aria-label="Keep it under"
+        value={under}
+        onChange={(e) => setUnder(e.target.value as KeepUnder)}
+      >
+        <option value="sample">{sample ? sample : "a sample…"}</option>
+        <option value="instrument">this microscope</option>
+        {playbook && <option value="playbook">the {playbook} playbook</option>}
+      </select>
+      {under === "sample" && !sample && (
         <input
-          className="h-6 w-36 rounded border border-border bg-transparent px-1.5 text-[12px]"
+          className="h-6 w-32 rounded border border-border bg-transparent px-1.5 text-[12px]"
           aria-label="Sample"
-          placeholder="of which sample?"
+          placeholder="which sample?"
           value={named}
           onChange={(e) => setNamed(e.target.value)}
         />

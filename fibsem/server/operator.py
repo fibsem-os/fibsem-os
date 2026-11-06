@@ -11,7 +11,7 @@ approve its own request or raise its own level.
 
 import base64
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -223,7 +223,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     "evidence is {image, marks, channels?, answers?, verdict?, "
                     "judged?, keep?, sample?}.",
                 )
-            # Kept as an example of the session's sample, in the knowledge base.
+            # Kept as an example in the knowledge base: of the session's
+            # sample, its playbook or this microscope.
             if marked.get("keep") and not examples.said(marked):
                 raise refusal_error(
                     422,
@@ -231,16 +232,11 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                     "An example says good or bad of something: the picture, a "
                     "pick or a mark.",
                 )
-            sample = (
-                _sample(request, marked.get("sample")) if marked.get("keep") else None
+            under = (
+                _kept_under(request, marked.get("keep"), marked.get("sample"))
+                if marked.get("keep")
+                else None
             )
-            if marked.get("keep") and sample is None:
-                raise refusal_error(
-                    409,
-                    "no_sample",
-                    "The plan names no sample yet, so there is nothing to keep it "
-                    "under: send it without Keep as example, or set the sample.",
-                )
             try:
                 record = evidence.save(
                     agent.experiment_path,
@@ -256,8 +252,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 raise HTTPException(
                     status_code=refusal.status_code, detail=refusal.detail
                 )
-            if sample is not None:
-                _keep_example(request, record, sample, text)
+            if under is not None:
+                _keep_example(request, record, under, text)
         message_id = agent.message(text, evidence=record)
         if message_id is None:
             raise refusal_error(
@@ -310,7 +306,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
     def _keep_example(
         request: Request,
         record: Dict[str, Any],
-        sample: str,
+        under: Tuple[str, Optional[str]],
         text: str,
     ) -> None:
         root = agent.experiment_path()
@@ -321,7 +317,7 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
             examples.keep(
                 record,
                 answered,
-                sample,
+                under,
                 message=text,
                 task=agent.citing(record["answers"]) if answered else None,
                 root=root,
@@ -398,6 +394,47 @@ def _sample(request: Request, named: Any = None) -> Optional[str]:
         sample = " ".join(named.split())[:200]
         store.set_experiment_sample(sample)
     return sample
+
+
+def _playbook(request: Request) -> Optional[str]:
+    """The playbook the running agent session said it runs, or None."""
+    playbook = (request.app.state.auth.agent_session or {}).get("playbook")
+    name = playbook.get("name") if isinstance(playbook, dict) else None
+    return name if isinstance(name, str) and name else None
+
+
+def _kept_under(request: Request, keep: Any, named: Any) -> Tuple[str, Optional[str]]:
+    """Where *keep* keeps an example: ``sample``, ``playbook`` or
+    ``instrument`` as the knowledge sections, or True for the session's
+    sample when there is one, else this microscope. *named* names the sample
+    when none is (`_sample`)."""
+    if keep is True:
+        sample = _sample(request, named)
+        return (knowledge.SAMPLE, sample) if sample else (knowledge.INSTRUMENT, None)
+    if keep == knowledge.SAMPLE:
+        sample = _sample(request, named)
+        if sample is None:
+            raise refusal_error(
+                409,
+                "no_sample",
+                "No sample is named yet, so there is nothing to keep it under: "
+                "name the sample, or keep it under the instrument.",
+            )
+        return knowledge.SAMPLE, sample
+    if keep == knowledge.PLAYBOOK:
+        playbook = _playbook(request)
+        if playbook is None:
+            raise refusal_error(
+                409,
+                "no_playbook",
+                "The agent runs no playbook, so there is nothing to keep it under.",
+            )
+        return knowledge.PLAYBOOK, playbook
+    if keep == knowledge.INSTRUMENT:
+        return knowledge.INSTRUMENT, None
+    raise refusal_error(
+        422, "invalid", "keep is true, or one of sample, playbook, instrument."
+    )
 
 
 def _markable(root: str, image: Optional[str]) -> Optional[str]:
