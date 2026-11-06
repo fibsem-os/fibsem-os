@@ -296,101 +296,83 @@ function Starting({
   const ready = !host || !creating || !!newFolder;
   return (
     <>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-[200px_minmax(0,1fr)]">
-        <label className="flex flex-col gap-1 text-xs text-muted-foreground">
-          App
-          <select
-            value={app}
-            onChange={(event) => setApp(event.target.value)}
-            className={FIELD}
-          >
-            {state.apps.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
-        {host && (
-          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
-            <div className="flex items-center gap-3">
-              Experiment
-              <label className="flex items-center gap-1">
-                <input
-                  type="radio"
-                  checked={!creating}
-                  onChange={() => setCreating(false)}
-                />
-                Open
-              </label>
-              <label className="flex items-center gap-1">
-                <input
-                  type="radio"
-                  checked={creating}
-                  onChange={() => setCreating(true)}
-                />
-                New
-              </label>
-            </div>
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        App
+        <select
+          value={app}
+          onChange={(event) => setApp(event.target.value)}
+          className={cn(FIELD, "sm:w-60")}
+        >
+          {state.apps.map((a) => (
+            <option key={a.key} value={a.key}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {host && (
+        <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+          Experiment
+          <div className="flex gap-2">
+            <select
+              value={creating ? "new" : "open"}
+              onChange={(event) => setCreating(event.target.value === "new")}
+              aria-label="Open or new experiment"
+              className={FIELD}
+            >
+              <option value="open">Open</option>
+              <option value="new">New</option>
+            </select>
             {creating ? (
-              <div className="flex gap-2">
-                <input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Name"
-                  aria-label="New experiment name"
-                  className={cn(FIELD, "w-40")}
-                />
-                <input
-                  value={parent}
-                  onChange={(event) => setParent(event.target.value)}
-                  placeholder={defaults.data?.default ?? "Folder"}
-                  aria-label="New experiment folder"
-                  className={cn(FIELD, "min-w-0 flex-1 font-mono text-xs")}
-                />
-                <Button onClick={() => setBrowsing(true)}>Browse</Button>
-              </div>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Name"
+                aria-label="New experiment name"
+                className={cn(FIELD, "min-w-0 flex-1")}
+              />
             ) : (
-              <div className="flex gap-2">
-                <input
-                  value={experiment}
-                  onChange={(event) => setExperiment(event.target.value)}
-                  placeholder="None: start with no experiment open"
-                  aria-label="Experiment folder"
-                  className={cn(FIELD, "min-w-0 flex-1 font-mono text-xs")}
-                />
-                <Button onClick={() => setBrowsing(true)}>Browse</Button>
-              </div>
-            )}
-            {!creating &&
-              experiment &&
-              experiment === state.last_experiment && (
-                <span>The last experiment opened on this PC.</span>
-              )}
-            {creating && badName && (
-              <span className="text-destructive">A name, not a path.</span>
-            )}
-            {browsing && (
-              <FolderBrowser
-                start={
-                  creating
-                    ? into
-                    : experiment
-                      ? experiment.replace(/[\\/][^\\/]*[\\/]?$/, "")
-                      : ""
-                }
-                newExperiment={creating}
-                close={() => setBrowsing(false)}
-                pick={(path) => {
-                  if (creating) setParent(path);
-                  else setExperiment(path);
-                  setBrowsing(false);
-                }}
+              <input
+                value={experiment}
+                onChange={(event) => setExperiment(event.target.value)}
+                placeholder="None"
+                aria-label="Experiment folder"
+                className={cn(FIELD, "min-w-0 flex-1 font-mono text-xs")}
               />
             )}
+            <Button onClick={() => setBrowsing(true)}>Browse</Button>
           </div>
-        )}
-      </div>
+          {creating && into && (
+            <span className="truncate" title={into}>
+              In {into}
+            </span>
+          )}
+          {!creating && experiment && experiment === state.last_experiment && (
+            <span>The last experiment opened on this PC.</span>
+          )}
+          {creating && badName && (
+            <span className="text-destructive">A name, not a path.</span>
+          )}
+          {browsing && (
+            <FolderBrowser
+              start={
+                creating
+                  ? into
+                  : experiment
+                    ? experiment.replace(/[\\/][^\\/]*[\\/]?$/, "")
+                    : ""
+              }
+              newExperiment={creating}
+              close={() => setBrowsing(false)}
+              pick={(path) => {
+                if (creating) setParent(path);
+                else setExperiment(path);
+                setBrowsing(false);
+              }}
+            />
+          )}
+        </div>
+      )}
       <label className="flex items-center gap-2 text-[13px]">
         <input
           type="checkbox"
