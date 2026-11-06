@@ -127,6 +127,8 @@ class GatewayState:
     """The microscope configurations saved on this PC, for a start to connect."""
     newer: Optional[Newer] = None
     """A newer release, or commits on main, than the code this gateway runs."""
+    app_url: Optional[str] = None
+    """The running App Server's address, for the link to the app's pages."""
 
 
 @dataclass
@@ -324,6 +326,8 @@ class Gateway:
             for c in self._configurations()
         ]
         state.newer = self._newer
+        found = self._discovery()
+        state.app_url = found["url"] if found else None
         return state
 
     def check_newer(self) -> None:

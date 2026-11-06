@@ -168,6 +168,13 @@ def test_the_state_lists_recent_experiments_and_where_new_ones_go(tmp_path, fake
     assert state.experiments_folder == "/experiments"
 
 
+def test_the_state_gives_the_running_apps_address(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    assert gateway.state().app_url is None
+    fakes.found = {"url": "http://127.0.0.1:8123", "pid": 4321}
+    assert gateway.state().app_url == "http://127.0.0.1:8123"
+
+
 def test_the_state_lists_the_saved_configurations(tmp_path, fakes):
     listed = _gateway(tmp_path, fakes).state().configurations
     assert [(c.name, c.default) for c in listed] == [("arctis", True), ("hydra", False)]

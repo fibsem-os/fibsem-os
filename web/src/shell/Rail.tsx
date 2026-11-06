@@ -1,8 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
-import { FolderOpen, Grid3x3, Layers, MessageSquare, Microscope, ScrollText, Settings as Gear } from "lucide-react";
+import {
+  FolderOpen,
+  Grid3x3,
+  Layers,
+  MessageSquare,
+  Microscope,
+  MonitorCog,
+  ScrollText,
+  Settings as Gear,
+} from "lucide-react";
 import type { ReactNode } from "react";
-import { api } from "@/lib/api";
-import { useAgentReleased, useVolume } from "@/lib/experiment";
+import { api, getToken } from "@/lib/api";
+import { useAgentReleased, useGateway, useVolume } from "@/lib/experiment";
 import type { Page } from "@/lib/route";
 import type { AgentState } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -47,6 +56,7 @@ export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) 
   });
   const waiting = agent.data?.request?.status === "pending" || agent.data?.suggestion || agent.data?.asking ? 1 : 0;
   const volume = useVolume();
+  const gateway = useGateway();
   return (
     <nav
       aria-label="Pages"
@@ -94,6 +104,13 @@ export function Rail({ page, go, openSettings }: { page: Page; go: (page: Page) 
       )}
       <Tab on={page === "events"} onClick={() => go("events")} icon={<ScrollText size={22} />} label="Events" />
       <div className="hidden md:block md:flex-1" />
+      {gateway && (
+        <Tab
+          href={`${gateway}/ui/gateway#token=${getToken() ?? ""}`}
+          icon={<MonitorCog size={22} />}
+          label="Gateway"
+        />
+      )}
       <Tab onClick={openSettings} icon={<Gear size={22} />} label="Settings" />
     </nav>
   );

@@ -3,7 +3,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Loader } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
-import { api } from "@/lib/api";
+import { api, getToken } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { Connections } from "@/shell/Settings";
 import { cn } from "@/lib/utils";
@@ -37,6 +37,7 @@ interface GatewayState {
   last_experiment: string | null;
   recent_experiments: { name: string; folder: string; app: string | null }[];
   experiments_folder: string | null;
+  app_url: string | null;
   connection: string[];
   configurations: { name: string; default: boolean }[];
   newer: {
@@ -347,10 +348,13 @@ function AppSection({
   state,
   microscope,
   starting = false,
+  up = false,
 }: {
   state: GatewayState;
   microscope: Record<string, unknown>;
   starting?: boolean;
+  /** Whether the app answers, so its pages open. */
+  up?: boolean;
 }) {
   const client = useQueryClient();
   const act = useMutation({
@@ -395,7 +399,20 @@ function AppSection({
               </div>
             </>
           ) : (
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2.5">
+              {up && state.app_url && (
+                <Button
+                  onClick={() =>
+                    window.open(
+                      `${state.app_url}/ui/#token=${getToken() ?? ""}`,
+                      "_blank",
+                      "noopener",
+                    )
+                  }
+                >
+                  Open the app
+                </Button>
+              )}
               <Button
                 variant="danger"
                 disabled={busy}
@@ -576,6 +593,7 @@ export function GatewayPage() {
             state={state}
             microscope={microscope}
             starting={appStarting}
+            up={appUp}
           />
         )}
         {state && (

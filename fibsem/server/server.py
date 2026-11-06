@@ -13,6 +13,7 @@ another command is in control it is refused with a structured ``409
 microscope_busy`` naming who, rather than interleaved or queued.
 """
 
+import hmac
 import json
 import logging
 from typing import Any, Callable, Dict, Mapping, Optional
@@ -524,6 +525,14 @@ class _AgentActs:
             logging.debug("could not record an agent call", exc_info=True)
 
 
+def _gateway_url() -> Optional[str]:
+    """The running gateway's address on this PC, or None."""
+    from fibsem.gateway.gateway import read_gateway_file
+
+    found = read_gateway_file()
+    return found["url"] if found else None
+
+
 def build_server(
     microscope: Optional[FibsemMicroscope] = None,
     app_context=None,
@@ -614,7 +623,11 @@ def build_server(
     app.include_router(web_app_router())
 
     @base.get("/capabilities")
-    def capabilities():
+    def capabilities(request: Request):
+        # this PC's operator only: a paired computer can't reach 127.0.0.1
+        operator = auth.operator_token is not None and hmac.compare_digest(
+            request.headers.get("Authorization", ""), f"Bearer {auth.operator_token}"
+        )
         return {
             "api_version": API_VERSION,
             "routers": {
@@ -642,6 +655,8 @@ def build_server(
             # The code the server runs, so a sidecar can tell it imports
             # other code (a worktree on the app's PYTHONPATH).
             "fibsem": {"version": __version__, "path": fibsem_folder()},
+            # The gateway on this PC, for the operator's link to its page.
+            "gateway": _gateway_url() if operator and auth.agent_allowed else None,
         }
 
     # --- The microscope as a whole ---
