@@ -222,6 +222,36 @@ def list_folders(path: Optional[str]) -> Dict[str, Any]:
     }
 
 
+def pick_folder(
+    start: Optional[str], title: str, command: Optional[List[str]] = None
+) -> Optional[str]:
+    """The folder the operator picks in the PC's own folder dialog, None when
+    they cancel. Waits for them (at most ten minutes)."""
+    found = Path(start).expanduser() if start else None
+    begin = str(found) if found is not None and found.is_dir() else ""
+    command = command or [sys.executable, "-m", "fibsem.gateway.ui.pick_folder"]
+    try:
+        done = subprocess.run(
+            [*command, begin, title],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    lines = done.stdout.strip().splitlines()
+    try:
+        chosen = json.loads(lines[-1]) if lines else None
+    except ValueError:
+        chosen = None
+    if done.returncode != 0 or (chosen is not None and not isinstance(chosen, str)):
+        raise GatewayRefused(
+            500, "no_dialog", "The folder dialog didn't open on this PC."
+        )
+    return chosen
+
+
 def last_experiment() -> Optional[str]:
     """The folder of the last experiment opened on this PC, as ``--last`` opens it."""
     from fibsem.config import get_last_experiment_file

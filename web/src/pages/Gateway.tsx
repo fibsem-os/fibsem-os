@@ -170,8 +170,6 @@ interface Folders {
   folders: { name: string; path: string; experiment: boolean }[];
 }
 
-/** The folders on this PC, from the default experiments folder: an
- * experiment is picked (open), or the folder a new one goes in (new). */
 /** The name the app's own New dialog suggests: the app and the time,
  * e.g. AutoLamella-2026-11-06-12-30. */
 function defaultName(app: string): string {
@@ -179,86 +177,6 @@ function defaultName(app: string): string {
   const two = (n: number) => String(n).padStart(2, "0");
   const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}-${two(now.getMinutes())}`;
   return `${app.replace(/\s+/g, "")}-${stamp}`;
-}
-
-function FolderBrowser({
-  start,
-  pick,
-  newExperiment,
-  close,
-}: {
-  start: string;
-  pick: (path: string) => void;
-  newExperiment: boolean;
-  close: () => void;
-}) {
-  const [path, setPath] = useState(start);
-  const listed = useQuery({
-    queryKey: ["gateway/folders", path],
-    queryFn: () =>
-      api<Folders>(
-        `/gateway/folders${path ? `?path=${encodeURIComponent(path)}` : ""}`,
-      ),
-    retry: false,
-  });
-  const here = listed.data;
-  return (
-    <div className="flex flex-col gap-1.5 rounded border border-input p-2 text-[13px]">
-      <div className="flex items-center gap-2">
-        <Button
-          disabled={!here?.parent}
-          onClick={() => here?.parent && setPath(here.parent)}
-        >
-          Up a folder
-        </Button>
-        <span
-          className="min-w-0 flex-1 truncate font-mono text-xs"
-          title={here?.path}
-        >
-          {here?.path ?? path}
-        </span>
-        {here && here.path !== here.default && (
-          <Button onClick={() => setPath(here.default)}>Experiments</Button>
-        )}
-      </div>
-      {listed.error && (
-        <p className="m-0 text-destructive">
-          {(listed.error as Error).message}
-        </p>
-      )}
-      <ul className="m-0 max-h-56 list-none overflow-y-auto p-0">
-        {here?.folders.map((f) => (
-          <li key={f.path}>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-muted"
-              onClick={() =>
-                f.experiment && !newExperiment ? pick(f.path) : setPath(f.path)
-              }
-            >
-              <span className="min-w-0 flex-1 truncate">{f.name}</span>
-              {f.experiment && (
-                <span className="text-xs text-muted-foreground">
-                  experiment
-                </span>
-              )}
-            </button>
-          </li>
-        ))}
-        {here && here.folders.length === 0 && (
-          <li className="px-1.5 py-1 text-muted-foreground">No folders</li>
-        )}
-      </ul>
-      <div className="flex justify-end gap-2">
-        <Button onClick={close}>Cancel</Button>
-        {here && (newExperiment || here.experiment) && (
-          <Button variant="primary" onClick={() => pick(here.path)}>
-            {newExperiment ? "Use this folder" : "Load this experiment"}
-          </Button>
-        )}
-      </div>
-    </div>
-  );
 }
 
 function Starting({
@@ -278,7 +196,6 @@ function Starting({
   const [experiment, setExperiment] = useState(state.last_experiment ?? "");
   const [name, setName] = useState("");
   const [parent, setParent] = useState("");
-  const [browsing, setBrowsing] = useState(false);
   const chosen = state.apps.find((a) => a.key === app);
   // Only an app with a host (a headless command) opens an experiment as it starts.
   const host = !!chosen?.headless;
@@ -286,7 +203,7 @@ function Starting({
   const defaults = useQuery({
     queryKey: ["gateway/folders", ""],
     queryFn: () => api<Folders>("/gateway/folders"),
-    enabled: host && creating,
+    enabled: host,
     retry: false,
   });
   const into = parent.trim() || defaults.data?.default || "";
@@ -303,6 +220,26 @@ function Starting({
         ? { experiment: experiment.trim() }
         : {};
   const ready = !host || !creating || !!newFolder;
+  // The PC's own folder dialog, opened by the gateway.
+  const browse = useMutation({
+    mutationFn: () =>
+      api<{ path: string | null }>("/gateway/pick-folder", {
+        method: "POST",
+        body: JSON.stringify({
+          start: creating
+            ? into
+            : experiment.trim() || defaults.data?.default || "",
+          title: creating
+            ? "Choose where the new experiment goes"
+            : "Choose an experiment folder",
+        }),
+      }),
+    onSuccess: ({ path }) => {
+      if (!path) return;
+      if (creating) setParent(path);
+      else setExperiment(path);
+    },
+  });
   return (
     <>
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
@@ -354,7 +291,9 @@ function Starting({
                 className={cn(FIELD, "min-w-0 flex-1 font-mono text-xs")}
               />
             )}
-            <Button onClick={() => setBrowsing(true)}>Browse</Button>
+            <Button disabled={browse.isPending} onClick={() => browse.mutate()}>
+              {browse.isPending ? "Choosing…" : "Browse"}
+            </Button>
           </div>
           {creating && into && (
             <span className="truncate" title={into}>
@@ -367,23 +306,13 @@ function Starting({
           {creating && badName && (
             <span className="text-destructive">A name, not a path.</span>
           )}
-          {browsing && (
-            <FolderBrowser
-              start={
-                creating
-                  ? into
-                  : experiment
-                    ? experiment.replace(/[\\/][^\\/]*[\\/]?$/, "")
-                    : ""
-              }
-              newExperiment={creating}
-              close={() => setBrowsing(false)}
-              pick={(path) => {
-                if (creating) setParent(path);
-                else setExperiment(path);
-                setBrowsing(false);
-              }}
-            />
+          {browse.isPending && (
+            <span>Choose the folder in the dialog on this PC.</span>
+          )}
+          {browse.error && (
+            <span className="text-destructive">
+              {(browse.error as Error).message}
+            </span>
           )}
         </div>
       )}

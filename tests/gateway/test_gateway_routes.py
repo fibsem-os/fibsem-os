@@ -599,3 +599,20 @@ def test_the_playbooks_routes(with_agent):
 def test_without_an_agent_there_are_no_agent_routes(setup):
     client, _, _ = setup
     assert client.get("/gateway/agent", headers=_as(OPERATOR_TOKEN)).status_code == 404
+
+
+def test_only_the_operator_opens_the_folder_dialog(setup, monkeypatch):
+    from fibsem.gateway import server
+
+    asked = []
+    monkeypatch.setattr(
+        server, "pick_folder", lambda start, title: asked.append(start) or "/data/x"
+    )
+    client, _, _ = setup
+    r = client.post(
+        "/gateway/pick-folder", json={"start": "/data"}, headers=_as(OPERATOR_TOKEN)
+    )
+    assert r.json() == {"path": "/data/x"} and asked == ["/data"]
+    hub = _pair_hub(client, [SWITCH_MODES])
+    r = client.post("/gateway/pick-folder", json={}, headers=_as(hub["token"]))
+    assert r.status_code == 403 and asked == ["/data"]

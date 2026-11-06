@@ -356,3 +356,19 @@ def test_a_window_that_doesnt_close_is_left_to_answer_at_the_pc(tmp_path, fakes)
     finally:
         window.kill()
         window.wait()
+
+
+def _dialog(answer, code=0):
+    return [sys.executable, "-c", f"import sys; print({answer!r}); sys.exit({code})"]
+
+
+def test_the_folder_dialog_answers_the_chosen_folder_or_none(tmp_path):
+    from fibsem.gateway.gateway import pick_folder
+
+    assert (
+        pick_folder(str(tmp_path), "Pick", _dialog('"/data/grid-4"')) == "/data/grid-4"
+    )
+    assert pick_folder(None, "Pick", _dialog("null")) is None
+    with pytest.raises(GatewayRefused) as refused:
+        pick_folder(None, "Pick", _dialog("", code=1))
+    assert refused.value.error_type == "no_dialog"
