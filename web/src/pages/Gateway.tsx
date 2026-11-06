@@ -172,6 +172,15 @@ interface Folders {
 
 /** The folders on this PC, from the default experiments folder: an
  * experiment is picked (open), or the folder a new one goes in (new). */
+/** The name the app's own New dialog suggests: the app and the time,
+ * e.g. AutoLamella-2026-11-06-12-30. */
+function defaultName(app: string): string {
+  const now = new Date();
+  const two = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${now.getFullYear()}-${two(now.getMonth() + 1)}-${two(now.getDate())}-${two(now.getHours())}-${two(now.getMinutes())}`;
+  return `${app.replace(/\s+/g, "")}-${stamp}`;
+}
+
 function FolderBrowser({
   start,
   pick,
@@ -316,7 +325,12 @@ function Starting({
           <div className="flex gap-2">
             <select
               value={creating ? "new" : "open"}
-              onChange={(event) => setCreating(event.target.value === "new")}
+              onChange={(event) => {
+                const making = event.target.value === "new";
+                setCreating(making);
+                if (making && !name.trim())
+                  setName(defaultName(chosen?.name ?? "Experiment"));
+              }}
               aria-label="Load or new experiment"
               className={FIELD}
             >
