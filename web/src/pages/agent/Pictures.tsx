@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { ImageViewer } from "@/components/images";
-import { KeepTick, usePlanSample } from "@/components/mark-for-agent";
+import { KeepTick, useKeep } from "@/components/mark-for-agent";
 import { MarkLayer } from "@/components/marks";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -98,9 +98,8 @@ function VerdictField({
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [keep, setKeep] = useState<boolean | null>(null);
-  const sample = usePlanSample();
-  const kept = !!sample && (keep ?? true);
+  const keeping = useKeep(true);
+  const { kept } = keeping;
   const send = async () => {
     setSending(true);
     setError(null);
@@ -109,7 +108,7 @@ function VerdictField({
         method: "POST",
         body: JSON.stringify({
           text: reason.trim(),
-          evidence: { answers: id, verdict, ...(kept ? { keep: true } : {}) },
+          evidence: { answers: id, verdict, ...keeping.evidence },
         }),
       });
       onSent(reason.trim());
@@ -120,7 +119,10 @@ function VerdictField({
       await client.invalidateQueries({ queryKey: ["app/agent"] });
       await client.invalidateQueries({ queryKey: ["app/agent/recent"] });
       await client.invalidateQueries({ queryKey: ["app/agent/evidence", id] });
-      if (kept) await client.invalidateQueries({ queryKey: ["app/knowledge"] });
+      if (kept) {
+        await client.invalidateQueries({ queryKey: ["app/knowledge"] });
+        await client.invalidateQueries({ queryKey: ["app/agent/plan"] });
+      }
     }
   };
   return (
@@ -144,7 +146,7 @@ function VerdictField({
         </Button>
         <Button onClick={onCancel}>Cancel</Button>
       </div>
-      <KeepTick said sample={sample} keep={keep} setKeep={setKeep} />
+      <KeepTick {...keeping.tick} />
       {error && <p className="m-0 text-[12px] text-destructive">{error}</p>}
     </div>
   );
