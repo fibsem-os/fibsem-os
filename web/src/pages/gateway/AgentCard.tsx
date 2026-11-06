@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Loader } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
@@ -191,10 +192,12 @@ function ConfigurationFacts({ name }: { name: string }) {
 function Start({
   state,
   appRunning,
+  appStarting,
   connected,
 }: {
   state: AgentState;
   appRunning: boolean;
+  appStarting?: boolean;
   connected: boolean;
 }) {
   const client = useQueryClient();
@@ -356,7 +359,11 @@ function Start({
             </p>
           )}
           <div className="flex flex-wrap items-center justify-end gap-2.5">
-            {!appRunning ? (
+            {appStarting ? (
+              <span className="text-xs text-muted-foreground">
+                Waiting for the app to start…
+              </span>
+            ) : !appRunning ? (
               <span className="text-xs text-muted-foreground">
                 Start the app first: the agent acts through it.
               </span>
@@ -380,7 +387,14 @@ function Start({
               }
               onClick={() => start.mutate(false)}
             >
-              Start
+              {start.isPending ? (
+                <span className="flex items-center gap-1.5">
+                  <Loader size={13} className="animate-spin" />
+                  Starting…
+                </span>
+              ) : (
+                "Start"
+              )}
             </Button>
           </div>
         </>
@@ -493,9 +507,11 @@ function Run({ running }: { running: Running }) {
 /** This PC's agent: start one with a playbook, or the one running and its End. */
 export function AgentCard({
   appRunning,
+  appStarting,
   connected,
 }: {
   appRunning: boolean;
+  appStarting?: boolean;
   connected: boolean;
 }) {
   const agent = useQuery({
@@ -538,7 +554,12 @@ export function AgentCard({
         (state.running ? (
           <Run running={state.running} />
         ) : (
-          <Start state={state} appRunning={appRunning} connected={connected} />
+          <Start
+            state={state}
+            appRunning={appRunning}
+            appStarting={appStarting}
+            connected={connected}
+          />
         ))}
     </Card>
   );
@@ -657,9 +678,11 @@ function ResumeForm({
  * ended one can be resumed while no agent runs. */
 export function AgentSessions({
   appRunning,
+  appStarting,
   connected,
 }: {
   appRunning: boolean;
+  appStarting?: boolean;
   connected: boolean;
 }) {
   const agent = useQuery({
@@ -670,13 +693,15 @@ export function AgentSessions({
   const state = agent.data;
   const sessions = state?.sessions ?? [];
   if (sessions.length === 0) return null;
-  const ready = !appRunning
-    ? "Start the app first: the agent acts through it."
-    : !connected
-      ? "Connect the microscope first: the agent works on it."
-      : !state?.api_key
-        ? "No API key on this PC."
-        : null;
+  const ready = appStarting
+    ? "Waiting for the app to start…"
+    : !appRunning
+      ? "Start the app first: the agent acts through it."
+      : !connected
+        ? "Connect the microscope first: the agent works on it."
+        : !state?.api_key
+          ? "No API key on this PC."
+          : null;
   return (
     <Card className="flex flex-col gap-2">
       <CardTitle>Recent agent sessions</CardTitle>

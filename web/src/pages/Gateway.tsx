@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { Loader } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { api } from "@/lib/api";
@@ -313,19 +314,43 @@ function Starting({
             start({ app, window, ...microscope, ...experimentBody })
           }
         >
-          Start
+          {busy ? "Starting…" : "Start"}
         </Button>
       </div>
     </>
   );
 }
 
+/** While the app starts: what it is waiting for, and for how long. */
+function StartingLine({ state }: { state: GatewayState }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, []);
+  const app = state.apps.find((a) => a.key === state.app)?.name ?? "the app";
+  const secs = state.since
+    ? Math.max(0, Math.round(now / 1000 - state.since))
+    : 0;
+  return (
+    <p className="m-0 flex items-center gap-2 text-[13px] text-muted-foreground">
+      <Loader size={14} className="shrink-0 animate-spin" />
+      {state.window
+        ? `Starting ${app}: its window opens on this PC`
+        : `Starting ${app}`}
+      … {secs} s{secs > 90 && " (slower than usual)"}
+    </p>
+  );
+}
+
 function AppSection({
   state,
   microscope,
+  starting = false,
 }: {
   state: GatewayState;
   microscope: Record<string, unknown>;
+  starting?: boolean;
 }) {
   const client = useQueryClient();
   const act = useMutation({
@@ -355,6 +380,7 @@ function AppSection({
       ) : (
         <>
           <Status state={state} />
+          {starting && <StartingLine state={state} />}
           {confirmClose ? (
             <>
               <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
@@ -506,8 +532,12 @@ export function GatewayPage() {
     queryFn: () => api<Connection>("/gateway/microscope/connection"),
     enabled: running,
     retry: false,
-    refetchInterval: 5000,
+    // Often while the app starts, to say so as soon as it answers.
+    refetchInterval: (query) => (query.state.data ? 5000 : 1000),
   });
+  // The app is up once its server answers; until then it is starting.
+  const appUp = running && !!connection.data;
+  const appStarting = running && !connection.data;
   return (
     <div className="h-full overflow-auto">
       <div className="mx-auto flex max-w-[1100px] flex-col gap-4 px-4 py-5">
@@ -539,11 +569,18 @@ export function GatewayPage() {
             setChoice={setChoice}
           />
         )}
-        {state && <AppSection state={state} microscope={microscope} />}
+        {state && (
+          <AppSection
+            state={state}
+            microscope={microscope}
+            starting={appStarting}
+          />
+        )}
         {state && (
           <AgentCard
-            appRunning={running}
-            connected={running && !!connection.data?.connected}
+            appRunning={appUp}
+            appStarting={appStarting}
+            connected={appUp && !!connection.data?.connected}
           />
         )}
         <Card>
@@ -551,8 +588,9 @@ export function GatewayPage() {
         </Card>
         <Recent apps={state?.apps ?? []} />
         <AgentSessions
-          appRunning={running}
-          connected={running && !!connection.data?.connected}
+          appRunning={appUp}
+          appStarting={appStarting}
+          connected={appUp && !!connection.data?.connected}
         />
       </div>
     </div>
