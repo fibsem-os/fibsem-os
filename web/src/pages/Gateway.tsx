@@ -244,7 +244,7 @@ function FolderBrowser({
         <Button onClick={close}>Cancel</Button>
         {here && (newExperiment || here.experiment) && (
           <Button variant="primary" onClick={() => pick(here.path)}>
-            {newExperiment ? "Use this folder" : "Open this experiment"}
+            {newExperiment ? "Use this folder" : "Load this experiment"}
           </Button>
         )}
       </div>
@@ -317,10 +317,10 @@ function Starting({
             <select
               value={creating ? "new" : "open"}
               onChange={(event) => setCreating(event.target.value === "new")}
-              aria-label="Open or new experiment"
+              aria-label="Load or new experiment"
               className={FIELD}
             >
-              <option value="open">Open</option>
+              <option value="open">Load</option>
               <option value="new">New</option>
             </select>
             {creating ? (
