@@ -17,8 +17,19 @@ def main(argv: Optional[List[str]] = None) -> int:
     start = args[0] if args else ""
     title = args[1] if len(args) > 1 else "Choose a folder"
     app = QApplication.instance() or QApplication([])
-    # Above the browser that asked for it.
-    owner = QWidget(None, Qt.WindowStaysOnTopHint)
+    # Windows won't let a process the browser didn't start take the
+    # foreground, so the dialog is owned by a shown, invisible, topmost
+    # window: owned windows stay above their owner, so it opens above the
+    # browser (the first click gives it the keyboard).
+    owner = QWidget(None, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+    owner.setWindowOpacity(0.0)
+    owner.resize(1, 1)
+    screen = app.primaryScreen()
+    if screen is not None:
+        owner.move(screen.availableGeometry().center())
+    owner.show()
+    owner.raise_()
+    owner.activateWindow()
     chosen = QFileDialog.getExistingDirectory(owner, title, start)
     owner.deleteLater()
     app.processEvents()
