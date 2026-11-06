@@ -63,6 +63,28 @@ class AgentState:
     microscope: str = ""
 
 
+def knowledge_stamp() -> Tuple[Tuple[str, int, int], ...]:
+    """Every file a playbook's answer is read from (the lab's knowledge and
+    the shipped ``.claude``), with its time and size: the same stamp, the
+    same answer."""
+    from fibsem import paths
+    from fibsem.ai.agent import sources
+
+    roots = [paths.state_root() / "knowledge"]
+    shipped = sources.find_root()
+    if shipped is not None:
+        roots.append(Path(shipped) / sources.CLAUDE)
+    found = []
+    for root in roots:
+        for path in sorted(root.rglob("*")) if root.is_dir() else ():
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            found.append((str(path), stat.st_mtime_ns, stat.st_size))
+    return tuple(found)
+
+
 def fibsem_agent_json(flags: List[str]) -> Any:
     """``fibsem-agent <flags> --json``'s answer; its error text on failure."""
     done = subprocess.run(
@@ -167,6 +189,7 @@ class GatewayAgent:
         reachable: Callable[[str], bool] = answers,
         connected: Callable[[str], bool] = microscope_connected,
         agent_json: Callable[[List[str]], Any] = fibsem_agent_json,
+        stamp: Callable[[], Any] = knowledge_stamp,
         environ: Optional[Dict[str, str]] = None,
         stored: Callable[[str], Optional[str]] = stored_secret,
         platform: str = sys.platform,
@@ -179,6 +202,10 @@ class GatewayAgent:
         self._answers = reachable
         self._connected = connected
         self._agent_json = agent_json
+        self._stamp = stamp
+        # fibsem-agent's answers by flags, while the files they come from
+        # are unchanged: each answer is a new process, seconds long.
+        self._answers_by_flags: Dict[Tuple[str, ...], Tuple[Any, Any]] = {}
         self._environ = os.environ if environ is None else environ
         self._stored = stored
         self._platform = platform
@@ -222,10 +249,21 @@ class GatewayAgent:
         )
 
     def playbooks(self) -> List[dict]:
-        return self._agent_json(["--list-playbooks"])
+        return self._kept(["--list-playbooks"])
 
     def configuration(self, name: str) -> dict:
-        return self._agent_json(["--playbook", name, "--show-config"])
+        return self._kept(["--playbook", name, "--show-config"])
+
+    def _kept(self, flags: List[str]) -> Any:
+        """``fibsem-agent``'s answer, asked again only once a file it is
+        read from changes. A refusal is not kept."""
+        stamp = self._stamp()
+        kept = self._answers_by_flags.get(tuple(flags))
+        if kept is not None and kept[0] == stamp:
+            return kept[1]
+        answer = self._agent_json(flags)
+        self._answers_by_flags[tuple(flags)] = (stamp, answer)
+        return answer
 
     # -- acting ------------------------------------------------------------
 
