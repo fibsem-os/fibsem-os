@@ -209,7 +209,7 @@ function FolderBrowser({
           disabled={!here?.parent}
           onClick={() => here?.parent && setPath(here.parent)}
         >
-          Up
+          Up a folder
         </Button>
         <span
           className="min-w-0 flex-1 truncate font-mono text-xs"
