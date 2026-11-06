@@ -22,7 +22,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import fibsem
 from fibsem.server.discovery import DISCOVERY_DIR, _pid_alive, read_discovery_file
@@ -94,6 +94,13 @@ class GatewayApp:
 
 
 @dataclass
+class RecentExperiment:
+    name: str
+    folder: str
+    app: Optional[str] = None
+
+
+@dataclass
 class GatewayState:
     mode: str
     version: str
@@ -110,6 +117,10 @@ class GatewayState:
     last_exit: Optional[LastExit] = None
     apps: List[GatewayApp] = field(default_factory=list)
     last_experiment: Optional[str] = None
+    recent_experiments: List[RecentExperiment] = field(default_factory=list)
+    """The recent experiments on this PC, to load one."""
+    experiments_folder: Optional[str] = None
+    """Where a new experiment goes."""
     connection: List[str] = field(default_factory=list)
     """The flags the app connects with as it starts; none: the operator connects."""
     configurations: List[GatewayConfiguration] = field(default_factory=list)
@@ -189,75 +200,29 @@ def _check_experiment(experiment: Optional[str], create: bool) -> None:
         raise GatewayRefused(422, "no_experiment", f"No experiment in {folder}.")
 
 
-def list_folders(path: Optional[str]) -> Dict[str, Any]:
-    """The folders in *path* (the default experiments folder without), each
-    marked when it holds an experiment, for picking one on the gateway's page."""
-    from fibsem.workflows.experiments import default_experiment_directory
-
-    default = default_experiment_directory()
-    folder = Path(path or default).expanduser()
-    if not folder.is_dir():
-        raise GatewayRefused(404, "no_folder", f"There is no folder {folder}.")
-    folder = folder.resolve()
-    found = []
-    try:
-        children = sorted(folder.iterdir(), key=lambda p: p.name.lower())
-    except OSError as exc:
-        raise GatewayRefused(403, "unreadable", f"Can't read {folder}: {exc}") from None
-    for child in children:
-        try:
-            if not child.is_dir() or child.name.startswith("."):
-                continue
-            experiment = (child / EXPERIMENT_FILE).is_file()
-        except OSError:
-            continue
-        found.append({"name": child.name, "path": str(child), "experiment": experiment})
-    parent = folder.parent
-    return {
-        "path": str(folder),
-        "parent": None if parent == folder else str(parent),
-        "experiment": (folder / EXPERIMENT_FILE).is_file(),
-        "default": str(Path(default).expanduser().resolve()),
-        "folders": found,
-    }
-
-
-def pick_folder(
-    start: Optional[str], title: str, command: Optional[List[str]] = None
-) -> Optional[str]:
-    """The folder the operator picks in the PC's own folder dialog, None when
-    they cancel. Waits for them (at most ten minutes)."""
-    found = Path(start).expanduser() if start else None
-    begin = str(found) if found is not None and found.is_dir() else ""
-    command = command or [sys.executable, "-m", "fibsem.gateway.ui.pick_folder"]
-    try:
-        done = subprocess.run(
-            [*command, begin, title],
-            capture_output=True,
-            text=True,
-            timeout=600,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except subprocess.TimeoutExpired:
-        return None
-    lines = done.stdout.strip().splitlines()
-    try:
-        chosen = json.loads(lines[-1]) if lines else None
-    except ValueError:
-        chosen = None
-    if done.returncode != 0 or (chosen is not None and not isinstance(chosen, str)):
-        raise GatewayRefused(
-            500, "no_dialog", "The folder dialog didn't open on this PC."
-        )
-    return chosen
-
-
 def last_experiment() -> Optional[str]:
     """The folder of the last experiment opened on this PC, as ``--last`` opens it."""
     from fibsem.config import get_last_experiment_file
 
     path = get_last_experiment_file()
     return str(Path(path).parent) if path else None
+
+
+def recent_experiments() -> List["RecentExperiment"]:
+    """The recent experiments on this PC still on disk, newest first."""
+    from fibsem.config import get_recent_experiments
+
+    return [
+        RecentExperiment(name=s.name, folder=str(Path(s.path).parent), app=s.app)
+        for s in get_recent_experiments()
+    ]
+
+
+def experiments_folder() -> str:
+    """Where a new experiment goes: the preference, or the default folder."""
+    from fibsem.workflows.experiments import default_experiment_directory
+
+    return default_experiment_directory()
 
 
 def _python() -> str:
@@ -300,6 +265,8 @@ class Gateway:
         home: Optional[Path] = None,
         app_registry: Callable[[], Dict[str, App]] = apps,
         last: Callable[[], Optional[str]] = last_experiment,
+        recent: Callable[[], List[RecentExperiment]] = recent_experiments,
+        new_folder: Callable[[], str] = experiments_folder,
         configurations: Callable[[], List[dict]] = saved_configurations,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         running: Callable[[str, Optional[str]], bool] = workflow_running,
@@ -311,6 +278,8 @@ class Gateway:
         self._home = Path(home) if home is not None else DISCOVERY_DIR
         self._apps = app_registry
         self._last = last
+        self._recent = recent
+        self._new_folder = new_folder
         self._configurations = configurations
         self._discovery = discovery
         self._running = running
@@ -347,6 +316,8 @@ class Gateway:
             for key, app in self._apps().items()
         ]
         state.last_experiment = self._last()
+        state.recent_experiments = self._recent()
+        state.experiments_folder = self._new_folder()
         state.connection = list(self._connection)
         state.configurations = [
             GatewayConfiguration(name=c["name"], default=c["default"])

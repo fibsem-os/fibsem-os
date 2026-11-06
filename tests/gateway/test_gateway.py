@@ -11,7 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from fibsem.gateway.gateway import OFF, RUNNING, Gateway, GatewayRefused
+from fibsem.gateway.gateway import (
+    OFF,
+    RUNNING,
+    Gateway,
+    GatewayRefused,
+    RecentExperiment,
+)
 from fibsem.tools.apps import App
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -60,6 +66,8 @@ def _gateway(tmp_path, fakes, serve="serve", stop_wait_s=20.0, connection=None):
         home=tmp_path,
         app_registry=lambda: registry,
         last=lambda: "/experiments/grid3",
+        recent=lambda: [RecentExperiment("grid3", "/experiments/grid3", "AutoLamella")],
+        new_folder=lambda: "/experiments",
         discovery=lambda: fakes.found,
         running=lambda url, token: fakes.running,
         configurations=lambda: CONFIGURATIONS,
@@ -150,6 +158,14 @@ def test_the_gateways_connection_flags_connect_as_it_starts(tmp_path, fakes):
     assert "serving --last --manufacturer Demo\n" in _log(
         gateway.stop("operator", "page")
     )
+
+
+def test_the_state_lists_recent_experiments_and_where_new_ones_go(tmp_path, fakes):
+    state = _gateway(tmp_path, fakes).state()
+    assert [(r.name, r.folder) for r in state.recent_experiments] == [
+        ("grid3", "/experiments/grid3")
+    ]
+    assert state.experiments_folder == "/experiments"
 
 
 def test_the_state_lists_the_saved_configurations(tmp_path, fakes):
@@ -356,19 +372,3 @@ def test_a_window_that_doesnt_close_is_left_to_answer_at_the_pc(tmp_path, fakes)
     finally:
         window.kill()
         window.wait()
-
-
-def _dialog(answer, code=0):
-    return [sys.executable, "-c", f"import sys; print({answer!r}); sys.exit({code})"]
-
-
-def test_the_folder_dialog_answers_the_chosen_folder_or_none(tmp_path):
-    from fibsem.gateway.gateway import pick_folder
-
-    assert (
-        pick_folder(str(tmp_path), "Pick", _dialog('"/data/grid-4"')) == "/data/grid-4"
-    )
-    assert pick_folder(None, "Pick", _dialog("null")) is None
-    with pytest.raises(GatewayRefused) as refused:
-        pick_folder(None, "Pick", _dialog("", code=1))
-    assert refused.value.error_type == "no_dialog"

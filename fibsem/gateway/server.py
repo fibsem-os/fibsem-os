@@ -30,8 +30,6 @@ from fibsem.gateway.gateway import (
     GatewayRefused,
     GatewayState,
     History,
-    list_folders,
-    pick_folder,
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.auth import _bearer_token, _matches
@@ -193,30 +191,6 @@ def build_gateway_app(
                 configuration=body.get("configuration"),
                 create=bool(body.get("create", False)),
             ),
-        )
-
-    @app.get("/gateway/folders")
-    def folders(path: Optional[str] = None, found: Caller = Depends(caller)) -> dict:
-        """The folders in *path* (the default experiments folder without),
-        for picking an experiment: the operator's only."""
-        if not found.operator:
-            raise _refused(403, "operator_only", "Only the operator browses folders.")
-        return _act(found, {}, lambda force, via: list_folders(path))
-
-    @app.post("/gateway/pick-folder")
-    def choose_folder(
-        body: Optional[Dict[str, Any]] = None, found: Caller = Depends(caller)
-    ) -> dict:
-        """``{start, title}``: the PC's folder dialog, answered ``{path}``
-        (null when cancelled). The operator's only: it opens at the PC."""
-        if not found.operator:
-            raise _refused(403, "operator_only", "The folder dialog opens at the PC.")
-        body = body or {}
-        title = str(body.get("title") or "Choose a folder")
-        return _act(
-            found,
-            {},
-            lambda force, via: {"path": pick_folder(body.get("start"), title)},
         )
 
     @app.post("/gateway/stop", response_model=GatewayState)

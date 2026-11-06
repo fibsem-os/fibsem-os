@@ -147,31 +147,6 @@ def test_a_start_can_make_a_new_experiment(setup):
     assert gateway.calls[0][5] == "/data/grid-4" and gateway.create
 
 
-def test_only_the_operator_browses_folders(setup, tmp_path):
-    client, _, _ = setup
-    (tmp_path / "grid-1").mkdir()
-    (tmp_path / "grid-1" / "experiment.yaml").write_text("name: grid-1\n")
-    (tmp_path / "loose").mkdir()
-    r = client.get(
-        "/gateway/folders", params={"path": str(tmp_path)}, headers=_as(OPERATOR_TOKEN)
-    )
-    assert r.status_code == 200
-    listed = {f["name"]: f["experiment"] for f in r.json()["folders"]}
-    assert listed["grid-1"] is True and listed["loose"] is False
-    assert r.json()["parent"] == str(tmp_path.resolve().parent)
-    missing = client.get(
-        "/gateway/folders",
-        params={"path": str(tmp_path / "nope")},
-        headers=_as(OPERATOR_TOKEN),
-    )
-    assert missing.status_code == 404
-    hub = _pair_hub(client, [SWITCH_MODES])
-    r = client.get(
-        "/gateway/folders", params={"path": str(tmp_path)}, headers=_as(hub["token"])
-    )
-    assert r.status_code == 403
-
-
 def test_a_start_shows_the_window_unless_asked_not_to(setup):
     client, gateway, _ = setup
     client.post(
@@ -599,20 +574,3 @@ def test_the_playbooks_routes(with_agent):
 def test_without_an_agent_there_are_no_agent_routes(setup):
     client, _, _ = setup
     assert client.get("/gateway/agent", headers=_as(OPERATOR_TOKEN)).status_code == 404
-
-
-def test_only_the_operator_opens_the_folder_dialog(setup, monkeypatch):
-    from fibsem.gateway import server
-
-    asked = []
-    monkeypatch.setattr(
-        server, "pick_folder", lambda start, title: asked.append(start) or "/data/x"
-    )
-    client, _, _ = setup
-    r = client.post(
-        "/gateway/pick-folder", json={"start": "/data"}, headers=_as(OPERATOR_TOKEN)
-    )
-    assert r.json() == {"path": "/data/x"} and asked == ["/data"]
-    hub = _pair_hub(client, [SWITCH_MODES])
-    r = client.post("/gateway/pick-folder", json={}, headers=_as(hub["token"]))
-    assert r.status_code == 403 and asked == ["/data"]

@@ -34,6 +34,8 @@ interface GatewayState {
   } | null;
   apps: { key: string; name: string; headless: boolean }[];
   last_experiment: string | null;
+  recent_experiments: { name: string; folder: string; app: string | null }[];
+  experiments_folder: string | null;
   connection: string[];
   configurations: { name: string; default: boolean }[];
   newer: {
@@ -162,14 +164,6 @@ function MicroscopeStart({
   );
 }
 
-interface Folders {
-  path: string;
-  parent: string | null;
-  experiment: boolean;
-  default: string;
-  folders: { name: string; path: string; experiment: boolean }[];
-}
-
 /** The name the app's own New dialog suggests: the app and the time,
  * e.g. AutoLamella-2026-11-06-12-30. */
 function defaultName(app: string): string {
@@ -195,18 +189,20 @@ function Starting({
   const [creating, setCreating] = useState(false);
   const [experiment, setExperiment] = useState(state.last_experiment ?? "");
   const [name, setName] = useState("");
-  const [parent, setParent] = useState("");
   const chosen = state.apps.find((a) => a.key === app);
   // Only an app with a host (a headless command) opens an experiment as it starts.
   const host = !!chosen?.headless;
-  // A new experiment goes in the default experiments folder unless another is named.
-  const defaults = useQuery({
-    queryKey: ["gateway/folders", ""],
-    queryFn: () => api<Folders>("/gateway/folders"),
-    enabled: host,
-    retry: false,
-  });
-  const into = parent.trim() || defaults.data?.default || "";
+  // This app's recent experiments (one that doesn't say which app wrote it too).
+  const recent = state.recent_experiments.filter(
+    (r) =>
+      !r.app ||
+      !chosen ||
+      [chosen.key, chosen.name].some(
+        (n) => n.toLowerCase() === r.app!.toLowerCase(),
+      ),
+  );
+  // A new experiment goes in the experiments folder.
+  const into = state.experiments_folder ?? "";
   const badName = /[\\/]/.test(name);
   const newFolder =
     into && name.trim() && !badName
@@ -216,37 +212,20 @@ function Starting({
     ? {}
     : creating
       ? { experiment: newFolder, create: true }
-      : experiment.trim()
-        ? { experiment: experiment.trim() }
+      : experiment
+        ? { experiment }
         : {};
   const ready = !host || !creating || !!newFolder;
-  // The PC's own folder dialog, opened by the gateway.
-  const browse = useMutation({
-    mutationFn: () =>
-      api<{ path: string | null }>("/gateway/pick-folder", {
-        method: "POST",
-        body: JSON.stringify({
-          start: creating
-            ? into
-            : experiment.trim() || defaults.data?.default || "",
-          title: creating
-            ? "Choose where the new experiment goes"
-            : "Choose an experiment folder",
-        }),
-      }),
-    onSuccess: ({ path }) => {
-      if (!path) return;
-      if (creating) setParent(path);
-      else setExperiment(path);
-    },
-  });
   return (
     <>
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
         App
         <select
           value={app}
-          onChange={(event) => setApp(event.target.value)}
+          onChange={(event) => {
+            setApp(event.target.value);
+            setExperiment("");
+          }}
           className={cn(FIELD, "sm:w-60")}
         >
           {state.apps.map((a) => (
@@ -261,7 +240,7 @@ function Starting({
           Experiment
           <div className="flex gap-2">
             <select
-              value={creating ? "new" : "open"}
+              value={creating ? "new" : "load"}
               onChange={(event) => {
                 const making = event.target.value === "new";
                 setCreating(making);
@@ -271,7 +250,7 @@ function Starting({
               aria-label="Load or new experiment"
               className={FIELD}
             >
-              <option value="open">Load</option>
+              <option value="load">Load</option>
               <option value="new">New</option>
             </select>
             {creating ? (
@@ -283,36 +262,33 @@ function Starting({
                 className={cn(FIELD, "min-w-0 flex-1")}
               />
             ) : (
-              <input
+              <select
                 value={experiment}
                 onChange={(event) => setExperiment(event.target.value)}
-                placeholder="None"
-                aria-label="Experiment folder"
-                className={cn(FIELD, "min-w-0 flex-1 font-mono text-xs")}
-              />
+                aria-label="Recent experiment"
+                className={cn(FIELD, "min-w-0 flex-1")}
+              >
+                <option value="">None</option>
+                {recent.map((r) => (
+                  <option key={r.folder} value={r.folder} title={r.folder}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
             )}
-            <Button disabled={browse.isPending} onClick={() => browse.mutate()}>
-              {browse.isPending ? "Choosing…" : "Browse"}
-            </Button>
           </div>
           {creating && into && (
             <span className="truncate" title={into}>
               In {into}
             </span>
           )}
-          {!creating && experiment && experiment === state.last_experiment && (
-            <span>The last experiment opened on this PC.</span>
+          {!creating && experiment && (
+            <span className="truncate" title={experiment}>
+              {experiment}
+            </span>
           )}
           {creating && badName && (
             <span className="text-destructive">A name, not a path.</span>
-          )}
-          {browse.isPending && (
-            <span>Choose the folder in the dialog on this PC.</span>
-          )}
-          {browse.error && (
-            <span className="text-destructive">
-              {(browse.error as Error).message}
-            </span>
           )}
         </div>
       )}
