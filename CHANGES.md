@@ -402,7 +402,8 @@ Not yet checked end to end on a METEOR; expect fixes in 0.6.1.
 - **Tools → Reporting → Generate Report** writes an HTML report from the record, and its
   PDF where Edge, Chrome or Chromium is installed: where the session's time went, a card
   per lamella with its final images, runs and decisions, and what is worth a look. The
-  older report built from the log file is gone.
+  older report built from the log file is gone, so an experiment saved by 0.5.x, which
+  has no `events.jsonl`, has no report in 0.6: make its report with 0.5.3.
 - **The History tab** shows each milling run and how its stages ended, drift correction
   under each mill, autofocus and alignment done outside a task, and folds a run's steps
   into one line when they all completed. It can show newest first.
