@@ -22,6 +22,7 @@ import numpy as np
 import pytest
 import yaml
 
+import fibsem
 from fibsem.autofunctions.autofocus import (
     AutoFocusSettings,
     FocusMethod,
@@ -96,8 +97,16 @@ def _posix(data):
     return json.loads(json.dumps(data).replace("\\\\", "/"))
 
 
+def _unversioned_install(data):
+    """``data`` with the running fibsem version, which a configuration's system
+    block records, pinned: a release changes the version, not the shape."""
+    running = json.dumps(fibsem.__version__)
+    return json.loads(json.dumps(data).replace(running, '"pinned-version"'))
+
+
 def _check(case: str, data) -> None:
     path = GOLDEN / f"{case}.json"
+    data = _unversioned_install(_plain(data))
     if UPDATE:
         GOLDEN.mkdir(exist_ok=True)
         path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
