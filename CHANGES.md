@@ -26,7 +26,7 @@ METEOR and other offset fluorescence microscopes are a preview in 0.6.0: the sup
 below is in, and tested on the simulator and in one session at a METEOR, but not yet
 checked end to end on one. 0.6.1 is the release that says it works.
 
-Fixes for v0.5 are cut from `release/v0.5.x`, the branch v0.5.2 and v0.5.3 were tagged
+Fixes for 0.6 are cut from `release/v0.6.x`, and fixes for v0.5 from `release/v0.5.x`, the branch v0.5.2 and v0.5.3 were tagged
 from, and are listed under their own version below; a fix that belongs in both lands on
 main first and is cherry-picked there.
 
@@ -402,7 +402,8 @@ Not yet checked end to end on a METEOR; expect fixes in 0.6.1.
 - **Tools → Reporting → Generate Report** writes an HTML report from the record, and its
   PDF where Edge, Chrome or Chromium is installed: where the session's time went, a card
   per lamella with its final images, runs and decisions, and what is worth a look. The
-  older report built from the log file is gone.
+  older report built from the log file is gone, so an experiment saved by 0.5.x, which
+  has no `events.jsonl`, has no report in 0.6: make its report with 0.5.3.
 - **The History tab** shows each milling run and how its stages ended, drift correction
   under each mill, autofocus and alignment done outside a task, and folds a run's steps
   into one line when they all completed. It can show newest first.
