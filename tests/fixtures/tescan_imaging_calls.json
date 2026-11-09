@@ -85,7 +85,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -222,7 +222,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -363,7 +363,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -520,7 +520,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -656,7 +656,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -968,7 +968,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -1105,7 +1105,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -1246,7 +1246,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -1403,7 +1403,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -1539,7 +1539,7 @@
    },
    "system": {
     "application": null,
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "localhost",
     "manufacturer": "Tescan",
@@ -1890,7 +1890,7 @@
     },
     "system": {
      "application": null,
-     "fibsem_version": "0.6.0.dev0",
+     "fibsem_version": "pinned-version",
      "hardware_version": "Unknown",
      "ip_address": "localhost",
      "manufacturer": "Tescan",
@@ -1939,7 +1939,7 @@
     },
     "system": {
      "application": null,
-     "fibsem_version": "0.6.0.dev0",
+     "fibsem_version": "pinned-version",
      "hardware_version": "Unknown",
      "ip_address": "localhost",
      "manufacturer": "Tescan",
