@@ -24,7 +24,7 @@ from fibsem.ui.widgets.workflow_summary_dialog import (
     run_counts_text,
 )
 from fibsem.workflows.attention import Attention
-from fibsem.workflows.runner import GRIDS, RunRequest
+from fibsem.workflows.runner import FAILED, GRIDS, RunRequest
 from fibsem.workflows.site_task import get_task_supervision
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.workflow_edits import set_supervision
@@ -302,12 +302,13 @@ class RunView(QObject):
 
     def _say_how_the_run_ended(self) -> None:
         """The run's line has gone (`_set_idle`). A run with failures, or one
-        that stalled, leaves a line that stays until it is dismissed or the
+        that stalled or failed, leaves a line that stays until it is dismissed or the
         next run starts; a clean one says so once, as a toast, and the line goes
         back to the instruction. A run with a summary was already announced by
         the "Run ended" toast (`show_summary`), so this says nothing."""
         runner = self._session.runner
         note = runner.last_note
+        outcome = runner.last_outcome
         failures = self._run_failures
         if failures:
             what, reason = failures[-1]
@@ -318,6 +319,9 @@ class RunView(QObject):
             )
         elif note:
             self._status_bar.show_failure("Run stalled", note)
+        elif outcome is not None and outcome.ended == FAILED:
+            # It failed outside its tasks: in its set-up, or saving.
+            self._status_bar.show_failure("Run failed", outcome.why or "failed")
         elif runner.last_summary is None or runner.last_summary.empty:
             notification_service.show_toast("Workflow finished.", always=True)
 

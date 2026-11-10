@@ -137,6 +137,10 @@ class BaseTaskManager:
         # (item, last iteration) pairs the app said have no next iteration: asked once,
         # not again on every pass of the loop.
         self._rounds_ended: Set[Tuple[str, Optional[int]]] = set()
+        # How the run ended, once it has: the run-end event that fired and
+        # the error a failure carried.
+        self.ended: Optional[HookEvent] = None
+        self.ended_error = ""
 
     def _prepare(self) -> None:
         """The run's own set-up, done inside the run, after workflow_started:
@@ -638,6 +642,11 @@ class BaseTaskManager:
         return self._stop_event.is_set()
 
     @property
+    def began(self) -> bool:
+        """Whether the run has begun (workflow_started), past its set-up."""
+        return self._run_began
+
+    @property
     def should_abort(self) -> bool:
         """Whether the task now running should unwind.
 
@@ -711,6 +720,7 @@ class BaseTaskManager:
             self._run_ended = False
         elif event in _RUN_ENDS:
             self._run_ended = True
+            self.ended, self.ended_error = event, str(fields.get("error") or "")
         fire_event(self.hook_manager, event, **fields, **self.hook_run_context())
 
     def _end_escaped_run(self, error: BaseException) -> None:

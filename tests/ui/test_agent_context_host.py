@@ -195,3 +195,22 @@ def test_with_the_summary_off_only_the_toast_shows(ui, toasts, tmp_path):
 
     callback()
     assert _Dialog.opened == [(summary, ""), "show"]
+
+
+def test_a_run_that_failed_in_set_up_leaves_its_failure_on_the_line(ui, monkeypatch):
+    """Not "Workflow finished": the status bar keeps the run's failure and why."""
+    from fibsem.workflows.runner import RunOutcome
+
+    shown = []
+    monkeypatch.setattr(
+        ui.run_view._status_bar, "show_failure", lambda *line: shown.append(line)
+    )
+    runner = ui.session.runner
+    runner.last_note = ""
+    runner.last_summary = None
+    runner.last_outcome = RunOutcome("failed", "the beam would not turn on")
+    ui.run_view._run_failures = []
+
+    ui.run_view._say_how_the_run_ended()
+
+    assert shown == [("Run failed", "the beam would not turn on")]

@@ -63,9 +63,11 @@ export function TopLine({ go }: { go: Go }) {
 
   const place =
     workflow?.queue_position && workflow.queue_total ? `${workflow.queue_position} of ${workflow.queue_total}` : null;
+  // A stop unwinds the task first; the run's set-up comes before any task.
+  const verb = workflow?.phase === "stopping" ? "Stopping" : workflow?.phase === "starting" ? "Starting" : "Running";
   const what = running
     ? [
-        `Running: ${workflow?.current_task ?? "a task"}${workflow?.current_item ? ` on ${workflow.current_item}` : ""}`,
+        `${verb}: ${workflow?.current_task ?? "a task"}${workflow?.current_item ? ` on ${workflow.current_item}` : ""}`,
         place,
       ]
         .filter(Boolean)

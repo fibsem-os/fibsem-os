@@ -149,3 +149,110 @@ def test_a_run_that_dies_in_set_up_ends_with_workflow_failed(
     assert [c.event for c in fired] == ["workflow_failed"]
     assert fired[0].error == "the beam would not turn on"
     assert microscope.control.current is None
+
+
+def test_a_run_that_dies_in_set_up_says_it_failed(
+    session, experiment, microscope, monkeypatch
+):
+    """Not a clean finish: the runner, the App Server's status and its
+    ``failed`` line all say the run failed, and why."""
+    from fibsem.applications.autolamella.server import AutoLamellaAppContext
+    from fibsem.workflows.runner import RunOutcome
+
+    add_planned(experiment.task_protocol, planned(name="Trench", required=True))
+    monkeypatch.setattr(microscope, "is_on", lambda beam_type: False)
+
+    def beam_fails(beam_type):
+        raise RuntimeError("the beam would not turn on")
+
+    monkeypatch.setattr(microscope, "turn_on", beam_fails)
+
+    started = session.runner.start(
+        experiment, RunRequest(kind=ITEMS, task_names=("Trench",))
+    )
+    assert started.started, started.reason
+    assert session.runner.join(10)
+
+    assert session.runner.last_outcome == RunOutcome(
+        "failed", "the beam would not turn on"
+    )
+    workflow = AutoLamellaAppContext(session).status().workflow
+    assert workflow.phase == "idle"
+    assert (workflow.last_run.ended, workflow.last_run.why) == (
+        "failed",
+        "the beam would not turn on",
+    )
+    assert (workflow.failed.what, workflow.failed.message) == (
+        "Run failed",
+        "the beam would not turn on",
+    )
+
+
+def test_a_stop_reads_as_stopping_until_the_task_unwinds(
+    session, experiment, monkeypatch
+):
+    import threading
+
+    from fibsem.workflows.runner import RunPhase
+
+    add_planned(experiment.task_protocol, planned(name="Trench", required=True))
+    inside, release = threading.Event(), threading.Event()
+
+    def run(self, *args):
+        inside.set()
+        release.wait(10)
+
+    monkeypatch.setattr(TaskManager, "run", run)
+    assert session.runner.phase is RunPhase.IDLE
+    session.runner.start(experiment, RunRequest(kind=ITEMS, task_names=("Trench",)))
+    assert inside.wait(10)
+    assert session.runner.phase is not RunPhase.STOPPING
+
+    session.runner.stop()
+    assert session.runner.phase is RunPhase.STOPPING
+    release.set()
+    assert session.runner.join(10)
+    assert session.runner.phase is RunPhase.IDLE
+
+
+def test_the_phase_follows_the_run(session):
+    from types import SimpleNamespace
+
+    from fibsem.workflows.runner import RunPhase
+
+    runner = session.runner
+    manager = SimpleNamespace(is_stopped=False, began=False, hold=None, waiting=False)
+    runner.manager, runner._thread = manager, object()
+    try:
+        assert runner.phase is RunPhase.STARTING
+        manager.began = True
+        assert runner.phase is RunPhase.RUNNING
+        manager.waiting = True
+        assert runner.phase is RunPhase.WAITING
+        manager.hold = object()
+        assert runner.phase is RunPhase.HELD
+        manager.is_stopped = True
+        assert runner.phase is RunPhase.STOPPING
+    finally:
+        runner.manager, runner._thread = None, None
+
+
+def test_how_a_run_ended_comes_from_its_end_event():
+    from types import SimpleNamespace
+
+    from fibsem.workflows.runner import RunOutcome, run_outcome
+
+    def ended(event, error=""):
+        return SimpleNamespace(
+            ended=event, ended_error=error, closing_note=lambda: "1 task(s) cannot run"
+        )
+
+    assert run_outcome(ended(None)) is None
+    assert run_outcome(ended(HookEvent.WORKFLOW_COMPLETED)) == RunOutcome("completed")
+    assert run_outcome(ended(HookEvent.WORKFLOW_CANCELLED)) == RunOutcome("cancelled")
+    assert run_outcome(ended(HookEvent.WORKFLOW_STALLED)) == RunOutcome(
+        "stalled", "1 task(s) cannot run"
+    )
+    assert run_outcome(ended(HookEvent.WORKFLOW_FAILED, "boom")) == RunOutcome(
+        "failed", "boom"
+    )
