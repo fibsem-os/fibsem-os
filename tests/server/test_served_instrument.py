@@ -9,10 +9,10 @@ state routes still need a microscope.
 import pytest
 from fastapi.testclient import TestClient
 
-from fibsem.instrument import DeviceInstrument, Instrument
+from fibsem.instrument import Instrument
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server import AuthConfig, build_server
-from fibsem.server.devices import served_fm_settings
+from fibsem.server.devices import device_instrument, served_fm_settings
 
 TOKEN = "t"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -21,7 +21,7 @@ FM_PARTS = ["camera", "filter_set", "fm", "light_source", "objective"]
 
 @pytest.fixture
 def cryo_fm():
-    instrument = DeviceInstrument.from_config(served_fm_settings("fm"))
+    instrument = device_instrument(served_fm_settings("fm"))
     yield instrument
     instrument.disconnect()
 

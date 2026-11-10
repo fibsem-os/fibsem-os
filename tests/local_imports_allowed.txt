@@ -99,7 +99,6 @@ fibsem/imaging/cells.py 6
 fibsem/imaging/export.py 1
 fibsem/imaging/marks.py 1
 fibsem/imaging/thickness.py 4
-fibsem/instrument.py 1
 fibsem/microscope.py 13
 # Deliberate: a stage decodes and defaults its strategy through the strategy registry, whose strategies import it.
 fibsem/milling/base.py 6

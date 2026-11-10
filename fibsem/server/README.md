@@ -25,7 +25,7 @@ The Swagger UI is available at `http://<host>:8001/docs`.
 
 The `/microscope` routes serve an instrument (`fibsem.instrument.Instrument`):
 the connected microscope (`FibsemMicroscope`, kind `fibsem`), and any devices
-built from a Device Server file with no microscope (`DeviceInstrument`, kind
+built from a Device Server file with no microscope (`device_instrument`, kind
 `devices`), passed to `build_server(instruments=[...])`. Their devices list
 together under `/microscope/devices`, a name the microscope has winning. The
 state routes (`/microscope`, `/microscope/state`) need a microscope and answer

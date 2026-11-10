@@ -104,7 +104,8 @@ class Instrument(ABC):
 
 class DeviceInstrument(Instrument):
     """Devices built from a Device Server file (its ``hardware.devices``), with no
-    microscope: each by its own driver, as the Device Server builds them. It has no
+    microscope: each by its own driver, as the Device Server builds them
+    (`fibsem.server.devices.device_instrument`). It has no
     state as a whole: `get_state` and `set_state` raise ``NotImplementedError``.
     """
 
@@ -117,16 +118,6 @@ class DeviceInstrument(Instrument):
     ) -> None:
         self._devices = dict(devices)
         self._disconnect_cleanups = list(cleanups or [])
-
-    @classmethod
-    def from_config(cls, source: Any) -> "DeviceInstrument":
-        """Build the devices a Device Server file lists (a path, or its settings
-        already read), with every FM's light off."""
-        from fibsem.server.devices import configured_devices, switch_off_fms
-
-        devices, cleanups = configured_devices(source)
-        switch_off_fms(devices.values())
-        return cls(devices, cleanups)
 
     def _disconnect(self) -> None:
         pass
