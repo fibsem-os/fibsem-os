@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
+from fibsem.devices.runs import RUNNING
 from fibsem.microscope import FibsemMicroscope
 from fibsem.milling.progress import (
     MillingMessageTracker,
@@ -83,6 +84,9 @@ class FibsemMillingWidget(QWidget):
         milling = getattr(self.microscope, "milling", None)
         if self.parent_widget._milling_enabled and milling is not None:
             milling.progress.changed.connect(self._on_milling_progress)
+            # A mill someone else started (the agent's, a plain run with no
+            # task) has the panel's Stop too.
+            milling.runs.changed.connect(self._on_milling_run)
 
         layout.addWidget(self.pushButton_run_milling, 0, 0, 1, 2)
         layout.addWidget(self.progressBar_milling_stages, 1, 0, 1, 2)
@@ -101,7 +105,18 @@ class FibsemMillingWidget(QWidget):
     def is_milling(self) -> bool:
         """Check if a milling task is currently running: this widget's own, or
         the workflow's on the milling service."""
-        return self._own_run or self._service_task
+        return self._own_run or self._service_task or self._service_run
+
+    @property
+    def _service_run(self) -> bool:
+        """A run on the milling service is going, whoever started it."""
+        runs = getattr(getattr(self.microscope, "milling", None), "runs", None)
+        latest = runs.latest if runs is not None else None
+        return latest is not None and latest.state == RUNNING
+
+    @ensure_main_thread
+    def _on_milling_run(self, _run: object) -> None:
+        self._update_button_states()
 
     @property
     def _own_run(self) -> bool:
@@ -253,7 +268,7 @@ class FibsemMillingWidget(QWidget):
             self._milling_thread = None
 
     def stop_milling(self):
-        if self._own_run or self._service_task:
+        if self.is_milling:
             # This widget's mill or the workflow's, both a task on the milling
             # service: its stop ends the whole task.
             record_operator_action(

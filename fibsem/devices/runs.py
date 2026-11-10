@@ -21,11 +21,14 @@ one is kept, for its answer, until the next.
 from __future__ import annotations
 
 import contextvars
+import logging
 import threading
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, Optional
+
+from psygnal import Signal
 
 from fibsem.cancellation import CANCELLED, FAILED, ended_by
 from fibsem.util.timestamps import now_iso
@@ -117,7 +120,13 @@ def ended_as(result: Any) -> str:
 
 
 class Runs:
-    """The latest run of one service (or device): ``service.runs``."""
+    """The latest run of one service (or device): ``service.runs``.
+
+    ``changed`` emits the run as it starts and again as it ends, on the
+    thread that started or ended it: a panel follows a run whoever started it.
+    """
+
+    changed = Signal(object)
 
     def __init__(self, owner: Any):
         self._owner = owner
@@ -237,6 +246,7 @@ class Runs:
             self._latest = run
             self._cond.notify_all()
         self._tell("command_started", run)
+        self._changed(run)
         return run
 
     def _end(self, run: Run) -> None:
@@ -260,6 +270,13 @@ class Runs:
             waited = run.waiters > 0
             self._cond.notify_all()
         self._tell("command_ended", run, waited=waited)
+        self._changed(run)
+
+    def _changed(self, run: Run) -> None:
+        try:
+            self.changed.emit(run)
+        except Exception:  # noqa: BLE001 - a listener never costs the run
+            logging.exception("A listener to %s's runs failed", run.service)
 
     def _tell(self, kind: str, run: Run, **extra: Any) -> None:
         payload = {
