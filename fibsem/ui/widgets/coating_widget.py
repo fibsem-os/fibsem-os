@@ -24,6 +24,7 @@ from PyQt5.QtWidgets import (
 )
 from superqt import ensure_main_thread
 
+from fibsem.devices.runs import RUNNING
 from fibsem.services.coating import CoatingProgress, CoatingStatus, position_text
 from fibsem.structures.system import InsertableDeviceState
 from fibsem.theme.tokens import TEXT_MUTED_COLOR
@@ -88,6 +89,8 @@ class CoatingWidget(QWidget):
             layout.addWidget(self.gis_panel)
 
         self.coating.progress.changed.connect(self._on_progress)
+        # A coating someone else started (the agent's) shows here too.
+        self.coating.runs.changed.connect(self._on_coating_run)
         if self.gis_panel is not None:
             gis = self.coating.gis
             for name in ("state", "heated", "opened", "temperature"):
@@ -183,8 +186,18 @@ class CoatingWidget(QWidget):
     def run_deposit(self) -> None:
         self._start("deposit", self.coating.deposit, self.deposit_seconds.value())
 
+    def _which(self) -> Optional[str]:
+        """ "sputter" or "deposit" while one runs, this panel's or anyone's."""
+        if self._running is not None:
+            return self._running
+        latest = self.coating.runs.latest
+        if latest is not None and latest.state == RUNNING:
+            if latest.command in ("sputter", "deposit"):
+                return latest.command
+        return None
+
     def _on_deposit_clicked(self) -> None:
-        if self._running == "deposit":
+        if self._which() == "deposit":
             logging.info("Stopping the deposition...")
             self.coating.stop()
         else:
@@ -212,21 +225,34 @@ class CoatingWidget(QWidget):
         self._running = None
         self._show_running()
 
-    def _bar(self) -> Optional[FibsemProgressWidget]:
-        if self._running == "sputter":
+    def _bar(self, which: Optional[str] = None) -> Optional[FibsemProgressWidget]:
+        which = which or self._which()
+        if which == "sputter" and self.sputter_panel is not None:
             return self.sputter_progress
-        if self._running == "deposit":
+        if which == "deposit" and self.gis_panel is not None:
             return self.deposit_progress
         return None
+
+    @ensure_main_thread
+    def _on_coating_run(self, run: Any) -> None:
+        """A coating run started or ended, whoever started it. One this panel
+        did not start leaves its bar up for a moment once it ends, as its own
+        does."""
+        if run.state != RUNNING and self._running is None:
+            bar = self._bar(run.command)
+            if bar is not None:
+                QTimer.singleShot(HIDE_PROGRESS_DELAY_MS, bar.reset_if_finished)
+        self._show_running()
 
     def _show_running(self) -> None:
         """The buttons as the run in progress leaves them: Deposit is Cancel while
         a deposition runs; a sputter run can't be stopped."""
-        busy = self._running is not None
+        which = self._which()
+        busy = which is not None
         if self.sputter_panel is not None:
             self.sputter_button.setEnabled(not busy)
         if self.gis_panel is not None:
-            depositing = self._running == "deposit"
+            depositing = which == "deposit"
             self.deposit_button.setText("Cancel" if depositing else "Deposit")
             self.deposit_button.setStyleSheet(
                 stylesheets.DANGER_BUTTON_STYLESHEET
@@ -264,10 +290,14 @@ class CoatingWidget(QWidget):
     def _teardown_connections(self) -> None:
         """Drop the service's and devices' connections; the microscope outlives this
         widget. Idempotent."""
-        try:
-            self.coating.progress.changed.disconnect(self._on_progress)
-        except Exception:
-            pass
+        for signal, slot in (
+            (self.coating.progress.changed, self._on_progress),
+            (self.coating.runs.changed, self._on_coating_run),
+        ):
+            try:
+                signal.disconnect(slot)
+            except Exception:
+                pass
         if self.gis_panel is not None:
             gis = self.coating.gis
             for name in ("state", "heated", "opened", "temperature"):

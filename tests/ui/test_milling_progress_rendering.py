@@ -102,6 +102,8 @@ class _MillingWidgetHost:
     _update_button_states = FibsemMillingWidget._update_button_states
     is_milling = FibsemMillingWidget.is_milling
     _own_run = FibsemMillingWidget._own_run
+    _service_run = FibsemMillingWidget._service_run
+    _on_milling_run = FibsemMillingWidget._on_milling_run
 
     def __init__(self):
         from PyQt5.QtWidgets import QProgressBar, QPushButton, QWidget
@@ -112,6 +114,7 @@ class _MillingWidgetHost:
         self.pushButton_stop_milling = QPushButton()
         self.pushButton_pause_milling = QPushButton()
         self._milling_thread = None
+        self.microscope = None
         self._service_task = False
         self._has_stages = True
         self._milling_label = MillingMessageTracker()
@@ -414,6 +417,23 @@ class TestATaskEnding:
         milling_widget._on_milling_progress(task_finished())
         assert not milling_widget.is_milling
         assert milling_widget.parent_widget.config_widget.isEnabled()
+
+    def test_a_mill_someone_else_runs_offers_stop(self, milling_widget):
+        """The agent's plain mill (no task, so no task start): its run on the
+        milling service locks the controls and offers Stop until it ends."""
+        from types import SimpleNamespace
+
+        from fibsem.devices.runs import Runs
+
+        runs = Runs(SimpleNamespace(name="milling"))
+        milling_widget.microscope = SimpleNamespace(milling=SimpleNamespace(runs=runs))
+        runs.changed.connect(milling_widget._on_milling_run)
+        with runs.tracking("run"):
+            assert milling_widget.is_milling
+            assert milling_widget.pushButton_stop_milling.isEnabled()
+            assert not milling_widget.pushButton_run_milling.isEnabled()
+        assert not milling_widget.is_milling
+        assert not milling_widget.pushButton_stop_milling.isEnabled()
 
     def test_stop_stops_the_workflows_mill_on_the_service(self, milling_widget):
         """Stop on the Milling tab during the workflow's mill: the service's
