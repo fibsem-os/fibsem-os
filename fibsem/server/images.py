@@ -150,8 +150,9 @@ def image_metadata(
         block["hfw"] = _maybe_float(settings.hfw)
         if settings.reduced_area is not None:
             block["reduced_area"] = settings.reduced_area.to_dict()
-    if md.acquisition_datetime is not None:
-        block["acquired_at"] = md.acquisition_datetime.isoformat()
+    provenance = md.provenance
+    if provenance.acquired_at is not None:
+        block["acquired_at"] = provenance.acquired_at.isoformat()
     if md.pixel_size is not None:
         block["pixel_size"] = _maybe_float(md.pixel_size.x)
     state = md.microscope_state
@@ -180,10 +181,8 @@ def image_metadata(
             }
         if detector is not None:
             block["detector"] = {"type": detector.type, "mode": detector.mode}
-    experiment = md.experiment
-    if experiment is not None:
-        block["item"] = experiment.item_name
-        block["task"] = experiment.task_name
+    block["item"] = provenance.item
+    block["task"] = provenance.task
     return block
 
 

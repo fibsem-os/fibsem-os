@@ -412,7 +412,7 @@ def _microscope_of(sections: Sequence[GridSection]) -> Optional[str]:
             if entry.path is None or is_fluorescence_image(entry.path):
                 continue
             metadata, _ = read_beam_metadata(entry.path)
-            info = getattr(metadata, "system_info", None)
+            info = metadata.provenance.instrument if metadata is not None else None
             if info is None:
                 continue
             name = info.name or info.model or info.manufacturer
