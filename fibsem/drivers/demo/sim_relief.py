@@ -195,6 +195,7 @@ def surface(
         2 * min(sx, sy),
     )
     # holes in a holey film are filled with ice that sits a little lower
+    rim_dip = 0.0
     if holes.any():
         rim_dip = ndi.gaussian_filter(holes.astype(np.float32), (0.3 / sy, 0.3 / sx))
         h -= 0.12 * rim_dip
@@ -260,6 +261,8 @@ def surface(
         texture = np.where(lift > 0.05, texture, 0)
         soft = ndi.gaussian_filter(lift, (ICE_BLANKET / sy, ICE_BLANKET / sx))
         h = h + np.maximum(0.2 * lift + soft, 0) + 0.3 * texture
+        # a cell covers the holes under it: no dip shows through
+        h = h + 0.12 * rim_dip * np.clip(lift / 0.3, 0, 1)
         mat[cell & solid] = CELL
     h = h + specks
     mat[crystal & solid] = CRYSTAL
@@ -431,9 +434,10 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     flat = max(fs / np.hypot(fs, kabs), 0.05) ** -0.75
     shade = mat_y * yield_ * occl * edge * det / flat * (1 + 0.2 * (1 - fs))
     if cut is not None:
-        # a face the beam cut is smooth: an even tone
+        # a face the beam cut is smooth: an even tone, darker in a trench
+        # floor (fewer electrons get out)
         face = cut & (mat != NOTHING)
-        shade[face] = 1.15 * MATERIAL[ICE][which]
+        shade[face] = 0.6 * MATERIAL[ICE][which]
     shade[mat == NOTHING] = MATERIAL[NOTHING][which]
 
     # project: the first sample along the beam to reach a row is what it shows
@@ -445,6 +449,7 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     rows = np.arange(n_rows, dtype=np.float64)
     out = np.empty((n_rows, len(u)), dtype=np.float32)
     slack = dy * fs / pix + 1.0
+    wall = 0.8 * mat_y
     void = MATERIAL[NOTHING][which]
     for c in range(len(u)):
         idx = np.searchsorted(top[:, c], rows)
@@ -453,7 +458,11 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         # past a column's floor is nothing - give a sample step of slack, so
         # only a real gap (an edge with nothing behind it) reads as one
         solid = rows >= rows_floor[kk, c] - slack
-        out[:, c] = np.where(seen & solid, shade[kk, c], void)
+        # below a sample's own top the row sees its side - a wall facing
+        # the beam (a bar through a tear, a trench's far wall): one even tone
+        side = rows < rows_s[kk, c] - slack
+        value = np.where(side, wall[kk, c], shade[kk, c])
+        out[:, c] = np.where(seen & solid, value, void)
     if sigma < 0:
         out = out[::-1]
     return out
