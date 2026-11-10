@@ -127,3 +127,22 @@ def test_a_lamella_between_two_trenches_stays(microscope):
     below = profile[171 + int(3.5e-6 / pixel)]
     assert band.min() > 60, band
     assert above < 40 and below < 40, (above, below)
+
+
+@pytest.mark.parametrize("cell_type", ["rpe", "neuron"])
+def test_rpe_and_neuron_cells_grow_and_stand_up(cell_type):
+    """RPE grows as packed islands, neurons as a soma with processes; both
+    stand above the film in the relief renderer."""
+    from fibsem.drivers.demo import sim_relief
+
+    scene = SampleScene(cell_type=cell_type, renderer="relief")
+    parts = {f.part for f in scene.features if f.kind == "cell"}
+    assert "body" in parts
+    if cell_type == "neuron":
+        assert "neurite" in parts
+    body = next(f for f in scene.features if f.kind == "cell" and f.part == "body")
+    xa = body.x * 1e6 + np.arange(-20, 20, 0.5)
+    ya = body.y * 1e6 + np.arange(-20, 20, 0.5)
+    x, y = np.meshgrid(xa, ya)
+    h, _, _, _ = sim_relief.surface(scene, x, y, (0.5, 0.5))
+    assert h[40, 40] - np.median(h) > 0.5

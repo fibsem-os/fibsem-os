@@ -172,7 +172,13 @@ BEAM_LAYERS = {
         "holder": 0.0,
         "edge_highlight": 0.0,
         "trench_floor": 0.25,
-        "cell": {"body": 1.0, "nucleus": 1.0, "organelle": 1.0, "bud": 1.0},
+        "cell": {
+            "body": 1.0,
+            "nucleus": 1.0,
+            "organelle": 1.0,
+            "bud": 1.0,
+            "neurite": 1.0,
+        },
         "contamination": 1.0,
         "ice": 1.0,
         "fiducial": 1.0,
@@ -189,7 +195,13 @@ BEAM_LAYERS = {
         "holder": 0.0,
         "edge_highlight": 1.0,  # x the saturating outline of the structure
         "trench_floor": 0.25,
-        "cell": {"body": -0.7, "nucleus": 0.15, "organelle": 0.0, "bud": -0.7},
+        "cell": {
+            "body": -0.7,
+            "nucleus": 0.15,
+            "organelle": 0.0,
+            "bud": -0.7,
+            "neurite": 0.2,
+        },
         "contamination": 0.5,
         "ice": 0.7,
         "fiducial": -0.3,
@@ -251,7 +263,7 @@ class SceneFeature:
     wobble: float = 0.0
     wobble_phase: float = 0.0
     # which part of a cell this is - the FM dyes by part
-    part: str = "body"  # "body" | "nucleus" | "organelle" | "bud"
+    part: str = "body"  # "body" | "nucleus" | "organelle" | "bud" | "neurite"
     cell_id: int = -1
     # how much the feature hides what is under it (film, holes, bars): 0 is
     # additive (a mound on top), 1 replaces the background inside its
@@ -568,7 +580,9 @@ class SampleScene:
     # what grows on the film: "mammalian" (adherent, fried-egg: a wide flat
     # body with an off-centre nuclear mound and organelle speckle, sparse),
     # "yeast" (compact bright ovoids in clusters, some budding), "bacteria"
-    # (dense small rods), "mixed", or "none" for bare film
+    # (dense small rods), "rpe" (islands of a packed epithelial sheet),
+    # "neuron" (a round soma with long branching processes), "mixed", or
+    # "none" for bare film
     cell_type: str = "mammalian"
     # yeast: clusters over the extent
     n_clusters: int = 35  # cell clusters scattered over the extent
@@ -582,6 +596,14 @@ class SampleScene:
     # bacteria: count per 150 x 150 um, rod length
     bacteria_density: float = 160.0
     bacteria_length: Tuple[float, float] = (2.0e-6, 3.5e-6)  # m
+    # rpe: islands per 150 x 150 um, their radius, and the cell spacing
+    rpe_island_density: float = 0.5
+    rpe_island_radius: Tuple[float, float] = (40e-6, 110e-6)  # m
+    rpe_cell_spacing: float = 14e-6  # m
+    # neuron: somas per 150 x 150 um, soma radius, process length
+    neuron_density: float = 1.2
+    soma_radius: Tuple[float, float] = (5e-6, 9e-6)  # m
+    neurite_length: Tuple[float, float] = (60e-6, 220e-6)  # m
     extent: float = 800e-6  # m, features are scattered over +/- extent/2
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
@@ -1220,6 +1242,8 @@ class SampleScene:
             "yeast": [("yeast", 1.0)],
             "mammalian": [("mammalian", 1.0)],
             "bacteria": [("bacteria", 1.0)],
+            "rpe": [("rpe", 1.0)],
+            "neuron": [("neuron", 1.0)],
             "mixed": [("yeast", 0.5), ("mammalian", 0.4), ("bacteria", 0.3)],
             "none": [],  # bare film: fiducial, bars and contamination only
         }
@@ -1235,6 +1259,12 @@ class SampleScene:
             elif kind == "mammalian":
                 n = int(round(self.mammalian_density * fields * fraction))
                 next_id = self._generate_mammalian(rng, half, n, next_id)
+            elif kind == "rpe":
+                n = int(round(self.rpe_island_density * fields * fraction))
+                next_id = self._generate_rpe(rng, half, n, next_id)
+            elif kind == "neuron":
+                n = int(round(self.neuron_density * fields * fraction))
+                next_id = self._generate_neurons(rng, half, n, next_id)
             else:
                 n = int(round(self.bacteria_density * fields * fraction))
                 next_id = self._generate_bacteria(rng, half, n, next_id)
@@ -1367,6 +1397,154 @@ class SampleScene:
             next_id += 1
         return next_id
 
+    def _generate_rpe(self, rng, half, n, next_id) -> int:
+        """Islands of a confluent epithelium: cells on a jittered hexagonal
+        lattice, packed edge to edge, each a flat-topped polygon-ish dome
+        with a central nucleus and bright pigment granules."""
+        spacing = self.rpe_cell_spacing
+        for _ in range(n):
+            cx, cy = rng.uniform(-half, half, size=2)
+            radius = float(rng.uniform(*self.rpe_island_radius))
+            phase = float(rng.uniform(0, 2 * np.pi))
+            rows = int(np.ceil(radius / (spacing * 0.866)))
+            cols = int(np.ceil(radius / spacing))
+            for j in range(-rows, rows + 1):
+                for i in range(-cols, cols + 1):
+                    x = (i + 0.5 * (j % 2)) * spacing
+                    y = j * spacing * 0.866
+                    # a ragged island edge
+                    edge = radius * (1 + 0.15 * np.sin(3 * np.arctan2(y, x) + phase))
+                    if np.hypot(x, y) > edge:
+                        continue
+                    x = float(cx + x + rng.normal(0, 0.12 * spacing))
+                    y = float(cy + y + rng.normal(0, 0.12 * spacing))
+                    angle = float(rng.uniform(0, np.pi))
+                    self.features.append(
+                        SceneFeature(
+                            x=x,
+                            y=y,
+                            sigma=0.55 * spacing,
+                            intensity=45.0,
+                            sharpness=5.0,
+                            eccentricity=float(rng.uniform(0.8, 1.0)),
+                            angle=angle,
+                            wobble=0.08,
+                            wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+                            cell_id=next_id,
+                            opacity=1.0,
+                            height=3.0e-6,
+                        )
+                    )
+                    self.features.append(
+                        SceneFeature(
+                            x=x,
+                            y=y,
+                            sigma=0.2 * spacing,
+                            intensity=20.0,
+                            sharpness=2.0,
+                            part="nucleus",
+                            cell_id=next_id,
+                            height=1.0e-6,
+                        )
+                    )
+                    for _ in range(int(rng.integers(4, 10))):
+                        t = rng.uniform(0, 2 * np.pi)
+                        r = rng.uniform(0.25, 0.45) * spacing
+                        self.features.append(
+                            SceneFeature(
+                                x=x + r * float(np.cos(t)),
+                                y=y + r * float(np.sin(t)),
+                                sigma=0.35e-6,
+                                intensity=60.0,
+                                sharpness=2.0,
+                                part="organelle",
+                                cell_id=next_id,
+                                height=0.3e-6,
+                            )
+                        )
+                    next_id += 1
+        return next_id
+
+    def _generate_neurons(self, rng, half, n, next_id) -> int:
+        """A round soma with a few long processes: each a wandering path of
+        thin overlapping segments that tapers, and may branch once."""
+        for _ in range(n):
+            x, y = (float(v) for v in rng.uniform(-half, half, size=2))
+            soma = float(rng.uniform(*self.soma_radius))
+            self.features.append(
+                SceneFeature(
+                    x=x,
+                    y=y,
+                    sigma=soma,
+                    intensity=60.0,
+                    sharpness=2.5,
+                    eccentricity=float(rng.uniform(0.75, 1.0)),
+                    angle=float(rng.uniform(0, np.pi)),
+                    wobble=0.1,
+                    wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+                    cell_id=next_id,
+                    opacity=1.0,
+                    height=0.6 * soma,
+                )
+            )
+            self.features.append(
+                SceneFeature(
+                    x=x,
+                    y=y,
+                    sigma=0.5 * soma,
+                    intensity=15.0,
+                    sharpness=2.0,
+                    part="nucleus",
+                    cell_id=next_id,
+                    height=0.5e-6,
+                )
+            )
+            paths = []
+            start = float(rng.uniform(0, 2 * np.pi))
+            count = int(rng.integers(3, 7))
+            for k in range(count):
+                heading = start + 2 * np.pi * k / count + float(rng.normal(0, 0.3))
+                length = float(rng.uniform(*self.neurite_length))
+                paths.append((x, y, heading, length, 1.0))
+            while paths:
+                px, py, heading, length, width = paths.pop()
+                px += soma * 0.9 * np.cos(heading) if width == 1.0 else 0.0
+                py += soma * 0.9 * np.sin(heading) if width == 1.0 else 0.0
+                step = 1.5e-6
+                travelled = 0.0
+                branched = width < 1.0
+                while travelled < length:
+                    heading += float(rng.normal(0, 0.12))
+                    px += step * np.cos(heading)
+                    py += step * np.sin(heading)
+                    travelled += step
+                    taper = width * (1.0 - 0.6 * travelled / length)
+                    self.features.append(
+                        SceneFeature(
+                            x=float(px),
+                            y=float(py),
+                            sigma=1.2e-6,
+                            intensity=40.0,
+                            sharpness=2.0,
+                            eccentricity=0.6 * taper,
+                            angle=float(heading),
+                            part="neurite",
+                            cell_id=next_id,
+                            height=0.6e-6 * taper,
+                        )
+                    )
+                    if (
+                        not branched
+                        and travelled > 0.4 * length
+                        and rng.random() < 0.02
+                    ):
+                        branched = True
+                        turn = float(rng.choice([-1, 1]) * rng.uniform(0.4, 0.9))
+                        rest = length - travelled
+                        paths.append((px, py, heading + turn, 0.7 * rest, 0.7 * taper))
+            next_id += 1
+        return next_id
+
     def _generate_bacteria(self, rng, half, n, next_id) -> int:
         for _ in range(n):
             x, y = rng.uniform(-half, half, size=2)
@@ -1404,6 +1582,12 @@ class SampleScene:
         "nucleus_radius",  # [min, max] m
         "bacteria_density",  # per 150 x 150 um
         "bacteria_length",  # [min, max] m
+        "rpe_island_density",  # per 150 x 150 um
+        "rpe_island_radius",  # [min, max] m
+        "rpe_cell_spacing",  # m
+        "neuron_density",  # per 150 x 150 um
+        "soma_radius",  # [min, max] m
+        "neurite_length",  # [min, max] m
         "extent",  # m
         "grid_pitch",  # m
         "grid_bar_width",  # m
@@ -1445,6 +1629,9 @@ class SampleScene:
             "nucleus_radius",
             "bacteria_length",
             "ice_size",
+            "rpe_island_radius",
+            "soma_radius",
+            "neurite_length",
         ):
             if key in kwargs:
                 kwargs[key] = tuple(kwargs[key])

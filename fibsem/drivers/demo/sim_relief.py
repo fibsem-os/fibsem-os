@@ -157,7 +157,10 @@ def fbm(x, y, scales, amps, seed, finest=0.0):
 
 # --------------------------------------------------------------------- heights
 def _feature_height(f) -> float:
-    """How tall a feature stands (um), from what it is and its size."""
+    """How tall a feature stands (um): its own height when it has one, else
+    from what it is and its size."""
+    if f.height > 0:
+        return f.height * UM
     sigma = f.sigma * UM
     if f.kind == "cell":
         if f.part == "nucleus":
@@ -174,8 +177,9 @@ def surface(
     scene: "SampleScene", x: np.ndarray, y: np.ndarray, step: Tuple[float, float]
 ):
     """Height (um), material, the height each column's material starts at, and
-    which samples a milling cut made, at world points (x, y) in um. `step`
-    is the sampling along (columns, rows) in um, for the smoothing."""
+    which samples a milling cut made, on a grid of world points (x, y) in um
+    (x varying along columns, y along rows). `step` is the sampling along
+    (columns, rows) in um, for the smoothing."""
     bars, holes, rips, rim, beyond = scene.film_masks(x / UM, y / UM)
     shape = x.shape
     mat = np.zeros(shape, dtype=np.uint8)
@@ -209,6 +213,7 @@ def surface(
     cell = np.zeros(shape, dtype=bool)
     crystal = np.zeros(shape, dtype=bool)
     x_lo, x_hi, y_lo, y_hi = x.min(), x.max(), y.min(), y.max()
+    x_axis, y_axis = x[0], y[:, 0]
     for f in scene.features:
         fx, fy, sigma = f.x * UM, f.y * UM, f.sigma * UM
         reach = (4.0 if f.sharpness < 2 else 2.2) * sigma * (1 + f.wobble) + 1.0
@@ -219,10 +224,11 @@ def surface(
             or fy - reach > y_hi
         ):
             continue
-        sel = (np.abs(x - fx) < reach) & (np.abs(y - fy) < reach)
-        if not sel.any():
+        # the samples are a grid: find the box from its axes
+        cols = np.nonzero(np.abs(x_axis - fx) < reach)[0]
+        rows = np.nonzero(np.abs(y_axis - fy) < reach)[0]
+        if not len(cols) or not len(rows):
             continue
-        rows, cols = np.nonzero(sel.any(axis=1))[0], np.nonzero(sel.any(axis=0))[0]
         box = (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
         dx, dy = x[box] - fx, y[box] - fy
         if f.angle:
@@ -241,11 +247,12 @@ def surface(
         profile = np.exp(-0.5 * r2**f.sharpness).astype(np.float32)
         height = _feature_height(f) * profile
         if f.kind == "cell":
-            lift[box] = (
-                lift[box] + height
-                if f.part != "body"
-                else np.maximum(lift[box], height)
-            )
+            # bodies and processes are the cell's outline, overlapping pieces
+            # of it; a nucleus or granule stands on top
+            if f.part in ("body", "bud", "neurite"):
+                lift[box] = np.maximum(lift[box], height)
+            else:
+                lift[box] = lift[box] + height
             cell[box] |= profile > 0.3
         else:
             specks[box] = np.maximum(specks[box], height)
@@ -260,7 +267,9 @@ def surface(
         )
         texture = np.where(lift > 0.05, texture, 0)
         soft = ndi.gaussian_filter(lift, (ICE_BLANKET / sy, ICE_BLANKET / sx))
-        h = h + np.maximum(0.2 * lift + soft, 0) + 0.3 * texture
+        # fine things (a neurite, a granule) keep their shape through it
+        fine = np.clip(lift - ndi.gaussian_filter(lift, (1.0 / sy, 1.0 / sx)), 0, None)
+        h = h + np.maximum(0.2 * lift + soft, 0) + 0.6 * fine + 0.3 * texture
         # a cell covers the holes under it: no dip shows through
         h = h + 0.12 * rim_dip * np.clip(lift / 0.3, 0, 1)
         mat[cell & solid] = CELL
