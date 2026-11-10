@@ -20,7 +20,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.server import AuthConfig, build_server
-from fibsem.server.requests import RequestRefused, route_call
+from fibsem.server.agent.requests import RequestRefused, route_call
 from fibsem.structures.settings import MicroscopeState
 from tests.run_state import stub_session
 
@@ -1477,7 +1477,7 @@ def test_a_request_just_rejected_can_t_be_withdrawn(client, app, monkeypatch):
 
 
 def test_a_finished_request_never_moves_again(client, app):
-    from fibsem.server.requests import APPLYING
+    from fibsem.server.agent.requests import APPLYING
 
     filed = _file(client, NUDGE).json()
     store = app.state.requests

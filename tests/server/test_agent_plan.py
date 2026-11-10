@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from fibsem.ai.agent import watch
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server import AuthConfig
-from fibsem.server.agent_plan import (
+from fibsem.server.agent.plan import (
     PLAN_EDITED,
     SAMPLE_SET,
     PlanStore,
@@ -20,7 +20,7 @@ from fibsem.server.agent_plan import (
     render,
     rule_time,
 )
-from fibsem.server.agent_session import build_agent_session_router
+from fibsem.server.agent.session import build_agent_session_router
 
 OPERATOR = "operator-token-for-tests"
 

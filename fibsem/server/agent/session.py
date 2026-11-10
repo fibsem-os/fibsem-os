@@ -7,7 +7,7 @@ is -- only the agent's harness knows, so the harness reports it here:
 ``fibsem-agent`` after every turn, Claude Code through ``server_report_session``. fibsem-agent also says what it can do: code mode and
 its folder, effort, skills. Self-reported, like the client's name: a label for
 the operator, not an identity. Its checklist and deadlines are read from its
-plan (``fibsem.server.agent_plan``) when it keeps one, for the Agent page and
+plan (``fibsem.server.agent.plan``) when it keeps one, for the Agent page and
 for fibsem-agent's deadline wake-ups. A session starting, its goal changing and
 its end go on the record, and so does the spend first reaching 80% of the
 budget; the spend and the checklist in between are state, read with GET.

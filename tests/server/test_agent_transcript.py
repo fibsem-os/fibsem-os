@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.session import session_facts, session_line
 from fibsem.server import AuthConfig
-from fibsem.server.agent_session import report
-from fibsem.server.agent_transcript import build_agent_transcript_router
+from fibsem.server.agent.session import report
+from fibsem.server.agent.transcript import build_agent_transcript_router
 
 
 @pytest.fixture

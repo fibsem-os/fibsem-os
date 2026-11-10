@@ -33,10 +33,9 @@ from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.control import HOLD_COMMANDS, STOP_COMMANDS, MicroscopeBusy
 from fibsem.devices.wire import type_path
 from fibsem.microscope import FibsemMicroscope
-from fibsem.server.agent_files import AgentFiles
-from fibsem.server.agent_plan import PlanStore, build_agent_plan_router
-from fibsem.server.agent_session import build_agent_session_router
-from fibsem.server.agent_transcript import build_agent_transcript_router
+from fibsem.server.agent.operator import build_operator_router
+from fibsem.server.agent.requests import turned_away
+from fibsem.server.agent.routes import mount_agent_routes
 from fibsem.server.app_routes import (
     build_app_config_router,
     build_app_control_router,
@@ -72,13 +71,10 @@ from fibsem.server.devices import (
 from fibsem.server.discovery import fibsem_folder
 from fibsem.server.knowledge_routes import build_knowledge_router
 from fibsem.server.leases import LEASE_HEADER
-from fibsem.server.library_routes import build_library_router
 from fibsem.server.models import ControlRequest, MicroscopeStateRequest
 from fibsem.server.notifications import build_notifications_router
-from fibsem.server.operator import build_operator_router
 from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.server.parts import served_parts
-from fibsem.server.requests import RequestStore, build_request_router, turned_away
 from fibsem.server.responses import (
     ControlView,
     Fitted,
@@ -563,7 +559,7 @@ def build_server(
     device: by default a new copy of each.
 
     ``operator`` is the session's ``AgentSession``: passing one mounts the
-    operator's routes (`fibsem.server.operator`), behind the operator token.
+    operator's routes (`fibsem.server.agent.operator`), behind the operator token.
     """
     if auth is None:
         auth = AuthConfig.generate()
@@ -886,56 +882,21 @@ def build_server(
         app.include_router(
             build_app_suggest_router(app_context), dependencies=[Depends(_assist)]
         )
-        # The agent's requests: actions the operator approves in the
-        # app, run through the routes above. The app decides them through
-        # app.state.requests.
+        # The agent's requests (run through the routes above), session,
+        # plan, transcript and library.
         mounted = (
             {"base", "app", "services"}
             | ({"microscope"} if serve_microscope else set())
             | set(served_parts(app_context))
         )
-        app.state.requests = RequestStore(
+        mount_agent_routes(
             app,
+            app_context,
             auth,
             frozenset(mounted),
-            emit=getattr(app_context, "record_event", None),
-            describe=getattr(app_context, "describe_action", None),
-            check=getattr(app_context, "check_action", None),
-            not_allowed=app.state.blocked_route,
-            experiment_path=lambda: getattr(app_context, "experiment_path", None),
-            experiment=getattr(app_context, "recording_experiment", None),
-            path_refused=lambda kwargs: blocklist.path_outside(
+            refused_path=lambda kwargs: blocklist.path_outside(
                 paths(kwargs), lambda: getattr(app_context, "experiment_path", None)
             ),
-        )
-        app.include_router(build_request_router(app.state.requests))
-        # The agent's own report of its session: model, goal, budget, spend.
-        app.include_router(
-            build_agent_session_router(getattr(app_context, "record_event", None))
-        )
-        # The agent's plan for its session, kept beside the experiment.
-        # Where each session's plan and transcript go: its experiment, or
-        # its own folder until one is open.
-        app.state.agent_files = AgentFiles(
-            lambda: getattr(app_context, "experiment_path", None)
-        )
-        app.state.agent_plan = PlanStore(
-            lambda: getattr(app_context, "experiment_path", None),
-            lambda: getattr(app_context, "experiment_sample", None),
-            getattr(app_context, "set_experiment_sample", None),
-            files=app.state.agent_files,
-        )
-        app.include_router(
-            build_agent_plan_router(
-                lambda: getattr(app_context, "experiment_path", None),
-                getattr(app_context, "record_event", None),
-            )
-        )
-        # What fibsem-agent printed, kept beside the experiment.
-        app.include_router(
-            build_agent_transcript_router(
-                lambda: getattr(app_context, "experiment_path", None)
-            )
         )
         # What was learned on this microscope, kept under the state root.
         app.include_router(
@@ -944,8 +905,6 @@ def build_server(
                 lambda: getattr(app_context, "experiment_sample", None),
             )
         )
-        # The agent's playbooks, skills and subagents: shipped and the lab's.
-        app.include_router(build_library_router())
     if operator is not None:
         app.include_router(build_operator_router(operator))
         app.include_router(build_notifications_router())

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server import AuthConfig
-from fibsem.server.agent_session import (
+from fibsem.server.agent.session import (
     SESSION_BUDGET,
     SESSION_ENDED,
     SESSION_GOAL,

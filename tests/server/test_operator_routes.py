@@ -566,7 +566,7 @@ def test_the_web_app_is_served(server):
 
 
 def test_the_connect_text_is_the_card_s(server):
-    from fibsem.server.agent_setup import setup_text
+    from fibsem.server.agent.setup import setup_text
 
     answer = server.get("/app/agent/connect", headers=server.operator)
     assert answer.json()["text"] == setup_text(server.session.app_server.url)
