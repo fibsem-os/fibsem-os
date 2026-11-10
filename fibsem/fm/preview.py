@@ -166,7 +166,8 @@ def _facts(
     """What a legend says about a stack: each channel as the projection draws
     it (name, colour, excitation in nm, emission filter, exposure in s, and
     each plane's sharpness), the number of z planes, their step in metres (None
-    when not recorded), and when it was acquired."""
+    when not recorded), and when, for which item and in which task it was
+    acquired."""
     channels = list(metadata.channels)
     facts = []
     for index in range(count):
@@ -189,13 +190,17 @@ def _facts(
     z = metadata.z_positions or []
     if step is None and len(z) >= 2:
         step = mean_z_step(z)
-    acquired = metadata.acquisition_datetime
+    provenance = metadata.provenance
+    acquired = provenance.acquired_at
     return {
         "channels": facts,
         "z_planes": planes,
         "z_step": step,
         "z_positions": [float(p) for p in z] if len(z) == planes else None,
         "acquired_at": acquired.isoformat() if acquired is not None else None,
+        # The same keys a beam image's block has (`server.images.image_metadata`).
+        "item": provenance.item,
+        "task": provenance.task,
     }
 
 

@@ -37,9 +37,10 @@ from fibsem.imaging.drawing import (
     scalebar_plate,
 )
 from fibsem.structures.image import FibsemImage
+from fibsem.structures.provenance import ImageProvenance
 from fibsem.structures.settings import BeamType
 from fibsem.theme import tokens
-from fibsem.util.timestamps import acquisition_datetime_of, format_time
+from fibsem.util.timestamps import format_time
 
 RGB = Tuple[int, int, int]
 
@@ -479,16 +480,22 @@ def _add(fields: List[ExportField], key: str, value) -> None:
     fields.append(ExportField(key=key, name=name, label=label, value=str(value)))
 
 
-def _provenance(experiment, date, instrument, user, version) -> List[ExportField]:
+def _provenance(provenance: ImageProvenance) -> List[ExportField]:
     out: List[ExportField] = []
-    _add(out, "experiment", getattr(experiment, "name", None))
+    instrument = provenance.instrument
+    version = instrument.fibsem_version if instrument else None
+    _add(out, "experiment", getattr(provenance.experiment, "name", None))
     # A lamella in a lamella task, a grid in a grid task. "Item", as the record calls
     # it: the file does not say which kind it is.
-    _add(out, "item", getattr(experiment, "item_name", None))
-    _add(out, "task", getattr(experiment, "task_name", None))
-    _add(out, "date", format_time(date))
-    _add(out, "instrument", instrument)
-    _add(out, "user", user)
+    _add(out, "item", provenance.item)
+    _add(out, "task", provenance.task)
+    _add(out, "date", format_time(provenance.acquired_at))
+    _add(
+        out,
+        "instrument",
+        _instrument(instrument.model, instrument.serial_number) if instrument else None,
+    )
+    _add(out, "user", provenance.user.name if provenance.user is not None else None)
     _add(out, "version", f"fibsem-os {version}" if version else None)
     return out
 
@@ -571,14 +578,7 @@ def fibsem_image_fields(image: FibsemImage) -> ImageFields:
         dwell = format_si(md.image_settings.dwell_time, "s")
         _add(fields, "dwell_time", dwell)
 
-    system = md.system_info
-    provenance = _provenance(
-        md.experiment,
-        acquisition_datetime_of(md),
-        _instrument(system.model, system.serial_number) if system else None,
-        md.user.name if md.user is not None else None,
-        system.fibsem_version if system else None,
-    )
+    provenance = _provenance(md.provenance)
     return ImageFields(
         kind="FIB" if is_ion else "SEM", fields=fields, provenance=provenance
     )
@@ -679,14 +679,7 @@ def fluorescence_fields(md, shape: Sequence[int]) -> ImageFields:
     if stack is not None:
         _add(fields, "z", z_value(*stack))
 
-    system = md.system_info or {}
-    provenance = _provenance(
-        md.experiment,
-        acquisition_datetime_of(md),
-        _instrument(system.get("model"), system.get("serial_number")),
-        None,
-        system.get("fibsem_version"),
-    )
+    provenance = _provenance(md.provenance)
     return ImageFields(kind="FM", fields=fields, provenance=provenance)
 
 

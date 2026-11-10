@@ -19,6 +19,7 @@ from fibsem import image_format
 from fibsem.codec import AwareTimestamp, decode, encode, saved
 from fibsem.codec.upgrades import image_metadata as metadata_upgrades
 from fibsem.config import METADATA_VERSION
+from fibsem.structures.provenance import ImageProvenance, InstrumentRef
 from fibsem.structures.settings import (
     BeamType,
     FibsemStagePosition,
@@ -103,6 +104,22 @@ class FibsemImageMetadata:
     @property
     def stage_position(self) -> FibsemStagePosition:
         return self.microscope_state.stage_position
+
+    @property
+    def provenance(self) -> ImageProvenance:
+        """What produced this image, in the shape an FM image's has too."""
+        return ImageProvenance(
+            instrument=InstrumentRef.of(self.system_info),
+            geometry=self.hardware_geometry,
+            experiment=self.experiment,
+            user=self.user,
+            acquired_at=acquisition_datetime_of(self),
+            stage_position=(
+                self.microscope_state.stage_position
+                if self.microscope_state is not None
+                else None
+            ),
+        )
 
     @property
     def acquisition_date(self) -> Optional[datetime]:

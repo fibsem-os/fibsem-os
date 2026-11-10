@@ -80,6 +80,7 @@ from fibsem.structures.params import (  # noqa: F401
     distance_param,
     param,
 )
+from fibsem.structures.provenance import ImageProvenance, InstrumentRef
 from fibsem.structures.settings import (  # noqa: F401
     AutoFocusMode,
     FibsemRectangle,
@@ -1431,6 +1432,18 @@ class FluorescenceImageMetadata:
                 raise ValueError("Z-stack must have at least 2 positions")
             if self.pixel_size_z is None:
                 self.pixel_size_z = mean_z_step(self.z_positions)
+
+    @property
+    def provenance(self) -> ImageProvenance:
+        """What produced this image, in the shape a beam image's has too. An FM
+        image records no user."""
+        return ImageProvenance(
+            instrument=InstrumentRef.of(self.system_info),
+            geometry=self.geometry,
+            experiment=self.experiment,
+            acquired_at=acquisition_datetime_of(self),
+            stage_position=self.stage_position,
+        )
 
     def add_channel(self, channel: FluorescenceChannelMetadata) -> None:
         """Add a new channel to the metadata."""
