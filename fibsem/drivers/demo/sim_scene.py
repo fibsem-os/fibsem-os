@@ -224,6 +224,8 @@ RELIEF_LIGHT = (0.35, 0.94)
 # m; a mound thicker than this hides the film, holes and bars under it
 RELIEF_OPAQUE = 1.5e-6
 # the FM reflection's view of the support, on the same scale
+# the orientation mark at the grid's centre: a square this many bar widths across
+CENTRE_MARK_SIZE = 2.4
 RIP_FLAP_WIDTH = 1.5e-6  # m, the curled film edge round a rip
 HOLE_DEPTH = 45.0
 RIP_DEPTH = 80.0
@@ -628,6 +630,9 @@ class SampleScene:
     # a fiducial-like cross at each grid centre: a landmark for eyeballing
     # navigation and for tests, absent on a real grid - off by default
     fiducial: bool = False
+    # the bigger square with one rounded corner at the bar crossing by the
+    # grid's centre, which tells the grid's orientation
+    centre_mark: bool = True
     # how the beams see the scene: "flat" paints it onto the sample plane;
     # "relief" gives everything a height and looks along the beam (shading,
     # occlusion, trenches cut along the milling beam) - see sim_relief
@@ -1165,6 +1170,18 @@ class SampleScene:
         beyond = ~(inside_any | rim)
         return bars, holes, rips, rim, beyond
 
+    def _centre_mark(self, x_rot: np.ndarray, y_rot: np.ndarray) -> np.ndarray:
+        """The orientation mark at the bar crossing nearest the grid's
+        centre: a bigger square of metal with one corner rounded."""
+        half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
+        corner = 0.6 * half  # radius of the rounded corner
+        dx = x_rot - self.grid_pitch / 2
+        dy = y_rot - self.grid_pitch / 2
+        square = (np.abs(dx) <= half) & (np.abs(dy) <= half)
+        cut = (dx > half - corner) & (dy > half - corner)
+        rounded = np.hypot(dx - (half - corner), dy - (half - corner)) <= corner
+        return square & (~cut | rounded)
+
     def _grid_masks(self, grid: SceneGrid, xs: np.ndarray, ys: np.ndarray):
         """One grid's (bars, holes, rips, inside, rim) from coordinates
         relative to its centre."""
@@ -1178,6 +1195,8 @@ class SampleScene:
             )
 
         bars = _near_bar(x_rot) | _near_bar(y_rot)
+        if self.centre_mark:
+            bars |= self._centre_mark(x_rot, y_rot)
         radius = np.hypot(xs, ys)
         inside = radius <= grid.radius
         rim = (radius > grid.radius) & (radius <= grid.radius + self.grid_rim_width)
@@ -1633,6 +1652,7 @@ class SampleScene:
         "grid_radius",  # m
         "grid_rim_width",  # m
         "renderer",  # flat | relief
+        "centre_mark",  # the orientation square at the grid's centre
     )
 
     @classmethod
