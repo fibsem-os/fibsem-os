@@ -49,6 +49,8 @@ export interface WorkflowStatus {
   experiment: { name: string; path: string; num_items: number; sample?: string } | null;
   workflow: {
     running: boolean;
+    /** Where the run is: idle, starting, running, waiting, held or stopping. */
+    phase?: "idle" | "starting" | "running" | "waiting" | "held" | "stopping";
     current_task: string | null;
     current_item: string | null;
     queue_position: number | null;
@@ -59,6 +61,8 @@ export interface WorkflowStatus {
     waiting_since: string | null;
     /** The run's last failed task, or why it stalled, until the next run. */
     failed: { what: string; message: string; at: string | null; count: number } | null;
+    /** How the last run ended, until the next starts. */
+    last_run?: { ended: "completed" | "cancelled" | "stalled" | "failed"; why: string } | null;
   };
   progress: ProgressLine | null;
   /** Who holds the microscope, when it is not the run. */

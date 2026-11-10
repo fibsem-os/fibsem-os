@@ -26,11 +26,12 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field, replace
+from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from psygnal import Signal
 
-from fibsem.hooks import HookManager
+from fibsem.hooks import HookEvent, HookManager
 from fibsem.workflows.actions import ACTION, action_record
 from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.status import TaskStatus
@@ -38,6 +39,54 @@ from fibsem.workflows.status import TaskStatus
 # What a run is over: an app's own items (AutoLamella's lamellae), or grids.
 ITEMS = "items"
 GRIDS = "grids"
+
+
+class RunPhase(str, Enum):
+    """Where the session's run is now, read from the runner and its manager:
+    the one answer the window, the App Server and the web app share."""
+
+    IDLE = "idle"
+    # Started, in its set-up: control, the beams, the first save.
+    STARTING = "starting"
+    RUNNING = "running"
+    # Between tasks, on a scheduled wait.
+    WAITING = "waiting"
+    # Held until someone answers (`Hold`).
+    HELD = "held"
+    # A stop was asked; the task now running is unwinding.
+    STOPPING = "stopping"
+
+    def __str__(self) -> str:
+        return self.value
+
+
+# How a run ended, by the run-end event that fired.
+COMPLETED, CANCELLED, STALLED, FAILED = "completed", "cancelled", "stalled", "failed"
+
+
+@dataclass(frozen=True)
+class RunOutcome:
+    """How the last run ended: ``completed``, ``cancelled``, ``stalled`` or
+    ``failed``, and why when it fell short."""
+
+    ended: str
+    why: str = ""
+
+
+def run_outcome(manager: Any) -> Optional[RunOutcome]:
+    """How *manager*'s run ended, from the run-end event it fired; None when
+    none fired."""
+    ended = {
+        HookEvent.WORKFLOW_COMPLETED: COMPLETED,
+        HookEvent.WORKFLOW_CANCELLED: CANCELLED,
+        HookEvent.WORKFLOW_STALLED: STALLED,
+        HookEvent.WORKFLOW_FAILED: FAILED,
+    }.get(getattr(manager, "ended", None))
+    if ended is None:
+        return None
+    if ended == STALLED:
+        return RunOutcome(ended, manager.closing_note())
+    return RunOutcome(ended, getattr(manager, "ended_error", "") or "")
 
 
 def stop_message(actor: Any = None, reason: str = "") -> str:
@@ -295,11 +344,30 @@ class WorkflowRunner:
         # its manager is gone: the App Server's run summary reads them.
         self.last_summary: Optional[Any] = None
         self.last_note: str = ""
+        # How the last run ended, kept until the next one starts.
+        self.last_outcome: Optional[RunOutcome] = None
         self.line = RunLine()
 
     @property
     def is_running(self) -> bool:
         return self._thread is not None
+
+    @property
+    def phase(self) -> RunPhase:
+        """Where the run is now (`RunPhase`)."""
+        manager = self.manager
+        if not self.is_running or manager is None:
+            return RunPhase.IDLE
+        # getattr: a test's stand-in manager may have only a queue.
+        if getattr(manager, "is_stopped", False):
+            return RunPhase.STOPPING
+        if not getattr(manager, "began", True):
+            return RunPhase.STARTING
+        if getattr(manager, "hold", None) is not None:
+            return RunPhase.HELD
+        if getattr(manager, "waiting", False):
+            return RunPhase.WAITING
+        return RunPhase.RUNNING
 
     @property
     def working_on(self) -> Optional[str]:
@@ -435,6 +503,7 @@ class WorkflowRunner:
                 images=self._session.images,
             )
             self.line.reset()
+            self.last_outcome = None
             self.relay(self.manager)
             # The run is whoever started it: the agent's run records its
             # events as the agent's, so it runs in a copy of the
@@ -484,6 +553,7 @@ class WorkflowRunner:
                 logging.warning(f"Failed to build the run summary: {e}")
                 self.last_summary = None
             self.last_note = manager.closing_note()
+            self.last_outcome = run_outcome(manager)
             self.line.ended()
             with self._lock:
                 self.manager = None

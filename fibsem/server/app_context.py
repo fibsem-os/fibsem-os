@@ -49,6 +49,7 @@ from fibsem.server.responses import (
     Queue,
     QueueEntry,
     Refusal,
+    RunEnded,
     RunFailed,
     SavedImageMetadata,
     SavedImagePixels,
@@ -113,7 +114,7 @@ from fibsem.workflows.protocol_files import (
     record_recent,
 )
 from fibsem.workflows.reference_images import load_reference_image, preview_of
-from fibsem.workflows.runner import ITEMS, RunRequest, stop_message
+from fibsem.workflows.runner import FAILED, ITEMS, RunRequest, stop_message
 from fibsem.workflows.session import CONFIG, PROTOCOL
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_configs import agent_patch_task_config, config_version
@@ -536,7 +537,9 @@ class AppContext:
         status = AppStatus(
             microscope_connected=self._microscope is not None,
             experiment=None,
-            workflow=WorkflowState(running=self._running),
+            workflow=WorkflowState(
+                running=self._running, phase=self._runner.phase.value
+            ),
         )
         if experiment is not None:
             status.experiment = ExperimentRef(
@@ -585,6 +588,9 @@ class AppContext:
             if line.hold is not None:
                 workflow.waiting_on = line.hold.releases
                 workflow.waiting_since = iso_time(line.held_since)
+        outcome = None if self._running else runner.last_outcome
+        if outcome is not None:
+            workflow.last_run = RunEnded(outcome.ended, outcome.why)
         if line.failures:
             last = line.failures[-1]
             workflow.failed = RunFailed(
@@ -592,6 +598,9 @@ class AppContext:
             )
         elif not self._running and runner.last_note:
             workflow.failed = RunFailed("Run stalled", runner.last_note)
+        elif outcome is not None and outcome.ended == FAILED:
+            # A run that failed outside its tasks: its set-up, or a save.
+            workflow.failed = RunFailed("Run failed", outcome.why)
 
     def _progress_now(self) -> Optional[ProgressLine]:
         """The microscope's progress line now, following the microscope there is."""

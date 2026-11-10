@@ -347,8 +347,20 @@ class RunFailed:
 
 
 @dataclass
+class RunEnded:
+    """How the last run ended: completed, cancelled, stalled or failed, and
+    why when it fell short. Kept until the next run starts."""
+
+    ended: str
+    why: str = ""
+
+
+@dataclass
 class WorkflowState:
     running: bool
+    # idle, starting, running, waiting (between tasks), held (until someone
+    # answers) or stopping (a stop was asked; the task is unwinding)
+    phase: str = "idle"
     current_task: Optional[str] = None
     current_item: Optional[str] = None
     # the task's place in the live queue, 1-based, of queue_total
@@ -363,6 +375,8 @@ class WorkflowState:
     waiting_since: Optional[str] = None
     failed: Optional[RunFailed] = None
     asking: List[Asking] = field(default_factory=list)
+    # how the last run ended, once it has, until the next starts
+    last_run: Optional[RunEnded] = None
 
 
 @dataclass
