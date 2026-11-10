@@ -546,7 +546,7 @@ def take_control(request: Request):
         request.state.control_entry = caller_lease(request, lease_id).entry
         yield
         return
-    control = request.app.state.served.require().control
+    control = request.app.state.served.control
     taking = control.take(current_actor() or ActorKind.agent, described_action(request))
     try:
         entry = taking.__enter__()
@@ -600,7 +600,7 @@ def adopt_control(request: Request) -> Optional[Callable[[], None]]:
     Its starter may act beside it while it runs (`Control.let_act_beside`)."""
     release = getattr(request.state, "release_control", None)
     if release is not None:
-        control = request.app.state.served.require().control
+        control = request.app.state.served.control
         running = control.beside_of(request.state.control_entry)
         if running is not None:
             # Beside a long command, act once at a time; never start another.

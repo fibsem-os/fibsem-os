@@ -4,7 +4,7 @@ import dataclasses
 import datetime
 import logging
 import threading
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from copy import deepcopy
 from dataclasses import replace
 from enum import Enum
@@ -12,7 +12,6 @@ from types import MappingProxyType
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     ClassVar,
     Dict,
     List,
@@ -23,9 +22,9 @@ from typing import (
     Union,
 )
 
-from fibsem.control import Control
 from fibsem.devices.core import IMAGING_CHANNEL, Resources, Session
 from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.instrument import Instrument, _PerInstance
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
     BeamSettings,
@@ -95,35 +94,6 @@ class RequiredDeviceUnavailable(RuntimeError):
     """A device the configuration marks `required` could not be reached at connect."""
 
 
-class _PerInstance:
-    """A class-level default made once per instance, on first use.
-
-    For state every backend needs whether or not its ``__init__`` calls the base
-    class's: each microscope gets its own, made by ``factory(instance)``. Assigning the
-    attribute on an instance replaces it there, as with a plain attribute.
-    """
-
-    def __init__(self, factory: Callable[[Any], Any]):
-        self._factory = factory
-        self._name = ""
-        self._guard = threading.Lock()
-
-    def __set_name__(self, owner: type, name: str) -> None:
-        self._name = name
-
-    def __get__(self, instance: Any, owner: Optional[type] = None) -> Any:
-        if instance is None:
-            return self
-        try:
-            return instance.__dict__[self._name]
-        except KeyError:
-            pass
-        with self._guard:  # two threads asking first must get the same one
-            if self._name not in instance.__dict__:
-                instance.__dict__[self._name] = self._factory(instance)
-            return instance.__dict__[self._name]
-
-
 # The names the beams have in `FibsemMicroscope.devices`, which are their
 # configuration entries' names.
 _BEAM_DEVICE_NAMES: Dict[BeamType, str] = {
@@ -137,8 +107,10 @@ BEAM_TYPES = ("beam",)
 STAGE_TYPES = ("stage",)
 
 
-class FibsemMicroscope(ABC):
+class FibsemMicroscope(Instrument):
     """Abstract class containing all the core microscope functionalities"""
+
+    kind: ClassVar[str] = "fibsem"
 
     # THREADING CONTRACT: these are psygnal Signals — subscribers run synchronously
     # on whatever thread emits (workflow/movement/acquisition workers, not the GUI
@@ -227,10 +199,6 @@ class FibsemMicroscope(ABC):
         lambda m: Session(instrument=lambda image: m._stamp_instrument(image))
     )
 
-    # Who is in control of this microscope: one action at a time,
-    # taken at entry points (a run, a script, a server route); see fibsem.control.
-    control = _PerInstance(lambda _: Control())
-
     # fluorescence: none until a backend builds one on connect
     fm: Optional[FluorescenceMicroscope] = None
 
@@ -243,27 +211,6 @@ class FibsemMicroscope(ABC):
         self, ip_address: str, port: int, reset_beam_shift: bool = True
     ) -> None:
         pass
-
-    # What the builders asked to have closed at disconnect (`BuildContext.on_disconnect`).
-    _disconnect_cleanups = _PerInstance(lambda _: [])
-
-    def disconnect(self) -> None:
-        """Let go of the microscope: each device's own connection, then what the
-        builders share, then the driver's client.
-
-        The devices are disconnected in reverse build order, last built first. A
-        device or cleanup that raises is logged and the rest still run: one stuck
-        controller must not keep the vendor client open. The driver's own client is closed last, by
-        `_disconnect`, and an error there is raised.
-        """
-        from fibsem.devices.entries import disconnect_devices
-
-        disconnect_devices(self._devices, self._disconnect_cleanups)
-        self._disconnect()
-
-    @abstractmethod
-    def _disconnect(self) -> None:
-        """Close the driver's own client. `disconnect` calls it after the devices."""
 
     def try_disconnect(self) -> bool:
         """Disconnect, logging rather than raising if the client will not close.
@@ -1115,8 +1062,6 @@ class FibsemMicroscope(ABC):
     # by theirs (`fm`, `camera`, ...). The typed attributes below (`beams`, `stage`,
     # `chamber_device`, ...) are views of it, and assigning one is how a backend adds
     # its devices, so the two can't disagree.
-    _devices = _PerInstance(lambda _: {})
-
     @property
     def devices(self) -> Mapping[str, Any]:
         """Every device this microscope built, by name. Read-only.
@@ -1519,6 +1464,14 @@ class FibsemMicroscope(ABC):
         )
 
         return deepcopy(current_microscope_state)
+
+    def get_state(self) -> MicroscopeState:
+        """`Instrument.get_state`: `get_microscope_state`."""
+        return self.get_microscope_state()
+
+    def set_state(self, state: MicroscopeState) -> None:
+        """`Instrument.set_state`: `set_microscope_state`."""
+        self.set_microscope_state(state)
 
     def set_microscope_state(self, microscope_state: MicroscopeState) -> None:
         """Reset the microscope state to the provided state."""

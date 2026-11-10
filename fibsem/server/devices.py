@@ -130,6 +130,7 @@ from fibsem.devices.wire import (
 )
 from fibsem.drivers.registry import REMOTE_DRIVER
 from fibsem.fm.microscope import FluorescenceMicroscope
+from fibsem.instrument import DeviceInstrument
 from fibsem.schema import arguments_schema
 from fibsem.server import operator_token
 from fibsem.server.auth import refusal_error, require_operator
@@ -1064,6 +1065,15 @@ def configured_devices(
         else:
             built[name] = device
     return built, cleanups
+
+
+def device_instrument(source: Union[str, Mapping[str, Any]]) -> DeviceInstrument:
+    """The devices a Device Server file lists (a path, or its settings already
+    read) as an instrument with no microscope, with every FM's light off: what
+    the App Server serves beside a microscope (`build_server(instruments=...)`)."""
+    devices, cleanups = configured_devices(source)
+    switch_off_fms(devices.values())
+    return DeviceInstrument(devices, cleanups)
 
 
 def switch_off_fms(devices: Iterable[Device]) -> None:

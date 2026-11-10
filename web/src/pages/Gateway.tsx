@@ -602,7 +602,6 @@ export function GatewayPage() {
           <AgentCard
             appRunning={appUp}
             appStarting={appStarting}
-            connected={appUp && !!connection.data?.connected}
           />
         )}
         <Card>
@@ -612,7 +611,6 @@ export function GatewayPage() {
         <AgentSessions
           appRunning={appUp}
           appStarting={appStarting}
-          connected={appUp && !!connection.data?.connected}
         />
       </div>
     </div>

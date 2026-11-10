@@ -1,8 +1,11 @@
-"""The microscope the App Server serves, and the operator's routes that connect it.
+"""What the App Server serves, and the operator's routes that connect a microscope.
 
 The server runs over the session whether or not a microscope is connected:
-each ``/microscope`` route reads the session's microscope when it is called
-(:class:`ServedMicroscope`), and answers 409 ``not_connected`` without one.
+each ``/microscope`` route reads what is served when it is called
+(:class:`ServedInstrument`): the session's microscope, plus any devices built
+from a Device Server file with no microscope. A route answers 409
+``not_connected`` when nothing is served, and the state routes when no
+microscope is.
 Connecting and disconnecting are the session's (``AppSession.connect``), the
 same calls the window's connection dialog makes; the routes here are the
 operator's only, never the agent's.
@@ -11,12 +14,14 @@ operator's only, never the agent's.
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, Optional
+from types import MappingProxyType
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from fibsem import config
 from fibsem.devices.runs import RUNNING
+from fibsem.instrument import Instrument
 from fibsem.server.auth import require_operator
 from fibsem.server.leases import Leases
 from fibsem.server.responses import (
@@ -27,7 +32,11 @@ from fibsem.server.responses import (
     answer,
 )
 
-__all__ = ["NOT_CONNECTED_MESSAGE", "ServedMicroscope", "build_connection_router"]
+__all__ = [
+    "NOT_CONNECTED_MESSAGE",
+    "ServedInstrument",
+    "build_connection_router",
+]
 
 NOT_CONNECTED_MESSAGE = (
     "No microscope is connected: the operator connects one in the app."
@@ -41,13 +50,23 @@ def not_connected() -> HTTPException:
     )
 
 
-class ServedMicroscope:
-    """The microscope a server serves: a fixed one, or the session's at each
-    call. Its control's leases are made for each microscope it connects."""
+class ServedInstrument:
+    """What a server serves: a microscope (a fixed one, or the session's at each
+    call) and any *instruments* with no microscope, such as a `DeviceInstrument`.
 
-    def __init__(self, microscope: Any = None, session: Any = None) -> None:
+    Devices and services are the union, the microscope's first; a name the
+    microscope has wins. Control is the microscope's while one is connected,
+    else the first other instrument's; its leases are made for each control."""
+
+    def __init__(
+        self,
+        microscope: Any = None,
+        session: Any = None,
+        instruments: Sequence[Instrument] = (),
+    ) -> None:
         self._microscope = microscope
         self._session = session
+        self._instruments = list(instruments)
         self._leases: Optional[Leases] = None
         self._lock = threading.Lock()
 
@@ -66,22 +85,82 @@ class ServedMicroscope:
         return microscope
 
     @property
+    def instruments(self) -> List[Instrument]:
+        """Everything served now: the microscope first, while one is connected."""
+        microscope = self.current
+        return ([microscope] if microscope is not None else []) + self._instruments
+
+    @property
+    def connected(self) -> bool:
+        """Whether anything is served now."""
+        return bool(self.instruments)
+
+    def _union(self, part: str) -> Mapping[str, Any]:
+        merged: Dict[str, Any] = {}
+        for instrument in reversed(self.instruments):
+            merged.update(getattr(instrument, part))
+        return MappingProxyType(merged)
+
+    @property
+    def devices(self) -> Mapping[str, Any]:
+        """Every served device by name, or 409 ``not_connected`` with nothing served."""
+        if not self.connected:
+            raise not_connected()
+        return self._union("devices")
+
+    @property
+    def services(self) -> Mapping[str, Any]:
+        """Every served service by name, or 409 ``not_connected`` with nothing served."""
+        if not self.connected:
+            raise not_connected()
+        return self._union("services")
+
+    def find(self, part: str, name: str) -> Any:
+        """The served device (*part* ``devices``) or service named *name*, or None."""
+        for instrument in self.instruments:
+            found = getattr(instrument, part).get(name)
+            if found is not None:
+                return found
+        return None
+
+    @property
+    def control_now(self) -> Any:
+        """Who is in control, or None while nothing is served."""
+        instruments = self.instruments
+        return instruments[0].control if instruments else None
+
+    @property
+    def control(self) -> Any:
+        """Who is in control, or 409 ``not_connected`` while nothing is served."""
+        control = self.control_now
+        if control is None:
+            raise not_connected()
+        return control
+
+    @property
     def leases(self) -> Leases:
-        """The leases on the connected microscope's control, or 409."""
-        control = self.require().control
+        """The leases on the served control, or 409."""
+        control = self.control
         with self._lock:
             if self._leases is None or self._leases.control is not control:
                 self._leases = Leases(control)
             return self._leases
 
+    @property
+    def kinds(self) -> List[str]:
+        """The kind of each served instrument, the microscope's first."""
+        return [instrument.kind for instrument in self.instruments]
+
     def record_event(self, kind: str, payload: Dict[str, Any]) -> None:
         """Put an event on the record: the microscope's while one is
-        connected, else the session's own stream."""
+        connected, else the session's own stream, else the first instrument's."""
         microscope = self.current
         if microscope is not None:
             microscope.record_event(kind, payload)
         elif self._session is not None:
             self._session.record_event(kind, payload)
+        elif self._instruments:
+            self._instruments[0].record_event(kind, payload)
 
 
 def connection_view(session: Any) -> ConnectionView:
