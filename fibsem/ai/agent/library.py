@@ -122,11 +122,9 @@ def _shipped_dir(kind: str) -> Optional[Path]:
 
 
 def _agent_skills() -> List[str]:
-    """The skills fibsem-agent loads; the checkout's others are for developers."""
-    # Here, not at the top: the server's answers import this module.
-    from fibsem.ai.agent import harness
-
-    return list(harness.SKILLS)
+    """The skills the shipped playbooks name; the checkout's others are for
+    developers."""
+    return playbooks.shipped_names(sources.find_root())["skills"]
 
 
 def _shipped_names(kind: str) -> List[str]:
@@ -242,6 +240,11 @@ def _session(name: str, data: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, A
             name, data = parent, read("playbooks", parent).data
         except LibraryError:
             break
+    # Under every playbook: the shipped base's, where the defaults live.
+    base = playbooks.shipped_base(sources.find_root())
+    if base is not None:
+        for key, value in base.session.as_dict().items():
+            found.setdefault(key, {"value": value, "source": playbooks.DEFAULT})
     return found
 
 

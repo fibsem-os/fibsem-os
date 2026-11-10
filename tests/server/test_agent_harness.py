@@ -43,6 +43,11 @@ POLL_S = 0.3
 RETRY_S = 0.05
 
 
+def _all():
+    """What a session started on no particular playbook loads."""
+    return harness_mod.session_names(harness_mod.find_checkout())
+
+
 def _free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -203,7 +208,7 @@ def test_a_new_wake_up_replaces_the_last_and_zero_cancels():
         await asyncio.sleep(0.2)
         assert len(rang) == 1
         # Capped, and cancelled when the run ends.
-        assert f"{harness_mod.WAKE_MAX_MIN} min" in alarm.set(10_000, "later")
+        assert f"{alarm.max_min:g} min" in alarm.set(10_000, "later")
         alarm.cancel()
         assert alarm.reason is None
 
@@ -320,9 +325,9 @@ def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     assert "level is the operator's" in first
     again = kickoff(resumed=True)
     assert "resumed" in again and "server_get_capabilities" in again
-    assert "LEVEL line" in harness_mod.HARNESS_PROMPT
-    assert "stop and ask" in harness_mod.HARNESS_PROMPT
-    assert "only through fibsem-os" in harness_mod.HARNESS_PROMPT
+    assert "LEVEL line" in harness_mod.texts().prompt
+    assert "stop and ask" in harness_mod.texts().prompt
+    assert "only through fibsem-os" in harness_mod.texts().prompt
     # A goal is said back, with its rule, before the agent acts on it.
     goal = kickoff(goal="mill 01 and 02")
     assert "mill 01 and 02" in goal and "Before acting on it" in goal
@@ -337,9 +342,13 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     )
 
     assert options.permission_mode == "dontAsk"
-    assert options.allowed_tools == ["mcp__fibsem__*", "ToolSearch", "SendMessage"] + [
-        f"Agent({name})" for name in harness_mod.SPECIALISTS
-    ] + [harness_mod.WAKE_TOOL, *harness_mod.PLAYBOOK_TOOLS]
+    assert options.allowed_tools == [
+        "mcp__fibsem__*",
+        "ToolSearch",
+        "SendMessage",
+        harness_mod.WAKE_TOOL,
+        *harness_mod.PLAYBOOK_TOOLS,
+    ] + [f"Agent({name})" for name in _all().agents]
     # SendMessage carries a specialist on (one Verifier per lamella's passes).
     # The checklist is a fibsem tool, so the operator sees it: no CLI todo list.
     assert options.tools == ["Skill", "ToolSearch", "Agent", "SendMessage"]
@@ -375,8 +384,8 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
     assert options.cwd == str(checkout)
     assert options.resume == "abc"
     assert options.verbatim_prompts
-    assert options.max_turns == harness_mod.MAX_TURNS
-    assert options.max_budget_usd == harness_mod.MAX_BUDGET_USD
+    assert options.max_turns == harness_mod.defaults().max_turns
+    assert options.max_budget_usd == harness_mod.defaults().max_budget_usd
     # A tool result with an image in it is more than the SDK's 1 MB default.
     assert options.max_buffer_size >= 16 * 1024 * 1024
     # No developer CLAUDE.md or auto memory in an operator's agent.
@@ -414,17 +423,15 @@ def test_code_mode_is_sandboxed_in_its_work_folder(tmp_path, monkeypatch):
     monkeypatch.setenv("SOME_SERVICE_TOKEN", "x")
     checkout = harness_mod.find_checkout()
     work = tmp_path / "work"
-    code_mode.prepare(
-        work, checkout, list(harness_mod.SKILLS), list(harness_mod.SPECIALISTS)
-    )
+    code_mode.prepare(work, checkout, _all().skills, _all().agents)
     options = harness_mod.build_options(checkout, token="t0k", work=work)
 
     # The skills are read from the work folder, which is the CLI's.
     assert options.cwd == str(work)
-    for skill in harness_mod.SKILLS:
+    for skill in _all().skills:
         assert (work / ".claude" / "skills" / skill / "SKILL.md").is_file()
     assert (work / "notebook" / "INDEX.md").is_file()
-    for agent in harness_mod.SPECIALISTS:
+    for agent in _all().agents:
         assert (work / ".claude" / "agents" / f"{agent}.md").is_file()
 
     assert options.permission_mode == "dontAsk"
@@ -494,9 +501,7 @@ def test_files_mode_reads_and_writes_its_folder_and_runs_nothing(tmp_path):
 
     checkout = harness_mod.find_checkout()
     work = tmp_path / "work"
-    code_mode.prepare(
-        work, checkout, list(harness_mod.SKILLS), list(harness_mod.SPECIALISTS)
-    )
+    code_mode.prepare(work, checkout, _all().skills, _all().agents)
     options = harness_mod.build_options(checkout, work=work, code=False)
 
     assert options.cwd == str(work)
@@ -569,7 +574,7 @@ def test_code_mode_rebuilds_its_claude_folder_every_start(tmp_path):
 
     checkout = harness_mod.find_checkout()
     work = tmp_path / "work"
-    skills, agents = list(harness_mod.SKILLS), list(harness_mod.SPECIALISTS)
+    skills, agents = _all().skills, _all().agents
     code_mode.prepare(work, checkout, skills, agents)
     planted = [
         work / ".claude" / "settings.json",
@@ -751,7 +756,7 @@ def _tools(front):
 
 def test_the_harness_allows_the_specialists_the_checkout_defines():
     agents = _specialists()
-    assert set(agents) == set(harness_mod.SPECIALISTS)
+    assert set(agents) == set(_all().agents)
     for name, front in agents.items():
         assert front["name"] == name
         assert front["description"]
@@ -792,19 +797,19 @@ def test_only_the_run_lead_decides_and_its_agents_only_read():
 
 def test_a_gap_or_a_restart_asks_the_agent_to_re_read():
     gap = Wakes().add([watch_mod.GAP_LINE])
-    assert harness_mod.REREAD_PROPOSALS in gap
+    assert harness_mod.texts().reread_proposals in gap
     restarted = Wakes().add([watch_mod.RESTARTED_LINE])
-    assert harness_mod.REREAD_LEVEL in restarted
+    assert harness_mod.texts().reread_level in restarted
     level = Wakes().add(["LEVEL drive (was watch): the operator set the agent level"])
-    assert harness_mod.REREAD_LEVEL in level
+    assert harness_mod.texts().reread_level in level
     plain = Wakes().add(["EVENT task_started 01"])
     assert plain == "The watcher printed:\nEVENT task_started 01"
     for line in (
         "WAKE check drift (you asked 30 min ago)",
         "PLAN EDITED by the operator: Rules",
     ):
-        assert harness_mod.REREAD_PLAN in Wakes().add([line])
-    assert harness_mod.REREAD_PLAN not in plain
+        assert harness_mod.texts().reread_plan in Wakes().add([line])
+    assert harness_mod.texts().reread_plan not in plain
 
 
 def test_lines_are_held_while_the_agent_is_off():
@@ -818,7 +823,7 @@ def test_lines_are_held_while_the_agent_is_off():
         watch_mod.AGENT_BACK_LINE,
         "MESSAGE id=ab12 ...",
     ]
-    assert harness_mod.REREAD_LEVEL in prompt
+    assert harness_mod.texts().reread_level in prompt
 
 
 # --- against the App Server ---------------------------------------------------
@@ -906,7 +911,7 @@ def test_no_turns_while_the_agent_is_off(session, caplog):
 
     back = agent.prompts[1]
     assert watch_mod.AGENT_OFF_LINE in back and watch_mod.AGENT_BACK_LINE in back
-    assert harness_mod.REREAD_LEVEL in back
+    assert harness_mod.texts().reread_level in back
 
 
 def test_the_agent_answers_a_supervised_run_through_the_harness(session):
@@ -1002,7 +1007,7 @@ def test_the_harness_reports_the_goal_once_and_leaves_later_ones_to_the_agent():
     assert client.bodies[0]["goal"] == "Mill 01"
     # A goal the operator explicitly gives later is the agent's to report.
     assert all("goal" not in body for body in client.bodies[1:])
-    assert "explicitly" in harness_mod.HARNESS_PROMPT
+    assert "explicitly" in harness_mod.texts().prompt
 
 
 def test_the_harness_says_what_the_agent_can_do_with_its_first_report():
@@ -1283,5 +1288,7 @@ def test_a_compacted_context_asks_for_the_plan_on_the_next_turn():
 
     asyncio.run(main())
     first, second = scripted.prompts
-    assert first.endswith("Your context was compacted. " + harness_mod.REREAD_PLAN)
+    assert first.endswith(
+        "Your context was compacted. " + harness_mod.texts().reread_plan
+    )
     assert "compacted" not in second

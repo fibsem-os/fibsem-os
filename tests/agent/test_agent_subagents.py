@@ -10,6 +10,11 @@ from fibsem.ai.agent import playbooks, sources, subagents
 TOOL = "mcp__fibsem__app_get_status"
 
 
+def _all():
+    """What a session started on no particular playbook loads."""
+    return harness_mod.session_names(harness_mod.find_checkout())
+
+
 @pytest.fixture
 def lab(tmp_path, monkeypatch):
     monkeypatch.setenv("FIBSEM_HOME", str(tmp_path / "home"))
@@ -40,14 +45,13 @@ def test_a_lab_subagent_is_offered_and_a_lab_copy_replaces_a_shipped_one(
         _subagent("autolamella-verifier"), encoding="utf-8"
     )
     assert sources.lab_agents() == ["autolamella-verifier", "my-checker"]
-    assert harness_mod.subagents_for() == list(harness_mod.SPECIALISTS) + ["my-checker"]
-    assert harness_mod.subagent_tools(harness_mod.subagents_for()) == [
-        "Agent(my-checker)"
-    ]
+    agents = _all().agents
+    assert agents[-1] == "my-checker" and agents.count("autolamella-verifier") == 1
+    assert harness_mod.subagent_tools(agents)[-1] == "Agent(my-checker)"
     assert sources.agent_file("autolamella-verifier", checkout).parent == lab
 
     run = tmp_path / "run"
-    sources.assemble(run, checkout, ["fibsem-agent"], harness_mod.subagents_for())
+    sources.assemble(run, checkout, ["fibsem-agent"], agents)
     agents = run / ".claude" / "agents"
     assert "Look and answer." in (agents / "autolamella-verifier.md").read_text()
     assert (agents / "my-checker.md").is_file()
@@ -64,7 +68,7 @@ def test_the_session_allows_the_labs_new_subagents(lab, checkout):
 
 
 def test_a_subagent_is_checked(lab, checkout):
-    for shipped in harness_mod.SPECIALISTS:
+    for shipped in _all().agents:
         subagents.check_file(shipped, checkout, harness_mod.EFFORTS)
     with pytest.raises(subagents.SubagentError, match="no tool mcp__fibsem__vent_now"):
         subagents.check(_subagent("x", tools=f"{TOOL}, mcp__fibsem__vent_now"))
@@ -90,14 +94,14 @@ def test_a_subagents_file_round_trips_through_its_settings():
 def test_a_playbook_turns_its_subagents_on_and_its_optional_skills_too(lab, checkout):
     found = playbooks.load("autolamella-correlative", checkout)
     lead = found.optional_skill("autolamella-lead")
-    assert lead.agents == list(harness_mod.SPECIALISTS)
+    assert lead.agents == _all().agents
     on = playbooks.Reminders()
     assert on.subagents() == [], "no playbook, no subagents"
     on.set(found, "named by the operator")
     assert on.subagents() == []
     on.loaded("autolamella-lead")
-    assert on.subagents() == list(harness_mod.SPECIALISTS)
-    assert found.summary()["optional"][0]["agents"] == list(harness_mod.SPECIALISTS)
+    assert on.subagents() == _all().agents
+    assert found.summary()["optional"][0]["agents"] == _all().agents
 
     ours = lab.parent / "playbooks" / "ours.yaml"
     ours.parent.mkdir(parents=True)
@@ -119,4 +123,4 @@ def test_the_transcript_says_which_subagents_are_on(lab, checkout):
     )
     control.set("autolamella", "named by the operator")
     control.loaded("autolamella-lead")
-    assert said[-1] == "Subagents on: " + ", ".join(harness_mod.SPECIALISTS)
+    assert said[-1] == "Subagents on: " + ", ".join(_all().agents)

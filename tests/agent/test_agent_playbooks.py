@@ -46,7 +46,11 @@ def test_the_shipped_playbooks_load_and_correlative_extends_autolamella(lab, che
         "autolamella",
         "autolamella-correlative",
     ]
-    assert correlative.skills == ["autolamella", "autolamella-correlative"]
+    assert correlative.skills == [
+        "fibsem-agent",
+        "autolamella",
+        "autolamella-correlative",
+    ]
     optional = [o.skill for o in correlative.optional]
     assert "autolamella-polishing" in optional
     assert optional[-1] == "autolamella-coincidence-milling"
@@ -207,11 +211,16 @@ def test_session_settings_add_up_along_extends_the_child_winning(lab, checkout):
     write(lab, "child", "extends: parent\nsession:\n  max_turns: 9\n")
     found = playbooks.load("child", checkout).session
     assert (found.effort, found.max_turns, found.mode) == ("low", 9, "code")
-    assert playbooks.load("child", checkout).summary()["session"] == {
+    summary = playbooks.load("child", checkout).summary()["session"]
+    assert {k: summary[k] for k in ("effort", "max_turns", "mode")} == {
         "effort": "low",
         "max_turns": 9,
         "mode": "code",
     }
+    # Under it all, the shipped base playbook's: where the defaults live.
+    base = playbooks.shipped_base(checkout).session
+    assert summary["max_budget_usd"] == base.max_budget_usd
+    assert summary["wake_max_min"] == base.wake_max_min
 
 
 def test_a_finished_task_reminds_with_the_watchers_turn(lab, checkout):

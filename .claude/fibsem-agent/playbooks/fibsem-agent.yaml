@@ -1,13 +1,25 @@
 # The base playbook: a session starts on it when its launch names none, and
 # the shipped playbooks extend it. A lab's own copy in
-# ~/.fibsem/knowledge/playbooks/ wins by name. `fibsem-agent --show-config`
-# prints what a session runs with; flags on the command line win.
+# ~/.fibsem/knowledge/playbooks/ wins by name, but this file stays under it:
+# it is the one place the agent's defaults live, and the code keeps no copy.
+# `fibsem-agent --show-config` prints what a session runs with; flags on the
+# command line win.
 description: General microscope work, for when no workflow fits.
+# The instrument kind: its prompt files are in ../instruments/<kind>/.
+instrument: fibsem
 session:
   effort: high
   max_budget_usd: 500
   max_turns: 40
   mode: files
+  # The longest wake-up the agent can set itself, in minutes.
+  wake_max_min: 240
+  # A deadline in the plan wakes the agent this many minutes before it.
+  deadline_warn_min: 30
+  # A running workflow this many minutes without an event wakes the agent once.
+  quiet_min: 20
+# Read first, every session.
+skills: [fibsem-agent]
 reminders:
   hardware_error: Stop. Don't retry. Message the operator with the error word for word.
 # Read every turn, so only the rules that must hold on every task; the work

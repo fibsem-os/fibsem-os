@@ -19,6 +19,11 @@ SERVER = harness_mod.SERVER
 TOOLS = sorted(spec.name for spec in CATALOG)
 
 
+def _all():
+    """What a session started on no particular playbook loads."""
+    return harness_mod.session_names(harness_mod.find_checkout())
+
+
 @pytest.fixture
 def checkout():
     found = harness_mod.find_checkout()
@@ -215,7 +220,7 @@ def test_the_session_carries_the_starting_playbooks_rules_and_reminders(checkout
     pytest.importorskip("claude_agent_sdk")
     base = playbooks.load(playbooks.DEFAULT, checkout)
     options = harness_mod.build_options(checkout, playbook=base)
-    assert options.skills == list(harness_mod.SKILLS)
+    assert options.skills == _all().skills
     assert options.system_prompt["append"].endswith(f"- {base.rules[-1]}")
     assert list(options.hooks) == ["PostToolUseFailure"]
     assert harness_mod.build_options(checkout).hooks is None, "no playbook, no hooks"

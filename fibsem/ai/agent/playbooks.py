@@ -3,6 +3,7 @@
     # playbooks/autolamella.yaml
     description: On-grid lamellae, not correlative.
     extends: fibsem-agent            # optional
+    instrument: fibsem               # the instrument kind its prompts are for
     session:                         # what a session STARTED on it runs with
       level: watch                   # the level the gateway's card picks first
       model: opus
@@ -10,6 +11,9 @@
       max_budget_usd: 500
       max_turns: 40
       mode: files                    # none, files or code
+      wake_max_min: 240              # the longest wake-up the agent can set
+      deadline_warn_min: 30          # a deadline wakes it this long before
+      quiet_min: 20                  # a quiet running workflow wakes it after
     skills: [autolamella]            # read at the start of the job
     optional:                        # read only when the job needs them
       - skill: autolamella-polishing
@@ -27,7 +31,12 @@
 A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
 optional skills, subagents, reminders and rules add up along ``extends``, the parent's
-first; ``session`` settings too, the child's winning. A session starts on the
+first; ``session`` settings and ``instrument`` too, the child's winning.
+
+The shipped base playbook is the one place the agent's defaults live: it sits
+under every playbook, a lab's copy of the base included, so its skill, its
+session settings and its instrument kind hold wherever nothing overrides them
+(`load`). A session starts on the
 playbook its launch names, else on ``fibsem-agent``, the base the shipped ones
 extend; the agent proposes a better fit at intake and sets it with
 ``playbook_set`` once the operator agrees. ``session`` counts only at the
@@ -46,7 +55,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-from fibsem.ai.agent import reminders, sources
+from fibsem.ai.agent import instruments, reminders, sources
 
 PLAYBOOK_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "playbooks"
 # The playbook a session starts on when its launch names none.
@@ -54,6 +63,7 @@ DEFAULT = "fibsem-agent"
 FIELDS = (
     "description",
     "extends",
+    "instrument",
     "session",
     "skills",
     "optional",
@@ -65,7 +75,26 @@ FIELDS = (
 # plan.md's headings when a playbook names none (fibsem.server.agent_plan).
 PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
-SESSION = ("level", "model", "effort", "max_budget_usd", "max_turns", "mode", "folder")
+SESSION = (
+    "level",
+    "model",
+    "effort",
+    "max_budget_usd",
+    "max_turns",
+    "mode",
+    "folder",
+    "wake_max_min",
+    "deadline_warn_min",
+    "quiet_min",
+)
+# Numbers above 0, and the type each is read as.
+NUMBERS = {
+    "max_budget_usd": float,
+    "max_turns": int,
+    "wake_max_min": float,
+    "deadline_warn_min": float,
+    "quiet_min": float,
+}
 MODES = ("none", "files", "code")
 LEVELS = ("watch", "assist", "drive")
 
@@ -86,6 +115,12 @@ class Session:
     max_turns: Optional[int] = None
     mode: Optional[str] = None
     folder: Optional[str] = None
+    wake_max_min: Optional[float] = None
+    """The longest wake-up the agent can set, in minutes."""
+    deadline_warn_min: Optional[float] = None
+    """A deadline wakes the agent this many minutes before it, and at it."""
+    quiet_min: Optional[float] = None
+    """A running workflow quiet this many minutes wakes the agent, once."""
 
     def merged(self, child: "Session") -> "Session":
         """This, with *child*'s settings winning where it has them."""
@@ -133,9 +168,19 @@ class Playbook:
     # plan.md's headings, the nearest playbook's that names them.
     plan: List[str] = field(default_factory=lambda: list(PLAN))
     session: Session = field(default_factory=Session)
+    # The instrument kind its prompts are for (`instruments`).
+    instrument: Optional[str] = None
 
     def optional_skill(self, name: str) -> Optional[Optional_]:
         return next((o for o in self.optional if o.skill == name), None)
+
+    def all_skills(self) -> List[str]:
+        """Its skills, the optional ones too."""
+        return _merge(self.skills, [o.skill for o in self.optional])
+
+    def all_agents(self) -> List[str]:
+        """Its subagents, those of its optional skills too."""
+        return _merge(self.agents, [a for o in self.optional for a in o.agents])
 
     def summary(self) -> dict:
         """The playbook as the agent and the Agent page read it."""
@@ -143,6 +188,7 @@ class Playbook:
             "name": self.name,
             "description": self.description,
             "extends": self.chain[:-1],
+            "instrument": self.instrument,
             "skills": list(self.skills),
             "optional": [
                 {
@@ -196,9 +242,62 @@ def available(checkout: Optional[Path]) -> List[str]:
 
 
 def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
-    """Playbook *name* with what it extends added in; a `PlaybookError` says
-    what is wrong with it. *efforts*, when given, are the efforts allowed."""
-    return _load(name, checkout, [], tuple(efforts))
+    """Playbook *name* with what it extends added in, on the shipped base
+    playbook's skills, session settings and instrument kind; a
+    `PlaybookError` says what is wrong with it. *efforts*, when given, are
+    the efforts allowed."""
+    playbook = _load(name, checkout, [], tuple(efforts))
+    base = shipped_base(checkout)
+    if base is not None:
+        playbook.skills = _merge(base.skills, playbook.skills)
+        playbook.session = base.session.merged(playbook.session)
+        playbook.instrument = playbook.instrument or base.instrument
+    if checkout is not None:
+        kinds = instruments.kinds(checkout)
+        if (playbook.instrument or instruments.DEFAULT) not in kinds:
+            raise PlaybookError(
+                f"{playbook.path}: no instrument kind {playbook.instrument!r} "
+                f"(one of {', '.join(kinds) or 'none'})"
+            )
+    return playbook
+
+
+def shipped_base(checkout: Optional[Path]) -> Optional[Playbook]:
+    """The base playbook as fibsemOS ships it, never the lab's copy: where
+    the agent's defaults live. None without a checkout or the file."""
+    if checkout is None:
+        return None
+    path = checkout / PLAYBOOK_DIR / f"{DEFAULT}.yaml"
+    if not path.is_file():
+        return None
+    return _read(DEFAULT, path, checkout, None, ())
+
+
+def shipped_names(checkout: Optional[Path]) -> Dict[str, List[str]]:
+    """Every skill (the optional ones too) and subagent the shipped playbooks
+    name, in file order: what fibsem-agent may load of the checkout's
+    ``.claude``, whose other skills are for developers."""
+    found: Dict[str, List[str]] = {"skills": [], "agents": []}
+    folder = checkout / PLAYBOOK_DIR if checkout is not None else None
+    if folder is None or not folder.is_dir():
+        return found
+    for path in sorted(folder.glob("*.yaml")):
+        try:
+            data = yaml.safe_load(path.read_bytes()) or {}
+        except yaml.YAMLError:
+            continue
+        if not isinstance(data, dict):
+            continue
+        optional = [o for o in data.get("optional") or [] if isinstance(o, dict)]
+        skills = list(data.get("skills") or []) + [o.get("skill") for o in optional]
+        agents = list(data.get("agents") or []) + [
+            a for o in optional for a in o.get("agents") or []
+        ]
+        for kind, names in (("skills", skills), ("agents", agents)):
+            found[kind] = _merge(
+                found[kind], [n for n in names if isinstance(n, str) and n]
+            )
+    return found
 
 
 def _load(name: str, checkout: Optional[Path], seen: List[str], efforts=()) -> Playbook:
@@ -212,6 +311,18 @@ def _load(name: str, checkout: Optional[Path], seen: List[str], efforts=()) -> P
         if seen:
             raise PlaybookError(f"{seen[-1]} extends {name}, which isn't in {where}")
         raise PlaybookError(f"No playbook {name!r} in {where}")
+    return _read(name, path, checkout, seen, efforts)
+
+
+def _read(
+    name: str,
+    path: Path,
+    checkout: Optional[Path],
+    seen: Optional[List[str]],
+    efforts=(),
+) -> Playbook:
+    """The playbook in *path*; with *seen* (the chain so far), what it
+    extends added in, else on its own."""
     raw = path.read_bytes()
     try:
         data = yaml.safe_load(raw) or {}
@@ -227,7 +338,13 @@ def _load(name: str, checkout: Optional[Path], seen: List[str], efforts=()) -> P
         extends = data["extends"]
         if not isinstance(extends, str):
             raise PlaybookError(f"{path}: extends is one playbook's name")
-        parent = _load(extends, checkout, seen + [name], efforts)
+        if seen is not None:
+            parent = _load(extends, checkout, seen + [name], efforts)
+    instrument = data.get("instrument")
+    if instrument is not None and (
+        not isinstance(instrument, str) or not _NAME.fullmatch(instrument)
+    ):
+        raise PlaybookError(f"{path}: instrument is one instrument kind's name")
     skills = _names(data.get("skills"), "skills", path)
     optional = _optional(data.get("optional"), path)
     hooks = _reminders(data.get("reminders"), path)
@@ -268,6 +385,7 @@ def _load(name: str, checkout: Optional[Path], seen: List[str], efforts=()) -> P
         agents=_merge(parent.agents if parent else [], agents),
         plan=plan or (parent.plan if parent else list(PLAN)),
         session=(parent.session if parent else Session()).merged(session),
+        instrument=instrument or (parent.instrument if parent else None),
     )
     return playbook
 
@@ -288,7 +406,7 @@ def _session(value: Any, path: Path, efforts=()) -> Session:
         if not isinstance(given, str) or not given.strip():
             raise PlaybookError(f"{path}: session {key} must be text")
         found[key] = given.strip()
-    for key, kind in (("max_budget_usd", float), ("max_turns", int)):
+    for key, kind in NUMBERS.items():
         given = value.get(key)
         if given is None:
             continue

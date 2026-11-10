@@ -10,6 +10,11 @@ from fibsem.ai.agent import harness as harness_mod
 from fibsem.ai.agent import manager, playbooks, sources
 
 
+def _all():
+    """What a session started on no particular playbook loads."""
+    return harness_mod.session_names(harness_mod.find_checkout())
+
+
 @pytest.fixture
 def lab(tmp_path, monkeypatch):
     """An empty state root: the lab's folders under it."""
@@ -37,21 +42,19 @@ def test_a_lab_skill_wins_over_the_shipped_one_and_a_new_one_is_offered(
     _skill(lab / "skills", "screen-grids", "our own screening")
     _skill(lab / "skills", "yeast-lamellae", "what works on yeast here")
     assert sources.lab_skills() == ["screen-grids", "yeast-lamellae"]
-    assert harness_mod.skills_for()[-1] == "yeast-lamellae"
-    assert harness_mod.skills_for().count("screen-grids") == 1
+    assert _all().skills[-1] == "yeast-lamellae"
+    assert _all().skills.count("screen-grids") == 1
 
     run = tmp_path / "run"
     (run / ".claude" / "settings.json").parent.mkdir(parents=True)
     (run / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
-    from_lab = sources.assemble(
-        run, checkout, harness_mod.skills_for(), harness_mod.SPECIALISTS
-    )
+    from_lab = sources.assemble(run, checkout, _all().skills, _all().agents)
     assert from_lab == ["screen-grids", "yeast-lamellae"]
     skills = run / ".claude" / "skills"
     assert "our own screening" in (skills / "screen-grids" / "SKILL.md").read_text()
     assert (skills / "autolamella" / "read_record.py").is_file(), "folders, whole"
     assert not (run / ".claude" / "settings.json").exists(), "rebuilt every start"
-    for name in harness_mod.SPECIALISTS:
+    for name in _all().agents:
         assert (run / ".claude" / "agents" / f"{name}.md").is_file()
 
 
@@ -70,18 +73,23 @@ def test_the_labs_playbook_wins_over_the_shipped(lab, checkout):
     with pytest.raises(playbooks.PlaybookError, match="no skill yeast-lamellae"):
         playbooks.load(playbooks.DEFAULT, checkout)
     _skill(lab / "skills", "yeast-lamellae", "what works on yeast here")
-    assert playbooks.load(playbooks.DEFAULT, checkout).skills == ["yeast-lamellae"]
+    found = playbooks.load(playbooks.DEFAULT, checkout)
+    # The shipped base stays under the lab's copy: its skill and defaults hold.
+    assert found.skills == ["fibsem-agent", "yeast-lamellae"]
+    assert found.session.max_turns == playbooks.shipped_base(checkout).session.max_turns
+    assert found.instrument == "fibsem"
 
 
 def test_the_wheel_ships_skills_subagents_and_playbooks(checkout, tmp_path):
     sources.ship(checkout, tmp_path)
     shipped = tmp_path / ".claude"
-    for name in harness_mod.SKILLS:
+    for name in _all().skills:
         assert (shipped / "skills" / name / "SKILL.md").is_file()
-    for name in harness_mod.SPECIALISTS:
+    for name in _all().agents:
         assert (shipped / "agents" / f"{name}.md").is_file()
     playbook = shipped / "fibsem-agent" / "playbooks" / f"{playbooks.DEFAULT}.yaml"
     assert playbook.is_file()
+    assert (shipped / "fibsem-agent" / "instruments" / "fibsem" / "prompt.md").is_file()
     assert not list(shipped.rglob("__pycache__"))
     assert not (shipped / "settings.json").exists(), "only the agent's files"
     # A pip install has no checkout: the shipped copy is found instead.

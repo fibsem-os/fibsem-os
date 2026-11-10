@@ -1,0 +1,129 @@
+"""What the agent is told for a kind of instrument: the harness prompt, the
+intake steps and the re-read lines, as files beside the playbooks.
+
+    .claude/fibsem-agent/instruments/<kind>/
+        prompt.md     the harness prompt
+        intake.md     ## start, ## resumed, ## goal
+        reread.md     ## proposals, ## plan, ## level
+
+A playbook names its kind (``instrument:``); the shipped base playbook sets
+``fibsem``, the only kind for now. The files are fibsemOS's own, not the
+lab's: they carry the safety wording. A leading ``<!-- -->`` comment is a
+note for whoever edits the file, not part of the text. ``{name}`` fills in a
+value; a file that is missing, lacks a section or names a value nobody gives
+fails when the session starts (`load`).
+"""
+
+import re
+import string
+from dataclasses import dataclass
+from functools import cache
+from pathlib import Path
+from typing import Dict, List, Optional
+
+from fibsem.ai.agent import sources
+
+INSTRUMENT_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "instruments"
+# The kind a playbook that names none is for: the only one there is.
+DEFAULT = "fibsem"
+# Each file's sections ("" for a file that is one text), and the values each
+# may fill in.
+FILES: Dict[str, Dict[str, set]] = {
+    "prompt.md": {"": {"tools", "deadline_warn_min"}},
+    "intake.md": {"start": set(), "resumed": set(), "goal": {"goal"}},
+    "reread.md": {"proposals": set(), "plan": set(), "level": set()},
+}
+_NOTE = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
+_SECTION = re.compile(r"^## +(\S.*?)\s*$", re.M)
+
+
+class InstrumentError(ValueError):
+    """An instrument kind's files that can't be used, with the reason."""
+
+
+@dataclass(frozen=True)
+class Texts:
+    """One instrument kind's words, each a template for `str.format`."""
+
+    kind: str
+    prompt: str
+    start: str
+    resumed: str
+    goal: str
+    reread_proposals: str
+    reread_plan: str
+    reread_level: str
+
+
+def kinds(checkout: Optional[Path]) -> List[str]:
+    """The instrument kinds the checkout ships, sorted."""
+    folder = checkout / INSTRUMENT_DIR if checkout is not None else None
+    if folder is None or not folder.is_dir():
+        return []
+    return sorted(p.name for p in folder.iterdir() if (p / "prompt.md").is_file())
+
+
+def load(kind: Optional[str], checkout: Path) -> Texts:
+    """Instrument *kind*'s words; an `InstrumentError` says what is wrong."""
+    kind = kind or DEFAULT
+    folder = checkout / INSTRUMENT_DIR / kind
+    if kind not in kinds(checkout):
+        raise InstrumentError(
+            f"No instrument kind {kind!r} in {checkout / INSTRUMENT_DIR} "
+            f"(one of {', '.join(kinds(checkout)) or 'none'})"
+        )
+    found: Dict[str, Dict[str, str]] = {}
+    for name, sections in FILES.items():
+        path = folder / name
+        if not path.is_file():
+            raise InstrumentError(f"{path} is missing")
+        texts = _sections(path.read_text(encoding="utf-8"), set(sections) != {""})
+        for section, allowed in sections.items():
+            if section not in texts:
+                raise InstrumentError(f"{path} has no '## {section}' section")
+            try:
+                unknown = _fields(texts[section]) - allowed
+            except ValueError as error:
+                raise InstrumentError(f"{path}: a stray brace: {error}") from None
+            if unknown:
+                raise InstrumentError(
+                    f"{path}: {section or 'the text'} fills in "
+                    f"{', '.join(sorted(unknown))}, which nothing gives"
+                )
+        found[name] = texts
+    intake, reread = found["intake.md"], found["reread.md"]
+    return Texts(
+        kind=kind,
+        prompt=found["prompt.md"][""],
+        start=intake["start"],
+        resumed=intake["resumed"],
+        goal=intake["goal"],
+        reread_proposals=reread["proposals"],
+        reread_plan=reread["plan"],
+        reread_level=reread["level"],
+    )
+
+
+@cache
+def shipped(kind: str, checkout: Path) -> Texts:
+    """`load`, once per kind and checkout: the files don't change while the
+    agent runs."""
+    return load(kind, checkout)
+
+
+def _sections(text: str, split: bool) -> Dict[str, str]:
+    text = _NOTE.sub("", text, count=1)
+    if not split:
+        return {"": text.strip()}
+    parts = _SECTION.split(text)
+    # [before the first heading, heading, body, heading, body, ...]
+    return {parts[i]: parts[i + 1].strip() for i in range(1, len(parts) - 1, 2)}
+
+
+def _fields(text: str) -> set:
+    """The values *text* fills in; a `ValueError` on a stray brace."""
+    return {
+        field.split(".")[0].split("[")[0]
+        for _, field, _, _ in string.Formatter().parse(text)
+        if field is not None
+    }
