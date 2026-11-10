@@ -180,6 +180,13 @@ function sessionLine(session: Data) {
     .join(" · ");
 }
 
+// The agent's timers, in minutes: the base playbook sets each.
+const TIMERS: [string, string][] = [
+  ["wake_max_min", "Longest wake-up (min)"],
+  ["deadline_warn_min", "Deadline warning (min)"],
+  ["quiet_min", "Quiet workflow check (min)"],
+];
+
 type Inherited = Record<string, { value: string | number; source: string }>;
 
 /** The session settings of the playbook *base*, with where each comes from. */
@@ -300,6 +307,21 @@ function SessionForm({
           />,
         )}
       </Row>
+      {TIMERS.map(([key, label]) => (
+        <Row form label={label} key={key}>
+          {line(
+            key,
+            <input
+              type="number"
+              min={1}
+              className={cn(field, "w-28")}
+              placeholder={shown(key)}
+              value={value[key] == null ? "" : String(value[key])}
+              onChange={(e) => number(key, e.target.value)}
+            />,
+          )}
+        </Row>
+      ))}
     </>
   );
 }

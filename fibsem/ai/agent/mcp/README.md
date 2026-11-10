@@ -151,7 +151,7 @@ fibsem-agent
   at the end. Each runs inside the turn that called it, with only the tools
   its file lists, and only the Run Lead decides. The CLI's own agents are
   refused. Each agent sets its own model and effort; `--effort` sets the
-  Run Lead's (default high). A lead run calls the most capable model often:
+  Run Lead's (default: the playbook's). A lead run calls the most capable model often:
   raise `--max-budget-usd` to match the night.
 - **Your Claude Code config stays out.** The session runs in a folder that
   holds only its skills and specialists, copied there each start (its
@@ -192,13 +192,29 @@ fibsem-agent
   picks first. Flags on the command line win over it; the API key is never in
   it. `--show-config` prints what the agent would run with and starts nothing,
   `--list-playbooks` lists them, and `--json` gives either as JSON.
+- **Defaults.** The shipped `fibsem-agent` playbook is the one place the
+  defaults live, and it stays under every playbook, a lab's copy of it
+  included: its skill, its `session:` settings (with the timers
+  `wake_max_min`, `deadline_warn_min` and `quiet_min`) and its `instrument:`
+  kind. The code keeps no second copy.
+- **What a session loads.** Started on a playbook other than `fibsem-agent`,
+  the session loads only that playbook's skills and subagents (with what it
+  extends) and the lab's own; `playbook_set` then refuses a playbook that
+  needs others, and the agent asks for a restart on it. Started on
+  `fibsem-agent`, it loads what every playbook names, as intake may set any.
+- **Instrument kind.** A playbook's `instrument:` names the folder
+  `.claude/fibsem-agent/instruments/<kind>/` whose `prompt.md`, `intake.md`
+  and `reread.md` are what the agent is told. `fibsem` is the only kind; an
+  unknown one, a missing file or section, or a `{value}` nothing fills in
+  fails at the start.
 - **Reminders.** A playbook's `reminders` map a `when` to what to say: the text
   reaches the agent at the moment it makes a matching tool call, before it or
   after it (`--list-hooks` lists the options and their tools). The tools and
   the App Server know nothing of them.
-- **Limits.** `--max-turns` (default 40) caps the tool calls in one
-  wake-up; the next wake-up starts a fresh count. `--max-budget-usd`
-  (default 5) caps what one run of `fibsem-agent` spends, and reaching it
+- **Limits.** `--max-turns` (default: the playbook's, 40 as shipped) caps the
+  tool calls in one wake-up; the next wake-up starts a fresh count.
+  `--max-budget-usd` (default: the playbook's, 500 as shipped) caps what one
+  run of `fibsem-agent` spends, and reaching it
   stops the harness with exit code 2. `--model` picks the model.
   The SDK compacts a long session's context by itself, and the log says when.
 - **Stopping and resuming.** Ctrl-C interrupts the agent's turn and ends the

@@ -74,12 +74,14 @@ def customisation(tools: Iterable[ToolSpec] = CATALOG) -> AgentCustomisation:
         found = sources.skill_dir(name, checkout)
         return found / sources.SKILL_FILE if found else None
 
+    # As a session started on no particular playbook loads them.
+    loaded = harness.session_names(checkout)
     return AgentCustomisation(
         tools=[_tool(spec) for spec in tools],
         categories=list(CATEGORIES),
-        skills=_skills(harness.skills_for(), skill),
+        skills=_skills(loaded.skills, skill),
         specialists=_skills(
-            harness.subagents_for(), lambda name: sources.agent_file(name, checkout)
+            loaded.agents, lambda name: sources.agent_file(name, checkout)
         ),
         never=[BlockRow(**row) for row in blocklist.rules()],
     )
