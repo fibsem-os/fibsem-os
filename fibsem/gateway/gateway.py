@@ -45,6 +45,9 @@ __all__ = [
 OFF = "off"
 RUNNING = "running"
 MODES = (OFF, RUNNING)
+# What a switch in progress does: a start (a restart included) or a stop.
+STARTING = "starting"
+STOPPING = "stopping"
 
 GATEWAY_PORT = 8010
 GATEWAY_FILE = DISCOVERY_DIR / "gateway.json"
@@ -113,6 +116,9 @@ class GatewayState:
     who: Optional[str] = None
     via: Optional[str] = None
     switching: bool = False
+    """Whether the gateway is starting or stopping the app now."""
+    switch: Optional[str] = None
+    """Which: "starting" (a restart too) or "stopping"; None between switches."""
     holder: Optional[Holder] = None
     last_exit: Optional[LastExit] = None
     apps: List[GatewayApp] = field(default_factory=list)
@@ -290,7 +296,9 @@ class Gateway:
         self._check_newer = newer
         self._newer: Optional[Newer] = None
         self._lock = threading.RLock()
-        self._busy = False
+        # The switch in progress (STARTING or STOPPING), else None: the one
+        # place it is kept, so replacing the state mid-switch can't drop it.
+        self._switch: Optional[str] = None
         self._proc: Optional[subprocess.Popen] = None
         self._claimed: Optional[int] = None
         self._stop_file: Optional[Path] = None
@@ -312,6 +320,8 @@ class Gateway:
     def state(self) -> GatewayState:
         with self._lock:
             state = replace(self._state)
+            state.switch = self._switch
+            state.switching = self._switch is not None
         state.holder = self._holder()
         state.apps = [
             GatewayApp(key=key, name=app.name, headless=app.serve is not None)
@@ -402,20 +412,22 @@ class Gateway:
             self._record(OFF, RUNNING, who, via, "started", app, experiment, window)
             with self._lock:
                 self._state.who, self._state.via = who, via
-            return self.state()
+        return self.state()
 
     def stop(
         self, who: str, via: str, force: bool = False, window: bool = False
     ) -> GatewayState:
         """Back to off. *window* closes a window too, for the operator only."""
         with self._take(who, via, OFF, None, None):
-            if self._state.mode == OFF:
-                return self.state()
-            app, experiment = self._state.app, self._state.experiment
-            closing = self._state.window
-            self._stop_current(force, close_window=window)
-            self._record(RUNNING, OFF, who, via, "stopped", app, experiment, closing)
-            return self.state()
+            if self._state.mode != OFF:
+                app, experiment = self._state.app, self._state.experiment
+                closing = self._state.window
+                self._stop_current(force, close_window=window)
+                self._record(
+                    RUNNING, OFF, who, via, "stopped", app, experiment, closing
+                )
+        # Outside the switch: the answer says it is over.
+        return self.state()
 
     def claim(self, pid: int, app: str, who: str, via: str) -> GatewayState:
         """A desktop launch takes the app's place with its own process *pid*."""
@@ -439,7 +451,7 @@ class Gateway:
                     last_exit=self._state.last_exit,
                 )
             self._record(OFF, RUNNING, who, via, "claimed", app, None, True)
-            return self.state()
+        return self.state()
 
     def _app(self, key: Optional[str], window: bool) -> App:
         found = self._apps().get(key or "")
@@ -482,19 +494,17 @@ class Gateway:
         class _Busy:
             def __enter__(self):
                 with gateway._lock:
-                    if gateway._busy:
+                    if gateway._switch is not None:
                         raise GatewayRefused(
                             409,
                             "busy",
                             "The gateway is already starting or stopping the app.",
                         )
-                    gateway._busy = True
-                    gateway._state.switching = True
+                    gateway._switch = STARTING if mode == RUNNING else STOPPING
 
             def __exit__(self, kind, error, tb):
                 with gateway._lock:
-                    gateway._busy = False
-                    gateway._state.switching = False
+                    gateway._switch = None
                 if isinstance(error, GatewayRefused):
                     gateway._record(
                         gateway._state.mode,
@@ -681,7 +691,7 @@ class Gateway:
     def poll(self) -> None:
         """Notice a process that ended on its own: back to off, with its exit."""
         with self._lock:
-            if self._busy:
+            if self._switch is not None:
                 return
             mode, proc, claimed = self._state.mode, self._proc, self._claimed
             window = self._state.window

@@ -24,6 +24,8 @@ interface GatewayState {
   who: string | null;
   via: string | null;
   switching: boolean;
+  /** Which switch is in progress, from any page, tray or hub. */
+  switch?: "starting" | "stopping" | null;
   holder: { pid: number; url: string } | null;
   last_exit: {
     window: boolean;
@@ -418,7 +420,7 @@ function AppSection({
                 disabled={busy}
                 onClick={state.window ? () => setConfirmClose(true) : stop}
               >
-                {act.isPending
+                {act.isPending || state.switch === "stopping"
                   ? "Stopping…"
                   : state.window
                     ? "Close the window"

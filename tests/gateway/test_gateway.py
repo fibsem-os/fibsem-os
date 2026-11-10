@@ -379,3 +379,35 @@ def test_a_window_that_doesnt_close_is_left_to_answer_at_the_pc(tmp_path, fakes)
     finally:
         window.kill()
         window.wait()
+
+
+def test_a_restart_reads_as_starting_from_start_to_end(tmp_path, fakes, monkeypatch):
+    """Between the old app's end and the new one's start the mode is off, and
+    it still reads as a switch: nothing offers a Start then."""
+    gateway = _gateway(tmp_path, fakes)
+    _headless(gateway)
+    seen = []
+    start = gateway._start
+
+    def watched(*args, **kwargs):
+        state = gateway.state()
+        seen.append((state.mode, state.switching, state.switch))
+        return start(*args, **kwargs)
+
+    monkeypatch.setattr(gateway, "_start", watched)
+    state = _headless(gateway)
+    assert seen == [(OFF, True, "starting")]
+    assert (state.mode, state.switching, state.switch) == (RUNNING, False, None)
+    gateway.stop("operator", "page")
+
+
+def test_a_stop_reads_as_stopping(tmp_path, fakes):
+    gateway = _gateway(tmp_path, fakes)
+    _headless(gateway)
+    seen = []
+    gateway.before_stop.append(
+        lambda: seen.append((gateway.state().switching, gateway.state().switch))
+    )
+    state = gateway.stop("operator", "page")
+    assert seen == [(True, "stopping")]
+    assert (state.mode, state.switching, state.switch) == (OFF, False, None)
