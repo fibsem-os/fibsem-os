@@ -585,10 +585,10 @@ class SampleScene:
     # "none" for bare film
     cell_type: str = "mammalian"
     # yeast: clusters over the extent
-    n_clusters: int = 35  # cell clusters scattered over the extent
-    cells_per_cluster: Tuple[int, int] = (3, 8)  # inclusive range
-    cell_size: Tuple[float, float] = (4.5e-6, 12.0e-6)  # m, sigma range per cell
-    cluster_spread: float = 15e-6  # m, how far blobs scatter around a cluster
+    n_clusters: int = 120  # yeast clumps scattered over the extent
+    cells_per_cluster: Tuple[int, int] = (8, 40)  # inclusive range
+    cell_size: Tuple[float, float] = (1.8e-6, 2.8e-6)  # m, radius range per cell
+    cluster_spread: float = 20e-6  # m, how far a clump reaches from its centre
     # mammalian: count per 150 x 150 um, body and nucleus radii
     mammalian_density: float = 7.0
     mammalian_radius: Tuple[float, float] = (18e-6, 30e-6)  # m
@@ -599,7 +599,7 @@ class SampleScene:
     # rpe: islands per 150 x 150 um, their radius, and the cell spacing
     rpe_island_density: float = 0.5
     rpe_island_radius: Tuple[float, float] = (40e-6, 110e-6)  # m
-    rpe_cell_spacing: float = 14e-6  # m
+    rpe_cell_spacing: float = 18e-6  # m
     # neuron: somas per 150 x 150 um, soma radius, process length
     neuron_density: float = 1.2
     soma_radius: Tuple[float, float] = (5e-6, 9e-6)  # m
@@ -1270,25 +1270,44 @@ class SampleScene:
                 next_id = self._generate_bacteria(rng, half, n, next_id)
 
     def _generate_yeast(self, rng, half, fraction, next_id) -> int:
+        """Clumps of small round cells packed against each other: each new
+        cell touches one already placed, some with a budding daughter."""
         for _ in range(int(round(self.n_clusters * fraction))):
-            cx, cy = rng.uniform(-half, half, size=2)
+            cx, cy = (float(v) for v in rng.uniform(-half, half, size=2))
             lo, hi = self.cells_per_cluster
-            for _ in range(int(rng.integers(lo, hi + 1))):
-                x = float(cx + rng.normal(0, self.cluster_spread))
-                y = float(cy + rng.normal(0, self.cluster_spread))
-                sigma = float(rng.uniform(*self.cell_size))
-                angle = float(rng.uniform(0, np.pi))
+            want = int(rng.integers(lo, hi + 1))
+            placed: List[Tuple[float, float, float]] = []
+            for _ in range(20 * want):
+                if len(placed) >= want:
+                    break
+                r = float(rng.uniform(*self.cell_size))
+                if placed:
+                    px, py, pr = placed[int(rng.integers(len(placed)))]
+                    t = float(rng.uniform(0, 2 * np.pi))
+                    x, y = px + (pr + r) * np.cos(t), py + (pr + r) * np.sin(t)
+                    if np.hypot(x - cx, y - cy) > self.cluster_spread:
+                        continue
+                    if any(
+                        np.hypot(x - qx, y - qy) < 0.9 * (r + qr)
+                        for qx, qy, qr in placed
+                    ):
+                        continue
+                else:
+                    x, y = cx, cy
+                placed.append((float(x), float(y), r))
+            for x, y, r in placed:
                 self.features.append(
                     SceneFeature(
                         x=x,
                         y=y,
-                        sigma=sigma,
-                        intensity=float(rng.uniform(40, 110)),
-                        sharpness=3.0,
-                        eccentricity=float(rng.uniform(0.8, 1.0)),
-                        angle=angle,
+                        sigma=r,
+                        intensity=float(rng.uniform(60, 110)),
+                        sharpness=2.5,
+                        eccentricity=float(rng.uniform(0.85, 1.0)),
+                        angle=float(rng.uniform(0, np.pi)),
                         cell_id=next_id,
                         opacity=1.0,
+                        height=1.5 * r,
                     )
                 )
                 # a compact nucleus for the FM (the beams barely see it)
@@ -1296,25 +1315,26 @@ class SampleScene:
                     SceneFeature(
                         x=x,
                         y=y,
-                        sigma=sigma * 0.35,
+                        sigma=r * 0.35,
                         intensity=8.0,
                         sharpness=2.0,
                         part="nucleus",
                         cell_id=next_id,
                     )
                 )
-                if rng.random() < 0.3:  # budding daughter
+                if rng.random() < 0.2:  # budding daughter
                     t = rng.uniform(0, 2 * np.pi)
                     self.features.append(
                         SceneFeature(
-                            x=x + 1.1 * sigma * np.cos(t),
-                            y=y + 1.1 * sigma * np.sin(t),
-                            sigma=sigma * 0.55,
+                            x=x + 1.3 * r * np.cos(t),
+                            y=y + 1.3 * r * np.sin(t),
+                            sigma=r * 0.5,
                             intensity=70.0,
-                            sharpness=3.0,
+                            sharpness=2.5,
                             part="bud",
                             cell_id=next_id,
                             opacity=1.0,
+                            height=0.8 * r,
                         )
                     )
                 next_id += 1
@@ -1423,16 +1443,16 @@ class SampleScene:
                         SceneFeature(
                             x=x,
                             y=y,
-                            sigma=0.55 * spacing,
+                            sigma=0.5 * spacing,
                             intensity=45.0,
-                            sharpness=5.0,
+                            sharpness=1.5,
                             eccentricity=float(rng.uniform(0.8, 1.0)),
                             angle=angle,
-                            wobble=0.08,
+                            wobble=0.05,
                             wobble_phase=float(rng.uniform(0, 2 * np.pi)),
                             cell_id=next_id,
                             opacity=1.0,
-                            height=3.0e-6,
+                            height=2.5e-6,
                         )
                     )
                     self.features.append(
@@ -1444,7 +1464,7 @@ class SampleScene:
                             sharpness=2.0,
                             part="nucleus",
                             cell_id=next_id,
-                            height=1.0e-6,
+                            height=0.6e-6,
                         )
                     )
                     for _ in range(int(rng.integers(4, 10))):
