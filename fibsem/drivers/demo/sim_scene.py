@@ -599,7 +599,8 @@ class SampleScene:
     # rpe: islands per 150 x 150 um, their radius, and the cell spacing
     rpe_island_density: float = 0.5
     rpe_island_radius: Tuple[float, float] = (40e-6, 110e-6)  # m
-    rpe_cell_spacing: float = 18e-6  # m
+    rpe_cell_spacing: float = 28e-6  # m
+    rpe_occupancy: float = 0.75  # fraction of the lattice a patch fills
     # neuron: somas per 150 x 150 um, soma radius, process length
     neuron_density: float = 1.2
     soma_radius: Tuple[float, float] = (5e-6, 9e-6)  # m
@@ -1418,9 +1419,9 @@ class SampleScene:
         return next_id
 
     def _generate_rpe(self, rng, half, n, next_id) -> int:
-        """Islands of a confluent epithelium: cells on a jittered hexagonal
-        lattice, packed edge to edge, each a flat-topped polygon-ish dome
-        with a central nucleus and bright pigment granules."""
+        """Patches of an epithelium: big flat cells on a jittered hexagonal
+        lattice, most sites filled, each a flat-topped dome with its own edge,
+        a central nucleus and bright pigment granules."""
         spacing = self.rpe_cell_spacing
         for _ in range(n):
             cx, cy = rng.uniform(-half, half, size=2)
@@ -1434,7 +1435,7 @@ class SampleScene:
                     y = j * spacing * 0.866
                     # a ragged island edge
                     edge = radius * (1 + 0.15 * np.sin(3 * np.arctan2(y, x) + phase))
-                    if np.hypot(x, y) > edge:
+                    if np.hypot(x, y) > edge or rng.random() > self.rpe_occupancy:
                         continue
                     x = float(cx + x + rng.normal(0, 0.12 * spacing))
                     y = float(cy + y + rng.normal(0, 0.12 * spacing))
@@ -1443,9 +1444,9 @@ class SampleScene:
                         SceneFeature(
                             x=x,
                             y=y,
-                            sigma=0.5 * spacing,
+                            sigma=0.44 * spacing,
                             intensity=45.0,
-                            sharpness=1.5,
+                            sharpness=2.5,
                             eccentricity=float(rng.uniform(0.8, 1.0)),
                             angle=angle,
                             wobble=0.05,
@@ -1605,6 +1606,7 @@ class SampleScene:
         "rpe_island_density",  # per 150 x 150 um
         "rpe_island_radius",  # [min, max] m
         "rpe_cell_spacing",  # m
+        "rpe_occupancy",
         "neuron_density",  # per 150 x 150 um
         "soma_radius",  # [min, max] m
         "neurite_length",  # [min, max] m
