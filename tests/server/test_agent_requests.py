@@ -1413,6 +1413,81 @@ def test_a_cancel_while_approving_runs_none_of_it(
     assert microscope.get_stage_position().x == pytest.approx(before.x)
 
 
+def _decided_then(store, monkeypatch, meanwhile):
+    """Run ``meanwhile`` once the operator's decision is on the record, before
+    the request moves on from pending: the gap a withdraw or cancel could use."""
+    decide = store._decide
+
+    def decided_then(*args, **kwargs):
+        decide(*args, **kwargs)
+        meanwhile()
+
+    monkeypatch.setattr(store, "_decide", decided_then)
+
+
+def test_a_request_just_approved_can_t_be_withdrawn(
+    client, app, context, microscope, monkeypatch
+):
+    """Withdrawn after the approval was recorded, it ran anyway as "applied"
+    once the agent had been told "cancelled"."""
+    filed = _file(client, NUDGE).json()
+    store = app.state.requests
+    refused = []
+
+    def withdraw():
+        with pytest.raises(RequestRefused) as caught:
+            store.withdraw(filed["request_id"], "changed my mind")
+        refused.append(caught.value.detail["error_type"])
+
+    _decided_then(store, monkeypatch, withdraw)
+    request = store.approve(filed["request_id"])
+    assert request._done.wait(5)
+    assert refused == ["not_pending"]
+    assert (request.status, request.cancel_reason) == ("applied", "")
+
+
+def test_a_cancel_just_after_approving_runs_none_of_it(
+    client, app, context, microscope, monkeypatch
+):
+    filed = _file(client, NUDGE).json()
+    store = app.state.requests
+    before = microscope.get_stage_position()
+    _decided_then(store, monkeypatch, lambda: store.cancel("Stop agent"))
+    request = store.approve(filed["request_id"])
+    assert request._done.wait(5)
+    assert (request.status, request.cancel_reason) == ("cancelled", "Stop agent")
+    assert request.results == []
+    assert microscope.get_stage_position().x == pytest.approx(before.x)
+
+
+def test_a_request_just_rejected_can_t_be_withdrawn(client, app, monkeypatch):
+    filed = _file(client, NUDGE).json()
+    store = app.state.requests
+    refused = []
+
+    def withdraw():
+        with pytest.raises(RequestRefused) as caught:
+            store.withdraw(filed["request_id"], "changed my mind")
+        refused.append(caught.value.detail["error_type"])
+
+    _decided_then(store, monkeypatch, withdraw)
+    request = store.reject(filed["request_id"], "not that one")
+    assert refused == ["not_pending"]
+    assert (request.status, request.reject_reason) == ("rejected", "not that one")
+
+
+def test_a_finished_request_never_moves_again(client, app):
+    from fibsem.server.requests import APPLYING
+
+    filed = _file(client, NUDGE).json()
+    store = app.state.requests
+    request = store.withdraw(filed["request_id"], "changed my mind")
+    assert request.status == "cancelled"
+    with pytest.raises(RuntimeError):
+        store._move_locked(request, APPLYING)
+    assert request.status == "cancelled"
+
+
 def test_a_request_can_t_decide_a_proposal(client, app):
     """At Assist the operator decides; the agent suggests (round 10 F13)."""
     decide = {
