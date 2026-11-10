@@ -291,12 +291,10 @@ def detect_absolute_edge(
 def detect_lamella(
     mask: np.ndarray,
     feature: Feature,
-    mask_radius: int = 512,
     idx: int = 1,
 ) -> Point:
 
     lamella_mask = mask == idx
-    # lamella_mask = masks.apply_circular_mask(lamella_mask, radius=mask_radius)
 
     if isinstance(feature, LamellaCentre):
         px = detect_centre_point(lamella_mask)
