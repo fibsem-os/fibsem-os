@@ -18,6 +18,7 @@ from datetime import datetime
 
 import pytest
 
+import fibsem
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.tescan import connection as tescan_connection
@@ -129,8 +130,10 @@ def _run(microscope, fake, call):
             bt.name: _plain(microscope.beams[bt]._last_image_settings) for bt in (E, I)
         },
     }
-    # as the recording stored it: JSON, with anything else as its repr
-    return json.loads(json.dumps(ran, default=repr))
+    # as the recording stored it: JSON, with anything else as its repr, and the
+    # running fibsem version pinned (a release changes the version, not the calls)
+    text = json.dumps(ran, default=repr)
+    return json.loads(text.replace(json.dumps(fibsem.__version__), '"pinned-version"'))
 
 
 def _settings(beam_type, reduced=False, hfw=80e-6):

@@ -21,6 +21,26 @@ Release candidates use `rcN`, numbered from 1 — not `aN` or `bN`. `rc` means "
 
 pip does not install a pre-release unless asked, so a published `rc` reaches only people who pin it exactly. That is the entire distribution mechanism for Early Access — no access control is involved.
 
+## The release branch
+
+A minor release is cut from its own branch, `release/vX.Y.x` (`release/v0.6.x`), not
+from `main`. Every candidate, the release and its patch releases are tagged there, so
+work that lands on `main` after the cut, finished or not, stays out of them.
+
+1. **Cut the branch** from `main` once the changelog is written:
+   ```bash
+   git push origin origin/main:refs/heads/release/v0.6.x
+   ```
+2. **Move `main` to the next minor version** (`0.7.0.dev0`) in a pull request. From
+   here `main` is the next release, and the branch is this one.
+3. **A fix lands on `main` first** and is cherry-picked to the branch in a pull
+   request against it, unless it only applies to the branch. CI runs on pushes to
+   `release/**`.
+4. **Each version change on the branch is a pull request against it** (`rc1`, `rc2`,
+   the release, `.dev0` in between), and the tag goes on its merge commit.
+5. **After the release, merge the branch back into `main`**, so the release's tag is in
+   `main`'s history and `fibsem_revision` counts from it.
+
 ## Cutting a release candidate
 
 1. **Write down what shipped**, in both places. Do this *before* the candidate, not at final release: testers cannot know what to exercise otherwise.
@@ -96,12 +116,17 @@ For a second candidate, repeat with `rc2`.
 ## The sequence, end to end
 
 ```
-0.5.2.dev0  →  0.5.2rc1  →  0.5.2.dev0  →  0.5.2  →  0.5.3.dev0
-   main         tagged         main         tagged       main
-                published                  published
+main:            0.6.0.dev0 ──cut──▶ 0.7.0.dev0 ──▶ … ◀── merge back
+                                │                              │
+release/v0.6.x:                 └─▶ 0.6.0rc1 → 0.6.0.dev0 → 0.6.0 → 0.6.1.dev0
+                                    tagged                   tagged
+                                    published                published
 ```
 
-Each step is a commit. The two returns to `.dev0` exist because the version is static — `main` should never claim to be a version that has already been uploaded.
+Each step is a commit. The returns to `.dev0` exist because the version is static: a
+branch should never claim to be a version that has already been uploaded. The steps
+below show the commands for `main`; on a release branch, make each change in a pull
+request against the branch and tag its merge commit.
 
 ## Versioning
 

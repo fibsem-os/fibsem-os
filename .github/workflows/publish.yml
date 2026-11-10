@@ -133,10 +133,14 @@ jobs:
             exit 0
           fi
 
-          args=(--generate-notes --verify-tag)
+          args=(--verify-tag)
           # Keeps a candidate from taking the "Latest" badge from a real release.
           if [ "$PRERELEASE" = "true" ]; then
             args+=(--prerelease)
           fi
 
-          gh release create "$TAG" "${args[@]}"
+          # Generated notes over a whole minor release can pass GitHub's 125k
+          # limit, so fall back to pointing at the changelog.
+          gh release create "$TAG" "${args[@]}" --generate-notes ||
+            gh release create "$TAG" "${args[@]}" \
+              --notes "See [CHANGES.md](https://github.com/$GH_REPO/blob/$TAG/CHANGES.md) for what changed."

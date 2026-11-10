@@ -95,7 +95,7 @@
   "info": {
     "application": null,
     "fibsem_revision": "pinned-revision",
-    "fibsem_version": "0.6.0.dev0",
+    "fibsem_version": "pinned-version",
     "hardware_version": "Unknown",
     "ip_address": "192.168.0.1",
     "manufacturer": "ThermoFisher",
