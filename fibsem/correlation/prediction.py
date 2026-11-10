@@ -75,13 +75,6 @@ class Projection:
     def z_slice(self) -> float:
         return self.z_iso / self.z_anisotropy if self.z_anisotropy else self.z_iso
 
-    def fib_from_fm(self, x: float, y: float, z_slice: float) -> Tuple[float, float]:
-        p = (
-            self.matrix @ np.array([x, y, z_slice * self.z_anisotropy])
-            + self.translation
-        )
-        return float(p[0]), float(p[1])
-
     def fm_from_fib(self, x: float, y: float) -> Tuple[float, float, float]:
         """The FM position at depth ``z_iso`` that lands on FIB pixel (x, y)."""
         inv = np.linalg.inv(self.matrix[:, :2])

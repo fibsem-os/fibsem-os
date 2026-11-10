@@ -14,7 +14,7 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.devices.stage import axis_limits_from_degrees, axis_limits_to_degrees
+from fibsem.devices.stage import axis_limits_from_degrees
 from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE, STAGE_LIMITS_DEFAULT
 
 
@@ -42,9 +42,9 @@ def test_the_sample_stage_has_no_limits_of_its_own(connected):
 
 def test_the_stage_device_reports_the_simulator_table(connected):
     microscope, table = connected
-    limits = axis_limits_to_degrees(microscope.stage.position.limits)
+    limits = microscope.stage.position.limits
     assert set(limits) == set(table)
-    for axis, expected in table.items():
+    for axis, expected in axis_limits_from_degrees(table).items():
         assert (limits[axis].min, limits[axis].max) == pytest.approx(
             (expected.min, expected.max)
         )
@@ -54,10 +54,3 @@ def test_the_rotation_capability_follows_the_device_axes(connected):
     microscope, _ = connected
     assert microscope.system.stage.rotation is ("r" in microscope.stage.axes)
 
-
-def test_the_two_conversions_are_inverses():
-    round_trip = axis_limits_to_degrees(axis_limits_from_degrees(STAGE_LIMITS_DEFAULT))
-    for axis, limit in STAGE_LIMITS_DEFAULT.items():
-        assert (round_trip[axis].min, round_trip[axis].max) == pytest.approx(
-            (limit.min, limit.max)
-        )

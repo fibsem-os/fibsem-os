@@ -6,7 +6,6 @@ import pytest
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import (
     AutoFocusMode,
-    FibsemRectangle,
     ImageSettings,
     MicroscopeState,
     OverviewAcquisitionSettings,
@@ -34,36 +33,6 @@ def test_microscope_state():
     state.ion_detector = None
 
     state.to_dict()
-
-
-def test_fibsem_image_extract_region():
-    """Test FibsemImage.extract_region returns cropped data with updated reduced_area metadata."""
-    image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)
-    import numpy as np
-
-    image.data[:] = np.arange(image.data.size, dtype=image.data.dtype).reshape(
-        image.data.shape
-    )
-
-    rect = FibsemRectangle(left=0.25, top=0.25, width=0.5, height=0.5)
-    result = image.extract_region(rect)
-
-    # data shape reflects the crop
-    assert result.data.shape == (50, 50)
-
-    # resolution and hfw are unchanged from the original
-    assert (
-        result.metadata.image_settings.resolution
-        == image.metadata.image_settings.resolution
-    )
-    assert result.metadata.image_settings.hfw == image.metadata.image_settings.hfw
-
-    # pixel size is unchanged
-    assert result.metadata.pixel_size.x == image.metadata.pixel_size.x
-    assert result.metadata.pixel_size.y == image.metadata.pixel_size.y
-
-    # reduced_area is set to the extracted rect
-    assert result.metadata.image_settings.reduced_area == rect
 
 
 def test_fibsem_image_resize():
@@ -127,24 +96,6 @@ def test_fibsem_image_apply_gamma():
     # standalone function raises on invalid gamma
     with pytest.raises(ValueError):
         apply_gamma(data, 0.0)
-
-
-def test_fibsem_image_extract_region_invalid_rect():
-    """extract_region raises ValueError for out-of-bounds rectangles."""
-    image = FibsemImage.generate_blank_image(resolution=(100, 100), hfw=100e-6)
-
-    with pytest.raises(ValueError):
-        image.extract_region(FibsemRectangle(left=0.8, top=0.0, width=0.5, height=0.5))
-
-
-def test_fibsem_image_extract_region_no_metadata():
-    """extract_region raises ValueError when image has no metadata."""
-    import numpy as np
-
-    image = FibsemImage(data=np.zeros((100, 100), dtype=np.uint8))
-
-    with pytest.raises(ValueError):
-        image.extract_region(FibsemRectangle(left=0.0, top=0.0, width=0.5, height=0.5))
 
 
 def test_there_is_only_one_autofocus_settings_now():

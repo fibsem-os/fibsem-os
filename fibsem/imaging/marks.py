@@ -652,22 +652,6 @@ def draw(
     return Drawn(marked_picture(image, marks, colour, options, max_width), stats)
 
 
-def drawn_picture(
-    path: str,
-    marks: Optional[Dict[str, Any]],
-    colour: str = AGENT_MARK_COLOR,
-    crosshair: bool = False,
-    metadata_bar: bool = True,
-    channels: Optional[Sequence[str]] = None,
-    max_width: int = DRAWN_WIDTH,
-    plane: Optional[int] = None,
-) -> np.ndarray:
-    """`draw`'s picture alone."""
-    return draw(
-        path, marks, colour, crosshair, metadata_bar, channels, max_width, plane
-    ).rgb
-
-
 def _geometry(path: str, channels) -> Tuple[Optional[float], Tuple[int, int]]:
     """The image's pixel size (metres; None unknown) and ``(height, width)``."""
     image, _ = load_marked_image(path, channels)
@@ -756,28 +740,3 @@ def draw_pair(
         left.looks() if share_looks else None,
     )
     return left, right
-
-
-def drawn_pair(
-    before: str,
-    after: str,
-    marks: Optional[Dict[str, Any]],
-    colour: str = AGENT_MARK_COLOR,
-    metadata_bar: bool = True,
-    channels: Optional[Sequence[str]] = None,
-    before_plane: Optional[int] = None,
-    after_plane: Optional[int] = None,
-) -> np.ndarray:
-    """`draw_pair`'s picture: both halves side by side, sharing nothing."""
-    left, right = draw_pair(
-        before,
-        after,
-        marks,
-        colour,
-        metadata_bar,
-        channels,
-        before_plane,
-        after_plane,
-        share_looks=False,
-    )
-    return side_by_side(left.rgb, right.rgb)

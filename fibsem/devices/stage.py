@@ -138,19 +138,6 @@ def axis_limits_from_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, Rang
     return converted
 
 
-def axis_limits_to_degrees(limits: Mapping[str, RangeLimit]) -> Dict[str, RangeLimit]:
-    """The inverse of ``axis_limits_from_degrees``: rotations back in degrees, for
-    readers that take limits in the sample stage's units (metres, and degrees for r
-    and t)."""
-    converted: Dict[str, RangeLimit] = {}
-    for axis, limit in limits.items():
-        low, high = limit.min, limit.max
-        if AXIS_UNITS.get(axis) == "rad":
-            low, high = math.degrees(low), math.degrees(high)
-        converted[axis] = RangeLimit(min=low, max=high)
-    return converted
-
-
 class StageLimitError(AxisLimitError):
     """A stage move whose target is outside an axis's limits. Nothing moved."""
 

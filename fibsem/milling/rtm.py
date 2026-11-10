@@ -38,18 +38,6 @@ class RtmFrame:
         """Each pattern's mean value."""
         return {i: float(np.mean(v)) for i, v in self.values.items() if np.size(v) > 0}
 
-    def to_image(self) -> np.ndarray:
-        """The read as an image of ``resolution``: each value at its position,
-        NaN where nothing was read."""
-        width, height = self.resolution
-        image = np.full((height, width), np.nan, dtype=float)
-        for i, values in self.values.items():
-            points = np.asarray(self.positions[i], dtype=int).reshape(-1, 2)
-            x, y = points[:, 0], points[:, 1]
-            inside = (x >= 0) & (x < width) & (y >= 0) & (y < height)
-            image[y[inside], x[inside]] = np.asarray(values, dtype=float)[inside]
-        return image
-
 
 def is_monitored(pattern: Any) -> bool:
     """Whether RTM reads *pattern*: not an exclusion, and not a cleaning

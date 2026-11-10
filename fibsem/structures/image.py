@@ -21,7 +21,6 @@ from fibsem.codec.upgrades import image_metadata as metadata_upgrades
 from fibsem.config import METADATA_VERSION
 from fibsem.structures.settings import (
     BeamType,
-    FibsemRectangle,
     FibsemStagePosition,
     ImageSettings,
     MicroscopeState,
@@ -342,43 +341,6 @@ class FibsemImage:
         # set only after a successful write, so a recorded path is always a path that exists
         self.filepath = str(path)
         return self.filepath
-
-    def extract_region(self, rect: "FibsemRectangle") -> "FibsemImage":
-        """Extract a sub-region of the image and return a new FibsemImage with valid metadata.
-
-        The returned image has the same resolution/hfw as the original (metadata describes
-        the full scan), with reduced_area updated to reflect the extracted region.
-
-        Args:
-            rect (FibsemRectangle): Normalized rectangle (0–1 coordinates) defining the region to extract.
-
-        Returns:
-            FibsemImage: A new FibsemImage containing the cropped data and updated metadata.
-
-        Raises:
-            ValueError: If metadata is None or if rect coordinates are invalid / out of bounds.
-        """
-        if self.metadata is None:
-            raise ValueError("Cannot extract region from FibsemImage without metadata.")
-
-        if not rect.is_valid_reduced_area:
-            raise ValueError(
-                f"Invalid rectangle: {rect.pretty_string}. "
-                "left/top must be >= 0, width/height > 0, and region must not exceed image bounds."
-            )
-
-        # Convert normalized coords to pixel indices using existing helper
-        x, y, pw, ph = rect.to_pixel_coordinates(
-            self.data.shape
-        )  # (x, y, width, height)
-        cropped = self.data[y : y + ph, x : x + pw].copy()
-
-        # Clone metadata; only update reduced_area — resolution/hfw/pixel_size unchanged
-
-        new_metadata = deepcopy(self.metadata)
-        new_metadata.image_settings.reduced_area = rect
-
-        return FibsemImage(data=cropped, metadata=new_metadata)
 
     def resize(self, resolution: Tuple[int, int]) -> "FibsemImage":
         """Resize the image to the given resolution and return a new FibsemImage with updated metadata.

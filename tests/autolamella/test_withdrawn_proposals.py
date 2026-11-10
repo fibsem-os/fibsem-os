@@ -186,7 +186,6 @@ def test_it_does_not_satisfy_what_requires_the_task(experiment):
 
     experiment.withdraw_proposal(lamella.id, TASK, "Mill Rough failed")
     lamella.task_state.status = TaskStatus.Failed
-    lamella.set_task_status(TASK, TaskStatus.Failed, "failed")
 
     assert not lamella.latest_run_completed(TASK)
 
@@ -196,7 +195,6 @@ def test_it_does_not_touch_the_task_status(experiment):
     a cause."""
     lamella = experiment.positions[0]
     _asked(experiment)
-    lamella.set_task_status(TASK, TaskStatus.InProgress)
 
     experiment.withdraw_proposal(lamella.id, TASK, "aborted")
 

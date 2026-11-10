@@ -90,26 +90,6 @@ class ExperimentItem:
         satisfies after a rerun failed or was rejected."""
         return self.latest_status(task_name) is TaskStatus.Completed
 
-    def set_task_status(
-        self, task_name: str, status: TaskStatus, message: str = ""
-    ) -> None:
-        """Move the latest run of ``task_name`` to ``status``, in the history
-        and on the live task_state when that is the same run.
-
-        The two are separate objects (task_history holds a copy frozen at the
-        end of the run), so a status that changes after the run has to be
-        written to both.
-        """
-        for task in reversed(self.task_history):
-            if task.name == task_name:
-                task.status = status
-                task.status_message = message
-                state = self.task_state
-                if state is not None and state.task_id == task.task_id:
-                    state.status = status
-                    state.status_message = message
-                return
-
     def proposals_from(self, task_name: str) -> List[Proposal]:
         """Everything ``task_name`` asked about this item, oldest first."""
         return [p for p in self.proposals if p.asked_by_task(task_name)]

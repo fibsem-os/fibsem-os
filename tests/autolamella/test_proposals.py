@@ -546,21 +546,6 @@ def test_a_decision_on_a_finished_grid_task_changes_only_the_record(tmp_path):
     assert not grid.proposal("Overview").pending
 
 
-def test_a_grid_status_change_leaves_the_live_state_of_a_later_run_alone(tmp_path):
-    """set_task_status moves the frozen entry always, and the live task_state
-    only when it is the same run: a later task has since reused the object."""
-    exp = _experiment(tmp_path)
-    grid = _grid_finished(exp)
-    grid.task_state.name = "Screening"
-    grid.task_state.task_id = "run-2"
-    grid.task_state.status = TaskStatus.InProgress
-
-    grid.set_task_status("Overview", TaskStatus.Failed)
-
-    assert grid.task_history[-1].status is TaskStatus.Failed
-    assert grid.task_state.status is TaskStatus.InProgress
-
-
 def test_reject_needs_a_reason(tmp_path):
     exp = _experiment(tmp_path)
     lamella = exp.positions[0]

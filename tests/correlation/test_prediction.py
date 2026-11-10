@@ -61,6 +61,12 @@ def _fib(entry: dict) -> list:
 # ── pairs ────────────────────────────────────────────────────────────────
 
 
+def _fib_from_fm(proj, x: float, y: float, z_slice: float):
+    """Where the projection puts an FM point in the FIB image."""
+    p = proj.matrix @ np.array([x, y, z_slice * proj.z_anisotropy]) + proj.translation
+    return float(p[0]), float(p[1])
+
+
 def test_predictions_are_not_pairs_and_accepted_predictions_are_not_evidence():
     fib = _fib(ARCTIS)
     fm = predictions_for(fib, [], z_slice=5.0)
@@ -117,7 +123,7 @@ def test_with_no_pairs_the_map_is_the_geometry_and_predictions_are_rigid(nominal
     assert len(moved) == len(fm)
     for a, b in zip(fib, fm):
         assert b.point.z == pytest.approx(5.0)
-        assert proj.fib_from_fm(b.point.x, b.point.y, b.point.z) == pytest.approx(
+        assert _fib_from_fm(proj, b.point.x, b.point.y, b.point.z) == pytest.approx(
             (a.point.x, a.point.y), abs=1e-6
         )
     # suggestions survive a projection without pairs
@@ -184,10 +190,10 @@ def test_one_confirmed_pair_moves_the_rest_by_its_offset_and_leaves_it_alone(nom
     # every re-placed prediction maps back onto its FIB point through the
     # translation the placed pair fixed
     for k in others:
-        assert proj.fib_from_fm(fm[k].point.x, fm[k].point.y, fm[k].point.z) == (
+        assert _fib_from_fm(proj, fm[k].point.x, fm[k].point.y, fm[k].point.z) == (
             pytest.approx((fib[k].point.x, fib[k].point.y), abs=1e-6)
         )
-    assert proj.fib_from_fm(fm[i].point.x, fm[i].point.y, fm[i].point.z) == (
+    assert _fib_from_fm(proj, fm[i].point.x, fm[i].point.y, fm[i].point.z) == (
         pytest.approx((fib[i].point.x, fib[i].point.y), abs=1e-6)
     )
     # the rest move to the placed pair's slice (the burns share a surface) and

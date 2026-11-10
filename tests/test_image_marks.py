@@ -157,18 +157,18 @@ def _stack(path):
 
 
 def test_marks_draw_on_a_stack_s_max_projection_in_the_channels_shown(tmp_path):
-    from fibsem.imaging.marks import drawn_picture
+    from fibsem.imaging.marks import draw
 
     path = str(tmp_path / "stack.ome.tiff")
     _stack(path)
     marks = {"points": [{"x": 64, "y": 64, "shape": "target"}]}
-    both = drawn_picture(path, marks, ACCENT_COLOR)
+    both = draw(path, marks, ACCENT_COLOR).rgb
     assert both.shape[1] == 256 and both.shape[0] > 256  # the metadata bar
     assert _near(both[50:80, 50:80], ACCENT_COLOR).any()
     green = both[200, 200]
     assert green[1] > 100 and green[0] < 60
 
-    red_only = drawn_picture(path, None, channels=["red"])
+    red_only = draw(path, None, channels=["red"]).rgb
     assert red_only[200, 200].max() < 30
 
 
@@ -200,27 +200,29 @@ def test_a_picture_shows_the_plane_its_marks_are_on():
 
 
 def test_marks_draw_on_the_plane_they_are_on(tmp_path):
-    from fibsem.imaging.marks import drawn_pair, drawn_picture
+    from fibsem.imaging.marks import draw, draw_pair, side_by_side
 
     path = str(tmp_path / "stack.ome.tiff")
     planes_stack(path)
     on_two = {"points": [{"x": 80, "y": 20, "z": 2}]}
-    picture = drawn_picture(path, on_two, ACCENT_COLOR)
+    picture = draw(path, on_two, ACCENT_COLOR).rgb
     # Plane 2's block, not plane 0's, and the mark on it.
     assert picture[48, 80].max() > 100 and picture[48, 16].max() < 30
     assert _near(picture[10:30, 70:90], ACCENT_COLOR).any()
     # Asked for plane 0: plane 0's block, and the mark on plane 2 left out.
-    other = drawn_picture(path, on_two, ACCENT_COLOR, plane=0)
+    other = draw(path, on_two, ACCENT_COLOR, plane=0).rgb
     assert other[48, 16].max() > 100 and other[48, 80].max() < 30
     assert not _near(other[10:30, 70:90], ACCENT_COLOR).any()
 
-    pair = drawn_pair(
+    halves = draw_pair(
         path,
         path,
         {"points": [{"x": 16, "y": 20, "z": 0}, {"x": 80, "y": 20, "z": 2}]},
         before_plane=0,
         after_plane=2,
+        share_looks=False,
     )
+    pair = side_by_side(*(half.rgb for half in halves))
     left, right = pair[:, :96], pair[:, -96:]
     assert left[48, 16].max() > 100 and right[48, 80].max() > 100
     assert _near(left[10:30, 6:26], AGENT_MARK_COLOR).any()
@@ -231,16 +233,16 @@ def test_marks_draw_on_the_plane_they_are_on(tmp_path):
 def test_a_plane_is_for_a_fluorescence_stack(tmp_path):
     import pytest
 
-    from fibsem.imaging.marks import drawn_picture
+    from fibsem.imaging.marks import draw
 
     path = str(tmp_path / "stack.ome.tiff")
     planes_stack(path)
     with pytest.raises(ValueError):
-        drawn_picture(path, None, plane=3)
+        draw(path, None, plane=3)
     beam = str(tmp_path / "beam.tif")
     FibsemImage.generate_blank_image(resolution=(64, 64)).save(beam)
     with pytest.raises(ValueError, match="fluorescence stack"):
-        drawn_picture(beam, None, plane=0)
+        draw(beam, None, plane=0)
 
 
 def test_evidence_keeps_the_plane_a_mark_is_on(tmp_path):
