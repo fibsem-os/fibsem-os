@@ -31,11 +31,10 @@ dependencies = [
     "pandas>=2.0.0",
     "pyyaml>=6.0",
     "psygnal",
-    "ome_types",
+    "ome_types[lxml]",  # lxml: ome_types parses OME-XML with it when present
     # Imported directly in 16 modules (server context, labelling, FM viewers). Present
     # via matplotlib all along, but a dependency we import ourselves gets named.
     "pillow>=9.0",
-    "lxml[html_clean]",
     # tifffile hands every TIFF codec but zlib to imagecodecs, and nothing else here
     # pulled it in: without it an LZW-compressed file cannot be opened at all. The
     # fluorescence images people bring from other microscopes are exactly that -- a
