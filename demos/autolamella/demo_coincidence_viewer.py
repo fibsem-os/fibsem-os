@@ -31,7 +31,7 @@ def main() -> int:
         experiment = Experiment.load(os.path.join(sys.argv[1], "experiment.yaml"))
     else:
         experiment = Experiment(path=tempfile.mkdtemp(), name="coincidence-demo")
-    viewer = open_coincidence_viewer_window(microscope, experiment)
+    _viewer = open_coincidence_viewer_window(microscope, experiment)
     return app.exec_()
 
 

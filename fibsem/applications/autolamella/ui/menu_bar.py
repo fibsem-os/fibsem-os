@@ -781,9 +781,9 @@ class MainMenuBar(QObject):
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         self._show_toast(f"Report written: {path.name}", "success")
-        self._print_report_v2(path)
+        self._print_report(path)
 
-    def _print_report_v2(self, path) -> None:
+    def _print_report(self, path) -> None:
         from fibsem.applications.autolamella.tools import pdf_export
         from fibsem.ui.qt.threading import thread_worker
 

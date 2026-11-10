@@ -20,9 +20,6 @@ class UndercutPattern(BasePattern[FibsemRectangleSettings]):
     width: float = param(
         5.0e-6, distance_param("Width", "Width of the undercut pattern.")
     )
-    height: float = param(
-        10.0e-6, distance_param("Height", "Height of the undercut pattern.")
-    )
     depth: float = param(
         10.0e-6, distance_param("Depth", "Depth of the undercut pattern.")
     )
@@ -36,12 +33,6 @@ class UndercutPattern(BasePattern[FibsemRectangleSettings]):
             "RHS Height", "Height of the right-hand side of the undercut pattern."
         ),
     )
-    h_offset: float = param(
-        5.0e-6,
-        distance_param(
-            "Horizontal Offset", "Horizontal offset of the undercut pattern."
-        ),
-    )
     cross_section: CrossSectionPattern = param(
         CrossSectionPattern.Rectangle, cross_section_param()
     )
@@ -52,16 +43,12 @@ class UndercutPattern(BasePattern[FibsemRectangleSettings]):
 
         point = self.point
         jcut_rhs_height = self.rhs_height
-        jcut_lamella_height = self.height
         jcut_width = self.width
         jcut_trench_thickness = self.trench_width
         jcut_depth = self.depth
-        jcut_h_offset = self.h_offset
         cross_section = self.cross_section
 
         # top_jcut
-        jcut_top_centre_x = point.x + jcut_width / 2 - jcut_h_offset
-        jcut_top_centre_y = point.y + jcut_lamella_height
         jcut_top_width = jcut_width
         jcut_top_height = jcut_trench_thickness
         jcut_top_depth = jcut_depth

@@ -456,7 +456,9 @@ def test_adopt_interpolated_volume_only_resamples_the_view(qapp):
     w._coords_tab.fm_list.coordinates[0].point.z = 15.0
     w._on_canvas_add_requested(30.0, 30.0, PointType.POI)
     w._coords_tab.poi_list.coordinates[0].point.z = 11.0
-    assert sum(len(lst.coordinates) for lst in w._fm_side_lists()) == 2
+    cl = w._coords_tab
+    fm_side = [cl.fm_list, cl.poi_list, cl.fm_surface_list]
+    assert sum(len(lst.coordinates) for lst in fm_side) == 2
 
     new_image = interpolate_fm_volume(fm, fm.metadata.pixel_size_x, "linear")
     w._adopt_interpolated_volume(new_image, old_nz)

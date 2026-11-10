@@ -28,10 +28,6 @@ def log_status_message(lamella: "Lamella", step: str):
     )
 
 
-def log_status_message_raw(stage: str, step: str, petname: str = "null"):
-    logging.debug({"msg": "status", "petname": petname, stage: stage, "step": step})
-
-
 def align_feature_coincident(
     microscope: FibsemMicroscope,
     image_settings: ImageSettings,

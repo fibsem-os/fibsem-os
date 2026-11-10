@@ -551,7 +551,7 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             reduced_area=FibsemRectangle(0.25, 0.25, 0.5, 0.5),
             use_autocontrast=True,
         )
-        result = run_auto_focus(
+        run_auto_focus(
             self.microscope,
             beam_type=beam_type,
             hfw=self.microscope.get_field_of_view(beam_type),
@@ -831,11 +831,6 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
             except (TypeError, RuntimeError):
                 pass
         self._view_sync_connections = []
-
-    def clear_viewer(self):
-        controller = self._view_controller()
-        if controller is not None:
-            controller.clear()
 
     def clear_alignment_area(self):
         """Hide the alignment area, keeping its value.

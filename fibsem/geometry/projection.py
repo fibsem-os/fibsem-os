@@ -277,7 +277,6 @@ class BeamStageProjection:
             )
             if beam is None or beam.scan_rotation is None:
                 return None
-            info = metadata.system_info
             return cls(
                 geometry=geometry,
                 beam_type=beam_type,

@@ -304,9 +304,9 @@ def test_an_fm_up_to_15_degrees_from_fib_can_be_calibrated(tmp_path, t, refused)
 
     if refused:
         with pytest.raises(CalibrationRefused, match="more than 15°"):
-            steps.fm_tilt_difference()
+            steps.fm_pose_difference()
     else:
-        assert steps.fm_tilt_difference() == pytest.approx(t - 17.0)
+        assert steps.fm_pose_difference()[1] == pytest.approx(t - 17.0)
 
 
 def test_a_capture_away_from_the_fm_pose_is_refused(calibration):

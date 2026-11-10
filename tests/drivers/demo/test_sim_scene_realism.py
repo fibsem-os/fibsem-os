@@ -593,7 +593,7 @@ def test_holes_and_trenches_are_dark_in_both_beams(microscope):
     dark in the FIB as well as the SEM - the FIB is not an inverted SEM."""
     from fibsem.structures.settings import FibsemRectangleSettings
 
-    scene = _scene(
+    _scene(
         microscope,
         coincidence_offset=0.0,
         cell_type="none",
@@ -618,7 +618,7 @@ def test_holes_and_trenches_are_dark_in_both_beams(microscope):
 def test_the_fib_sees_cells_as_outlined_not_inverted(microscope):
     """In the FIB a cell body is slightly darker than the film with a bright
     rim (the edge effect); in the SEM it is brighter than the film."""
-    scene = _scene(
+    _scene(
         microscope,
         coincidence_offset=0.0,
         cell_type="yeast",

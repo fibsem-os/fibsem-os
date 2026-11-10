@@ -52,7 +52,7 @@ def _markers(overlay):
 def test_an_unfilled_marker_is_drawn_in_the_colour_it_was_given():
     """The bug. `+` has no face, so its edge colour is the whole glyph."""
     overlay = PointsOverlay(color=CYAN, marker="+", size=11)
-    canvas = _canvas_with(overlay)
+    _canvas = _canvas_with(overlay)
 
     overlay.set_points([(10.0, 10.0)])
 
@@ -65,7 +65,7 @@ def test_a_filled_marker_keeps_its_white_outline():
     """Unchanged, and deliberately: a filled marker has a face to carry the colour, and
     the white outline is what keeps it legible against a bright image."""
     overlay = PointsOverlay(color=CYAN, marker="o", size=8)
-    canvas = _canvas_with(overlay)
+    _canvas = _canvas_with(overlay)
 
     overlay.set_points([(10.0, 10.0)])
 
@@ -100,7 +100,7 @@ def test_the_label_and_the_marker_agree():
     from matplotlib.text import Annotation
 
     overlay = PointsOverlay(color=CYAN, marker="+", size=11)
-    canvas = _canvas_with(overlay)
+    _canvas = _canvas_with(overlay)
 
     overlay.set_points([(10.0, 10.0)], labels=["Lamella-01"])
 

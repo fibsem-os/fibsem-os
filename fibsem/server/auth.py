@@ -50,7 +50,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional
 from fastapi import HTTPException, Request
 from starlette.requests import HTTPConnection
 
-from fibsem.acting import AGENT, current_actor
+from fibsem.acting import ActorKind, current_actor
 from fibsem.ai.agent.calls import current_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy
@@ -547,7 +547,7 @@ def take_control(request: Request):
         yield
         return
     control = request.app.state.served.require().control
-    taking = control.take(current_actor() or AGENT, described_action(request))
+    taking = control.take(current_actor() or ActorKind.agent, described_action(request))
     try:
         entry = taking.__enter__()
     except MicroscopeBusy as busy:
@@ -583,7 +583,7 @@ def busy_refusal(busy: MicroscopeBusy) -> HTTPException:
 def caller_lease(request: Request, lease_id: str):
     """The caller's live lease *lease_id*, or 409: given up, or another's."""
     lease = request.app.state.served.leases.get(lease_id)
-    if lease is None or lease.entry.by != (current_actor() or AGENT):
+    if lease is None or lease.entry.by != (current_actor() or ActorKind.agent):
         raise refusal_error(
             409,
             "lease_gone",

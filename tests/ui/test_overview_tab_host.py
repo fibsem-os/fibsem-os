@@ -977,7 +977,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
 
     def test_restoring_does_not_write_back(self, tab, microscope, tmp_path):
         stage = microscope.sample_handling
-        grid = self._load_a_grid(tab, microscope)
+        self._load_a_grid(tab, microscope)
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:
             self._show(tab, microscope)
@@ -1053,7 +1053,7 @@ class TestAnAlignedImageIsKeptOnTheGrid:
         elsewhere = self._fm_file(microscope, str(tmp_path / "elsewhere"))
         try:
             self._show(tab, microscope)
-            key = tab.overview.load_aligned_image(elsewhere)
+            tab.overview.load_aligned_image(elsewhere)
             tab.overview.aligned_image_panel.btn_mirror.click()
 
             record = next(o for o in grid.overlays if o.kind == "image")

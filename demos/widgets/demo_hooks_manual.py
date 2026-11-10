@@ -99,7 +99,6 @@ class HookTestWindow(QMainWindow):
         layout.setSpacing(8)
         layout.setContentsMargins(16, 16, 16, 16)
 
-        label_style = "color: #888; font-size: 11px; padding-top: 8px;"
         btn_style = "color: #d6d6d6; background-color: #3d4251; padding: 8px; border-radius: 3px;"
 
         layout.addWidget(self.bell)

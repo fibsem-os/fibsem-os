@@ -61,7 +61,7 @@ class _CanvasOverlayFilter(QObject):
         w = self._canvas.width()
         x = w - self._MARGIN
         for btn in self._buttons:
-            bw, bh = btn.width(), btn.height()
+            bw = btn.width()
             x -= bw
             btn.move(x, self._MARGIN)
             x -= self._GAP

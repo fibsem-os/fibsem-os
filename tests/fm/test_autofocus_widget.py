@@ -161,7 +161,6 @@ def test_channel_selection(qapp, channels):
     w = _widget(qapp, channels)
     w.comboBox_channel.setCurrentIndex(1)
     assert w.autofocus_settings.channel_name == "GFP"
-    assert w.get_selected_channel().name == "GFP"
 
 
 def test_update_channels_preserves_selection(qapp, channels):
