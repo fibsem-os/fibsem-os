@@ -76,3 +76,31 @@ def test_a_report_reads_as_its_step():
     assert progress_update(CoatingProgress(CoatingStatus.FINISHED)).finished
     failed = progress_update(CoatingProgress(CoatingStatus.FAILED, error="stuck"))
     assert failed.is_failed and failed.message == "stuck"
+
+
+def test_a_deposit_someone_else_started_shows_here(qapp, arctis, monkeypatch):
+    """The agent's deposition, a run on the service from another thread: the
+    panel shows Cancel, and Cancel stops it."""
+    import threading
+
+    widget = CoatingWidget(microscope=arctis)
+    stopped = threading.Event()
+    monkeypatch.setattr(arctis.coating, "stop", stopped.set)
+
+    def deposit():
+        with arctis.coating.runs.tracking("deposit"):
+            stopped.wait(10)
+
+    threading.Thread(target=deposit, daemon=True).start()
+    _wait_until(qapp, lambda: widget.deposit_button.text() == "Cancel")
+    assert widget.deposit_button.text() == "Cancel"
+    assert widget._running is None, "not this panel's run"
+    assert widget.deposit_button.isEnabled()
+    assert not widget.sputter_button.isEnabled()
+
+    widget.deposit_button.click()
+    assert stopped.wait(5)
+    _wait_until(qapp, lambda: widget.deposit_button.text() == "Deposit")
+    assert widget.deposit_button.text() == "Deposit"
+    assert widget.sputter_button.isEnabled()
+    widget._teardown_connections()

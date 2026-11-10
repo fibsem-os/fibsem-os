@@ -29,6 +29,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import quote
 
@@ -57,13 +58,39 @@ from fibsem.workflows.evidence import EvidenceRefused, frame_path
 from fibsem.workflows.evidence import load as load_evidence
 from fibsem.workflows.proposals import ACTIONS, Decision, DecisionOutcome, Proposal
 
-PENDING = "pending"
-APPLYING = "applying"
-APPLIED = "applied"
-FAILED = "failed"
-REJECTED = "rejected"
-CANCELLED = "cancelled"
-_DONE = (APPLIED, FAILED, REJECTED, CANCELLED)
+
+class RequestStatus(str, Enum):
+    """Where a request is: waiting for the operator, running, or how it ended.
+    Compares equal to its string, which is what the wire carries."""
+
+    PENDING = "pending"
+    APPLYING = "applying"
+    APPLIED = "applied"
+    FAILED = "failed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+
+    def __str__(self) -> str:
+        return self.value
+
+    @property
+    def finished(self) -> bool:
+        return self not in (RequestStatus.PENDING, RequestStatus.APPLYING)
+
+
+PENDING = RequestStatus.PENDING
+APPLYING = RequestStatus.APPLYING
+APPLIED = RequestStatus.APPLIED
+FAILED = RequestStatus.FAILED
+REJECTED = RequestStatus.REJECTED
+CANCELLED = RequestStatus.CANCELLED
+
+# The only moves a request makes. A finished request never moves again, so
+# one that was cancelled can't be approved into running.
+MOVES = {
+    PENDING: (APPLYING, REJECTED, CANCELLED),
+    APPLYING: (APPLIED, FAILED, CANCELLED),
+}
 
 MAX_ACTIONS = 20
 # How long one read of a running step's run waits for it to end, in seconds.
@@ -118,7 +145,7 @@ class AgentRequest:
     actions: List[Action]
     reason: str
     created_at: float = field(default_factory=time.time)
-    status: str = PENDING
+    status: RequestStatus = PENDING
     decided_by: Optional[str] = None
     decided_at: Optional[float] = None
     # The operator's words on a reject, for the agent.
@@ -144,7 +171,7 @@ class AgentRequest:
     def view(self) -> AgentRequestView:
         return AgentRequestView(
             request_id=self.id,
-            status=self.status,
+            status=self.status.value,
             reason=self.reason,
             actions=[a.view() for a in self.actions],
             created_at=self.created_at,
@@ -599,7 +626,7 @@ class RequestStore:
             # A cancel while it was being decided: _apply runs none of it.
             if request._abort is not None:
                 request.cancel_reason = request._abort
-            request.status = APPLYING
+            self._move_locked(request, APPLYING)
         self._changed(request)
         threading.Thread(
             target=self._apply,
@@ -618,7 +645,7 @@ class RequestStore:
         request.reject_reason = str(reason or "").strip()
         self._decide(request, DecisionOutcome.Rejected, by, request.reject_reason)
         with self._lock:
-            self._finish_locked(request, REJECTED)
+            self._move_locked(request, REJECTED)
         self._changed(request)
         return request
 
@@ -722,12 +749,12 @@ class RequestStore:
                     status = FAILED
                     break
             with self._lock:
-                self._finish_locked(request, status)
+                self._move_locked(request, status)
             self._emit(
                 "request_finished",
                 {
                     "request_id": request.id,
-                    "status": status,
+                    "status": status.value,
                     "applied": sum(1 for r in request.results if r["ok"]),
                     "of": len(request.actions),
                     "cancelled": sum(1 for r in request.results if r.get("cancelled")),
@@ -871,12 +898,21 @@ class RequestStore:
             )
         return request
 
-    def _finish_locked(self, request: AgentRequest, status: str) -> None:
-        request.status = status
-        request._done.set()
+    def _move_locked(self, request: AgentRequest, to: RequestStatus) -> None:
+        """Move *request* to *to*, the one place its status changes. The
+        operator's decision is over once it has moved, so ``_deciding`` ends
+        here too."""
+        if to not in MOVES.get(request.status, ()):
+            raise RuntimeError(
+                f"Request {request.id} can't go from {request.status} to {to}."
+            )
+        request.status = to
+        request._deciding = False
+        if to.finished:
+            request._done.set()
 
     def _trim_locked(self) -> None:
-        done = [r for r in self._requests.values() if r.status in _DONE]
+        done = [r for r in self._requests.values() if r.status.finished]
         for request in sorted(done, key=lambda r: r.created_at)[
             : max(0, len(done) - KEEP)
         ]:
@@ -914,6 +950,8 @@ class RequestStore:
             actor = experiment.actor()
         else:
             actor = Actor.parse(by) if ":" in by else Actor.task(by)
+        # On success _deciding stays set until the caller moves the request
+        # on: in between, a withdraw or a cancel must see it as decided.
         try:
             decided = experiment.decide(
                 None,
@@ -926,10 +964,13 @@ class RequestStore:
                     proposal_id=request.id,
                 ),
             )
-        finally:
+        except BaseException:
             with self._lock:
                 request._deciding = False
+            raise
         if not decided.applied:
+            with self._lock:
+                request._deciding = False
             raise RequestRefused(
                 409, decided.error_type or "not_pending", decided.reason
             )
@@ -940,7 +981,7 @@ class RequestStore:
     def _close(
         self,
         request: AgentRequest,
-        status: str,
+        status: RequestStatus,
         why: str,
         actor: Optional[Actor] = None,
     ) -> bool:
@@ -954,7 +995,7 @@ class RequestStore:
                 request._abort = why
                 return False
             request.cancel_reason = why
-            self._finish_locked(request, status)
+            self._move_locked(request, status)
         if request.experiment is not None:
             request.experiment.withdraw_experiment_proposal(request.id, why, actor)
         self._changed(request)
