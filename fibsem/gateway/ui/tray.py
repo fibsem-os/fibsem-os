@@ -21,7 +21,14 @@ from PyQt5.QtWidgets import (
     QSystemTrayIcon,
 )
 
-from fibsem.gateway.gateway import OFF, Gateway, GatewayRefused, GatewayState
+from fibsem.gateway.gateway import (
+    OFF,
+    STARTING,
+    STOPPING,
+    Gateway,
+    GatewayRefused,
+    GatewayState,
+)
 from fibsem.gateway.main import quit_gateway
 from fibsem.server.pairing import HUB, OPERATOR, SWITCH_MODES
 from fibsem.theme.tokens import (
@@ -39,6 +46,10 @@ ASK_FORCE = "ask_force"  # a report that asks whether to stop past a running wor
 
 
 def mode_name(state: GatewayState) -> str:
+    if state.switch == STARTING:
+        return "Starting…"
+    if state.switch == STOPPING:
+        return "Stopping…"
     if state.mode == OFF:
         return "Off"
     return "Running with the window" if state.window else "Running without a window"
@@ -97,7 +108,7 @@ class GatewayTray(QSystemTrayIcon):
             self._quit()
             return
         state = self._gateway.state()
-        shown = (state.mode, state.window, state.switching, state.app, state.experiment)
+        shown = (state.mode, state.window, state.switch, state.app, state.experiment)
         if shown == self._shown:
             return
         self._shown = shown
