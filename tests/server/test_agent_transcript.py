@@ -65,13 +65,21 @@ def test_the_lines_are_kept_in_their_own_file_and_read_back_in_order(server):
     assert [e["text"] for e in since["entries"]] == ["python a.py", "no cv2", "b.py"]
 
 
-def test_with_no_experiment_open_nothing_is_kept(server):
-    client, experiment, _ = server
+def test_with_no_experiment_open_it_waits_in_the_sessions_folder(server, tmp_path):
+    client, experiment, folder = server
     experiment["path"] = None
-    answer = _post(client, "s1", {"kind": "said", "text": "x"})
-    assert answer.status_code == 409
-    assert answer.json()["detail"]["error_type"] == "no_experiment"
-    assert client.get("/app/agent/transcript").json() == {"entries": []}
+    report(client.app.state.auth, {"session_id": "s1"})
+    assert _post(client, "s1", {"kind": "said", "text": "before"}).status_code == 200
+    assert not (folder / "agent").exists()
+    entries = client.get("/app/agent/transcript").json()["entries"]
+    assert [e["text"] for e in entries] == ["before"]
+    # The first experiment that opens takes it, and what follows.
+    experiment["path"] = str(folder)
+    _post(client, "s1", {"kind": "said", "text": "after"})
+    kept = (folder / "agent" / "transcript-s1.jsonl").read_text().splitlines()
+    assert [json.loads(line)["text"] for line in kept] == ["before", "after"]
+    entries = client.get("/app/agent/transcript").json()["entries"]
+    assert [e["text"] for e in entries] == ["before", "after"]
 
 
 @pytest.mark.parametrize(

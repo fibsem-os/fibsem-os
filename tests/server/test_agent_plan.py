@@ -217,7 +217,8 @@ def test_a_restarted_app_reads_the_plan_back_and_none_is_kept_without_a_session(
     agent.post("/app/agent/session", json={"ended": True})
     assert section(agent, "Brief", "x").json()["detail"]["error_type"] == "no_session"
 
-    # No experiment open: held in memory only.
+    # No experiment open: kept in the session's own folder, so a restarted
+    # app reads it back, and moved into the first experiment that opens.
     opened["path"] = None
     agent.post("/app/agent/session", json={"session_id": "s3"})
     assert section(agent, "Progress", "Started.").status_code == 200
@@ -225,6 +226,19 @@ def test_a_restarted_app_reads_the_plan_back_and_none_is_kept_without_a_session(
         {"name": "Progress", "text": "Started."}
     ]
     assert not list(experiment.glob("agent/plan-s3.md"))
+    assert PlanStore(lambda: None).current("s3") == {"Progress": "Started."}
+    later = tmp_path / "grid-2"
+    later.mkdir()
+    opened["path"] = str(later)
+    section(agent, "Brief", "Sample: yeast")
+    kept = (later / "agent" / "plan-s3.md").read_text(encoding="utf-8")
+    assert "Started." in kept and "Sample: yeast" in kept
+    assert PlanStore(lambda: None).current("s3") == {}, "moved, not copied"
+    # The session keeps its experiment when the operator opens another.
+    opened["path"] = str(experiment)
+    section(agent, "Progress", "Milled 01.")
+    assert "Milled 01." in (later / "agent" / "plan-s3.md").read_text()
+    assert not (experiment / "agent" / "plan-s3.md").exists()
 
 
 def test_a_plan_reads_back_as_it_was_written():

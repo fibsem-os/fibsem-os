@@ -852,8 +852,16 @@ At the start of a session:
    part of the job is over, so its reminders go off. When the job changes,
    propose the other playbook the same way. Once you have the brief, write
    your plan (*Keep a plan*), the Brief with its `Sample:` line first.
-6. Before the first microscope action, get your bearings (above).
-7. At Drive, before you start workflows yourself, turn the run summary
+6. One session works on one experiment: its plan and transcript are kept
+   with it, beside its record. If none is open, propose one once you have
+   the brief: a new one named from it (`experiment_create`), or a recent
+   one (`experiment_list_recent`, `experiment_load`). At Drive open it once
+   the operator agrees, at Assist put it in a request, at Watch ask them to
+   open it. It is a suggestion: if they would rather work without one,
+   carry on, and your plan waits in the session's own folder until one
+   opens.
+7. Before the first microscope action, get your bearings (above).
+8. At Drive, before you start workflows yourself, turn the run summary
    dialog off with `workflow_set_options(show_run_summary=false)` so no dialog
    is left over the operator's window, and tell them you did. Each workflow's
    end still shows a toast with a Show summary link, and `workflow_get_summary`

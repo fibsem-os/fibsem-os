@@ -21,8 +21,9 @@ session reports it, and fibsem-agent wakes the agent before it and at it. A
 clock time alone is written out with its date as the plan is saved ("by
 2026-11-06 07:00", its next occurrence), so it doesn't move once passed.
 
-Kept at ``agent/plan-<session id>.md`` in the open experiment, beside the
-transcript, and in memory when no experiment is open.
+Kept at ``agent/plan-<session id>.md`` in the session's experiment, beside
+the transcript, or in the session's own folder until an experiment is open
+(`agent_files`).
 """
 
 import logging
@@ -35,6 +36,7 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.server.agent_files import AgentFiles
 from fibsem.server.auth import (
     AuthConfig,
     is_operator_token,
@@ -198,15 +200,17 @@ def sample(sections: Dict[str, str]) -> Optional[str]:
 
 
 class PlanStore:
-    """The session's plan, in memory and beside the open experiment."""
+    """The session's plan, in memory and in the session's folder
+    (`AgentFiles`)."""
 
     def __init__(
         self,
         experiment_path: Callable[[], Optional[str]],
         experiment_sample: Optional[Callable[[], Optional[str]]] = None,
         set_experiment_sample: Optional[Callable[[str], bool]] = None,
+        files: Optional[AgentFiles] = None,
     ) -> None:
-        self._experiment_path = experiment_path
+        self._files = files or AgentFiles(experiment_path)
         # The open experiment's sample (its metadata), read and written with
         # the Brief's: a sample named when the experiment was made is the
         # session's from the start.
@@ -217,19 +221,13 @@ class PlanStore:
         self.updated: Optional[str] = None
         self.updated_by: Optional[str] = None
 
-    def _folder(self) -> Optional[Path]:
-        path = self._experiment_path()
-        if not path or not os.path.isdir(path):
-            return None
-        return Path(path) / FOLDER
-
     def _file(self, session_id: str) -> Optional[Path]:
-        folder = self._folder()
+        folder = self._files.folder(session_id)
         return folder / f"plan-{session_id}.md" if folder is not None else None
 
     def current(self, session_id: Optional[str]) -> Dict[str, str]:
-        """The plan of *session_id*: what is held, else its file in the open
-        experiment (a restarted app, a resumed session)."""
+        """The plan of *session_id*: what is held, else its file (a
+        restarted app, a resumed session)."""
         if session_id != self.session_id:
             self.session_id, self.sections = session_id, {}
             self.updated = self.updated_by = None
@@ -254,7 +252,7 @@ class PlanStore:
         if path is None:
             return
         try:
-            path.parent.mkdir(exist_ok=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
             partial = path.with_name(path.name + ".partial")
             partial.write_text(render(sections), encoding="utf-8")
             os.replace(partial, path)
@@ -343,7 +341,9 @@ def build_agent_plan_router(
     def _store(request: Request) -> PlanStore:
         store = getattr(request.app.state, "agent_plan", None)
         if store is None:
-            store = request.app.state.agent_plan = PlanStore(experiment_path)
+            store = request.app.state.agent_plan = PlanStore(
+                experiment_path, files=getattr(request.app.state, "agent_files", None)
+            )
         return store
 
     def _record(kind: str, payload: Dict[str, Any], actor: str) -> None:

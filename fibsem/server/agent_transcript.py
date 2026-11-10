@@ -3,13 +3,13 @@
 ``fibsem-agent`` posts the lines it prints between the agent's messages (its
 words, and one line per step: "Wrote analyse.py", "Ran python analyse.py") so
 the web page can show what the agent was doing without a login on the agent's
-machine. They go to ``agent/transcript-<session id>.jsonl`` in the open
-experiment, not on the record: the record stays the events the app and later
-agents read. Self-reported, like the session.
+machine. They go to ``agent/transcript-<session id>.jsonl`` in the session's
+experiment, or its own folder until one is open (`agent_files`), not on the
+record: the record stays the events the app and later agents read.
+Self-reported, like the session.
 """
 
 import json
-import os
 import re
 import time
 from pathlib import Path
@@ -18,7 +18,8 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.server.auth import refusal_error, require_level
+from fibsem.server.agent_files import AgentFiles
+from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.util.timestamps import iso_from_posix
 
 FOLDER = "agent"
@@ -68,12 +69,11 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
     return entry
 
 
-def read(experiment: str, since: Optional[str] = None) -> List[Dict[str, Any]]:
-    """The experiment's transcript entries, every session's, oldest first;
-    from *since* (an ISO time) on when given. The newest `READ_LIMIT`."""
+def read(folder: Path, since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """The transcript entries in an agent/ *folder*, every session's, oldest
+    first; from *since* (an ISO time) on when given. The newest `READ_LIMIT`."""
     from datetime import datetime
 
-    folder = Path(experiment) / FOLDER
     entries: List[Dict[str, Any]] = []
     for path in sorted(folder.glob("transcript-*.jsonl")):
         session = path.stem[len("transcript-") :]
@@ -103,13 +103,11 @@ def build_agent_transcript_router(
         prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
 
-    def _experiment() -> str:
-        path = experiment_path()
-        if not path or not os.path.isdir(path):
-            raise refusal_error(
-                409, "no_experiment", "No experiment is open to keep it in."
-            )
-        return path
+    def _files(request: Request) -> AgentFiles:
+        files = getattr(request.app.state, "agent_files", None)
+        if files is None:
+            files = request.app.state.agent_files = AgentFiles(experiment_path)
+        return files
 
     @router.post("/transcript")
     def post_transcript(request: Request, body: Dict[str, Any]):
@@ -121,8 +119,8 @@ def build_agent_transcript_router(
             raise _invalid(f"entries is a list of at most {MAX_ENTRIES}.")
         now = time.time()
         entries = [_entry(item, now) for item in raw]
-        folder = Path(_experiment()) / FOLDER
-        folder.mkdir(exist_ok=True)
+        folder = _files(request).folder(session_id)
+        folder.mkdir(parents=True, exist_ok=True)
         with open(
             folder / f"transcript-{session_id}.jsonl", "a", encoding="utf-8"
         ) as f:
@@ -131,10 +129,14 @@ def build_agent_transcript_router(
         return {"kept": len(entries)}
 
     @router.get("/transcript")
-    def get_transcript(since: Optional[str] = None):
-        path = experiment_path()
-        if not path or not os.path.isdir(path):
+    def get_transcript(request: Request, since: Optional[str] = None):
+        # The running session's folder, else the open experiment's.
+        auth: AuthConfig = request.app.state.auth
+        session = auth.agent_session or {}
+        running = None if session.get("ended") else session.get("session_id")
+        folder = _files(request).folder(running if isinstance(running, str) else None)
+        if folder is None or not folder.is_dir():
             return {"entries": []}
-        return {"entries": read(path, since)}
+        return {"entries": read(folder, since)}
 
     return router
