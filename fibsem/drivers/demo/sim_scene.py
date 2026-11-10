@@ -42,6 +42,7 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import map_coordinates as ndi_map_coordinates
 from scipy.ndimage import zoom as ndi_zoom
 
+from fibsem.drivers.demo import sim_relief
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -291,6 +292,9 @@ class MilledRegion:
     # burn has one, the redeposition halo that makes the mark easy to find in
     # the reflection channel and the SEM.
     halo: float = 0.0
+    # how the milling beam saw it, for the relief renderer's cut along the
+    # beam (a sim_relief.BeamCut); None cuts straight down
+    beam_cut: Optional[object] = None
 
 
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
@@ -601,6 +605,10 @@ class SampleScene:
     # a fiducial-like cross at each grid centre: a landmark for eyeballing
     # navigation and for tests, absent on a real grid - off by default
     fiducial: bool = False
+    # how the beams see the scene: "flat" paints it onto the sample plane;
+    # "relief" gives everything a height and looks along the beam (shading,
+    # occlusion, trenches cut along the milling beam) - see sim_relief
+    renderer: str = "flat"
     # the grid's usable radius; beyond it the metal rim, then the holder
     grid_radius: float = 1.4e-3  # m
     grid_rim_width: float = 150e-6  # m
@@ -825,6 +833,68 @@ class SampleScene:
             }
         )
 
+    def _view_anchor(
+        self,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+        beam_current: Optional[float] = None,
+        lift: float = 0.0,
+    ) -> Tuple[float, float, float, float]:
+        """Where the world anchor appears in a view (m, scan frame, y down),
+        the foreshortening and the scan rotation. `lift` raises the anchor
+        (m, stage z): where a point that high appears."""
+        reference = self.reference_position
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        if lift:
+            reference = deepcopy(reference)
+            reference.z = (reference.z or 0.0) + lift
+        ax, ay = projection.to_plane(reference, stage_position)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        theta = float(projection.scan_rotation or 0.0)
+        if np.isclose(theta, np.pi):
+            ax, ay = -ax, -ay
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        ax, ay = ax * cos_t - ay * sin_t, ax * sin_t + ay * cos_t
+        offset = self.beam_offset.get(beam_type.name.lower(), (0.0, 0.0))
+        current_offset = self.current_offset(beam_type, beam_current)
+        ax = ax + beam_shift[0] + offset[0] + current_offset[0]
+        ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
+        return ax, ay, fs, theta
+
+    def view_frame(
+        self,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+        beam_current: Optional[float] = None,
+    ):
+        """How a view sees the world, for the relief renderer: the anchor in
+        the unrotated frame and how far a point moves per unit height."""
+        args = (beam_type, stage_position, projection, beam_shift, beam_current)
+        ax, ay, fs, theta = self._view_anchor(*args)
+        _, ay_up, _, _ = self._view_anchor(*args, lift=1e-6)
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+
+        def unrotate(x, y):
+            return x * cos_t + y * sin_t, -x * sin_t + y * cos_t
+
+        a = unrotate(ax, ay)
+        a_up = unrotate(ax, ay_up)
+        return sim_relief.ViewFrame(
+            anchor=(a[0] * 1e6, a[1] * 1e6),
+            theta=theta,
+            turn=self._turn(stage_position),
+            fs=float(fs),
+            # a height moves a point across the view by the cosine of the
+            # glancing angle whose sine is the foreshortening, the way a
+            # stage raise moves it
+            k=float(np.copysign(np.sqrt(max(0.0, 1 - fs * fs)), a_up[1] - a[1])),
+        )
+
     def view_to_world(
         self,
         beam_type: BeamType,
@@ -839,20 +909,10 @@ class SampleScene:
         centre of a beam's view (plane convention: y down) - the inverse of
         the mapping render() draws with: un-shift, un-rotate the scan,
         un-foreshorten."""
-        reference = self.reference_position
-        if self.tilt_axis_offset:
-            reference = self._non_eucentric_reference(stage_position, projection)
-        ax, ay = projection.to_plane(reference, stage_position)
-        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
-        theta = float(projection.scan_rotation or 0.0)
-        if np.isclose(theta, np.pi):
-            ax, ay = -ax, -ay
+        ax, ay, fs, theta = self._view_anchor(
+            beam_type, stage_position, projection, beam_shift, beam_current
+        )
         cos_t, sin_t = np.cos(theta), np.sin(theta)
-        ax, ay = ax * cos_t - ay * sin_t, ax * sin_t + ay * cos_t
-        offset = self.beam_offset.get(beam_type.name.lower(), (0.0, 0.0))
-        current_offset = self.current_offset(beam_type, beam_current)
-        ax = ax + beam_shift[0] + offset[0] + current_offset[0]
-        ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
         vx, vy = dx - ax, dy - ay
         turn = self._turn(stage_position)
         return (
@@ -882,6 +942,30 @@ class SampleScene:
         def world(cx, cy):
             return self.view_to_world(
                 beam_type, stage_position, projection, cx, -cy, beam_shift, beam_current
+            )
+
+        frame = None
+        if self.renderer == "relief":
+            frame = self.view_frame(
+                beam_type, stage_position, projection, beam_shift, beam_current
+            )
+
+        def cut(corners):
+            """The pattern as the milling beam sees it, for a cut along it."""
+            if frame is None:
+                return None
+            c, s_ = np.cos(frame.theta), np.sin(frame.theta)
+            polygon = np.array(
+                [
+                    (
+                        (x * c - y * s_) * 1e6 - frame.anchor[0],
+                        (-x * s_ - y * c) * 1e6 - frame.anchor[1],
+                    )
+                    for x, y in corners
+                ]
+            )
+            return sim_relief.BeamCut(
+                polygon=polygon, turn=frame.turn, fs=frame.fs, k=frame.k
             )
 
         regions: List[MilledRegion] = []
@@ -916,7 +1000,9 @@ class SampleScene:
                     for x, y in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh))
                 ]
             points = np.array([world(x, y) for x, y in corners])
-            regions.append(MilledRegion(points=points, depth=depth))
+            regions.append(
+                MilledRegion(points=points, depth=depth, beam_cut=cut(corners))
+            )
         self.milled.extend(regions)
         logging.debug(
             {
@@ -1340,6 +1426,7 @@ class SampleScene:
         "ice_size",  # [min, max] m
         "grid_radius",  # m
         "grid_rim_width",  # m
+        "renderer",  # flat | relief
     )
 
     @classmethod
@@ -1437,6 +1524,14 @@ class SampleScene:
         if self.reference_position is None:
             self.anchor(stage_position)
         self.place_grids(projection)
+        if self.renderer == "relief":
+            frame = self.view_frame(
+                beam_type, stage_position, projection, beam_shift, beam_current
+            )
+            beam = "SEM" if beam_type is BeamType.ELECTRON else "FIB"
+            return sim_relief.render(
+                self, beam, frame, pixel_size, (width, height), rng
+            )
 
         # where the world anchor appears in the CURRENT view. Asked this way
         # round (anchor projected into the current pose, not the current
