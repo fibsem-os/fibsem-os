@@ -72,7 +72,7 @@ FIELDS = (
     "rules",
     "plan",
 )
-# plan.md's headings when a playbook names none (fibsem.server.agent_plan).
+# plan.md's headings when a playbook names none (fibsem.server.agent.plan).
 PLAN = ["Brief", "Playbook", "Rules", "Steps", "Progress", "Summary"]
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 SESSION = (

@@ -1,5 +1,5 @@
 from fibsem.ai.agent.catalog import CATALOG, GROUP_TITLES
-from fibsem.server.agent_customisation import CATEGORIES, description
+from fibsem.server.agent.customisation import CATEGORIES, description
 
 
 def test_every_tool_group_is_in_one_category():

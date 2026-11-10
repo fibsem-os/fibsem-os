@@ -23,7 +23,7 @@ dashboard.
 
 An **operator token** is the operator from outside the window: the web page,
 or their own script, or their app on another computer. It reaches the
-operator's routes (`fibsem.server.operator`): message the agent, set its
+operator's routes (`fibsem.server.agent.operator`): message the agent, set its
 level, Stop agent, approve or reject its request. It also reaches the
 agent's routes as the operator: what it does is the operator's on the record
 and in control. The blocklist still applies. The level never gates it,
@@ -117,7 +117,7 @@ class AuthConfig:
     # The paired computer the agent's last request came from; None for the
     # App Server's own agent token.
     agent_computer: Optional[str] = None
-    # The agent's session as its harness reports it (fibsem.server.agent_session):
+    # The agent's session as its harness reports it (fibsem.server.agent.session):
     # model, goal, budget and spend. Self-reported, like agent_client.
     agent_session: Optional[Dict[str, Any]] = None
     # Called after each level change and on Stop agent (on_level_change).

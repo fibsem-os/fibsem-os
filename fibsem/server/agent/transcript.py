@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.server.agent_files import AgentFiles
+from fibsem.server.agent.files import AgentFiles
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.util.timestamps import iso_from_posix
 

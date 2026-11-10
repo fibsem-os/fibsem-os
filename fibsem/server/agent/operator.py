@@ -27,13 +27,14 @@ from fibsem.ai.agent.levels import (
 from fibsem.ai.agent.session import MESSAGE_LIMIT, AgentSession
 from fibsem.codec import encode
 from fibsem.imaging.marks import plane_shown
-from fibsem.server import agent_plan, files
-from fibsem.server.agent_customisation import customisation
-from fibsem.server.agent_setup import setup_text
+from fibsem.server import files
+from fibsem.server.agent import plan as agent_plan
+from fibsem.server.agent.customisation import customisation
+from fibsem.server.agent.requests import RequestRefused
+from fibsem.server.agent.setup import setup_text
 from fibsem.server.auth import refusal_error, require_operator
 from fibsem.server.knowledge_routes import _instrument, _source
 from fibsem.server.parts import served_parts
-from fibsem.server.requests import RequestRefused
 from fibsem.server.responses import (
     AgentCustomisation,
     AgentStopped,

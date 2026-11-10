@@ -64,7 +64,7 @@ def budget_low(session: Optional[Dict[str, Any]]) -> bool:
 
 def session_text(session: Optional[Dict[str, Any]]) -> Optional[str]:
     """ "claude-opus · Mill 01 and 02 · $2.10 of $20" from the agent's reported
-    session (``fibsem.server.agent_session``); None when it reported none.
+    session (``fibsem.server.agent.session``); None when it reported none.
     With the budget low, the spend leads, so a narrow card keeps it."""
     if not session:
         return None
@@ -684,7 +684,7 @@ class AgentSession:
 
     def reported_session(self) -> Optional[dict]:
         """The agent's session as it reported it: model, goal, budget and
-        spend (``fibsem.server.agent_session``), or None."""
+        spend (``fibsem.server.agent.session``), or None."""
         host = self._session.app_server
         if host is None:
             return None

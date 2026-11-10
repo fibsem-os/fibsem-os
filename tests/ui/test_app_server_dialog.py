@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip("PyQt5")
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
-from fibsem.server.agent_setup import agent_setup_text, sidecar_path  # noqa: E402
+from fibsem.server.agent.setup import agent_setup_text, sidecar_path  # noqa: E402
 from fibsem.server.auth import AuthConfig  # noqa: E402
 from fibsem.server.hosting import event_log_url  # noqa: E402
 from fibsem.ui.agent.app_server_dialog import (  # noqa: E402

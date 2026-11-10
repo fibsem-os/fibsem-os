@@ -380,7 +380,7 @@ class _Store:
         self.listeners = []
 
     def recent(self):
-        from fibsem.server.requests import AgentRequest
+        from fibsem.server.agent.requests import AgentRequest
 
         out = []
         for d in self.requests:
