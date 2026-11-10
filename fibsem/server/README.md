@@ -21,6 +21,17 @@ a connect token), so local clients find it without copying anything.
 
 The Swagger UI is available at `http://<host>:8001/docs`.
 
+### What it serves
+
+The `/microscope` routes serve an instrument (`fibsem.instrument.Instrument`):
+the connected microscope (`FibsemMicroscope`, kind `fibsem`), and any devices
+built from a Device Server file with no microscope (`DeviceInstrument`, kind
+`devices`), passed to `build_server(instruments=[...])`. Their devices list
+together under `/microscope/devices`, a name the microscope has winning. The
+state routes (`/microscope`, `/microscope/state`) need a microscope and answer
+`409 not_connected` without one; the device routes answer it only when nothing
+is served. `GET /capabilities` lists the kinds served now under `instruments`.
+
 ### Authentication and the agent level
 
 Every request needs the server's bearer token, sent as an
@@ -198,7 +209,7 @@ which follow the stop rule above.
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/health` | Server status |
-| `GET` | `/capabilities` | API version, routers served, the agent level |
+| `GET` | `/capabilities` | API version, routers served, the agent level, the instruments served |
 | `GET` | `/microscope` | Who the microscope is: manufacturer, model, serial number, software, fitted parts, its configuration |
 | `GET`/`PUT` | `/microscope/state` | The whole microscope state |
 | `GET` | `/microscope/devices` | Every device: parameters (type and its `type_path`, unit, limits, choices, settable), and commands and queries (arguments, what they return) |

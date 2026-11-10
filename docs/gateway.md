@@ -79,8 +79,8 @@ reminders and rules.
 
 Start needs:
 
-- **The app running**, with its window or without. The agent acts through it.
-- **A microscope connected.** The agent works on it.
+- **The app running**, with its window or without. The agent acts through it. A microscope
+  needn't be connected: without one the agent can still read and review an experiment.
 - **An API key**, stored once with `fibsem-cli key set ANTHROPIC_API_KEY` (see below).
 - **A playbook that doesn't run code.** Windows has no sandbox for the agent's code.
 

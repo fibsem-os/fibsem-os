@@ -193,12 +193,10 @@ function Start({
   state,
   appRunning,
   appStarting,
-  connected,
 }: {
   state: AgentState;
   appRunning: boolean;
   appStarting?: boolean;
-  connected: boolean;
 }) {
   const client = useQueryClient();
   const playbooks = useQuery({
@@ -367,10 +365,6 @@ function Start({
               <span className="text-xs text-muted-foreground">
                 Start the app first: the agent acts through it.
               </span>
-            ) : !connected ? (
-              <span className="text-xs text-muted-foreground">
-                Connect the microscope first: the agent works on it.
-              </span>
             ) : !state.api_key ? null : (
               <span className="text-xs text-muted-foreground">
                 Uses ANTHROPIC_API_KEY on this PC.
@@ -381,7 +375,6 @@ function Start({
               disabled={
                 start.isPending ||
                 !appRunning ||
-                !connected ||
                 !state.api_key ||
                 !chosen
               }
@@ -501,11 +494,9 @@ function Run({ running }: { running: Running }) {
 export function AgentCard({
   appRunning,
   appStarting,
-  connected,
 }: {
   appRunning: boolean;
   appStarting?: boolean;
-  connected: boolean;
 }) {
   const agent = useQuery({
     queryKey: ["gateway/agent"],
@@ -551,7 +542,6 @@ export function AgentCard({
             state={state}
             appRunning={appRunning}
             appStarting={appStarting}
-            connected={connected}
           />
         ))}
     </Card>
@@ -672,11 +662,9 @@ function ResumeForm({
 export function AgentSessions({
   appRunning,
   appStarting,
-  connected,
 }: {
   appRunning: boolean;
   appStarting?: boolean;
-  connected: boolean;
 }) {
   const agent = useQuery({
     queryKey: ["gateway/agent"],
@@ -690,11 +678,9 @@ export function AgentSessions({
     ? "Waiting for the app to start…"
     : !appRunning
       ? "Start the app first: the agent acts through it."
-      : !connected
-        ? "Connect the microscope first: the agent works on it."
-        : !state?.api_key
-          ? "No API key on this PC."
-          : null;
+      : !state?.api_key
+        ? "No API key on this PC."
+        : null;
   return (
     <Card className="flex flex-col gap-2">
       <CardTitle>Recent agent sessions</CardTitle>

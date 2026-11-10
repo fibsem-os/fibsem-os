@@ -1,7 +1,7 @@
 """The gateway's agent: one ``fibsem-agent`` for this PC's microscope, started
 and ended from the gateway's page or tray, kept by an `AgentSessionManager`.
 
-Start needs the app running with a microscope connected. It pairs the agent's
+Start needs the app running, with or without a microscope connected. It pairs the agent's
 token straight into the shared ``paired.json`` (the operator starting it is
 the Allow), sets the App Server's level, then starts
 ``fibsem-agent --playbook NAME``. The token and the API key go only in the
@@ -38,7 +38,7 @@ from fibsem.ai.agent.manager import (
     read_json,
 )
 from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
-from fibsem.gateway.host import call_host, microscope_connected
+from fibsem.gateway.host import call_host
 from fibsem.keystore import stored_secret
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.pairing import AGENT, PairedTokens
@@ -187,7 +187,6 @@ class GatewayAgent:
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         level: Callable[[str, str], None] = set_level,
         reachable: Callable[[str], bool] = answers,
-        connected: Callable[[str], bool] = microscope_connected,
         agent_json: Callable[[List[str]], Any] = fibsem_agent_json,
         stamp: Callable[[], Any] = knowledge_stamp,
         environ: Optional[Dict[str, str]] = None,
@@ -200,7 +199,6 @@ class GatewayAgent:
         self._discovery = discovery
         self._level = level
         self._answers = reachable
-        self._connected = connected
         self._agent_json = agent_json
         self._stamp = stamp
         # fibsem-agent's answers by flags, while the files they come from
@@ -408,12 +406,6 @@ class GatewayAgent:
         if url is None:
             raise GatewayRefused(
                 409, "no_app", "The app's server isn't up yet: try again shortly."
-            )
-        if not self._connected(url):
-            raise GatewayRefused(
-                409,
-                "not_connected",
-                "Connect the microscope first: the agent works on it.",
             )
         current = self._manager.agent(self.microscope)
         if current is not None and current.state != "ended":

@@ -16,7 +16,7 @@ microscope_busy`` naming who, rather than interleaved or queued.
 import hmac
 import json
 import logging
-from typing import Any, Callable, Dict, Mapping, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, FastAPI, Request, WebSocket
 from fastapi.exception_handlers import http_exception_handler
@@ -32,6 +32,7 @@ from fibsem.ai.agent import blocklist
 from fibsem.ai.agent.calls import calling, current_call, from_headers
 from fibsem.control import HOLD_COMMANDS, STOP_COMMANDS, MicroscopeBusy
 from fibsem.devices.wire import type_path
+from fibsem.instrument import Instrument
 from fibsem.microscope import FibsemMicroscope
 from fibsem.server.agent.operator import build_operator_router
 from fibsem.server.agent.requests import turned_away
@@ -58,7 +59,7 @@ from fibsem.server.auth import (
     require_token,
     take_control,
 )
-from fibsem.server.connection import ServedMicroscope, build_connection_router
+from fibsem.server.connection import ServedInstrument, build_connection_router
 from fibsem.server.devices import (
     ERROR_STATUS,
     build_device_router,
@@ -159,9 +160,7 @@ def _in_experiment(app_context) -> Callable[[Mapping[str, Any]], Dict[str, Any]]
     )
 
 
-def _blocked_route(
-    microscope: Callable[[], Optional[FibsemMicroscope]],
-) -> Callable[[str, str], Optional[str]]:
+def _blocked_route(served: ServedInstrument) -> Callable[[str, str], Optional[str]]:
     """Why the agent may never make a route call (a device or service write or
     command on the blocklist), or None: for a request, before it is filed, and
     before the level gate, so it says so at every level. Its arguments are
@@ -177,16 +176,9 @@ def _blocked_route(
             kind, name = "command", parts[4]
         else:
             return None
-        connected = microscope()
-        if connected is None:
+        if parts[1] not in ("devices", "services"):
             return None
-        if parts[1] == "devices":
-            devices = connected.devices
-        elif parts[1] == "services":
-            devices = connected.services
-        else:
-            return None
-        device = devices.get(parts[2])
+        device = served.find(parts[1], parts[2])
         reason = None if device is None else blocklist.blocked(device, kind, name)
         return None if reason is None else never_allowed(device, kind, name, reason)
 
@@ -208,8 +200,8 @@ def _agents_own_action(request: Request) -> bool:
     """Whether what is running now is the agent's own: its command holds control
     of the microscope. Control is one at a time, so while the agent
     holds it, nothing anyone else started is running through it."""
-    microscope = request.app.state.served.current
-    in_control = microscope.control.current if microscope is not None else None
+    control = request.app.state.served.control_now
+    in_control = control.current if control is not None else None
     return in_control is not None and in_control.by == AGENT
 
 
@@ -538,11 +530,16 @@ def build_server(
     services: Optional[Mapping[str, Any]] = None,
     operator=None,
     session=None,
+    instruments: Sequence[Instrument] = (),
 ) -> FastAPI:
     """Build the server app around a connected microscope, or around
     ``session`` (an ``AppSession``), whose microscope every route reads when it
     is called: ``/microscope`` answers 409 ``not_connected`` without one, and
     the operator connects one through ``/microscope/connect``.
+
+    ``instruments`` are served beside the microscope, with or without one: such
+    as a `DeviceInstrument` built from a Device Server file. Their devices list
+    under ``/microscope/devices``; the state routes still need a microscope.
 
     ``auth`` defaults to a generated token at Watch.
     ``app_context`` is the application's view (AutoLamellaAppContext in practice);
@@ -567,7 +564,7 @@ def build_server(
     app = FastAPI(title="fibsem server", version=API_VERSION)
     app.add_middleware(_AgentActs)
     app.state.auth = auth
-    served = ServedMicroscope(microscope, session)
+    served = ServedInstrument(microscope, session, instruments)
     app.state.served = served
     app.state.session = session
     # The app the operator works in, as the agent's refusals name it.
@@ -579,9 +576,7 @@ def build_server(
         services = analysis_services()
     app.state.services = services
     # What the agent may never do here, answered before its level (auth.py).
-    app.state.blocked_route = (
-        _blocked_route(lambda: served.current) if serve_microscope else None
-    )
+    app.state.blocked_route = _blocked_route(served) if serve_microscope else None
 
     @app.exception_handler(StarletteHTTPException)
     async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
@@ -649,6 +644,9 @@ def build_server(
             "agent": auth.agent_allowed,
             # Whether a microscope is connected now.
             "connected": served.current is not None,
+            # The kind of each instrument served now, the microscope's first
+            # (``fibsem``), as a playbook's ``instrument:`` names it.
+            "instruments": served.kinds,
             # The code the server runs, so a sidecar can tell it imports
             # other code (a worktree on the app's PYTHONPATH).
             "fibsem": {"version": __version__, "path": fibsem_folder()},
@@ -686,7 +684,7 @@ def build_server(
         response_model=StateAnswer,
     )
     def get_microscope_state():
-        return answer(StateAnswer(served.require().get_microscope_state()))
+        return answer(StateAnswer(served.require().get_state()))
 
     # Every device's and service's changes as they happen, in the Device Server's
     # shape: a read, at Watch, until the level drops below it. A browser page is
@@ -697,10 +695,9 @@ def build_server(
             raise refusal_error(
                 403, "browser_refused", "The events socket refuses a browser page."
             )
-        microscope = served.require()
         await stream_events(
             websocket,
-            {"device": microscope.devices, "service": microscope.services},
+            {"device": served.devices, "service": served.services},
             allowed=lambda: auth.reaches(AgentLevel.WATCH),
         )
 
@@ -713,7 +710,7 @@ def build_server(
             )
         await stream_live(
             websocket,
-            live_source(served.require().devices, device),
+            live_source(served.devices, device),
             allowed=lambda: auth.reaches(AgentLevel.WATCH),
         )
 
@@ -726,7 +723,7 @@ def build_server(
         response_model=ControlView,
     )
     def get_control(request: Request):
-        current = served.require().control.current
+        current = served.control.current
         lease = served.leases.get(request.headers.get(LEASE_HEADER))
         return answer(
             ControlView(current, lease is not None and lease.entry is current)
@@ -779,9 +776,7 @@ def build_server(
         response_model=Status,
     )
     def set_microscope_state(body: MicroscopeStateRequest):
-        served.require().set_microscope_state(
-            MicroscopeState.from_dict(body.microscope_state)
-        )
+        served.require().set_state(MicroscopeState.from_dict(body.microscope_state))
         return answer(Status())
 
     app.include_router(base)
@@ -815,7 +810,7 @@ def build_server(
         # and venting are the operator's, so the blocklist refuses them.
         app.include_router(
             build_device_router(
-                lambda: served.require().devices,
+                lambda: served.devices,
                 read=[Depends(_watch)],
                 write=[Depends(_drive), Depends(take_control, scope="function")],
                 command=[
@@ -834,7 +829,7 @@ def build_server(
         # same gates: a service's stop is a stop like a device's.
         app.include_router(
             build_device_router(
-                lambda: served.require().services,
+                lambda: served.services,
                 read=[Depends(_watch)],
                 write=[Depends(_drive), Depends(take_control, scope="function")],
                 command=[

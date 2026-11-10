@@ -11,7 +11,7 @@ from fibsem.gateway.gateway import GatewayRefused
 from fibsem.server.discovery import read_discovery_file
 from fibsem.server.operator_token import read_operator_token
 
-__all__ = ["HostMicroscope", "call_host", "microscope_connected"]
+__all__ = ["HostMicroscope", "call_host"]
 
 
 def call_host(
@@ -38,10 +38,6 @@ def call_host(
         raise GatewayRefused(r.status_code, detail["error_type"], detail["message"])
     except (ValueError, KeyError, TypeError):
         raise GatewayRefused(r.status_code, "app_refused", r.text) from None
-
-
-def microscope_connected(url: str) -> bool:
-    return bool(call_host(url, "GET", "/microscope/connection")["connected"])
 
 
 class HostMicroscope:

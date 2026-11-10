@@ -51,7 +51,6 @@ class App:
 
     def __init__(self):
         self.up = True
-        self.connected = True
         self.levels = []
         self.refuse = None
 
@@ -102,7 +101,6 @@ def made(tmp_path, monkeypatch):
             discovery=app.discovery,
             level=app.level,
             reachable=lambda url: app.up,
-            connected=lambda url: app.connected,
             agent_json=agent_json,
             stamp=stamp,
             environ={API_KEY: key} if key else {},
@@ -217,15 +215,13 @@ def test_start_needs_the_app_server_to_answer(made):
     assert refused.value.error_type == "no_app"
 
 
-def test_start_needs_a_microscope_connected(made, tmp_path):
+def test_start_needs_no_microscope(made):
+    # The App Server answers with no microscope connected: an agent can work on
+    # an experiment, or on devices served without a microscope.
     app = App()
-    app.connected = False
     agent, _, _ = made(app=app)
-    with pytest.raises(GatewayRefused) as refused:
-        agent.start("default", None, "assist", "operator", "page")
-    assert refused.value.error_type == "not_connected"
-    assert app.levels == []
-    assert PairedTokens(tmp_path / "paired.json").agent() is None
+    agent.start("default", None, "assist", "operator", "page")
+    assert app.levels == [(URL, "assist")]
 
 
 def test_a_code_playbook_runs_off_windows(made):
@@ -493,11 +489,11 @@ def test_resume_is_refused_with_starts_reasons(made, tmp_path):
         agent.resume("nowhere", "watch", "operator", "page")
     assert refused.value.error_type == "no_session"
     app = App()
-    app.connected = False
+    app.up = False
     agent, _, _ = made(app=app)
     with pytest.raises(GatewayRefused) as refused:
         agent.resume("by-hand", "watch", "operator", "page")
-    assert refused.value.error_type == "not_connected"
+    assert refused.value.error_type == "no_app"
     agent, _, _ = made()
     agent.start("default", None, "watch", "operator", "page")
     with pytest.raises(GatewayRefused) as refused:
