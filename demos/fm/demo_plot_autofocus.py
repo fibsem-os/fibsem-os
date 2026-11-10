@@ -23,7 +23,6 @@ def make_synthetic_result(n_positions=25, image_shape=(256, 256), pass_index=0):
 
     z_positions = np.linspace(-12e-6, 12e-6, n_positions)
     best_idx = n_positions // 2
-    best_z = float(z_positions[best_idx])
 
     iterations = []
     for i, z in enumerate(z_positions):

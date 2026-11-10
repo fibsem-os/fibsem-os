@@ -724,7 +724,7 @@ class ChannelListWidget(QWidget):
                 channel = ChannelSettings()
             existing = {self._row(i).channel.name for i in range(self._list.count())}
             channel.name = unique_name(f"Channel-{count + 1:02d}", existing)
-        row = self._add_row(channel, enabled=True)
+        self._add_row(channel, enabled=True)
         self._set_selected(channel)
         self.channel_added.emit(channel)
         self._emit_settings_changed()

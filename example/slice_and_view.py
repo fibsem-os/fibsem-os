@@ -55,7 +55,7 @@ def main():
     settings.image.beam_type = BeamType.ELECTRON
 
     eb_image, ib_image = acquire.take_reference_images(microscope, settings.image)
-    ref_eb, ref_ib = None, None
+    ref_eb = None
 
     for slice_idx in range(int(settings.protocol["steps"])):
         # slice

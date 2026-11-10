@@ -169,7 +169,6 @@ def test_one_confirmed_pair_moves_the_rest_by_its_offset_and_leaves_it_alone(nom
     fib = _fib(ARCTIS)
     fm = predictions_for(fib, [], z_slice=5.0)
     place_predictions(build_projection(nominal, fib, fm, z_slice=5.0), fib, fm)
-    before = np.array([[c.point.x, c.point.y] for c in fm])
     i = next(k for k, c in enumerate(fm) if c.suggested)
     fm[i].point.x += 40.0
     fm[i].point.y -= 25.0

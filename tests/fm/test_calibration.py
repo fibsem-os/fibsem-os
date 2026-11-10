@@ -105,8 +105,6 @@ def test_tenengrad_focus_measure():
 
     # Strong edges should have higher focus measure
     strong_edge_focus = np.mean(focus_measure_auto[14:16, 5:25])
-    weak_edge_focus = np.mean(focus_measure_auto[4:6, 5:25])
-    # Note: May not always be true depending on threshold, but should be reasonable
     assert strong_edge_focus >= 0
 
 

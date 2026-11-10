@@ -50,7 +50,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterator, List, Optional
 from fastapi import HTTPException, Request
 from starlette.requests import HTTPConnection
 
-from fibsem.acting import AGENT, current_actor
+from fibsem.acting import current_actor
 from fibsem.ai.agent.calls import current_call
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.control import MicroscopeBusy

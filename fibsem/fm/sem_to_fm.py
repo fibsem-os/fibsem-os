@@ -135,10 +135,6 @@ class SemToFmCalibration:
                 )
         return dr, dt
 
-    def fm_tilt_difference(self) -> float:
-        """How far the FM's pose is tilted from FIB's, in degrees."""
-        return self.fm_pose_difference()[1]
-
     def sites_needed(self) -> int:
         """1 when the FM images within `ONE_SITE_POSE_DIFFERENCE` of FIB's pose, else
         `SITES`."""

@@ -83,7 +83,6 @@ class MillUndercutTask(AutoLamellaTask):
 
         # mill under cut
         milling_task_config = self.config.milling[UNDERCUT_KEY]
-        post_milled_undercut_stages = []
         undercut_milling_angles = self.config.milling_angles  # deg
 
         if len(milling_task_config.stages) != len(undercut_milling_angles):

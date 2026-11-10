@@ -32,10 +32,6 @@ def main():
 
     # acquire a reference with a recognisable pattern
     ref = acquire.acquire_image(microscope, settings.image)
-    # ref.data[:] = 0
-    h, w = ref.data.shape
-    cx, cy = w // 2, h // 2
-    # ref.data[cy - 40:cy + 40, cx - 40:cx + 40] = 200   # bright square at centre
 
     offsets = [(10, 5), (-8, 12), (3, -6)]
     results = []

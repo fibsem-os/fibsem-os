@@ -52,16 +52,12 @@ class UndercutPattern(BasePattern[FibsemRectangleSettings]):
 
         point = self.point
         jcut_rhs_height = self.rhs_height
-        jcut_lamella_height = self.height
         jcut_width = self.width
         jcut_trench_thickness = self.trench_width
         jcut_depth = self.depth
-        jcut_h_offset = self.h_offset
         cross_section = self.cross_section
 
         # top_jcut
-        jcut_top_centre_x = point.x + jcut_width / 2 - jcut_h_offset
-        jcut_top_centre_y = point.y + jcut_lamella_height
         jcut_top_width = jcut_width
         jcut_top_height = jcut_trench_thickness
         jcut_top_depth = jcut_depth

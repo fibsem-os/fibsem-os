@@ -4234,11 +4234,6 @@ class CorrelationTabWidget(QWidget):
     # FM z-stack interpolation
     # ------------------------------------------------------------------
 
-    def _fm_side_lists(self) -> List["CoordinateListWidget"]:
-        """The coordinate lists whose points live in the FM volume (carry z)."""
-        cl = self._coords_tab
-        return [cl.fm_list, cl.poi_list, cl.fm_surface_list]
-
     def _on_interpolate_fm(self) -> None:
         if self._session.fm_image is None:
             return

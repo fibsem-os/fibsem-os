@@ -321,13 +321,6 @@ class AutofocusWidget(QWidget):
         if settings.channel_name:
             self.set_selected_channel_by_name(settings.channel_name)
 
-    def get_selected_channel(self) -> Optional[ChannelSettings]:
-        if self.autofocus_settings.channel_name:
-            for channel in self.channel_settings:
-                if channel.name == self.autofocus_settings.channel_name:
-                    return channel
-        return None
-
     def set_selected_channel_by_name(self, channel_name: str) -> None:
         for i, channel in enumerate(self.channel_settings):
             if channel.name == channel_name:

@@ -1315,7 +1315,6 @@ def render_fluorescence(h: Harness) -> None:
     ocw = fmc.objectiveControlWidget
     quad = h.window.view_controller.widget
     fm_panel = quad._all_panels[1]
-    fm_widget = quad.fm_widget
 
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
@@ -1670,7 +1669,6 @@ def render_overview(h: Harness) -> None:
     h.ensure_experiment()
     iw = h.ui.panel.image_widget
     ctrl = h.ui.panel.movement_widget.control_widget
-    microscope = h.connection.microscope
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
     h.show_main_tab("Overview")
@@ -1807,7 +1805,6 @@ def render_lamella(h: Harness) -> None:
     menu = card._btn_actions.menu()
     menu.popup(card._btn_actions.mapToGlobal(QPoint(0, card._btn_actions.height())))
     h.pump(300)
-    rects = [menu.actionGeometry(a) for a in menu.actions() if a.text()]
     h.shot("card-actions", target=menu)
     menu.close()
     h.pump(200)

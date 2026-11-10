@@ -49,7 +49,6 @@ def main():
 
     # load milling properties
     profile = np.load(npy_path)
-    pixel_size = settings.protocol["pixelsize"]
     lens_height = settings.protocol["milling"]["height"]
     lens_width = settings.protocol["milling"]["width"]
 

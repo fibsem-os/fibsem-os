@@ -248,7 +248,6 @@ ignore = [
     # that stayed behind in the module it was split out of (FIB-1027). A lint
     # that cannot see an undefined name does not catch the bug it exists for.
     "E402",
-    "F841",
     "E702",
     "E701",
     "E741",
