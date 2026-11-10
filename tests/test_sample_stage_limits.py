@@ -53,4 +53,3 @@ def test_the_stage_device_reports_the_simulator_table(connected):
 def test_the_rotation_capability_follows_the_device_axes(connected):
     microscope, _ = connected
     assert microscope.system.stage.rotation is ("r" in microscope.stage.axes)
-

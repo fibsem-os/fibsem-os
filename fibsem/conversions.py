@@ -2,7 +2,6 @@ from typing import Tuple
 
 import numpy as np
 
-from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import Point
 
 
@@ -145,41 +144,6 @@ def microscope_image_to_image_coordinates(
     py = cy - pmy
 
     return Point(x=px, y=py)
-
-
-def get_lamella_size_in_pixels(
-    img: FibsemImage, protocol: dict, use_trench_height: bool = False
-) -> Tuple[int]:
-    """Get the relative size of the lamella in pixels based on the hfw of the image.
-
-    Args:
-        img (FibsemImage): A reference image.
-        protocol (dict): A dictionary containing the protocol information.
-        use_trench_height (bool, optional): If True, returns the height of the trench instead of the lamella. Default is False.
-
-    Returns:
-        Tuple[int]: A tuple containing the height and width of the lamella in pixels.
-    """
-    # get real size from protocol
-    lamella_width = protocol["lamella_width"]
-    lamella_height = protocol["lamella_height"]
-
-    total_height = lamella_height
-    if use_trench_height:
-        trench_height = protocol["stages"][0]["trench_height"]
-        total_height += 2 * trench_height
-
-    # convert to m
-    pixelsize = img.metadata.pixel_size.x
-    width, height = img.metadata.image_settings.resolution
-    vfw = convert_pixels_to_metres(height, pixelsize)
-    hfw = convert_pixels_to_metres(width, pixelsize)
-
-    # lamella size in px (% of image)
-    lamella_height_px = int((total_height / vfw) * height)
-    lamella_width_px = int((lamella_width / hfw) * width)
-
-    return (lamella_height_px, lamella_width_px)
 
 
 def convert_metres_to_pixels(distance: float, pixelsize: float) -> int:

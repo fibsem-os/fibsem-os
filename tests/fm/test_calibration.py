@@ -87,7 +87,6 @@ def test_variance_focus_measure_window_size():
 
 def test_tenengrad_focus_measure():
     """Test Tenengrad (thresholded Sobel) focus measure."""
-    # Create test image with both strong and weak edges
     image = np.zeros((32, 32), dtype=np.uint8)
     image[5:10, 5:25] = 50  # Weak edge
     image[15:20, 5:25] = 255  # Strong edge
@@ -102,10 +101,6 @@ def test_tenengrad_focus_measure():
     focus_measure_manual = tenengrad_focus_measure(image, threshold=threshold)
     assert focus_measure_manual.shape == image.shape
     assert np.all(focus_measure_manual >= 0)
-
-    # Strong edges should have higher focus measure
-    strong_edge_focus = np.mean(focus_measure_auto[14:16, 5:25])
-    assert strong_edge_focus >= 0
 
 
 def test_get_focus_measure_function():

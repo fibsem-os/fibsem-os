@@ -352,11 +352,6 @@ class DetectedFeatures:
     def distance(self, value: Point) -> None:
         self._distance = value
 
-    def get_feature(self, ftype: Union[str, Feature]) -> Feature:
-        for feature in self.features:
-            if feature.name == ftype or isinstance(feature, type(ftype)):
-                return feature
-
     def to_dict(self):
         return {
             "features": [f.to_dict() for f in self.features],

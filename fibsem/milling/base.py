@@ -32,7 +32,7 @@ from fibsem.milling.monitor_config import MillingMonitorConfig
 from fibsem.milling.patterning import DEFAULT_PATTERN
 from fibsem.milling.patterning.base import BasePattern
 from fibsem.structures.image import FibsemImage
-from fibsem.structures.params import Configurable, flagged_fields, param
+from fibsem.structures.params import Configurable, flagged_fields
 from fibsem.structures.settings import (
     CrossSectionPattern,
     FibsemMillingSettings,
@@ -307,9 +307,6 @@ class FibsemMillingStage(Configurable):
     enabled: bool = True
     milling: FibsemMillingSettings = field(default_factory=FibsemMillingSettings)
     pattern: BasePattern = field(default_factory=DEFAULT_PATTERN)
-    patterns: Annotated[Optional[List[BasePattern]], NotSaved] = param(
-        None, not_used="a stage mills its one pattern; nothing reads patterns"
-    )
     # What the strategy is configured by; the strategy itself is made from it when the
     # stage mills (`get_strategy`). Given a strategy, the stage keeps its config.
     strategy: MillingStrategyConfig = field(default_factory=_default_strategy_config)
@@ -425,13 +422,7 @@ class FibsemMillingStage(Configurable):
 
     def define_patterns(self) -> List[FibsemPatternSettings]:
         """Define the patterns for the milling stage."""
-        shapes = []
-        if self.patterns is not None:
-            for p in self.patterns:
-                shapes.extend(p.define())
-        else:
-            shapes = self.pattern.define()
-        return shapes
+        return self.pattern.define()
 
     def __eq__(self, other: object) -> bool:
         # Two strategies can share a config class, so the config alone doesn't say

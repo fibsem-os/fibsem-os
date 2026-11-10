@@ -2,7 +2,6 @@ import numpy as np
 import scipy.ndimage as ndi
 
 from fibsem.imaging import utils as image_utils
-from fibsem.structures.settings import Point
 
 
 ### MASKING
@@ -88,44 +87,6 @@ def _mask_rectangular(image_shape, sigma=5.0, *, start=None, extent=None):
     mask = np.zeros(image_shape)
     mask[rr.astype(int), cc.astype(int)] = 1.0
     mask = ndi.gaussian_filter(mask, sigma=sigma)
-    return mask
-
-
-def create_rect_mask(
-    img: np.ndarray, w: int, h: int, sigma: int = 0, pt: Point = None
-) -> np.ndarray:
-    """Create a rectangular mask at centred at the desired point.
-
-    Args:
-        img (np.ndarray): Image to be masked
-        w (int): mask width
-        h (int): mask height
-        sigma (int, optional): gaussian blur to apply to mask (softness). Defaults to 0.
-        pt (Point): Mask centre point. Defaults to None
-
-    Returns:
-        np.ndarray: mask
-    """
-    # centre mask point
-    if pt is None:
-        pt = Point(img.data.shape[1] // 2, img.data.shape[0] // 2)
-
-    mask = np.zeros_like(img)
-
-    y_min, y_max = (
-        int(np.clip(pt.y - h / 2, 0, img.shape[1])),
-        int(np.clip(pt.y + h / 2, 0, img.shape[1])),
-    )
-    x_min, x_max = (
-        int(np.clip(pt.x - w / 2, 0, img.shape[1])),
-        int(np.clip(pt.x + w / 2, 0, img.shape[1])),
-    )
-
-    mask[y_min:y_max, x_min:x_max] = 1
-
-    if sigma:
-        mask = ndi.gaussian_filter(mask, sigma=sigma)
-
     return mask
 
 
