@@ -55,7 +55,7 @@ from typing import Any, Callable, Dict, List, Optional
 
 import yaml
 
-from fibsem.ai.agent import reminders, sources
+from fibsem.ai.agent import instruments, reminders, sources
 
 PLAYBOOK_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "playbooks"
 # The playbook a session starts on when its launch names none.
@@ -253,8 +253,6 @@ def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
         playbook.session = base.session.merged(playbook.session)
         playbook.instrument = playbook.instrument or base.instrument
     if checkout is not None:
-        from fibsem.ai.agent import instruments
-
         kinds = instruments.kinds(checkout)
         if (playbook.instrument or instruments.DEFAULT) not in kinds:
             raise PlaybookError(
