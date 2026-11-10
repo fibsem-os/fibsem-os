@@ -25,11 +25,3 @@ def convert_color_names_to_rgb(color_names: List[str]):
 
 # map color names to rgb values
 CLASS_COLORS_RGB = convert_color_names_to_rgb(CLASS_COLORS.values())
-
-
-def get_colormap():
-    return CLASS_COLORS_RGB
-
-
-def get_class_labels():
-    return CLASS_LABELS

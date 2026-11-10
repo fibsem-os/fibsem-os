@@ -179,12 +179,6 @@ def images_by_task(lamella: Lamella) -> List[Tuple[str, List[str], List[str]]]:
     return steps
 
 
-def final_images_by_task(lamella: Lamella) -> List[Tuple[str, List[str]]]:
-    """Each task's final reference images, in the order the tasks last ran: the
-    tasks of ``images_by_task`` that left any."""
-    return [(name, finals) for name, finals, _ in images_by_task(lamella) if finals]
-
-
 class PreviewSources:
     """What the agent's previews read from the experiment open now: an item's
     config, pose and images, a grid's overview, a pending proposal. Each

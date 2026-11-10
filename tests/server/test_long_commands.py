@@ -187,14 +187,3 @@ def test_the_client_raises_what_the_run_raised(app, held, outcome, raised):
     run = in_process(app).services["spot_burn"].run(settings=SETTINGS)
     with pytest.raises(raised):
         run.wait(timeout=10)
-
-
-def test_the_client_reads_the_latest_run(app, held):
-    client = in_process(app)
-    assert client.services["imaging"].latest_run() is None
-    run = client.services["spot_burn"].run(settings=SETTINGS)
-    assert client.services["spot_burn"].latest_run().run_id == run.run_id
-    with pytest.raises(TimeoutError):
-        run.wait(timeout=0.1)
-    held["go"].set()
-    assert run.wait(timeout=10) == "finished"

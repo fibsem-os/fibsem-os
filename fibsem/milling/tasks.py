@@ -7,7 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Annotated, Any, Dict, List, Optional, Tuple, Union
+from typing import Annotated, Any, Dict, List, Optional, Union
 
 from pydantic import PlainSerializer
 
@@ -265,41 +265,6 @@ class FibsemMillingTaskConfig(Configurable):
         """
         milling_time = sum(stage.estimated_time for stage in self.enabled_stages)
         return milling_time + self.acquisition.estimated_time
-
-    def compatible_stages(
-        self, reference_idx: int = 0
-    ) -> List[Tuple[int, FibsemMillingStage]]:
-        """Return stages whose milling settings & strategy match the stage at reference_idx."""
-        if not self.stages:
-            return []
-
-        if reference_idx < 0 or reference_idx >= len(self.stages):
-            raise IndexError(
-                f"reference_idx {reference_idx} out of range for {len(self.stages)} stages."
-            )
-
-        reference_stage = self.stages[reference_idx]
-        compatible: List[Tuple[int, FibsemMillingStage]] = []
-
-        for idx, stage in enumerate(self.stages):
-            if idx != reference_idx and stage.is_compatible_with(reference_stage):
-                compatible.append((idx, stage))
-
-        return compatible
-
-    def merge_compatible_stages(self, reference_idx: int = 0) -> "FibsemMillingStage":
-        compat_stages = self.compatible_stages(reference_idx=reference_idx)
-        logging.info(
-            f"Compatible Stages: {[(idx, stage.name) for idx, stage in compat_stages]}"
-        )
-
-        reference_stage = self.stages[reference_idx]
-        if compat_stages:
-            reference_stage.patterns = [reference_stage.pattern]
-            for idx, stage in compat_stages:
-                reference_stage.patterns.append(self.stages[idx].pattern)
-
-        return reference_stage
 
 
 @dataclass

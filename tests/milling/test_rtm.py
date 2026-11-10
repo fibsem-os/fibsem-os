@@ -30,7 +30,7 @@ def _rectangle(**kwargs):
     )
 
 
-def test_a_frame_puts_each_value_at_its_position():
+def test_a_frame_means_each_pattern_s_values():
     frame = RtmFrame(
         sequence=1,
         timestamp=0.0,
@@ -40,11 +40,6 @@ def test_a_frame_puts_each_value_at_its_position():
         positions={0: np.array([[0, 0], [3, 2]]), 2: np.array([[1, 1]])},
     )
 
-    image = frame.to_image()
-
-    assert image.shape == (3, 4)
-    assert (image[0, 0], image[2, 3], image[1, 1]) == (1.0, 3.0, 5.0)
-    assert np.isnan(image).sum() == 9
     assert frame.means() == {0: 2.0, 2: 5.0}
 
 

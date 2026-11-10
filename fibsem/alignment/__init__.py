@@ -383,25 +383,6 @@ def _apply_shift(
         microscope.vertical_move(dy=-dy, dx=dx, beam_type=beam_type)
 
 
-def align_with_reference_image(
-    microscope: FibsemMicroscope,
-    ref_image: FibsemImage,
-    use_autocontrast: bool = False,
-    use_autofocus: bool = False,
-    subsystem: AlignmentSubsystem = AlignmentSubsystem.BEAM_SHIFT,
-    method: AlignmentMethod = DEFAULT_ALIGNMENT_METHOD,
-) -> AlignmentIteration:
-    """Align to a reference image. Delegates to beam_shift_alignment_v2."""
-    return beam_shift_alignment_v2(
-        microscope=microscope,
-        ref_image=ref_image,
-        use_autocontrast=use_autocontrast,
-        use_autofocus=use_autofocus,
-        subsystem=subsystem,
-        method=method,
-    )
-
-
 def beam_shift_alignment_v2(
     microscope: FibsemMicroscope,
     ref_image: FibsemImage,

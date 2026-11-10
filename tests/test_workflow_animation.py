@@ -13,10 +13,7 @@ import pytest
 from PIL import Image
 
 from fibsem.applications.autolamella.structures import Lamella
-from fibsem.applications.autolamella.task_outputs import (
-    final_images_by_task,
-    images_by_task,
-)
+from fibsem.applications.autolamella.task_outputs import images_by_task
 from fibsem.fm.structures import (
     FluorescenceChannelMetadata,
     FluorescenceImage,
@@ -91,7 +88,7 @@ def _frames(tmp_path: Path, tasks=("Setup", "Mill", "Polish")):
     lamella = _lamella(tmp_path)
     for i, task in enumerate(tasks):
         _run(lamella, task, value=60 + 40 * i)
-    steps = [AnimationStep(n, p) for n, p in final_images_by_task(lamella)]
+    steps = [AnimationStep(n, f, s) for n, f, s in images_by_task(lamella)]
     return load_frames(steps)
 
 
@@ -102,9 +99,9 @@ def test_a_step_per_task_in_the_order_they_ran(tmp_path):
     lamella = _lamella(tmp_path)
     for task in ("Setup", "Mill", "Polish"):
         _run(lamella, task)
-    steps = final_images_by_task(lamella)
-    assert [name for name, _ in steps] == ["Setup", "Mill", "Polish"]
-    assert all(len(paths) == 4 for _, paths in steps)
+    steps = images_by_task(lamella)
+    assert [name for name, _, _ in steps] == ["Setup", "Mill", "Polish"]
+    assert all(len(paths) == 4 for _, paths, _ in steps)
 
 
 def test_a_run_that_saved_nothing_adds_no_step(tmp_path):
@@ -112,7 +109,7 @@ def test_a_run_that_saved_nothing_adds_no_step(tmp_path):
     _run(lamella, "Setup")
     lamella.task_history.append(TaskState(name="Acquire FM"))  # cancelled
     _run(lamella, "Mill")
-    assert [name for name, _ in final_images_by_task(lamella)] == ["Setup", "Mill"]
+    assert [name for name, _, _ in images_by_task(lamella)] == ["Setup", "Mill"]
 
 
 def test_a_task_run_again_is_one_step_where_it_last_ran(tmp_path):
@@ -122,7 +119,7 @@ def test_a_task_run_again_is_one_step_where_it_last_ran(tmp_path):
     _run(lamella, "Mill")
     _run(lamella, "Setup")
     _run(lamella, "Mill")
-    assert [name for name, _ in final_images_by_task(lamella)] == ["Setup", "Mill"]
+    assert [name for name, _, _ in images_by_task(lamella)] == ["Setup", "Mill"]
 
 
 def test_magnification_is_chosen_by_field_width_not_filename(tmp_path):
@@ -171,7 +168,7 @@ def test_a_step_without_the_beam_is_left_out_not_a_gap(tmp_path):
     _run(lamella, "Setup")
     _run(lamella, "Mill", sem=False)  # FIB only
     frames = load_frames(
-        [AnimationStep(n, p) for n, p in final_images_by_task(lamella)]
+        [AnimationStep(n, f, s) for n, f, s in images_by_task(lamella)]
     )
     assert included(frames, AnimationOptions(beam="FIB")) == [0, 1]
     assert included(frames, AnimationOptions(beam="SEM")) == [0]
@@ -352,8 +349,6 @@ def test_a_fluorescence_task_is_a_step_where_it_ran(tmp_path):
     steps = images_by_task(lamella)
     assert [name for name, _, _ in steps] == ["Setup", "Acquire FM", "Mill"]
     assert [os.path.basename(p) for p in steps[1][2]] == [stack]
-    # The beam-only reader is unchanged: no step for a task with no final images.
-    assert [n for n, _ in final_images_by_task(lamella)] == ["Setup", "Mill"]
 
 
 def test_the_stack_is_not_read_until_fm_is_chosen(tmp_path):

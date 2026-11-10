@@ -187,17 +187,6 @@ class Remote:
         )
         return typed(self.returns(query), answer["result"])
 
-    def latest_run(self) -> Optional[Run]:
-        """The latest run of a long command, whoever started it; None when none
-        has run."""
-        try:
-            answer = self._transport.fetch("GET", f"{self.path}/run")["run"]
-        except ServerError as error:
-            if error.status == 404 and error.error_type == "not_found":
-                return None
-            raise
-        return Run(self, answer)
-
     def __getattr__(self, name: str) -> Callable[..., Any]:
         if name.startswith("_"):
             raise AttributeError(name)

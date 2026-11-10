@@ -61,7 +61,6 @@ from test_viewer_less_widgets import (  # noqa: E402
 )
 
 from fibsem import constants  # noqa: E402
-from fibsem.devices.stage import axis_limits_to_degrees
 from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
 
 # Off-origin on every axis, and asymmetric, so a transposed pair or a dropped
@@ -124,7 +123,7 @@ def test_the_sample_is_inside_this_stages_limits(movement):
     It bites because the shipped configurations disagree: tilt reaches -195 degrees on
     sim-arctis and only -10 on the default, and z starts at 0 there.
     """
-    limits = axis_limits_to_degrees(movement.microscope.stage.position.limits)
+    limits = movement.microscope.stage.position.limits
 
     for axis, value_mm in (
         ("x", SAMPLE.x * constants.SI_TO_MILLI),
@@ -135,9 +134,9 @@ def test_the_sample_is_inside_this_stages_limits(movement):
         high = limits[axis].max * constants.SI_TO_MILLI
         assert low <= value_mm <= high, f"SAMPLE.{axis} is outside {low}..{high} mm"
 
-    tilt_deg = np.degrees(SAMPLE.t)
-    assert limits["t"].min <= tilt_deg <= limits["t"].max, (
-        f"SAMPLE.t is outside {limits['t'].min}..{limits['t'].max} deg"
+    tilt = limits["t"]
+    assert tilt.min <= SAMPLE.t <= tilt.max, (
+        f"SAMPLE.t is outside {np.degrees(tilt.min)}..{np.degrees(tilt.max)} deg"
     )
 
 
@@ -198,7 +197,7 @@ def test_translation_is_shown_to_ten_nanometres(movement):
 
 
 def test_translation_ranges_are_the_stage_limits_in_millimetres(movement):
-    limits = axis_limits_to_degrees(movement.microscope.stage.position.limits)
+    limits = movement.microscope.stage.position.limits
     boxes = _boxes(movement)
 
     for axis in ("x", "y", "z"):
@@ -213,11 +212,11 @@ def test_translation_ranges_are_the_stage_limits_in_millimetres(movement):
 def test_the_tilt_range_is_taken_in_degrees_already(movement):
     """The stage reports x/y/z in metres but t in degrees, and the form must not
     convert the one that needs no converting."""
-    tilt = axis_limits_to_degrees(movement.microscope.stage.position.limits)["t"]
+    tilt = movement.microscope.stage.position.limits["t"]
     box = _boxes(movement)["t"]
 
-    assert box.minimum() == pytest.approx(tilt.min)
-    assert box.maximum() == pytest.approx(tilt.max)
+    assert box.minimum() == pytest.approx(np.degrees(tilt.min))
+    assert box.maximum() == pytest.approx(np.degrees(tilt.max))
 
 
 # --- the compustage adjustments ----------------------------------------------

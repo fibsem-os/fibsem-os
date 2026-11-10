@@ -913,24 +913,3 @@ def convert_image_coord_to_stage_position(
     )
 
     return stage_position
-
-
-def convert_image_coordinates_to_stage_positions(
-    microscope: FibsemMicroscope, image: FibsemImage, coords: List[Tuple[float, float]]
-) -> List[FibsemStagePosition]:
-    """Convert a list of coordinates in the image to a list of stage positions. Assume image is flat to beam.
-    Args:
-        microscope: The microscope connection.
-        image: The image
-        coords: The coordinates in the image (y,x).
-    Returns:
-        The stage positions."""
-
-    stage_positions = []
-    for i, coord in enumerate(coords):
-        stage_position = convert_image_coord_to_stage_position(
-            microscope=microscope, image=image, coord=coord
-        )
-        stage_position.name = f"Position {i:02d}"
-        stage_positions.append(stage_position)
-    return stage_positions

@@ -1086,28 +1086,3 @@ def draw_pattern_shape(
         return draw_polygon_shape(ps, image_shape, pixelsize)
     else:
         raise ValueError(f"Unsupported shape type {type(ps)}")
-
-
-def draw_pattern_in_image(image: np.ndarray, drawn_pattern: DrawnPattern) -> np.ndarray:
-
-    pattern = drawn_pattern.pattern
-    pos = drawn_pattern.position
-
-    # place the annulus shape in the image
-    w = pattern.shape[1] // 2
-    h = pattern.shape[0] // 2
-
-    # fill the annulus shape in the image
-    xmin, xmax = pos.x - w, pos.x + w
-    ymin, ymax = pos.y - h, pos.y + h
-    zero_image = np.zeros_like(image)
-    zero_image[ymin:ymax, xmin:xmax] = pattern[: 2 * h, : 2 * w].astype(bool)
-
-    # if the pattern is an exclusion, set the image to zero
-    if drawn_pattern.is_exclusion:
-        image[zero_image == 1] = 0
-    else:
-        # add the annulus shape to the image, clip to 1
-        image = np.clip(image + zero_image, 0, 1)
-
-    return image
