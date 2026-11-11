@@ -755,7 +755,15 @@ class Gateway:
 
         self._watcher = threading.Thread(target=loop, name="gateway", daemon=True)
         self._watcher.start()
+        # read the recent experiments once now, so the page's first load is quick
+        threading.Thread(target=self._warm, name="gateway-recent", daemon=True).start()
         threading.Thread(target=newer, name="gateway-newer", daemon=True).start()
+
+    def _warm(self) -> None:
+        try:
+            self._recent()
+        except Exception:  # noqa: BLE001 - the page reads them again
+            logging.debug("Reading the recent experiments failed", exc_info=True)
 
     def close(self) -> None:
         """Stop watching. An app without its window keeps running; a new
