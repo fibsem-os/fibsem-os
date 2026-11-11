@@ -16,6 +16,7 @@ TASKS = (
     "target_present",
     "square_finding",
     "square_quality",
+    "setup_placement",
 )
 # Where a case's images come from: a real session, or the simulator. Sim
 # cases are scored apart and never count towards the real scores.
@@ -184,6 +185,19 @@ def _key_problems(case: Case) -> List[str]:
         for name in ("pitch_px", "angle_deg"):
             if name not in key:
                 problems.append(f"key has no {name}")
+    elif case.task == "setup_placement":
+        for name in ("ok_mask", "unsafe_mask"):
+            rel = key.get(name)
+            if not rel:
+                problems.append(f"key has no {name}")
+            elif not str(rel).startswith("reference/"):
+                problems.append(f"key {name} must sit under reference/, out of sight")
+            elif not (case.path / rel).is_file():
+                problems.append(f"key {name} {rel} is missing")
+        if not {"x", "y"} <= set(key.get("target_px") or {}):
+            problems.append("key has no target_px x, y")
+        if not pixel_size_um(case):
+            problems.append("no inputs fib_pixel_size_um")
     elif case.task == "square_quality":
         shown = {str(s.get("square")) for s in case.data.get("squares") or []}
         labels = key.get("labels") or {}
@@ -221,6 +235,6 @@ def pass_names(case: Case) -> List[str]:
 def pixel_size_um(case: Case) -> Optional[float]:
     if case.task == "fm_target":
         return (case.data.get("stack") or {}).get("pixel_size_um")
-    if case.task == "correlation":
+    if case.task in ("correlation", "setup_placement"):
         return (case.data.get("inputs") or {}).get("fib_pixel_size_um")
     return None

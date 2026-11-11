@@ -2,8 +2,10 @@
 
 import json
 
+import numpy as np
 import pytest
 import yaml
+from PIL import Image
 
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import check_case, find_cases, load_case
@@ -433,3 +435,46 @@ def test_the_placed_spacing_is_measured_on_neighbours_in_the_key():
     matched = {0: 0, 1: 1, 2: 2}
     assert placed_scale(points, squares, matched, 100) == pytest.approx(1.1)
     assert placed_scale(points, squares, {0: 0}, 100) is None
+
+
+@pytest.fixture
+def placement_case(tmp_path):
+    folder = tmp_path / "place"
+    (folder / "reference").mkdir(parents=True)
+    ok = np.zeros((100, 200), np.uint8)
+    ok[40:60, 90:110] = 255  # on the cell, trenches clear
+    unsafe = np.zeros((100, 200), np.uint8)
+    unsafe[:, :20] = 255  # a trench would cut the bar
+    Image.fromarray(ok).save(folder / "reference" / "ok.png")
+    Image.fromarray(unsafe).save(folder / "reference" / "unsafe.png")
+    data = {
+        **BASE,
+        "id": "place",
+        "task": "setup_placement",
+        "inputs": {"fib_pixel_size_um": 0.05},
+        "key": {
+            "ok_mask": "reference/ok.png",
+            "unsafe_mask": "reference/unsafe.png",
+            "target_px": {"x": 100, "y": 50},
+        },
+    }
+    (folder / "case.yaml").write_text(yaml.safe_dump(data))
+    return load_case(folder)
+
+
+def test_setup_placement(placement_case):
+    assert check_case(placement_case).ok
+    hit = result(placement_case, {"x_px": 104, "y_px": 47})
+    assert hit.result == "hit" and hit.details["to_target_um"] == 0.25
+    assert hit.details["to_ok_um"] == 0.0
+    miss = result(placement_case, {"x_px": 150, "y_px": 50})
+    assert miss.result == "miss" and miss.details["to_ok_um"] == 2.05
+    assert result(placement_case, {"x_px": 5, "y_px": 50}).result == "unsafe"
+    assert result(placement_case, {"x_px": 500, "y_px": 50}).result == "miss"
+    assert result(placement_case, {"y_px": 50}).result == "invalid"
+
+
+def test_a_placement_key_outside_reference_is_a_problem(placement_case):
+    placement_case.data["key"]["ok_mask"] = "experiment/ok.png"
+    problems = check_case(placement_case).problems
+    assert any("under reference/" in p for p in problems)
