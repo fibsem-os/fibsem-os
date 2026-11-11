@@ -34,7 +34,7 @@ import yaml
 from fibsem import __version__, paths
 from fibsem.ai.agent import manager, mirror, sources
 from fibsem.ai.evals.cases import Case, input_paths
-from fibsem.ai.evals.scoring import ANSWER_SHAPES, score_case
+from fibsem.ai.evals.scoring import ANSWER_NOTES, ANSWER_SHAPES, score_case
 from fibsem.server import discovery
 
 log = logging.getLogger(__name__)
@@ -162,6 +162,10 @@ def task_text(case: Case, inputs: Iterable[str]) -> str:
     else:
         lines.append(f"Write {ANSWER} in your files folder, shaped like this:")
         lines += ["", json.dumps(ANSWER_SHAPES[case.task], indent=2)]
+    tasks = [case.task] + [part["task"] for part in case.parts.values()]
+    for task in dict.fromkeys(tasks):
+        if task in ANSWER_NOTES:
+            lines += ["", ANSWER_NOTES[task]]
     lines += [
         "",
         "Look and read only. Once the answer is written you are done; say so and stop.",

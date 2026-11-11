@@ -17,9 +17,11 @@ Answer shapes (``answer.json``):
 A case with parts is answered as ``{"parts": {"a": {...}, "b": {...}}}``.
 """
 
+import itertools
 import math
+import statistics
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.ai.evals.cases import (
     SQUARE_LABELS,
@@ -63,6 +65,14 @@ ANSWER_SHAPES: Dict[str, Any] = {
         "labels": {"<square>": " | ".join(SQUARE_LABELS)},
         "reason": "...",
     },
+}
+# What an answer's fields mean, where the shape alone leaves it open.
+ANSWER_NOTES = {
+    "square_finding": (
+        "pitch_px is the centre-to-centre distance between neighbouring "
+        "squares along a grid bar (not along the image's x or y); angle_deg "
+        "is a bar's direction in the image."
+    ),
 }
 
 
@@ -291,6 +301,27 @@ def match_squares(points: List[tuple], squares: List[Dict[str, Any]], radius: fl
     return matched
 
 
+def placed_scale(
+    points: List[Tuple[float, float]],
+    squares: List[Dict[str, Any]],
+    matched: Dict[int, int],
+    pitch: float,
+) -> Optional[float]:
+    """How far apart the agent put neighbouring squares, as a fraction of the
+    key's spacing: the median, over pairs of neighbours in the key both
+    matched, of their distance in the answer over their distance in the key.
+    None when no such pair was matched."""
+    at = {j: points[i] for i, j in matched.items()}
+    ratios = []
+    for j, k in itertools.combinations(sorted(at), 2):
+        a, b = squares[j], squares[k]
+        apart = math.hypot(a["x_px"] - b["x_px"], a["y_px"] - b["y_px"])
+        if 0 < apart <= 1.2 * pitch:
+            (x1, y1), (x2, y2) = at[j], at[k]
+            ratios.append(math.hypot(x1 - x2, y1 - y2) / apart)
+    return statistics.median(ratios) if ratios else None
+
+
 def score_square_finding(
     case: Case, answer: Dict[str, Any], key: Dict[str, Any]
 ) -> tuple:
@@ -322,7 +353,12 @@ def score_square_finding(
         sc.get("min_precision", 0.9)
     )
     try:
-        pitch_error = abs(float(answer["pitch_px"]) - pitch) / pitch
+        # The pitch of the squares placed, not the number written: an agent
+        # can place every square right and still write the pitch measured
+        # along the image axis.
+        written_error = abs(float(answer["pitch_px"]) - pitch) / pitch
+        scale = placed_scale(points, squares, matched, pitch)
+        pitch_error = written_error if scale is None else abs(scale - 1)
         # Lattice directions repeat every 90 degrees.
         turn = (float(answer["angle_deg"]) - float(key["angle_deg"])) % 90
         angle_error = min(turn, 90 - turn)
@@ -330,7 +366,9 @@ def score_square_finding(
         details["lattice"] = "no pitch_px or angle_deg"
         return "miss", details
     details.update(
-        pitch_error=round(pitch_error, 3), angle_error_deg=round(angle_error, 1)
+        pitch_error=round(pitch_error, 3),
+        written_pitch_error=round(written_error, 3),
+        angle_error_deg=round(angle_error, 1),
     )
     ok = (
         ok

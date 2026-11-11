@@ -265,3 +265,11 @@ def test_running_a_folder_again_keeps_finished_runs(home, case, tmp_path, monkey
     assert [r["repeat"] for r in again] == [2]
     assert (tmp_path / "out" / "polish" / "r2.stopped" / "work").is_dir()
     assert len(report.load_results(tmp_path / "out")) == 2
+
+
+def test_the_square_finding_task_says_how_pitch_is_measured(tmp_path):
+    folder = tmp_path / "finding"
+    folder.mkdir()
+    data = {"id": "finding", "task": "square_finding", "brief": "Find squares."}
+    (folder / "case.yaml").write_text(yaml.safe_dump(data))
+    assert "along a grid bar" in task_text(load_case(folder), [])
