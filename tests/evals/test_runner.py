@@ -11,7 +11,14 @@ import yaml
 from fibsem.ai.evals import report
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import load_case
-from fibsem.ai.evals.runner import RunConfig, RunnerError, run_case, run_cases
+from fibsem.ai.evals.runner import (
+    RunConfig,
+    RunnerError,
+    link_inputs,
+    run_case,
+    run_cases,
+    task_text,
+)
 from fibsem.server import discovery
 
 FAKES = str(Path(__file__).with_name("fakes.py"))
@@ -163,3 +170,15 @@ def test_cli_run_and_report(home, case, tmp_path, monkeypatch, capsys):
     assert "polish r1: answered, hit" in capsys.readouterr().out
     assert (out / "report.md").is_file()
     assert main(["report", str(out)]) == 0
+
+
+def test_a_file_shared_from_another_case_is_linked_in(case, tmp_path):
+    shared = case.path.parent / "fm" / "experiment" / "stack.ome.tiff"
+    shared.parent.mkdir(parents=True)
+    shared.write_bytes(b"stack")
+    case.data["inputs"] = {"fm_stack": "../fm/experiment/stack.ome.tiff"}
+    experiment = tmp_path / "exp"
+    placed = link_inputs(case, experiment)
+    assert "stack.ome.tiff" in placed and "iter/p1.tif" in placed
+    assert (experiment / "stack.ome.tiff").read_bytes() == b"stack"
+    assert "- stack.ome.tiff" in task_text(case, placed)

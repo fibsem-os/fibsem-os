@@ -28,7 +28,7 @@ import yaml
 
 from fibsem import paths
 from fibsem.ai.agent import manager
-from fibsem.ai.evals.cases import Case
+from fibsem.ai.evals.cases import Case, input_paths
 from fibsem.ai.evals.scoring import ANSWER_SHAPES, score_case
 from fibsem.server import discovery
 
@@ -139,6 +139,8 @@ def _shown(path: Optional[str]) -> Optional[str]:
     if path is None:
         return None
     prefix = INPUTS + "/"
+    if path.startswith("../"):
+        return Path(path).name
     return path[len(prefix) :] if path.startswith(prefix) else path
 
 
@@ -151,21 +153,25 @@ def goal_text(case: Case) -> str:
 
 def link_inputs(case: Case, experiment: Path) -> List[str]:
     """The case's inputs, linked (copied where links can't be made) into the
-    experiment's folder. The paths the experiment holds them at."""
+    experiment's folder: everything under its experiment/, and a file it
+    shares from another case (``../``) at the top. The paths the experiment
+    holds them at."""
     source = case.path / INPUTS
-    placed = []
+    files = {}
     for path in sorted(source.rglob("*")) if source.is_dir() else []:
-        if not path.is_file() or path.name == "experiment.yaml":
-            continue
-        rel = path.relative_to(source)
+        if path.is_file() and path.name != "experiment.yaml":
+            files[path.relative_to(source).as_posix()] = path
+    for rel in input_paths(case):
+        if rel.startswith("../"):
+            files[Path(rel).name] = case.path / rel
+    for rel, path in files.items():
         target = experiment / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         try:
             os.link(path, target)
         except OSError:
             shutil.copy2(path, target)
-        placed.append(rel.as_posix())
-    return placed
+    return sorted(files)
 
 
 def prepare_home(home: Path, knowledge: Optional[Path]) -> None:

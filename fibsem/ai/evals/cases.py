@@ -91,6 +91,13 @@ def _input_paths(value: Any) -> Iterator[str]:
         yield value
 
 
+def input_paths(case: Case) -> List[str]:
+    """The input files a case names, relative to its folder: its own under
+    experiment/, or another case's (``../``)."""
+    keys = ("inputs", "stack", "passes", "views", "inputs_extra")
+    return list(_input_paths({k: case.data.get(k) for k in keys}))
+
+
 def check_case(case: Case) -> CaseCheck:
     """What is missing or wrong in a case. Parked cases are only read."""
     check = CaseCheck(case)
@@ -107,9 +114,7 @@ def check_case(case: Case) -> CaseCheck:
             check.problems.append(f"part {name}: unknown task {part.get('task')!r}")
     if case.status == "parked":
         return check
-    for rel in _input_paths(
-        {k: data.get(k) for k in ("inputs", "stack", "passes", "views", "inputs_extra")}
-    ):
+    for rel in input_paths(case):
         if not (case.path / rel).exists():
             check.problems.append(f"missing input {rel}")
     if case.status == "keyed":
