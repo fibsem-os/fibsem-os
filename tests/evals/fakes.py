@@ -38,9 +38,12 @@ def agent(argv):
     parser = argparse.ArgumentParser()
     parser.add_argument("--session-id")
     parser.add_argument("--files", type=Path)
+    parser.add_argument("--code", type=Path)
     parser.add_argument("--goal")
     parser.add_argument("--max-budget-usd")
     args, _ = parser.parse_known_args(argv)
+    code = args.code is not None
+    args.files = args.code if code else args.files
     sessions = Path.home() / ".fibsem" / "agent" / "sessions"
     folder = sessions / f"2026-01-01-000000-{args.session_id}"
     folder.mkdir(parents=True)
@@ -49,6 +52,7 @@ def agent(argv):
         "session_id": args.session_id,
         "goal": args.goal,
         "task_chars": len(task),
+        "code": code,
         "server": json.loads(Path(os.environ["FIBSEM_DISCOVERY_FILE"]).read_text())[
             "url"
         ],

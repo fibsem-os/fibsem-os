@@ -33,6 +33,12 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--repeats", type=int, default=3)
     run.add_argument("--jobs", type=int, default=1, help="runs at once (default 1)")
     run.add_argument(
+        "--code",
+        action="store_true",
+        help="code mode: the agent may also write and run code (sandboxed, "
+        "macOS and Linux only); files only when left out",
+    )
+    run.add_argument(
         "--only", default=None, help="only cases whose path holds this text"
     )
     run.add_argument("--playbook", default=None)
@@ -128,6 +134,7 @@ def main(argv=None) -> int:
         out=args.out,
         repeats=args.repeats,
         jobs=args.jobs,
+        code=args.code,
         playbook=args.playbook,
         model=args.model,
         effort=args.effort,

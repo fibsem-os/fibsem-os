@@ -111,6 +111,16 @@ def test_run_scores_the_answer(home, case, tmp_path, monkeypatch):
     assert "| polishing_stop | yes | 1 | 1 | 0 | 0 | 1 of 1 |" in report.table([row])
 
 
+def test_code_mode_runs_the_agent_with_code_in_its_work_folder(
+    home, case, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    result = run_case(case, 1, config(tmp_path, timeout_s=20, code=True))
+    assert result["status"] == "answered" and result["code"] is True
+    session = tmp_path / "out" / "polish" / "r1" / "session" / "session.json"
+    assert json.loads(session.read_text())["code"] is True
+
+
 def test_run_stops_an_agent_that_never_answers(home, case, tmp_path, monkeypatch):
     monkeypatch.delenv("EVAL_FAKE_ANSWER", raising=False)
     result = run_case(case, 1, config(tmp_path, timeout_s=1))

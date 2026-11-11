@@ -76,6 +76,9 @@ class RunConfig:
     server_wait_s: float = 120.0
     # Runs at once: each has its own App Server, on its own port.
     jobs: int = 1
+    # Code mode: the agent may also write and run code in the run's work
+    # folder (sandboxed, no network); else it reads and writes files only.
+    code: bool = False
     # The knowledge each run starts from; the lab's own when None.
     knowledge: Optional[Path] = None
     agent_command: List[str] = field(default_factory=lambda: agent_command())
@@ -284,7 +287,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         command = config.agent_command + [
             "--session-id",
             session_id,
-            "--files",
+            "--code" if config.code else "--files",
             str(work),
             "--goal",
             goal_text(case),
@@ -300,6 +303,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
                 command += [flag, value]
         result["session_id"] = session_id
         result["model"] = config.model or "default"
+        result["code"] = config.code
         with open(folder / "agent.log", "w") as agent_log:
             # The agent finds its own run's server, not this PC's.
             agent_env = {**env, discovery.DISCOVERY_FILE_ENV: str(found_at)}
