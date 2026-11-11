@@ -108,32 +108,45 @@ def test_tools_of_a_part_the_app_lacks_are_not_offered():
     assert "app_get_status" in core
 
 
-def test_tools_are_offered_for_the_playbooks_instrument_kind():
-    from fibsem.ai.agent import instruments
-    from fibsem.ai.agent.catalog import FIBSEM, tools_for_capabilities
+def test_tools_are_offered_for_what_the_instrument_kind_serves():
+    from fibsem.ai.agent import instruments, sources
+    from fibsem.ai.agent.catalog import Serves, tools_for_capabilities
 
-    assert FIBSEM == instruments.DEFAULT
+    root = sources.find_root()
     capabilities = {"routers": {"services": True, "app": True}}
-    every = {t.name for t in tools_for_capabilities(capabilities)}
-    fib = {t.name for t in tools_for_capabilities(capabilities, FIBSEM)}
-    # A standalone cryo-FM: the tools for any instrument, and the few on a
-    # device's own routes.
-    other = {t.name for t in tools_for_capabilities(capabilities, "cryo-fm")}
-    assert {"stage_get_position", "fm_save_focus_position"} <= other
-    # Another kind: the tools for any instrument only.
-    assert "stage_get_position" not in {
-        t.name for t in tools_for_capabilities(capabilities, "other")
-    }
+
+    def offered(serves):
+        return {t.name for t in tools_for_capabilities(capabilities, serves)}
+
+    every = offered(None)
     # A FIB/SEM session is offered what it always was.
-    assert fib == every
-    assert {
-        "milling_run_stage",
-        "beam_acquire_image",
-        "stage_move_relative",
-    } & other == set()
+    assert offered(instruments.serves("fibsem", root)) == every
+    # A standalone cryo-FM: the tools for any instrument, and those on its devices.
+    cryo = offered(instruments.serves("cryo-fm", root))
+    assert {"stage_get_position", "fm_save_focus_position"} <= cryo
+    assert not {"milling_run_stage", "beam_acquire_image", "grid_load"} & cryo
+    assert not {"stage_move_relative", "beam_turn_on", "microscope_get_state"} & cryo
     for generic in ("device_list", "device_call_command", "service_call_command"):
-        assert generic in other
-    assert {"app_get_status", "knowledge_get", "plan_get"} <= other
+        assert generic in cryo
+    assert {"app_get_status", "knowledge_get", "plan_get"} <= cryo
+    # Any kind with a stage gets the stage's tool; with nothing, the generic ones.
+    assert "stage_get_position" in offered(Serves(devices=frozenset({"stage"})))
+    assert "stage_get_position" not in offered(Serves())
+    # A service's tools come with the service.
+    milling = offered(Serves(services=frozenset({"milling"})))
+    assert "milling_run_stage" in milling and "beam_acquire_image" not in milling
+
+
+def test_what_each_tool_needs_is_its_route_or_its_own():
+    from fibsem.ai.agent.catalog import CATALOG, needs
+
+    by_name = {t.name: needs(t) for t in CATALOG}
+    assert by_name["stage_get_position"] == {"device:stage"}
+    assert by_name["milling_run_stage"] == {"service:milling"}
+    assert by_name["microscope_get_state"] == {"microscope"}
+    assert by_name["beam_turn_on"] == {"microscope"}
+    assert by_name["device_call_command"] == set()
+    assert by_name["knowledge_get"] == set()
 
 
 # A named service tool is its group and its route's command or query

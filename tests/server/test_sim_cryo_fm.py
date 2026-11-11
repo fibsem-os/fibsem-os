@@ -11,13 +11,14 @@ from fastapi.testclient import TestClient
 
 import fibsem.config as cfg
 from fibsem.ai.agent import instruments, playbooks
-from fibsem.ai.agent.catalog import CRYO_FM, tools_for_capabilities
+from fibsem.ai.agent.catalog import tools_for_capabilities
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.instrument import DeviceInstrument
 from fibsem.server import AuthConfig, build_server
 from fibsem.workflows.session import AppSession
 
 ROOT = Path(__file__).resolve().parents[2]
+CRYO_FM = "cryo-fm"
 CONFIGURATION = os.path.join(cfg.SHIPPED_CONFIG_PATH, "cryo-fm-demo-configuration.yaml")
 AGENT = {"Authorization": "Bearer agent-token"}
 UNMOVED = {"y": None, "z": None, "r": None, "t": None, "coordinate_system": None}
@@ -68,7 +69,8 @@ def test_an_agent_on_the_cryo_fm_playbook_gets_its_tools():
     instruments.load(CRYO_FM, ROOT)
 
     capabilities = {"routers": {"services": True, "app": True}}
-    tools = {t.name for t in tools_for_capabilities(capabilities, CRYO_FM)}
+    serves = instruments.serves(CRYO_FM, ROOT)
+    tools = {t.name for t in tools_for_capabilities(capabilities, serves)}
     assert {"device_call_command", "stage_get_position", "plan_get"} <= tools
     assert not {"milling_run_stage", "beam_acquire_image", "fm_acquire_image"} & tools
 

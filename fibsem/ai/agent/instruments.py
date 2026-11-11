@@ -5,6 +5,10 @@ intake steps and the re-read lines, as files beside the playbooks.
         prompt.md     the harness prompt
         intake.md     ## start, ## resumed, ## goal
         reread.md     ## proposals, ## plan, ## level
+        serves.yaml   what it serves, so the agent is offered those tools:
+                      ``microscope: true`` for a FIB-SEM (every tool), else
+                      ``devices:`` and ``services:``, each a list of names;
+                      none serves only the tools for any instrument
 
 A playbook names its kind (``instrument:``); the shipped base playbook sets
 ``fibsem``. The files are fibsemOS's own, or an installed plugin's for its own
@@ -22,7 +26,10 @@ from functools import cache
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import yaml
+
 from fibsem.ai.agent import sources
+from fibsem.ai.agent.catalog import Serves
 
 INSTRUMENT_DIR = Path(sources.CLAUDE) / "fibsem-agent" / "instruments"
 # The kind a playbook that names none is for: the only one there is.
@@ -114,6 +121,36 @@ def load(kind: Optional[str], checkout: Path) -> Texts:
         reread_plan=reread["plan"],
         reread_level=reread["level"],
     )
+
+
+SERVES_FILE = "serves.yaml"
+_SERVES_KEYS = {"microscope", "devices", "services"}
+
+
+def serves(kind: Optional[str], checkout: Optional[Path]) -> Serves:
+    """What instrument *kind* serves (its ``serves.yaml``); an
+    `InstrumentError` says what is wrong."""
+    kind = kind or DEFAULT
+    folders = _folders(checkout)
+    if kind not in folders:
+        raise InstrumentError(
+            f"No instrument kind {kind!r} (one of {', '.join(sorted(folders)) or 'none'})"
+        )
+    path = folders[kind] / SERVES_FILE
+    if not path.is_file():
+        return Serves()
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if not isinstance(data, dict) or set(data) - _SERVES_KEYS:
+        raise InstrumentError(
+            f"{path}: give {', '.join(sorted(_SERVES_KEYS))}, not {data!r}"
+        )
+    names = {}
+    for key in ("devices", "services"):
+        value = data.get(key) or []
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise InstrumentError(f"{path}: {key} is a list of names")
+        names[key] = frozenset(value)
+    return Serves(microscope=data.get("microscope") is True, **names)
 
 
 @cache
