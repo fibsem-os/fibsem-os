@@ -144,6 +144,10 @@ def test_cli_run_and_report(home, case, tmp_path, monkeypatch, capsys):
         "fibsem.ai.evals.runner.server_command",
         lambda: [sys.executable, FAKES, "server"],
     )
+    monkeypatch.setattr(
+        "fibsem.ai.evals.runner.agent_command",
+        lambda: [sys.executable, FAKES, "agent"],
+    )
     out = tmp_path / "out"
     code = main(
         [
@@ -153,8 +157,6 @@ def test_cli_run_and_report(home, case, tmp_path, monkeypatch, capsys):
             str(out),
             "--repeats",
             "1",
-            "--agent",
-            f"{sys.executable} {FAKES} agent",
         ]
     )
     assert code == 0

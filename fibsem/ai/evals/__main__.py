@@ -3,6 +3,7 @@ on cases and report the results."""
 
 import argparse
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -108,7 +109,8 @@ def main(argv=None) -> int:
         knowledge=args.knowledge,
     )
     if args.agent:
-        config.agent_command = shlex.split(args.agent)
+        # Windows paths keep their backslashes.
+        config.agent_command = shlex.split(args.agent, posix=os.name != "nt")
     keyed = [c for c in cases if c.status == "keyed"]
     print(
         f"{len(keyed)} cases x {args.repeats} repeats, at most "
