@@ -220,11 +220,12 @@ def _label(when: str) -> str:
 
 
 def dirs(checkout: Optional[Path]) -> List[Path]:
-    """Where playbooks are looked for, the first found winning."""
-    found = [sources.lab_folder("playbooks")]
-    if checkout is not None:
-        found.append(checkout / PLAYBOOK_DIR)
-    return found
+    """Where playbooks are looked for, the first found winning: the lab's,
+    the shipped ones, then the plugins'."""
+    return [
+        sources.lab_folder("playbooks"),
+        *sources.claude_dirs(checkout, str(PLAYBOOK_DIR.relative_to(sources.CLAUDE))),
+    ]
 
 
 def find(name: str, checkout: Optional[Path]) -> Optional[Path]:
