@@ -13,7 +13,7 @@ import json
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
@@ -737,7 +737,33 @@ def compare_table(outs: List[Path], cases_root: Optional[Path] = None) -> str:
     for name in sorted(cells):
         row = [cells[name].get(n, "-") for n in range(len(outs))]
         lines.append(f"| {name} | " + " | ".join(row) + " |")
+    lines += ["", "Ran with:"]
+    for name, runs in zip(names, columns):
+        lines.append(
+            f"- {name}: {ran_with(r for items in runs.values() for _, (r, _) in items)}"
+        )
     return "\n".join(lines)
+
+
+def ran_with(results: Iterable[Dict[str, Any]]) -> str:
+    """The models, modes, commits and skills a run folder's runs used; more
+    than one of a kind means its runs are not alike."""
+    seen: Dict[str, set] = defaultdict(set)
+    for result in results:
+        version = result.get("version") or {}
+        seen["model"].add(result.get("model") or "?")
+        seen["mode"].add("code" if result.get("code") else "files")
+        seen["commit"].add(
+            (version.get("commit") or "?")
+            + ("+changes" if version.get("changed") else "")
+        )
+        seen["skills"].add(version.get("skills") or "?")
+        seen["knowledge"].add(version.get("knowledge") or "?")
+    said = []
+    for kind, values in seen.items():
+        text = " / ".join(sorted(values))
+        said.append(f"{kind} {text}" + (" (MIXED)" if len(values) > 1 else ""))
+    return ", ".join(said) or "no runs"
 
 
 def write_html(out: Path, cases_root: Optional[Path] = None) -> Path:

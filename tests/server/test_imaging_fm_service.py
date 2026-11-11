@@ -178,13 +178,17 @@ def test_the_sweep_is_refused_where_an_acquisition_is(microscope, monkeypatch):
         microscope.imaging.fm_auto_focus(settings=SHORT)
 
 
-def test_the_agent_stops_the_fm_through_imaging(client):
+def test_the_fms_cancel_is_a_stop(client):
+    """The agent may cancel the FM directly, as a stop: with a reason, and
+    with no imaging service on a devices-only instrument it is the only way."""
+    unsaid = client.post("/microscope/devices/fm/commands/cancel", json={"kwargs": {}})
+    assert unsaid.status_code == 422
+    assert unsaid.json()["detail"]["error_type"] == "missing_reason"
     resp = client.post(
         "/microscope/devices/fm/commands/cancel",
         json={"kwargs": {}, "reason": "testing"},
     )
-    assert resp.status_code == 403
-    assert resp.json()["detail"]["error_type"] == "not_allowed"
+    assert resp.status_code == 200, resp.text
 
 
 def _acquire(client, kwargs):

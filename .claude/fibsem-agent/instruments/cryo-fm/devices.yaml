@@ -1,0 +1,4 @@
+# What a standalone cryo-FM has: the agent is offered the tools on these
+# devices, beside the tools for any instrument.
+devices: [fm, camera, light_source, filter_set, objective, stage]
+services: []

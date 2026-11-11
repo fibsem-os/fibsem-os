@@ -41,9 +41,10 @@ class ToolSpec:
     # The optional /app part that serves it (fibsem.server.parts); "" for the
     # core. /capabilities lists the parts the app serves.
     part: str = ""
-    # The instrument kinds it is for, as a playbook's ``instrument:`` names
-    # them; empty for any kind (the device, service, app and knowledge tools).
-    instruments: Tuple[str, ...] = ()
+    # What an instrument must serve for it to be offered, where its path
+    # doesn't say (`catalog.needs`): "microscope" for a FIB-SEM's own,
+    # "device:<name>" or "service:<name>".
+    needs: Tuple[str, ...] = ()
     # Commands or changes the microscope, so takes control of it.
     hardware: bool = False
     # The level note, where the level alone does not say it (request_create).

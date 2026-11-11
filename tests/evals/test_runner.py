@@ -8,12 +8,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fibsem.ai.evals import report
+from fibsem.ai.evals import report, visual
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import load_case
 from fibsem.ai.evals.runner import (
     RunConfig,
-    RunnerError,
     link_inputs,
     run_case,
     run_cases,
@@ -65,9 +64,9 @@ def case(tmp_path):
 
 
 def config(tmp_path, **kwargs):
+    kwargs.setdefault("repeats", 1)
     return RunConfig(
         out=tmp_path / "out",
-        repeats=1,
         server_command=[sys.executable, FAKES, "server", "--manufacturer", "Demo"],
         agent_command=[sys.executable, FAKES, "agent"],
         server_wait_s=20,
@@ -112,6 +111,16 @@ def test_run_scores_the_answer(home, case, tmp_path, monkeypatch):
     assert "| polishing_stop | yes | 1 | 1 | 0 | 0 | 1 of 1 |" in report.table([row])
 
 
+def test_code_mode_runs_the_agent_with_code_in_its_work_folder(
+    home, case, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    result = run_case(case, 1, config(tmp_path, timeout_s=20, code=True))
+    assert result["status"] == "answered" and result["code"] is True
+    session = tmp_path / "out" / "polish" / "r1" / "session" / "session.json"
+    assert json.loads(session.read_text())["code"] is True
+
+
 def test_run_stops_an_agent_that_never_answers(home, case, tmp_path, monkeypatch):
     monkeypatch.delenv("EVAL_FAKE_ANSWER", raising=False)
     result = run_case(case, 1, config(tmp_path, timeout_s=1))
@@ -120,15 +129,29 @@ def test_run_stops_an_agent_that_never_answers(home, case, tmp_path, monkeypatch
     assert [s["result"] for s in result["scores"]] == ["invalid"]
 
 
-def test_refuses_while_another_app_server_runs(home, case, tmp_path):
+def test_runs_beside_another_app_server_and_in_parallel(
+    home, case, tmp_path, monkeypatch
+):
+    # This PC's own App Server stays where it is.
     discovery.DISCOVERY_FILE.parent.mkdir(parents=True)
     discovery.DISCOVERY_FILE.write_text(
-        json.dumps(
-            {"url": "http://127.0.0.1:1", "connect_token": "x", "pid": os.getpid()}
-        )
+        json.dumps({"url": "http://127.0.0.1:8001", "token": "x", "pid": os.getpid()})
     )
-    with pytest.raises(RunnerError, match="already running"):
-        run_case(case, 1, config(tmp_path))
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    results = run_cases([case], config(tmp_path, repeats=3, jobs=3, timeout_s=20))
+    assert sorted(r["repeat"] for r in results) == [1, 2, 3]
+    assert all(r["status"] == "answered" for r in results)
+    # Each agent was pointed at its own run's server, on its own port.
+    servers = {
+        json.loads(
+            (
+                tmp_path / "out" / "polish" / f"r{n}" / "session" / "session.json"
+            ).read_text()
+        )["server"]
+        for n in (1, 2, 3)
+    }
+    assert len(servers) == 3 and "http://127.0.0.1:8001" not in servers
+    assert discovery.read_discovery_file()["url"] == "http://127.0.0.1:8001"
 
 
 def test_repeats_and_skips_unkeyed(home, case, tmp_path, monkeypatch):
@@ -207,3 +230,46 @@ def test_a_case_can_raise_its_own_budget(case, tmp_path):
     assert case_budget(case, config) == 1.0
     case.data["budget_usd"] = 2.0
     assert case_budget(case, config) == 2.0
+
+
+def test_a_stopped_parallel_run_starts_no_more(case, tmp_path, monkeypatch):
+    started = []
+
+    def run(case, repeat, config):
+        started.append(repeat)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("fibsem.ai.evals.runner.run_case", run)
+    with pytest.raises(KeyboardInterrupt):
+        run_cases([case], config(tmp_path, repeats=8, jobs=2))
+    assert len(started) < 8
+
+
+def test_a_run_records_what_it_ran_with(home, case, tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    result = run_case(case, 1, config(tmp_path, timeout_s=20))
+    version = result["version"]
+    assert version["fibsem"] and len(version["skills"]) == 12
+    out = tmp_path / "out"
+    assert "Ran with:" in visual.compare_table([out])
+    assert "(MIXED)" not in visual.compare_table([out])
+
+
+def test_running_a_folder_again_keeps_finished_runs(home, case, tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    first = run_cases([case], config(tmp_path, timeout_s=20, repeats=2))
+    assert len(first) == 2
+    stopped = tmp_path / "out" / "polish" / "r2"
+    (stopped / "result.json").unlink()  # as if stopped part way
+    again = run_cases([case], config(tmp_path, timeout_s=20, repeats=2))
+    assert [r["repeat"] for r in again] == [2]
+    assert (tmp_path / "out" / "polish" / "r2.stopped" / "work").is_dir()
+    assert len(report.load_results(tmp_path / "out")) == 2
+
+
+def test_the_square_finding_task_says_how_pitch_is_measured(tmp_path):
+    folder = tmp_path / "finding"
+    folder.mkdir()
+    data = {"id": "finding", "task": "square_finding", "brief": "Find squares."}
+    (folder / "case.yaml").write_text(yaml.safe_dump(data))
+    assert "along a grid bar" in task_text(load_case(folder), [])

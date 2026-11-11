@@ -37,6 +37,7 @@ from contextvars import ContextVar
 from typing import Annotated, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
+from fibsem.ai.agent import instruments, sources
 from fibsem.ai.agent.calls import headers_for
 from fibsem.ai.agent.catalog import (
     CATALOG,
@@ -366,6 +367,11 @@ def _name_the_client(mcp, client):
     middleware.append(name_client)
 
 
+def _devices(kind):
+    """What instrument *kind* has, from the shipped files or a plugin's."""
+    return instruments.devices(kind, sources.find_root())
+
+
 def build_sidecar(client, capabilities, instrument=None):
     """Build the MCP server over an httpx-compatible client.
 
@@ -373,14 +379,18 @@ def build_sidecar(client, capabilities, instrument=None):
     its router is mounted (an app tool exists only when the server hosts an
     application), whatever the agent's level. The server enforces the level.
     None (no server answered at start-up) registers every tool's router.
-    *instrument*, an instrument kind, leaves out other kinds' tools.
+    *instrument*, an instrument kind, offers only the tools on what it has
+    (its ``devices.yaml``).
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
 
     every = {"routers": {"app": True, "services": True}}
     offered = {
-        t.name for t in tools_for_capabilities(capabilities or every, instrument)
+        t.name
+        for t in tools_for_capabilities(
+            capabilities or every, _devices(instrument) if instrument else None
+        )
     }
     by_name = {t.name: t for t in CATALOG}
     # The open experiment's files as resources, beside the tools that read them.
@@ -1522,8 +1532,8 @@ def main(argv=None):
     parser.add_argument(
         "--instrument",
         default=os.environ.get(INSTRUMENT_ENV) or None,
-        help="offer only this instrument kind's tools, beside those for any "
-        "kind (default every kind's; fibsem-agent sets it from its playbook)",
+        help="offer only the tools on this instrument kind's devices (default every "
+        "tool; fibsem-agent sets it from its playbook)",
     )
     parser.add_argument(
         "--check",

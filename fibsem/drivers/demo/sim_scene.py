@@ -33,7 +33,7 @@ import logging
 import zlib
 from collections import OrderedDict
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -90,21 +90,31 @@ class Fluorophore:
 # GFP-like green, a seeded subset of cells an mCherry-like red as well
 # peaks sit on real dyes and on the simulated light source's lines (365,
 # 450, 550, 635 nm): 365 drives the fiducial, 450 and 488 the cells, 550 and
-# 561 the subset, 635 nothing on this sample
+# 561 the subset, 635 the far-red label (none unless one is set)
 FIDUCIAL_DYE = Fluorophore("dapi-like", 365.0, 460.0, excitation_width=30.0)
 CELL_DYE = Fluorophore("gfp-like", 470.0, 510.0, excitation_width=30.0)
 SUBSET_DYE = Fluorophore("mcherry-like", 560.0, 610.0, excitation_width=30.0)
+FAR_RED_DYE = Fluorophore("cy5-like", 640.0, 670.0, excitation_width=30.0)
 # in reflection the bars dominate, the fiducial reflects, cells are faint
-REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6)
+REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6, 0.0)
 # the FM's fluorescence intensity for a fully-dyed part, on the beam
 # intensity scale the stamper uses
 FM_INTENSITY = 90.0
+FM_PSF_SIGMA = 0.13e-6  # m; an in-focus point source
+CILIUM_SIGMA = 0.09e-6  # m; a ~250 nm wide cilium, under the PSF
+# a source spread dimmer than this (canvas scale; the camera's noise is ~0.3)
+# is not drawn: far from focus it would cover the frame for nothing
+FM_FAINT = 0.05
 # a faint outline of the bars leaks into every fluorescence channel
 BARS_IN_FLUORESCENCE = 0.05
 
 
-def fm_channel_weights(emission, excitation=None) -> Tuple[float, float, float, float]:
-    """(bars, cells, red subset, fiducial) intensity weights for a channel.
+def fm_channel_weights(
+    emission, excitation=None
+) -> Tuple[float, float, float, float, float]:
+    """(bars, green, red, blue, far red) intensity weights for a channel:
+    the bars, then the green (cells, centrin), red (the subset, cilia), blue
+    (nucleus and fiducial) and far-red (membrane, mitochondria) labels.
 
     Reflection is an emission of None (or named so): the excitation light
     imaged straight back, so the grid bars dominate. Otherwise each dye
@@ -124,6 +134,7 @@ def fm_channel_weights(emission, excitation=None) -> Tuple[float, float, float, 
         CELL_DYE.response(excitation, emission),
         SUBSET_DYE.response(excitation, emission),
         FIDUCIAL_DYE.response(excitation, emission),
+        FAR_RED_DYE.response(excitation, emission),
     )
 
 
@@ -768,6 +779,27 @@ class SampleScene:
     # defocus model for the FM: blur sigma grows by this many pixels per
     # micron the objective sits away from its focus position
     fm_blur_px_per_um: float = 0.6
+    # FM targets in the cytoplasmic (GFP) channel: a seeded fraction of cells
+    # carry a diffuse centrin pool with a centriole pair at its edge (two
+    # diffraction-limited spots ~1 um apart, at a height in the cell), and a
+    # seeded chance that a scene carries none; a spot is sharp within about
+    # `fm_axial_range` (m) of its height and fades either side
+    fm_target_fraction: float = 0.5
+    fm_no_target_chance: float = 0.2
+    fm_axial_range: float = 0.5e-6
+    # what each FM channel labels (blue is always the nucleus and fiducial):
+    # green "cytoplasm" (the whole cell, with the centrin pairs), "centrin"
+    # (centrin-GFP: the pairs and pools, the cell only faint) or
+    # "lipid_droplets"; red "subset" (a seeded subset of whole cells) or
+    # "cilia" (a membrane label on the primary cilium, grown from the mother
+    # centriole in a seeded fraction of the target cells); far red "none",
+    # "membrane" (the cell outlines) or "mitochondria"
+    fm_green: str = "cytoplasm"
+    fm_red: str = "subset"
+    fm_far_red: str = "none"
+    fm_cilium_fraction: float = 0.7
+    # the camera's hot pixels: the same pixels, as bright, in every frame
+    fm_hot_pixels: float = 2e-4
     _texture: Optional[WorldTexture] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -801,6 +833,7 @@ class SampleScene:
         grid, when given)."""
         self.features = []
         self.cracks: List[np.ndarray] = []
+        self.fm_spots: List[dict] = []
         for grid in self.grids:
             self._generate_grid(grid, rng)
             rng = None
@@ -871,6 +904,7 @@ class SampleScene:
         for f in self.features[start:]:
             f.x += grid.x
             f.y += grid.y
+        self._generate_centrioles(grid, start)
 
     def _generate_frost(self, rng, grid: SceneGrid, half: float) -> None:
         """Ice contamination: patches of small bright crystal grains, dense
@@ -950,6 +984,95 @@ class SampleScene:
                 arm = np.column_stack([pts, w])
                 trunk = arm if trunk is None else trunk
                 self.cracks.append(arm)
+
+    def _generate_centrioles(self, grid: SceneGrid, start: int) -> None:
+        """Centrin in a seeded fraction of this grid's cells: a dim pool and,
+        at its edge, a centriole pair at a height in the cell (kept in
+        `fm_spots`, seen only by the FM). Some scenes carry none."""
+        rng = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 59])
+        if rng.uniform() < self.fm_no_target_chance:
+            return
+        for f in self.features[start:]:
+            if f.kind != "cell" or f.part != "body":
+                continue
+            if rng.uniform() >= self.fm_target_fraction:
+                continue
+            tall = max(float(f.height or 0.0), 1.5e-6)
+            pool_sigma = float(rng.uniform(1.0e-6, 1.5e-6))
+            a = rng.uniform(0, 2 * np.pi)
+            reach = float(rng.uniform(0.2, 0.5)) * f.sigma
+            px, py = f.x + reach * np.cos(a), f.y + reach * np.sin(a)
+            z = float(rng.uniform(0.3e-6, 0.8 * tall))
+            b = rng.uniform(0, 2 * np.pi)
+            edge = 0.8 * pool_sigma
+            mx, my = px + edge * np.cos(b), py + edge * np.sin(b)
+            sep = float(rng.uniform(0.8e-6, 1.2e-6))
+            c = rng.uniform(0, 2 * np.pi)
+            dz = float(rng.normal(0, 0.15e-6))
+            pair = [
+                (
+                    mx + s_ * sep / 2 * np.cos(c),
+                    my + s_ * sep / 2 * np.sin(c),
+                    z + s_ * dz / 2,
+                )
+                for s_ in (-1, 1)
+            ]
+            # the primary cilium: a rod from the mother centriole, leaning
+            # up and out of the cell (drawn for every target so the layout
+            # is the same whichever label is shown)
+            grows = rng.uniform() < self.fm_cilium_fraction
+            length = float(rng.uniform(2e-6, 5e-6))
+            azimuth = rng.uniform(0, 2 * np.pi)
+            rise = rng.uniform(0.0, np.deg2rad(80))  # some lie almost flat
+            # it bends as it goes: a smoothly varying curvature, so it
+            # sweeps round over a micron or two rather than jittering
+            steps = max(int(length / 0.1e-6), 2)
+            bend = ndi_gaussian(rng.normal(0, 1, steps + 16), 6)[8:-8]
+            bend = 0.08 * bend / (bend.std() + 1e-9) + rng.normal(0, 0.03)
+            turn_ = azimuth + np.cumsum(bend)
+            lift = np.clip(rise + np.cumsum(rng.normal(0, 0.03, steps)), -0.2, 1.4)
+            step = 0.1e-6 * np.column_stack(
+                [
+                    np.cos(lift) * np.cos(turn_),
+                    np.cos(lift) * np.sin(turn_),
+                    np.sin(lift),
+                ]
+            )
+            path = np.vstack([pair[0], np.array(pair[0]) + np.cumsum(step, axis=0)])
+            cilium = (
+                [tuple(float(v) for v in path[0]), tuple(float(v) for v in path[-1])]
+                if grows
+                else None
+            )
+            self.fm_spots.append(
+                {
+                    "cell_id": int(f.cell_id),
+                    "cilium": cilium,
+                    "cilium_path": path.tolist() if grows else None,
+                    "pool": (float(px), float(py), z, pool_sigma),
+                    "pair": [tuple(float(v) for v in p) for p in pair],
+                    "midpoint": (float(mx), float(my), z),
+                }
+            )
+
+    def fm_targets(self) -> List[dict]:
+        """The scene's target cells: per cell, the centriole pair's midpoint
+        (x, y world m; z m above the film, the objective's distance from
+        focus at which the pair is sharpest), the two spots, the centrin
+        pool, and the primary cilium's base and tip (None if it has none).
+        With red labelling cilia, only the cells with a cilium are listed,
+        and the midpoint is the cilium's."""
+        spots = getattr(self, "fm_spots", [])
+        if self.fm_red != "cilia":
+            return [dict(t) for t in spots]
+        out = []
+        for t in spots:
+            if t.get("cilium") is None:
+                continue
+            (x0, y0, z0), (x1, y1, z1) = t["cilium"]
+            mid = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+            out.append({**t, "midpoint": mid})
+        return out
 
     def crack_depth(self, xs_world: np.ndarray, ys_world: np.ndarray) -> np.ndarray:
         """How far (0..1) each world point sits inside a hairline crack: 1 on
@@ -1922,15 +2045,18 @@ class SampleScene:
                             height=0.6e-6,
                         )
                     )
-                    for _ in range(int(rng.integers(4, 10))):
+                    # pigment granules: many and small, spread evenly over
+                    # the cell round the nucleus (a few read as pairs, a
+                    # ring of them is too sparse)
+                    for _ in range(int(rng.integers(18, 36))):
                         t = rng.uniform(0, 2 * np.pi)
-                        r = rng.uniform(0.25, 0.45) * spacing
+                        r = np.sqrt(rng.uniform(0.22**2, 0.45**2)) * spacing
                         self.features.append(
                             SceneFeature(
                                 x=x + r * float(np.cos(t)),
                                 y=y + r * float(np.sin(t)),
-                                sigma=0.35e-6,
-                                intensity=60.0,
+                                sigma=float(rng.uniform(0.15e-6, 0.25e-6)),
+                                intensity=45.0,
                                 sharpness=2.0,
                                 part="organelle",
                                 cell_id=next_id,
@@ -2098,6 +2224,14 @@ class SampleScene:
         "curtaining",  # strength of the stripes down a cut face (0 = none)
         "damage_below",  # [min, max] m, the seeded thickness damage can start below
         "damage_chance",  # per polishing pass below it
+        "fm_target_fraction",  # cells with a centrin pool and centriole pair
+        "fm_no_target_chance",  # chance a grid carries no pair at all
+        "fm_axial_range",  # m, how far from its height an FM spot stays sharp
+        "fm_green",  # cytoplasm | centrin | lipid_droplets
+        "fm_red",  # subset | cilia
+        "fm_far_red",  # none | membrane | mitochondria
+        "fm_cilium_fraction",  # of the target cells, those with a cilium
+        "fm_hot_pixels",  # fraction of FM camera pixels that are hot
         "charging",  # SEM charging strength on an uncoated grid (0 = never)
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
@@ -2400,6 +2534,7 @@ class SampleScene:
         turn = self._turn(stage_position)
 
         bars, cells, red, fiducial = weights[:4]
+        far_red = weights[4] if len(weights) > 4 else 0.0
         # contamination reflects strongly and autofluoresces faintly
         contamination = 0.9 if bars >= 1.0 else 0.12
         canvas = np.zeros((height, width), dtype=np.float32)
@@ -2413,6 +2548,8 @@ class SampleScene:
             / fs
         )
         bar_mask, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
+        if bars >= 1.0 and self.renderer == "relief":
+            return self._fm_reflection(xs_world, ys_world, defocus, rng)
         if bars > 0:
             canvas[bar_mask] += bars * self.grid_intensity
             # in reflection the holes and rips read dark, the rim bright
@@ -2441,7 +2578,14 @@ class SampleScene:
             else:
                 # dyes by part: the DNA dye lives in the nucleus, the
                 # cytoplasmic one everywhere; the subset dye follows the cell
-                body_dye = cells + (red if self._in_red_subset(f.cell_id) else 0.0)
+                # a centrin-GFP cell is only faint in green outside its
+                # centrosome; with droplets labelled, faint autofluorescence
+                glow = {"cytoplasm": 1.0, "centrin": 0.3}.get(self.fm_green, 0.15)
+                # the cilia label also sits faintly over the whole cell
+                red_glow = 0.2 if self.fm_red == "cilia" else 0.0
+                body_dye = glow * cells + (
+                    red if self._in_red_subset(f.cell_id) else red_glow * red
+                )
                 if f.part == "nucleus":
                     weight = FM_INTENSITY * (fiducial * 1.0 + body_dye * 0.5)
                 elif f.part == "organelle":
@@ -2450,6 +2594,10 @@ class SampleScene:
                     weight = FM_INTENSITY * body_dye
             if weight <= 0:
                 continue
+            if f.part == "organelle" and f.sigma < 1e-6:
+                # a small granule takes up little dye, and sits at a height
+                # in its cell: sharp there, spreading and dimming away from it
+                f, weight = self._fm_at_height(f, 0.25 * weight, defocus)
             u = cx + (turn * f.x + ax) / pixel_size
             v = cy + (turn * f.y * fs + ay) / pixel_size
             self._stamp_feature(
@@ -2458,6 +2606,11 @@ class SampleScene:
         # milled regions after the features: a trench or a burn removes the
         # material, so in reflection it reads dark through whatever cell was
         # there, and a burn's rim stays visible on top of it
+        if self.milled:
+            # a cell is a column of dye a few um tall: a cut along the
+            # milling beam takes away the part of each column it passes
+            # through, so from above a trench reaches as far as the SEM sees
+            canvas *= 1.0 - self.milled_fraction(xs_world, ys_world)
         if bars > 0 and self.milled:
             canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
@@ -2476,18 +2629,398 @@ class SampleScene:
             if sigma_px > 0.3:
                 canvas = _blur(canvas, sigma_px)
 
+        view = (ax, ay, cx, cy, pixel_size, fs, turn)
+        if getattr(self, "fm_spots", None):
+            if cells > 0 and self.fm_green in ("cytoplasm", "centrin"):
+                self._stamp_centrin(canvas, cells, defocus, *view)
+            if red > 0 and self.fm_red == "cilia":
+                self._stamp_cilia(canvas, red, defocus, *view)
+        bodies = [
+            self.features[i]
+            for i in in_view
+            if self.features[i].kind == "cell" and self.features[i].part == "body"
+        ]
+        if red > 0 and self.fm_red == "cilia":
+            # and in vesicles: bright puncta through the cells, the decoys
+            self._stamp_organelles(canvas, red, "puncta", bodies, defocus, view)
+        if cells > 0 and self.fm_green == "lipid_droplets":
+            self._stamp_organelles(canvas, cells, "droplets", bodies, defocus, view)
+        if far_red > 0 and self.fm_far_red == "mitochondria":
+            self._stamp_organelles(canvas, far_red, "mito", bodies, defocus, view)
+        if far_red > 0 and self.fm_far_red == "membrane":
+            gone = (
+                self.milled_fraction(xs_world, ys_world) > 0.5 if self.milled else None
+            )
+            self._stamp_membrane(
+                canvas, far_red, bodies, defocus, view, gone, (xs_world, ys_world)
+            )
+
+        return self._fm_camera(canvas, rng)
+
+    def _fm_reflection(self, xs_world, ys_world, defocus, rng):
+        """Reflected light from the relief: the same 3D sample the beams see,
+        so ice thickness reads as fringes, cells as dark textured mounds and
+        a lamella or trench where the milling left it. Worked out on at most
+        ~512 samples a side and scaled up: the optics blur finer detail."""
+        um = sim_relief.UM
+        height, width = ys_world.shape[0], xs_world.shape[1]
+        step = max(1, int(np.ceil(max(height, width) / 512)))
+        xs = xs_world[0, ::step].astype(np.float64) * um
+        ys = ys_world[::step, 0].astype(np.float64) * um
+        key = (
+            "fm-reflection",
+            self.seed,
+            round(float(xs[0]), 4),
+            round(float(ys[0]), 4),
+            len(xs),
+            len(ys),
+            round(float(xs[-1]), 4),
+            len(self.milled),
+            round(self.gis_thickness * um, 4),
+            id(self),
+        )
+        cache = sim_relief._cache(self)
+        r = cache.get(key)
+        if r is None:
+            gx, gy = np.meshgrid(xs, ys)
+            dx = abs(float(xs[1] - xs[0])) if len(xs) > 1 else 1.0
+            dy = abs(float(ys[1] - ys[0])) if len(ys) > 1 else 1.0
+            r = sim_relief.reflectance(self, gx, gy, (dx, dy))
+            cache[key] = r
+            while len(cache) > sim_relief.CACHE_SIZE:
+                cache.popitem(last=False)
+        if step > 1:
+            r = ndi_zoom(r, step, order=1)[:height, :width]
+            if r.shape != (height, width):
+                r = np.pad(
+                    r,
+                    ((0, height - r.shape[0]), (0, width - r.shape[1])),
+                    mode="edge",
+                )
+        canvas = r * self.grid_intensity
+        if self.milled:
+            # a spot burn's rim reflects brightly round its pit: a fiducial
+            pixel = abs(float(xs_world[0, -1] - xs_world[0, 0])) / max(width - 1, 1)
+            halo = self.halo_mask(xs_world, ys_world, pixel)
+            if halo is not None:
+                canvas[halo] += FM_HALO
+        if defocus:
+            sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
+            if sigma_px > 0.3:
+                canvas = _blur(canvas, sigma_px)
+        return self._fm_camera(canvas, rng)
+
+    def _fm_camera(self, canvas: np.ndarray, rng) -> np.ndarray:
+        """The canvas as the camera reads it."""
+        height, width = canvas.shape
         if rng is None:
             rng = np.random.default_rng()
         # 16-bit camera: a dim background, shot-noise-like gaussian noise
         data = 400.0 + canvas * 120.0
         data += rng.normal(0, 40.0 + 0.05 * np.sqrt(np.maximum(data, 0)), canvas.shape)
+        if self.fm_hot_pixels > 0:
+            # the camera's own: the same pixels at the same level every frame
+            hot = np.random.default_rng(
+                [int(self.seed) & 0x7FFFFFFF, 61, width, height]
+            )
+            n = int(self.fm_hot_pixels * width * height)
+            rows = hot.integers(0, height, n)
+            cols = hot.integers(0, width, n)
+            data[rows, cols] = hot.uniform(4000, 30000, n)
         return np.clip(data, 0, 65535).astype(np.uint16)
+
+    def _fm_at_height(self, f: SceneFeature, weight: float, defocus: float):
+        """A small feature blurred for its distance from the focal plane: its
+        height is seeded from where it is, so it is the same in every view."""
+        rng = np.random.default_rng(
+            [
+                int(self.seed) & 0x7FFFFFFF,
+                67,
+                int(f.x * 1e8) & 0x7FFFFFFF,
+                int(f.y * 1e8) & 0x7FFFFFFF,
+            ]
+        )
+        z = float(rng.uniform(0.3e-6, 2.0e-6))
+        spread = ((float(defocus or 0.0) - z) / max(self.fm_axial_range, 1e-9)) ** 2
+        sigma = float(np.hypot(f.sigma, FM_PSF_SIGMA * np.sqrt(spread)))
+        return replace(f, sigma=sigma, sharpness=1.0), weight * (f.sigma / sigma) ** 2
+
+    def _stamp_centrin(self, canvas, weight, defocus, ax, ay, cx, cy, pix, fs, turn):
+        """The centrin pools and centriole pairs, each blurred by how far it
+        sits from the focal plane (the objective's distance from focus is the
+        height in focus): a spot is sharp within `fm_axial_range` and spreads
+        and dims either side."""
+        z_plane = float(defocus or 0.0)
+        z_r = max(self.fm_axial_range, 1e-9)
+        height, width = canvas.shape
+
+        def stamp(x, y, z, sigma0, peak):
+            # the point spread widens away from focus; a wide source (the
+            # pool) barely changes, a point (a centriole) spreads and dims
+            dz = (z_plane - z) / z_r
+            sigma_m = float(np.hypot(sigma0, FM_PSF_SIGMA * abs(dz)))
+            amp = weight * peak * (sigma0 / sigma_m) ** 2
+            if amp < FM_FAINT:
+                return  # spread so far it is lost in the camera noise
+            sigma = max(sigma_m / pix, 0.6)
+            u = cx + (turn * x + ax) / pix
+            v = cy + (turn * y * fs + ay) / pix
+            r = int(np.ceil(4 * sigma))
+            u0, u1 = max(int(u) - r, 0), min(int(u) + r + 2, width)
+            v0, v1 = max(int(v) - r, 0), min(int(v) + r + 2, height)
+            if u0 >= u1 or v0 >= v1:
+                return
+            uu = np.arange(u0, u1)[None, :] - u
+            vv = np.arange(v0, v1)[:, None] - v
+            canvas[v0:v1, u0:u1] += amp * np.exp(-(uu**2 + vv**2) / (2 * sigma**2))
+
+        for spot in self.fm_spots:
+            x, y, z, sigma = spot["pool"]
+            if not self.milled_through(x, y, z):
+                stamp(x, y, z, sigma, 0.6 * FM_INTENSITY)
+            for x, y, z in spot["pair"]:
+                if not self.milled_through(x, y, z):
+                    stamp(x, y, z, FM_PSF_SIGMA, 2.0 * FM_INTENSITY)
+
+    def _stamp_cilia(self, canvas, weight, defocus, ax, ay, cx, cy, pix, fs, turn):
+        """The primary cilia: a thin bending line of membrane label with a
+        bright head at its base, points along it each blurred for its own
+        height."""
+        pts, heads = [], []
+        for spot in self.fm_spots:
+            if spot.get("cilium") is None:
+                continue
+            path = np.asarray(spot["cilium_path"], dtype=float)
+            # points every ~40 nm along the bending path
+            fine = np.linspace(0, len(path) - 1, 2 * len(path) + 1)
+            k = np.floor(fine).astype(int).clip(0, len(path) - 2)
+            frac = (fine - k)[:, None]
+            pts.append(path[k] * (1 - frac) + path[k + 1] * frac)
+            heads.append(path[0])
+        view = (ax, ay, cx, cy, pix, fs, turn)
+        if pts:
+            self._stamp_points(
+                canvas,
+                np.concatenate(pts),
+                CILIUM_SIGMA,
+                0.45 * FM_INTENSITY * weight,
+                defocus,
+                view,
+            )
+            # the base, where the receptor gathers: a brighter head
+            self._stamp_points(
+                canvas,
+                np.array(heads),
+                0.2e-6,
+                2.5 * FM_INTENSITY * weight,
+                defocus,
+                view,
+            )
+
+    def _fm_cell_points(self, f: SceneFeature, kind: str) -> np.ndarray:
+        """A cell's labelled organelles as (N, 3) world points (x, y, height
+        m), drawn from the seed and the cell, so they are the same in every
+        view: lipid droplets (a few round spheres, each one point with its
+        radius as the 4th column) or mitochondria (many short wandering
+        tubules, as points along them)."""
+        cache = self.__dict__.setdefault("_fm_points", {})
+        key = (kind, int(f.cell_id), round(f.x, 9), round(f.y, 9))
+        if key in cache:
+            return cache[key]
+        code = {"droplets": 73, "mito": 79, "puncta": 83}[kind]
+        rng = np.random.default_rng(
+            [int(self.seed) & 0x7FFFFFFF, code, int(f.cell_id) & 0x7FFFFFFF]
+        )
+        tall = max(float(f.height or 0.0), 1.5e-6)
+        reach = 0.8 * f.sigma
+        if kind == "puncta":
+            n = int(rng.integers(4, 16))
+            r = reach * np.sqrt(rng.uniform(0, 1, n))
+            t = rng.uniform(0, 2 * np.pi, n)
+            pts = np.column_stack(
+                [
+                    f.x + r * np.cos(t),
+                    f.y + r * np.sin(t),
+                    rng.uniform(0.3e-6, 0.8 * tall, n),
+                ]
+            )
+        elif kind == "droplets":
+            n = int(rng.integers(3, 11))
+            r = reach * np.sqrt(rng.uniform(0, 1, n))
+            t = rng.uniform(0, 2 * np.pi, n)
+            pts = np.column_stack(
+                [
+                    f.x + r * np.cos(t),
+                    f.y + r * np.sin(t),
+                    rng.uniform(0.3e-6, 0.8 * tall, n),
+                    rng.uniform(0.25e-6, 0.8e-6, n),
+                ]
+            )
+        else:
+            tubes = []
+            for _ in range(int(rng.integers(20, 40))):
+                r = reach * np.sqrt(rng.uniform(0.05, 1))
+                t = rng.uniform(0, 2 * np.pi)
+                start = np.array(
+                    [
+                        f.x + r * np.cos(t),
+                        f.y + r * np.sin(t),
+                        rng.uniform(0.3e-6, 0.6 * tall),
+                    ]
+                )
+                steps = int(rng.integers(8, 30))  # 0.8 - 3 um long
+                heading = rng.uniform(0, 2 * np.pi) + np.cumsum(
+                    rng.normal(0, 0.35, steps)
+                )
+                step = 0.1e-6 * np.column_stack(
+                    [np.cos(heading), np.sin(heading), rng.normal(0, 0.3, steps)]
+                )
+                tubes.append(start + np.cumsum(step, axis=0))
+            pts = np.concatenate(tubes)
+        cache[key] = pts
+        return pts
+
+    def _stamp_organelles(self, canvas, weight, kind, bodies, defocus, view):
+        """Every in-view cell's lipid droplets or mitochondria."""
+        if not bodies:
+            return
+        pts = np.concatenate([self._fm_cell_points(f, kind) for f in bodies])
+        if kind == "droplets":
+            # a filled sphere reads as a bright disc its own size
+            for radius in np.unique(np.round(pts[:, 3], 7)):
+                group = pts[np.round(pts[:, 3], 7) == radius]
+                self._stamp_points(
+                    canvas,
+                    group[:, :3],
+                    0.5 * radius,
+                    1.5 * FM_INTENSITY * weight,
+                    defocus,
+                    view,
+                )
+        elif kind == "puncta":
+            self._stamp_points(
+                canvas, pts, FM_PSF_SIGMA, 1.2 * FM_INTENSITY * weight, defocus, view
+            )
+        else:
+            self._stamp_points(
+                canvas, pts, 0.12e-6, 0.4 * FM_INTENSITY * weight, defocus, view
+            )
+
+    def _stamp_membrane(
+        self, canvas, weight, bodies, defocus, view, gone=None, world=None
+    ):
+        """The plasma membrane: each in-view cell's outline, a bright ring
+        where its body's edge falls, blurred by the FM's own defocus."""
+        ax, ay, cx, cy, pix, fs, turn = view
+        mask = np.zeros_like(canvas)
+        for f in bodies:
+            u = cx + (turn * f.x + ax) / pix
+            v = cy + (turn * f.y * fs + ay) / pix
+            self._stamp_feature(
+                mask, f, u, v, pix, fs, np.pi * (turn < 0), intensity=1.0
+            )
+        mask = np.clip(mask, 0, 1)
+        # the outline: a thin band where the body's edge falls (its
+        # half-height contour), over a faint top
+        if world is not None:
+            # a real outline wanders, thickens and fades along its length,
+            # with brighter patches (ruffles, contacts) and gaps
+            um = sim_relief.UM
+            wx, wy = np.broadcast_arrays(world[0] * um, world[1] * um)
+            seed = int(self.seed) + 97
+            mask = mask + 0.12 * sim_relief.value_noise(wx, wy, 2.5, seed)
+            patchy = sim_relief.value_noise(wx, wy, 1.2, seed + 1)
+            spots = np.clip(sim_relief.value_noise(wx, wy, 0.4, seed + 2), 0, 1) ** 3
+        else:
+            patchy, spots = 0.0, 0.0
+        band = np.exp(-(((mask - 0.5) / 0.12) ** 2))
+        ring = band * np.clip(0.75 + 0.6 * patchy + 2.0 * spots, 0.1, 2.5)
+        ring = ring + 0.1 * np.clip(mask, 0, 1)
+        if gone is not None:
+            ring[gone] = 0.0  # milled away
+        blur = abs(float(defocus or 0.0)) / max(self.fm_axial_range, 1e-9)
+        if blur > 0.5:
+            ring = _blur(ring, min(blur * FM_PSF_SIGMA / pix, 40.0))
+        canvas += FM_INTENSITY * weight * ring
+
+    def _stamp_points(self, canvas, pts, sigma0, peak, defocus, view):
+        """Many point-like sources at once (N, 3: x, y, height m), each
+        blurred for its distance from the focal plane: splatted into one
+        image per blur width, then each blurred once. A source's peak in
+        focus is `peak`; out of focus it spreads and dims."""
+        ax, ay, cx, cy, pix, fs, turn = view
+        height, width = canvas.shape
+        u = cx + (turn * pts[:, 0] + ax) / pix
+        v = cy + (turn * pts[:, 1] * fs + ay) / pix
+        dz = (float(defocus or 0.0) - pts[:, 2]) / max(self.fm_axial_range, 1e-9)
+        sigma_m = np.hypot(sigma0, FM_PSF_SIGMA * np.abs(dz))
+        amp = peak * (sigma0 / sigma_m) ** 2
+        sigma_px = np.maximum(sigma_m / pix, 0.6)
+        keep = amp >= FM_FAINT
+        keep &= (u > -4 * sigma_px) & (u < width + 4 * sigma_px)
+        keep &= (v > -4 * sigma_px) & (v < height + 4 * sigma_px)
+        if self.milled:
+            # what a pattern cut away is gone
+            for i in np.flatnonzero(keep):
+                keep[i] = not self.milled_through(*pts[i, :3])
+        if not np.any(keep):
+            return
+        u, v, amp, sigma_px = u[keep], v[keep], amp[keep], sigma_px[keep]
+        level = np.round(np.log(sigma_px) / np.log(1.3)).astype(int)
+        for lv in np.unique(level):
+            sel = level == lv
+            s_px = float(1.3**lv)
+            img = np.zeros_like(canvas)
+            # bilinear splat, so a source between pixels stays put
+            u0, v0 = np.floor(u[sel]).astype(int), np.floor(v[sel]).astype(int)
+            fu, fv = u[sel] - u0, v[sel] - v0
+            mass = amp[sel] * 2 * np.pi * s_px**2
+            for du, dv, wgt in (
+                (0, 0, (1 - fu) * (1 - fv)),
+                (1, 0, fu * (1 - fv)),
+                (0, 1, (1 - fu) * fv),
+                (1, 1, fu * fv),
+            ):
+                uu, vv = u0 + du, v0 + dv
+                ok = (uu >= 0) & (uu < width) & (vv >= 0) & (vv < height)
+                np.add.at(img, (vv[ok], uu[ok]), (mass * wgt)[ok])
+            canvas += _blur(img, s_px)
+
+    def milled_fraction(
+        self, xs_world: np.ndarray, ys_world: np.ndarray, top: float = 3e-6
+    ) -> np.ndarray:
+        """How much of the column from the film up to `top` (m) the milled
+        patterns cut away at each world point (0..1), each cut along the
+        beam that milled it."""
+        um = sim_relief.UM
+        xs, ys = np.broadcast_arrays(xs_world * um, ys_world * um)
+        heights = np.linspace(0.05, top * um, 24)
+        gone = np.zeros((len(heights),) + xs.shape, dtype=bool)
+        for region in self.milled:
+            lo, hi = sim_relief._cut_range(self, region, xs, ys)
+            for i, z in enumerate(heights):
+                gone[i] |= (lo <= z) & (z <= hi)
+        return gone.mean(axis=0).astype(np.float32)
+
+    def milled_through(self, x: float, y: float, z: float) -> bool:
+        """Whether a milled pattern has cut away the point at (x, y) world
+        m, `z` m above the film: each pattern is cut along the beam that
+        milled it, so a lamella keeps only what lies inside its slab."""
+        um = sim_relief.UM
+        xs, ys = np.array([[x * um]]), np.array([[y * um]])
+        for region in self.milled:
+            lo, hi = sim_relief._cut_range(self, region, xs, ys)
+            if lo[0, 0] <= z * um <= hi[0, 0]:
+                return True
+        return False
 
     def _in_red_subset(self, cell_id: int) -> bool:
         """Whether a cell carries the subset dye: drawn from the seed and
         the cell's id, so the answer is the same whichever features are in
         view (a draw in feature order would change with the view)."""
         rng = np.random.default_rng([self.seed + 1, int(cell_id) & 0x7FFFFFFF])
+        if self.fm_red != "subset":
+            return False  # the red label is on something else
         return bool(rng.random() < self.red_fraction)
 
     def current_offset(

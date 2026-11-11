@@ -7,7 +7,7 @@ import yaml
 
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import check_case, find_cases, load_case
-from fibsem.ai.evals.scoring import score_case
+from fibsem.ai.evals.scoring import placed_scale, score_case
 
 
 def make_case(root, name, data, files=()):
@@ -310,10 +310,15 @@ def test_square_finding(finding_case):
     # Two points on one square match it once.
     twice = result(finding_case, {"squares": grid + grid[:1], **lattice})
     assert twice.details["matched"] == 9 and twice.details["extra"] == 1
-    assert (
-        result(finding_case, {"squares": grid, "pitch_px": 150, "angle_deg": 0}).result
-        == "miss"
-    )
+    # The pitch is the placed squares': a pitch written along the image axis
+    # misses nothing when the squares are right.
+    written = result(finding_case, {"squares": grid, "pitch_px": 150, "angle_deg": 0})
+    assert written.result == "hit"
+    assert written.details["pitch_error"] == 0.0
+    assert written.details["written_pitch_error"] == 0.5
+    # A lattice turned 45 degrees off misses.
+    turned = result(finding_case, {"squares": grid, "pitch_px": 100, "angle_deg": 45})
+    assert turned.result == "miss"
     assert result(finding_case, {"squares": grid}).result == "miss"
     assert result(finding_case, {"pitch_px": 100}).result == "invalid"
     assert check_case(finding_case).ok
@@ -418,3 +423,13 @@ def test_polishing_stop_with_a_span_of_right_passes(tmp_path):
     assert stop_at("p1") == "early"
     assert stop_at("p2") == "hit" and stop_at("p3") == "hit"
     assert stop_at("p4") == "unsafe"
+
+
+def test_the_placed_spacing_is_measured_on_neighbours_in_the_key():
+    squares = [{"x_px": 100 * c, "y_px": 0} for c in range(3)]
+    # Squares 0 and 1 placed 110 apart, 1 and 2 placed 110 apart; 0 and 2 are
+    # not neighbours, and an extra point matched to nothing is left out.
+    points = [(0, 0), (110, 0), (220, 0), (55, 0)]
+    matched = {0: 0, 1: 1, 2: 2}
+    assert placed_scale(points, squares, matched, 100) == pytest.approx(1.1)
+    assert placed_scale(points, squares, {0: 0}, 100) is None

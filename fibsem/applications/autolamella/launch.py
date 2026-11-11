@@ -70,6 +70,20 @@ def _parser() -> argparse.ArgumentParser:
         "App Server preference).",
     )
     parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="The App Server's port (default 8001): for a second host on this "
+        "PC, as an eval run starts.",
+    )
+    parser.add_argument(
+        "--discovery",
+        type=Path,
+        default=None,
+        help="Where the App Server writes its discovery file (default "
+        "~/.fibsem/app-server.json): with --port, for a second host.",
+    )
+    parser.add_argument(
         "--host",
         action="store_true",
         help="With the window: host the App Server whatever the preference "
@@ -140,6 +154,10 @@ def main(
         args.serve_microscope
         if args.serve_microscope is not None
         else fibsem_cfg.load_user_preferences().install.app_server.microscope
+    )
+    session.app_server_port = args.port
+    session.app_server_discovery = (
+        str(args.discovery) if args.discovery is not None else None
     )
     if window is not None:
         session.host_app_server = args.host

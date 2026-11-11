@@ -43,10 +43,10 @@ __all__ = [
 ]
 
 
-# Device and service commands that stop something (an FM z-stack stops through
-# `imaging.stop`; milling's `end` ends the stage keeping what it milled). They
-# take no control, so the running move or mill never refuses them.
-STOP_COMMANDS = frozenset(("stop", "stop_live", "end"))
+# Device and service commands that stop something (the FM's `cancel` stops a
+# z-stack; milling's `end` ends the stage keeping what it milled). They take no
+# control, so the running move, z-stack or mill never refuses them.
+STOP_COMMANDS = frozenset(("stop", "stop_live", "end", "cancel"))
 
 # Commands that hold or let go of what is running (milling's pause and resume).
 # Like a stop they take no control: the mill they act on holds it.
