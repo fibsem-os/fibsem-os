@@ -102,6 +102,9 @@ REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6, 0.0)
 FM_INTENSITY = 90.0
 FM_PSF_SIGMA = 0.13e-6  # m; an in-focus point source
 CILIUM_SIGMA = 0.15e-6  # m; a ~250 nm wide cilium, in focus
+# a source spread dimmer than this (canvas scale; the camera's noise is ~0.3)
+# is not drawn: far from focus it would cover the frame for nothing
+FM_FAINT = 0.05
 # a faint outline of the bars leaks into every fluorescence channel
 BARS_IN_FLUORESCENCE = 0.05
 
@@ -2673,6 +2676,8 @@ class SampleScene:
             dz = (z_plane - z) / z_r
             sigma_m = float(np.hypot(sigma0, FM_PSF_SIGMA * abs(dz)))
             amp = weight * peak * (sigma0 / sigma_m) ** 2
+            if amp < FM_FAINT:
+                return  # spread so far it is lost in the camera noise
             sigma = max(sigma_m / pix, 0.6)
             u = cx + (turn * x + ax) / pix
             v = cy + (turn * y * fs + ay) / pix
@@ -2822,7 +2827,8 @@ class SampleScene:
         sigma_m = np.hypot(sigma0, FM_PSF_SIGMA * np.abs(dz))
         amp = peak * (sigma0 / sigma_m) ** 2
         sigma_px = np.maximum(sigma_m / pix, 0.6)
-        keep = (u > -4 * sigma_px) & (u < width + 4 * sigma_px)
+        keep = amp >= FM_FAINT
+        keep &= (u > -4 * sigma_px) & (u < width + 4 * sigma_px)
         keep &= (v > -4 * sigma_px) & (v < height + 4 * sigma_px)
         if self.milled:
             # what a pattern cut away is gone
