@@ -29,6 +29,7 @@ from fibsem.imaging.marks import (
     save_drawn,
     side_by_side,
 )
+from fibsem.instrument import needs_microscope
 from fibsem.server import log_tail
 from fibsem.server.files import FileRefusal, resolve
 from fibsem.server.image_payloads import image_info, image_payload
@@ -1011,7 +1012,8 @@ class AppContext:
 
     def _no_microscope(self) -> Optional[Refusal]:
         if self._microscope is None:
-            return refused("not_found", "No microscope is connected.")
+            connected = getattr(self._session, "instrument", None)
+            return refused("not_found", needs_microscope(connected))
         return None
 
     def _session_refusal(self) -> Optional[Refusal]:

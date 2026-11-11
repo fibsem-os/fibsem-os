@@ -186,6 +186,6 @@ fibsem/workflows/outputs.py 2
 fibsem/workflows/proposals.py 6
 fibsem/workflows/reference_images.py 1
 fibsem/workflows/runner.py 1
-fibsem/workflows/session.py 5
+fibsem/workflows/session.py 7
 fibsem/workflows/site_task.py 1
 fibsem/workflows/task.py 1
