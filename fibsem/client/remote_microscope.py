@@ -149,6 +149,11 @@ class RemoteMicroscope(FibsemMicroscope):
             f"({len(self.devices)} devices, {len(self.services)} services)"
         )
 
+    @property
+    def reachable(self) -> bool:
+        """Whether the App Server answers now: its event stream is open."""
+        return self._client is not None and self._client.connected
+
     def _remote_fm(self, host: str, port: int, parts: Dict[str, Any]) -> Any:
         """The FM over its served parts, on this connection; None when the
         server serves no FM."""

@@ -121,3 +121,38 @@ def test_the_connection_names_the_instrument_behind_it(
         assert configuration["address"] == "127.0.0.1"
     finally:
         session.disconnect()
+
+
+def test_the_connection_says_when_the_other_app_server_stops(
+    microscope, tmp_path, monkeypatch
+):
+    import time
+
+    auth = AuthConfig.generate(level="drive", token=TOKEN)
+    session = AppSession()
+    with serving(build_server(microscope, auth=auth)) as url:
+        host, port = url.rsplit("//", 1)[1].split(":")
+        monkeypatch.setattr(pairing, "REMOTE_DIR", tmp_path / "remote")
+        token_file = pairing._file(url)
+        token_file.parent.mkdir(parents=True)
+        token_file.write_text(json.dumps({"token": TOKEN}))
+        path = tmp_path / "remote.yaml"
+        path.write_text(
+            yaml.safe_dump(
+                {"info": {"driver": "remote", "ip_address": host, "port": int(port)}}
+            )
+        )
+        remote = session.connect(str(path))
+        deadline = time.monotonic() + 10
+        while not remote.reachable and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert session.connection["error"] is None
+    try:
+        deadline = time.monotonic() + 15
+        while remote.reachable and time.monotonic() < deadline:
+            time.sleep(0.05)
+        state = session.connection
+        assert state["connected"] is True
+        assert "not answering" in state["error"]
+    finally:
+        session.disconnect()
