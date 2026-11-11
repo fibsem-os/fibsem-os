@@ -12,6 +12,7 @@ from fibsem import paths
 from fibsem.ai.agent import playbooks, sources
 from fibsem.ai.evals import matrix as matrix_mod
 from fibsem.ai.evals import report as report_mod
+from fibsem.ai.evals import serve as serve_mod
 from fibsem.ai.evals import trace as trace_mod
 from fibsem.ai.evals import visual
 from fibsem.ai.evals.cases import check_case, find_cases, load_case
@@ -135,6 +136,14 @@ def _parser() -> argparse.ArgumentParser:
     trace.add_argument("out", type=Path)
     trace.add_argument("--only", default=None, help="cases whose id contains this")
     trace.add_argument("--write", type=Path, default=None, help="a markdown file")
+    serve = sub.add_parser(
+        "serve",
+        help="the review page on this computer: each run's results against the "
+        "keys, and settling where the agent disagreed",
+    )
+    serve.add_argument("runs", type=Path, help="a run folder, or a folder of them")
+    serve.add_argument("--cases", type=Path, default=None, help="the cases folder")
+    serve.add_argument("--port", type=int, default=8765)
     return parser
 
 
@@ -169,6 +178,10 @@ def main(argv=None) -> int:
             print(f"Wrote {args.write}")
         else:
             print(text)
+        return 0
+
+    if args.command == "serve":
+        serve_mod.serve(args.runs, args.cases, args.port)
         return 0
 
     if args.command == "matrix-report":

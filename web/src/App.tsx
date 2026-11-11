@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { AgentPage } from "@/pages/Agent";
+import { EvalsPage } from "@/pages/Evals";
 import { EventsPage } from "@/pages/Events";
 import { ExperimentPage } from "@/pages/Experiment";
 import { GatewayPage } from "@/pages/Gateway";
@@ -52,6 +53,13 @@ function Shell() {
 }
 
 export function App() {
+  // The eval review page has its own local server (python -m fibsem.ai.evals
+  // serve) and needs no pairing.
+  if (location.pathname.startsWith("/ui/evals")) return <EvalsPage />;
+  return <Paired />;
+}
+
+function Paired() {
   const [token, setToken] = useState(loadToken);
   const [wasPaired] = useState(() => token !== null);
   useEffect(() => onTokenChange(() => setToken(getToken())), []);
