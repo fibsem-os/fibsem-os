@@ -53,6 +53,7 @@ fibsem/config/session/
 !fibsem/config/tescan-*.yaml
 !fibsem/config/jeol-*.yaml
 !fibsem/config/sim-*.yaml
+!fibsem/config/cryo-fm-*.yaml
 
 **/wandb/*
 tests/notebook.ipynb

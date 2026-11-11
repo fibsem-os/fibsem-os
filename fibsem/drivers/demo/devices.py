@@ -516,6 +516,38 @@ class DemoStage(Stage):
         logging.info("Stage linked.")
 
 
+class DemoXYZStage(Stage):
+    """A Demo stage with only x, y and z, built when there is no Demo microscope:
+    the stage of a standalone instrument, such as a cryo-FM's sample stage. It
+    keeps its position in ``sim_position`` and has no homing or linking."""
+
+    LIMITS = {axis: STAGE_LIMITS_DEFAULT[axis] for axis in ("x", "y", "z")}
+
+    def __init__(self, resources: Optional[Resources] = None):
+        super().__init__(parent=None, resources=resources)
+        self.sim_position = FibsemStagePosition(x=0.0, y=0.0, z=0.0)
+
+    def read_position(self) -> FibsemStagePosition:
+        return deepcopy(self.sim_position)
+
+    def metadata_position(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=dict(self.LIMITS))
+
+    def _move_absolute(self, position: FibsemStagePosition) -> None:
+        for axis in self.LIMITS:
+            value = getattr(position, axis)
+            if value is not None:
+                setattr(self.sim_position, axis, value)
+
+    def _move_relative(self, delta: FibsemStagePosition) -> None:
+        for axis in self.LIMITS:
+            value = getattr(delta, axis)
+            if value is not None:
+                setattr(
+                    self.sim_position, axis, getattr(self.sim_position, axis) + value
+                )
+
+
 def _insertable_state(inserted: bool) -> InsertableDeviceState:
     return (
         InsertableDeviceState.INSERTED if inserted else InsertableDeviceState.RETRACTED
@@ -1068,7 +1100,10 @@ def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
     ).connect()
 
 
-def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage:
+def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> Stage:
+    """The Demo microscope's stage, or with no microscope an x, y, z stage."""
+    if context.microscope is None:
+        return named(DemoXYZStage(), entry)
     return named(DemoStage(context.microscope, *_demo_start(context)), entry)
 
 
