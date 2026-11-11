@@ -83,6 +83,12 @@ def test_correlation(tmp_path):
     )
     assert result(case, {"x_px": 506, "y_px": 300}).result == "hit"  # 0.3 um
     assert result(case, {"x_px": 520, "y_px": 300}).result == "miss"  # 1.0 um
+    # Across the lamella (y) tight, along it (x) looser.
+    case.data["scoring"] = {"across_tolerance_um": 0.5, "along_tolerance_um": 1.5}
+    along = result(case, {"x_px": 520, "y_px": 300})
+    assert along.result == "hit" and along.details["along_um"] == 1.0
+    across = result(case, {"x_px": 500, "y_px": 312})
+    assert across.result == "miss" and across.details["across_um"] == 0.6
 
 
 @pytest.fixture

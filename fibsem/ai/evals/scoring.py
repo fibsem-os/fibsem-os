@@ -184,12 +184,28 @@ def score_fm_target(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> 
 def score_correlation(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> tuple:
     x, y = _point(answer)
     target = key["target_fib_px"]
-    error_um = math.hypot(x - target["x"], y - target["y"]) * float(pixel_size_um(case))
-    tol = float(case.scoring.get("xy_tolerance_um", 0.5))
-    details = {"error_um": round(error_um, 3), "tolerance_um": tol}
+    size = float(pixel_size_um(case))
+    dx_um, dy_um = (x - target["x"]) * size, (y - target["y"]) * size
+    error_um = math.hypot(dx_um, dy_um)
+    details = {"error_um": round(error_um, 3)}
     if "fit_rms_um" in answer:
         details["reported_rms_um"] = answer["fit_rms_um"]
-    return ("hit" if error_um <= tol else "miss"), details
+    across_tol = case.scoring.get("across_tolerance_um")
+    if across_tol is None:
+        tol = float(case.scoring.get("xy_tolerance_um", 0.5))
+        details["tolerance_um"] = tol
+        return ("hit" if error_um <= tol else "miss"), details
+    # The lamella runs along the FIB image's x: an error across it (y) loses
+    # the target, one along it costs little.
+    along_tol = float(case.scoring.get("along_tolerance_um", 2 * float(across_tol)))
+    details.update(
+        across_um=round(abs(dy_um), 3),
+        along_um=round(abs(dx_um), 3),
+        across_tolerance_um=float(across_tol),
+        along_tolerance_um=along_tol,
+    )
+    hit = abs(dy_um) <= float(across_tol) and abs(dx_um) <= along_tol
+    return ("hit" if hit else "miss"), details
 
 
 def score_polishing_stop(
