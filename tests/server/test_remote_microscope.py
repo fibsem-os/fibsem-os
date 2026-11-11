@@ -217,3 +217,121 @@ def test_reference_images_come_back_as_images(remote):
     assert images[1] is None
     assert isinstance(images[0], FibsemImage) and images[0].data.shape == (48, 64)
     assert images[0].metadata is not None
+
+
+def test_a_saved_image_is_saved_on_this_computer(remote, tmp_path):
+    """A task's save path is this computer's: the server acquires, this side
+    saves and records, and the server is never sent the path (it would refuse
+    one outside its experiment)."""
+    from fibsem import acquire
+
+    records = []
+    remote.session.record_signal.connect(lambda kind, payload: records.append(payload))
+    settings = ImageSettings(
+        resolution=(64, 48), save=True, path=str(tmp_path), filename="ref"
+    )
+    try:
+        image = acquire.acquire_image(remote, settings)
+        pair = remote.imaging.reference_images(settings)
+        sets = remote.imaging.reference_image_sets(settings, hfws=[80e-6, 150e-6])
+        agent = remote.imaging.acquire(BeamType.ION, path=str(tmp_path), filename="a")
+    finally:
+        remote.session.record_signal.disconnect()
+    assert image.filepath == str(tmp_path / "ref_eb.tif")
+    assert [i.filepath for i in pair] == [
+        str(tmp_path / "ref_eb.tif"),
+        str(tmp_path / "ref_ib.tif"),
+    ]
+    assert len(sets) == 2 and sets[1][1].filepath.endswith("ref_image_res_02_ib.tif")
+    assert agent.filepath == str(tmp_path / "a_ib.tif")
+    assert {p.name for p in tmp_path.iterdir()} == {
+        "ref_eb.tif",
+        "ref_ib.tif",
+        "ref_image_res_01_eb.tif",
+        "ref_image_res_01_ib.tif",
+        "ref_image_res_02_eb.tif",
+        "ref_image_res_02_ib.tif",
+        "a_ib.tif",
+    }
+    assert [r["path"] for r in records][:1] == [str(tmp_path / "ref_eb.tif")]
+
+
+def test_an_image_unsaved_says_so(remote):
+    image = remote.acquire_image(ImageSettings(resolution=(64, 48)))
+    assert image.filepath is None
+
+
+def test_images_carry_this_computers_experiment(remote):
+    from fibsem.structures.system import FibsemExperimentRef
+
+    before = remote.session.experiment
+    remote.session.experiment = FibsemExperimentRef(name="here")
+    try:
+        image = remote.acquire_image(ImageSettings(resolution=(64, 48)))
+    finally:
+        remote.session.experiment = before
+    assert image.metadata.experiment.name == "here"
+
+
+def _task_config(name="Rough Milling"):
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Rough")], name=name
+    )
+    config.alignment.enabled = True
+    config.acquisition.acquire_sem = config.acquisition.acquire_fib = True
+    return config
+
+
+def test_a_milling_task_runs_on_the_server_and_its_folder_comes_here(
+    remote, tmp_path, monkeypatch
+):
+    """A workflow's milling task through a remote microscope: the server runs it
+    (its run_task), and the folder it saved, alignment images and all, comes back
+    under this computer's experiment; the server keeps none of it."""
+    import fibsem.config as fcfg
+    from fibsem.milling.progress import MillingProgressStatus
+    from fibsem.milling.tasks import run_milling_task
+
+    server_data = tmp_path / "support-pc"
+    monkeypatch.setattr(fcfg, "DATA_CC_PATH", str(server_data))
+    here = tmp_path / "remote-pc" / "lamella-01"
+    task = run_milling_task(remote, _task_config(), output_dir=str(here))
+
+    assert task.error is None
+    assert task.outcome is MillingProgressStatus.TASK_FINISHED
+    folder = here / "Milling" / "Rough-Milling"
+    assert task.ended()["path"] == str(folder)
+    assert task.ended()["stages"][0]["status"] == "completed"
+    saved = {p.relative_to(folder).parts[0] for p in folder.rglob("*") if p.is_file()}
+    assert "Alignment" in saved  # the alignment diagnostics came back too
+    assert any(name.endswith("_ib.tif") for name in saved)
+    assert task.images and all(isinstance(i, FibsemImage) for i in task.images)
+    assert not any(p.is_file() for p in server_data.rglob("*"))
+
+
+def test_a_stopped_remote_task_ends_cancelled(remote, tmp_path, monkeypatch):
+    """A workflow's stop reaches the task on the server, whenever it comes: here
+    while the stage is about to mill."""
+    import fibsem.config as fcfg
+    from fibsem.milling.progress import MillingProgressStatus
+    from fibsem.milling.strategy.standard import StandardMillingStrategy
+    from fibsem.milling.tasks import run_milling_task
+
+    monkeypatch.setattr(fcfg, "DATA_CC_PATH", str(tmp_path / "support-pc"))
+    stop = threading.Event()
+    strategy_run = StandardMillingStrategy.run
+
+    def held(self, *args, **kwargs):  # on the server: mills once the stop is in
+        stop.set()
+        time.sleep(1.0)  # the client's stop reaches the server
+        return strategy_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(StandardMillingStrategy, "run", held)
+    config = _task_config()
+    config.alignment.enabled = False
+    task = run_milling_task(remote, config, stop_event=stop, output_dir=str(tmp_path))
+    assert task.outcome is MillingProgressStatus.TASK_CANCELLED
+    assert task.error is None

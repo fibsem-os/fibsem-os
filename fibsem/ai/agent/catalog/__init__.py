@@ -112,6 +112,7 @@ NOT_TOOLS: Dict[str, str] = {
     "GET /microscope/services/{service}/{parameter}/metadata": "service_list carries limits, choices and settable.",
     "GET /microscope/devices/{device}/values": "Not decided yet; device_get_parameter reads one value at a time.",
     "GET /microscope/services/{service}/values": "Not decided yet; service_get_parameter reads one value at a time.",
+    "GET /microscope/services/{service}/run/files": "A remote microscope's task folder, brought back to its own computer; the agent reads a run's files in the experiment.",
     "GET /microscope/control": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",
     "POST /microscope/control": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",
     "PUT /microscope/control/{lease}": "A remote app's control lease, held by its client (RemoteMicroscope.control); each agent call takes control itself.",

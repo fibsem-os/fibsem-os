@@ -136,6 +136,7 @@ class RemoteMicroscope(FibsemMicroscope):
             self._bind_device_roles()
             for name, service in connect_remote_services(client).items():
                 service.parent = self
+                service.session = self.session  # images stamped and recorded here
                 setattr(self, name, service)
             self.fm = self._remote_fm(ip_address, port, fm_parts)
         except Exception:
