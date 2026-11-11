@@ -71,10 +71,21 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
     return options
 
 
-def _pick_cell(rng, scene: SampleScene, nearest: int = 20):
-    """One of the cell bodies nearest the scene's centre, at random."""
+def _pick_cell(rng, scene: SampleScene, nearest: int = 20, clear: float = 25e-6):
+    """One of the cell bodies nearest the scene's centre, at random, from
+    those with no bar within `clear` along y (where the trenches reach)."""
     bodies = [
-        f for f in scene.features if f.kind == "cell" and f.part in ("body", None)
+        f
+        for f in scene.features
+        if f.kind == "cell"
+        and f.part in ("body", None)
+        and max(abs(f.x), abs(f.y)) < 300e-6  # inside the stage's reach
+    ]
+    reach = np.linspace(-clear, clear, 11)
+    bodies = [
+        f
+        for f in bodies
+        if not scene.film_masks(np.full_like(reach, f.x), f.y + reach)[0].any()
     ]
     if not bodies:
         return None
