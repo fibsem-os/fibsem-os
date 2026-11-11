@@ -62,9 +62,10 @@ ROUGH_HEIGHT = 8e-6  # m, each rough trench
 CELL_RADIUS = 15e-6  # m
 CELL_HEIGHT = 5e-6  # m
 DEPTH = 7e-6  # m, every trench's depth
+GIS = 0.5e-6  # m, the GIS coat over the site
 OVERLAP = 0.3e-6  # m, a polishing trench reaches this far back into the last
 RESOLUTION = (1024, 682)
-HFW = 30e-6  # m
+HFW = {"sem": 40e-6, "fib": 30e-6}  # m, each beam's field of view
 DWELL = 1e-6  # s
 MEASURE_NOISE = 25e-9  # m, sigma of the measured thickness
 
@@ -123,6 +124,8 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
         "cell_type": str(rng.choice(["mammalian", "rpe", "neuron"])),
         "coincidence_offset": 0.0,
         "renderer": "relief",
+        # the grid is GIS-coated before milling, as on the instrument
+        "gis_thickness": GIS,
     }
     options.update(overrides or {})
     options["seed"] = int(seed)
@@ -136,7 +139,7 @@ def mill_series(
     milling_angle: float = MILLING_ANGLE,
     schedule: Tuple[float, ...] = SCHEDULE,
     resolution: Tuple[int, int] = RESOLUTION,
-    hfw: float = HFW,
+    hfw: Dict[str, float] = HFW,
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Optional[dict]]:
     """Mill the series and save each pass's images under ``folder``: the
     pass entries for the case, the scene's records and where damage began."""
@@ -162,7 +165,7 @@ def mill_series(
                 image = microscope.acquire_image(
                     image_settings=ImageSettings(
                         resolution=resolution,
-                        hfw=hfw,
+                        hfw=hfw[beam],
                         dwell_time=DWELL,
                         save=False,
                         beam_type=beam_type,
