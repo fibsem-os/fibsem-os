@@ -55,6 +55,7 @@ def _scene(microscope, **kwargs) -> SampleScene:
         "ice_density": 0.0,
         "frost_density": 0.0,
         "sphere_density": 0.0,
+        "crack_density": 0.0,
         "rip_fraction": 0.0,
         "fiducial": True,
         **kwargs,

@@ -65,6 +65,8 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
   relief renderer).
 - **Frost** (`frost_density`): patches of small bright grains.
 - **Spheres** (`sphere_density`, `sphere_size`): dark round balls standing on the film.
+- **Cracks** (`crack_density`): hairline cracks in the film, a dark wandering line (some
+  branched) that doesn't open the film the way a rip does.
 - **Contamination** (`contamination_density`): small bright specks over film and bars
   alike, the aperiodic content that breaks a mesh-pitch alias in real images.
 
@@ -187,6 +189,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `frost_density` | 0.15 | frost patches per 100 x 100 um |
 | `sphere_density` | 0.4 | dark spheres per 100 x 100 um |
 | `sphere_size` | [4e-07, 2e-06] | sphere radius range (m) |
+| `crack_density` | 0.3 | hairline cracks in the film per 100 x 100 um |
 
 ### Noise
 

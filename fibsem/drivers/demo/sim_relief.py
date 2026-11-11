@@ -31,6 +31,7 @@ VOID = -60.0  # um; the height of nothing (through the grid, or milled away)
 FILM_THICKNESS = 0.25  # um; what is under the bare ice before nothing
 BAR_THICKNESS = 18.0  # um
 BAR_TOP = 0.0  # um; the film lies on top of the bars, flush with the squares
+CRACK_DEPTH = 0.6  # um; a hairline crack's groove at its line
 ICE_BLANKET = 3.0  # um; cells sit in the ice, the surface over them this smooth
 
 # secondary-electron yield per material: (SEM, FIB)
@@ -172,7 +173,7 @@ def _feature_height(f) -> float:
     if f.kind == "ice":
         return 0.4
     if f.part == "frost":
-        return 0.8 * sigma
+        return 0.5 * sigma
     return min(0.2 * sigma, 0.5)  # contamination, the fiducial's points
 
 
@@ -243,8 +244,8 @@ def surface(
         sx_f = max(sigma, 0.05)
         sy_f = max(sigma * f.eccentricity, 0.05)
         r2 = (dx / sx_f) ** 2 + (dy / sy_f) ** 2
-        if f.kind == "ice":
-            # an ice plate is a hexagon: its distance is the largest of the
+        if f.kind == "ice" or f.part == "frost":
+            # an ice plate (and a frost grain) is a hexagon: its distance is the largest of the
             # three face normals'
             rx, ry = dx / sx_f, dy / sy_f
             hexd = np.maximum(
@@ -254,7 +255,7 @@ def surface(
                 ),
             )
             r2 = hexd**2
-        if f.wobble and f.kind != "ice":
+        if f.wobble and f.kind != "ice" and f.part != "frost":
             t = np.arctan2(dy / sy_f, dx / sx_f)
             mod = 1.0 + f.wobble * (
                 0.6 * np.sin(3 * t + f.wobble_phase)
@@ -296,6 +297,10 @@ def surface(
         # a cell covers the holes under it: no dip shows through
         h = h + 0.12 * rim_dip * np.clip(lift / 0.3, 0, 1)
         mat[cell & solid] = CELL
+    # hairline cracks in the film: a narrow dark groove, not through
+    crack = scene.crack_depth(x / UM, y / UM) * ~(bars | holes | cell | ~solid)
+    h = h - CRACK_DEPTH * crack
+    mat[crack > 0.2] = HOLE
     h = h + specks
     mat[crystal & solid] = CRYSTAL
     mat[sphere & solid] = SPHERE

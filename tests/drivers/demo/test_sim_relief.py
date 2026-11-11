@@ -25,6 +25,7 @@ PLAIN = {
     "ice_density": 0.0,
     "frost_density": 0.0,
     "sphere_density": 0.0,
+    "crack_density": 0.0,
     "rip_fraction": 0.0,
 }
 
@@ -166,3 +167,18 @@ def test_ice_plates_frost_and_spheres():
     assert mat[50, 50] == sim_relief.SPHERE
     assert h[50, 50] - np.median(h) > 0.5 * ball.sigma * 1e6
     assert sim_relief.MATERIAL[sim_relief.SPHERE][0] < 0.5
+
+
+def test_a_crack_is_a_dark_line_in_the_film():
+    """A hairline crack darkens a thin line of the film without opening it."""
+    scene = SampleScene(cell_type="none", film="continuous", crack_density=1.0)
+    arm = max(scene.cracks, key=len)
+    x, y = arm[len(arm) // 2, :2]
+    along = scene.crack_depth(np.array([x]), np.array([y]))
+    away = scene.crack_depth(np.array([x + 5e-6]), np.array([y + 5e-6]))
+    assert along[0] > 0.5 and away[0] == 0.0
+    assert (
+        not SampleScene(crack_density=0.0)
+        .crack_depth(np.array([x]), np.array([y]))
+        .any()
+    )

@@ -634,6 +634,8 @@ class SampleScene:
     # dark spheres (round beads standing on the film), per 100 x 100 um
     sphere_density: float = 0.4
     sphere_size: Tuple[float, float] = (0.4e-6, 2.0e-6)  # m, radius
+    # hairline cracks in the film (a dark line, not torn open), per 100 x 100 um
+    crack_density: float = 0.3
     # a fiducial-like cross at each grid centre: a landmark for eyeballing
     # navigation and for tests, absent on a real grid - off by default
     fiducial: bool = False
@@ -733,6 +735,7 @@ class SampleScene:
         """Grow every grid's content from its own seed (`rng` for the first
         grid, when given)."""
         self.features = []
+        self.cracks: List[np.ndarray] = []
         for grid in self.grids:
             self._generate_grid(grid, rng)
             rng = None
@@ -798,6 +801,7 @@ class SampleScene:
         extra = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 31])
         self._generate_frost(extra, grid, half)
         self._generate_spheres(extra, grid, half)
+        self._generate_cracks(extra, grid, half)
         # grown about the origin; carried to where the grid sits
         for f in self.features[start:]:
             f.x += grid.x
@@ -808,7 +812,7 @@ class SampleScene:
         in the middle and thinning out."""
         for _ in range(int(self.frost_density * (grid.extent / 100e-6) ** 2)):
             cx, cy = rng.uniform(-half, half, size=2)
-            spread = float(rng.uniform(4e-6, 15e-6))
+            spread = float(rng.uniform(2e-6, 8e-6))
             for _ in range(int(rng.integers(20, 120))):
                 x, y = rng.normal(0, spread, size=2)
                 self.features.append(
@@ -843,6 +847,83 @@ class SampleScene:
                     height=1.1 * r,
                 )
             )
+
+    def _generate_cracks(self, rng, grid: SceneGrid, half: float) -> None:
+        """Hairline cracks: wandering lines across the film, some with a
+        branch, kept as (N, 3) world points (x, y, half-width)."""
+        step = 0.5e-6
+        n = int(self.crack_density * (grid.extent / 100e-6) ** 2)
+        for _ in range(n):
+            start = rng.uniform(-half, half, size=2) + (grid.x, grid.y)
+            heading = float(rng.uniform(0, 2 * np.pi))
+            length = float(rng.uniform(8e-6, 60e-6))
+            width = float(rng.uniform(0.25e-6, 0.5e-6))
+            arms = [(start, heading, length)]
+            if rng.uniform() < 0.4:
+                arms.append(
+                    (
+                        None,
+                        float(rng.choice([-1, 1]) * rng.uniform(0.4, 1.1)),
+                        0.5 * length,
+                    )
+                )
+            trunk = None
+            for origin, turn, arm_length in arms:
+                if origin is None:
+                    k = int(rng.integers(len(trunk) // 4, 3 * len(trunk) // 4 + 1))
+                    origin, angle = trunk[k, :2], heading + turn
+                else:
+                    angle = turn
+                m = max(2, int(arm_length / step))
+                angles = angle + np.cumsum(rng.normal(0, 0.18, size=m))
+                pts = origin + np.cumsum(
+                    step * np.stack([np.cos(angles), np.sin(angles)], axis=1), axis=0
+                )
+                pts = np.vstack([origin, pts])
+                # it narrows to nothing at its tip
+                w = width * np.linspace(1.0, 0.3, len(pts))
+                arm = np.column_stack([pts, w])
+                trunk = arm if trunk is None else trunk
+                self.cracks.append(arm)
+
+    def crack_depth(self, xs_world: np.ndarray, ys_world: np.ndarray) -> np.ndarray:
+        """How far (0..1) each world point sits inside a hairline crack: 1 on
+        its line, 0 past its half-width. Film only is the caller's to mask."""
+        xs_world, ys_world = np.broadcast_arrays(xs_world, ys_world)
+        depth = np.zeros(xs_world.shape, dtype=np.float32)
+        cracks = getattr(self, "cracks", None)
+        if not cracks or self.crack_density <= 0:
+            return depth
+        x_lo, x_hi = float(xs_world.min()), float(xs_world.max())
+        y_lo, y_hi = float(ys_world.min()), float(ys_world.max())
+        for arm in cracks:
+            pad = arm[:, 2].max()
+            if (
+                arm[:, 0].max() + pad < x_lo
+                or arm[:, 0].min() - pad > x_hi
+                or arm[:, 1].max() + pad < y_lo
+                or arm[:, 1].min() - pad > y_hi
+            ):
+                continue
+            near = (
+                (xs_world >= arm[:, 0].min() - pad)
+                & (xs_world <= arm[:, 0].max() + pad)
+                & (ys_world >= arm[:, 1].min() - pad)
+                & (ys_world <= arm[:, 1].max() + pad)
+            )
+            idx = np.nonzero(near)
+            if not idx[0].size:
+                continue
+            px, py = xs_world[idx][:, None], ys_world[idx][:, None]
+            ax, ay, aw = arm[:-1, 0], arm[:-1, 1], arm[:-1, 2]
+            dx, dy = arm[1:, 0] - ax, arm[1:, 1] - ay
+            t = np.clip(
+                ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy + 1e-30), 0, 1
+            )
+            dist = np.hypot(px - ax - t * dx, py - ay - t * dy) / aw
+            inside = np.clip(1 - dist.min(axis=1), 0, None)
+            depth[idx] = np.maximum(depth[idx], inside.astype(np.float32))
+        return depth
 
     def place_grids(self, projection: BeamStageProjection) -> None:
         """Lay the grids out from the holder's slots, when they changed.
@@ -1779,6 +1860,7 @@ class SampleScene:
         "frost_density",  # frost patches per 100 x 100 um
         "sphere_density",  # dark spheres per 100 x 100 um
         "sphere_size",  # [min, max] m, radius
+        "crack_density",  # hairline cracks per 100 x 100 um
         "grid_radius",  # m
         "grid_rim_width",  # m
         "renderer",  # flat | relief
@@ -1941,6 +2023,7 @@ class SampleScene:
 
         bars, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
         groove = self.centre_mark_groove(xs_world, ys_world) / CENTRE_MARK_GROOVE
+        crack = self.crack_depth(xs_world, ys_world) * ~(bars | holes | rips)
         hole_rim = ndi_binary_dilation(holes, iterations=2) & ~holes & ~bars
         # the curled flap of film round a rip: a bright edge ~1.5 um wide
         flap = int(np.clip(np.ceil(RIP_FLAP_WIDTH / pixel_size), 1, 12))
@@ -1950,6 +2033,7 @@ class SampleScene:
             canvas[bars] += t["bars"] * (self.grid_intensity / 90.0)
             canvas -= 0.6 * t["bars"] * (self.grid_intensity / 90.0) * groove * bars
             canvas[holes] += t["holes"]
+            canvas += 0.8 * t["holes"] * crack
             canvas[hole_rim] += t["hole_rim"]
             canvas[rip_rim] += t["rip_rim"]
 
