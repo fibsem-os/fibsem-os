@@ -27,7 +27,7 @@ import numpy as np
 import yaml
 
 from fibsem.ai.evals.cases import FORMAT
-from fibsem.ai.evals.sim_cases import TIER, _demo_microscope
+from fibsem.ai.evals.sim_cases import PLAYBOOK, TIER, _demo_microscope
 from fibsem.drivers.demo.sim_scene import SampleScene, SceneFeature
 from fibsem.structures.settings import (
     BeamType,
@@ -255,6 +255,7 @@ def write_case(
         "id": f"sim-{int(seed):04d}-polishing",
         "task": "polishing_stop",
         "tier": TIER,
+        "playbook": PLAYBOOK,
         "format": FORMAT,
         "sample": f"simulated {scene_options(seed, overrides)['cell_type']} cells",
         "instrument": "Demo (simulator)",

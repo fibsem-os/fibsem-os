@@ -257,3 +257,8 @@ def test_a_polishing_case_from_the_sim(tmp_path):
     for entry in case.data["passes"]:
         assert (folder / entry["sem"]).exists() and (folder / entry["fib"]).exists()
         assert entry["measured"]["min_nm"] <= entry["measured"]["median_nm"]
+
+
+def test_sim_cases_name_the_autolamella_playbook(bare):
+    out, folders = bare
+    assert {load_case(f).data["playbook"] for f in folders} == {"autolamella"}

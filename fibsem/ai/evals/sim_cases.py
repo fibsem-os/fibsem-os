@@ -33,6 +33,8 @@ from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, ImageSettings
 
 TIER = "sim"
+# the playbook a real session runs for these tasks (`run --playbook case`)
+PLAYBOOK = "autolamella"
 
 # The overview: about the real overviews' pixel size and a few hundred squares'
 # worth of grid.
@@ -505,6 +507,7 @@ def write_cases(
     common = {
         "format": FORMAT,
         "tier": TIER,
+        "playbook": PLAYBOOK,
         "sample": f"simulated {options['cell_type']} cells",
         "instrument": "Demo (simulator)",
         "beam": beam,
