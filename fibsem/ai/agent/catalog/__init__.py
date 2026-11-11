@@ -18,8 +18,8 @@ names the level it needs.
 """
 
 import re
-from dataclasses import replace
-from typing import Any, Callable, Dict, Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, FrozenSet, Optional, Tuple
 
 from fibsem.ai.agent.catalog import (
     analysis,
@@ -37,53 +37,25 @@ from fibsem.ai.agent.catalog.spec import EVIDENCE_PARAM, GROUP_TITLES, ToolSpec
 __all__ = [
     "CATALOG",
     "EVIDENCE_PARAM",
-    "CRYO_FM",
-    "FIBSEM",
     "INSTRUMENT_ENV",
     "GROUP_TITLES",
     "NOT_TOOLS",
+    "Devices",
     "ToolSpec",
+    "needs",
     "route_call",
     "tools_for_capabilities",
 ]
 
-# The instrument kind of the FIB/SEM's own tools (`ToolSpec.instruments`).
-FIBSEM = "fibsem"
-# A standalone cryo-FM: devices only, an FM and a sample stage.
-CRYO_FM = "cryo-fm"
-# The tools that reach a device's own parameter or command, not a FIB/SEM
-# service, so they work on a standalone FM's devices too.
-_FM_DEVICE_TOOLS = {"stage_get_position", "fm_save_focus_position"}
 # Where fibsem-agent tells the sidecar its playbook's instrument kind, so the
-# sidecar offers that kind's tools only.
+# sidecar offers the tools on that kind's devices (`Devices`).
 INSTRUMENT_ENV = "FIBSEM_AGENT_INSTRUMENT"
 
-
-def _of_kind(kind: str, tools: Tuple[ToolSpec, ...]) -> Tuple[ToolSpec, ...]:
-    return tuple(replace(t, instruments=_with_fm(t, kind)) for t in tools)
-
-
-def _with_fm(tool: ToolSpec, kind: str) -> Tuple[str, ...]:
-    """*kind*, and a standalone FM's for a tool on an FM device's own routes."""
-    return (kind, CRYO_FM) if tool.name in _FM_DEVICE_TOOLS else (kind,)
-
-
-def _microscope_tools() -> Tuple[ToolSpec, ...]:
-    """The microscope group: the device and service tools reach any
-    instrument's; the stage, alignment and state tools are the FIB/SEM's, the
-    few on a device's own routes a standalone FM's too."""
-
-    def kinds(tool: ToolSpec) -> Tuple[str, ...]:
-        if tool.router != "microscope" or tool.name.startswith(("device_", "service_")):
-            return ()
-        return _with_fm(tool, FIBSEM)
-
-    return tuple(replace(t, instruments=kinds(t)) for t in microscope.TOOLS)
-
-
 CATALOG: Tuple[ToolSpec, ...] = (
-    _microscope_tools()
-    + _of_kind(FIBSEM, imaging.TOOLS + milling.TOOLS + coating.TOOLS)
+    microscope.TOOLS
+    + imaging.TOOLS
+    + milling.TOOLS
+    + coating.TOOLS
     + grids.TOOLS
     + items.TOOLS
     + app.TOOLS
@@ -160,8 +132,47 @@ NOT_TOOLS: Dict[str, str] = {
 }
 
 
+_DEVICE_PATH = re.compile(r"^/microscope/devices/(\w+)(?:/|$)")
+_SERVICE_PATH = re.compile(r"^/microscope/services/(\w+)(?:/|$)")
+_MICROSCOPE_PATHS = ("/microscope", "/microscope/state")
+
+
+def needs(tool: ToolSpec) -> FrozenSet[str]:
+    """What an instrument must serve for *tool* to be offered: its own
+    ``needs``, else what its path reaches. A named device ("device:stage") or
+    service ("service:milling"), "microscope" for the FIB-SEM as a whole, and
+    nothing for a tool on any device or service ({device}), the app or the
+    analysis services."""
+    if tool.needs:
+        return frozenset(tool.needs)
+    for pattern, kind in ((_DEVICE_PATH, "device"), (_SERVICE_PATH, "service")):
+        match = pattern.match(tool.path)
+        if match:
+            return frozenset({f"{kind}:{match.group(1)}"})
+    return frozenset({"microscope"}) if tool.path in _MICROSCOPE_PATHS else frozenset()
+
+
+@dataclass(frozen=True)
+class Devices:
+    """What a kind of instrument has, as its ``devices.yaml`` says
+    (`fibsem.ai.agent.instruments.devices`): a FIB-SEM, which gets every
+    tool, or its devices and services by name."""
+
+    microscope: bool = False
+    devices: FrozenSet[str] = field(default_factory=frozenset)
+    services: FrozenSet[str] = field(default_factory=frozenset)
+
+    def offers(self, tool: ToolSpec) -> bool:
+        if self.microscope:
+            return True
+        have = {f"device:{d}" for d in self.devices} | {
+            f"service:{s}" for s in self.services
+        }
+        return needs(tool) <= have
+
+
 def tools_for_capabilities(
-    capabilities: Dict, instrument: Optional[str] = None
+    capabilities: Dict, devices: Optional[Devices] = None
 ) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
@@ -173,9 +184,9 @@ def tools_for_capabilities(
     the routers and parts: a server hosts an application or not for its whole
     life.
 
-    With *instrument*, a playbook's instrument kind, only that kind's tools
-    and the ones for any kind: an instrument doesn't change mid-session.
-    None offers every kind's.
+    With *devices*, what the playbook's instrument kind has, only the tools
+    on them: an instrument doesn't change mid-session, and the agent may
+    start before it is connected. None offers every tool.
     """
     routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
     # A server from before the parts lists none and serves them all.
@@ -185,7 +196,7 @@ def tools_for_capabilities(
         for t in CATALOG
         if routers.get(t.router, False)
         and (not t.part or parts is None or t.part in parts)
-        and (instrument is None or not t.instruments or instrument in t.instruments)
+        and (devices is None or devices.offers(t))
     )
 
 

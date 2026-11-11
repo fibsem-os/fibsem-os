@@ -711,6 +711,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="beam_turn_on",
+        needs=("microscope",),
         description=(
             "Switch a beam on, only when you are sure it is off: read its on "
             "parameter first (false). The ion beam "
@@ -729,6 +730,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="beam_turn_off",
+        needs=("microscope",),
         description=(
             "Switch a beam off. Only when you are sure: the work is done or the "
             "operator asked. Switching off and back on can each take a while, and a source "

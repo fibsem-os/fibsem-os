@@ -16,7 +16,6 @@ pytest.importorskip("mcp")
 from fastapi.testclient import TestClient  # noqa: E402
 
 import fibsem.config as cfg  # noqa: E402
-from fibsem.ai.agent.catalog import CRYO_FM  # noqa: E402
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.ai.agent.mcp.sidecar import build_sidecar  # noqa: E402
 from fibsem.server import AuthConfig, build_server  # noqa: E402
@@ -24,6 +23,7 @@ from fibsem.workflows.session import AppSession  # noqa: E402
 
 CONFIGURATION = os.path.join(cfg.SHIPPED_CONFIG_PATH, "cryo-fm-demo-configuration.yaml")
 TOKEN = "agent-token"
+CRYO_FM = "cryo-fm"
 
 
 class Agent:
