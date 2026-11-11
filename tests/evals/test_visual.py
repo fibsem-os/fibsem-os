@@ -229,3 +229,13 @@ def test_the_real_run_is_scored_against_the_key(run):
     assert score_live(load_case(cases_root / "site")) is None
     page = visual.write_html(out, cases_root).read_text()
     assert "Eval against the real run" in page and "2 of 2" in page
+
+
+def test_run_folders_side_by_side(run, capsys):
+    cases_root, out = run
+    assert main(["compare", str(out), str(out), "--cases", str(cases_root)]) == 0
+    table = capsys.readouterr().out
+    assert "| Case | out | out |" in table
+    # Hits of the two repeats, with today's key, and the mean cost.
+    assert "| site | 2/2 ($0.50) | 2/2 ($0.50) |" in table
+    assert "| parts (a) | 0/2 ($0.50) |" in table
