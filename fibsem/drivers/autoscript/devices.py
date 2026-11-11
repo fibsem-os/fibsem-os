@@ -2507,6 +2507,12 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
             return True
 
 
+# Live FM pulls: at least this far apart, and never waiting longer than the max for
+# the next one (a long exposure still answers a stop within a second).
+LIVE_MIN_INTERVAL_S = 0.02
+LIVE_MAX_WAIT_S = 1.0
+
+
 class AutoscriptFM(FM):
     """The Thermo FM group: a channel set up on its parts, then a frame, holding the
     FM channel throughout; and live view."""
@@ -2519,6 +2525,7 @@ class AutoscriptFM(FM):
     ):
         super().__init__(name="fm", parent=parent, resources=resources)
         self._channel = channel
+        self._last_live_pull = 0.0
 
     def check_health(self) -> Optional[str]:
         """Whether the FM answers: one live read, the camera's exposure time."""
@@ -2573,9 +2580,22 @@ class AutoscriptFM(FM):
             self.light_source.start_emission(emission_type=emission_color)
             self.camera._start_acquisition()
 
+    def _pace_live(self) -> None:
+        """At most one pull per exposure. ``get_image`` returns the newest frame without
+        waiting for a new one, so an unpaced loop pulled the same full image over
+        AutoScript as fast as it could, retaking the imaging lock each time. Waits
+        outside the lock, and never longer than `LIVE_MAX_WAIT_S`, so a stop is heard."""
+        exposure = self.camera.exposure_time.cached
+        interval = min(max(float(exposure), LIVE_MIN_INTERVAL_S), LIVE_MAX_WAIT_S)
+        wait = self._last_live_pull + interval - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        self._last_live_pull = time.monotonic()
+
     def _live_frame(self) -> np.ndarray:
         from autoscript_sdb_microscope_client.enumerations import ImagingState
 
+        self._pace_live()
         imaging = self._channel.connection.imaging
         with self._channel.lock:
             # Re-forced each frame: something may have taken it.

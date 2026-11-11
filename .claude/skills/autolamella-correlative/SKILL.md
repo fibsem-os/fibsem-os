@@ -1,15 +1,15 @@
 ---
 name: autolamella-correlative
-description: Lamellae targeted with the FM — reading FM stacks, correlating FM to FIB, and rough milling and polishing so the target stays in the lamella. Read fibsem-agent and autolamella first, then this when the lamellae must go through a fluorescent target.
+description: Lamellae targeted with the FM — reading FM stacks, correlating FM to FIB, and rough milling and polishing so the target stays in the lamella. Read fibsem-agent, fibsem-microscope and autolamella first, then this when the lamellae must go through a fluorescent target.
 ---
 
 # Correlative lamellae
 
-Read the fibsem-agent and autolamella skills first. This skill adds what a
+Read the fibsem-agent, fibsem-microscope and autolamella skills first. This skill adds what a
 lamella through a fluorescent target needs: finding the target in the FM,
 carrying it into the FIB, and milling so it stays in the slab. FM device use
 (inserting and retracting the objective, focusing, FM overviews) is
-fibsem-agent's. Milling while the FM watches, on an instrument where the FM
+fibsem-microscope's. Milling while the FM watches, on an instrument where the FM
 and FIB are coincident, is the autolamella-coincidence-milling skill's.
 
 ## Reading an FM stack
@@ -42,8 +42,11 @@ overwrites theirs: use it only when the operator asks.
 
 Where the lamella has a spot-burn task, seed the FIB fiducials from its burns
 (`correlation_find_spot_burns`, with `fib_image_path`) instead of picking
-them by eye. Refine each fiducial pick with `correlation_refine_point` before
-`correlation_correlate`, pass `lamella_path`, and look at the overlay before
+them by eye. Take each FM fiducial's z from its own sharpest slice. Spot burns
+sit on the same surface, so their z values agree: one a few slices off the
+rest is a wrong pick, and it tilts the fit and moves the target across the
+lamella. Refine each fiducial pick with
+`correlation_refine_point` before `correlation_correlate`, pass `lamella_path`, and look at the overlay before
 trusting the answer. Always give a surface point, `fm_surface_point` or
 `fib_surface_point`, so the refractive-index correction is applied, and check
 the answer's `ri_correction`. Without one, the targets sit deeper than the FM

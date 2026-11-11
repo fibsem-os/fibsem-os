@@ -51,6 +51,7 @@ from fibsem.ai.agent import (
 )
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
+from fibsem.ai.agent.catalog import INSTRUMENT_ENV
 from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
 from fibsem.extras import missing_extra_message
 from fibsem.keystore import get_secret
@@ -1552,6 +1553,10 @@ def build_options(
         env[SERVER_URL_ENV] = url
     if token:
         env[SERVER_TOKEN_ENV] = token
+    # The sidecar offers this instrument kind's tools only.
+    kind = playbook.instrument if playbook is not None else None
+    if kind:
+        env[INSTRUMENT_ENV] = kind
     granted = ALLOWED_TOOLS + subagent_tools(loaded.agents)
     tools, allowed, denied = BUILT_IN_TOOLS, granted, DENIED_TOOLS
     settings = None

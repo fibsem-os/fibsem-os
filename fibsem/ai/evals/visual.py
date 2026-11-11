@@ -18,9 +18,22 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from fibsem.ai.evals import report
-from fibsem.ai.evals.cases import Case, find_cases, load_case, pass_names
+from fibsem.ai.evals.cases import (
+    Case,
+    accepted_labels,
+    find_cases,
+    load_case,
+    pass_names,
+    stop_passes,
+)
 from fibsem.ai.evals.runner import ANSWER, RESULT
-from fibsem.ai.evals.scoring import InvalidAnswer, match_squares, yes_no
+from fibsem.ai.evals.scoring import (
+    InvalidAnswer,
+    match_squares,
+    score_case,
+    score_live,
+    yes_no,
+)
 
 log = logging.getLogger(__name__)
 
@@ -234,16 +247,16 @@ def draw_square_quality(case: Case, runs: List[Run]):
         crop = image[max(0, y - half) : y + half, max(0, x - half) : x + half]
         _show(ax, crop)
         name = str(sq["square"])
-        want = labels.get(name, "?")
+        want = accepted_labels(labels.get(name, "?"))
         said = []
         for result, answer in runs:
             value = ((answer or {}).get("labels") or {}).get(name)
             value = value.get("label") if isinstance(value, dict) else value
             value = str(value or "-").replace(" ", "_")
             said.append(value)
-        wrong = any(s != want for s in said)
+        wrong = any(s not in want for s in said)
         ax.set_title(
-            f"{name}: {want}\n" + " ".join(said),
+            f"{name}: {' | '.join(want)}\n" + " ".join(said),
             fontsize=7,
             color="red" if wrong else "black",
         )
@@ -374,8 +387,19 @@ def draw_correlation(case: Case, runs: List[Run]):
             )
         except (KeyError, TypeError, ValueError):
             pass
+    errors = []
+    for result, answer in runs:
+        d = score_case(case, answer or {})[0].details
+        if "across_um" in d:
+            errors.append(
+                f"r{result['repeat']} across {d['across_um']}, along {d['along_um']}"
+            )
+        elif "error_um" in d:
+            errors.append(f"r{result['repeat']} {d['error_um']}")
     ax.set_title(
-        "FIB image. circle/x: target; squares: fiducial pairs, numbered", fontsize=9
+        "FIB image. circle/x: target; squares: fiducial pairs, numbered"
+        + (f"\nerror (um): {'; '.join(errors)}" if errors else ""),
+        fontsize=9,
     )
     _legend(ax, runs)
     return fig
@@ -417,9 +441,13 @@ def draw_polishing_stop(case: Case, runs: List[Run], key=None, part=None):
     hi = [p.get("measured", {}).get("max_nm", np.nan) for p in passes]
     ax.fill_between(xs, lo, hi, color="#cccccc", label="min-max")
     ax.plot(xs, med, "k.-", label="median")
-    want = names.index(key["stop_after"])
-    ax.axvline(
-        want, color=KEY, lw=3, alpha=0.6, label=f"key: stop after {key['stop_after']}"
+    wanted = [names.index(name) for name in stop_passes(key)]
+    ax.axvspan(
+        min(wanted) - 0.08,
+        max(wanted) + 0.08,
+        color=KEY,
+        alpha=0.4,
+        label="key: stop after " + " or ".join(stop_passes(key)),
     )
     for n, (result, answer) in enumerate(runs):
         stop = _stops(
@@ -634,6 +662,52 @@ img { max-width: 100%; }
 """
 
 
+def _result_html(result: str) -> str:
+    colour = RESULT_COLOURS.get(result, "#000")
+    return f"<span class='result' style='color:{colour}'>{html.escape(result)}</span>"
+
+
+def live_rows(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
+    """Per part: what the real run's decision scores, and how many repeats
+    (scored with the case's key as it is now) got that same result."""
+    live = score_live(case)
+    if live is None:
+        return []
+    rows = []
+    for score in live:
+        same, results = 0, []
+        for _, answer in runs:
+            for s in score_case(case, answer or {}):
+                if s.part == score.part:
+                    results.append(s.result)
+                    same += s.result == score.result
+        rows.append(
+            {
+                "part": score.part,
+                "live": score.result,
+                "eval": results,
+                "same": same,
+            }
+        )
+    return rows
+
+
+def _live_html(case: Case, rows: List[Dict[str, Any]]) -> str:
+    source = html.escape(str((case.data.get("live") or {}).get("source", "")))
+    lines = []
+    for row in rows:
+        part = f"part {row['part']}: " if row["part"] else ""
+        evals = ", ".join(_result_html(r) for r in row["eval"])
+        lines.append(
+            f"<p>{part}<b>Real run:</b> {_result_html(row['live'])} &nbsp; "
+            f"<b>Eval repeats now:</b> {evals} &nbsp; "
+            f"(same as the real run: {row['same']} of {len(row['eval'])})</p>"
+        )
+    if source:
+        lines.append(f"<p class='brief'>Real run: {source}</p>")
+    return "\n".join(lines)
+
+
 def write_html(out: Path, cases_root: Optional[Path] = None) -> Path:
     """The page for the run folder *out*, written into it; its path."""
     out = Path(out)
@@ -647,6 +721,25 @@ def write_html(out: Path, cases_root: Optional[Path] = None) -> Path:
         f"<h1>Eval report: {html.escape(out.name)}</h1>",
         _table_html(rows),
     ]
+    compare = []
+    for case_id, items in sorted(runs.items()):
+        case = _find_case(case_id, [run for _, run in items], cases)
+        if case is not None:
+            for row in live_rows(case, [run for _, run in items]):
+                compare.append((case_id, row))
+    if compare:
+        parts.append(
+            "<h2>Eval against the real run</h2><table><tr><th>Case</th>"
+            "<th>Real run</th><th>Eval repeats now</th><th>Same as real</th></tr>"
+        )
+        for case_id, row in compare:
+            name = case_id + (f" ({row['part']})" if row["part"] else "")
+            parts.append(
+                f"<tr><td>{html.escape(name)}</td><td>{_result_html(row['live'])}</td>"
+                f"<td>{', '.join(_result_html(r) for r in row['eval'])}</td>"
+                f"<td>{row['same']} of {len(row['eval'])}</td></tr>"
+            )
+        parts.append("</table>")
     for case_id, items in sorted(runs.items()):
         pairs = [run for _, run in items]
         case = _find_case(case_id, pairs, cases)
@@ -657,6 +750,9 @@ def write_html(out: Path, cases_root: Optional[Path] = None) -> Path:
             parts.append(
                 f"<p class='brief'>{html.escape(str(case.data.get('brief', '')))}</p>"
             )
+            rows_live = live_rows(case, pairs)
+            if rows_live:
+                parts.append(_live_html(case, rows_live))
             for caption, png in case_figures(case, pairs):
                 parts.append(f"<h3>{html.escape(caption)}</h3>")
                 if png:

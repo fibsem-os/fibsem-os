@@ -1,11 +1,11 @@
 ---
 name: autolamella-polishing
-description: Polishing a lamella to its target thickness — the target and the stop rules, the fields of view, measuring the band, and Iterative Polishing one pass at a time with an SEM image. Read fibsem-agent and autolamella first, then this before the first polishing pass, in the Polishing task or by hand.
+description: Polishing a lamella to its target thickness — the target and the stop rules, the fields of view, measuring the band, and Iterative Polishing one pass at a time with an SEM image. Read fibsem-agent, fibsem-microscope and autolamella first, then this before the first polishing pass, in the Polishing task or by hand.
 ---
 
 # Polishing a lamella
 
-Read fibsem-agent and autolamella first. This skill is how to thin a
+Read fibsem-agent, fibsem-microscope and autolamella first. This skill is how to thin a
 lamella to the operator's target: in the Polishing task's milling proposal,
 by hand with one `milling_run_stage` per step, or with Iterative Polishing.
 The same rules hold in all three. A lamella targeted with the FM adds
@@ -40,7 +40,7 @@ Either way, stop at once on a stop sign below. For every pass:
   each pass: set its `alignment.full_frame_below` (80 pA, say) so the
   low-current passes align on the full frame, and don't re-align by hand as
   well. By hand (`milling_run_stage`), re-align to the reference yourself
-  before every step (fibsem-agent, *Align to the image you placed on*).
+  before every step (fibsem-microscope, *Align to the image you placed on*).
 - After every step, a FIB image and an SEM image, both saved as files, not
   previews, so the operator can review them later. Read the faces only on
   FIB images 3072 px wide: on a real run, faces read on 1536 px images led
@@ -48,8 +48,11 @@ Either way, stop at once on a stop sign below. For every pass:
 - Measure the band, don't trust the gap, and stop on the first of: the band
   under the target (with stop thicker); the band faint or low in contrast, even if it still looks
   wide (a faint band is already thin: a lamella milled through on the next
-  pass when this was read as width); the SEM shows a crack, a break, a hole,
-  bending or the face deteriorating.
+  pass when this was read as width); the band stops thinning (a pass that
+  milled leaves it no thinner, within about 20 nm, than the pass before: more
+  passes only cost time and risk the faces, so stop there, above the target
+  if need be, and say why); the SEM shows a crack, a break, a hole, bending
+  or the face deteriorating.
 - On a correlative lamella, the faces follow the target:
   autolamella-correlative's *Polishing to a target*.
 - The polishing patterns can't be rotated to follow a tilted band. If the

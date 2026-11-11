@@ -20,8 +20,20 @@ TASKS = (
 # Where a case's images come from: a real session, or the simulator. Sim
 # cases are scored apart and never count towards the real scores.
 TIERS = ("real", "sim")
-# What a square is, in a square_quality case.
-SQUARE_LABELS = ("good", "no_cells", "damaged", "thick", "cell_near_bar")
+# What a square is, in a square_quality case. A key may accept more than one.
+SQUARE_LABELS = (
+    "good",
+    "no_cells",
+    "damaged",
+    "thick",
+    "cell_near_bar",
+    "cell_too_big",
+)
+
+
+def accepted_labels(value: Any) -> List[str]:
+    """A square's key label, or its list of labels that are all right."""
+    return [str(v) for v in value] if isinstance(value, list) else [str(value)]
 
 
 @dataclass
@@ -152,7 +164,8 @@ def _key_problems(case: Case) -> List[str]:
             problems.append("no inputs fib_pixel_size_um")
     elif case.task == "polishing_stop":
         names = pass_names(case)
-        if key.get("stop_after") not in names:
+        stops = stop_passes(key)
+        if not stops or any(stop not in names for stop in stops):
             problems.append(f"key stop_after {key.get('stop_after')!r} is not a pass")
     elif case.task == "site_selection":
         for square in key.get("good", []) + key.get("bad", []):
@@ -174,8 +187,9 @@ def _key_problems(case: Case) -> List[str]:
         if not labels:
             problems.append("key has no labels")
         for name, label in labels.items():
-            if label not in SQUARE_LABELS:
-                problems.append(f"square {name}: unknown label {label!r}")
+            for one in accepted_labels(label):
+                if one not in SQUARE_LABELS:
+                    problems.append(f"square {name}: unknown label {one!r}")
             if str(name) not in shown:
                 problems.append(f"square {name} is keyed but not in squares")
     for name, part in case.parts.items():
@@ -186,6 +200,15 @@ def _key_problems(case: Case) -> List[str]:
                     f"part {name}: key names unknown passes {sorted(unknown)}"
                 )
     return problems
+
+
+def stop_passes(key: Dict[str, Any]) -> List[str]:
+    """The passes after which stopping is right: ``stop_after`` names one, or
+    a list of them when any in that span will do."""
+    stop = key.get("stop_after")
+    if stop is None:
+        return []
+    return [str(s) for s in stop] if isinstance(stop, list) else [str(stop)]
 
 
 def pass_names(case: Case) -> List[str]:

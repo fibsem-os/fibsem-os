@@ -48,6 +48,7 @@ def test_the_shipped_playbooks_load_and_correlative_extends_autolamella(lab, che
     ]
     assert correlative.skills == [
         "fibsem-agent",
+        "fibsem-microscope",
         "autolamella",
         "autolamella-correlative",
     ]

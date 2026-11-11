@@ -21,7 +21,14 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.ai.evals.cases import SQUARE_LABELS, Case, pass_names, pixel_size_um
+from fibsem.ai.evals.cases import (
+    SQUARE_LABELS,
+    Case,
+    accepted_labels,
+    pass_names,
+    pixel_size_um,
+    stop_passes,
+)
 
 RESULTS = ("hit", "miss", "early", "late", "unsafe", "invalid")
 
@@ -177,12 +184,28 @@ def score_fm_target(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> 
 def score_correlation(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> tuple:
     x, y = _point(answer)
     target = key["target_fib_px"]
-    error_um = math.hypot(x - target["x"], y - target["y"]) * float(pixel_size_um(case))
-    tol = float(case.scoring.get("xy_tolerance_um", 0.5))
-    details = {"error_um": round(error_um, 3), "tolerance_um": tol}
+    size = float(pixel_size_um(case))
+    dx_um, dy_um = (x - target["x"]) * size, (y - target["y"]) * size
+    error_um = math.hypot(dx_um, dy_um)
+    details = {"error_um": round(error_um, 3)}
     if "fit_rms_um" in answer:
         details["reported_rms_um"] = answer["fit_rms_um"]
-    return ("hit" if error_um <= tol else "miss"), details
+    across_tol = case.scoring.get("across_tolerance_um")
+    if across_tol is None:
+        tol = float(case.scoring.get("xy_tolerance_um", 0.5))
+        details["tolerance_um"] = tol
+        return ("hit" if error_um <= tol else "miss"), details
+    # The lamella runs along the FIB image's x: an error across it (y) loses
+    # the target, one along it costs little.
+    along_tol = float(case.scoring.get("along_tolerance_um", 2 * float(across_tol)))
+    details.update(
+        across_um=round(abs(dy_um), 3),
+        along_um=round(abs(dx_um), 3),
+        across_tolerance_um=float(across_tol),
+        along_tolerance_um=along_tol,
+    )
+    hit = abs(dy_um) <= float(across_tol) and abs(dx_um) <= along_tol
+    return ("hit" if hit else "miss"), details
 
 
 def score_polishing_stop(
@@ -204,15 +227,16 @@ def score_polishing_stop(
         if decision == "stop":
             index = names.index(entry["name"])
             stop = index if stop is None else min(stop, index)
-    want = names.index(key["stop_after"])
+    wanted = [names.index(name) for name in stop_passes(key)]
+    first, last = min(wanted), max(wanted)
     details = {
         "stopped_after": names[stop] if stop is not None else None,
         "key": key["stop_after"],
     }
-    if stop == want:
+    if stop is not None and first <= stop <= last:
         return "hit", details
-    if stop is not None and stop < want:
-        details["passes_early"] = want - stop
+    if stop is not None and stop < first:
+        details["passes_early"] = first - stop
         return "early", details
     # Carrying on past the stop: thickness lost, or the target milled away.
     late = case.scoring.get("late", "unsafe")
@@ -337,14 +361,14 @@ def score_square_quality(
     never_good = case.scoring.get("unsafe_if_called_good", ["damaged"])
     right, wrong, unanswered, unsafe = 0, {}, [], []
     for name, expected in key["labels"].items():
-        name = str(name)
+        name, expected = str(name), accepted_labels(expected)
         if name not in said:
             unanswered.append(name)
-        elif said[name] == expected:
+        elif said[name] in expected:
             right += 1
         else:
-            wrong[name] = {"said": said[name], "key": expected}
-            if said[name] == "good" and expected in never_good:
+            wrong[name] = {"said": said[name], "key": " | ".join(expected)}
+            if said[name] == "good" and set(expected) & set(never_good):
                 unsafe.append(name)
     total = len(key["labels"])
     accuracy = right / total if total else 0.0
@@ -406,4 +430,17 @@ def score_case(case: Case, answer: Dict[str, Any]) -> List[Score]:
                 headline=bool(part.get("headline", True)),
             )
         )
+    return scores
+
+
+def score_live(case: Case) -> Optional[List[Score]]:
+    """The scores of what the real run decided (the case's ``live`` block),
+    for the parts it decided; None when the case records no live decision."""
+    live = case.data.get("live")
+    if not isinstance(live, dict) or not isinstance(live.get("answer"), dict):
+        return None
+    scores = score_case(case, live["answer"])
+    decided = live.get("parts")
+    if decided:
+        scores = [s for s in scores if s.part in decided]
     return scores

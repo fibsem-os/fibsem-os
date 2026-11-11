@@ -41,6 +41,7 @@ from fibsem.ai.agent.calls import headers_for
 from fibsem.ai.agent.catalog import (
     CATALOG,
     EVIDENCE_PARAM,
+    INSTRUMENT_ENV,
     tools_for_capabilities,
 )
 from fibsem.client import tools
@@ -365,22 +366,21 @@ def _name_the_client(mcp, client):
     middleware.append(name_client)
 
 
-def build_sidecar(client, capabilities):
+def build_sidecar(client, capabilities, instrument=None):
     """Build the MCP server over an httpx-compatible client.
 
     ``capabilities`` is the full /capabilities payload; a tool registers when
     its router is mounted (an app tool exists only when the server hosts an
     application), whatever the agent's level. The server enforces the level.
-    None (no server answered at start-up) registers every tool.
+    None (no server answered at start-up) registers every tool's router.
+    *instrument*, an instrument kind, leaves out other kinds' tools.
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
 
+    every = {"routers": {"app": True, "services": True}}
     offered = {
-        t.name
-        for t in (
-            CATALOG if capabilities is None else tools_for_capabilities(capabilities)
-        )
+        t.name for t in tools_for_capabilities(capabilities or every, instrument)
     }
     by_name = {t.name: t for t in CATALOG}
     # The open experiment's files as resources, beside the tools that read them.
@@ -1520,6 +1520,12 @@ def main(argv=None):
         "giving up (default 30)",
     )
     parser.add_argument(
+        "--instrument",
+        default=os.environ.get(INSTRUMENT_ENV) or None,
+        help="offer only this instrument kind's tools, beside those for any "
+        "kind (default every kind's; fibsem-agent sets it from its playbook)",
+    )
+    parser.add_argument(
         "--check",
         action="store_true",
         help="print connection status and exit (does not start the MCP server)",
@@ -1549,7 +1555,7 @@ def main(argv=None):
             args.url, args.token, wait_s, user_agent=client.named_user_agent
         )
     )
-    build_sidecar(client, capabilities).run()
+    build_sidecar(client, capabilities, args.instrument).run()
 
 
 if __name__ == "__main__":

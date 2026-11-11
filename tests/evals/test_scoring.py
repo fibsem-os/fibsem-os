@@ -83,6 +83,12 @@ def test_correlation(tmp_path):
     )
     assert result(case, {"x_px": 506, "y_px": 300}).result == "hit"  # 0.3 um
     assert result(case, {"x_px": 520, "y_px": 300}).result == "miss"  # 1.0 um
+    # Across the lamella (y) tight, along it (x) looser.
+    case.data["scoring"] = {"across_tolerance_um": 0.5, "along_tolerance_um": 1.5}
+    along = result(case, {"x_px": 520, "y_px": 300})
+    assert along.result == "hit" and along.details["along_um"] == 1.0
+    across = result(case, {"x_px": 500, "y_px": 312})
+    assert across.result == "miss" and across.details["across_um"] == 0.6
 
 
 @pytest.fixture
@@ -363,6 +369,17 @@ def test_square_quality(quality_case):
     assert check_case(quality_case).ok
 
 
+def test_square_quality_with_more_than_one_right_label(quality_case):
+    quality_case.data["key"]["labels"]["5"] = ["cell_near_bar", "cell_too_big"]
+    base = {"1": "good", "2": "damaged", "3": "no_cells", "4": "thick"}
+    for label in ("cell_near_bar", "cell_too_big"):
+        answer = {"labels": {**base, "5": label}}
+        assert result(quality_case, answer).details["accuracy"] == 1.0
+    wrong = result(quality_case, {"labels": {**base, "5": "good"}})
+    assert wrong.details["wrong"]["5"]["key"] == "cell_near_bar | cell_too_big"
+    assert check_case(quality_case).ok
+
+
 def test_square_quality_key_problems(tmp_path):
     case = make_case(
         tmp_path,
@@ -378,3 +395,26 @@ def test_square_quality_key_problems(tmp_path):
     problems = check_case(case).problems
     assert "square 1: unknown label 'great'" in problems
     assert "square 2 is keyed but not in squares" in problems
+
+
+def test_polishing_stop_with_a_span_of_right_passes(tmp_path):
+    passes = [{"name": n} for n in ("p1", "p2", "p3", "p4")]
+    case = make_case(
+        tmp_path,
+        "span",
+        {
+            **BASE,
+            "id": "span",
+            "task": "polishing_stop",
+            "passes": passes,
+            "key": {"stop_after": ["p2", "p3"]},
+        },
+    )
+    assert check_case(case).ok
+
+    def stop_at(name):
+        return result(case, {"passes": [{"name": name, "decision": "stop"}]}).result
+
+    assert stop_at("p1") == "early"
+    assert stop_at("p2") == "hit" and stop_at("p3") == "hit"
+    assert stop_at("p4") == "unsafe"

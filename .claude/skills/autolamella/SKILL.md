@@ -1,13 +1,13 @@
 ---
 name: autolamella
-description: Making lamellae with AutoLamella at any level — watching and explaining a run or a finished experiment, suggesting or deciding the workflow's proposals, editing task configs, a lamella's record, and the rules for rough milling. Polishing is autolamella-polishing's. Read fibsem-agent first, then this for any AutoLamella work, then autolamella-lead or autolamella-assistant.
+description: Making lamellae with AutoLamella at any level — watching and explaining a run or a finished experiment, suggesting or deciding the workflow's proposals, editing task configs, a lamella's record, and the rules for rough milling. Polishing is autolamella-polishing's. Read fibsem-agent and fibsem-microscope first, then this for any AutoLamella work, then autolamella-lead or autolamella-assistant.
 ---
 
 # Working with AutoLamella
 
-Read the fibsem-agent skill first: it covers connecting, the levels, asking
-at Assist, the watcher, messages, writing down why, reading the experiment
-and using the microscope. This skill is the method for making
+Read the fibsem-agent and fibsem-microscope skills first: they cover
+connecting, the levels, asking at Assist, the watcher, messages, writing down
+why, reading the experiment and using the microscope. This skill is the method for making
 lamellae with AutoLamella, however the run is led. Read one more skill for
 who is there, and ask if you don't know: "Will you be at the microscope
 during the run?"
@@ -191,12 +191,12 @@ Before you decide or place either:
    on it is not one either.
 2. At the position proposal, take fresh SEM and FIB images
    (`beam_acquire_image`). Check both are in focus and their brightness and
-   contrast let you read them; fix them first if not (fibsem-agent,
+   contrast let you read them; fix them first if not (fibsem-microscope,
    *Don't judge a poor image*), and check what Setup's own autofocus did.
    Read the milling angle (`stage_get_current_milling_angle`) against the
    Setup task config's `milling_angle`.
 3. Check the target is at the centre of both. If it is not, run the
-   coincidence loop (fibsem-agent, *Using the microscope*): centre it
+   coincidence loop (fibsem-microscope, *Using the microscope*): centre it
    in one beam with `stage_stable_move`, bring the other beam onto it with
    `stage_vertical_move`, and image both again.
 4. Check it again with both beams at a 50 µm field of view: the same feature
@@ -507,10 +507,10 @@ Things to know when reading a record:
 
 ## Milling lamellae
 
-These add to fibsem-agent's *Using the microscope*.
+These add to fibsem-microscope's *Using the microscope*.
 
 **Setup's own autofocus** (`use_autofocus`, on by default) applies its best
-working distance without the check fibsem-agent asks for: on dark FIB views
+working distance without the check fibsem-microscope asks for: on dark FIB views
 it has picked a wrong one, so read the working distance after Setup and
 compare.
 
