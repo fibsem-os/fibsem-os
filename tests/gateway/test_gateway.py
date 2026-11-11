@@ -411,3 +411,32 @@ def test_a_stop_reads_as_stopping(tmp_path, fakes):
     state = gateway.stop("operator", "page")
     assert seen == [(True, "stopping")]
     assert (state.mode, state.switching, state.switch) == (OFF, False, None)
+
+
+def test_a_recent_experiment_is_read_again_only_when_its_file_changes(
+    tmp_path, monkeypatch
+):
+    import fibsem.config as config
+    from fibsem.gateway import gateway as module
+
+    yaml_path = tmp_path / "grid3" / "experiment.yaml"
+    yaml_path.parent.mkdir()
+    yaml_path.write_text("name: grid3\n")
+    gone = str(tmp_path / "gone" / "experiment.yaml")
+    monkeypatch.setattr(
+        config, "recent_experiment_paths", lambda: [str(yaml_path), gone]
+    )
+    read = []
+    peek = config.peek_experiment
+    monkeypatch.setattr(config, "peek_experiment", lambda p: read.append(p) or peek(p))
+    monkeypatch.setattr(module, "_recent_kept", {})
+
+    first = module.recent_experiments()
+    module.recent_experiments()
+    assert [(r.name, r.folder) for r in first] == [("grid3", str(yaml_path.parent))]
+    assert read == [str(yaml_path)]
+
+    yaml_path.write_text("name: grid3-renamed\n")
+    os.utime(yaml_path, ns=(time.time_ns(), time.time_ns() + 10**9))
+    assert module.recent_experiments()[0].name == "grid3-renamed"
+    assert len(read) == 2
