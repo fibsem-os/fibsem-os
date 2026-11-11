@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from fibsem.ai.evals import report as report_mod
+from fibsem.ai.evals import visual
 from fibsem.ai.evals.cases import check_case, find_cases, load_case
 from fibsem.ai.evals.runner import RunConfig, RunnerError, run_cases
 from fibsem.ai.evals.scoring import score_case
@@ -61,6 +62,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     report = sub.add_parser("report", help="the results of a run folder, as a table")
     report.add_argument("out", type=Path)
+    report.add_argument(
+        "--html",
+        action="store_true",
+        help="also write report.html: the key and every answer on each case's images",
+    )
+    report.add_argument(
+        "--cases",
+        type=Path,
+        default=None,
+        help="the cases folder, for runs made before results kept their case's path",
+    )
     return parser
 
 
@@ -86,6 +98,8 @@ def main(argv=None) -> int:
 
     if args.command == "report":
         print(report_mod.table(report_mod.summarise(report_mod.load_results(args.out))))
+        if args.html:
+            print(f"Wrote {visual.write_html(args.out, args.cases)}")
         return 0
 
     cases = [
@@ -130,6 +144,7 @@ def main(argv=None) -> int:
     text = report_mod.table(rows)
     (args.out / "report.md").write_text(text)
     print(text)
+    print(f"Wrote {visual.write_html(args.out, args.root)}")
     return 0
 
 

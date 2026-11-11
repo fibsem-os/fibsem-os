@@ -249,7 +249,12 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
     env = {**os.environ, paths.STATE_ROOT_ENV: str(home)}
 
     started = time.monotonic()
-    result: Dict[str, Any] = {"case": case.id, "repeat": repeat, "task": case.task}
+    result: Dict[str, Any] = {
+        "case": case.id,
+        "repeat": repeat,
+        "task": case.task,
+        "case_path": str(case.path.resolve()),
+    }
     server_log = open(folder / "server.log", "w")
     server = subprocess.Popen(
         config.server_command

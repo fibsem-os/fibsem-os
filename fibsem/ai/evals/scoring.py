@@ -87,7 +87,7 @@ class InvalidAnswer(ValueError):
     pass
 
 
-def _yes(value: Any) -> Optional[bool]:
+def yes_no(value: Any) -> Optional[bool]:
     """yes/no answers as True/False; unsure as None."""
     if isinstance(value, bool):
         return value
@@ -151,8 +151,8 @@ def score_site_selection(
 
 
 def score_fm_target(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> tuple:
-    usable_key = _yes(key.get("usable"))
-    usable = _yes(answer.get("usable"))
+    usable_key = yes_no(key.get("usable"))
+    usable = yes_no(answer.get("usable"))
     details: Dict[str, Any] = {"usable": usable, "usable_key": usable_key}
     if usable_key is False:
         # Calling a target where there is none sends the milling to nothing.
@@ -230,10 +230,10 @@ def score_target_present(
         if name not in present:
             unanswered.append(name)
             continue
-        said = _yes(present[name])
-        if said != _yes(expected):
+        said = yes_no(present[name])
+        if said != yes_no(expected):
             wrong.append(name)
-            if said is True and _yes(expected) is False:
+            if said is True and yes_no(expected) is False:
                 missed_loss.append(name)
     details = {
         "correct": len(key) - len(wrong) - len(unanswered),
@@ -247,7 +247,7 @@ def score_target_present(
     return ("hit" if not wrong and not unanswered else "miss"), details
 
 
-def _match(points: List[tuple], squares: List[Dict[str, Any]], radius: float):
+def match_squares(points: List[tuple], squares: List[Dict[str, Any]], radius: float):
     """Each point paired with at most one square and each square with at most
     one point, nearest pairs first, within *radius*."""
     pairs = sorted(
@@ -278,7 +278,7 @@ def score_square_finding(
     sc = case.scoring
     pitch = float(key["pitch_px"])
     radius = float(sc.get("match_radius_px", pitch / 3))
-    matched = _match(points, squares, radius)
+    matched = match_squares(points, squares, radius)
     # Optional squares (cut by a tile edge, or hidden) count when found and
     # are not missed when not.
     required = [j for j, sq in enumerate(squares) if not sq.get("optional")]
