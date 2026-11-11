@@ -28,7 +28,7 @@ import yaml
 
 from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.sim_cases import TIER, _demo_microscope
-from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.drivers.demo.sim_scene import SampleScene, SceneFeature
 from fibsem.structures.settings import (
     BeamType,
     FibsemRectangleSettings,
@@ -57,6 +57,11 @@ SCHEDULE = (
 )
 WIDTH = 12e-6  # m, the lamella's width
 ROUGH_HEIGHT = 8e-6  # m, each rough trench
+# the cell the lamella is cut through, at the site: tall enough that the
+# lamella is mostly cell, and every trench cuts through it
+CELL_RADIUS = 15e-6  # m
+CELL_HEIGHT = 5e-6  # m
+DEPTH = 7e-6  # m, every trench's depth
 OVERLAP = 0.3e-6  # m, a polishing trench reaches this far back into the last
 RESOLUTION = (1024, 682)
 HFW = 30e-6  # m
@@ -77,19 +82,39 @@ def _patterns(gap: float, previous: Optional[float]) -> List[FibsemRectangleSett
     """A pass's two trenches: rough ones the first time, then thin strips
     from the last gap's edges to the new one's."""
     if previous is None:
-        height, depth = ROUGH_HEIGHT, 3e-6
+        height = ROUGH_HEIGHT
     else:
-        height, depth = (previous - gap) / 2 + OVERLAP, 1e-6
+        height = (previous - gap) / 2 + OVERLAP
     return [
         FibsemRectangleSettings(
             width=WIDTH,
             height=height,
-            depth=depth,
+            depth=DEPTH,
             centre_x=0.0,
             centre_y=sign * (gap / 2 + height / 2),
         )
         for sign in (1, -1)
     ]
+
+
+def _site_cell(rng: np.random.Generator) -> SceneFeature:
+    """A big cell at the site (the world anchor), so the lamella shows cell
+    material in both beams."""
+    return SceneFeature(
+        x=float(rng.normal(0, 1e-6)),
+        y=float(rng.normal(0, 1e-6)),
+        sigma=CELL_RADIUS * float(rng.uniform(0.9, 1.1)),
+        intensity=1.0,
+        sharpness=4.0,
+        kind="cell",
+        part="body",
+        opacity=1.0,
+        height=CELL_HEIGHT * float(rng.uniform(0.9, 1.1)),
+        eccentricity=float(rng.uniform(0.75, 0.95)),
+        angle=float(rng.uniform(0, np.pi)),
+        wobble=0.05,
+        wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+    )
 
 
 def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict:
@@ -120,6 +145,7 @@ def mill_series(
     try:
         microscope.move_to_milling_angle(milling_angle)
         scene = SampleScene(**scene_options(seed, overrides))
+        scene.features.append(_site_cell(rng))
         scene.anchor(microscope.get_stage_position())
         microscope._connection.sample_scene = scene
         folder.mkdir(parents=True, exist_ok=True)
