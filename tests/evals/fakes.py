@@ -39,6 +39,8 @@ def agent(argv):
     parser.add_argument("--session-id")
     parser.add_argument("--files", type=Path)
     parser.add_argument("--code", type=Path)
+    parser.add_argument("--playbook")
+    parser.add_argument("--model")
     parser.add_argument("--goal")
     parser.add_argument("--max-budget-usd")
     args, _ = parser.parse_known_args(argv)
@@ -53,6 +55,8 @@ def agent(argv):
         "goal": args.goal,
         "task_chars": len(task),
         "code": code,
+        "playbook": args.playbook,
+        "model": args.model,
         "server": json.loads(Path(os.environ["FIBSEM_DISCOVERY_FILE"]).read_text())[
             "url"
         ],

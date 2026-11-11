@@ -128,6 +128,9 @@ def check_case(case: Case) -> CaseCheck:
     for name, part in case.parts.items():
         if part.get("task") not in TASKS:
             check.problems.append(f"part {name}: unknown task {part.get('task')!r}")
+    playbook = data.get("playbook")
+    if playbook is not None and not isinstance(playbook, str):
+        check.problems.append("playbook is the name of one playbook")
     if case.status == "parked":
         return check
     for rel in input_paths(case):

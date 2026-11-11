@@ -88,6 +88,18 @@ class RunConfig:
     server_command: List[str] = field(default_factory=lambda: server_command())
 
 
+# ``RunConfig.playbook`` for each case's own (its ``playbook:``; the base
+# playbook for a case that names none).
+CASE_PLAYBOOK = "case"
+
+
+def run_playbook(case: Case, config: RunConfig) -> Optional[str]:
+    """The playbook a run of *case* starts on; None for the base one."""
+    if config.playbook == CASE_PLAYBOOK:
+        return case.data.get("playbook") or None
+    return config.playbook
+
+
 def case_budget(case: Case, config: RunConfig) -> float:
     """The run's spending cap: the case's own ``budget_usd`` when it gives
     one, for a case that needs more work than most."""
@@ -298,7 +310,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
             str(case_budget(case, config)),
         ]
         for flag, value in (
-            ("--playbook", config.playbook),
+            ("--playbook", run_playbook(case, config)),
             ("--model", config.model),
             ("--effort", config.effort),
         ):
@@ -307,6 +319,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         result["session_id"] = session_id
         result["model"] = config.model or "default"
         result["code"] = config.code
+        result["playbook"] = run_playbook(case, config) or "fibsem-agent"
         result["version"] = code_version(home / "knowledge")
         with open(folder / "agent.log", "w") as agent_log:
             # The agent finds its own run's server, not this PC's.
