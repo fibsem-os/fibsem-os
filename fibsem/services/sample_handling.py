@@ -597,6 +597,7 @@ class SampleHandling(Service):
                 return slot
         return None
 
+    @query
     def grid_at_position(
         self, position: Optional[FibsemStagePosition]
     ) -> Optional[SampleGrid]:
@@ -619,6 +620,7 @@ class SampleHandling(Service):
         slot = self.current_slot
         return slot.loaded_grid if slot is not None else None
 
+    @query
     def grid_inventory(self) -> List[GridInventoryEntry]:
         """Which grids exist this session, and which are loaded. Derived, not stored.
 
