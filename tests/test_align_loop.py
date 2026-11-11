@@ -85,11 +85,7 @@ def microscope():
 
     # deterministic scene: the loop is about control flow and geometry
     scene = SampleScene(
-        coincidence_offset=8e-6,
-        fiducial=True,
-        noise_sigma=0.0,
-        noise_fraction=0.0,
-        charging=0.0,
+        coincidence_offset=8e-6, fiducial=True, noise_sigma=0.0, noise_fraction=0.0
     )
     scene.anchor(microscope.get_stage_position())
     microscope._connection.sample_scene = scene

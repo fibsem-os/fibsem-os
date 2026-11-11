@@ -118,7 +118,7 @@ def test_the_session_settings_show_where_each_comes_from(lab, checkout):
 
 
 def test_the_words_come_from_the_instrument_kinds_files(lab, checkout):
-    assert instruments.kinds(checkout) == ["cryo-fm", "fibsem"]
+    assert instruments.kinds(checkout) == ["fibsem"]
     words = harness_mod.texts()
     assert words.kind == "fibsem"
     prompt = harness_mod.harness_prompt(words=words, deadline_warn_min=45)
@@ -131,11 +131,9 @@ def test_the_words_come_from_the_instrument_kinds_files(lab, checkout):
 
 def test_an_unknown_instrument_kind_fails_at_load(lab, checkout):
     (lab / "other.yaml").write_text(
-        "extends: fibsem-agent\ninstrument: nothing-yet\n", encoding="utf-8"
+        "extends: fibsem-agent\ninstrument: cryo-fm\n", encoding="utf-8"
     )
-    with pytest.raises(
-        playbooks.PlaybookError, match="no instrument kind 'nothing-yet'"
-    ):
+    with pytest.raises(playbooks.PlaybookError, match="no instrument kind 'cryo-fm'"):
         playbooks.load("other", checkout)
 
 
@@ -215,60 +213,3 @@ def test_the_base_skills_go_only_to_playbooks_of_its_instrument_kind(tmp_path, l
     fib = playbooks.load("fib-work", root)
     assert fib.instrument == "fibsem"
     assert fib.skills == ["fibsem-agent", "fibsem-microscope", "fibsem-experiment"]
-
-
-def test_a_reminder_on_another_kinds_tools_is_refused(tmp_path, lab):
-    # A hypothetical standalone cryo-FM's playbook: a reminder on any kind's
-    # tools loads; one on the FIB-SEM's milling tools would never fire.
-    root = tmp_path / "checkout"
-    shipped = root / ".claude" / "fibsem-agent"
-    (shipped / "playbooks").mkdir(parents=True)
-    (shipped / "playbooks" / "fibsem-agent.yaml").write_text("instrument: fibsem\n")
-    for kind in ("fibsem", "cryo-fm"):
-        (shipped / "instruments" / kind).mkdir(parents=True)
-        (shipped / "instruments" / kind / "prompt.md").write_text("words")
-    (lab / "cryo-fm.yaml").write_text(
-        "instrument: cryo-fm\nreminders: {hardware_error: Stop.}\n"
-    )
-    assert [h.when for h in playbooks.load("cryo-fm", root).hooks] == ["hardware_error"]
-
-    (lab / "cryo-fm-mill.yaml").write_text(
-        "extends: cryo-fm\nreminders: {before_milling: Check the patterns.}\n"
-    )
-    with pytest.raises(playbooks.PlaybookError, match="before_milling"):
-        playbooks.load("cryo-fm-mill", root)
-
-    # The same reminder on a FIB-SEM playbook loads as before.
-    (lab / "fib-mill.yaml").write_text("reminders: {before_milling: Check.}\n")
-    assert [h.when for h in playbooks.load("fib-mill", root).hooks] == [
-        "before_milling"
-    ]
-
-
-def test_an_apps_hook_is_on_only_where_a_playbook_switches_it_on(tmp_path, lab):
-    root = tmp_path / "checkout"
-    shipped = root / ".claude" / "fibsem-agent"
-    (shipped / "playbooks").mkdir(parents=True)
-    (shipped / "playbooks" / "fibsem-agent.yaml").write_text("instrument: fibsem\n")
-    (shipped / "instruments" / "fibsem").mkdir(parents=True)
-    (shipped / "instruments" / "fibsem" / "prompt.md").write_text("words")
-    (lab / "fib-work.yaml").write_text("reminders: {polishing_pass: Measure.}\n")
-    with pytest.raises(playbooks.PlaybookError, match="hooks"):
-        playbooks.load("fib-work", root)
-
-    (lab / "lamellae.yaml").write_text(
-        "hooks: [polishing_pass]\nreminders: {polishing_pass: Measure.}\n"
-    )
-    assert playbooks.load("lamellae", root).switched_on == ["polishing_pass"]
-    # One that extends it has the hook on too, for an optional skill's reminders.
-    (lab / "my-lamellae.yaml").write_text(
-        "extends: lamellae\noptional:\n"
-        "  - {skill: fibsem-agent, when: always, reminders: {polishing_pass: Look.}}\n"
-    )
-    (root / ".claude" / "skills" / "fibsem-agent").mkdir(parents=True)
-    (root / ".claude" / "skills" / "fibsem-agent" / "SKILL.md").write_text("---\n---\n")
-    assert playbooks.load("my-lamellae", root).switched_on == ["polishing_pass"]
-
-    (lab / "typo.yaml").write_text("hooks: [polish]\n")
-    with pytest.raises(playbooks.PlaybookError, match="no hook polish"):
-        playbooks.load("typo", root)

@@ -24,12 +24,9 @@ import yaml
 # else there was written by the install.
 SHIPPED_CONFIGURATIONS = frozenset(
     {
-        "cryo-fm-demo-configuration.yaml",
-        "cryo-fm-remote-configuration.yaml",
         "jeol-configuration.yaml",
         "microscope-configuration.yaml",
         "odemis-configuration.yaml",
-        "remote-microscope-configuration.yaml",
         "sim-arctis-configuration.yaml",
         "sim-iflm-configuration.yaml",
         "tescan-configuration.yaml",

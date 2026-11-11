@@ -129,10 +129,7 @@ def serve_until_stopped(
     if pairing is not None:
         # Seeing this terminal is the proof: the code shows only here.
         pairing.announce = announce_code
-    print(
-        setup_text(host.url) or "fibsem-mcp is not installed beside this Python.",
-        flush=True,
-    )
+    print(setup_text(host.url) or "fibsem-mcp is not installed beside this Python.")
     stop = stop or threading.Event()
     _stop_on_terminate(stop)
     try:
@@ -150,13 +147,11 @@ def serve_until_stopped(
 
 
 def _stop_on_terminate(stop: threading.Event) -> None:
-    """Set *stop* on Ctrl-C, SIGTERM and SIGBREAK (a Windows console close).
-    SIGINT too: a server started in the background (``&``, over ssh) inherits
-    it ignored, so Ctrl-C's default would never reach it. Only the main thread
-    can install them."""
+    """Set *stop* on SIGTERM (and SIGBREAK, a Windows console close), so a
+    terminate ends as Ctrl-C does. Only the main thread can install it."""
     if threading.current_thread() is not threading.main_thread():
         return
-    for name in ("SIGINT", "SIGTERM", "SIGBREAK"):
+    for name in ("SIGTERM", "SIGBREAK"):
         number = getattr(signal, name, None)
         if number is not None:
             signal.signal(number, lambda *_: stop.set())

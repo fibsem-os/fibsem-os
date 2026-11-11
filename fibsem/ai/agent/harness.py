@@ -212,21 +212,17 @@ def session_names(
 ) -> Loaded:
     """What a session loads. Started on a playbook other than the base one:
     that playbook's skills and subagents (with what it extends). Else every
-    playbook's of its instrument kind, as intake may set any of them. The lab's
-    own skills and subagents always, a lab copy of a shipped one replacing it."""
+    playbook's, as intake may set any of them. The lab's own skills and
+    subagents always, a lab copy of a shipped one replacing it."""
     if playbook is not None and playbook.name != playbooks.DEFAULT:
         found = [playbook]
     else:
-        kind = _kind(playbook)
         found = []
         for name in playbooks.available(checkout):
             try:
-                each = playbooks.load(name, checkout)
+                found.append(playbooks.load(name, checkout))
             except playbooks.PlaybookError as error:
                 log.warning("Playbook %s is left out: %s", name, error)
-                continue
-            if _kind(each) == kind:
-                found.append(each)
     skills: List[str] = []
     agents: List[str] = []
     for each in found:
@@ -235,12 +231,6 @@ def session_names(
     skills += [n for n in sources.lab_skills() if n not in skills]
     agents += [n for n in sources.lab_agents() if n not in agents]
     return Loaded(skills, agents)
-
-
-def _kind(playbook: Optional[playbooks.Playbook]) -> str:
-    """*playbook*'s instrument kind; the default kind's for none."""
-    kind = playbook.instrument if playbook is not None else None
-    return kind or instruments.DEFAULT
 
 
 def subagent_tools(names: List[str]) -> List[str]:
@@ -444,8 +434,6 @@ class PlaybookControl:
         self.keep(self.reminders.state())
 
     def list(self) -> str:
-        """The playbooks of the session's instrument kind: its tools and words
-        are fixed at its start."""
         rows = []
         for name in playbooks.available(self.checkout):
             try:
@@ -453,8 +441,7 @@ class PlaybookControl:
             except playbooks.PlaybookError as error:
                 rows.append({"name": name, "error": str(error)})
                 continue
-            if _kind(found) == _kind(self.reminders.playbook):
-                rows.append(found.summary())
+            rows.append(found.summary())
         current = self.reminders.playbook
         return json.dumps(
             {"current": current.name if current else None, "playbooks": rows},
@@ -468,12 +455,6 @@ class PlaybookControl:
             found = playbooks.load(name or playbooks.DEFAULT, self.checkout)
         except playbooks.PlaybookError as error:
             return f"Refused: {error}"
-        if _kind(found) != _kind(self.reminders.playbook):
-            return (
-                f"Refused: the {found.name} playbook is for a {_kind(found)} "
-                f"instrument, and this session runs a "
-                f"{_kind(self.reminders.playbook)}'s tools."
-            )
         missing = self.loaded_names.missing(found) if self.loaded_names else []
         if missing:
             return (
@@ -875,9 +856,6 @@ class Harness:
             return self._code
         try:
             await self._agent.start()
-            # The session's id is known before its first turn: reporting it
-            # now lets that turn already write the plan.
-            await self._report()
             prompt = kickoff(self._resumed, self._goal, self._words)
             while prompt is not None and await self._turn(prompt):
                 prompt = await self._next_prompt()
@@ -2173,9 +2151,7 @@ def _print(data, as_json: bool, as_text) -> int:
 
 def _hook_text(rows: List[dict]) -> str:
     return "\n".join(
-        f"{row['when']:<18}{row['label']}, {row['fires']}: {row['tools']}"
-        f" ({row['instrument']} instrument"
-        f"{', on when a playbook names it' if row['by_playbook'] else ''})"
+        f"{row['when']:<16}{row['label']}, {row['fires']}: {row['tools']}"
         for row in rows
     )
 

@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from fibsem import config
 from fibsem.devices.runs import RUNNING
-from fibsem.instrument import CONNECTED_MESSAGE, Instrument, needs_microscope
+from fibsem.instrument import Instrument
 from fibsem.server.auth import require_operator
 from fibsem.server.leases import Leases
 from fibsem.server.responses import (
@@ -78,32 +78,17 @@ class ServedInstrument:
         return self._microscope
 
     def require(self) -> Any:
-        """The microscope now, or 409 ``not_connected`` (saying what is
-        connected instead, while only devices are)."""
+        """The microscope now, or 409 ``not_connected``."""
         microscope = self.current
         if microscope is None:
-            others = self.instruments
-            if not others:
-                raise not_connected()
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error_type": "not_connected",
-                    "message": needs_microscope(others[0]),
-                },
-            )
+            raise not_connected()
         return microscope
 
     @property
     def instruments(self) -> List[Instrument]:
-        """Everything served now: the microscope first, while one is connected,
-        then the session's devices while a ``devices`` configuration is."""
+        """Everything served now: the microscope first, while one is connected."""
         microscope = self.current
-        served = [microscope] if microscope is not None else []
-        connected = getattr(self._session, "instrument", None)
-        if connected is not None and connected is not microscope:
-            served.append(connected)
-        return served + self._instruments
+        return ([microscope] if microscope is not None else []) + self._instruments
 
     @property
     def connected(self) -> bool:
@@ -228,9 +213,9 @@ def build_connection_router(session: Any) -> APIRouter:
                 404, "not_found", f"No configuration named {name!r} is registered."
             )
         with starting:
-            if session.instrument is not None:
+            if session.microscope is not None:
                 raise _refused(
-                    409, "connected", f"{CONNECTED_MESSAGE}; disconnect it first."
+                    409, "connected", "A microscope is connected; disconnect it first."
                 )
             run = session.connect_runs.latest
             if session.connecting is not None or (

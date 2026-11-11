@@ -172,27 +172,9 @@ def test_names_are_checked(client):
 def test_the_forms_choices(client):
     options = client.get("/app/library/options").json()
     assert options["levels"] == ["watch", "assist", "drive"]
-    # Each hook with the instrument kind whose tools it fires on, and whether a
-    # playbook must switch it on.
-    hooks = {o["when"]: o for o in options["reminders"]}
-    assert hooks["before_milling"] == {
-        "when": "before_milling",
-        "label": "Before milling",
-        "instrument": "fibsem",
-        "by_playbook": False,
-    }
-    assert hooks["hardware_error"]["instrument"] == ""
-    assert hooks["setup_placement"]["by_playbook"] is True
+    assert {"when": "before_milling", "label": "Before milling"} in options["reminders"]
     assert "autolamella-lead" in options["skills"]
     assert "autolamella" in options["playbooks"]
-    # A playbook's instrument kind, from what it extends: the form offers its reminders.
-    autolamella = client.get("/app/library/playbooks/autolamella").json()
-    assert autolamella["instrument"] == "fibsem"
-    assert "setup_placement" in autolamella["hooks"]
-    # A playbook that extends it has its hooks too.
-    correlative = client.get("/app/library/playbooks/autolamella-correlative").json()
-    assert "polishing_pass" in correlative["hooks"]
-    assert client.get("/app/library/playbooks/fibsem-experiment").json()["hooks"] == []
 
 
 def test_a_form_saves_settings_and_keeps_what_it_doesnt_show(client):

@@ -116,14 +116,8 @@ def test_tools_are_offered_for_the_playbooks_instrument_kind():
     capabilities = {"routers": {"services": True, "app": True}}
     every = {t.name for t in tools_for_capabilities(capabilities)}
     fib = {t.name for t in tools_for_capabilities(capabilities, FIBSEM)}
-    # A standalone cryo-FM: the tools for any instrument, and the few on a
-    # device's own routes.
+    # A hypothetical standalone cryo-FM: the tools for any instrument only.
     other = {t.name for t in tools_for_capabilities(capabilities, "cryo-fm")}
-    assert {"stage_get_position", "fm_save_focus_position"} <= other
-    # Another kind: the tools for any instrument only.
-    assert "stage_get_position" not in {
-        t.name for t in tools_for_capabilities(capabilities, "other")
-    }
     # A FIB/SEM session is offered what it always was.
     assert fib == every
     assert {

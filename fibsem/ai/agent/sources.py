@@ -1,18 +1,13 @@
-"""Where the agent's skills, subagents, playbooks and instrument kinds come from.
+"""Where the agent's skills, subagents and playbooks come from.
 
-Three places, the first found winning by name:
+Two places, the first found winning by name:
 
 1. The lab's own, in the knowledge base on this PC
    (``~/.fibsem/knowledge/skills/<name>/SKILL.md``,
    ``~/.fibsem/knowledge/agents/<name>.md`` and
-   ``~/.fibsem/knowledge/playbooks/<name>.yaml``). Never instrument kinds:
-   their words carry the safety wording.
+   ``~/.fibsem/knowledge/playbooks/<name>.yaml``).
 2. What fibsemOS ships: a checkout's ``.claude/``, or, from a pip install, the
    copy of it inside the package (``SHIPPED``, made when the wheel is built).
-3. What installed plugins add (`plugin_roots`): each a folder whose
-   ``.claude/`` is laid out as a checkout's, for a lab's own instrument with
-   its instrument kind, playbooks and skills. A plugin adds; it never replaces
-   what fibsemOS ships.
 
 The CLI reads skills only from its working folder, so `assemble` copies the
 ones a session uses into that folder's ``.claude``.
@@ -20,15 +15,12 @@ ones a session uses into that folder's ``.claude``.
 
 import shutil
 from pathlib import Path
-from typing import Any, Iterable, List, Optional, Tuple
+from typing import Iterable, List, Optional
 
 # The shipped copy of the checkout's .claude, laid out as the checkout has it.
 SHIPPED = Path(__file__).resolve().parent / "shipped"
 CLAUDE = ".claude"
 SKILL_FILE = "SKILL.md"
-# The entry point group a plugin names its agent folder in: a path, or a
-# function that answers one, to a folder holding ``.claude/``.
-PLUGIN_GROUP = "fibsem.agent"
 
 
 def lab_folder(kind: str) -> Path:
@@ -54,33 +46,10 @@ def find_root(given: Optional[str] = None, base_skill: str = "fibsem-agent"):
     return None
 
 
-def plugin_roots() -> List[Path]:
-    """The installed plugins' agent folders, each holding ``.claude/``. A
-    plugin that fails to load is logged and left out (`fibsem.plugins`)."""
-    from fibsem.plugins.loader import PluginRejected, load_entry_point_group
-
-    def resolve(obj: Any) -> Tuple[str, Path]:
-        path = Path(obj() if callable(obj) else obj)
-        if not (path / CLAUDE).is_dir():
-            raise PluginRejected(f"{path} has no {CLAUDE} folder")
-        return str(path), path.resolve()
-
-    records = load_entry_point_group(PLUGIN_GROUP, kind="agent folder", resolve=resolve)
-    return [record.obj for record in records if record.loaded]
-
-
-def claude_dirs(root: Optional[Path], kind: str) -> List[Path]:
-    """Where shipped and plugin *kind* (skills, agents, ...) are found, in
-    order: the checkout's, then each plugin's."""
-    roots = ([root] if root is not None else []) + plugin_roots()
-    return [each / CLAUDE / kind for each in roots]
-
-
 def skill_dir(name: str, root: Optional[Path]) -> Optional[Path]:
-    """The folder of skill *name*: the lab's, else the shipped one, else a
-    plugin's."""
-    for folder in [lab_folder("skills"), *claude_dirs(root, "skills")]:
-        if (folder / name / SKILL_FILE).is_file():
+    """The folder of skill *name*: the lab's, else the shipped one."""
+    for folder in (lab_folder("skills"), root and root / CLAUDE / "skills"):
+        if folder and (folder / name / SKILL_FILE).is_file():
             return folder / name
     return None
 
@@ -94,9 +63,9 @@ def lab_skills() -> List[str]:
 
 
 def agent_file(name: str, root: Optional[Path]) -> Optional[Path]:
-    """A subagent's file: the lab's, else the shipped one, else a plugin's."""
-    for folder in [lab_folder("agents"), *claude_dirs(root, "agents")]:
-        if (folder / f"{name}.md").is_file():
+    """A subagent's file: the lab's, else the shipped one."""
+    for folder in (lab_folder("agents"), root and root / CLAUDE / "agents"):
+        if folder and (folder / f"{name}.md").is_file():
             return folder / f"{name}.md"
     return None
 

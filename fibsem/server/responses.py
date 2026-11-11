@@ -267,16 +267,13 @@ class RunEnvelope:
 
 @dataclass
 class ConnectedConfiguration:
-    """The configuration connected: a microscope's, or only devices' (``instrument``
-    ``devices``, with no manufacturer)."""
+    """The configuration the microscope was connected with."""
 
     name: Optional[str] = None
     path: Optional[str] = None
     manufacturer: Optional[str] = None
     model: Optional[str] = None
     address: Optional[str] = None
-    instrument: str = "fibsem"
-    devices: List[str] = field(default_factory=list)
 
 
 @dataclass

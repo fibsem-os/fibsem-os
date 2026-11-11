@@ -308,19 +308,6 @@ def save_json(path: Union[Path, os.PathLike, str], data: dict) -> None:
         json.dump(data, f, indent=4)
 
 
-def configured_driver(config_path: Optional[Path] = None) -> Optional[str]:
-    """The driver a configuration file names to connect with (``info.driver``),
-    or None: its ``info.manufacturer``'s, as older files say it. The default
-    configuration when *config_path* is None."""
-    path = config_path if config_path is not None else cfg.DEFAULT_CONFIGURATION_PATH
-    try:
-        info = (load_yaml(path) or {}).get("info") or {}
-    except (OSError, ValueError, AttributeError):
-        return None
-    driver = info.get("driver") if isinstance(info, dict) else None
-    return str(driver) if driver else None
-
-
 def setup_session(
     session_path: Path = None,
     config_path: Path = None,
@@ -383,18 +370,9 @@ def setup_session(
 
     _report(progress, f"Connecting to {settings.system.info.ip_address}…")
 
-    from fibsem.drivers.registry import (
-        REMOTE_DRIVER,
-        connect_microscope,
-        normalize_name,
-    )
+    from fibsem.drivers.registry import connect_microscope
 
-    # A manufacturer given here is the caller's choice of driver, over the file's.
-    driver = None if manufacturer else configured_driver(config_path)
-    microscope = connect_microscope(settings.system, driver)
-    if normalize_name(driver) == REMOTE_DRIVER:
-        # The instrument is the other App Server's: its configuration, not this file's.
-        settings.system = microscope.system
+    microscope = connect_microscope(settings.system)
 
     # The planning stack estimates milling time without a microscope in scope, so
     # the milling service's model is installed for the session here, on connect.
@@ -403,9 +381,10 @@ def setup_session(
 
     # The service class's model, not the service: the session keeps it after a
     # disconnect, and a bound method would keep the microscope alive with it.
-    # A remote microscope's milling has no model here: the shared table.
     milling = getattr(microscope, "milling", None)
-    set_milling_time_estimator(getattr(type(milling), "estimate_stage", None))
+    set_milling_time_estimator(
+        type(milling).estimate_stage if milling is not None else None
+    )
 
     # set default image_settings path
     settings.image.path = session_path
@@ -415,13 +394,10 @@ def setup_session(
         config_path if config_path is not None else cfg.DEFAULT_CONFIGURATION_PATH
     )
     # The sample handling was built during the connect, before the configuration was
-    # known, so the session state it restores from could not be found yet. A
-    # remote microscope's is restored on its own PC.
-    restore = getattr(
-        getattr(microscope, "sample_handling", None), "restore_occupancy", None
-    )
-    if restore is not None:
-        restore()
+    # known, so the session state it restores from could not be found yet.
+    handling = getattr(microscope, "sample_handling", None)
+    if handling is not None:
+        handling.restore_occupancy()
 
     # What connecting did beyond connecting, as the file (or the caller) asked:
     # {"beams_on": worked, "defaults": worked}, for each one asked for. A failure

@@ -37,7 +37,6 @@ POSITIONALS = {
     "service": ["list"],
     "experiment": ["list-all"],
     "pair-device": ["10.0.0.2:8765", "1234"],
-    "pair": ["10.0.0.2:8001", "1234"],
     "notify": ["status"],
     "key": ["status", "ANTHROPIC_API_KEY"],
 }

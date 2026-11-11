@@ -1020,13 +1020,10 @@ def read_server_settings(path: str) -> Dict[str, Any]:
         return upgrade(yaml.safe_load(f) or {})
 
 
-def _refuse_unservable(entries: Iterable[Any], allow_remote: bool = False) -> None:
-    """Refuse an entry a Device Server can't serve, before anything is built. With
-    *allow_remote* (the App Server's own devices) a remote entry is built as usual."""
+def _refuse_unservable(entries: Iterable[Any]) -> None:
+    """Refuse an entry a Device Server can't serve, before anything is built."""
     for entry in entries:
         if entry.driver == REMOTE_DRIVER:
-            if allow_remote:
-                continue
             raise ValueError(
                 f"'{entry.name}' is a remote entry: a Device Server serves the devices "
                 "it builds itself. Put remote entries in the host's configuration."
@@ -1041,7 +1038,6 @@ def _refuse_unservable(entries: Iterable[Any], allow_remote: bool = False) -> No
 
 def configured_devices(
     source: Union[str, Mapping[str, Any]],
-    allow_remote: bool = False,
 ) -> Tuple[Dict[str, Device], List[Callable[[], None]]]:
     """The devices a configuration's ``hardware.devices`` lists, each built by its own
     driver with no microscope (``BuildContext.microscope`` is None), as a unit's PC
@@ -1052,14 +1048,13 @@ def configured_devices(
     microscope configuration, so entries copy across. An entry names its ``driver``,
     unless ``info.manufacturer`` names one for all of them. An entry that can't be
     built is left out with a warning, unless it is ``required: true``; one the
-    server can't serve is refused (`_refuse_unservable`), except a remote entry with
-    *allow_remote*, for the App Server's own devices. An ``fm`` entry is served
+    server can't serve is refused (`_refuse_unservable`). An ``fm`` entry is served
     as the FM's parts and group, which the host's remote FM mirrors. Roles are not
     bound: each device is served on its own.
     """
     settings = read_server_settings(source) if isinstance(source, str) else source
     configured = read_device_entries(settings)
-    _refuse_unservable(configured.values(), allow_remote=allow_remote)
+    _refuse_unservable(configured.values())
     manufacturer = (settings.get("info") or {}).get("manufacturer")
     resolved = resolve_device_entries([], configured, manufacturer)
     cleanups: List[Callable[[], None]] = []
@@ -1072,15 +1067,11 @@ def configured_devices(
     return built, cleanups
 
 
-def device_instrument(
-    source: Union[str, Mapping[str, Any]], allow_remote: bool = False
-) -> DeviceInstrument:
+def device_instrument(source: Union[str, Mapping[str, Any]]) -> DeviceInstrument:
     """The devices a Device Server file lists (a path, or its settings already
     read) as an instrument with no microscope, with every FM's light off: what
-    the App Server serves beside a microscope (`build_server(instruments=...)`),
-    or on its own once a devices configuration connects (`AppSession.connect`),
-    which builds remote entries too (*allow_remote*)."""
-    devices, cleanups = configured_devices(source, allow_remote=allow_remote)
+    the App Server serves beside a microscope (`build_server(instruments=...)`)."""
+    devices, cleanups = configured_devices(source)
     switch_off_fms(devices.values())
     return DeviceInstrument(devices, cleanups)
 
@@ -1198,9 +1189,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         code = auth.pairing.open()
         print(
             f"Pairing code: {code} (5 minutes, works once). On the other computer "
-            f"run: fibsem-cli pair-device <this computer's address>:{port} {code}",
-            # Now, not when the buffer fills: the output may be a log file.
-            flush=True,
+            f"run: fibsem-cli pair-device <this computer's address>:{port} {code}"
         )
     logging.info(f"serving {sorted(devices)} on http://{host}:{port}")
     try:

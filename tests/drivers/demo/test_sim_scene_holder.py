@@ -195,9 +195,6 @@ def _arctis(grid_position=GRID_POSITION, captured=None):
     microscope._connection.setup_sample_scene()
     scene = microscope._connection.sample_scene
     scene.fiducial = True
-    # the cross is found as the brightest pixels; the metal orientation
-    # square beside it would raise the median the threshold is taken from
-    scene.centre_mark = False
     scene.cell_type = "none"
     scene.contamination_density = 0.0
     scene.ice_density = 0.0

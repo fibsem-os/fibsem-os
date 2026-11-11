@@ -18,33 +18,7 @@ from fibsem.control import Control
 from fibsem.devices.core import Session
 from fibsem.devices.entries import disconnect_devices
 
-__all__ = ["DeviceInstrument", "Instrument", "configured_kind", "needs_microscope"]
-
-
-#: Why a connect is refused while something is connected.
-CONNECTED_MESSAGE = "An instrument is connected"
-
-
-def needs_microscope(connected: Optional["Instrument"]) -> str:
-    """Why something that needs a FIB/SEM microscope can't run, given what is
-    *connected* (None: nothing)."""
-    if connected is None:
-        return "No microscope is connected."
-    return (
-        "This needs a FIB/SEM microscope; only devices are connected "
-        f"({', '.join(sorted(connected.devices)) or 'none'})."
-    )
-
-
-#: A configuration's ``info.instrument`` when it names none: a FIB/SEM microscope.
-DEFAULT_KIND = "fibsem"
-
-
-def configured_kind(settings: Mapping[str, Any]) -> str:
-    """The kind of instrument a configuration connects: its ``info.instrument``
-    (``devices``: only the devices it lists, with no microscope), else ``fibsem``."""
-    info = settings.get("info") or {}
-    return str(info.get("instrument") or DEFAULT_KIND)
+__all__ = ["DeviceInstrument", "Instrument"]
 
 
 class _PerInstance:

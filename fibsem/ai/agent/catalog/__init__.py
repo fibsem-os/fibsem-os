@@ -37,7 +37,6 @@ from fibsem.ai.agent.catalog.spec import EVIDENCE_PARAM, GROUP_TITLES, ToolSpec
 __all__ = [
     "CATALOG",
     "EVIDENCE_PARAM",
-    "CRYO_FM",
     "FIBSEM",
     "INSTRUMENT_ENV",
     "GROUP_TITLES",
@@ -47,38 +46,26 @@ __all__ = [
     "tools_for_capabilities",
 ]
 
-# The instrument kind of the FIB/SEM's own tools (`ToolSpec.instruments`).
+# The instrument kind of the FIB/SEM's own tools (`ToolSpec.instrument`).
 FIBSEM = "fibsem"
-# A standalone cryo-FM: devices only, an FM and a sample stage.
-CRYO_FM = "cryo-fm"
-# The tools that reach a device's own parameter or command, not a FIB/SEM
-# service, so they work on a standalone FM's devices too.
-_FM_DEVICE_TOOLS = {"stage_get_position", "fm_save_focus_position"}
 # Where fibsem-agent tells the sidecar its playbook's instrument kind, so the
 # sidecar offers that kind's tools only.
 INSTRUMENT_ENV = "FIBSEM_AGENT_INSTRUMENT"
 
 
 def _of_kind(kind: str, tools: Tuple[ToolSpec, ...]) -> Tuple[ToolSpec, ...]:
-    return tuple(replace(t, instruments=_with_fm(t, kind)) for t in tools)
-
-
-def _with_fm(tool: ToolSpec, kind: str) -> Tuple[str, ...]:
-    """*kind*, and a standalone FM's for a tool on an FM device's own routes."""
-    return (kind, CRYO_FM) if tool.name in _FM_DEVICE_TOOLS else (kind,)
+    return tuple(replace(t, instrument=kind) for t in tools)
 
 
 def _microscope_tools() -> Tuple[ToolSpec, ...]:
     """The microscope group: the device and service tools reach any
-    instrument's; the stage, alignment and state tools are the FIB/SEM's, the
-    few on a device's own routes a standalone FM's too."""
-
-    def kinds(tool: ToolSpec) -> Tuple[str, ...]:
-        if tool.router != "microscope" or tool.name.startswith(("device_", "service_")):
-            return ()
-        return _with_fm(tool, FIBSEM)
-
-    return tuple(replace(t, instruments=kinds(t)) for t in microscope.TOOLS)
+    instrument's; the stage, alignment and state tools are the FIB/SEM's."""
+    return tuple(
+        replace(t, instrument=FIBSEM)
+        if t.router == "microscope" and not t.name.startswith(("device_", "service_"))
+        else t
+        for t in microscope.TOOLS
+    )
 
 
 CATALOG: Tuple[ToolSpec, ...] = (
@@ -185,7 +172,7 @@ def tools_for_capabilities(
         for t in CATALOG
         if routers.get(t.router, False)
         and (not t.part or parts is None or t.part in parts)
-        and (instrument is None or not t.instruments or instrument in t.instruments)
+        and (instrument is None or t.instrument in ("", instrument))
     )
 
 

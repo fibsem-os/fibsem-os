@@ -144,8 +144,8 @@
         ]
       },
       "cell_size": [
-        1.8e-06,
-        2.8e-06
+        4.5e-06,
+        1.2e-05
       ],
       "cell_type": "mammalian",
       "coincidence_offset": 1e-05,
@@ -161,7 +161,7 @@
       "grids_from_holder": false,
       "ice_density": 0.4,
       "mammalian_density": 7.0,
-      "n_clusters": 120,
+      "n_clusters": 35,
       "noise_fraction": 0.15,
       "noise_sigma": 12.0,
       "rip_fraction": 0.03,

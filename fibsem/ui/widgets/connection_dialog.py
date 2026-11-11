@@ -47,7 +47,7 @@ from fibsem.theme.tokens import (
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
-from fibsem.workflows.session import AppSession, devices_configuration
+from fibsem.workflows.session import AppSession
 
 DIALOG_WIDTH = 400
 
@@ -370,10 +370,6 @@ class ConnectionDialog(QDialog):
         if path is None:
             return "unknown", "unknown"
         try:
-            devices = devices_configuration(path)
-            if devices is not None:
-                names = [d.get("name", "?") for d in _listed_devices(devices)]
-                return "Devices only", ", ".join(names) or "no devices"
             settings = utils.load_microscope_configuration(path)
         except Exception as e:  # unreadable or malformed: say so rather than raise
             logging.warning(f"Could not read configuration at {path}: {e}")
@@ -412,14 +408,6 @@ class ConnectionDialog(QDialog):
             )
             self.details_subtitle.setToolTip(f"Serial number: {info.serial_number}")
             return
-        if self.session.instrument is not None:
-            self._set_details(
-                "Devices connected",
-                ", ".join(sorted(self.session.instrument.devices)),
-                "mdi:check-circle",
-                OK_COLOR,
-            )
-            return
 
         if self.configuration_path() is None:
             self._set_details(
@@ -445,7 +433,7 @@ class ConnectionDialog(QDialog):
         swapping to another configuration, and letting the instrument go -- not the
         same dialog worded as though nothing had happened yet.
         """
-        connected = self.session.instrument is not None
+        connected = self.microscope is not None
 
         self.disconnect_button.setVisible(connected)
         self.offline_button.setText("Close" if connected else "Not now")
@@ -474,7 +462,7 @@ class ConnectionDialog(QDialog):
 
     def disconnect_from_microscope(self) -> None:
         """Let the instrument go, and say so to whoever opened the dialog."""
-        if self.session.instrument is None:
+        if self.microscope is None:
             return
 
         if not self._confirm_losing_the_session("Disconnect from"):
@@ -505,12 +493,8 @@ class ConnectionDialog(QDialog):
         whatever is running -- so the question is the same one, worded for whichever
         button was pressed.
         """
-        if self.microscope is None:
-            names = ", ".join(sorted(self.session.instrument.devices))
-            text = f"{verb} the devices ({names})?"
-        else:
-            info = self.microscope.system.info
-            text = f"{verb} {info.manufacturer} at {info.ip_address}?"
+        info = self.microscope.system.info
+        text = f"{verb} {info.manufacturer} at {info.ip_address}?"
         return message_box_ui(title=f"{verb} microscope?", text=text, parent=self)
 
     def connect_to_microscope(self) -> None:
@@ -529,7 +513,7 @@ class ConnectionDialog(QDialog):
         # A reconnect is a disconnect and a connect. Leaving the old session open
         # would hold the instrument against the new one -- and losing it is worth
         # the same question as losing it deliberately.
-        if self.session.instrument is not None:
+        if self.microscope is not None:
             if not self._confirm_losing_the_session("Reconnect to"):
                 self._set_busy(False)
                 self._show_message("", is_error=False)
@@ -591,9 +575,3 @@ def connect_to_microscope_dialog(
     dialog = ConnectionDialog(parent=parent, session=session)
     dialog.exec_()
     return dialog.changed
-
-
-def _listed_devices(settings: dict) -> list:
-    """The device entries a configuration's ``hardware.devices`` lists."""
-    devices = (settings.get("hardware") or {}).get("devices") or []
-    return [d for d in devices if isinstance(d, dict)]

@@ -277,10 +277,6 @@ class DemoCoating(Coating):
 
     def _wait(self, seconds: float) -> None:
         sim_sleep(seconds)
-        gis = self.gis
-        if getattr(gis, "sim_opened", False):
-            # the time counts with the valve open, delay skipped or not
-            gis.sim_open_seconds += seconds
 
 
 def bind_demo_coating(microscope: DemoMicroscope) -> Optional[DemoCoating]:

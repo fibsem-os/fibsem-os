@@ -145,27 +145,6 @@ def test_the_stream_closes_when_the_agent_is_turned_off(port, auth):
     assert closed.value.rcvd.code == 1008
 
 
-def test_the_operators_stream_stays_open_when_the_agent_is_turned_off(
-    port, auth, microscope
-):
-    """The operator passes at any level, so a paired computer's remote microscope
-    keeps hearing changes while the agent is Off."""
-    auth.operator_token = "operator-token"
-    try:
-        with connect(
-            _url(port),
-            additional_headers={"Authorization": "Bearer operator-token"},
-            open_timeout=5,
-        ) as socket:
-            auth.set_level("off")
-            time.sleep(1.5)  # past the stream's next look at the level (each second)
-            beam = microscope.beams[BeamType.ELECTRON]
-            beam.hfw.set_value(beam.hfw.get_value() * 1.5)
-            assert socket.recv(timeout=5)
-    finally:
-        auth.operator_token = None
-
-
 def test_a_client_too_far_behind_is_closed(microscope):
     """Events wait for a client that isn't reading only up to the backlog."""
     import asyncio

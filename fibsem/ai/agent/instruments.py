@@ -7,9 +7,8 @@ intake steps and the re-read lines, as files beside the playbooks.
         reread.md     ## proposals, ## plan, ## level
 
 A playbook names its kind (``instrument:``); the shipped base playbook sets
-``fibsem``. The files are fibsemOS's own, or an installed plugin's for its own
-kind (`sources.plugin_roots`), never the lab's: they carry the safety wording.
-A plugin can't replace a shipped kind. A leading ``<!-- -->`` comment is a
+``fibsem``, the only kind for now. The files are fibsemOS's own, not the
+lab's: they carry the safety wording. A leading ``<!-- -->`` comment is a
 note for whoever edits the file, not part of the text. ``{name}`` fills in a
 value; a file that is missing, lacks a section or names a value nobody gives
 fails when the session starts (`load`).
@@ -56,34 +55,23 @@ class Texts:
     reread_level: str
 
 
-def _folders(checkout: Optional[Path]) -> Dict[str, Path]:
-    """Each instrument kind's folder: the checkout's, then each plugin's for a
-    kind the checkout doesn't ship."""
-    found: Dict[str, Path] = {}
-    relative = str(INSTRUMENT_DIR.relative_to(sources.CLAUDE))
-    for folder in sources.claude_dirs(checkout, relative):
-        if folder.is_dir():
-            for kind in folder.iterdir():
-                if (kind / "prompt.md").is_file():
-                    found.setdefault(kind.name, kind)
-    return found
-
-
 def kinds(checkout: Optional[Path]) -> List[str]:
-    """The instrument kinds the checkout ships and the plugins add, sorted."""
-    return sorted(_folders(checkout))
+    """The instrument kinds the checkout ships, sorted."""
+    folder = checkout / INSTRUMENT_DIR if checkout is not None else None
+    if folder is None or not folder.is_dir():
+        return []
+    return sorted(p.name for p in folder.iterdir() if (p / "prompt.md").is_file())
 
 
 def load(kind: Optional[str], checkout: Path) -> Texts:
     """Instrument *kind*'s words; an `InstrumentError` says what is wrong."""
     kind = kind or DEFAULT
-    folders = _folders(checkout)
-    if kind not in folders:
+    folder = checkout / INSTRUMENT_DIR / kind
+    if kind not in kinds(checkout):
         raise InstrumentError(
             f"No instrument kind {kind!r} in {checkout / INSTRUMENT_DIR} "
-            f"or a plugin (one of {', '.join(sorted(folders)) or 'none'})"
+            f"(one of {', '.join(kinds(checkout)) or 'none'})"
         )
-    folder = folders[kind]
     found: Dict[str, Dict[str, str]] = {}
     for name, sections in FILES.items():
         path = folder / name

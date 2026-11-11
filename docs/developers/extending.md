@@ -85,9 +85,9 @@ the full contract; `examples/scripts/` contains three working examples.
 
 ## Plugins
 
-fibsemOS loads seven entry-point groups: `fibsem.milling.patterns`,
+fibsemOS loads six entry-point groups: `fibsem.milling.patterns`,
 `fibsem.milling.strategies`, `fibsem.milling.monitors`, `fibsem.autolamella.tasks`,
-`fibsem.grid.tasks`, `fibsem.drivers` and `fibsem.agent`. A plugin is a Python package that
+`fibsem.grid.tasks` and `fibsem.drivers`. A plugin is a Python package that
 declares one or more of these in its `pyproject.toml` and is installed into
 the same environment as fibsemOS. No registration calls or files in the
 fibsem tree are needed; the application discovers it on the next start.
@@ -128,13 +128,6 @@ Each group contributes one kind of object:
   application, as [Devices on another computer](devices.md#devices-on-another-computer)
   describes (the fake scanner in
   [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example) does it end to end).
-- **The agent's words for an instrument** (`fibsem.agent`): a path, or a
-  function returning one, to a folder holding `.claude/` laid out as the
-  repository's: an instrument kind in `.claude/fibsem-agent/instruments/<kind>/`
-  (`prompt.md`, `intake.md`, `reread.md`), its playbooks in
-  `.claude/fibsem-agent/playbooks/` and their skills in `.claude/skills/`. The
-  agent finds them after what fibsemOS ships, so a plugin adds an instrument
-  kind for a lab's own instrument but never replaces a shipped one.
 
 When a built-in, a runtime registration and a plugin claim the same name, the
 built-in is used, then the runtime registration, then the plugin.

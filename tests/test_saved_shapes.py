@@ -42,7 +42,6 @@ from fibsem.fm.structures import (
     ZParameters,
     ZStackOrder,
 )
-from fibsem.instrument import configured_kind
 from fibsem.structures import system as structures
 from fibsem.structures.image import FibsemImageMetadata
 from fibsem.structures.settings import (
@@ -203,8 +202,6 @@ CONFIGURATION_FILES = {
         ("v1", FIXTURES / "configuration_v1"),
     )
     for path in sorted(root.glob("*.yaml"))
-    # A devices-only configuration is no microscope's settings.
-    if configured_kind(yaml.safe_load(path.read_text()) or {}) == "fibsem"
 }
 
 

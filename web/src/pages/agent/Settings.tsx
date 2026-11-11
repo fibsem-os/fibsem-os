@@ -12,9 +12,7 @@ export interface LibraryOptions {
   levels: string[];
   modes: string[];
   efforts: string[];
-  /** Each hook; *instrument* is the kind whose tools it fires on ("" for any), and
-   *  *by_playbook* one for an app's workflow, off until a playbook's `hooks` names it. */
-  reminders: { when: string; label: string; instrument: string; by_playbook: boolean }[];
+  reminders: { when: string; label: string }[];
   skills: string[];
   playbooks: string[];
   agents: string[];
@@ -97,23 +95,13 @@ function Remove({ onClick }: { onClick: () => void }) {
 function Reminders({
   value,
   options,
-  instrument,
-  hooks,
   onChange,
 }: {
   value: Reminder[];
   options: LibraryOptions;
-  /** The playbook's instrument kind and the app hooks it switches on: only those are offered. */
-  instrument: string;
-  hooks: string[];
   onChange: (value: Reminder[]) => void;
 }) {
   const set = (i: number, r: Partial<Reminder>) => onChange(value.map((v, j) => (j === i ? { ...v, ...r } : v)));
-  const fits = options.reminders.filter(
-    (o) => (!o.instrument || o.instrument === instrument) && (!o.by_playbook || hooks.includes(o.when)),
-  );
-  // A row keeps its own point, so a reminder that doesn't fit still shows.
-  const offered = (when: string) => options.reminders.filter((o) => fits.includes(o) || o.when === when);
   return (
     <div className="flex flex-col gap-2">
       {value.map((r, i) => (
@@ -121,7 +109,7 @@ function Reminders({
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <Choice
               value={r.when}
-              options={offered(r.when).map((o) => o.when)}
+              options={options.reminders.map((o) => o.when)}
               labels={Object.fromEntries(options.reminders.map((o) => [o.when, o.label]))}
               onChange={(when) => set(i, { when })}
             />
@@ -131,7 +119,7 @@ function Reminders({
         </div>
       ))}
       <div>
-        <Add label="Add reminder" onClick={() => onChange([...value, { when: fits[0].when, say: "" }])} />
+        <Add label="Add reminder" onClick={() => onChange([...value, { when: options.reminders[0].when, say: "" }])} />
       </div>
     </div>
   );
@@ -201,27 +189,14 @@ const TIMERS: [string, string][] = [
 
 type Inherited = Record<string, { value: string | number; source: string }>;
 
-function usePlaybook(name: string) {
-  return useQuery({
-    queryKey: ["library", "playbooks", name],
-    queryFn: () =>
-      api<{ session?: Inherited | null; instrument?: string | null; hooks?: string[] | null }>(
-        `/app/library/playbooks/${encodeURIComponent(name)}`,
-      ),
-    enabled: !!name,
-  });
-}
-
 /** The session settings of the playbook *base*, with where each comes from. */
 function useInherited(base: string): Inherited {
-  const parent = usePlaybook(base);
+  const parent = useQuery({
+    queryKey: ["library", "playbooks", base],
+    queryFn: () => api<{ session?: Inherited | null }>(`/app/library/playbooks/${encodeURIComponent(base)}`),
+    enabled: !!base,
+  });
   return (base && parent.data?.session) || {};
-}
-
-/** The instrument kind of the playbook *base* ("" if none), and the app hooks it switches on. */
-function useKind(base: string): { instrument: string; hooks: string[] } {
-  const parent = usePlaybook(base);
-  return { instrument: (base && parent.data?.instrument) || "", hooks: (base && parent.data?.hooks) || [] };
 }
 
 /** Where an empty setting's value comes from, beside it. */
@@ -376,12 +351,6 @@ export function PlaybookSettings({
   const session = (data.session && typeof data.session === "object" ? data.session : {}) as Data;
   // What a session started on it runs with, its own settings and those it builds on.
   const resolved = useInherited(name);
-  // Its instrument kind: its own, else what it builds on, else as saved; and the
-  // app hooks it and what it builds on switch on.
-  const parent = useKind(text(data.extends));
-  const saved = useKind(name);
-  const instrument = text(data.instrument) || parent.instrument || saved.instrument;
-  const hooks = [...strings(data.hooks), ...parent.hooks];
   if (!onChange || !options) {
     const values = Object.fromEntries(Object.entries(resolved).map(([k, v]) => [k, v.value]));
     const elsewhere = [...new Set(Object.values(resolved).map((v) => v.source))].filter((n) => n !== name);
@@ -516,7 +485,7 @@ export function PlaybookSettings({
         </div>
       </Row>
       <Row form label="Reminders">
-        <Reminders value={reminders} options={options} instrument={instrument} hooks={hooks} onChange={(v) => set("reminders", asMapping(v))} />
+        <Reminders value={reminders} options={options} onChange={(v) => set("reminders", asMapping(v))} />
       </Row>
       <Row form label="Rules">
         <TextList value={rules} add="Add rule" onChange={(v) => set("rules", v)} />
