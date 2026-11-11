@@ -195,3 +195,17 @@ def test_a_remote_fm_connects_with_no_microscope(fm_pc, tmp_path):
         assert built["light_source"].power.get_value() == pytest.approx(0.3)
     finally:
         session.disconnect()
+
+
+def test_the_shipped_cryo_fm_configuration_lists_a_remote_fm():
+    import os
+
+    from fibsem.server.devices import read_server_settings
+    from fibsem.structures.system import read_device_entries
+
+    settings = read_server_settings(
+        os.path.join(cfg.SHIPPED_CONFIG_PATH, "cryo-fm-remote-configuration.yaml")
+    )
+    assert configured_kind(settings) == "devices"
+    entries = read_device_entries(settings)
+    assert entries["fm"].driver == "remote"
