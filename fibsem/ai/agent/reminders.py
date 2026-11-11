@@ -1,7 +1,8 @@
 """Reminders: what is said to the agent at the moment it makes a matching
 tool call, so it doesn't rely on remembering a skill. A playbook lists its own
 (``reminders: {when: say}``); ``HOOK_OPTIONS`` is the one list of when a
-reminder can fire: which tools, before or after the call.
+reminder can fire: which tools, before or after the call. An option on one
+instrument kind's tools is for playbooks of that kind only (`fits`).
 
     fibsem-agent --list-hooks
 """
@@ -27,6 +28,12 @@ class HookOption:
     input_matches: Tuple[Tuple[str, str], ...] = ()
     # For event WATCHER: a pattern on the watcher's lines, said with that turn.
     line: str = ""
+    # The instrument kind whose tools it fires on, or "" for any kind.
+    instrument: str = ""
+
+    def fits(self, kind: Optional[str]) -> bool:
+        """Whether a playbook of instrument *kind* can use it."""
+        return not self.instrument or self.instrument == kind
 
     def on_lines(self, lines: List[str]) -> bool:
         return bool(self.line) and any(re.search(self.line, x) for x in lines)
@@ -52,17 +59,24 @@ class HookOption:
 # An option said with a turn of watcher lines, not by an SDK hook on a call.
 WATCHER = "Watcher"
 
+# The FIB-SEM's kind, for the options on its tools (milling, beams, alignment)
+# and AutoLamella's tasks.
+FIBSEM = "fibsem"
+
 HOOK_OPTIONS: Dict[str, HookOption] = {
     "site": HookOption(
         "At a site",
         "PreToolUse",
         "item_add|item_set_position|item_set_pose|item_move_to_pose",
     ),
-    "before_milling": HookOption("Before milling", "PreToolUse", "milling_run_.*"),
+    "before_milling": HookOption(
+        "Before milling", "PreToolUse", "milling_run_.*", instrument=FIBSEM
+    ),
     "after_auto": HookOption(
         "After an auto step",
         "PostToolUse",
         "beam_auto_.*|fm_auto_focus|alignment_.*",
+        instrument=FIBSEM,
     ),
     # An Iterative Polishing pass has ended: only its facts carry "Pass data".
     "after_polish_pass": HookOption(
@@ -70,6 +84,7 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PostToolUse",
         "service_wait_for_run",
         answer_has="Pass data",
+        instrument=FIBSEM,
     ),
     # Deciding or suggesting one of Setup's proposals: its position, point of
     # interest or alignment area. By the task's name in the protocol.
@@ -78,6 +93,7 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PreToolUse",
         "proposal_decide|proposal_suggest",
         input_matches=(("task_name", r"setup|select.*position"),),
+        instrument=FIBSEM,
     ),
     # Deciding or suggesting a pass of the Polishing task's mill.
     "polishing_pass": HookOption(
@@ -85,6 +101,7 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PreToolUse",
         "proposal_decide|proposal_suggest",
         input_matches=(("task_name", r"polish"),),
+        instrument=FIBSEM,
     ),
     # A task finished: the watcher's line, not a tool call.
     "after_task": HookOption(
@@ -164,6 +181,7 @@ def hook_rows() -> List[dict]:
                 "label": option.label,
                 "fires": timing,
                 "tools": option.tools or option.line,
+                "instrument": option.instrument or "any",
             }
         )
     return rows

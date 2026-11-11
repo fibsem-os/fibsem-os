@@ -172,9 +172,23 @@ def test_names_are_checked(client):
 def test_the_forms_choices(client):
     options = client.get("/app/library/options").json()
     assert options["levels"] == ["watch", "assist", "drive"]
-    assert {"when": "before_milling", "label": "Before milling"} in options["reminders"]
+    # Each reminder point with the instrument kind whose tools it fires on.
+    assert {
+        "when": "before_milling",
+        "label": "Before milling",
+        "instrument": "fibsem",
+    } in options["reminders"]
+    assert {
+        "when": "hardware_error",
+        "label": "On a hardware error",
+        "instrument": "",
+    } in options["reminders"]
     assert "autolamella-lead" in options["skills"]
     assert "autolamella" in options["playbooks"]
+    # A playbook's instrument kind, from what it extends: the form offers its reminders.
+    assert client.get("/app/library/playbooks/autolamella").json()["instrument"] == (
+        "fibsem"
+    )
 
 
 def test_a_form_saves_settings_and_keeps_what_it_doesnt_show(client):

@@ -263,7 +263,22 @@ def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
                 f"{playbook.path}: no instrument kind {playbook.instrument!r} "
                 f"(one of {', '.join(kinds) or 'none'})"
             )
+    _check_reminders(playbook)
     return playbook
+
+
+def _check_reminders(playbook: Playbook) -> None:
+    """Refuse a reminder on another instrument kind's tools: it would never fire."""
+    kind = playbook.instrument or instruments.DEFAULT
+    hooks = playbook.hooks + [h for o in playbook.optional for h in o.hooks]
+    wrong = sorted(
+        {h.when for h in hooks if not reminders.HOOK_OPTIONS[h.when].fits(kind)}
+    )
+    if wrong:
+        raise PlaybookError(
+            f"{playbook.path}: reminder {', '.join(wrong)} is for another instrument "
+            f"kind's tools, not {kind}'s"
+        )
 
 
 def shipped_base(checkout: Optional[Path]) -> Optional[Playbook]:

@@ -2151,7 +2151,8 @@ def _print(data, as_json: bool, as_text) -> int:
 
 def _hook_text(rows: List[dict]) -> str:
     return "\n".join(
-        f"{row['when']:<16}{row['label']}, {row['fires']}: {row['tools']}"
+        f"{row['when']:<18}{row['label']}, {row['fires']}: {row['tools']}"
+        f" ({row['instrument']} instrument)"
         for row in rows
     )
 

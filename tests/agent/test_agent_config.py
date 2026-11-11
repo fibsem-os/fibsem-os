@@ -213,3 +213,31 @@ def test_the_base_skills_go_only_to_playbooks_of_its_instrument_kind(tmp_path, l
     fib = playbooks.load("fib-work", root)
     assert fib.instrument == "fibsem"
     assert fib.skills == ["fibsem-agent", "fibsem-microscope", "fibsem-experiment"]
+
+
+def test_a_reminder_on_another_kinds_tools_is_refused(tmp_path, lab):
+    # A hypothetical standalone cryo-FM's playbook: a reminder on any kind's
+    # tools loads; one on the FIB-SEM's milling tools would never fire.
+    root = tmp_path / "checkout"
+    shipped = root / ".claude" / "fibsem-agent"
+    (shipped / "playbooks").mkdir(parents=True)
+    (shipped / "playbooks" / "fibsem-agent.yaml").write_text("instrument: fibsem\n")
+    for kind in ("fibsem", "cryo-fm"):
+        (shipped / "instruments" / kind).mkdir(parents=True)
+        (shipped / "instruments" / kind / "prompt.md").write_text("words")
+    (lab / "cryo-fm.yaml").write_text(
+        "instrument: cryo-fm\nreminders: {hardware_error: Stop.}\n"
+    )
+    assert [h.when for h in playbooks.load("cryo-fm", root).hooks] == ["hardware_error"]
+
+    (lab / "cryo-fm-mill.yaml").write_text(
+        "extends: cryo-fm\nreminders: {before_milling: Check the patterns.}\n"
+    )
+    with pytest.raises(playbooks.PlaybookError, match="before_milling"):
+        playbooks.load("cryo-fm-mill", root)
+
+    # The same reminder on a FIB-SEM playbook loads as before.
+    (lab / "fib-mill.yaml").write_text("reminders: {before_milling: Check.}\n")
+    assert [h.when for h in playbooks.load("fib-mill", root).hooks] == [
+        "before_milling"
+    ]

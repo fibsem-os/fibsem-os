@@ -29,6 +29,8 @@ export interface LibraryFile {
   data: Data | null;
   /** A playbook's session settings with what it extends, and where each comes from. */
   session?: Record<string, { value: string | number; source: string }> | null;
+  /** A playbook's instrument kind, its own or what it extends. */
+  instrument?: string | null;
 }
 
 /** What a save sends: the form's settings, or the file's text. */
