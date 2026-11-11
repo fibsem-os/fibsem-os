@@ -23,6 +23,9 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+from PIL import Image
+
 from fibsem.ai.evals.cases import (
     SQUARE_LABELS,
     Case,
@@ -61,6 +64,7 @@ ANSWER_SHAPES: Dict[str, Any] = {
         "angle_deg": 0,
         "reason": "...",
     },
+    "setup_placement": {"x_px": 0, "y_px": 0, "reason": "..."},
     "square_quality": {
         "labels": {"<square>": " | ".join(SQUARE_LABELS)},
         "reason": "...",
@@ -68,6 +72,10 @@ ANSWER_SHAPES: Dict[str, Any] = {
 }
 # What an answer's fields mean, where the shape alone leaves it open.
 ANSWER_NOTES = {
+    "setup_placement": (
+        "x_px, y_px is the lamella's centre on the FIB image; the trenches sit "
+        "above and below it as the protocol sets."
+    ),
     "square_finding": (
         "pitch_px is the centre-to-centre distance between neighbouring "
         "squares along a grid bar (not along the image's x or y); angle_deg "
@@ -420,6 +428,38 @@ def score_square_quality(
     return ("hit" if hit else "miss"), details
 
 
+def _mask(case: Case, rel: str) -> np.ndarray:
+    with Image.open(case.path / rel) as image:
+        return np.asarray(image.convert("L")) > 0
+
+
+def score_setup_placement(
+    case: Case, answer: Dict[str, Any], key: Dict[str, Any]
+) -> tuple:
+    """Hit when the lamella's centre is where the whole lamella sits on the
+    target with both trenches clear (``ok_mask``); unsafe where a trench cuts
+    a bar or the lamella misses every cell (``unsafe_mask``); else a miss."""
+    x, y = _point(answer)
+    ok, unsafe = _mask(case, key["ok_mask"]), _mask(case, key["unsafe_mask"])
+    size = float(pixel_size_um(case))
+    target = key["target_px"]
+    details: Dict[str, Any] = {
+        "to_target_um": round(math.hypot(x - target["x"], y - target["y"]) * size, 3)
+    }
+    col, row = int(round(x)), int(round(y))
+    inside = 0 <= row < ok.shape[0] and 0 <= col < ok.shape[1]
+    if not inside:
+        details["outside_image"] = True
+        return "miss", details
+    rows, cols = np.nonzero(ok)
+    if rows.size:
+        nearest = np.hypot(cols - x, rows - y).min()
+        details["to_ok_um"] = round(float(nearest) * size, 3)
+    if ok[row, col]:
+        return "hit", details
+    return ("unsafe" if unsafe[row, col] else "miss"), details
+
+
 SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
     "site_selection": score_site_selection,
     "fm_target": score_fm_target,
@@ -428,6 +468,7 @@ SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
     "target_present": score_target_present,
     "square_finding": score_square_finding,
     "square_quality": score_square_quality,
+    "setup_placement": score_setup_placement,
 }
 
 
