@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 from fibsem.ai.evals import report as report_mod
+from fibsem.ai.evals import trace as trace_mod
 from fibsem.ai.evals import visual
 from fibsem.ai.evals.cases import check_case, find_cases, load_case
 from fibsem.ai.evals.runner import RunConfig, RunnerError, run_cases
@@ -87,6 +88,14 @@ def _parser() -> argparse.ArgumentParser:
     )
     compare.add_argument("outs", type=Path, nargs="+")
     compare.add_argument("--cases", type=Path, default=None)
+    trace = sub.add_parser(
+        "trace",
+        help="what the agent did in each repeat: skills read, images, tools, "
+        "its words and answer",
+    )
+    trace.add_argument("out", type=Path)
+    trace.add_argument("--only", default=None, help="cases whose id contains this")
+    trace.add_argument("--write", type=Path, default=None, help="a markdown file")
     return parser
 
 
@@ -112,6 +121,15 @@ def main(argv=None) -> int:
 
     if args.command == "compare":
         print(visual.compare_table(args.outs, args.cases))
+        return 0
+
+    if args.command == "trace":
+        text = trace_mod.trace_markdown(args.out, args.only)
+        if args.write:
+            args.write.write_text(text, encoding="utf-8")
+            print(f"Wrote {args.write}")
+        else:
+            print(text)
         return 0
 
     if args.command == "report":

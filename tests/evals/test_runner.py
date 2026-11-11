@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from fibsem.ai.evals import report
+from fibsem.ai.evals import report, visual
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import load_case
 from fibsem.ai.evals.runner import (
@@ -243,3 +243,25 @@ def test_a_stopped_parallel_run_starts_no_more(case, tmp_path, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         run_cases([case], config(tmp_path, repeats=8, jobs=2))
     assert len(started) < 8
+
+
+def test_a_run_records_what_it_ran_with(home, case, tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    result = run_case(case, 1, config(tmp_path, timeout_s=20))
+    version = result["version"]
+    assert version["fibsem"] and len(version["skills"]) == 12
+    out = tmp_path / "out"
+    assert "Ran with:" in visual.compare_table([out])
+    assert "(MIXED)" not in visual.compare_table([out])
+
+
+def test_running_a_folder_again_keeps_finished_runs(home, case, tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    first = run_cases([case], config(tmp_path, timeout_s=20, repeats=2))
+    assert len(first) == 2
+    stopped = tmp_path / "out" / "polish" / "r2"
+    (stopped / "result.json").unlink()  # as if stopped part way
+    again = run_cases([case], config(tmp_path, timeout_s=20, repeats=2))
+    assert [r["repeat"] for r in again] == [2]
+    assert (tmp_path / "out" / "polish" / "r2.stopped" / "work").is_dir()
+    assert len(report.load_results(tmp_path / "out")) == 2

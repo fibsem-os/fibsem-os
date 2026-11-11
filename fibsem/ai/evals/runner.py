@@ -7,11 +7,14 @@ Watch with the case's task as its goal. The run ends when the agent writes
 ``answer.json``, stops, or runs out of time; the answer is then scored and the
 session's usage kept beside it.
 
-The App Server is one per PC, so the runner refuses to start while another is
-serving. Nothing here moves a microscope: the Demo microscope is the only one
+Each run's App Server has its own port and discovery file, so runs go
+beside one another and beside the operator's own. A run that already has its
+result is kept when the same folder is run again; one that stopped part way
+is moved aside and run again. Nothing here moves a microscope: the Demo microscope is the only one
 it connects, and Watch is the level.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -28,8 +31,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import yaml
 
-from fibsem import paths
-from fibsem.ai.agent import manager
+from fibsem import __version__, paths
+from fibsem.ai.agent import manager, mirror, sources
 from fibsem.ai.evals.cases import Case, input_paths
 from fibsem.ai.evals.scoring import ANSWER_SHAPES, score_case
 from fibsem.server import discovery
@@ -41,7 +44,7 @@ TASK = "task.md"
 RESULT = "result.json"
 INPUTS = "experiment"
 # The session files kept with each run.
-SESSION_FILES = (manager.RECORD, manager.LOG, "usage.jsonl")
+SESSION_FILES = (manager.RECORD, manager.LOG, "usage.jsonl", mirror.FILE)
 POLL_S = 2.0
 STOP_WAIT_S = 60.0
 
@@ -304,6 +307,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         result["session_id"] = session_id
         result["model"] = config.model or "default"
         result["code"] = config.code
+        result["version"] = code_version(home / "knowledge")
         with open(folder / "agent.log", "w") as agent_log:
             # The agent finds its own run's server, not this PC's.
             agent_env = {**env, discovery.DISCOVERY_FILE_ENV: str(found_at)}
@@ -349,6 +353,8 @@ def _collect_session(session: Path, into: Path) -> Dict[str, Any]:
     for name in SESSION_FILES:
         if (session / name).is_file():
             shutil.copy2(session / name, into / name)
+    if (session / mirror.FOLDER).is_dir():
+        shutil.copytree(session / mirror.FOLDER, into / mirror.FOLDER)
     runs = manager.read_json(session / manager.RECORD).get("runs") or [{}]
     last = runs[-1]
     return {
@@ -370,7 +376,11 @@ def run_cases(
         if case.status != "keyed":
             log.info("Skipping %s: %s", case.id, case.status)
             continue
-        runs += [(case, repeat) for repeat in range(1, config.repeats + 1)]
+        for repeat in range(1, config.repeats + 1):
+            if _kept(run_dir(config, case, repeat)):
+                log.info("Keeping %s r%d: it has its result", case.id, repeat)
+            else:
+                runs.append((case, repeat))
     results = []
 
     def done(result):
@@ -391,6 +401,63 @@ def run_cases(
         # A Ctrl-C (or a failed run) starts no more runs; those running end.
         pool.shutdown(wait=True, cancel_futures=True)
     return results
+
+
+def _kept(folder: Path) -> bool:
+    """Whether the run in *folder* finished; one that stopped part way is
+    moved aside (``r1.stopped``, ``r1.stopped-2``, ...) to run again."""
+    if (folder / RESULT).is_file():
+        return True
+    if folder.exists():
+        aside, n = folder.with_name(folder.name + ".stopped"), 1
+        while aside.exists():
+            n += 1
+            aside = folder.with_name(f"{folder.name}.stopped-{n}")
+        folder.rename(aside)
+    return False
+
+
+def _digest(root: Path) -> Optional[str]:
+    """A short hash of every file under *root*, None when it is missing."""
+    if not root.is_dir():
+        return None
+    sha = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        sha.update(path.relative_to(root).as_posix().encode())
+        sha.update(path.read_bytes())
+    return sha.hexdigest()[:12]
+
+
+def code_version(knowledge: Path) -> Dict[str, Any]:
+    """What a run's agent ran with: the fibsem version, the checkout's
+    commit and the files changed since it, and a hash of the skills and
+    agents and of the knowledge, so two runs show whether they differ."""
+    root = sources.find_root()
+    found: Dict[str, Any] = {"fibsem": __version__}
+    if root is None:
+        return found
+    claude = root / sources.CLAUDE
+    found["skills"] = _digest(claude)
+    found["knowledge"] = _digest(knowledge)
+
+    def git(*args) -> Optional[str]:
+        try:
+            done = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    commit = git("rev-parse", "--short", "HEAD")
+    if commit:
+        found["commit"] = commit
+        changed = git("status", "--porcelain", "--", sources.CLAUDE, "fibsem")
+        found["changed"] = [line[3:] for line in (changed or "").splitlines()]
+    return found
 
 
 def _free_port() -> int:
