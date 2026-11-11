@@ -69,6 +69,13 @@ VARIED = {
     "ice_density": (0.2, 0.8),
     "frost_density": (0.1, 0.6),
     "crack_density": (0.2, 1.0),
+    "rpe_island_density": (2.0, 4.0),
+}
+# Set for every seed: RPE as single cells and small groups of a few, not
+# the simulator's wide sheets.
+FIXED = {
+    "rpe_island_radius": [12e-6, 35e-6],
+    "rpe_occupancy": 0.6,
 }
 
 BRIEFS = {
@@ -129,6 +136,7 @@ def scene_options(
             options[name] = str(rng.choice(values))
         else:
             options[name] = round(float(rng.uniform(*values)), 3)
+    options.update(FIXED)
     options["extent"] = 2 * math.hypot(hfw / 2, hfw / 2) + 200e-6
     options.update(overrides or {})
     options["seed"] = int(seed)
