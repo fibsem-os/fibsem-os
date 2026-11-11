@@ -253,6 +253,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         "case": case.id,
         "repeat": repeat,
         "task": case.task,
+        "tier": case.tier,
         "case_path": str(case.path.resolve()),
     }
     server_log = open(folder / "server.log", "w")

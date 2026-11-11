@@ -1,5 +1,5 @@
 """``python -m fibsem.ai.evals``: check cases, score one answer, run the agent
-on cases and report the results."""
+on cases and report the results, and make cases from the simulator."""
 
 import argparse
 import json
@@ -7,6 +7,8 @@ import os
 import shlex
 import sys
 from pathlib import Path
+
+import yaml
 
 from fibsem.ai.evals import report as report_mod
 from fibsem.ai.evals import visual
@@ -34,6 +36,12 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--only", default=None, help="only cases whose path holds this text"
     )
+    run.add_argument(
+        "--tier",
+        choices=("real", "sim", "all"),
+        default="all",
+        help="only real cases, or only sim cases (default: both, scored apart)",
+    )
     run.add_argument("--playbook", default=None)
     run.add_argument("--model", default=None)
     run.add_argument("--effort", default=None)
@@ -59,6 +67,19 @@ def _parser() -> argparse.ArgumentParser:
         "--agent",
         default=None,
         help="the command run in place of fibsem-agent, as one string",
+    )
+    make_sim = sub.add_parser(
+        "make-sim",
+        help="make grid cases (squares, labels, sites) from the simulator, one per seed",
+    )
+    make_sim.add_argument("--out", type=Path, required=True, help="the cases folder")
+    make_sim.add_argument("--seeds", type=int, nargs="+", required=True)
+    make_sim.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="a scene option for every seed, such as crack_density=0.5",
     )
     report = sub.add_parser("report", help="the results of a run folder, as a table")
     report.add_argument("out", type=Path)
@@ -96,6 +117,18 @@ def main(argv=None) -> int:
             print(json.dumps(s.to_dict()))
         return 0
 
+    if args.command == "make-sim":
+        from fibsem.ai.evals import sim_cases
+
+        overrides = {}
+        for item in args.set:
+            name, _, value = item.partition("=")
+            overrides[name.strip()] = yaml.safe_load(value)
+        for seed in args.seeds:
+            for folder in sim_cases.write_cases(seed, args.out, overrides):
+                print(f"Wrote {folder}")
+        return 0
+
     if args.command == "report":
         print(report_mod.table(report_mod.summarise(report_mod.load_results(args.out))))
         if args.html:
@@ -105,7 +138,8 @@ def main(argv=None) -> int:
     cases = [
         c
         for c in find_cases(args.root)
-        if args.only is None or args.only in c.path.as_posix()
+        if (args.only is None or args.only in c.path.as_posix())
+        and args.tier in ("all", c.tier)
     ]
     broken = [c for c in cases if not check_case(c).ok]
     if broken:

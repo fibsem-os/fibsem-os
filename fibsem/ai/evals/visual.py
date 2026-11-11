@@ -589,6 +589,7 @@ def _reason(answer: Optional[Dict[str, Any]]) -> str:
 
 def _table_html(rows: List[Dict[str, Any]]) -> str:
     head = (
+        "Tier",
         "Task",
         "Headline",
         "Runs",
@@ -603,6 +604,7 @@ def _table_html(rows: List[Dict[str, Any]]) -> str:
     for row in rows:
         name = row["task"] + (f" ({row['part']})" if row["part"] else "")
         cells = (
+            row.get("tier", "real"),
             name,
             "yes" if row["headline"] else "no",
             row["runs"],
