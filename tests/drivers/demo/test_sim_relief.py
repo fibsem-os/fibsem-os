@@ -398,6 +398,9 @@ def test_each_channel_can_carry_a_label(setting, channel):
             for t in scene.fm_spots:
                 if t["cilium"]:
                     t["cilium"] = [(x - mx, y - my, z) for x, y, z in t["cilium"]]
+                    t["cilium_path"] = [
+                        (x - mx, y - my, z) for x, y, z in t["cilium_path"]
+                    ]
             scene.anchor(pose)
             image = scene.render_fm(
                 pose,

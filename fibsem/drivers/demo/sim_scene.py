@@ -101,7 +101,7 @@ REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6, 0.0)
 # intensity scale the stamper uses
 FM_INTENSITY = 90.0
 FM_PSF_SIGMA = 0.13e-6  # m; an in-focus point source
-CILIUM_SIGMA = 0.15e-6  # m; a ~250 nm wide cilium, in focus
+CILIUM_SIGMA = 0.09e-6  # m; a ~250 nm wide cilium, under the PSF
 # a source spread dimmer than this (canvas scale; the camera's noise is ~0.3)
 # is not drawn: far from focus it would cover the frame for nothing
 FM_FAINT = 0.05
@@ -1024,14 +1024,23 @@ class SampleScene:
             length = float(rng.uniform(2e-6, 5e-6))
             azimuth = rng.uniform(0, 2 * np.pi)
             rise = rng.uniform(0.0, np.deg2rad(80))  # some lie almost flat
-            base = pair[0]
-            tip = (
-                base[0] + length * np.cos(rise) * np.cos(azimuth),
-                base[1] + length * np.cos(rise) * np.sin(azimuth),
-                base[2] + length * np.sin(rise),
+            # it bends as it goes: a smoothly varying curvature, so it
+            # sweeps round over a micron or two rather than jittering
+            steps = max(int(length / 0.1e-6), 2)
+            bend = ndi_gaussian(rng.normal(0, 1, steps + 16), 6)[8:-8]
+            bend = 0.08 * bend / (bend.std() + 1e-9) + rng.normal(0, 0.03)
+            turn_ = azimuth + np.cumsum(bend)
+            lift = np.clip(rise + np.cumsum(rng.normal(0, 0.03, steps)), -0.2, 1.4)
+            step = 0.1e-6 * np.column_stack(
+                [
+                    np.cos(lift) * np.cos(turn_),
+                    np.cos(lift) * np.sin(turn_),
+                    np.sin(lift),
+                ]
             )
+            path = np.vstack([pair[0], np.array(pair[0]) + np.cumsum(step, axis=0)])
             cilium = (
-                [tuple(float(v) for v in base), tuple(float(v) for v in tip)]
+                [tuple(float(v) for v in path[0]), tuple(float(v) for v in path[-1])]
                 if grows
                 else None
             )
@@ -1039,6 +1048,7 @@ class SampleScene:
                 {
                     "cell_id": int(f.cell_id),
                     "cilium": cilium,
+                    "cilium_path": path.tolist() if grows else None,
                     "pool": (float(px), float(py), z, pool_sigma),
                     "pair": [tuple(float(v) for v in p) for p in pair],
                     "midpoint": (float(mx), float(my), z),
@@ -2569,8 +2579,10 @@ class SampleScene:
                 # a centrin-GFP cell is only faint in green outside its
                 # centrosome; with droplets labelled, faint autofluorescence
                 glow = {"cytoplasm": 1.0, "centrin": 0.3}.get(self.fm_green, 0.15)
+                # the cilia label also sits faintly over the whole cell
+                red_glow = 0.2 if self.fm_red == "cilia" else 0.0
                 body_dye = glow * cells + (
-                    red if self._in_red_subset(f.cell_id) else 0.0
+                    red if self._in_red_subset(f.cell_id) else red_glow * red
                 )
                 if f.part == "nucleus":
                     weight = FM_INTENSITY * (fiducial * 1.0 + body_dye * 0.5)
@@ -2592,6 +2604,11 @@ class SampleScene:
         # milled regions after the features: a trench or a burn removes the
         # material, so in reflection it reads dark through whatever cell was
         # there, and a burn's rim stays visible on top of it
+        if self.milled:
+            # a cell is a column of dye a few um tall: a cut along the
+            # milling beam takes away the part of each column it passes
+            # through, so from above a trench reaches as far as the SEM sees
+            canvas *= 1.0 - self.milled_fraction(xs_world, ys_world)
         if bars > 0 and self.milled:
             canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
@@ -2621,12 +2638,17 @@ class SampleScene:
             for i in in_view
             if self.features[i].kind == "cell" and self.features[i].part == "body"
         ]
+        if red > 0 and self.fm_red == "cilia":
+            # and in vesicles: bright puncta through the cells, the decoys
+            self._stamp_organelles(canvas, red, "puncta", bodies, defocus, view)
         if cells > 0 and self.fm_green == "lipid_droplets":
             self._stamp_organelles(canvas, cells, "droplets", bodies, defocus, view)
         if far_red > 0 and self.fm_far_red == "mitochondria":
             self._stamp_organelles(canvas, far_red, "mito", bodies, defocus, view)
         if far_red > 0 and self.fm_far_red == "membrane":
-            gone = self.milled_mask(xs_world, ys_world) if self.milled else None
+            gone = (
+                self.milled_fraction(xs_world, ys_world) > 0.5 if self.milled else None
+            )
             self._stamp_membrane(canvas, far_red, bodies, defocus, view, gone)
 
         if rng is None:
@@ -2699,23 +2721,38 @@ class SampleScene:
                     stamp(x, y, z, FM_PSF_SIGMA, 2.0 * FM_INTENSITY)
 
     def _stamp_cilia(self, canvas, weight, defocus, ax, ay, cx, cy, pix, fs, turn):
-        """The primary cilia: a rod of membrane label, points along it each
-        blurred for its own height."""
-        pts = []
+        """The primary cilia: a thin bending line of membrane label with a
+        bright head at its base, points along it each blurred for its own
+        height."""
+        pts, heads = [], []
         for spot in self.fm_spots:
             if spot.get("cilium") is None:
                 continue
-            (x0, y0, z0), (x1, y1, z1) = spot["cilium"]
-            n = max(int(np.hypot(np.hypot(x1 - x0, y1 - y0), z1 - z0) / 0.1e-6), 2)
-            f = np.linspace(0, 1, n)[:, None]
-            pts.append(
-                np.array([x0, y0, z0]) + f * np.array([x1 - x0, y1 - y0, z1 - z0])
-            )
+            path = np.asarray(spot["cilium_path"], dtype=float)
+            # points every ~40 nm along the bending path
+            fine = np.linspace(0, len(path) - 1, 2 * len(path) + 1)
+            k = np.floor(fine).astype(int).clip(0, len(path) - 2)
+            frac = (fine - k)[:, None]
+            pts.append(path[k] * (1 - frac) + path[k + 1] * frac)
+            heads.append(path[0])
+        view = (ax, ay, cx, cy, pix, fs, turn)
         if pts:
-            view = (ax, ay, cx, cy, pix, fs, turn)
-            pts = np.concatenate(pts)
             self._stamp_points(
-                canvas, pts, CILIUM_SIGMA, 0.8 * FM_INTENSITY * weight, defocus, view
+                canvas,
+                np.concatenate(pts),
+                CILIUM_SIGMA,
+                0.45 * FM_INTENSITY * weight,
+                defocus,
+                view,
+            )
+            # the base, where the receptor gathers: a brighter head
+            self._stamp_points(
+                canvas,
+                np.array(heads),
+                0.2e-6,
+                2.5 * FM_INTENSITY * weight,
+                defocus,
+                view,
             )
 
     def _fm_cell_points(self, f: SceneFeature, kind: str) -> np.ndarray:
@@ -2728,13 +2765,24 @@ class SampleScene:
         key = (kind, int(f.cell_id), round(f.x, 9), round(f.y, 9))
         if key in cache:
             return cache[key]
-        code = 73 if kind == "droplets" else 79
+        code = {"droplets": 73, "mito": 79, "puncta": 83}[kind]
         rng = np.random.default_rng(
             [int(self.seed) & 0x7FFFFFFF, code, int(f.cell_id) & 0x7FFFFFFF]
         )
         tall = max(float(f.height or 0.0), 1.5e-6)
         reach = 0.8 * f.sigma
-        if kind == "droplets":
+        if kind == "puncta":
+            n = int(rng.integers(4, 16))
+            r = reach * np.sqrt(rng.uniform(0, 1, n))
+            t = rng.uniform(0, 2 * np.pi, n)
+            pts = np.column_stack(
+                [
+                    f.x + r * np.cos(t),
+                    f.y + r * np.sin(t),
+                    rng.uniform(0.3e-6, 0.8 * tall, n),
+                ]
+            )
+        elif kind == "droplets":
             n = int(rng.integers(3, 11))
             r = reach * np.sqrt(rng.uniform(0, 1, n))
             t = rng.uniform(0, 2 * np.pi, n)
@@ -2787,6 +2835,10 @@ class SampleScene:
                     defocus,
                     view,
                 )
+        elif kind == "puncta":
+            self._stamp_points(
+                canvas, pts, FM_PSF_SIGMA, 1.2 * FM_INTENSITY * weight, defocus, view
+            )
         else:
             self._stamp_points(
                 canvas, pts, 0.12e-6, 0.4 * FM_INTENSITY * weight, defocus, view
@@ -2856,6 +2908,22 @@ class SampleScene:
                 ok = (uu >= 0) & (uu < width) & (vv >= 0) & (vv < height)
                 np.add.at(img, (vv[ok], uu[ok]), (mass * wgt)[ok])
             canvas += _blur(img, s_px)
+
+    def milled_fraction(
+        self, xs_world: np.ndarray, ys_world: np.ndarray, top: float = 3e-6
+    ) -> np.ndarray:
+        """How much of the column from the film up to `top` (m) the milled
+        patterns cut away at each world point (0..1), each cut along the
+        beam that milled it."""
+        um = sim_relief.UM
+        xs, ys = np.broadcast_arrays(xs_world * um, ys_world * um)
+        heights = np.linspace(0.05, top * um, 24)
+        gone = np.zeros((len(heights),) + xs.shape, dtype=bool)
+        for region in self.milled:
+            lo, hi = sim_relief._cut_range(self, region, xs, ys)
+            for i, z in enumerate(heights):
+                gone[i] |= (lo <= z) & (z <= hi)
+        return gone.mean(axis=0).astype(np.float32)
 
     def milled_through(self, x: float, y: float, z: float) -> bool:
         """Whether a milled pattern has cut away the point at (x, y) world
