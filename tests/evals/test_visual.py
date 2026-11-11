@@ -10,7 +10,7 @@ import yaml
 from fibsem.ai.evals import visual
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import load_case
-from fibsem.ai.evals.scoring import score_case
+from fibsem.ai.evals.scoring import score_case, score_live
 
 rng = np.random.default_rng(0)
 
@@ -95,7 +95,15 @@ CASES = {
         },
     ),
     "polish": (
-        {"task": "polishing_stop", "passes": PASSES, "key": {"stop_after": "p2"}},
+        {
+            "task": "polishing_stop",
+            "passes": PASSES,
+            "key": {"stop_after": "p2"},
+            "live": {
+                "source": "the real run",
+                "answer": {"passes": [{"name": "p3", "decision": "stop"}]},
+            },
+        },
         {
             "passes": [
                 {"name": "p1", "decision": "carry_on"},
@@ -207,3 +215,17 @@ def test_report_html_from_the_command_line(run, capsys):
     assert main(["report", str(out), "--html", "--cases", str(cases_root)]) == 0
     assert (out / "report.html").is_file()
     assert "Wrote" in capsys.readouterr().out
+
+
+def test_the_real_run_is_scored_against_the_key(run):
+    cases_root, out = run
+    case = load_case(cases_root / "polish")
+    (live,) = score_live(case)
+    assert live.result == "unsafe"
+    runs = [run for _, run in visual.load_runs(out)["polish"]]
+    (row,) = visual.live_rows(case, runs)
+    # Both repeats stopped at p3 as well.
+    assert row["live"] == "unsafe" and row["same"] == 2 and len(row["eval"]) == 2
+    assert score_live(load_case(cases_root / "site")) is None
+    page = visual.write_html(out, cases_root).read_text()
+    assert "Eval against the real run" in page and "2 of 2" in page

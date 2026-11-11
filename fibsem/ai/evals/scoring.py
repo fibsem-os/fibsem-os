@@ -410,3 +410,16 @@ def score_case(case: Case, answer: Dict[str, Any]) -> List[Score]:
             )
         )
     return scores
+
+
+def score_live(case: Case) -> Optional[List[Score]]:
+    """The scores of what the real run decided (the case's ``live`` block),
+    for the parts it decided; None when the case records no live decision."""
+    live = case.data.get("live")
+    if not isinstance(live, dict) or not isinstance(live.get("answer"), dict):
+        return None
+    scores = score_case(case, live["answer"])
+    decided = live.get("parts")
+    if decided:
+        scores = [s for s in scores if s.part in decided]
+    return scores
