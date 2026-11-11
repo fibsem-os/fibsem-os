@@ -23,6 +23,29 @@ from fibsem.ai.evals.cases import Case, pass_names, pixel_size_um
 
 RESULTS = ("hit", "miss", "early", "late", "unsafe", "invalid")
 
+# What the agent is shown as the answer's shape, per task.
+ANSWER_SHAPES: Dict[str, Any] = {
+    "site_selection": {"picks": [{"x_px": 0, "y_px": 0, "reason": "..."}]},
+    "fm_target": {
+        "usable": "yes | no | unsure",
+        "x_px": 0,
+        "y_px": 0,
+        "z_slice": 0,
+        "reason": "...",
+    },
+    "correlation": {
+        "x_px": 0,
+        "y_px": 0,
+        "fiducials": [{"fm_px": [0, 0, 0], "fib_px": [0, 0]}],
+        "fit_rms_um": 0.0,
+        "reason": "...",
+    },
+    "polishing_stop": {
+        "passes": [{"name": "<pass>", "decision": "carry_on | stop", "reason": "..."}]
+    },
+    "target_present": {"present": {"<pass>": "yes | no"}, "reason": "..."},
+}
+
 
 @dataclass
 class Score:
