@@ -351,7 +351,7 @@ class AppSession:
         return {
             "connected": instrument is not None,
             "connecting": self.connecting,
-            "error": self.connect_error,
+            "error": self.connect_error or _unreachable(instrument),
             "configuration": None
             if instrument is None
             else {
@@ -543,3 +543,12 @@ def devices_configuration(path: Optional[str]) -> Optional[Dict[str, Any]]:
     if not isinstance(settings, dict):
         return None
     return settings if configured_kind(settings) == DeviceInstrument.kind else None
+
+
+def _unreachable(instrument: Any) -> Optional[str]:
+    """Why a connected instrument on another computer can't be used now (its
+    App Server stopped answering), else None. It comes back by itself."""
+    if instrument is None or getattr(instrument, "reachable", True):
+        return None
+    where = getattr(instrument, "url", "the other computer")
+    return f"The App Server at {where} is not answering; calls fail until it is back."

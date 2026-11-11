@@ -1207,7 +1207,9 @@ def main(argv: Optional[List[str]] = None) -> None:
         code = auth.pairing.open()
         print(
             f"Pairing code: {code} (5 minutes, works once). On the other computer "
-            f"run: fibsem-cli pair-device <this computer's address>:{port} {code}"
+            f"run: fibsem-cli pair-device <this computer's address>:{port} {code}",
+            # Now, not when the buffer fills: the output may be a log file.
+            flush=True,
         )
     logging.info(f"serving {sorted(devices)} on http://{host}:{port}")
     try:

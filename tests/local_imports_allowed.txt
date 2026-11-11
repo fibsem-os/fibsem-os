@@ -14,7 +14,7 @@ fibsem/ai/agent/manager.py 1
 fibsem/ai/agent/mcp/sidecar.py 4
 fibsem/ai/agent/pictures.py 17
 fibsem/ai/agent/session.py 8
-fibsem/ai/agent/sources.py 1
+fibsem/ai/agent/sources.py 2
 fibsem/ai/agent/watch.py 1
 fibsem/alignment/coincidence.py 10
 fibsem/alignment/methods.py 1

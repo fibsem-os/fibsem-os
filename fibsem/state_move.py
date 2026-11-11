@@ -24,6 +24,7 @@ import yaml
 # else there was written by the install.
 SHIPPED_CONFIGURATIONS = frozenset(
     {
+        "cryo-fm-demo-configuration.yaml",
         "cryo-fm-remote-configuration.yaml",
         "jeol-configuration.yaml",
         "microscope-configuration.yaml",

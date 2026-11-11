@@ -1,0 +1,17 @@
+# A simulated standalone cryo-FM with no FIB/SEM: the Demo FM and a Demo sample
+# stage with x, y and z, both built on this PC. fibsemOS connects only these
+# devices, and the App Server, the web app and the agent use them like a
+# microscope's devices. For a real FM served from its own PC, see
+# cryo-fm-remote-configuration.yaml.
+version: 2                                                  # configuration schema version
+info:
+    name: cryo-fm-demo-configuration                        # a descriptive name for your configuration                     [SPECIFIED]
+    instrument: devices                                     # only the devices below, no microscope (default: fibsem)       [SPECIFIED]
+hardware:
+    devices:
+      - name: fm
+        type: fm
+        driver:                     Demo                        # the simulated FM                                              [SPECIFIED]
+      - name: stage
+        type: stage
+        driver:                     Demo                        # a simulated x, y, z stage                                     [SPECIFIED]

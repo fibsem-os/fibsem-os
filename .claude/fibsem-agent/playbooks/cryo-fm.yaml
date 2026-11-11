@@ -1,0 +1,12 @@
+# A standalone cryo-FM: an FM and its sample stage, with no FIB/SEM (connect
+# fibsem/config/cryo-fm-demo-configuration.yaml to try it on the simulator). It
+# doesn't extend the base playbook: the base's rules are a FIB-SEM's. The base's
+# session settings still hold under it.
+description: Fluorescence imaging on a standalone cryo-FM.
+instrument: cryo-fm
+skills: [fibsem-agent, cryo-fm]
+reminders:
+  hardware_error: Stop. Don't retry. Message the operator with the error word for word.
+rules:
+  - "Never trust an auto function's result on its own: look at the image it gives and check it worked well enough before you act on it."
+  - Keep the light power and exposure as low as gives a usable image.

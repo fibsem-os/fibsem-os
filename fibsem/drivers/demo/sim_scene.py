@@ -42,6 +42,7 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import map_coordinates as ndi_map_coordinates
 from scipy.ndimage import zoom as ndi_zoom
 
+from fibsem.drivers.demo import sim_relief
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -171,7 +172,13 @@ BEAM_LAYERS = {
         "holder": 0.0,
         "edge_highlight": 0.0,
         "trench_floor": 0.25,
-        "cell": {"body": 1.0, "nucleus": 1.0, "organelle": 1.0, "bud": 1.0},
+        "cell": {
+            "body": 1.0,
+            "nucleus": 1.0,
+            "organelle": 1.0,
+            "bud": 1.0,
+            "neurite": 1.0,
+        },
         "contamination": 1.0,
         "ice": 1.0,
         "fiducial": 1.0,
@@ -188,7 +195,13 @@ BEAM_LAYERS = {
         "holder": 0.0,
         "edge_highlight": 1.0,  # x the saturating outline of the structure
         "trench_floor": 0.25,
-        "cell": {"body": -0.7, "nucleus": 0.15, "organelle": 0.0, "bud": -0.7},
+        "cell": {
+            "body": -0.7,
+            "nucleus": 0.15,
+            "organelle": 0.0,
+            "bud": -0.7,
+            "neurite": 0.2,
+        },
         "contamination": 0.5,
         "ice": 0.7,
         "fiducial": -0.3,
@@ -211,6 +224,15 @@ RELIEF_LIGHT = (0.35, 0.94)
 # m; a mound thicker than this hides the film, holes and bars under it
 RELIEF_OPAQUE = 1.5e-6
 # the FM reflection's view of the support, on the same scale
+# the orientation mark at the grid's centre: a square this many bar widths across
+CENTRE_MARK_SIZE = 2.4
+CENTRE_MARK_GROOVE = 4e-6  # m, how deep the ring in its middle is pressed
+# coating: how fast the GIS and the sputter coater lay it down, and the
+# thicknesses that take away about two-thirds of the SEM charging
+GIS_RATE = 0.04e-6  # m/s with the valve open
+SPUTTER_RATE = 0.5e-9  # m/s
+SPUTTER_DISCHARGE = 5e-9  # m
+GIS_DISCHARGE = 1e-6  # m
 RIP_FLAP_WIDTH = 1.5e-6  # m, the curled film edge round a rip
 HOLE_DEPTH = 45.0
 RIP_DEPTH = 80.0
@@ -250,7 +272,7 @@ class SceneFeature:
     wobble: float = 0.0
     wobble_phase: float = 0.0
     # which part of a cell this is - the FM dyes by part
-    part: str = "body"  # "body" | "nucleus" | "organelle" | "bud"
+    part: str = "body"  # "body" | "nucleus" | "organelle" | "bud" | "neurite"
     cell_id: int = -1
     # how much the feature hides what is under it (film, holes, bars): 0 is
     # additive (a mound on top), 1 replaces the background inside its
@@ -276,6 +298,37 @@ class SceneGrid:
     extent: float  # m, content is grown over +/- extent/2 about the centre
 
 
+def _lamella_gap(pass_corners, all_corners):
+    """The gap (m) a pass's patterns leave about their middle, between the
+    nearest cut below and above it, over the middle 80 % of the patterns'
+    width: (narrowest, mean, (x0, x1, lo, hi) of the narrowest band), or
+    None when the middle is cut or nothing lies either side."""
+    if len(pass_corners) < 2:
+        return None
+    pts = np.vstack(pass_corners)
+    y0 = float(np.mean([c[:, 1].mean() for c in pass_corners]))
+    xa, xb = pts[:, 0].min(), pts[:, 0].max()
+    x0, x1 = xa + 0.1 * (xb - xa), xb - 0.1 * (xb - xa)
+    xs = np.linspace(x0, x1, 41)
+    below = np.full(xs.shape, -np.inf)
+    above = np.full(xs.shape, np.inf)
+    for c in all_corners:
+        lo, hi = sim_relief.polygon_span(np.asarray(c, dtype=float), xs)
+        hit = lo <= hi
+        if np.any(hit & (lo <= y0) & (hi >= y0)):
+            return None
+        below = np.where(hit & (hi < y0), np.maximum(below, hi), below)
+        above = np.where(hit & (lo > y0), np.minimum(above, lo), above)
+    if not (np.all(np.isfinite(below)) and np.all(np.isfinite(above))):
+        return None
+    gap = above - below
+    return (
+        float(gap.min()),
+        float(gap.mean()),
+        (float(x0), float(x1), float(below.max()), float(above.min())),
+    )
+
+
 @dataclass
 class MilledRegion:
     """A pattern that was milled: a convex polygon on the sample surface,
@@ -291,6 +344,9 @@ class MilledRegion:
     # burn has one, the redeposition halo that makes the mark easy to find in
     # the reflection channel and the SEM.
     halo: float = 0.0
+    # how the milling beam saw it, for the relief renderer's cut along the
+    # beam (a sim_relief.BeamCut); None cuts straight down
+    beam_cut: Optional[object] = None
 
 
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
@@ -564,13 +620,15 @@ class SampleScene:
     # what grows on the film: "mammalian" (adherent, fried-egg: a wide flat
     # body with an off-centre nuclear mound and organelle speckle, sparse),
     # "yeast" (compact bright ovoids in clusters, some budding), "bacteria"
-    # (dense small rods), "mixed", or "none" for bare film
+    # (dense small rods), "rpe" (islands of a packed epithelial sheet),
+    # "neuron" (a round soma with long branching processes), "mixed", or
+    # "none" for bare film
     cell_type: str = "mammalian"
     # yeast: clusters over the extent
-    n_clusters: int = 35  # cell clusters scattered over the extent
-    cells_per_cluster: Tuple[int, int] = (3, 8)  # inclusive range
-    cell_size: Tuple[float, float] = (4.5e-6, 12.0e-6)  # m, sigma range per cell
-    cluster_spread: float = 15e-6  # m, how far blobs scatter around a cluster
+    n_clusters: int = 120  # yeast clumps scattered over the extent
+    cells_per_cluster: Tuple[int, int] = (8, 40)  # inclusive range
+    cell_size: Tuple[float, float] = (1.8e-6, 2.8e-6)  # m, radius range per cell
+    cluster_spread: float = 20e-6  # m, how far a clump reaches from its centre
     # mammalian: count per 150 x 150 um, body and nucleus radii
     mammalian_density: float = 7.0
     mammalian_radius: Tuple[float, float] = (18e-6, 30e-6)  # m
@@ -578,6 +636,15 @@ class SampleScene:
     # bacteria: count per 150 x 150 um, rod length
     bacteria_density: float = 160.0
     bacteria_length: Tuple[float, float] = (2.0e-6, 3.5e-6)  # m
+    # rpe: islands per 150 x 150 um, their radius, and the cell spacing
+    rpe_island_density: float = 0.5
+    rpe_island_radius: Tuple[float, float] = (40e-6, 110e-6)  # m
+    rpe_cell_spacing: float = 28e-6  # m
+    rpe_occupancy: float = 0.75  # fraction of the lattice a patch fills
+    # neuron: somas per 150 x 150 um, soma radius, process length
+    neuron_density: float = 1.2
+    soma_radius: Tuple[float, float] = (5e-6, 9e-6)  # m
+    neurite_length: Tuple[float, float] = (60e-6, 220e-6)  # m
     extent: float = 800e-6  # m, features are scattered over +/- extent/2
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
@@ -598,9 +665,46 @@ class SampleScene:
     # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
     ice_density: float = 0.4
     ice_size: Tuple[float, float] = (6e-6, 16e-6)  # m, plate radius
+    # ice contamination: patches of frost (small bright crystal grains), per
+    # 100 x 100 um
+    frost_density: float = 0.15
+    # dark spheres (round beads standing on the film), per 100 x 100 um
+    sphere_density: float = 0.4
+    sphere_size: Tuple[float, float] = (0.4e-6, 2.0e-6)  # m, radius
+    # hairline cracks in the film (a dark line, not torn open), per 100 x 100 um
+    crack_density: float = 0.3
     # a fiducial-like cross at each grid centre: a landmark for eyeballing
     # navigation and for tests, absent on a real grid - off by default
     fiducial: bool = False
+    # the bigger square with one rounded corner at the bar crossing by the
+    # grid's centre, which tells the grid's orientation
+    centre_mark: bool = True
+    # how the beams see the scene: "flat" paints it onto the sample plane;
+    # "relief" gives everything a height and looks along the beam (shading,
+    # occlusion, trenches cut along the milling beam) - see sim_relief
+    renderer: str = "flat"
+    # how strongly the SEM charges an uncoated grid (cells, ice): bright
+    # patches and streaks along the scan, worse with a longer dwell; 0 = never
+    charging: float = 1.0
+    # milling is not perfect: each pass drifts by a seeded offset (m, sigma)
+    # and a pattern cuts a little past its edges (m, up to)
+    mill_drift: float = 20e-9
+    mill_overcut: float = 30e-9
+    # the beam's tail: a pattern cuts wider at higher current (half the spot
+    # size) and its walls lean in going down (degrees), so a lamella is
+    # thicker at its bottom; a cut face carries vertical curtaining stripes
+    mill_kerf: bool = True
+    mill_taper: float = 1.5
+    curtaining: float = 1.0
+    # a thin lamella can be damaged: below a seeded thickness (m, range) each
+    # polishing pass has this chance of starting damage (a ragged front face,
+    # a crack across, a piece broken out), which grows with each pass after
+    damage_below: Tuple[float, float] = (150e-9, 300e-9)
+    damage_chance: float = 0.4
+    # the coat on the grid, laid down by the GIS and the sputter coater (or
+    # set for a grid that comes in coated); m
+    gis_thickness: float = 0.0
+    sputter_thickness: float = 0.0
     # the grid's usable radius; beyond it the metal rim, then the holder
     grid_radius: float = 1.4e-3  # m
     grid_rim_width: float = 150e-6  # m
@@ -638,6 +742,12 @@ class SampleScene:
     reference_position: Optional[FibsemStagePosition] = None
     features: List[SceneFeature] = field(default_factory=list)
     milled: List[MilledRegion] = field(default_factory=list)
+    # one record per milling pass: the drift, the planned and true gap
+    # between its trenches, and any damage (see `mill`)
+    mill_passes: List[dict] = field(default_factory=list)
+    # where a thin lamella's damage started: {"pass", "kind"}, or None
+    damage_started: Optional[dict] = None
+    _cuts: List[np.ndarray] = field(default_factory=list, repr=False)
     # the grids on the holder. With no calibrated, occupied slot handed in
     # (`holder_slots`, set by the simulator from its sample holder before
     # each acquisition) there is one grid, centred on the world anchor -
@@ -690,6 +800,7 @@ class SampleScene:
         """Grow every grid's content from its own seed (`rng` for the first
         grid, when given)."""
         self.features = []
+        self.cracks: List[np.ndarray] = []
         for grid in self.grids:
             self._generate_grid(grid, rng)
             rng = None
@@ -750,10 +861,179 @@ class SampleScene:
                     opacity=0.9,
                 )
             )
+        # frost and dark spheres from a generator of their own, so the rest
+        # of a seed's scene is laid out as it always was
+        extra = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 31])
+        self._generate_frost(extra, grid, half)
+        self._generate_spheres(extra, grid, half)
+        self._generate_cracks(extra, grid, half)
         # grown about the origin; carried to where the grid sits
         for f in self.features[start:]:
             f.x += grid.x
             f.y += grid.y
+
+    def _generate_frost(self, rng, grid: SceneGrid, half: float) -> None:
+        """Ice contamination: patches of small bright crystal grains, dense
+        in the middle and thinning out."""
+        for _ in range(int(self.frost_density * (grid.extent / 100e-6) ** 2)):
+            cx, cy = rng.uniform(-half, half, size=2)
+            spread = float(rng.uniform(2e-6, 8e-6))
+            for _ in range(int(rng.integers(20, 120))):
+                x, y = rng.normal(0, spread, size=2)
+                self.features.append(
+                    SceneFeature(
+                        x=float(cx + x),
+                        y=float(cy + y),
+                        sigma=float(rng.uniform(0.15e-6, 0.6e-6)),
+                        intensity=float(rng.uniform(80, 140)),
+                        sharpness=3.0,
+                        eccentricity=float(rng.uniform(0.5, 1.0)),
+                        angle=float(rng.uniform(0, np.pi)),
+                        kind="contamination",
+                        part="frost",
+                    )
+                )
+
+    def _generate_spheres(self, rng, grid: SceneGrid, half: float) -> None:
+        """Dark spheres: round beads standing on the film, darker than it in
+        both beams."""
+        for _ in range(int(self.sphere_density * (grid.extent / 100e-6) ** 2)):
+            x, y = rng.uniform(-half, half, size=2)
+            r = float(rng.uniform(*self.sphere_size))
+            self.features.append(
+                SceneFeature(
+                    x=float(x),
+                    y=float(y),
+                    sigma=r,
+                    intensity=-60.0,
+                    sharpness=3.0,
+                    kind="contamination",
+                    part="sphere",
+                    height=1.1 * r,
+                )
+            )
+
+    def _generate_cracks(self, rng, grid: SceneGrid, half: float) -> None:
+        """Hairline cracks: wandering lines across the film, some with a
+        branch, kept as (N, 3) world points (x, y, half-width)."""
+        step = 0.5e-6
+        n = int(self.crack_density * (grid.extent / 100e-6) ** 2)
+        for _ in range(n):
+            start = rng.uniform(-half, half, size=2) + (grid.x, grid.y)
+            heading = float(rng.uniform(0, 2 * np.pi))
+            length = float(rng.uniform(8e-6, 60e-6))
+            width = float(rng.uniform(0.25e-6, 0.5e-6))
+            arms = [(start, heading, length)]
+            if rng.uniform() < 0.4:
+                arms.append(
+                    (
+                        None,
+                        float(rng.choice([-1, 1]) * rng.uniform(0.4, 1.1)),
+                        0.5 * length,
+                    )
+                )
+            trunk = None
+            for origin, turn, arm_length in arms:
+                if origin is None:
+                    k = int(rng.integers(len(trunk) // 4, 3 * len(trunk) // 4 + 1))
+                    origin, angle = trunk[k, :2], heading + turn
+                else:
+                    angle = turn
+                m = max(2, int(arm_length / step))
+                angles = angle + np.cumsum(rng.normal(0, 0.18, size=m))
+                pts = origin + np.cumsum(
+                    step * np.stack([np.cos(angles), np.sin(angles)], axis=1), axis=0
+                )
+                pts = np.vstack([origin, pts])
+                # it narrows to nothing at its tip
+                w = width * np.linspace(1.0, 0.3, len(pts))
+                arm = np.column_stack([pts, w])
+                trunk = arm if trunk is None else trunk
+                self.cracks.append(arm)
+
+    def crack_depth(self, xs_world: np.ndarray, ys_world: np.ndarray) -> np.ndarray:
+        """How far (0..1) each world point sits inside a hairline crack: 1 on
+        its line, 0 past its half-width. Film only is the caller's to mask."""
+        xs_world, ys_world = np.broadcast_arrays(xs_world, ys_world)
+        depth = np.zeros(xs_world.shape, dtype=np.float32)
+        cracks = getattr(self, "cracks", None)
+        if not cracks or self.crack_density <= 0:
+            return depth
+        x_lo, x_hi = float(xs_world.min()), float(xs_world.max())
+        y_lo, y_hi = float(ys_world.min()), float(ys_world.max())
+        for arm in cracks:
+            pad = arm[:, 2].max()
+            if (
+                arm[:, 0].max() + pad < x_lo
+                or arm[:, 0].min() - pad > x_hi
+                or arm[:, 1].max() + pad < y_lo
+                or arm[:, 1].min() - pad > y_hi
+            ):
+                continue
+            near = (
+                (xs_world >= arm[:, 0].min() - pad)
+                & (xs_world <= arm[:, 0].max() + pad)
+                & (ys_world >= arm[:, 1].min() - pad)
+                & (ys_world <= arm[:, 1].max() + pad)
+            )
+            idx = np.nonzero(near)
+            if not idx[0].size:
+                continue
+            px, py = xs_world[idx][:, None], ys_world[idx][:, None]
+            ax, ay, aw = arm[:-1, 0], arm[:-1, 1], arm[:-1, 2]
+            dx, dy = arm[1:, 0] - ax, arm[1:, 1] - ay
+            t = np.clip(
+                ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy + 1e-30), 0, 1
+            )
+            dist = np.hypot(px - ax - t * dx, py - ay - t * dy) / aw
+            inside = np.clip(1 - dist.min(axis=1), 0, None)
+            depth[idx] = np.maximum(depth[idx], inside.astype(np.float32))
+        return depth
+
+    def deposit(self, seconds: float) -> None:
+        """A GIS deposition with the valve open *seconds*: a thicker coat."""
+        self.gis_thickness += GIS_RATE * max(float(seconds), 0.0)
+        logging.debug(
+            {"msg": "sample_scene_deposited", "gis_thickness": self.gis_thickness}
+        )
+
+    def sputter(self, seconds: float) -> None:
+        """A sputter coat of *seconds*: a thin metal layer."""
+        self.sputter_thickness += SPUTTER_RATE * max(float(seconds), 0.0)
+        logging.debug(
+            {
+                "msg": "sample_scene_sputtered",
+                "sputter_thickness": self.sputter_thickness,
+            }
+        )
+
+    def charge_strength(self, dwell_time: Optional[float]) -> float:
+        """How much the SEM charges the sample now: the scene's `charging`,
+        less what the coat carries away, more the longer each pixel dwells.
+        0 with no dwell given."""
+        if not dwell_time or self.charging <= 0:
+            return 0.0
+        coat = np.exp(-self.sputter_thickness / SPUTTER_DISCHARGE) / (
+            1.0 + self.gis_thickness / GIS_DISCHARGE
+        )
+        dwell = float(np.clip(np.sqrt(dwell_time / 1e-6), 0.0, 2.5))
+        return float(self.charging * coat * dwell)
+
+    @staticmethod
+    def charge_up(data: np.ndarray, charge: np.ndarray, strength: float) -> np.ndarray:
+        """SEM charging on a grey-level image: the insulating parts (`charge`,
+        0..1 per pixel) glow and lose their detail, and the film round them
+        goes dark."""
+        if strength <= 0 or not charge.any():
+            return data
+        size = max(data.shape) / 1024.0
+        reach = ndi_gaussian(charge, 25.0 * size)
+        halo = np.clip(reach - charge, 0, None)
+        k = np.clip(strength * charge, 0, 1)
+        blurred = ndi_gaussian(data, 2.0 * size)
+        out = data + 0.6 * k * (blurred - data)
+        out = out + 40.0 * strength * np.tanh(1.5 * charge) - 60.0 * strength * halo
+        return out
 
     def place_grids(self, projection: BeamStageProjection) -> None:
         """Lay the grids out from the holder's slots, when they changed.
@@ -814,6 +1094,7 @@ class SampleScene:
         self._populate()
         # trenches were cut in grids that are no longer where they were
         self.milled = []
+        self.mill_passes, self._cuts, self.damage_started = [], [], None
         logging.debug(
             {
                 "msg": "sample_scene_grids_placed",
@@ -823,6 +1104,68 @@ class SampleScene:
                 ],
                 "features": len(self.features),
             }
+        )
+
+    def _view_anchor(
+        self,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+        beam_current: Optional[float] = None,
+        lift: float = 0.0,
+    ) -> Tuple[float, float, float, float]:
+        """Where the world anchor appears in a view (m, scan frame, y down),
+        the foreshortening and the scan rotation. `lift` raises the anchor
+        (m, stage z): where a point that high appears."""
+        reference = self.reference_position
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        if lift:
+            reference = deepcopy(reference)
+            reference.z = (reference.z or 0.0) + lift
+        ax, ay = projection.to_plane(reference, stage_position)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        theta = float(projection.scan_rotation or 0.0)
+        if np.isclose(theta, np.pi):
+            ax, ay = -ax, -ay
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+        ax, ay = ax * cos_t - ay * sin_t, ax * sin_t + ay * cos_t
+        offset = self.beam_offset.get(beam_type.name.lower(), (0.0, 0.0))
+        current_offset = self.current_offset(beam_type, beam_current)
+        ax = ax + beam_shift[0] + offset[0] + current_offset[0]
+        ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
+        return ax, ay, fs, theta
+
+    def view_frame(
+        self,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+        beam_current: Optional[float] = None,
+    ):
+        """How a view sees the world, for the relief renderer: the anchor in
+        the unrotated frame and how far a point moves per unit height."""
+        args = (beam_type, stage_position, projection, beam_shift, beam_current)
+        ax, ay, fs, theta = self._view_anchor(*args)
+        _, ay_up, _, _ = self._view_anchor(*args, lift=1e-6)
+        cos_t, sin_t = np.cos(theta), np.sin(theta)
+
+        def unrotate(x, y):
+            return x * cos_t + y * sin_t, -x * sin_t + y * cos_t
+
+        a = unrotate(ax, ay)
+        a_up = unrotate(ax, ay_up)
+        return sim_relief.ViewFrame(
+            anchor=(a[0] * 1e6, a[1] * 1e6),
+            theta=theta,
+            turn=self._turn(stage_position),
+            fs=float(fs),
+            # a height moves a point across the view by the cosine of the
+            # glancing angle whose sine is the foreshortening, the way a
+            # stage raise moves it
+            k=float(np.copysign(np.sqrt(max(0.0, 1 - fs * fs)), a_up[1] - a[1])),
         )
 
     def view_to_world(
@@ -839,20 +1182,10 @@ class SampleScene:
         centre of a beam's view (plane convention: y down) - the inverse of
         the mapping render() draws with: un-shift, un-rotate the scan,
         un-foreshorten."""
-        reference = self.reference_position
-        if self.tilt_axis_offset:
-            reference = self._non_eucentric_reference(stage_position, projection)
-        ax, ay = projection.to_plane(reference, stage_position)
-        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
-        theta = float(projection.scan_rotation or 0.0)
-        if np.isclose(theta, np.pi):
-            ax, ay = -ax, -ay
+        ax, ay, fs, theta = self._view_anchor(
+            beam_type, stage_position, projection, beam_shift, beam_current
+        )
         cos_t, sin_t = np.cos(theta), np.sin(theta)
-        ax, ay = ax * cos_t - ay * sin_t, ax * sin_t + ay * cos_t
-        offset = self.beam_offset.get(beam_type.name.lower(), (0.0, 0.0))
-        current_offset = self.current_offset(beam_type, beam_current)
-        ax = ax + beam_shift[0] + offset[0] + current_offset[0]
-        ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
         vx, vy = dx - ax, dy - ay
         turn = self._turn(stage_position)
         return (
@@ -884,9 +1217,43 @@ class SampleScene:
                 beam_type, stage_position, projection, cx, -cy, beam_shift, beam_current
             )
 
+        frame = None
+        if self.renderer == "relief":
+            frame = self.view_frame(
+                beam_type, stage_position, projection, beam_shift, beam_current
+            )
+
+        def cut(corners):
+            """The pattern as the milling beam sees it, for a cut along it."""
+            if frame is None:
+                return None
+            c, s_ = np.cos(frame.theta), np.sin(frame.theta)
+            polygon = np.array(
+                [
+                    (
+                        (x * c - y * s_) * 1e6 - frame.anchor[0],
+                        (-x * s_ - y * c) * 1e6 - frame.anchor[1],
+                    )
+                    for x, y in corners
+                ]
+            )
+            return sim_relief.BeamCut(
+                polygon=polygon, turn=frame.turn, fs=frame.fs, k=frame.k
+            )
+
+        n_pass = len(self.mill_passes)
+        rng = np.random.default_rng([int(self.seed) & 0x7FFFFFFF, 47, n_pass])
+        drift = rng.normal(0.0, self.mill_drift, 2) if self.mill_drift > 0 else (0, 0)
+        kerf = 0.0
+        if self.mill_kerf and beam_current:
+            # half the spot: ~15 nm at 100 pA, ~110 nm at 15 nA
+            kerf = 0.5 * 30e-9 * (float(beam_current) / 1e-10) ** 0.4
+        planned: List[np.ndarray] = []
+        actual: List[np.ndarray] = []
         regions: List[MilledRegion] = []
         for p in patterns:
             depth = float(getattr(p, "depth", 1e-6) or 1e-6)
+            drawn = len(planned)
             if hasattr(p, "start_x"):  # a line: a thin rectangle along it
                 half = float(getattr(p, "width", 0.5e-6) or 0.5e-6) / 2
                 dx_, dy_ = p.end_x - p.start_x, p.end_y - p.start_y
@@ -911,12 +1278,39 @@ class SampleScene:
                 rot = float(getattr(p, "rotation", 0.0) or 0.0)
                 c, s_ = np.cos(rot), np.sin(rot)
                 hw, hh = float(p.width) / 2, float(p.height) / 2
+                planned.append(
+                    np.array(
+                        [
+                            (p.centre_x + x * c - y * s_, p.centre_y + x * s_ + y * c)
+                            for x, y in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh))
+                        ]
+                    )
+                )
+                grow = float(rng.uniform(0.0, self.mill_overcut)) + kerf
+                hw, hh = hw + grow, hh + grow
                 corners = [
                     (p.centre_x + x * c - y * s_, p.centre_y + x * s_ + y * c)
                     for x, y in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh))
                 ]
+            if len(planned) == drawn:  # not a rectangle: drawn as cut
+                planned.append(np.array(corners, dtype=float))
+            corners = [(x + drift[0], y + drift[1]) for x, y in corners]
+            actual.append(np.array(corners, dtype=float))
             points = np.array([world(x, y) for x, y in corners])
-            regions.append(MilledRegion(points=points, depth=depth))
+            regions.append(
+                MilledRegion(points=points, depth=depth, beam_cut=cut(corners))
+            )
+        record = self._record_pass(planned, actual, drift)
+        record["current"] = beam_current
+        record["kerf"] = kerf
+        if record.get("gap") is not None:
+            depth = min(float(getattr(p, "depth", 1e-6) or 1e-6) for p in patterns)
+            lean = np.tan(np.deg2rad(self.mill_taper))
+            record["gap_at_depth"] = record["gap"] + 2 * lean * depth
+        damage = self._damage(record, rng)
+        for corners in damage:
+            points = np.array([world(x, y) for x, y in corners])
+            regions.append(MilledRegion(points=points, beam_cut=cut(corners)))
         self.milled.extend(regions)
         logging.debug(
             {
@@ -926,6 +1320,87 @@ class SampleScene:
             }
         )
         return regions
+
+    def _record_pass(self, planned, actual, drift) -> dict:
+        """Note a milling pass: what was drawn, what was cut, and the gap the
+        pass leaves between the trenches either side of its patterns' middle
+        (the lamella's true thickness, m), from everything milled at this
+        pose so far."""
+        record = {
+            "pass": len(self.mill_passes),
+            "drift": (float(drift[0]), float(drift[1])),
+            "planned_gap": _lamella_gap(planned, planned),
+            "gap": None,
+            "damage": None,
+        }
+        self._cuts.extend(actual)
+        record["actual"] = actual
+        measured = _lamella_gap(actual, self._cuts)
+        if measured is not None:
+            record["gap"], record["gap_mean"], record["band"] = measured
+        if record["planned_gap"] is not None:
+            record["planned_gap"] = record["planned_gap"][1]
+        self.mill_passes.append(record)
+        return record
+
+    def _damage(self, record: dict, rng: np.random.Generator) -> List[np.ndarray]:
+        """A thin lamella's damage, as extra cuts (pattern coordinates): it
+        starts on a pass below the seeded thickness, by chance, and grows on
+        every pass after."""
+        if record.get("gap") is None or record["gap"] <= 0:
+            return []
+        threshold = float(
+            np.random.default_rng([int(self.seed) & 0x7FFFFFFF, 53]).uniform(
+                *self.damage_below
+            )
+        )
+        started = self.damage_started
+        if started is None:
+            if record["gap"] >= threshold or rng.uniform() >= self.damage_chance:
+                return []
+            kind = str(rng.choice(["ragged", "crack", "broken"]))
+            self.damage_started = started = {"pass": record["pass"], "kind": kind}
+        severity = record["pass"] - started["pass"] + 1
+        record["damage"] = {"kind": started["kind"], "severity": severity}
+        x0, x1, lo, hi = record["band"]
+        width, gap = x1 - x0, hi - lo
+        cuts: List[np.ndarray] = []
+
+        def box(xa, xb, ya, yb):
+            return np.array([(xa, ya), (xb, ya), (xb, yb), (xa, yb)])
+
+        if started["kind"] == "ragged":
+            # bites out of the front face, more each pass
+            for _ in range(4 * severity):
+                xc = rng.uniform(x0, x1)
+                half = rng.uniform(0.1e-6, 0.5e-6)
+                bite = gap * rng.uniform(0.3, 0.9)
+                if rng.uniform() < 0.5:
+                    cuts.append(box(xc - half, xc + half, hi - bite, hi + 1e-9))
+                else:
+                    cuts.append(box(xc - half, xc + half, lo - 1e-9, lo + bite))
+        elif started["kind"] == "crack":
+            # a thin crack across, a new one each pass
+            for _ in range(severity):
+                xc = rng.uniform(x0 + 0.2 * width, x1 - 0.2 * width)
+                lean = np.tan(np.deg2rad(rng.uniform(-30, 30))) * gap
+                half = 25e-9
+                cuts.append(
+                    np.array(
+                        [
+                            (xc - half, lo - 1e-9),
+                            (xc + half, lo - 1e-9),
+                            (xc + half + lean, hi + 1e-9),
+                            (xc - half + lean, hi + 1e-9),
+                        ]
+                    )
+                )
+        else:
+            # a piece broken out, wider each pass
+            xc = rng.uniform(x0 + 0.25 * width, x1 - 0.25 * width)
+            half = min(0.5e-6 * severity, 0.45 * width)
+            cuts.append(box(xc - half, xc + half, lo - 1e-9, hi + 1e-9))
+        return cuts
 
     def burn(
         self,
@@ -1056,6 +1531,57 @@ class SampleScene:
         beyond = ~(inside_any | rim)
         return bars, holes, rips, rim, beyond
 
+    def _centre_mark(self, x_rot: np.ndarray, y_rot: np.ndarray) -> np.ndarray:
+        """The orientation mark at the bar crossing nearest the grid's
+        centre: a bigger square of metal with one corner rounded (the ring
+        groove in its middle is `centre_mark_groove`)."""
+        half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
+        corner = 0.6 * half  # radius of the rounded corner
+        dx = x_rot - self.grid_pitch / 2
+        dy = y_rot - self.grid_pitch / 2
+        square = (np.abs(dx) <= half) & (np.abs(dy) <= half)
+        cut = (dx > half - corner) & (dy > half - corner)
+        rounded = np.hypot(dx - (half - corner), dy - (half - corner)) <= corner
+        return square & (~cut | rounded)
+
+    def broken_hole_mask(
+        self, xs_world: np.ndarray, ys_world: np.ndarray
+    ) -> np.ndarray:
+        """Where the film's holes are broken (no ice across them), at world
+        points: the seeded few torn patches `film_masks` draws."""
+        mask = np.zeros(np.broadcast(xs_world, ys_world).shape, dtype=bool)
+        if self.film != "holey" or self.broken_hole_fraction <= 0:
+            return mask
+        for grid in self.grids:
+            cos_r, sin_r = np.cos(grid.rotation), np.sin(grid.rotation)
+            xs, ys = xs_world - grid.x, ys_world - grid.y
+            x_rot = xs * cos_r + ys * sin_r
+            y_rot = -xs * sin_r + ys * cos_r
+            mask |= self._broken_holes(x_rot, y_rot, grid.seed)
+        return mask
+
+    def centre_mark_groove(
+        self, xs_world: np.ndarray, ys_world: np.ndarray
+    ) -> np.ndarray:
+        """How deep (m) the ring groove pressed into the middle of each
+        grid's orientation mark is, at world points: a donut sunk into the
+        metal, round in section."""
+        depth = np.zeros(np.broadcast(xs_world, ys_world).shape, dtype=np.float32)
+        if not self.centre_mark:
+            return depth
+        half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
+        mid, width = 0.35 * half, 0.1 * half
+        for grid in self.grids:
+            cos_r, sin_r = np.cos(grid.rotation), np.sin(grid.rotation)
+            xs, ys = xs_world - grid.x, ys_world - grid.y
+            dx = xs * cos_r + ys * sin_r - self.grid_pitch / 2
+            dy = -xs * sin_r + ys * cos_r - self.grid_pitch / 2
+            t = (np.hypot(dx, dy) - mid) / width
+            depth = np.maximum(
+                depth, CENTRE_MARK_GROOVE * np.sqrt(np.clip(1 - t * t, 0, None))
+            )
+        return depth
+
     def _grid_masks(self, grid: SceneGrid, xs: np.ndarray, ys: np.ndarray):
         """One grid's (bars, holes, rips, inside, rim) from coordinates
         relative to its centre."""
@@ -1069,6 +1595,8 @@ class SampleScene:
             )
 
         bars = _near_bar(x_rot) | _near_bar(y_rot)
+        if self.centre_mark:
+            bars |= self._centre_mark(x_rot, y_rot)
         radius = np.hypot(xs, ys)
         inside = radius <= grid.radius
         rim = (radius > grid.radius) & (radius <= grid.radius + self.grid_rim_width)
@@ -1120,20 +1648,57 @@ class SampleScene:
 
         holes = np.zeros_like(bars)
         if self.film == "holey":
-            hi = np.floor(x_rot / self.hole_pitch).astype(np.int64)
-            hj = np.floor(y_rot / self.hole_pitch).astype(np.int64)
             hx = (x_rot % self.hole_pitch) - self.hole_pitch / 2
             hy = (y_rot % self.hole_pitch) - self.hole_pitch / 2
-            broken = _lattice_draw(hi, hj, grid.seed + 7) < self.broken_hole_fraction
-            r_hole = np.where(broken, 0.8 * self.hole_diameter, self.hole_diameter / 2)
-            holes = (np.hypot(hx, hy) < r_hole) & ~bars
+            whole = np.hypot(hx, hy) < self.hole_diameter / 2
+            holes = (whole | self._broken_holes(x_rot, y_rot, grid.seed)) & ~bars
         return bars, holes, rips, inside, rim
+
+    def _broken_holes(self, x_rot: np.ndarray, y_rot: np.ndarray, seed: int):
+        """Where the film is broken round a seeded few holes, in a grid's
+        frame: each a torn patch of its own size, stretch and ragged outline
+        about its hole, big enough sometimes to run into the next hole."""
+        if self.broken_hole_fraction <= 0:
+            return np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
+        pitch = self.hole_pitch
+        out = np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
+        hi0 = np.floor(x_rot / pitch).astype(np.int64)
+        hj0 = np.floor(y_rot / pitch).astype(np.int64)
+        # a tear can reach past its own cell: look at the neighbours' holes too
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                hi, hj = hi0 + di, hj0 + dj
+                broken = _lattice_draw(hi, hj, seed + 7) < self.broken_hole_fraction
+                if not broken.any():
+                    continue
+                hx = x_rot - (hi + 0.5) * pitch
+                hy = y_rot - (hj + 0.5) * pitch
+                size = self.hole_diameter * (
+                    0.6 + 0.9 * _lattice_draw(hi, hj, seed + 8)
+                )
+                phi = np.pi * _lattice_draw(hi, hj, seed + 9)
+                stretch = 1.0 + 0.8 * _lattice_draw(hi, hj, seed + 10)
+                phase = 2 * np.pi * _lattice_draw(hi, hj, seed + 11)
+                c, s_ = np.cos(phi), np.sin(phi)
+                u = (hx * c + hy * s_) / stretch
+                v = -hx * s_ + hy * c
+                t = np.arctan2(v, u)
+                ragged = (
+                    1
+                    + 0.15 * np.sin(2 * t + phase)
+                    + 0.1 * np.sin(3 * t + 2 * phase)
+                    + 0.04 * np.sin(5 * t + 3 * phase)
+                )
+                out |= broken & (np.hypot(u, v) < size * ragged)
+        return out
 
     def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
         kinds = {
             "yeast": [("yeast", 1.0)],
             "mammalian": [("mammalian", 1.0)],
             "bacteria": [("bacteria", 1.0)],
+            "rpe": [("rpe", 1.0)],
+            "neuron": [("neuron", 1.0)],
             "mixed": [("yeast", 0.5), ("mammalian", 0.4), ("bacteria", 0.3)],
             "none": [],  # bare film: fiducial, bars and contamination only
         }
@@ -1149,30 +1714,55 @@ class SampleScene:
             elif kind == "mammalian":
                 n = int(round(self.mammalian_density * fields * fraction))
                 next_id = self._generate_mammalian(rng, half, n, next_id)
+            elif kind == "rpe":
+                n = int(round(self.rpe_island_density * fields * fraction))
+                next_id = self._generate_rpe(rng, half, n, next_id)
+            elif kind == "neuron":
+                n = int(round(self.neuron_density * fields * fraction))
+                next_id = self._generate_neurons(rng, half, n, next_id)
             else:
                 n = int(round(self.bacteria_density * fields * fraction))
                 next_id = self._generate_bacteria(rng, half, n, next_id)
 
     def _generate_yeast(self, rng, half, fraction, next_id) -> int:
+        """Clumps of small round cells packed against each other: each new
+        cell touches one already placed, some with a budding daughter."""
         for _ in range(int(round(self.n_clusters * fraction))):
-            cx, cy = rng.uniform(-half, half, size=2)
+            cx, cy = (float(v) for v in rng.uniform(-half, half, size=2))
             lo, hi = self.cells_per_cluster
-            for _ in range(int(rng.integers(lo, hi + 1))):
-                x = float(cx + rng.normal(0, self.cluster_spread))
-                y = float(cy + rng.normal(0, self.cluster_spread))
-                sigma = float(rng.uniform(*self.cell_size))
-                angle = float(rng.uniform(0, np.pi))
+            want = int(rng.integers(lo, hi + 1))
+            placed: List[Tuple[float, float, float]] = []
+            for _ in range(20 * want):
+                if len(placed) >= want:
+                    break
+                r = float(rng.uniform(*self.cell_size))
+                if placed:
+                    px, py, pr = placed[int(rng.integers(len(placed)))]
+                    t = float(rng.uniform(0, 2 * np.pi))
+                    x, y = px + (pr + r) * np.cos(t), py + (pr + r) * np.sin(t)
+                    if np.hypot(x - cx, y - cy) > self.cluster_spread:
+                        continue
+                    if any(
+                        np.hypot(x - qx, y - qy) < 0.9 * (r + qr)
+                        for qx, qy, qr in placed
+                    ):
+                        continue
+                else:
+                    x, y = cx, cy
+                placed.append((float(x), float(y), r))
+            for x, y, r in placed:
                 self.features.append(
                     SceneFeature(
                         x=x,
                         y=y,
-                        sigma=sigma,
-                        intensity=float(rng.uniform(40, 110)),
-                        sharpness=3.0,
-                        eccentricity=float(rng.uniform(0.8, 1.0)),
-                        angle=angle,
+                        sigma=r,
+                        intensity=float(rng.uniform(60, 110)),
+                        sharpness=2.5,
+                        eccentricity=float(rng.uniform(0.85, 1.0)),
+                        angle=float(rng.uniform(0, np.pi)),
                         cell_id=next_id,
                         opacity=1.0,
+                        height=1.5 * r,
                     )
                 )
                 # a compact nucleus for the FM (the beams barely see it)
@@ -1180,25 +1770,26 @@ class SampleScene:
                     SceneFeature(
                         x=x,
                         y=y,
-                        sigma=sigma * 0.35,
+                        sigma=r * 0.35,
                         intensity=8.0,
                         sharpness=2.0,
                         part="nucleus",
                         cell_id=next_id,
                     )
                 )
-                if rng.random() < 0.3:  # budding daughter
+                if rng.random() < 0.2:  # budding daughter
                     t = rng.uniform(0, 2 * np.pi)
                     self.features.append(
                         SceneFeature(
-                            x=x + 1.1 * sigma * np.cos(t),
-                            y=y + 1.1 * sigma * np.sin(t),
-                            sigma=sigma * 0.55,
+                            x=x + 1.3 * r * np.cos(t),
+                            y=y + 1.3 * r * np.sin(t),
+                            sigma=r * 0.5,
                             intensity=70.0,
-                            sharpness=3.0,
+                            sharpness=2.5,
                             part="bud",
                             cell_id=next_id,
                             opacity=1.0,
+                            height=0.8 * r,
                         )
                     )
                 next_id += 1
@@ -1281,6 +1872,154 @@ class SampleScene:
             next_id += 1
         return next_id
 
+    def _generate_rpe(self, rng, half, n, next_id) -> int:
+        """Patches of an epithelium: big flat cells on a jittered hexagonal
+        lattice, most sites filled, each a flat-topped dome with its own edge,
+        a central nucleus and bright pigment granules."""
+        spacing = self.rpe_cell_spacing
+        for _ in range(n):
+            cx, cy = rng.uniform(-half, half, size=2)
+            radius = float(rng.uniform(*self.rpe_island_radius))
+            phase = float(rng.uniform(0, 2 * np.pi))
+            rows = int(np.ceil(radius / (spacing * 0.866)))
+            cols = int(np.ceil(radius / spacing))
+            for j in range(-rows, rows + 1):
+                for i in range(-cols, cols + 1):
+                    x = (i + 0.5 * (j % 2)) * spacing
+                    y = j * spacing * 0.866
+                    # a ragged island edge
+                    edge = radius * (1 + 0.15 * np.sin(3 * np.arctan2(y, x) + phase))
+                    if np.hypot(x, y) > edge or rng.random() > self.rpe_occupancy:
+                        continue
+                    x = float(cx + x + rng.normal(0, 0.12 * spacing))
+                    y = float(cy + y + rng.normal(0, 0.12 * spacing))
+                    angle = float(rng.uniform(0, np.pi))
+                    self.features.append(
+                        SceneFeature(
+                            x=x,
+                            y=y,
+                            sigma=0.44 * spacing,
+                            intensity=45.0,
+                            sharpness=2.5,
+                            eccentricity=float(rng.uniform(0.8, 1.0)),
+                            angle=angle,
+                            wobble=0.05,
+                            wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+                            cell_id=next_id,
+                            opacity=1.0,
+                            height=2.5e-6,
+                        )
+                    )
+                    self.features.append(
+                        SceneFeature(
+                            x=x,
+                            y=y,
+                            sigma=0.2 * spacing,
+                            intensity=20.0,
+                            sharpness=2.0,
+                            part="nucleus",
+                            cell_id=next_id,
+                            height=0.6e-6,
+                        )
+                    )
+                    for _ in range(int(rng.integers(4, 10))):
+                        t = rng.uniform(0, 2 * np.pi)
+                        r = rng.uniform(0.25, 0.45) * spacing
+                        self.features.append(
+                            SceneFeature(
+                                x=x + r * float(np.cos(t)),
+                                y=y + r * float(np.sin(t)),
+                                sigma=0.35e-6,
+                                intensity=60.0,
+                                sharpness=2.0,
+                                part="organelle",
+                                cell_id=next_id,
+                                height=0.3e-6,
+                            )
+                        )
+                    next_id += 1
+        return next_id
+
+    def _generate_neurons(self, rng, half, n, next_id) -> int:
+        """A round soma with a few long processes: each a wandering path of
+        thin overlapping segments that tapers, and may branch once."""
+        for _ in range(n):
+            x, y = (float(v) for v in rng.uniform(-half, half, size=2))
+            soma = float(rng.uniform(*self.soma_radius))
+            self.features.append(
+                SceneFeature(
+                    x=x,
+                    y=y,
+                    sigma=soma,
+                    intensity=60.0,
+                    sharpness=2.5,
+                    eccentricity=float(rng.uniform(0.75, 1.0)),
+                    angle=float(rng.uniform(0, np.pi)),
+                    wobble=0.1,
+                    wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+                    cell_id=next_id,
+                    opacity=1.0,
+                    height=0.6 * soma,
+                )
+            )
+            self.features.append(
+                SceneFeature(
+                    x=x,
+                    y=y,
+                    sigma=0.5 * soma,
+                    intensity=15.0,
+                    sharpness=2.0,
+                    part="nucleus",
+                    cell_id=next_id,
+                    height=0.5e-6,
+                )
+            )
+            paths = []
+            start = float(rng.uniform(0, 2 * np.pi))
+            count = int(rng.integers(3, 7))
+            for k in range(count):
+                heading = start + 2 * np.pi * k / count + float(rng.normal(0, 0.3))
+                length = float(rng.uniform(*self.neurite_length))
+                paths.append((x, y, heading, length, 1.0))
+            while paths:
+                px, py, heading, length, width = paths.pop()
+                px += soma * 0.9 * np.cos(heading) if width == 1.0 else 0.0
+                py += soma * 0.9 * np.sin(heading) if width == 1.0 else 0.0
+                step = 1.5e-6
+                travelled = 0.0
+                branched = width < 1.0
+                while travelled < length:
+                    heading += float(rng.normal(0, 0.12))
+                    px += step * np.cos(heading)
+                    py += step * np.sin(heading)
+                    travelled += step
+                    taper = width * (1.0 - 0.6 * travelled / length)
+                    self.features.append(
+                        SceneFeature(
+                            x=float(px),
+                            y=float(py),
+                            sigma=1.2e-6,
+                            intensity=40.0,
+                            sharpness=2.0,
+                            eccentricity=0.6 * taper,
+                            angle=float(heading),
+                            part="neurite",
+                            cell_id=next_id,
+                            height=0.6e-6 * taper,
+                        )
+                    )
+                    if (
+                        not branched
+                        and travelled > 0.4 * length
+                        and rng.random() < 0.02
+                    ):
+                        branched = True
+                        turn = float(rng.choice([-1, 1]) * rng.uniform(0.4, 0.9))
+                        rest = length - travelled
+                        paths.append((px, py, heading + turn, 0.7 * rest, 0.7 * taper))
+            next_id += 1
+        return next_id
+
     def _generate_bacteria(self, rng, half, n, next_id) -> int:
         for _ in range(n):
             x, y = rng.uniform(-half, half, size=2)
@@ -1318,6 +2057,13 @@ class SampleScene:
         "nucleus_radius",  # [min, max] m
         "bacteria_density",  # per 150 x 150 um
         "bacteria_length",  # [min, max] m
+        "rpe_island_density",  # per 150 x 150 um
+        "rpe_island_radius",  # [min, max] m
+        "rpe_cell_spacing",  # m
+        "rpe_occupancy",
+        "neuron_density",  # per 150 x 150 um
+        "soma_radius",  # [min, max] m
+        "neurite_length",  # [min, max] m
         "extent",  # m
         "grid_pitch",  # m
         "grid_bar_width",  # m
@@ -1338,8 +2084,24 @@ class SampleScene:
         "rip_fraction",  # of squares
         "ice_density",  # per 100 x 100 um
         "ice_size",  # [min, max] m
+        "frost_density",  # frost patches per 100 x 100 um
+        "sphere_density",  # dark spheres per 100 x 100 um
+        "sphere_size",  # [min, max] m, radius
+        "crack_density",  # hairline cracks per 100 x 100 um
         "grid_radius",  # m
         "grid_rim_width",  # m
+        "renderer",  # flat | relief
+        "mill_drift",  # m, sigma of each milling pass's drift
+        "mill_overcut",  # m, how far past its edges a pattern may cut
+        "mill_kerf",  # a higher current cuts wider
+        "mill_taper",  # degrees the trench walls lean in going down
+        "curtaining",  # strength of the stripes down a cut face (0 = none)
+        "damage_below",  # [min, max] m, the seeded thickness damage can start below
+        "damage_chance",  # per polishing pass below it
+        "charging",  # SEM charging strength on an uncoated grid (0 = never)
+        "gis_thickness",  # m, a GIS coat the grid comes in with
+        "sputter_thickness",  # m, a sputter coat the grid comes in with
+        "centre_mark",  # the orientation square at the grid's centre
     )
 
     @classmethod
@@ -1358,6 +2120,11 @@ class SampleScene:
             "nucleus_radius",
             "bacteria_length",
             "ice_size",
+            "sphere_size",
+            "damage_below",
+            "rpe_island_radius",
+            "soma_radius",
+            "neurite_length",
         ):
             if key in kwargs:
                 kwargs[key] = tuple(kwargs[key])
@@ -1406,6 +2173,7 @@ class SampleScene:
         rng: Optional[np.random.Generator] = None,
         beam_shift: Tuple[float, float] = (0.0, 0.0),
         beam_current: Optional[float] = None,
+        dwell_time: Optional[float] = None,
     ) -> np.ndarray:
         """Render one beam's view of the scene at the current stage position.
 
@@ -1437,6 +2205,17 @@ class SampleScene:
         if self.reference_position is None:
             self.anchor(stage_position)
         self.place_grids(projection)
+        if self.renderer == "relief":
+            frame = self.view_frame(
+                beam_type, stage_position, projection, beam_shift, beam_current
+            )
+            beam = "SEM" if beam_type is BeamType.ELECTRON else "FIB"
+            charge = 0.0
+            if beam_type is BeamType.ELECTRON:
+                charge = self.charge_strength(dwell_time)
+            return sim_relief.render(
+                self, beam, frame, pixel_size, (width, height), rng, charge
+            )
 
         # where the world anchor appears in the CURRENT view. Asked this way
         # round (anchor projected into the current pose, not the current
@@ -1485,6 +2264,8 @@ class SampleScene:
         ys_world = turn * (-vx * sin_t + vy * cos_t) / fs
 
         bars, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
+        groove = self.centre_mark_groove(xs_world, ys_world) / CENTRE_MARK_GROOVE
+        crack = self.crack_depth(xs_world, ys_world) * ~(bars | holes | rips)
         hole_rim = ndi_binary_dilation(holes, iterations=2) & ~holes & ~bars
         # the curled flap of film round a rip: a bright edge ~1.5 um wide
         flap = int(np.clip(np.ceil(RIP_FLAP_WIDTH / pixel_size), 1, 12))
@@ -1492,7 +2273,9 @@ class SampleScene:
         for b, canvas in canvases.items():
             t = layers[b]
             canvas[bars] += t["bars"] * (self.grid_intensity / 90.0)
+            canvas -= 0.6 * t["bars"] * (self.grid_intensity / 90.0) * groove * bars
             canvas[holes] += t["holes"]
+            canvas += 0.8 * t["holes"] * crack
             canvas[hole_rim] += t["hole_rim"]
             canvas[rip_rim] += t["rip_rim"]
 
@@ -1526,6 +2309,7 @@ class SampleScene:
             # the way an SE edge effect does, without amplifying flat noise
             edge = np.tanh(np.hypot(gx, gy) / EDGE_GRADIENT_SCALE)
             data = data + t["edge_highlight"] * EDGE_INTENSITY * edge
+        data = self._coat(data, beam_type, t)
         # what is torn or off-grid overrides whatever was drawn there
         data = np.where(rips, t["film"] + t["rips"], data)
         data = np.where(rim, t["rim"], data)
@@ -1537,11 +2321,34 @@ class SampleScene:
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
             if halo is not None:
                 data = np.where(halo, data + HALO_INTENSITY, data)
+        if beam_type is BeamType.ELECTRON:
+            strength = self.charge_strength(dwell_time)
+            if strength > 0:
+                charge = np.clip(ndi_gaussian(cover, 3.0), 0, 1)
+                if trench is not None:
+                    charge = np.where(trench, 0.0, charge)
+                data = self.charge_up(data, charge, strength)
         data = data + rng.normal(0, self.noise_sigma, canvas.shape)
         if self.noise_fraction > 0:
             uniform = rng.uniform(0, 255, canvas.shape)
             data = (1 - self.noise_fraction) * data + self.noise_fraction * uniform
         return np.clip(data, 0, 255).astype(np.uint8)
+
+    def _coat(self, data, beam_type, t):
+        """The flat renderer's coat: a GIS layer smooths the detail away and
+        reads brighter in the FIB; a sputter coat brightens the SEM a little.
+        (A trench, drawn after, is cut through it.)"""
+        if self.gis_thickness <= 0 and self.sputter_thickness <= 0:
+            return data
+        out = data
+        if self.gis_thickness > 0:
+            keep = float(np.exp(-self.gis_thickness / 0.8e-6))
+            out = t["film"] + keep * (out - t["film"])
+            if beam_type is BeamType.ION:
+                out = out + 25.0 * (1 - keep)
+        if self.sputter_thickness > 0 and beam_type is BeamType.ELECTRON:
+            out = out * (1 + 0.12 * (1 - np.exp(-self.sputter_thickness / 5e-9)))
+        return out
 
     def render_fm(
         self,
