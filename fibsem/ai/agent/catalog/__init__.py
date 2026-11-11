@@ -40,7 +40,7 @@ __all__ = [
     "INSTRUMENT_ENV",
     "GROUP_TITLES",
     "NOT_TOOLS",
-    "Serves",
+    "Devices",
     "ToolSpec",
     "needs",
     "route_call",
@@ -48,7 +48,7 @@ __all__ = [
 ]
 
 # Where fibsem-agent tells the sidecar its playbook's instrument kind, so the
-# sidecar offers the tools that kind serves (`Serves`).
+# sidecar offers the tools on that kind's devices (`Devices`).
 INSTRUMENT_ENV = "FIBSEM_AGENT_INSTRUMENT"
 
 CATALOG: Tuple[ToolSpec, ...] = (
@@ -153,9 +153,9 @@ def needs(tool: ToolSpec) -> FrozenSet[str]:
 
 
 @dataclass(frozen=True)
-class Serves:
-    """What a kind of instrument serves, as its ``serves.yaml`` says
-    (`fibsem.ai.agent.instruments.serves`): a FIB-SEM, which serves every
+class Devices:
+    """What a kind of instrument has, as its ``devices.yaml`` says
+    (`fibsem.ai.agent.instruments.devices`): a FIB-SEM, which gets every
     tool, or its devices and services by name."""
 
     microscope: bool = False
@@ -172,7 +172,7 @@ class Serves:
 
 
 def tools_for_capabilities(
-    capabilities: Dict, serves: Optional[Serves] = None
+    capabilities: Dict, devices: Optional[Devices] = None
 ) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
@@ -184,8 +184,8 @@ def tools_for_capabilities(
     the routers and parts: a server hosts an application or not for its whole
     life.
 
-    With *serves*, what the playbook's instrument kind serves, only the tools
-    it serves: an instrument doesn't change mid-session, and the agent may
+    With *devices*, what the playbook's instrument kind has, only the tools
+    on them: an instrument doesn't change mid-session, and the agent may
     start before it is connected. None offers every tool.
     """
     routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
@@ -196,7 +196,7 @@ def tools_for_capabilities(
         for t in CATALOG
         if routers.get(t.router, False)
         and (not t.part or parts is None or t.part in parts)
-        and (serves is None or serves.offers(t))
+        and (devices is None or devices.offers(t))
     )
 
 

@@ -367,9 +367,9 @@ def _name_the_client(mcp, client):
     middleware.append(name_client)
 
 
-def _serves(kind):
-    """What instrument *kind* serves, from the shipped files or a plugin's."""
-    return instruments.serves(kind, sources.find_root())
+def _devices(kind):
+    """What instrument *kind* has, from the shipped files or a plugin's."""
+    return instruments.devices(kind, sources.find_root())
 
 
 def build_sidecar(client, capabilities, instrument=None):
@@ -379,8 +379,8 @@ def build_sidecar(client, capabilities, instrument=None):
     its router is mounted (an app tool exists only when the server hosts an
     application), whatever the agent's level. The server enforces the level.
     None (no server answered at start-up) registers every tool's router.
-    *instrument*, an instrument kind, offers only the tools it serves
-    (its ``serves.yaml``).
+    *instrument*, an instrument kind, offers only the tools on what it has
+    (its ``devices.yaml``).
     """
     from mcp.server.mcpserver import Image, MCPServer
     from mcp.types import ToolAnnotations
@@ -389,7 +389,7 @@ def build_sidecar(client, capabilities, instrument=None):
     offered = {
         t.name
         for t in tools_for_capabilities(
-            capabilities or every, _serves(instrument) if instrument else None
+            capabilities or every, _devices(instrument) if instrument else None
         )
     }
     by_name = {t.name: t for t in CATALOG}
@@ -1532,7 +1532,7 @@ def main(argv=None):
     parser.add_argument(
         "--instrument",
         default=os.environ.get(INSTRUMENT_ENV) or None,
-        help="offer only the tools this instrument kind serves (default every "
+        help="offer only the tools on this instrument kind's devices (default every "
         "tool; fibsem-agent sets it from its playbook)",
     )
     parser.add_argument(

@@ -131,7 +131,7 @@ Each group contributes one kind of object:
 - **The agent's words for an instrument** (`fibsem.agent`): a path, or a
   function returning one, to a folder holding `.claude/` laid out as the
   repository's: an instrument kind in `.claude/fibsem-agent/instruments/<kind>/`
-  (`prompt.md`, `intake.md`, `reread.md`, and `serves.yaml` listing its
+  (`prompt.md`, `intake.md`, `reread.md`, and `devices.yaml` listing its
   `devices:` and `services:` by name, so the agent is offered the tools on
   them), its playbooks in
   `.claude/fibsem-agent/playbooks/` and their skills in `.claude/skills/`. The

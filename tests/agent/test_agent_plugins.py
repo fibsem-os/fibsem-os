@@ -89,7 +89,7 @@ def test_a_folder_with_no_claude_folder_is_left_out(tmp_path, monkeypatch):
         loader.clear_cache()
 
 
-def test_a_plugins_kind_is_offered_the_tools_on_what_it_serves(installed):
+def test_a_plugins_kind_is_offered_the_tools_on_its_devices(installed):
     from fibsem.ai.agent.catalog import tools_for_capabilities
 
     checkout = harness.find_checkout()
@@ -97,18 +97,18 @@ def test_a_plugins_kind_is_offered_the_tools_on_what_it_serves(installed):
     folder = installed / ".claude" / "fibsem-agent" / "instruments" / "lab-scope"
 
     def offered():
-        serves = instruments.serves("lab-scope", checkout)
-        return {t.name for t in tools_for_capabilities(capabilities, serves)}
+        devices = instruments.devices("lab-scope", checkout)
+        return {t.name for t in tools_for_capabilities(capabilities, devices)}
 
-    # No serves.yaml: the tools for any instrument only.
+    # No devices.yaml: the tools for any instrument only.
     assert "device_list" in offered() and "stage_get_position" not in offered()
-    (folder / "serves.yaml").write_text("devices: [stage, camera]\n")
+    (folder / "devices.yaml").write_text("devices: [stage, camera]\n")
     assert "stage_get_position" in offered()
     assert "milling_run_stage" not in offered()
 
-    (folder / "serves.yaml").write_text("devices: stage\n")
+    (folder / "devices.yaml").write_text("devices: stage\n")
     with pytest.raises(instruments.InstrumentError, match="list of names"):
-        instruments.serves("lab-scope", checkout)
-    (folder / "serves.yaml").write_text("tools: [milling_run_stage]\n")
+        instruments.devices("lab-scope", checkout)
+    (folder / "devices.yaml").write_text("tools: [milling_run_stage]\n")
     with pytest.raises(instruments.InstrumentError, match="not"):
-        instruments.serves("lab-scope", checkout)
+        instruments.devices("lab-scope", checkout)

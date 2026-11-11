@@ -108,21 +108,21 @@ def test_tools_of_a_part_the_app_lacks_are_not_offered():
     assert "app_get_status" in core
 
 
-def test_tools_are_offered_for_what_the_instrument_kind_serves():
+def test_tools_are_offered_for_the_instrument_kinds_devices():
     from fibsem.ai.agent import instruments, sources
-    from fibsem.ai.agent.catalog import Serves, tools_for_capabilities
+    from fibsem.ai.agent.catalog import Devices, tools_for_capabilities
 
     root = sources.find_root()
     capabilities = {"routers": {"services": True, "app": True}}
 
-    def offered(serves):
-        return {t.name for t in tools_for_capabilities(capabilities, serves)}
+    def offered(devices):
+        return {t.name for t in tools_for_capabilities(capabilities, devices)}
 
     every = offered(None)
     # A FIB/SEM session is offered what it always was.
-    assert offered(instruments.serves("fibsem", root)) == every
+    assert offered(instruments.devices("fibsem", root)) == every
     # A standalone cryo-FM: the tools for any instrument, and those on its devices.
-    cryo = offered(instruments.serves("cryo-fm", root))
+    cryo = offered(instruments.devices("cryo-fm", root))
     assert {"stage_get_position", "fm_save_focus_position"} <= cryo
     assert not {"milling_run_stage", "beam_acquire_image", "grid_load"} & cryo
     assert not {"stage_move_relative", "beam_turn_on", "microscope_get_state"} & cryo
@@ -130,10 +130,10 @@ def test_tools_are_offered_for_what_the_instrument_kind_serves():
         assert generic in cryo
     assert {"app_get_status", "knowledge_get", "plan_get"} <= cryo
     # Any kind with a stage gets the stage's tool; with nothing, the generic ones.
-    assert "stage_get_position" in offered(Serves(devices=frozenset({"stage"})))
-    assert "stage_get_position" not in offered(Serves())
+    assert "stage_get_position" in offered(Devices(devices=frozenset({"stage"})))
+    assert "stage_get_position" not in offered(Devices())
     # A service's tools come with the service.
-    milling = offered(Serves(services=frozenset({"milling"})))
+    milling = offered(Devices(services=frozenset({"milling"})))
     assert "milling_run_stage" in milling and "beam_acquire_image" not in milling
 
 

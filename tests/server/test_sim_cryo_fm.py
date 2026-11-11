@@ -69,8 +69,8 @@ def test_an_agent_on_the_cryo_fm_playbook_gets_its_tools():
     instruments.load(CRYO_FM, ROOT)
 
     capabilities = {"routers": {"services": True, "app": True}}
-    serves = instruments.serves(CRYO_FM, ROOT)
-    tools = {t.name for t in tools_for_capabilities(capabilities, serves)}
+    devices = instruments.devices(CRYO_FM, ROOT)
+    tools = {t.name for t in tools_for_capabilities(capabilities, devices)}
     assert {"device_call_command", "stage_get_position", "plan_get"} <= tools
     assert not {"milling_run_stage", "beam_acquire_image", "fm_acquire_image"} & tools
 
