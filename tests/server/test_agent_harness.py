@@ -287,6 +287,25 @@ def test_the_harness_keeps_the_deadlines_in_the_agents_plan(session):
     assert running.harness._deadlines.times == []
 
 
+def test_the_first_turn_can_write_the_plan(session):
+    written = []
+
+    async def reply(prompt):
+        with _http(session) as http:
+            written.append(
+                http.post(
+                    "/app/agent/plan/section",
+                    json={"section": "Goal", "text": "Make two lamellae."},
+                ).status_code
+            )
+        return TurnEnd(session_id="scripted")
+
+    running = _harness(session, ScriptedAgent(reply))
+    _until(lambda: written, what="the first turn's plan")
+    running.stop()
+    assert written == [200]
+
+
 def test_a_message_is_read_as_the_turn_carrying_it_starts(session):
     agent = ScriptedAgent()
     running = _harness(session, agent)
