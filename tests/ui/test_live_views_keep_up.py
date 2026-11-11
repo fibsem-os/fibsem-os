@@ -171,3 +171,22 @@ class TestTheCoincidenceViewerStats:
 
         viewer._on_intensity_stats(_stats(1.0, drop_fraction=0.4))
         assert len(restyled) == 1
+
+
+def test_a_slow_draw_leaves_the_window_as_long_free(qapp):
+    """A 15 ms exposure gives a new frame every tick; a frame that takes 300 ms to
+    draw must not make the next draw start at once, or clicks wait behind draws."""
+
+    def slow_draw(value):
+        time.sleep(0.3)
+
+    coalescer = Coalescer(slow_draw, interval_ms=100)
+    coalescer.put(1)
+    coalescer.flush()
+    assert coalescer._timer.interval() >= 300
+
+    coalescer._deliver = lambda value: None
+    coalescer.put(2)
+    coalescer.flush()
+    assert coalescer._timer.interval() == 100  # fast again: back to the base rate
+    coalescer.stop()
