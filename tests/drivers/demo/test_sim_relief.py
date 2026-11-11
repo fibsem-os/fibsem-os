@@ -417,3 +417,43 @@ def test_each_channel_can_carry_a_label(setting, channel):
     finally:
         microscope.disconnect()
     assert (labelled - plain).max() > 300
+
+
+def test_reflection_shows_bars_bright_ice_grey_and_cells_dark():
+    """In reflected light the bars are brightest, the ice a mid grey in
+    fringes, a cell darker than the ice round it, and a cut-through trench
+    nothing."""
+    from fibsem.drivers.demo import sim_relief
+    from fibsem.drivers.demo.sim_relief import BeamCut
+    from fibsem.drivers.demo.sim_scene import MilledRegion
+
+    scene = SampleScene(renderer="relief", cell_type="rpe", seed=5)
+    body = min(
+        (f for f in scene.features if f.kind == "cell" and f.part == "body"),
+        key=lambda f: np.hypot(f.x, f.y),
+    )
+    cx, cy = body.x * 1e6, body.y * 1e6
+    xs = np.arange(cx - 60, cx + 60, 0.5)
+    ys = np.arange(cy - 60, cy + 60, 0.5)
+    x, y = np.meshgrid(xs, ys)
+    r = sim_relief.reflectance(scene, x, y, (0.5, 0.5))
+    _, mat, *_ = sim_relief.surface(scene, x, y, (0.5, 0.5))
+    assert np.allclose(r[mat == sim_relief.METAL], 1.0)
+    ice = r[mat == sim_relief.ICE]
+    cell = r[mat == sim_relief.CELL]
+    assert 0.2 < np.median(ice) < 0.8 and ice.std() > 0.02
+    assert np.median(cell) < np.median(ice)
+
+    polygon = np.array(
+        [[cx - 5, cy - 3], [cx + 5, cy - 3], [cx + 5, cy + 3], [cx - 5, cy + 3]]
+    )
+    scene.milled = [
+        MilledRegion(
+            points=polygon * 1e-6,
+            beam_cut=BeamCut(polygon=polygon, turn=1.0, fs=1.0, k=0.0),
+        )
+    ]
+    sim_relief._cache(scene).clear()
+    r = sim_relief.reflectance(scene, x, y, (0.5, 0.5))
+    inside = (np.abs(x - cx) < 4) & (np.abs(y - cy) < 2)
+    assert r[inside].max() == 0.0

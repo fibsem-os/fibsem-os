@@ -2548,6 +2548,8 @@ class SampleScene:
             / fs
         )
         bar_mask, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
+        if bars >= 1.0 and self.renderer == "relief":
+            return self._fm_reflection(xs_world, ys_world, defocus, rng)
         if bars > 0:
             canvas[bar_mask] += bars * self.grid_intensity
             # in reflection the holes and rips read dark, the rim bright
@@ -2653,6 +2655,58 @@ class SampleScene:
                 canvas, far_red, bodies, defocus, view, gone, (xs_world, ys_world)
             )
 
+        return self._fm_camera(canvas, rng)
+
+    def _fm_reflection(self, xs_world, ys_world, defocus, rng):
+        """Reflected light from the relief: the same 3D sample the beams see,
+        so ice thickness reads as fringes, cells as dark textured mounds and
+        a lamella or trench where the milling left it. Worked out on at most
+        ~512 samples a side and scaled up: the optics blur finer detail."""
+        um = sim_relief.UM
+        height, width = ys_world.shape[0], xs_world.shape[1]
+        step = max(1, int(np.ceil(max(height, width) / 512)))
+        xs = xs_world[0, ::step].astype(np.float64) * um
+        ys = ys_world[::step, 0].astype(np.float64) * um
+        key = (
+            "fm-reflection",
+            self.seed,
+            round(float(xs[0]), 4),
+            round(float(ys[0]), 4),
+            len(xs),
+            len(ys),
+            round(float(xs[-1]), 4),
+            len(self.milled),
+            round(self.gis_thickness * um, 4),
+            id(self),
+        )
+        cache = sim_relief._cache(self)
+        r = cache.get(key)
+        if r is None:
+            gx, gy = np.meshgrid(xs, ys)
+            dx = abs(float(xs[1] - xs[0])) if len(xs) > 1 else 1.0
+            dy = abs(float(ys[1] - ys[0])) if len(ys) > 1 else 1.0
+            r = sim_relief.reflectance(self, gx, gy, (dx, dy))
+            cache[key] = r
+            while len(cache) > sim_relief.CACHE_SIZE:
+                cache.popitem(last=False)
+        if step > 1:
+            r = ndi_zoom(r, step, order=1)[:height, :width]
+            if r.shape != (height, width):
+                r = np.pad(
+                    r,
+                    ((0, height - r.shape[0]), (0, width - r.shape[1])),
+                    mode="edge",
+                )
+        canvas = r * self.grid_intensity
+        if defocus:
+            sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
+            if sigma_px > 0.3:
+                canvas = _blur(canvas, sigma_px)
+        return self._fm_camera(canvas, rng)
+
+    def _fm_camera(self, canvas: np.ndarray, rng) -> np.ndarray:
+        """The canvas as the camera reads it."""
+        height, width = canvas.shape
         if rng is None:
             rng = np.random.default_rng()
         # 16-bit camera: a dim background, shot-noise-like gaussian noise

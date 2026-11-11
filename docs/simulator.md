@@ -118,6 +118,12 @@ bodies; an mCherry-like line a seeded subset of cells (`red_fraction`). Anything
 renders dark. The objective's distance from focus blurs the frame. The panels are shown
 in the false colour a viewer gives each channel, and composited the way a CLEM overlay is.
 
+With the relief renderer, reflection comes from the same 3D sample the beams see. The bars
+are brightest. The ice is a mid grey with fringes where its thickness changes, as a thin
+film does. Cells read dark and textured, because their steep, rough surface scatters the
+light away. Milling shows where the cut left material: a trench milled through is dark,
+and a lamella or a floor shows fringes.
+
 ### FM labels and targets
 
 Each FM channel carries one label, set per channel. Blue is always the nucleus (a DNA

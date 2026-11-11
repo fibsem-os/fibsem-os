@@ -681,6 +681,39 @@ def _finish(scene, img, rng, q=None, charge=0.0):
     return np.clip(img * BRIGHTNESS, 0, 255).astype(np.uint8)
 
 
+# reflected light: ice and the film under it make a thin film, so thickness
+# reads as fringes; their period in thickness is wavelength / (2 n)
+FRINGE_PERIOD = 0.21  # um, 550 nm light in ice (n = 1.31)
+FRINGE_FADE = 0.8  # um; through thicker ice the fringes wash out
+REFLECTANCE = {METAL: 1.0, CRYSTAL: 1.15, SPHERE: 1.2, HOLDER: 0.2, NOTHING: 0.0}
+
+
+def reflectance(scene, x: np.ndarray, y: np.ndarray, step: Tuple[float, float]):
+    """What the FM sees in reflected light on a grid of world points (um),
+    relative to a grid bar: the bars bright; the ice grey, in fringes as its
+    thickness changes (over a cell, round its edge, down a lamella); steep or
+    rough ice scattering the light away, so cells read dark and textured;
+    what is milled through, nothing."""
+    h, mat, bottom, _, _, _ = surface(scene, x, y, step)
+    sx, sy = step
+    seed = int(scene.seed)
+    solid = h > VOID / 2
+    # the ice's own thickness, plus a slow swell across a square
+    swell = 0.15 * (1 + value_noise(x, y, 40.0, seed + 301))
+    thick = np.clip(h - bottom, 0, None) + swell
+    fringe = 0.5 + 0.5 * np.cos(2 * np.pi * thick / FRINGE_PERIOD)
+    out = 0.35 + 0.3 * fringe * np.exp(-thick / FRINGE_FADE)
+    gy, gx = np.gradient(np.where(solid, h, 0.0), sy, sx)
+    slope = np.hypot(gx, gy)
+    out = out / (1 + (slope / 0.4) ** 2)
+    out = out * (1 + 0.15 * value_noise(x, y, 0.6, seed + 302) * (mat == CELL))
+    out[mat == HOLE] *= 0.85
+    for m, v in REFLECTANCE.items():
+        out[mat == m] = v
+    out[~solid] = 0.0
+    return out.astype(np.float32)
+
+
 def _cache(scene) -> "OrderedDict":
     cache = getattr(scene, "_relief_cache", None)
     if cache is None:
