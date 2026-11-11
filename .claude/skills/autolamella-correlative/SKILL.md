@@ -43,11 +43,12 @@ overwrites theirs: use it only when the operator asks.
 Where the lamella has a spot-burn task, seed the FIB fiducials from its burns
 (`correlation_find_spot_burns`, with `fib_image_path`) instead of picking
 them by eye. Take each FM fiducial's z from its own fit, not one z for all:
-the burns sit on the cell surface, which is rarely flat in the FM (a few
-degrees of tilt is several slices across the field), and one slice of z moves the target
-across the lamella. A burn well off the plane through the others is a wrong pick. If a
-burn's fit fails, fit it again starting from the z that plane gives there
-(`z`) before leaving it out. Refine each fiducial pick with
+the burns sit on the cell surface and follow its topography, which is rarely
+flat in the FM (a few degrees of tilt is several slices across the field),
+and one slice of z moves the target across the lamella. A burn far off the
+surface the others trace is a wrong pick. If a burn's fit fails, fit it again
+starting from the z its neighbours give there (`z`) before leaving it out.
+Refine each fiducial pick with
 `correlation_refine_point` before `correlation_correlate`, pass `lamella_path`, and look at the overlay before
 trusting the answer. Always give a surface point, `fm_surface_point` or
 `fib_surface_point`, so the refractive-index correction is applied, and check
