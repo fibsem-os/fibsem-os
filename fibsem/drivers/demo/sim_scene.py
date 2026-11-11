@@ -33,7 +33,7 @@ import logging
 import zlib
 from collections import OrderedDict
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -99,6 +99,7 @@ REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6)
 # the FM's fluorescence intensity for a fully-dyed part, on the beam
 # intensity scale the stamper uses
 FM_INTENSITY = 90.0
+FM_PSF_SIGMA = 0.13e-6  # m; an in-focus point source
 # a faint outline of the bars leaks into every fluorescence channel
 BARS_IN_FLUORESCENCE = 0.05
 
@@ -768,6 +769,16 @@ class SampleScene:
     # defocus model for the FM: blur sigma grows by this many pixels per
     # micron the objective sits away from its focus position
     fm_blur_px_per_um: float = 0.6
+    # FM targets in the cytoplasmic (GFP) channel: a seeded fraction of cells
+    # carry a diffuse centrin pool with a centriole pair at its edge (two
+    # diffraction-limited spots ~1 um apart, at a height in the cell), and a
+    # seeded chance that a scene carries none; a spot is sharp within about
+    # `fm_axial_range` (m) of its height and fades either side
+    fm_target_fraction: float = 0.5
+    fm_no_target_chance: float = 0.2
+    fm_axial_range: float = 0.5e-6
+    # the camera's hot pixels: the same pixels, as bright, in every frame
+    fm_hot_pixels: float = 2e-4
     _texture: Optional[WorldTexture] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
@@ -801,6 +812,7 @@ class SampleScene:
         grid, when given)."""
         self.features = []
         self.cracks: List[np.ndarray] = []
+        self.fm_spots: List[dict] = []
         for grid in self.grids:
             self._generate_grid(grid, rng)
             rng = None
@@ -871,6 +883,7 @@ class SampleScene:
         for f in self.features[start:]:
             f.x += grid.x
             f.y += grid.y
+        self._generate_centrioles(grid, start)
 
     def _generate_frost(self, rng, grid: SceneGrid, half: float) -> None:
         """Ice contamination: patches of small bright crystal grains, dense
@@ -950,6 +963,53 @@ class SampleScene:
                 arm = np.column_stack([pts, w])
                 trunk = arm if trunk is None else trunk
                 self.cracks.append(arm)
+
+    def _generate_centrioles(self, grid: SceneGrid, start: int) -> None:
+        """Centrin in a seeded fraction of this grid's cells: a dim pool and,
+        at its edge, a centriole pair at a height in the cell (kept in
+        `fm_spots`, seen only by the FM). Some scenes carry none."""
+        rng = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 59])
+        if rng.uniform() < self.fm_no_target_chance:
+            return
+        for f in self.features[start:]:
+            if f.kind != "cell" or f.part != "body":
+                continue
+            if rng.uniform() >= self.fm_target_fraction:
+                continue
+            tall = max(float(f.height or 0.0), 1.5e-6)
+            pool_sigma = float(rng.uniform(1.0e-6, 1.5e-6))
+            a = rng.uniform(0, 2 * np.pi)
+            reach = float(rng.uniform(0.2, 0.5)) * f.sigma
+            px, py = f.x + reach * np.cos(a), f.y + reach * np.sin(a)
+            z = float(rng.uniform(0.3e-6, 0.8 * tall))
+            b = rng.uniform(0, 2 * np.pi)
+            edge = 0.8 * pool_sigma
+            mx, my = px + edge * np.cos(b), py + edge * np.sin(b)
+            sep = float(rng.uniform(0.8e-6, 1.2e-6))
+            c = rng.uniform(0, 2 * np.pi)
+            dz = float(rng.normal(0, 0.15e-6))
+            pair = [
+                (
+                    mx + s_ * sep / 2 * np.cos(c),
+                    my + s_ * sep / 2 * np.sin(c),
+                    z + s_ * dz / 2,
+                )
+                for s_ in (-1, 1)
+            ]
+            self.fm_spots.append(
+                {
+                    "cell_id": int(f.cell_id),
+                    "pool": (float(px), float(py), z, pool_sigma),
+                    "pair": [tuple(float(v) for v in p) for p in pair],
+                    "midpoint": (float(mx), float(my), z),
+                }
+            )
+
+    def fm_targets(self) -> List[dict]:
+        """The scene's centriole pairs: per cell, the pair's midpoint (x, y
+        world m; z m above the film, the objective's distance from focus at
+        which the pair is sharpest), the two spots and the centrin pool."""
+        return [dict(t) for t in getattr(self, "fm_spots", [])]
 
     def crack_depth(self, xs_world: np.ndarray, ys_world: np.ndarray) -> np.ndarray:
         """How far (0..1) each world point sits inside a hairline crack: 1 on
@@ -1922,15 +1982,18 @@ class SampleScene:
                             height=0.6e-6,
                         )
                     )
-                    for _ in range(int(rng.integers(4, 10))):
+                    # pigment granules: many and small, spread evenly over
+                    # the cell round the nucleus (a few read as pairs, a
+                    # ring of them is too sparse)
+                    for _ in range(int(rng.integers(18, 36))):
                         t = rng.uniform(0, 2 * np.pi)
-                        r = rng.uniform(0.25, 0.45) * spacing
+                        r = np.sqrt(rng.uniform(0.22**2, 0.45**2)) * spacing
                         self.features.append(
                             SceneFeature(
                                 x=x + r * float(np.cos(t)),
                                 y=y + r * float(np.sin(t)),
-                                sigma=0.35e-6,
-                                intensity=60.0,
+                                sigma=float(rng.uniform(0.15e-6, 0.25e-6)),
+                                intensity=45.0,
                                 sharpness=2.0,
                                 part="organelle",
                                 cell_id=next_id,
@@ -2098,6 +2161,10 @@ class SampleScene:
         "curtaining",  # strength of the stripes down a cut face (0 = none)
         "damage_below",  # [min, max] m, the seeded thickness damage can start below
         "damage_chance",  # per polishing pass below it
+        "fm_target_fraction",  # cells with a centrin pool and centriole pair
+        "fm_no_target_chance",  # chance a grid carries no pair at all
+        "fm_axial_range",  # m, how far from its height an FM spot stays sharp
+        "fm_hot_pixels",  # fraction of FM camera pixels that are hot
         "charging",  # SEM charging strength on an uncoated grid (0 = never)
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
@@ -2450,6 +2517,10 @@ class SampleScene:
                     weight = FM_INTENSITY * body_dye
             if weight <= 0:
                 continue
+            if f.part == "organelle" and f.sigma < 1e-6:
+                # a small granule takes up little dye, and sits at a height
+                # in its cell: sharp there, spreading and dimming away from it
+                f, weight = self._fm_at_height(f, 0.25 * weight, defocus)
             u = cx + (turn * f.x + ax) / pixel_size
             v = cy + (turn * f.y * fs + ay) / pixel_size
             self._stamp_feature(
@@ -2476,12 +2547,89 @@ class SampleScene:
             if sigma_px > 0.3:
                 canvas = _blur(canvas, sigma_px)
 
+        if cells > 0 and getattr(self, "fm_spots", None):
+            self._stamp_centrin(
+                canvas, cells, defocus, ax, ay, cx, cy, pixel_size, fs, turn
+            )
+
         if rng is None:
             rng = np.random.default_rng()
         # 16-bit camera: a dim background, shot-noise-like gaussian noise
         data = 400.0 + canvas * 120.0
         data += rng.normal(0, 40.0 + 0.05 * np.sqrt(np.maximum(data, 0)), canvas.shape)
+        if self.fm_hot_pixels > 0:
+            # the camera's own: the same pixels at the same level every frame
+            hot = np.random.default_rng(
+                [int(self.seed) & 0x7FFFFFFF, 61, width, height]
+            )
+            n = int(self.fm_hot_pixels * width * height)
+            rows = hot.integers(0, height, n)
+            cols = hot.integers(0, width, n)
+            data[rows, cols] = hot.uniform(4000, 30000, n)
         return np.clip(data, 0, 65535).astype(np.uint16)
+
+    def _fm_at_height(self, f: SceneFeature, weight: float, defocus: float):
+        """A small feature blurred for its distance from the focal plane: its
+        height is seeded from where it is, so it is the same in every view."""
+        rng = np.random.default_rng(
+            [
+                int(self.seed) & 0x7FFFFFFF,
+                67,
+                int(f.x * 1e8) & 0x7FFFFFFF,
+                int(f.y * 1e8) & 0x7FFFFFFF,
+            ]
+        )
+        z = float(rng.uniform(0.3e-6, 2.0e-6))
+        spread = ((float(defocus or 0.0) - z) / max(self.fm_axial_range, 1e-9)) ** 2
+        sigma = float(np.hypot(f.sigma, FM_PSF_SIGMA * np.sqrt(spread)))
+        return replace(f, sigma=sigma, sharpness=1.0), weight * (f.sigma / sigma) ** 2
+
+    def _stamp_centrin(self, canvas, weight, defocus, ax, ay, cx, cy, pix, fs, turn):
+        """The centrin pools and centriole pairs, each blurred by how far it
+        sits from the focal plane (the objective's distance from focus is the
+        height in focus): a spot is sharp within `fm_axial_range` and spreads
+        and dims either side."""
+        z_plane = float(defocus or 0.0)
+        z_r = max(self.fm_axial_range, 1e-9)
+        height, width = canvas.shape
+
+        def stamp(x, y, z, sigma0, peak):
+            # the point spread widens away from focus; a wide source (the
+            # pool) barely changes, a point (a centriole) spreads and dims
+            dz = (z_plane - z) / z_r
+            sigma_m = float(np.hypot(sigma0, FM_PSF_SIGMA * abs(dz)))
+            amp = weight * peak * (sigma0 / sigma_m) ** 2
+            sigma = max(sigma_m / pix, 0.6)
+            u = cx + (turn * x + ax) / pix
+            v = cy + (turn * y * fs + ay) / pix
+            r = int(np.ceil(4 * sigma))
+            u0, u1 = max(int(u) - r, 0), min(int(u) + r + 2, width)
+            v0, v1 = max(int(v) - r, 0), min(int(v) + r + 2, height)
+            if u0 >= u1 or v0 >= v1:
+                return
+            uu = np.arange(u0, u1)[None, :] - u
+            vv = np.arange(v0, v1)[:, None] - v
+            canvas[v0:v1, u0:u1] += amp * np.exp(-(uu**2 + vv**2) / (2 * sigma**2))
+
+        for spot in self.fm_spots:
+            x, y, z, sigma = spot["pool"]
+            if not self.milled_through(x, y, z):
+                stamp(x, y, z, sigma, 0.6 * FM_INTENSITY)
+            for x, y, z in spot["pair"]:
+                if not self.milled_through(x, y, z):
+                    stamp(x, y, z, FM_PSF_SIGMA, 2.0 * FM_INTENSITY)
+
+    def milled_through(self, x: float, y: float, z: float) -> bool:
+        """Whether a milled pattern has cut away the point at (x, y) world
+        m, `z` m above the film: each pattern is cut along the beam that
+        milled it, so a lamella keeps only what lies inside its slab."""
+        um = sim_relief.UM
+        xs, ys = np.array([[x * um]]), np.array([[y * um]])
+        for region in self.milled:
+            lo, hi = sim_relief._cut_range(self, region, xs, ys)
+            if lo[0, 0] <= z * um <= hi[0, 0]:
+                return True
+        return False
 
     def _in_red_subset(self, cell_id: int) -> bool:
         """Whether a cell carries the subset dye: drawn from the seed and

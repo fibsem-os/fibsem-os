@@ -275,3 +275,83 @@ def test_a_thin_lamella_can_be_damaged(microscope):
     assert started["kind"] in ("ragged", "crack", "broken")
     _lamella(microscope, 0.25e-6, height=0.375e-6)
     assert scene.mill_passes[-1]["damage"]["severity"] == 2
+
+
+def test_centriole_pairs_are_sharp_at_their_height():
+    """A centriole pair is recorded with its midpoint and height, renders
+    brightest in the plane at that height, and the camera's hot pixels sit
+    on the same pixels, as bright, in every frame."""
+    from fibsem.drivers.demo.sim_scene import fm_channel_weights
+    from fibsem.geometry.projection import FMStageProjection
+
+    with_none = SampleScene(cell_type="rpe", fm_no_target_chance=1.0, seed=5)
+    assert with_none.fm_targets() == []
+    scene = SampleScene(cell_type="rpe", fm_no_target_chance=0.0, seed=5)
+    target = min(scene.fm_targets(), key=lambda t: np.hypot(*t["midpoint"][:2]))
+    (x0, y0, z0), (x1, y1, z1) = target["pair"]
+    assert 0.7e-6 < np.hypot(x1 - x0, y1 - y0) < 1.3e-6
+    mx, my, mz = target["midpoint"]
+    for g in scene.features:
+        g.x, g.y = g.x - mx, g.y - my
+    for spot in scene.fm_spots:
+        spot["pair"] = [(x - mx, y - my, z) for x, y, z in spot["pair"]]
+        x, y, z, sigma = spot["pool"]
+        spot["pool"] = (x - mx, y - my, z, sigma)
+
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
+    )
+    try:
+        microscope.system.sim["sample"] = {"enabled": True}
+        microscope._connection.setup_sample_scene()
+        pose = microscope._connection.scene_stage_position_at_fm()
+        scene.anchor(pose)
+        live = FMStageProjection.from_microscope(microscope)
+        projection = FMStageProjection(
+            geometry=live.geometry, pixel_size=0.1e-6, shape=(201, 201)
+        )
+        weights = fm_channel_weights("525", 488)
+
+        def frame(z, seed):
+            return scene.render_fm(
+                pose,
+                (201, 201),
+                projection,
+                weights=weights,
+                defocus=z,
+                rng=np.random.default_rng(seed),
+            )
+
+        sharp, far = frame(mz, 1), frame(mz + 2.5e-6, 2)
+    finally:
+        microscope.disconnect()
+    centre = (slice(90, 111), slice(90, 111))
+    assert sharp[centre].max() > 1.3 * far[centre].max()
+    hot = (sharp == far) & (sharp > 4000)
+    assert hot.sum() >= int(scene.fm_hot_pixels * 201 * 201) - 1
+
+
+def test_milling_cuts_away_a_centriole_outside_the_lamella():
+    """An FM point is gone once a pattern cut along the beam passes through
+    it, and kept while it lies in the slab between two trenches."""
+    from fibsem.drivers.demo.sim_relief import BeamCut
+    from fibsem.drivers.demo.sim_scene import MilledRegion
+
+    scene = SampleScene(cell_type="rpe", fm_no_target_chance=1.0, seed=5)
+
+    def trench(w0, w1):
+        # in the milling view a point (x, y, h) um sits at (x, y + h)
+        polygon = np.array([[-5.0, w0], [5.0, w0], [5.0, w1], [-5.0, w1]])
+        corners = polygon * 1e-6
+        return MilledRegion(
+            points=corners, beam_cut=BeamCut(polygon=polygon, turn=1.0, fs=1.0, k=1.0)
+        )
+
+    point = (0.0, 0.0, 1e-6)  # sits at w = 1 um in the milling view
+    scene.milled = [trench(2.0, 8.0), trench(-8.0, 0.5)]
+    assert not scene.milled_through(*point)
+    scene.milled.append(trench(0.5, 1.5))
+    assert scene.milled_through(*point)

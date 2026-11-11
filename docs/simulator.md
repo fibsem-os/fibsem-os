@@ -118,6 +118,21 @@ bodies; an mCherry-like line a seeded subset of cells (`red_fraction`). Anything
 renders dark. The objective's distance from focus blurs the frame. The panels are shown
 in the false colour a viewer gives each channel, and composited the way a CLEM overlay is.
 
+### FM targets
+
+In the cytoplasmic (GFP) channel a seeded fraction of cells (`fm_target_fraction`) carry
+a dim centrin pool with a centriole pair at its edge: two diffraction-limited spots about
+1 um apart, at a height in the cell. A spot is sharp within about `fm_axial_range` of its
+height, the objective's distance from focus at which it is in focus, and spreads and dims
+either side, so a z-stack finds it sharp over a few planes. Whole bright cells are the
+decoys, and small granules (RPE pigment) sit at their own heights and blur the same way.
+A pool or pair that a milled pattern cut through, along the beam that milled it, is gone
+from the FM, so a lamella keeps only what lies in its slab (the pattern's depth is not
+applied here). A seeded chance (`fm_no_target_chance`) leaves a grid with no pair at all.
+`scene.fm_targets()` lists each pair's midpoint (x, y and height, m), its two spots and
+its pool. The camera has hot pixels (`fm_hot_pixels`): the same pixels, as bright, in
+every frame.
+
 ## One world, three views
 
 ![SEM, FIB and FM of the same place](img/simulator/triplet.png)
@@ -243,6 +258,10 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | -- | -- | -- |
 | `red_fraction` | 0.4 | fraction of cells carrying the subset (mCherry-like) dye |
 | `fm_blur_px_per_um` | 0.6 | FM defocus blur, pixels per micron the objective is off focus |
+| `fm_target_fraction` | 0.5 | cells with a centrin pool and a centriole pair |
+| `fm_no_target_chance` | 0.2 | chance a grid carries no pair at all |
+| `fm_axial_range` | 5e-07 | how far from its height an FM spot stays sharp (m) |
+| `fm_hot_pixels` | 0.0002 | fraction of FM camera pixels that are hot |
 
 ### Holder
 
