@@ -100,3 +100,22 @@ def test_a_restarted_gateway_keeps_its_flags(monkeypatch):
         "--manufacturer",
         "Demo",
     ]
+
+
+@pytest.mark.parametrize(
+    "argv, tray",
+    [
+        (["run"], False),
+        ([], False),
+        (["run", "--tray"], True),
+        (["run", "--no-tray"], False),
+    ],
+)
+def test_the_tray_is_off_unless_asked_for(monkeypatch, argv, tray):
+    ran = []
+    monkeypatch.setattr(gateway_main, "refuse", lambda what: None)
+    monkeypatch.setattr(
+        gateway_main, "run", lambda port, tray, connection: ran.append(tray) or 0
+    )
+    gateway_main.main(argv)
+    assert ran == [tray]

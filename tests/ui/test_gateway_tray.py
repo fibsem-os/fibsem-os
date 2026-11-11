@@ -109,3 +109,16 @@ def test_without_a_restart_the_tray_offers_none(tray):
     tray, _ = tray
     tray._build_menu()
     assert dict(_texts(tray.menu))["Restart gateway"] is False
+
+
+def test_the_tray_refreshes_without_reading_the_whole_state(tray, monkeypatch):
+    # The whole state reads every recent experiment: too slow every second.
+    tray, gateway = tray
+
+    def whole():
+        raise AssertionError("refresh read the whole state")
+
+    monkeypatch.setattr(gateway, "state", whole)
+    tray._shown = None
+    tray.refresh()
+    assert tray.toolTip() == "Agent Gateway: Off"

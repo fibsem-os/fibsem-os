@@ -107,7 +107,7 @@ class GatewayTray(QSystemTrayIcon):
         if self._stopping is not None and self._stopping.is_set():
             self._quit()
             return
-        state = self._gateway.state()
+        state = self._gateway.mode()
         shown = (state.mode, state.window, state.switch, state.app, state.experiment)
         if shown == self._shown:
             return
