@@ -1,8 +1,10 @@
+import dataclasses
 import logging
 import os
 import threading
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
+import numpy as np
 from PyQt5.QtCore import QEvent, pyqtSignal
 from PyQt5.QtWidgets import (
     QCheckBox,
@@ -55,6 +57,44 @@ from fibsem.workflows.item import FLUORESCENCE_POSE
 
 if TYPE_CHECKING:
     from fibsem.fm.progress import FluorescenceAcquisitionProgress
+
+
+# Live frames are shown at most this many pixels across: a full camera frame costs
+# hundreds of milliseconds to draw, a quarter of its pixels a quarter of that.
+LIVE_DISPLAY_MAX_PX = 1024
+
+
+def binned_for_display(
+    image: FluorescenceImage, max_px: int = LIVE_DISPLAY_MAX_PX
+) -> FluorescenceImage:
+    """A single-plane image mean-binned to at most *max_px* across, for drawing only.
+
+    The pixel size grows with the bin, so the scalebar and click-to-move stay right.
+    Z-stacks, and anything already small enough, come back as they are.
+    """
+    data = np.asarray(image.data)
+    if data.ndim < 2 or (data.ndim >= 3 and data.shape[-3] != 1):
+        return image
+    h, w = data.shape[-2:]
+    factor = -(-max(h, w) // max_px)  # ceil
+    if factor <= 1:
+        return image
+    h, w = (h // factor) * factor, (w // factor) * factor
+    blocks = data[..., :h, :w].reshape(
+        *data.shape[:-2], h // factor, factor, w // factor, factor
+    )
+    if np.issubdtype(data.dtype, np.integer):
+        binned = blocks.sum(axis=(-3, -1), dtype=np.int64) // (factor * factor)
+    else:
+        binned = blocks.mean(axis=(-3, -1))
+    md = image.metadata
+    metadata = dataclasses.replace(
+        md,
+        pixel_size_x=md.pixel_size_x * factor,
+        pixel_size_y=md.pixel_size_y * factor,
+        resolution=(w // factor, h // factor),
+    )
+    return dataclasses.replace(image, data=binned.astype(data.dtype), metadata=metadata)
 
 
 class FMControlWidget(QWidget):
@@ -613,6 +653,7 @@ class FMControlWidget(QWidget):
 
         if not isinstance(image, FluorescenceImage):
             return
+        image = binned_for_display(image)
 
         data = image.data
         if data.ndim == 4 and data.shape[0] == 1 and data.shape[1] == 1:

@@ -2509,7 +2509,7 @@ class AutoscriptFMObjective(_OnTheFMChannel, Objective):
 
 # Live FM pulls: at least this far apart, and never waiting longer than the max for
 # the next one (a long exposure still answers a stop within a second).
-LIVE_MIN_INTERVAL_S = 0.02
+LIVE_MIN_INTERVAL_S = 0.05  # FM emits no faster (RATE_LIMIT_DEFAULT)
 LIVE_MAX_WAIT_S = 1.0
 
 
