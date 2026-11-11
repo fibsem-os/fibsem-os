@@ -23,6 +23,8 @@ PLAIN = {
     "cell_type": "none",
     "contamination_density": 0.0,
     "ice_density": 0.0,
+    "frost_density": 0.0,
+    "sphere_density": 0.0,
     "rip_fraction": 0.0,
 }
 
@@ -146,3 +148,21 @@ def test_rpe_and_neuron_cells_grow_and_stand_up(cell_type):
     x, y = np.meshgrid(xa, ya)
     h, _, _, _ = sim_relief.surface(scene, x, y, (0.5, 0.5))
     assert h[40, 40] - np.median(h) > 0.5
+
+
+def test_ice_plates_frost_and_spheres():
+    """Ice plates are hexagons, frost is bright grains, and the spheres are
+    dark round balls standing on the film."""
+    from fibsem.drivers.demo import sim_relief
+
+    scene = SampleScene(cell_type="none", renderer="relief", sphere_density=2.0)
+    parts = {f.part for f in scene.features if f.kind == "contamination"}
+    assert {"frost", "sphere"} <= parts
+    ball = max((f for f in scene.features if f.part == "sphere"), key=lambda f: f.sigma)
+    xa = ball.x * 1e6 + np.arange(-5, 5, 0.1)
+    ya = ball.y * 1e6 + np.arange(-5, 5, 0.1)
+    x, y = np.meshgrid(xa, ya)
+    h, mat, _, _ = sim_relief.surface(scene, x, y, (0.1, 0.1))
+    assert mat[50, 50] == sim_relief.SPHERE
+    assert h[50, 50] - np.median(h) > 0.5 * ball.sigma * 1e6
+    assert sim_relief.MATERIAL[sim_relief.SPHERE][0] < 0.5

@@ -61,7 +61,10 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Rips**: a seeded fraction of squares (`rip_fraction`) has the film torn away. Each rip
   is its own tear (size, orientation, where it starts, how ragged), a square beside a
   ripped one rips more readily, and a bright curled edge rings each rip.
-- **Ice** (`ice_density`): flat bright plates with an irregular outline.
+- **Ice** (`ice_density`): flat bright plates with an irregular outline (hexagons in the
+  relief renderer).
+- **Frost** (`frost_density`): patches of small bright grains.
+- **Spheres** (`sphere_density`, `sphere_size`): dark round balls standing on the film.
 - **Contamination** (`contamination_density`): small bright specks over film and bars
   alike, the aperiodic content that breaks a mesh-pitch alias in real images.
 
@@ -181,6 +184,9 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `ice_size` | [6e-06, 1.6e-05] | ice plate radius range (m) |
 | `contamination_density` | 15 | specks per 100 x 100 um, on film and bars alike |
 | `contamination_size` | [8e-07, 3e-06] | speck sigma range (m) |
+| `frost_density` | 0.15 | frost patches per 100 x 100 um |
+| `sphere_density` | 0.4 | dark spheres per 100 x 100 um |
+| `sphere_size` | [4e-07, 2e-06] | sphere radius range (m) |
 
 ### Noise
 

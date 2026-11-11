@@ -34,7 +34,7 @@ BAR_TOP = 0.0  # um; the film lies on top of the bars, flush with the squares
 ICE_BLANKET = 3.0  # um; cells sit in the ice, the surface over them this smooth
 
 # secondary-electron yield per material: (SEM, FIB)
-ICE, CELL, METAL, CRYSTAL, HOLE, HOLDER, NOTHING = 0, 1, 2, 3, 4, 5, 9
+ICE, CELL, METAL, CRYSTAL, HOLE, HOLDER, SPHERE, NOTHING = 0, 1, 2, 3, 4, 5, 6, 9
 MATERIAL = {
     ICE: (1.0, 1.0),
     CELL: (1.16, 0.9),
@@ -42,6 +42,7 @@ MATERIAL = {
     CRYSTAL: (1.3, 1.2),
     HOLE: (0.86, 0.9),
     HOLDER: (0.7, 0.8),
+    SPHERE: (0.2, 0.3),
     NOTHING: (0.04, 0.03),
 }
 BRIGHTNESS = 115.0  # grey level of plain ice
@@ -170,6 +171,8 @@ def _feature_height(f) -> float:
         return min(0.35 * sigma, 2.2)
     if f.kind == "ice":
         return 0.4
+    if f.part == "frost":
+        return 0.8 * sigma
     return min(0.2 * sigma, 0.5)  # contamination, the fiducial's points
 
 
@@ -214,6 +217,7 @@ def surface(
     specks = np.zeros(shape, dtype=np.float32)
     cell = np.zeros(shape, dtype=bool)
     crystal = np.zeros(shape, dtype=bool)
+    sphere = np.zeros(shape, dtype=bool)
     x_lo, x_hi, y_lo, y_hi = x.min(), x.max(), y.min(), y.max()
     x_axis, y_axis = x[0], y[:, 0]
     for f in scene.features:
@@ -239,7 +243,18 @@ def surface(
         sx_f = max(sigma, 0.05)
         sy_f = max(sigma * f.eccentricity, 0.05)
         r2 = (dx / sx_f) ** 2 + (dy / sy_f) ** 2
-        if f.wobble:
+        if f.kind == "ice":
+            # an ice plate is a hexagon: its distance is the largest of the
+            # three face normals'
+            rx, ry = dx / sx_f, dy / sy_f
+            hexd = np.maximum(
+                np.abs(rx),
+                np.maximum(
+                    np.abs(0.5 * rx + 0.866 * ry), np.abs(0.5 * rx - 0.866 * ry)
+                ),
+            )
+            r2 = hexd**2
+        if f.wobble and f.kind != "ice":
             t = np.arctan2(dy / sy_f, dx / sx_f)
             mod = 1.0 + f.wobble * (
                 0.6 * np.sin(3 * t + f.wobble_phase)
@@ -248,6 +263,10 @@ def surface(
             r2 = r2 / mod**2
         profile = np.exp(-0.5 * r2**f.sharpness).astype(np.float32)
         height = _feature_height(f) * profile
+        if f.part == "sphere":
+            # a ball: round in section, not a dome
+            height = _feature_height(f) * np.sqrt(np.clip(1 - r2, 0, None))
+            profile = (r2 < 1).astype(np.float32)
         if f.kind == "cell":
             # bodies and processes are the cell's outline, overlapping pieces
             # of it; a nucleus or granule stands on top
@@ -258,8 +277,10 @@ def surface(
             cell[box] |= profile > 0.3
         else:
             specks[box] = np.maximum(specks[box], height)
-            if f.kind == "ice":
+            if f.kind == "ice" or f.part == "frost":
                 crystal[box] |= profile > 0.3
+            elif f.part == "sphere":
+                sphere[box] |= profile > 0.5
     solid = ~rips & ~beyond
     if lift.any():
         # cells sit in the ice: the surface over them is a smooth blanket, so a
@@ -277,6 +298,7 @@ def surface(
         mat[cell & solid] = CELL
     h = h + specks
     mat[crystal & solid] = CRYSTAL
+    mat[sphere & solid] = SPHERE
 
     # what is torn or past the grid is nothing (a broken hole too: no ice
     # across it); the holder sits far below

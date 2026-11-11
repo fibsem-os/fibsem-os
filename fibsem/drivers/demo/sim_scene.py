@@ -628,6 +628,12 @@ class SampleScene:
     # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
     ice_density: float = 0.4
     ice_size: Tuple[float, float] = (6e-6, 16e-6)  # m, plate radius
+    # ice contamination: patches of frost (small bright crystal grains), per
+    # 100 x 100 um
+    frost_density: float = 0.15
+    # dark spheres (round beads standing on the film), per 100 x 100 um
+    sphere_density: float = 0.4
+    sphere_size: Tuple[float, float] = (0.4e-6, 2.0e-6)  # m, radius
     # a fiducial-like cross at each grid centre: a landmark for eyeballing
     # navigation and for tests, absent on a real grid - off by default
     fiducial: bool = False
@@ -787,10 +793,56 @@ class SampleScene:
                     opacity=0.9,
                 )
             )
+        # frost and dark spheres from a generator of their own, so the rest
+        # of a seed's scene is laid out as it always was
+        extra = np.random.default_rng([int(grid.seed) & 0x7FFFFFFF, 31])
+        self._generate_frost(extra, grid, half)
+        self._generate_spheres(extra, grid, half)
         # grown about the origin; carried to where the grid sits
         for f in self.features[start:]:
             f.x += grid.x
             f.y += grid.y
+
+    def _generate_frost(self, rng, grid: SceneGrid, half: float) -> None:
+        """Ice contamination: patches of small bright crystal grains, dense
+        in the middle and thinning out."""
+        for _ in range(int(self.frost_density * (grid.extent / 100e-6) ** 2)):
+            cx, cy = rng.uniform(-half, half, size=2)
+            spread = float(rng.uniform(4e-6, 15e-6))
+            for _ in range(int(rng.integers(20, 120))):
+                x, y = rng.normal(0, spread, size=2)
+                self.features.append(
+                    SceneFeature(
+                        x=float(cx + x),
+                        y=float(cy + y),
+                        sigma=float(rng.uniform(0.15e-6, 0.6e-6)),
+                        intensity=float(rng.uniform(80, 140)),
+                        sharpness=3.0,
+                        eccentricity=float(rng.uniform(0.5, 1.0)),
+                        angle=float(rng.uniform(0, np.pi)),
+                        kind="contamination",
+                        part="frost",
+                    )
+                )
+
+    def _generate_spheres(self, rng, grid: SceneGrid, half: float) -> None:
+        """Dark spheres: round beads standing on the film, darker than it in
+        both beams."""
+        for _ in range(int(self.sphere_density * (grid.extent / 100e-6) ** 2)):
+            x, y = rng.uniform(-half, half, size=2)
+            r = float(rng.uniform(*self.sphere_size))
+            self.features.append(
+                SceneFeature(
+                    x=float(x),
+                    y=float(y),
+                    sigma=r,
+                    intensity=-60.0,
+                    sharpness=3.0,
+                    kind="contamination",
+                    part="sphere",
+                    height=1.1 * r,
+                )
+            )
 
     def place_grids(self, projection: BeamStageProjection) -> None:
         """Lay the grids out from the holder's slots, when they changed.
@@ -1724,6 +1776,9 @@ class SampleScene:
         "rip_fraction",  # of squares
         "ice_density",  # per 100 x 100 um
         "ice_size",  # [min, max] m
+        "frost_density",  # frost patches per 100 x 100 um
+        "sphere_density",  # dark spheres per 100 x 100 um
+        "sphere_size",  # [min, max] m, radius
         "grid_radius",  # m
         "grid_rim_width",  # m
         "renderer",  # flat | relief
@@ -1746,6 +1801,7 @@ class SampleScene:
             "nucleus_radius",
             "bacteria_length",
             "ice_size",
+            "sphere_size",
             "rpe_island_radius",
             "soma_radius",
             "neurite_length",

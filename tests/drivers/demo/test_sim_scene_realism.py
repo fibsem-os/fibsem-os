@@ -49,9 +49,16 @@ def microscope():
 
 
 def _scene(microscope, **kwargs) -> SampleScene:
-    """A deterministic scene: no noise, and no ice or rips unless asked -
+    """A deterministic scene: no noise, and no ice, frost, spheres or rips unless asked -
     the fiducial finders here look for the darkest/brightest pixels."""
-    kwargs = {"ice_density": 0.0, "rip_fraction": 0.0, "fiducial": True, **kwargs}
+    kwargs = {
+        "ice_density": 0.0,
+        "frost_density": 0.0,
+        "sphere_density": 0.0,
+        "rip_fraction": 0.0,
+        "fiducial": True,
+        **kwargs,
+    }
     scene = SampleScene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)
     scene.anchor(microscope.get_stage_position())
     microscope._connection.sample_scene = scene
@@ -98,9 +105,10 @@ def test_contamination_adds_fine_aperiodic_structure(microscope):
     clean, dirty = speckle(0.0), speckle(30.0)
     assert dirty > 3 * clean and dirty - clean > 15, (clean, dirty)
     scene = microscope._connection.sample_scene
-    assert sum(f.kind == "contamination" for f in scene.features) == int(
-        30.0 * (scene.extent / 100e-6) ** 2
-    )
+    assert sum(
+        f.kind == "contamination" and f.part not in ("frost", "sphere")
+        for f in scene.features
+    ) == int(30.0 * (scene.extent / 100e-6) ** 2)
 
 
 def test_beam_shift_moves_the_content_the_way_the_alignment_expects(microscope):
