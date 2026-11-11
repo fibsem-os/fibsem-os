@@ -219,6 +219,7 @@ def surface(
     cell = np.zeros(shape, dtype=bool)
     crystal = np.zeros(shape, dtype=bool)
     sphere = np.zeros(shape, dtype=bool)
+    plate = np.zeros(shape, dtype=np.float32)
     x_lo, x_hi, y_lo, y_hi = x.min(), x.max(), y.min(), y.max()
     x_axis, y_axis = x[0], y[:, 0]
     for f in scene.features:
@@ -278,6 +279,8 @@ def surface(
             cell[box] |= profile > 0.3
         else:
             specks[box] = np.maximum(specks[box], height)
+            if f.kind == "ice":
+                plate[box] = np.maximum(plate[box], profile)
             if f.kind == "ice" or f.part == "frost":
                 crystal[box] |= profile > 0.3
             elif f.part == "sphere":
@@ -299,8 +302,14 @@ def surface(
         mat[cell & solid] = CELL
     # hairline cracks in the film: a narrow dark groove, not through
     crack = scene.crack_depth(x / UM, y / UM) * ~(bars | holes | cell | ~solid)
+    crack = crack * (1 - plate)
     h = h - CRACK_DEPTH * crack
     mat[crack > 0.2] = HOLE
+    if plate.any():
+        # an ice plate lies on the film: flat on top, the holes and the
+        # film's ripple under it hidden
+        level = ndi.gaussian_filter(h, (3.0 / sy, 3.0 / sx))
+        h = h + plate * (level - h)
     h = h + specks
     mat[crystal & solid] = CRYSTAL
     mat[sphere & solid] = SPHERE
