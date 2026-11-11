@@ -118,7 +118,7 @@ def test_the_session_settings_show_where_each_comes_from(lab, checkout):
 
 
 def test_the_words_come_from_the_instrument_kinds_files(lab, checkout):
-    assert instruments.kinds(checkout) == ["fibsem"]
+    assert instruments.kinds(checkout) == ["cryo-fm", "fibsem"]
     words = harness_mod.texts()
     assert words.kind == "fibsem"
     prompt = harness_mod.harness_prompt(words=words, deadline_warn_min=45)
@@ -131,9 +131,11 @@ def test_the_words_come_from_the_instrument_kinds_files(lab, checkout):
 
 def test_an_unknown_instrument_kind_fails_at_load(lab, checkout):
     (lab / "other.yaml").write_text(
-        "extends: fibsem-agent\ninstrument: cryo-fm\n", encoding="utf-8"
+        "extends: fibsem-agent\ninstrument: nothing-yet\n", encoding="utf-8"
     )
-    with pytest.raises(playbooks.PlaybookError, match="no instrument kind 'cryo-fm'"):
+    with pytest.raises(
+        playbooks.PlaybookError, match="no instrument kind 'nothing-yet'"
+    ):
         playbooks.load("other", checkout)
 
 
