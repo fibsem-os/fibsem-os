@@ -16,10 +16,12 @@ import json
 import logging
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -72,6 +74,8 @@ class RunConfig:
     budget_usd: float = 1.0
     timeout_s: float = 20 * 60
     server_wait_s: float = 120.0
+    # Runs at once: each has its own App Server, on its own port.
+    jobs: int = 1
     # The knowledge each run starts from; the lab's own when None.
     knowledge: Optional[Path] = None
     agent_command: List[str] = field(default_factory=lambda: agent_command())
@@ -234,11 +238,6 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
     folder = run_dir(config, case, repeat)
     if folder.exists():
         raise RunnerError(f"{folder} exists: give another --out, or remove it.")
-    if discovery.read_discovery_file() is not None:
-        raise RunnerError(
-            "An App Server is already running on this PC; close it first "
-            "(one App Server per PC)."
-        )
     home, work = folder / "home", folder / "work"
     experiments = home / "experiments"
     experiment = experiments / case.id
@@ -255,10 +254,14 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         "task": case.task,
         "case_path": str(case.path.resolve()),
     }
+    # The run's own App Server, beside any other on this PC: its own port,
+    # and its discovery file in the run's home.
+    found_at = home / "app-server.json"
     server_log = open(folder / "server.log", "w")
     server = subprocess.Popen(
         config.server_command
-        + ["--create", str(experiment), "--experiments", str(experiments)],
+        + ["--create", str(experiment), "--experiments", str(experiments)]
+        + ["--port", str(_free_port()), "--discovery", str(found_at)],
         env=env,
         stdout=server_log,
         stderr=subprocess.STDOUT,
@@ -267,7 +270,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
     try:
 
         def serving() -> bool:
-            found = discovery.read_discovery_file()
+            found = discovery.read_discovery_file(found_at)
             return found is not None and found.get("pid") == server.pid
 
         if not _wait_for(serving, config.server_wait_s, server):
@@ -298,8 +301,10 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         result["session_id"] = session_id
         result["model"] = config.model or "default"
         with open(folder / "agent.log", "w") as agent_log:
+            # The agent finds its own run's server, not this PC's.
+            agent_env = {**env, discovery.DISCOVERY_FILE_ENV: str(found_at)}
             agent = subprocess.Popen(
-                command, env=env, stdout=agent_log, stderr=subprocess.STDOUT
+                command, env=agent_env, stdout=agent_log, stderr=subprocess.STDOUT
             )
             answered = _wait_for(
                 lambda: _read_answer(work / ANSWER) is not None,
@@ -354,15 +359,34 @@ def run_cases(
     config: RunConfig,
     on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> List[Dict[str, Any]]:
-    """Every keyed case, *config.repeats* times each, one after another."""
-    results = []
+    """Every keyed case, *config.repeats* times each, *config.jobs* at a
+    time; the results in the order they finish."""
+    runs = []
     for case in cases:
         if case.status != "keyed":
             log.info("Skipping %s: %s", case.id, case.status)
             continue
-        for repeat in range(1, config.repeats + 1):
-            result = run_case(case, repeat, config)
-            results.append(result)
-            if on_result is not None:
-                on_result(result)
+        runs += [(case, repeat) for repeat in range(1, config.repeats + 1)]
+    results = []
+
+    def done(result):
+        results.append(result)
+        if on_result is not None:
+            on_result(result)
+
+    if config.jobs <= 1:
+        for case, repeat in runs:
+            done(run_case(case, repeat, config))
+        return results
+    with ThreadPoolExecutor(max_workers=config.jobs) as pool:
+        futures = [pool.submit(run_case, case, r, config) for case, r in runs]
+        for future in as_completed(futures):
+            done(future.result())
     return results
+
+
+def _free_port() -> int:
+    """A port no server on this PC listens on, for a run's App Server."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]

@@ -31,6 +31,7 @@ def _parser() -> argparse.ArgumentParser:
         "--out", type=Path, required=True, help="a new folder for the runs"
     )
     run.add_argument("--repeats", type=int, default=3)
+    run.add_argument("--jobs", type=int, default=1, help="runs at once (default 1)")
     run.add_argument(
         "--only", default=None, help="only cases whose path holds this text"
     )
@@ -126,6 +127,7 @@ def main(argv=None) -> int:
     config = RunConfig(
         out=args.out,
         repeats=args.repeats,
+        jobs=args.jobs,
         playbook=args.playbook,
         model=args.model,
         effort=args.effort,

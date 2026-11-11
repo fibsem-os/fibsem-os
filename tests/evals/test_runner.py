@@ -13,7 +13,6 @@ from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import load_case
 from fibsem.ai.evals.runner import (
     RunConfig,
-    RunnerError,
     link_inputs,
     run_case,
     run_cases,
@@ -65,9 +64,9 @@ def case(tmp_path):
 
 
 def config(tmp_path, **kwargs):
+    kwargs.setdefault("repeats", 1)
     return RunConfig(
         out=tmp_path / "out",
-        repeats=1,
         server_command=[sys.executable, FAKES, "server", "--manufacturer", "Demo"],
         agent_command=[sys.executable, FAKES, "agent"],
         server_wait_s=20,
@@ -120,15 +119,29 @@ def test_run_stops_an_agent_that_never_answers(home, case, tmp_path, monkeypatch
     assert [s["result"] for s in result["scores"]] == ["invalid"]
 
 
-def test_refuses_while_another_app_server_runs(home, case, tmp_path):
+def test_runs_beside_another_app_server_and_in_parallel(
+    home, case, tmp_path, monkeypatch
+):
+    # This PC's own App Server stays where it is.
     discovery.DISCOVERY_FILE.parent.mkdir(parents=True)
     discovery.DISCOVERY_FILE.write_text(
-        json.dumps(
-            {"url": "http://127.0.0.1:1", "connect_token": "x", "pid": os.getpid()}
-        )
+        json.dumps({"url": "http://127.0.0.1:8001", "token": "x", "pid": os.getpid()})
     )
-    with pytest.raises(RunnerError, match="already running"):
-        run_case(case, 1, config(tmp_path))
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    results = run_cases([case], config(tmp_path, repeats=3, jobs=3, timeout_s=20))
+    assert sorted(r["repeat"] for r in results) == [1, 2, 3]
+    assert all(r["status"] == "answered" for r in results)
+    # Each agent was pointed at its own run's server, on its own port.
+    servers = {
+        json.loads(
+            (
+                tmp_path / "out" / "polish" / f"r{n}" / "session" / "session.json"
+            ).read_text()
+        )["server"]
+        for n in (1, 2, 3)
+    }
+    assert len(servers) == 3 and "http://127.0.0.1:8001" not in servers
+    assert discovery.read_discovery_file()["url"] == "http://127.0.0.1:8001"
 
 
 def test_repeats_and_skips_unkeyed(home, case, tmp_path, monkeypatch):
