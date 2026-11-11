@@ -355,3 +355,62 @@ def test_milling_cuts_away_a_centriole_outside_the_lamella():
     assert not scene.milled_through(*point)
     scene.milled.append(trench(0.5, 1.5))
     assert scene.milled_through(*point)
+
+
+@pytest.mark.parametrize(
+    "setting, channel",
+    [
+        ({"fm_red": "cilia"}, ("610", 561)),
+        ({"fm_green": "lipid_droplets"}, ("525", 488)),
+        ({"fm_far_red": "mitochondria"}, ("670", 640)),
+        ({"fm_far_red": "membrane"}, ("670", 640)),
+    ],
+)
+def test_each_channel_can_carry_a_label(setting, channel):
+    """Cilia (red), lipid droplets (green), mitochondria or membrane (far
+    red) show in their channel when set, and the channel is dark without."""
+    from fibsem.drivers.demo.sim_scene import fm_channel_weights
+    from fibsem.geometry.projection import FMStageProjection
+
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
+    )
+    try:
+        microscope.system.sim["sample"] = {"enabled": True}
+        microscope._connection.setup_sample_scene()
+        pose = microscope._connection.scene_stage_position_at_fm()
+        live = FMStageProjection.from_microscope(microscope)
+        projection = FMStageProjection(
+            geometry=live.geometry, pixel_size=0.5e-6, shape=(201, 201)
+        )
+
+        def frame(**kw):
+            base = dict(cell_type="rpe", fm_no_target_chance=0.0, seed=5)
+            scene = SampleScene(**{**base, **kw})
+            # a target cell, with a cilium, under the view
+            spot = next(t for t in scene.fm_spots if t["cilium"])
+            mx, my, _ = spot["midpoint"]
+            for g in scene.features:
+                g.x, g.y = g.x - mx, g.y - my
+            for t in scene.fm_spots:
+                if t["cilium"]:
+                    t["cilium"] = [(x - mx, y - my, z) for x, y, z in t["cilium"]]
+            scene.anchor(pose)
+            image = scene.render_fm(
+                pose,
+                (201, 201),
+                projection,
+                weights=fm_channel_weights(*channel),
+                defocus=1e-6,
+                rng=np.random.default_rng(0),
+            )
+            return image.astype(np.float32)
+
+        plain = frame(fm_red="none", fm_green="none")
+        labelled = frame(**{"fm_red": "none", "fm_green": "none", **setting})
+    finally:
+        microscope.disconnect()
+    assert (labelled - plain).max() > 300

@@ -118,20 +118,34 @@ bodies; an mCherry-like line a seeded subset of cells (`red_fraction`). Anything
 renders dark. The objective's distance from focus blurs the frame. The panels are shown
 in the false colour a viewer gives each channel, and composited the way a CLEM overlay is.
 
-### FM targets
+### FM labels and targets
 
-In the cytoplasmic (GFP) channel a seeded fraction of cells (`fm_target_fraction`) carry
-a dim centrin pool with a centriole pair at its edge: two diffraction-limited spots about
-1 um apart, at a height in the cell. A spot is sharp within about `fm_axial_range` of its
-height, the objective's distance from focus at which it is in focus, and spreads and dims
-either side, so a z-stack finds it sharp over a few planes. Whole bright cells are the
-decoys, and small granules (RPE pigment) sit at their own heights and blur the same way.
-A pool or pair that a milled pattern cut through, along the beam that milled it, is gone
-from the FM, so a lamella keeps only what lies in its slab (the pattern's depth is not
-applied here). A seeded chance (`fm_no_target_chance`) leaves a grid with no pair at all.
-`scene.fm_targets()` lists each pair's midpoint (x, y and height, m), its two spots and
-its pool. The camera has hot pixels (`fm_hot_pixels`): the same pixels, as bright, in
-every frame.
+Each FM channel carries one label, set per channel. Blue is always the nucleus (a DNA
+dye) and the fiducial.
+
+| Channel | Setting | Labels |
+|---|---|---|
+| green (488) | `fm_green` | `cytoplasm` (default: the whole cell, with the centrin pairs), `centrin` (centrin-GFP: the pairs and pools, the cell only faint), `lipid_droplets` |
+| red (561) | `fm_red` | `subset` (default: a seeded subset of whole cells), `cilia` |
+| far red (640) | `fm_far_red` | `none` (default), `membrane` (cell outlines), `mitochondria` |
+
+A seeded fraction of cells (`fm_target_fraction`) are targets. Each has a centrin pool
+with a centriole pair at its edge: two diffraction-limited spots about 1 um apart, at a
+height in the cell. In a seeded share of those (`fm_cilium_fraction`) a primary cilium,
+2-5 um long and about 250 nm wide, grows from the mother centriole in a random direction,
+from lying flat to leaning steeply up. A seeded chance (`fm_no_target_chance`) leaves a
+grid with no targets.
+
+Points, rods, granules, droplets and mitochondria each sit at their own height: sharp
+within about `fm_axial_range` of it, spreading and dimming either side, so a z-stack finds
+each over a few planes. Whatever a milled pattern cut through, along the beam that milled
+it, is gone from the FM, so a lamella keeps only what lies in its slab (the pattern's
+depth is not applied here); the membrane is gone wherever a pattern milled.
+
+`scene.fm_targets()` lists each target: the pair's midpoint (x, y and height, m), its
+two spots, its pool and its cilium's base and tip (or None). With `fm_red: cilia` it
+lists only the cells with a cilium, and the midpoint is the cilium's. The camera has hot
+pixels (`fm_hot_pixels`): the same pixels, as bright, in every frame.
 
 ## One world, three views
 
@@ -262,6 +276,10 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `fm_no_target_chance` | 0.2 | chance a grid carries no pair at all |
 | `fm_axial_range` | 5e-07 | how far from its height an FM spot stays sharp (m) |
 | `fm_hot_pixels` | 0.0002 | fraction of FM camera pixels that are hot |
+| `fm_green` | cytoplasm | green label: cytoplasm, centrin or lipid_droplets |
+| `fm_red` | subset | red label: subset or cilia |
+| `fm_far_red` | none | far-red label: none, membrane or mitochondria |
+| `fm_cilium_fraction` | 0.7 | of the target cells, those with a primary cilium |
 
 ### Holder
 
