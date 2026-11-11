@@ -40,6 +40,7 @@ from fibsem.ui.fm.widgets import (
 )
 from fibsem.ui.fm.widgets.acquisition_settings import FMAcquisitionSettingsWidget
 from fibsem.ui.item_selection import ItemSelection
+from fibsem.ui.qt.coalesce import Coalescer
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
@@ -292,7 +293,10 @@ class FMControlWidget(QWidget):
         )
 
         # microscope signals
-        self.fm.acquisition_signal.connect(self.update_image)
+        # Only the newest frame is drawn, at most LIVE_DRAW_INTERVAL_MS apart: live
+        # frames arrive faster than the quad view can draw them.
+        self._fm_frames = Coalescer(self.update_image, parent=self)
+        self.fm.acquisition_signal.connect(self._fm_frames.put)
         self.acquisition_finished_signal.connect(self._on_acquisition_finished)
         self.fm.acquisition_progress_signal.connect(self._on_acquisition_progress)
         self.fm.acquiring_changed.connect(self._on_fm_acquiring_changed)
@@ -368,7 +372,7 @@ class FMControlWidget(QWidget):
         a worker emitting into these slots.
         """
         for signal, slot in (
-            (self.fm.acquisition_signal, self.update_image),
+            (self.fm.acquisition_signal, self._fm_frames.put),
             (self.fm.acquisition_progress_signal, self._on_acquisition_progress),
             (self.fm.acquiring_changed, self._on_fm_acquiring_changed),
             (self.fm.acquisition_failed, self._on_live_view_failed),
@@ -377,6 +381,10 @@ class FMControlWidget(QWidget):
                 signal.disconnect(slot)
             except (TypeError, RuntimeError):
                 pass
+        try:
+            self._fm_frames.stop()
+        except RuntimeError:  # already deleted with the widget
+            pass
         stage = getattr(self.microscope, "stage", None)
         if stage is not None:
             try:

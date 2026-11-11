@@ -112,6 +112,7 @@ from fibsem.ui.fm.widgets import (
     ObjectiveControlWidget,
 )
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.coalesce import Coalescer
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
@@ -581,7 +582,6 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
     _fib_acquire_done = pyqtSignal()
     _fm_acquire_done = pyqtSignal()
     _intensity_ready = pyqtSignal(float)
-    _fm_live_frame = pyqtSignal(object)
 
     def __init__(
         self,
@@ -946,6 +946,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def closeEvent(self, event):  # noqa: N802 (Qt override)
         """Persist the FM working state when the window closes."""
+        self._fm_frames.stop()
+        self._strategy_stats.stop()
         if self.microscope is not None and self.microscope.fm is not None:
             self._save_fm_configuration()
         super().closeEvent(event)
@@ -1107,7 +1109,12 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._fm_image_ready.connect(self.set_fm_image)
         self._fib_acquire_done.connect(self._on_fib_acquire_done)
         self._fm_acquire_done.connect(self._on_fm_acquire_done)
-        self._fm_live_frame.connect(self._show_fm_live_frame)
+        # Live frames and strategy stats arrive faster than the window can draw them:
+        # only the newest frame is drawn, and stats are applied in batches.
+        self._fm_frames = Coalescer(self._show_fm_live_frame, parent=self)
+        self._strategy_stats = Coalescer(
+            self._apply_intensity_stats, keep_all=True, parent=self
+        )
 
         # Lamella list
         self.lamella_list_widget.lamella_selected.connect(self._on_lamella_selected)
@@ -1345,7 +1352,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
     def _on_fm_live_image(self, image):
         """Called on the FM's acquisition thread: hand the frame to the GUI thread."""
-        self._fm_live_frame.emit(image)
+        self._fm_frames.put(image)
 
     def _show_fm_live_frame(self, image):
         """A live FM frame, on the GUI thread: the FM canvas, line plot and timelapse."""
@@ -1470,6 +1477,15 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._info_widget.clear_stats()
         self.label_threshold_chip.setVisible(False)
 
+    def _apply_intensity_stats(self, batch: list) -> None:
+        """Every frame's stats since the last draw: each value goes on the plot, the
+        newest sets the rest, and a drop in any of them shows."""
+        for stats in batch[:-1]:
+            self.line_plot_widget.append_value(stats["value"])
+        self._on_intensity_stats(batch[-1])
+        if any(stats.get("drop_detected") for stats in batch[:-1]):
+            self.run_border.set_state("waiting")
+
     @ensure_main_thread
     def _on_intensity_stats(self, stats: dict) -> None:
         """Update line plot, stats lines, info panel, and drop chip from live strategy stats."""
@@ -1492,11 +1508,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         threshold_hit = (
             stats.get("warmup_complete", False) and drop_fraction <= threshold_fraction
         )
-        self.label_threshold_chip.setStyleSheet(
+        style = (
             stylesheets.USER_ATTENTION_BUTTON_STYLESHEET
             if threshold_hit
             else stylesheets.SECONDARY_BUTTON_STYLESHEET
         )
+        # Only on a change: restyling repolishes the widget, too slow for every frame.
+        if self.label_threshold_chip.styleSheet() != style:
+            self.label_threshold_chip.setStyleSheet(style)
         # border/auto-stop stay tied to the debounced drop_detected event
         if stats.get("drop_detected"):
             self.run_border.set_state("waiting")
@@ -1552,7 +1571,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # truth), then connect the live stats signal. Live edits push back below.
         self._seed_controls_from_strategy()
         for strategy in self._active_strategies:
-            strategy.intensity_stats_signal.connect(self._on_intensity_stats)
+            strategy.intensity_stats_signal.connect(self._strategy_stats.put)
 
     def _seed_controls_from_strategy(self) -> None:
         """Mirror the first active strategy's config into the status-bar controls.
