@@ -532,8 +532,14 @@ class _Connecting:
 
 def devices_configuration(path: Optional[str]) -> Optional[Dict[str, Any]]:
     """The settings of *path* (the default configuration when None) when it
-    connects only devices (``info.instrument: devices``), else None."""
+    connects only devices (``info.instrument: devices``), else None: also for a
+    file that can't be read, which connecting then reports as before."""
     from fibsem.server.devices import read_server_settings
 
-    settings = read_server_settings(str(path or cfg.DEFAULT_CONFIGURATION_PATH))
+    try:
+        settings = read_server_settings(str(path or cfg.DEFAULT_CONFIGURATION_PATH))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(settings, dict):
+        return None
     return settings if configured_kind(settings) == DeviceInstrument.kind else None
