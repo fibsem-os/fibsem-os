@@ -1084,7 +1084,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "device": "device name from device_list",
             "command": "command name",
             "kwargs": arg("the command's arguments, by name", dict),
-            "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
+            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
         },
         optional=("kwargs", "reason"),
         call=lambda a: (
@@ -1194,7 +1194,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
             "service": "service name from service_list",
             "command": "command name",
             "kwargs": arg("the command's arguments, by name", dict),
-            "reason": "for a stop (stop, stop_live): why, for the operator (required there)",
+            "reason": "for a stop (stop, stop_live, cancel): why, for the operator (required there)",
         },
         optional=("kwargs", "reason"),
         call=lambda a: (
