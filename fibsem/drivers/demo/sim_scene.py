@@ -1188,7 +1188,7 @@ class SampleScene:
         self, xs_world: np.ndarray, ys_world: np.ndarray
     ) -> np.ndarray:
         """Where the film's holes are broken (no ice across them), at world
-        points: the seeded few `film_masks` draws larger."""
+        points: the seeded few torn patches `film_masks` draws."""
         mask = np.zeros(np.broadcast(xs_world, ys_world).shape, dtype=bool)
         if self.film != "holey" or self.broken_hole_fraction <= 0:
             return mask
@@ -1197,12 +1197,7 @@ class SampleScene:
             xs, ys = xs_world - grid.x, ys_world - grid.y
             x_rot = xs * cos_r + ys * sin_r
             y_rot = -xs * sin_r + ys * cos_r
-            hi = np.floor(x_rot / self.hole_pitch).astype(np.int64)
-            hj = np.floor(y_rot / self.hole_pitch).astype(np.int64)
-            hx = (x_rot % self.hole_pitch) - self.hole_pitch / 2
-            hy = (y_rot % self.hole_pitch) - self.hole_pitch / 2
-            broken = _lattice_draw(hi, hj, grid.seed + 7) < self.broken_hole_fraction
-            mask |= broken & (np.hypot(hx, hy) < 0.8 * self.hole_diameter)
+            mask |= self._broken_holes(x_rot, y_rot, grid.seed)
         return mask
 
     def centre_mark_groove(
@@ -1293,14 +1288,49 @@ class SampleScene:
 
         holes = np.zeros_like(bars)
         if self.film == "holey":
-            hi = np.floor(x_rot / self.hole_pitch).astype(np.int64)
-            hj = np.floor(y_rot / self.hole_pitch).astype(np.int64)
             hx = (x_rot % self.hole_pitch) - self.hole_pitch / 2
             hy = (y_rot % self.hole_pitch) - self.hole_pitch / 2
-            broken = _lattice_draw(hi, hj, grid.seed + 7) < self.broken_hole_fraction
-            r_hole = np.where(broken, 0.8 * self.hole_diameter, self.hole_diameter / 2)
-            holes = (np.hypot(hx, hy) < r_hole) & ~bars
+            whole = np.hypot(hx, hy) < self.hole_diameter / 2
+            holes = (whole | self._broken_holes(x_rot, y_rot, grid.seed)) & ~bars
         return bars, holes, rips, inside, rim
+
+    def _broken_holes(self, x_rot: np.ndarray, y_rot: np.ndarray, seed: int):
+        """Where the film is broken round a seeded few holes, in a grid's
+        frame: each a torn patch of its own size, stretch and ragged outline
+        about its hole, big enough sometimes to run into the next hole."""
+        if self.broken_hole_fraction <= 0:
+            return np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
+        pitch = self.hole_pitch
+        out = np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
+        hi0 = np.floor(x_rot / pitch).astype(np.int64)
+        hj0 = np.floor(y_rot / pitch).astype(np.int64)
+        # a tear can reach past its own cell: look at the neighbours' holes too
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                hi, hj = hi0 + di, hj0 + dj
+                broken = _lattice_draw(hi, hj, seed + 7) < self.broken_hole_fraction
+                if not broken.any():
+                    continue
+                hx = x_rot - (hi + 0.5) * pitch
+                hy = y_rot - (hj + 0.5) * pitch
+                size = self.hole_diameter * (
+                    0.6 + 0.9 * _lattice_draw(hi, hj, seed + 8)
+                )
+                phi = np.pi * _lattice_draw(hi, hj, seed + 9)
+                stretch = 1.0 + 0.8 * _lattice_draw(hi, hj, seed + 10)
+                phase = 2 * np.pi * _lattice_draw(hi, hj, seed + 11)
+                c, s_ = np.cos(phi), np.sin(phi)
+                u = (hx * c + hy * s_) / stretch
+                v = -hx * s_ + hy * c
+                t = np.arctan2(v, u)
+                ragged = (
+                    1
+                    + 0.15 * np.sin(2 * t + phase)
+                    + 0.1 * np.sin(3 * t + 2 * phase)
+                    + 0.04 * np.sin(5 * t + 3 * phase)
+                )
+                out |= broken & (np.hypot(u, v) < size * ragged)
+        return out
 
     def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
         kinds = {
