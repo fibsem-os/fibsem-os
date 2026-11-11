@@ -108,6 +108,28 @@ def test_tools_of_a_part_the_app_lacks_are_not_offered():
     assert "app_get_status" in core
 
 
+def test_tools_are_offered_for_the_playbooks_instrument_kind():
+    from fibsem.ai.agent import instruments
+    from fibsem.ai.agent.catalog import FIBSEM, tools_for_capabilities
+
+    assert FIBSEM == instruments.DEFAULT
+    capabilities = {"routers": {"services": True, "app": True}}
+    every = {t.name for t in tools_for_capabilities(capabilities)}
+    fib = {t.name for t in tools_for_capabilities(capabilities, FIBSEM)}
+    # A hypothetical standalone cryo-FM: the tools for any instrument only.
+    other = {t.name for t in tools_for_capabilities(capabilities, "cryo-fm")}
+    # A FIB/SEM session is offered what it always was.
+    assert fib == every
+    assert {
+        "milling_run_stage",
+        "beam_acquire_image",
+        "stage_move_relative",
+    } & other == set()
+    for generic in ("device_list", "device_call_command", "service_call_command"):
+        assert generic in other
+    assert {"app_get_status", "knowledge_get", "plan_get"} <= other
+
+
 # A named service tool is its group and its route's command or query
 # (``fm_acquire_overview`` -> ``imaging.fm_acquire_overview``,
 # ``beam_acquire_overview`` -> ``imaging.acquire_overview``), a read with ``get_``

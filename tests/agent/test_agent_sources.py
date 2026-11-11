@@ -75,7 +75,7 @@ def test_the_labs_playbook_wins_over_the_shipped(lab, checkout):
     _skill(lab / "skills", "yeast-lamellae", "what works on yeast here")
     found = playbooks.load(playbooks.DEFAULT, checkout)
     # The shipped base stays under the lab's copy: its skill and defaults hold.
-    assert found.skills == ["fibsem-agent", "yeast-lamellae"]
+    assert found.skills == ["fibsem-agent", "fibsem-microscope", "yeast-lamellae"]
     assert found.session.max_turns == playbooks.shipped_base(checkout).session.max_turns
     assert found.instrument == "fibsem"
 

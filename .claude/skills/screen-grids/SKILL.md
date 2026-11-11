@@ -1,12 +1,13 @@
 ---
 name: screen-grids
-description: Grids — loading and unloading them, screening runs, whole-grid overviews, reviewing grids after a screen, and picking sites (cells, squares) for lamellae. Read fibsem-agent first, then this when the operator wants grids screened or sites picked, before or during AutoLamella work.
+description: Grids — loading and unloading them, screening runs, whole-grid overviews, reviewing grids after a screen, and picking sites (cells, squares) for lamellae. Read fibsem-agent and fibsem-microscope first, then this when the operator wants grids screened or sites picked, before or during AutoLamella work.
 ---
 
 # Grids and sites
 
-Read the fibsem-agent skill first: it covers connecting, the levels, the
-watcher, and overviews (*Overview or tile set*). This skill adds the grids
+Read the fibsem-agent and fibsem-microscope skills first: they cover
+connecting, the levels, the watcher, and overviews (fibsem-microscope,
+*Overview or tile set*). This skill adds the grids
 themselves and how to pick sites on them. Making lamellae at those sites is
 the autolamella skill's.
 
@@ -99,7 +100,7 @@ When you pick sites (cells, squares):
 Picking on the overview gives candidates by the first check. Then go to
 each candidate (`stage_stable_move`) and do the second there: the same
 feature centred in both beams at a 50 µm field of view, within 5 µm, aiming
-for 2-3 µm (fibsem-agent, *Coincidence: do it yourself*). If it isn't, fix it:
+for 2-3 µm (fibsem-microscope, *Coincidence: do it yourself*). If it isn't, fix it:
 focus, then the coincidence loop. Never reject a candidate for focus or
 coincidence. If you can't fix one, say what you tried and ask the operator;
 in a lead run, hold it in `[run_state]` and carry on with the others. With

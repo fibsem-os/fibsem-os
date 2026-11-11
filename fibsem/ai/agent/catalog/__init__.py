@@ -18,6 +18,7 @@ names the level it needs.
 """
 
 import re
+from dataclasses import replace
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from fibsem.ai.agent.catalog import (
@@ -36,6 +37,8 @@ from fibsem.ai.agent.catalog.spec import EVIDENCE_PARAM, GROUP_TITLES, ToolSpec
 __all__ = [
     "CATALOG",
     "EVIDENCE_PARAM",
+    "FIBSEM",
+    "INSTRUMENT_ENV",
     "GROUP_TITLES",
     "NOT_TOOLS",
     "ToolSpec",
@@ -43,11 +46,31 @@ __all__ = [
     "tools_for_capabilities",
 ]
 
+# The instrument kind of the FIB/SEM's own tools (`ToolSpec.instrument`).
+FIBSEM = "fibsem"
+# Where fibsem-agent tells the sidecar its playbook's instrument kind, so the
+# sidecar offers that kind's tools only.
+INSTRUMENT_ENV = "FIBSEM_AGENT_INSTRUMENT"
+
+
+def _of_kind(kind: str, tools: Tuple[ToolSpec, ...]) -> Tuple[ToolSpec, ...]:
+    return tuple(replace(t, instrument=kind) for t in tools)
+
+
+def _microscope_tools() -> Tuple[ToolSpec, ...]:
+    """The microscope group: the device and service tools reach any
+    instrument's; the stage, alignment and state tools are the FIB/SEM's."""
+    return tuple(
+        replace(t, instrument=FIBSEM)
+        if t.router == "microscope" and not t.name.startswith(("device_", "service_"))
+        else t
+        for t in microscope.TOOLS
+    )
+
+
 CATALOG: Tuple[ToolSpec, ...] = (
-    microscope.TOOLS
-    + imaging.TOOLS
-    + milling.TOOLS
-    + coating.TOOLS
+    _microscope_tools()
+    + _of_kind(FIBSEM, imaging.TOOLS + milling.TOOLS + coating.TOOLS)
     + grids.TOOLS
     + items.TOOLS
     + app.TOOLS
@@ -124,7 +147,9 @@ NOT_TOOLS: Dict[str, str] = {
 }
 
 
-def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
+def tools_for_capabilities(
+    capabilities: Dict, instrument: Optional[str] = None
+) -> Tuple[ToolSpec, ...]:
     """Catalog entries to offer given a full /capabilities payload.
 
     Every tool whatever the agent's level: the level changes mid-session and
@@ -134,6 +159,10 @@ def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
     start would need the agent to reconnect. Only the app's tools depend on
     the routers and parts: a server hosts an application or not for its whole
     life.
+
+    With *instrument*, a playbook's instrument kind, only that kind's tools
+    and the ones for any kind: an instrument doesn't change mid-session.
+    None offers every kind's.
     """
     routers = dict(capabilities.get("routers", {}), base=True, microscope=True)
     # A server from before the parts lists none and serves them all.
@@ -143,6 +172,7 @@ def tools_for_capabilities(capabilities: Dict) -> Tuple[ToolSpec, ...]:
         for t in CATALOG
         if routers.get(t.router, False)
         and (not t.part or parts is None or t.part in parts)
+        and (instrument is None or t.instrument in ("", instrument))
     )
 
 
