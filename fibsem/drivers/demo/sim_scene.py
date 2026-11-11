@@ -1184,6 +1184,27 @@ class SampleScene:
         rounded = np.hypot(dx - (half - corner), dy - (half - corner)) <= corner
         return square & (~cut | rounded)
 
+    def broken_hole_mask(
+        self, xs_world: np.ndarray, ys_world: np.ndarray
+    ) -> np.ndarray:
+        """Where the film's holes are broken (no ice across them), at world
+        points: the seeded few `film_masks` draws larger."""
+        mask = np.zeros(np.broadcast(xs_world, ys_world).shape, dtype=bool)
+        if self.film != "holey" or self.broken_hole_fraction <= 0:
+            return mask
+        for grid in self.grids:
+            cos_r, sin_r = np.cos(grid.rotation), np.sin(grid.rotation)
+            xs, ys = xs_world - grid.x, ys_world - grid.y
+            x_rot = xs * cos_r + ys * sin_r
+            y_rot = -xs * sin_r + ys * cos_r
+            hi = np.floor(x_rot / self.hole_pitch).astype(np.int64)
+            hj = np.floor(y_rot / self.hole_pitch).astype(np.int64)
+            hx = (x_rot % self.hole_pitch) - self.hole_pitch / 2
+            hy = (y_rot % self.hole_pitch) - self.hole_pitch / 2
+            broken = _lattice_draw(hi, hj, grid.seed + 7) < self.broken_hole_fraction
+            mask |= broken & (np.hypot(hx, hy) < 0.8 * self.hole_diameter)
+        return mask
+
     def centre_mark_groove(
         self, xs_world: np.ndarray, ys_world: np.ndarray
     ) -> np.ndarray:

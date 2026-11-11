@@ -278,7 +278,10 @@ def surface(
     h = h + specks
     mat[crystal & solid] = CRYSTAL
 
-    # what is torn or past the grid is nothing; the holder sits far below
+    # what is torn or past the grid is nothing (a broken hole too: no ice
+    # across it); the holder sits far below
+    if holes.any():
+        rips = rips | (holes & scene.broken_hole_mask(x / UM, y / UM))
     h = np.where(rips, VOID, h)
     mat[rips] = NOTHING
     mat[beyond] = HOLDER
