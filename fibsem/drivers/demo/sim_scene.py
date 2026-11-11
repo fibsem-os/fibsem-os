@@ -2698,6 +2698,12 @@ class SampleScene:
                     mode="edge",
                 )
         canvas = r * self.grid_intensity
+        if self.milled:
+            # a spot burn's rim reflects brightly round its pit: a fiducial
+            pixel = abs(float(xs_world[0, -1] - xs_world[0, 0])) / max(width - 1, 1)
+            halo = self.halo_mask(xs_world, ys_world, pixel)
+            if halo is not None:
+                canvas[halo] += FM_HALO
         if defocus:
             sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
             if sigma_px > 0.3:
