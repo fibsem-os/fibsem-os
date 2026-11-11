@@ -404,6 +404,8 @@ def read(response: httpx.Response) -> Any:
         return frames_from_bytes(response.content)
     if content_type.startswith(IMAGES_MEDIA_TYPE):
         return image_list_from_bytes(response.content)
+    if content_type.startswith("application/zip"):  # a run's folder
+        return response.content
     if content_type.startswith(NPY_MEDIA_TYPE):
         data = np.load(io.BytesIO(response.content), allow_pickle=False)
         metadata = response.headers.get(FRAME_METADATA_HEADER)

@@ -866,6 +866,12 @@ def run_milling_task(
         FibsemMillingTask: The milling task that was run; ``outcome`` and
             ``error`` say how it ended.
     """
+    run_on_server = getattr(
+        getattr(microscope, "milling", None), "run_task_on_server", None
+    )
+    if run_on_server is not None:
+        # A remote microscope: the task runs on its server, its folder comes back.
+        return run_on_server(config, stop_event, raise_on_failure, output_dir)
     task = FibsemMillingTask(
         microscope=microscope,
         config=config,

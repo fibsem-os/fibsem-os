@@ -29,6 +29,8 @@ from __future__ import annotations
 import functools
 import importlib
 import inspect
+import io
+import logging
 import math
 import os
 import threading
@@ -36,6 +38,7 @@ from typing import Any, Callable, Dict, List, Optional, Type
 
 from psygnal import Signal
 
+from fibsem import config as fcfg
 from fibsem.cancellation import OperationCancelledError
 from fibsem.client.microscope import Remote, Run, typed
 from fibsem.devices.core import DeviceParameter
@@ -45,6 +48,7 @@ from fibsem.drivers.remote.devices import (
     DeviceClient,
     RemoteParts,
 )
+from fibsem.milling.progress import MillingProgressStatus
 from fibsem.services.core import _CLASSES, Service
 from fibsem.services.imaging import Imaging, acquisition_record
 from fibsem.structures.image import FibsemImage
@@ -52,6 +56,7 @@ from fibsem.structures.settings import BeamType
 from fibsem.util import timestamps
 
 STOP_POLL_S = 0.1  # how often a long command's stop event is looked at
+STOP_RETRY_S = 0.5  # how long after a refused stop it is asked again
 
 
 class RemoteService(RemoteParts, Service):
@@ -86,6 +91,7 @@ class RemoteService(RemoteParts, Service):
         if not info.get("long"):
             return typed(info.get("returns"), answer["result"])
         run = Run(self._remote(), answer["result"])
+        self.last_run_id = run.run_id
         if not stops:
             return run.wait(timeout=math.inf)
         ended = threading.Event()
@@ -93,8 +99,13 @@ class RemoteService(RemoteParts, Service):
         def watch() -> None:
             while not ended.wait(STOP_POLL_S):
                 if any(event.is_set() for event in stops):
-                    self.call_command("stop")
-                    return
+                    try:
+                        self.call_command("stop")
+                        return
+                    except Exception as error:  # noqa: BLE001
+                        # Refused before it mills (nothing to stop yet): again.
+                        logging.debug(f"{self.name}.stop: {error}")
+                        ended.wait(STOP_RETRY_S)
 
         threading.Thread(target=watch, name=f"{self.name}-stop", daemon=True).start()
         try:
@@ -235,10 +246,111 @@ functools.update_wrapper(_acquire_saved_here, Imaging.acquire)
 _acquire_saved_here.__dict__.pop("__wrapped__", None)
 _acquire_saved_here.__name__ = "acquire"
 
+
+class ServerMillingTask:
+    """A milling task run on the server for a remote microscope, as
+    `run_milling_task` answers one: how it ended, its folder brought back here."""
+
+    def __init__(self, config: Any, output_dir: Optional[str]):
+        self.config = config
+        self.name = config.name
+        root = output_dir or config.acquisition.imaging.path or fcfg.DATA_CC_PATH
+        self.output_dir = os.path.join(
+            str(root), "Milling", self.name.replace(" ", "-")
+        )
+        self.task_id: Optional[str] = None
+        self.error: Optional[BaseException] = None
+        self.outcome = MillingProgressStatus.TASK_FAILED
+        self.images: List[FibsemImage] = []
+        self._ended: Dict[str, Any] = {}
+
+    def ended(self) -> Dict[str, Any]:
+        """How it ended, as the server's run answered, its ``path`` this computer's
+        copy of the folder."""
+        return {**self._ended, "path": self.output_dir}
+
+
+_OUTCOMES = {
+    "completed": MillingProgressStatus.TASK_FINISHED,
+    "skipped": MillingProgressStatus.TASK_FINISHED,
+    "cancelled": MillingProgressStatus.TASK_CANCELLED,
+}
+
+
+def _run_task_on_server(
+    self: RemoteService,
+    config: Any,
+    stop_event: Optional[threading.Event] = None,
+    raise_on_failure: bool = False,
+    output_dir: Optional[str] = None,
+) -> ServerMillingTask:
+    """`run_milling_task` on a remote microscope: the whole task runs on the
+    server (``run_task``), saving into its data folder, and that folder comes
+    back here, under *output_dir* as a local task saves, and is removed there."""
+    task = ServerMillingTask(config, output_dir)
+    self.last_run_id = None
+    stops = {"stop_event": stop_event} if stop_event is not None else {}
+    try:
+        task._ended = self.call_command("run_task", config=config, path=None, **stops)
+        task.outcome = _OUTCOMES.get(task._ended.get("status"), task.outcome)
+    except OperationCancelledError:
+        task.outcome = MillingProgressStatus.TASK_CANCELLED
+        task._ended = {"status": "cancelled"}
+    except Exception as error:  # noqa: BLE001 - answered as a local task's error
+        task.error = error
+        task._ended = {"status": "failed", "error": str(error)}
+    task.task_id = self.last_run_id
+    if task.task_id is not None:
+        try:
+            _unpack(self._folder_of(task.task_id), task.output_dir)
+            task.images = _saved_images(task.output_dir)
+        except Exception as error:  # noqa: BLE001 - the mill itself is done
+            logging.warning(f"{task.name}: its folder did not come back: {error}")
+    if raise_on_failure and task.error is not None:
+        raise task.error
+    return task
+
+
+def _folder_of(self: RemoteService, run_id: str) -> bytes:
+    path = f"{self.collection}/{self.name}/run/files?run_id={run_id}&remove=true"
+    return self.client.request("GET", path, READ_TIMEOUT)
+
+
+def _unpack(content: bytes, folder: str) -> None:
+    import zipfile
+
+    os.makedirs(folder, exist_ok=True)
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+        for member in archive.namelist():
+            target = os.path.realpath(os.path.join(folder, member))
+            if os.path.commonpath([os.path.realpath(folder), target]) != (
+                os.path.realpath(folder)
+            ):
+                continue  # never outside the task's folder
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            with open(target, "wb") as out:
+                out.write(archive.read(member))
+
+
+def _saved_images(folder: str) -> List[FibsemImage]:
+    """The beam images a task saved in *folder*, in the order they were saved."""
+    paths = []
+    for root, _, files in os.walk(folder):
+        paths += [os.path.join(root, f) for f in files if f.endswith(".tif")]
+    images = []
+    for path in sorted(paths, key=os.path.getmtime):
+        try:
+            images.append(FibsemImage.load(path))
+        except Exception:  # noqa: BLE001 - not a beam image (a monitor's frame)
+            continue
+    return images
+
+
 # A served command a remote microscope runs its own way: one that saves, saving
 # on this computer, since the paths given are this computer's.
 _SAVED_HERE: Dict[str, Dict[str, Callable]] = {
-    "imaging": {"acquire": _acquire_saved_here}
+    "imaging": {"acquire": _acquire_saved_here},
+    "milling": {"run_task_on_server": _run_task_on_server, "_folder_of": _folder_of},
 }
 
 

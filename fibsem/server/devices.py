@@ -65,6 +65,8 @@ import asyncio
 import io
 import json
 import logging
+import os
+import shutil
 import threading
 from functools import partial
 from pathlib import Path
@@ -96,6 +98,7 @@ from fastapi import (
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 
+from fibsem import config as fcfg
 from fibsem.ai.agent.calls import current_call
 from fibsem.cancellation import NothingToStop, OperationCancelledError
 from fibsem.codec import decode, encode
@@ -566,6 +569,28 @@ BINARY_ANSWERS = (
 )
 
 
+ZIP_MEDIA_TYPE = "application/zip"
+
+
+def _under(path: str, root: str) -> bool:
+    root = os.path.realpath(root)
+    return os.path.commonpath([root, os.path.realpath(path)]) == root
+
+
+def _zipped(folder: Optional[str]) -> bytes:
+    """Every file under *folder* in a zip, by its path inside it; empty for None."""
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        if folder is not None:
+            for root, _, files in os.walk(folder):
+                for name in files:
+                    full = os.path.join(root, name)
+                    archive.write(full, os.path.relpath(full, folder))
+    return buffer.getvalue()
+
+
 def build_device_router(
     devices: Callable[[], Mapping[str, Device]],
     read: Sequence[Any] = (),
@@ -676,6 +701,34 @@ def build_device_router(
                     404, "not_found", f"{noun} {device} has run no long command"
                 )
             return answer(RunEnvelope(run_answer(device, found)))
+
+        @router.get(prefix + "/{device}/run/files", dependencies=list(read))
+        def read_run_files(device: str, run_id: str, remove: bool = False) -> Response:
+            """The folder an ended run saved into (its result's ``path``), as a
+            zip: for a remote microscope, whose task ran here and whose files
+            belong on its own computer. Only a folder under this app's data
+            folder, where a run given no path saves; *remove* deletes it once
+            read, so this computer keeps none of it."""
+            found = lookup(device).runs.wait(run_id, 0.0)
+            if found is None or found.run_id != run_id or found.state == RUNNING:
+                raise refusal_error(
+                    404, "not_found", f"{noun} {device} has no ended run {run_id}"
+                )
+            folder = (
+                (found.result or {}).get("path")
+                if isinstance(found.result, dict)
+                else None
+            )
+            if folder is None:
+                return Response(_zipped(None), media_type=ZIP_MEDIA_TYPE)
+            if not _under(folder, fcfg.DATA_CC_PATH) or not os.path.isdir(folder):
+                raise refusal_error(
+                    403, "not_allowed", f"run {run_id} saved outside the data folder"
+                )
+            content = _zipped(folder)
+            if remove:
+                shutil.rmtree(folder, ignore_errors=True)
+            return Response(content, media_type=ZIP_MEDIA_TYPE)
 
     # Before /{parameter}, which would otherwise take "values" as a name.
     @router.get(

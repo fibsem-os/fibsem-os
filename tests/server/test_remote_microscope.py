@@ -271,3 +271,57 @@ def test_images_carry_this_computers_experiment(remote):
     finally:
         remote.session.experiment = before
     assert image.metadata.experiment.name == "here"
+
+
+def _task_config(name="Rough Milling"):
+    from fibsem.milling.base import FibsemMillingStage
+    from fibsem.milling.tasks import FibsemMillingTaskConfig
+
+    config = FibsemMillingTaskConfig.from_stages(
+        [FibsemMillingStage(name="Rough")], name=name
+    )
+    config.alignment.enabled = True
+    config.acquisition.acquire_sem = config.acquisition.acquire_fib = True
+    return config
+
+
+def test_a_milling_task_runs_on_the_server_and_its_folder_comes_here(
+    remote, tmp_path, monkeypatch
+):
+    """A workflow's milling task through a remote microscope: the server runs it
+    (its run_task), and the folder it saved, alignment images and all, comes back
+    under this computer's experiment; the server keeps none of it."""
+    import fibsem.config as fcfg
+    from fibsem.milling.progress import MillingProgressStatus
+    from fibsem.milling.tasks import run_milling_task
+
+    server_data = tmp_path / "support-pc"
+    monkeypatch.setattr(fcfg, "DATA_CC_PATH", str(server_data))
+    here = tmp_path / "remote-pc" / "lamella-01"
+    task = run_milling_task(remote, _task_config(), output_dir=str(here))
+
+    assert task.error is None
+    assert task.outcome is MillingProgressStatus.TASK_FINISHED
+    folder = here / "Milling" / "Rough-Milling"
+    assert task.ended()["path"] == str(folder)
+    assert task.ended()["stages"][0]["status"] == "completed"
+    saved = {p.relative_to(folder).parts[0] for p in folder.rglob("*") if p.is_file()}
+    assert "Alignment" in saved  # the alignment diagnostics came back too
+    assert any(name.endswith("_ib.tif") for name in saved)
+    assert task.images and all(isinstance(i, FibsemImage) for i in task.images)
+    assert not any(p.is_file() for p in server_data.rglob("*"))
+
+
+def test_a_stopped_remote_task_ends_cancelled(remote, tmp_path, monkeypatch):
+    import fibsem.config as fcfg
+    from fibsem.milling.progress import MillingProgressStatus
+    from fibsem.milling.tasks import run_milling_task
+
+    monkeypatch.setattr(fcfg, "DATA_CC_PATH", str(tmp_path / "support-pc"))
+    stop = threading.Event()
+    config = _task_config()
+    config.alignment.enabled = False
+    threading.Timer(0.3, stop.set).start()  # before it mills: refused, asked again
+    task = run_milling_task(remote, config, stop_event=stop, output_dir=str(tmp_path))
+    assert task.outcome is MillingProgressStatus.TASK_CANCELLED
+    assert task.error is None
