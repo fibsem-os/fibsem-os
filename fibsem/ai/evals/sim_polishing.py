@@ -65,7 +65,7 @@ DEPTH = 7e-6  # m, every trench's depth
 GIS = 0.5e-6  # m, the GIS coat over the site
 OVERLAP = 0.3e-6  # m, a polishing trench reaches this far back into the last
 RESOLUTION = (1024, 682)
-HFW = {"sem": 40e-6, "fib": 30e-6}  # m, each beam's field of view
+HFW = {"sem": 50e-6, "fib": 50e-6}  # m, each beam's field of view
 DWELL = 1e-6  # s
 MEASURE_NOISE = 25e-9  # m, sigma of the measured thickness
 
