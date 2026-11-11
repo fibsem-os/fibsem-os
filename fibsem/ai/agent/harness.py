@@ -856,6 +856,9 @@ class Harness:
             return self._code
         try:
             await self._agent.start()
+            # The session's id is known before its first turn: reporting it
+            # now lets that turn already write the plan.
+            await self._report()
             prompt = kickoff(self._resumed, self._goal, self._words)
             while prompt is not None and await self._turn(prompt):
                 prompt = await self._next_prompt()
