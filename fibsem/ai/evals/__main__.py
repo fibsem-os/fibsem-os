@@ -75,6 +75,19 @@ def _parser() -> argparse.ArgumentParser:
     make_sim.add_argument("--out", type=Path, required=True, help="the cases folder")
     make_sim.add_argument("--seeds", type=int, nargs="+", required=True)
     make_sim.add_argument(
+        "--beam",
+        nargs="+",
+        choices=("SEM", "FIB"),
+        default=["SEM"],
+        help="whose overview: the SEM face on, the FIB at the milling angle, or both",
+    )
+    make_sim.add_argument(
+        "--milling-angle",
+        type=float,
+        default=38.0,
+        help="the FIB overview's milling angle in degrees (default 38)",
+    )
+    make_sim.add_argument(
         "--set",
         action="append",
         default=[],
@@ -125,8 +138,15 @@ def main(argv=None) -> int:
             name, _, value = item.partition("=")
             overrides[name.strip()] = yaml.safe_load(value)
         for seed in args.seeds:
-            for folder in sim_cases.write_cases(seed, args.out, overrides):
-                print(f"Wrote {folder}")
+            for beam in args.beam:
+                for folder in sim_cases.write_cases(
+                    seed,
+                    args.out,
+                    overrides,
+                    beam=beam,
+                    milling_angle=args.milling_angle,
+                ):
+                    print(f"Wrote {folder}")
         return 0
 
     if args.command == "report":

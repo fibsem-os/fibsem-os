@@ -297,6 +297,10 @@ def score_square_finding(
     ok = recall >= float(sc.get("min_recall", 0.8)) and precision >= float(
         sc.get("min_precision", 0.9)
     )
+    if sc.get("lattice") is False:
+        # a tilted view foreshortens the grid: one pitch doesn't fit it
+        details["lattice"] = "not scored"
+        return ("hit" if ok else "miss"), details
     try:
         pitch_error = abs(float(answer["pitch_px"]) - pitch) / pitch
         # Lattice directions repeat every 90 degrees.

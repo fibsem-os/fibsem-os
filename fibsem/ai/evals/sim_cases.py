@@ -1,8 +1,9 @@
 """Eval cases from the simulator: the grid tasks, keyed from the scene.
 
 The Demo microscope's sample scene is grown from a seed, so it knows every
-square, rip, ice plate, frost patch, crack and cell. One SEM overview is
-rendered per seed, and the key is read from the scene, not marked by hand:
+square, rip, ice plate, frost patch, crack and cell. One overview is rendered
+per seed (the SEM face on, or the FIB at the milling angle), and the key is
+read from the scene, not marked by hand:
 
 - square_finding: every square's centre, the pitch and the bar angle
 - square_quality: each shown square's label, by the rules in ``RULES``
@@ -37,6 +38,10 @@ TIER = "sim"
 # worth of grid.
 RESOLUTION = (4096, 2560)
 HFW = 1.4e-3  # m
+DWELL = 1e-6  # s, as an overview tile; the SEM charges more the longer it dwells
+# The FIB overview's pose: the milling angle, in degrees
+MILLING_ANGLE = 38.0
+BEAMS = {"SEM": BeamType.ELECTRON, "FIB": BeamType.ION}
 
 # What makes each label, per square, on the film inside the bars.
 RULES: Dict[str, Any] = {
@@ -68,14 +73,14 @@ VARIED = {
 
 BRIEFS = {
     "square_finding": (
-        "Find every grid square on this SEM overview of a cryo grid: torn, "
+        "Find every grid square on this {view} of a cryo grid: torn, "
         "empty and ice-covered squares too, and squares cut by an edge. Answer "
         "each square's centre as x, y px on the full-size overview ({w} x {h} "
         "px), the grid pitch in px, and the angle of the grid bars from the "
         "image x axis in degrees (y points down)."
     ),
     "square_quality": (
-        "Label each numbered grid square on this SEM overview of a cryo grid "
+        "Label each numbered grid square on this {view} of a cryo grid "
         "with the one that fits best: good (intact film, a cell clear of the "
         "grid bars), no_cells (intact film, no cell), damaged (film torn or "
         "missing, or cracked), thick (ice crystals or contamination over the "
@@ -84,7 +89,7 @@ BRIEFS = {
         "({w} x {h} px)."
     ),
     "site_selection": (
-        "Pick up to 10 grid squares on this SEM overview of a cryo grid to "
+        "Pick up to 10 grid squares on this {view} of a cryo grid to "
         "mill lamellae in, best first: intact film, no ice or contamination, "
         "and a cell clear of the grid bars. Answer each pick as the x, y px "
         "of the cell on the full-size overview ({w} x {h} px), with a reason."
@@ -173,12 +178,19 @@ def render_overview(
     overrides: Optional[Dict[str, Any]] = None,
     resolution: Tuple[int, int] = RESOLUTION,
     hfw: float = HFW,
+    beam: str = "SEM",
+    milling_angle: float = MILLING_ANGLE,
 ):
-    """The SEM overview of a seed's scene, on the Demo microscope, and the map
-    from the scene's world to the overview's pixels."""
+    """An overview of a seed's scene on the Demo microscope, and the map from
+    the scene's world to the overview's pixels: the SEM looking straight down,
+    or the FIB at the milling angle (foreshortened)."""
+    beam_type = BEAMS[beam]
     microscope = _demo_microscope()
     try:
-        _face_on(microscope)
+        if beam == "SEM":
+            _face_on(microscope)
+        else:
+            microscope.move_to_milling_angle(milling_angle)
         scene = SampleScene(renderer="relief", **scene_options(seed, overrides, hfw))
         position = microscope.get_stage_position()
         scene.anchor(position)
@@ -186,26 +198,26 @@ def render_overview(
         settings = ImageSettings(
             resolution=resolution,
             hfw=hfw,
-            dwell_time=1e-9,
+            dwell_time=DWELL,
             save=False,
-            beam_type=BeamType.ELECTRON,
+            beam_type=beam_type,
         )
         image = microscope.acquire_image(image_settings=settings)
         # the same mapping the render drew with, inverted: view_to_world is
         # affine in the view offset
         projection = BeamStageProjection.from_microscope(
-            microscope, beam_type=BeamType.ELECTRON
+            microscope, beam_type=beam_type
         )
-        shift = microscope.get_beam_shift(BeamType.ELECTRON)
+        shift = microscope.get_beam_shift(beam_type)
         try:
-            current = float(microscope.get_beam_current(BeamType.ELECTRON))
+            current = float(microscope.get_beam_current(beam_type))
         except Exception:
             current = None
         position = microscope._connection.scene_stage_position()
 
         def world(dx, dy):
             return scene.view_to_world(
-                BeamType.ELECTRON,
+                beam_type,
                 position,
                 projection,
                 dx,
@@ -404,19 +416,24 @@ def find_squares(overview: Overview) -> List[Square]:
     return squares
 
 
-def lattice(overview: Overview) -> Tuple[float, float]:
-    """The pitch in px and the bars' angle from the image x axis (degrees, y
-    down, in [0, 90))."""
+def lattice(overview: Overview) -> List[Tuple[float, float]]:
+    """Each lattice axis as (pitch in px, angle from the image x axis in
+    degrees, y down, in [0, 90)), the longer first. Face on, the two pitches
+    are the same; a tilted view foreshortens one."""
     grid = overview.scene.grids[0]
     pitch = overview.scene.grid_pitch
-    a = np.array(
-        overview.px(*map(float, _to_world(grid, np.array(0.0), np.array(0.0))))
-    )
-    b = np.array(
-        overview.px(*map(float, _to_world(grid, np.array(pitch), np.array(0.0))))
-    )
-    d = b - a
-    return float(np.hypot(*d)), float(math.degrees(math.atan2(d[1], d[0])) % 90)
+    zero = np.array(0.0)
+    a = np.array(overview.px(*map(float, _to_world(grid, zero, zero))))
+    axes = []
+    for u, v in ((pitch, 0.0), (0.0, pitch)):
+        b = np.array(
+            overview.px(*map(float, _to_world(grid, np.array(u), np.array(v))))
+        )
+        d = b - a
+        axes.append(
+            (float(np.hypot(*d)), float(math.degrees(math.atan2(d[1], d[0])) % 90))
+        )
+    return sorted(axes, reverse=True)
 
 
 # --- the cases ---------------------------------------------------------------
@@ -447,15 +464,24 @@ def write_cases(
     most_labelled: int = 30,
     resolution: Tuple[int, int] = RESOLUTION,
     hfw: float = HFW,
+    beam: str = "SEM",
+    milling_angle: float = MILLING_ANGLE,
 ) -> List[Path]:
-    """The three grid cases for one seed, under ``out/<task>/sim-<seed>``.
-    The square-finding case's ``reference/`` holds every square's measures
-    and a preview of the key, for checking by eye; the agent sees neither."""
+    """The three grid cases for one seed and beam, under
+    ``out/<task>/sim-<seed>`` (``sim-<seed>-fib`` for the FIB). The
+    square-finding case's ``reference/`` holds every square's measures and a
+    preview of the key, for checking by eye; the agent sees neither. On the
+    FIB the grid is foreshortened, so its pitch and angle aren't scored."""
     out = Path(out)
-    name = f"sim-{int(seed):04d}"
-    overview = render_overview(seed, overrides, resolution, hfw)
+    name = f"sim-{int(seed):04d}" + ("-fib" if beam == "FIB" else "")
+    overview = render_overview(seed, overrides, resolution, hfw, beam, milling_angle)
     squares = find_squares(overview)
-    pitch_px, angle_deg = lattice(overview)
+    (pitch_px, angle_deg), (short_px, short_deg) = lattice(overview)
+    view = (
+        "SEM overview"
+        if beam == "SEM"
+        else f"FIB overview, taken at a {milling_angle:g} degree milling angle,"
+    )
     w, h = overview.resolution
     options = scene_options(seed, overrides, hfw)
 
@@ -471,6 +497,7 @@ def write_cases(
         "tier": TIER,
         "sample": f"simulated {options['cell_type']} cells",
         "instrument": "Demo (simulator)",
+        "beam": beam,
         "source": {
             "simulator": {
                 "seed": int(seed),
@@ -481,6 +508,8 @@ def write_cases(
                 "renderer": "relief",
                 "resolution": [w, h],
                 "hfw_m": hfw,
+                "dwell_s": DWELL,
+                **({"milling_angle_deg": milling_angle} if beam == "FIB" else {}),
             }
         },
         "size_px": [w, h],
@@ -495,7 +524,7 @@ def write_cases(
             "id": f"{name}-sites",
             "task": "site_selection",
             "inputs": {"overview": "experiment/overview.tif"},
-            "brief": BRIEFS["site_selection"].format(w=w, h=h),
+            "brief": BRIEFS["site_selection"].format(w=w, h=h, view=view),
             "key": {
                 **keyed,
                 "good": [q.point() for q in good],
@@ -507,11 +536,27 @@ def write_cases(
             "id": f"{name}-squares",
             "task": "square_finding",
             "inputs": {"overview": shared},
-            "brief": BRIEFS["square_finding"].format(w=w, h=h),
+            "brief": BRIEFS["square_finding"].format(w=w, h=h, view=view)
+            + (
+                " The view is tilted, so the grid is foreshortened: give the pitch "
+                "and angle of the longer side of the squares."
+                if beam == "FIB"
+                else ""
+            ),
             "key": {
                 **keyed,
                 "pitch_px": round(pitch_px, 1),
                 "angle_deg": round(angle_deg, 2),
+                **(
+                    {
+                        "short_axis": {
+                            "pitch_px": round(short_px, 1),
+                            "angle_deg": round(short_deg, 2),
+                        }
+                    }
+                    if beam == "FIB"
+                    else {}
+                ),
                 "squares": [
                     {**q.point(), **({} if q.in_view else {"optional": "edge"})}
                     for q in squares
@@ -523,6 +568,7 @@ def write_cases(
                 "min_precision": 0.9,
                 "pitch_tolerance": 0.1,
                 "angle_tolerance_deg": 5,
+                **({"lattice": False} if beam == "FIB" else {}),
             },
         },
     }
@@ -531,7 +577,7 @@ def write_cases(
         "id": f"{name}-labels",
         "task": "square_quality",
         "inputs": {"overview": shared},
-        "brief": BRIEFS["square_quality"].format(w=w, h=h),
+        "brief": BRIEFS["square_quality"].format(w=w, h=h, view=view),
         "squares": [q.point() for q in shown],
         "key": {**keyed, "labels": {str(q.number): q.label for q in shown}},
         "scoring": {"min_accuracy": 0.8, "unsafe_if_called_good": ["damaged"]},

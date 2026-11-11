@@ -10,6 +10,7 @@ import tifffile
 from fibsem.ai.evals import report, sim_cases
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import check_case, load_case
+from fibsem.ai.evals.scoring import score_case
 
 SMALL = {"resolution": (768, 512), "hfw": 520e-6}
 # a bare grid: film, bars and nothing else, so a pixel says which it is
@@ -24,6 +25,7 @@ BARE = {
     "noise_sigma": 0.0,
     "noise_fraction": 0.0,
     "centre_mark": False,
+    "charging": 0.0,
 }
 
 
@@ -176,3 +178,25 @@ def test_run_only_the_sim_tier(bare, tmp_path, capsys, monkeypatch):
         main(["run", str(out), "--out", str(tmp_path / "runs2"), "--tier", "sim"]) == 0
     )
     assert seen == ["sim"] * 2
+
+
+def test_a_fib_overview_at_the_milling_angle_skips_the_lattice(tmp_path):
+    folders = sim_cases.write_cases(
+        3, tmp_path, BARE, beam="FIB", milling_angle=38.0, **SMALL
+    )
+    assert [f.name for f in folders] == ["sim-0003-fib"] * 3
+    case = load_case(tmp_path / "square-finding" / "sim-0003-fib")
+    assert check_case(case).ok, check_case(case).problems
+    assert case.data["beam"] == "FIB"
+    assert case.scoring["lattice"] is False
+    # foreshortened: the short side is shorter than the long one
+    assert case.key["short_axis"]["pitch_px"] < 0.9 * case.key["pitch_px"]
+    # every required square found scores a hit, whatever pitch is given
+    answer = {
+        "squares": [s for s in case.key["squares"] if not s.get("optional")],
+        "pitch_px": 1,
+        "angle_deg": 0,
+    }
+    (score,) = score_case(case, answer)
+    assert score.result == "hit"
+    assert score.details["lattice"] == "not scored"
