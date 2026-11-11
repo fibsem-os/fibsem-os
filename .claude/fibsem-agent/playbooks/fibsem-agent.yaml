@@ -19,7 +19,7 @@ session:
   # A running workflow this many minutes without an event wakes the agent once.
   quiet_min: 20
 # Read first, every session.
-skills: [fibsem-agent]
+skills: [fibsem-agent, fibsem-microscope]
 reminders:
   hardware_error: Stop. Don't retry. Message the operator with the error word for word.
 # Read every turn, so only the rules that must hold on every task; the work

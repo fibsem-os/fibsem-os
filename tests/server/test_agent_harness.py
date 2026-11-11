@@ -316,7 +316,7 @@ def test_a_wake_up_rings_into_the_next_turn(session):
 
 def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     first = kickoff()
-    assert "Read the fibsem-agent skill" in first
+    assert "Read the fibsem-agent and fibsem-microscope skills" in first
     assert "task skill" in first
     assert "what they would like to get done today" in first
     assert "server_get_capabilities" in first
@@ -331,6 +331,17 @@ def test_the_kickoff_reads_the_base_skill_then_the_task_skill_or_asks():
     # A goal is said back, with its rule, before the agent acts on it.
     goal = kickoff(goal="mill 01 and 02")
     assert "mill 01 and 02" in goal and "Before acting on it" in goal
+
+
+def test_the_sidecar_is_told_the_playbooks_instrument_kind():
+    pytest.importorskip("claude_agent_sdk")
+    from fibsem.ai.agent.catalog import INSTRUMENT_ENV
+
+    checkout = harness_mod.find_checkout()
+    playbook = harness_mod.playbooks.load(harness_mod.playbooks.DEFAULT, checkout)
+    options = harness_mod.build_options(checkout, playbook=playbook)
+    assert options.env[INSTRUMENT_ENV] == "fibsem"
+    assert INSTRUMENT_ENV not in harness_mod.build_options(checkout).env
 
 
 def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path):
@@ -361,6 +372,7 @@ def test_the_agent_has_the_fibsem_tools_and_its_skills_and_nothing_else(tmp_path
         assert f"Agent({agent})" in options.disallowed_tools
     assert set(options.skills) == {
         "fibsem-agent",
+        "fibsem-microscope",
         "autolamella",
         "autolamella-lead",
         "autolamella-assistant",

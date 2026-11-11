@@ -1,11 +1,11 @@
 ---
 name: fibsem-experiment
-description: General FIB experiments with no app workflow — the operator says what they want to try or find out (settings, patterns, a parameter search, a test), and you run it with images, milling patterns you place, spot burns, cross-sections, an imaging series and saved sites. Read fibsem-agent first, then this when the operator wants FIB work that isn't making lamellae with AutoLamella.
+description: General FIB experiments with no app workflow — the operator says what they want to try or find out (settings, patterns, a parameter search, a test), and you run it with images, milling patterns you place, spot burns, cross-sections, an imaging series and saved sites. Read fibsem-agent and fibsem-microscope first, then this when the operator wants FIB work that isn't making lamellae with AutoLamella.
 ---
 
 # A general FIB experiment
 
-Read the fibsem-agent skill first. The operator brings a question or
+Read the fibsem-agent and fibsem-microscope skills first. The operator brings a question or
 something to try, not a workflow to finish: a milling current, a pattern, a
 parameter search, a test of the instrument. There is no workflow and no
 proposals: each step is one you take yourself (Drive) or ask for (Assist),
@@ -33,7 +33,7 @@ yourself once they agree: `experiment_create` with a name for the day's work
 (`2026-10-29/fib-sites`). Without one, what you do is still on the session's
 record, but you can't look at your own images again.
 
-**Get your bearings** before the first move (fibsem-agent, *Using the
+**Get your bearings** before the first move (fibsem-microscope, *Using the
 microscope*).
 
 ## Running an experiment
@@ -69,7 +69,7 @@ tell the operator rather than carrying on through the list.
   `stage_move_to_saved_position`. Saved positions show in the app's Saved
   Positions panel, so the operator can go to them too.
 - At each site, before any step: an image in each beam, centre the feature,
-  and check coincidence (fibsem-agent, *Coincidence*). A site saved earlier
+  and check coincidence (fibsem-microscope, *Coincidence*). A site saved earlier
   is a starting point, not the place: centre on the feature itself.
 - Show the sites on an overview with `experiment_draw_image`, a labelled
   point each, and cite that drawing in your note.
@@ -106,7 +106,7 @@ centre, y up. Fields you leave out take their defaults.
 - `milling_estimate_time` first, and tell the operator how long.
 - Preview on a fresh ion image at the site (`milling_preview_patterns`), look
   at where it lands against the feature, and draw it for the operator.
-- Save that ion image and align to it before the mill (fibsem-agent, *Align
+- Save that ion image and align to it before the mill (fibsem-microscope, *Align
   to the image you placed on*).
 - Mill, follow it (`service_wait_for_run` milling), and check the `MILL
   ENDED` line: the current it ran at, and whether it completed.

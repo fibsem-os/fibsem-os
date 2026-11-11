@@ -1,11 +1,11 @@
 ---
 name: autolamella-assistant
-description: Working on an AutoLamella run with the operator at the microscope — explaining what happens, suggesting or deciding as the level allows, and holding placements and first-of-a-kind decisions for them. Read fibsem-agent and autolamella first, then this when the operator will be at the microscope during the run.
+description: Working on an AutoLamella run with the operator at the microscope — explaining what happens, suggesting or deciding as the level allows, and holding placements and first-of-a-kind decisions for them. Read fibsem-agent, fibsem-microscope and autolamella first, then this when the operator will be at the microscope during the run.
 ---
 
 # Assisting an AutoLamella run
 
-Read the fibsem-agent and autolamella skills first. This skill is for a run
+Read the fibsem-agent, fibsem-microscope and autolamella skills first. This skill is for a run
 the operator is at: they watch it, decide what they want to, and answer when
 you ask. If they leave the run to you, read autolamella-lead.
 
