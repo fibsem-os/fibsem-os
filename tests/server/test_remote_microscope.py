@@ -313,15 +313,25 @@ def test_a_milling_task_runs_on_the_server_and_its_folder_comes_here(
 
 
 def test_a_stopped_remote_task_ends_cancelled(remote, tmp_path, monkeypatch):
+    """A workflow's stop reaches the task on the server, whenever it comes: here
+    while the stage is about to mill."""
     import fibsem.config as fcfg
     from fibsem.milling.progress import MillingProgressStatus
+    from fibsem.milling.strategy.standard import StandardMillingStrategy
     from fibsem.milling.tasks import run_milling_task
 
     monkeypatch.setattr(fcfg, "DATA_CC_PATH", str(tmp_path / "support-pc"))
     stop = threading.Event()
+    strategy_run = StandardMillingStrategy.run
+
+    def held(self, *args, **kwargs):  # on the server: mills once the stop is in
+        stop.set()
+        time.sleep(1.0)  # the client's stop reaches the server
+        return strategy_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(StandardMillingStrategy, "run", held)
     config = _task_config()
     config.alignment.enabled = False
-    threading.Timer(0.3, stop.set).start()  # before it mills: refused, asked again
     task = run_milling_task(remote, config, stop_event=stop, output_dir=str(tmp_path))
     assert task.outcome is MillingProgressStatus.TASK_CANCELLED
     assert task.error is None
