@@ -27,6 +27,8 @@ optional:
         Look at the pass figure and its facts before the next pass: the band,
         both faces, the target against the control, and the SEM. Stop and ask
         on any of autolamella-polishing's Iterative Polishing stop points.
+# AutoLamella's own hooks, on for this playbook and those that extend it.
+hooks: [setup_placement, polishing_pass, after_polish_pass]
 reminders:
   workflow_start: Read the knowledge base's entries for this sample and this playbook.
   site: Check the site against the operator's placement rule.

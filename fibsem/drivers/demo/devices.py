@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from contextlib import contextmanager
 from copy import deepcopy
 from typing import (
@@ -515,6 +516,38 @@ class DemoStage(Stage):
         logging.info("Stage linked.")
 
 
+class DemoXYZStage(Stage):
+    """A Demo stage with only x, y and z, built when there is no Demo microscope:
+    the stage of a standalone instrument, such as a cryo-FM's sample stage. It
+    keeps its position in ``sim_position`` and has no homing or linking."""
+
+    LIMITS = {axis: STAGE_LIMITS_DEFAULT[axis] for axis in ("x", "y", "z")}
+
+    def __init__(self, resources: Optional[Resources] = None):
+        super().__init__(parent=None, resources=resources)
+        self.sim_position = FibsemStagePosition(x=0.0, y=0.0, z=0.0)
+
+    def read_position(self) -> FibsemStagePosition:
+        return deepcopy(self.sim_position)
+
+    def metadata_position(self) -> ParameterMetadata:
+        return ParameterMetadata(limits=dict(self.LIMITS))
+
+    def _move_absolute(self, position: FibsemStagePosition) -> None:
+        for axis in self.LIMITS:
+            value = getattr(position, axis)
+            if value is not None:
+                setattr(self.sim_position, axis, value)
+
+    def _move_relative(self, delta: FibsemStagePosition) -> None:
+        for axis in self.LIMITS:
+            value = getattr(delta, axis)
+            if value is not None:
+                setattr(
+                    self.sim_position, axis, getattr(self.sim_position, axis) + value
+                )
+
+
 def _insertable_state(inserted: bool) -> InsertableDeviceState:
     return (
         InsertableDeviceState.INSERTED if inserted else InsertableDeviceState.RETRACTED
@@ -854,6 +887,9 @@ class DemoGasInjector(GasInjector):
         self.sim_opened = False
         self.sim_position: Optional[str] = None
         self.sim_purges: List[float] = []
+        self.sim_opened_at: Optional[float] = None
+        # simulated seconds open, from a wait that skips its delay
+        self.sim_open_seconds = 0.0
 
     def is_installed(self) -> Optional[bool]:
         return True
@@ -897,10 +933,19 @@ class DemoGasInjector(GasInjector):
     def _open(self) -> None:
         logging.info(f"Opening the {self.name} valve")
         self.sim_opened = True
+        self.sim_opened_at = time.monotonic()
+        self.sim_open_seconds = 0.0
 
     def _close(self) -> None:
         logging.info(f"Closing the {self.name} valve")
         self.sim_opened = False
+        if self.sim_opened_at is not None:
+            # the sample is coated for as long as the valve was open
+            scene = _sample_scene(self.parent)
+            if scene is not None:
+                elapsed = time.monotonic() - self.sim_opened_at
+                scene.deposit(max(elapsed, self.sim_open_seconds))
+            self.sim_opened_at = None
 
     def _purge(self, seconds: float) -> None:
         self.sim_purges.append(seconds)
@@ -908,6 +953,11 @@ class DemoGasInjector(GasInjector):
 
     def _wait(self, seconds: float) -> None:
         sim_sleep(seconds)
+
+
+def _sample_scene(microscope: Any) -> Any:
+    """The simulator's sample scene behind a Demo microscope, when it has one."""
+    return getattr(getattr(microscope, "_connection", None), "sample_scene", None)
 
 
 # The keys a Demo gas injector entry takes, and their defaults.
@@ -967,6 +1017,9 @@ class DemoSputterCoater(SputterCoater):
         try:
             sim_sleep(seconds)
             self.sim_runs.append((seconds, grids, self.sim_current))
+            scene = _sample_scene(self.parent)
+            if scene is not None:
+                scene.sputter(seconds)
         finally:
             self.sim_inserted = False
 
@@ -1047,7 +1100,10 @@ def build_demo_beam(entry: "DeviceEntry", context: "BuildContext") -> DemoBeam:
     ).connect()
 
 
-def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> DemoStage:
+def build_demo_stage(entry: "DeviceEntry", context: "BuildContext") -> Stage:
+    """The Demo microscope's stage, or with no microscope an x, y, z stage."""
+    if context.microscope is None:
+        return named(DemoXYZStage(), entry)
     return named(DemoStage(context.microscope, *_demo_start(context)), entry)
 
 

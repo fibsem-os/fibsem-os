@@ -29,6 +29,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from enum import Enum
+from types import MappingProxyType
 from typing import (
     Any,
     Callable,
@@ -157,6 +158,13 @@ class DeviceParameter(Parameter):
             raise ParameterUnavailable(
                 f"{type(device).__name__} '{device.name}' has no '{self.name}' on this backend"
             ) from None
+
+    def __set__(self, device: _Controllable, value: Any) -> None:
+        # Assigning would only hide the parameter on this object and write nothing.
+        raise AttributeError(
+            f"'{self.name}' is a parameter: write it with "
+            f"{type(device).__name__}.{self.name}.set_value(...)"
+        )
 
     def __repr__(self) -> str:
         unit = f", unit={self.unit!r}" if self.unit else ""
@@ -720,6 +728,13 @@ class _Controllable:
     remote_signals: Tuple[str, ...] = ()
     """The other signals a remote client hears, by name (``WS /events``). None that
     carries an image or a frame."""
+
+    client_side: Tuple[str, ...] = ()
+    """Methods a remote client runs on its own copy, not on the server: ones that
+    touch no hardware (an estimate, an image sent to this app's views)."""
+
+    remote_properties: Mapping[str, str] = MappingProxyType({})
+    """Properties a remote client reads with a query, by name: the query's name."""
 
     def __init__(
         self,

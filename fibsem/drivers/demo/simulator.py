@@ -495,6 +495,7 @@ class DemoSimulator:
                 projection=projection,
                 beam_shift=(float(shift.x), float(shift.y)),
                 beam_current=current,
+                dwell_time=effective_image_settings.dwell_time,
             )
         # generate the next image from the sequence iterator
         elif self.use_image_sequence:

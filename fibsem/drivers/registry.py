@@ -207,6 +207,16 @@ _DEVICE_DRIVERS: Dict[str, str] = {
 }
 
 
+# ``info.driver: remote``: the microscope another App Server serves, reached at the
+# configuration's ``ip_address`` and ``port`` with the token this computer was
+# paired with there. Its devices are the remote driver's.
+REMOTE_MICROSCOPE = DriverEntry(
+    manufacturer=REMOTE_DRIVER,
+    microscope_class="fibsem.client.remote_microscope:remote_microscope",
+    port=8001,
+)
+
+
 class _BuiltInDrivers(Mapping[str, DriverEntry]):
     """The built-in records by manufacturer, each imported when it is looked up."""
 
@@ -308,6 +318,8 @@ def get_driver(manufacturer: Optional[str]) -> DriverEntry:
     message ``setup_session`` has always given.
     """
     name = normalize_name(manufacturer)
+    if name == REMOTE_DRIVER:
+        return REMOTE_MICROSCOPE
     entry = DRIVER_PLUGINS.get(name) if isinstance(name, str) else None
     if entry is None:
         raise NotImplementedError(f"Manufacturer {manufacturer} not supported.")
@@ -356,14 +368,17 @@ def milling_settings_name(settings_class: type) -> Optional[str]:
     return None
 
 
-def connect_microscope(system: "SystemSettings") -> "FibsemMicroscope":
-    """The microscope ``system.info.manufacturer`` names, built and connected.
+def connect_microscope(
+    system: "SystemSettings", driver_name: Optional[str] = None
+) -> "FibsemMicroscope":
+    """The microscope *driver_name* names (a configuration's ``info.driver``), else
+    ``system.info.manufacturer``, built and connected.
 
     Connects to ``system.info.ip_address`` on ``system.info.port`` when the
     configuration names one, else on the driver's ``port``. With neither, the
     microscope is built and not connected.
     """
-    driver = get_driver(system.info.manufacturer)
+    driver = get_driver(driver_name or system.info.manufacturer)
     microscope = driver.load()(system)
     port = system.info.port
     if port is None:

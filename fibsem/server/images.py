@@ -12,6 +12,7 @@ clearly if absent.
 
 import base64
 import io
+import json
 import math
 from typing import Any, Dict, Optional, Sequence, Tuple
 
@@ -191,6 +192,49 @@ def _maybe_float(value) -> Optional[float]:
 
 
 TIFF_MEDIA_TYPE = "image/tiff"
+IMAGES_MEDIA_TYPE = "application/x-fibsem-images"  # an image list: a zip of TIFFs
+
+
+def image_list_bytes(images) -> bytes:
+    """An image list (`is_image_list`) as a zip: ``layout.json`` its shape, each
+    image a number into the ``<n>.tif`` files (`tiff_bytes`), None kept."""
+    import zipfile
+
+    tiffs = []
+
+    def layout(item):
+        if item is None:
+            return None
+        if isinstance(item, (list, tuple)):
+            return [layout(i) for i in item]
+        tiffs.append(tiff_bytes(item))
+        return len(tiffs) - 1
+
+    shape = layout(images)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as archive:
+        archive.writestr("layout.json", json.dumps(shape))
+        for n, data in enumerate(tiffs):
+            archive.writestr(f"{n}.tif", data)
+    return buf.getvalue()
+
+
+def image_list_from_bytes(content: bytes):
+    """The inverse of `image_list_bytes`."""
+    import zipfile
+
+    from fibsem.structures.image import FibsemImage
+
+    with zipfile.ZipFile(io.BytesIO(content)) as archive:
+
+        def images(item):
+            if item is None:
+                return None
+            if isinstance(item, list):
+                return [images(i) for i in item]
+            return FibsemImage.load(io.BytesIO(archive.read(f"{item}.tif")))
+
+        return images(json.loads(archive.read("layout.json")))
 
 
 def tiff_bytes(image) -> bytes:
@@ -294,7 +338,8 @@ def is_image_result(result) -> bool:
 def is_image_list(result) -> bool:
     """Whether *result* is a list of FibsemImages (or lists of them), None in
     places, with at least one image: what the reference image commands return.
-    No program format carries it, so it always answers as :func:`image_answer`."""
+    It answers as :func:`image_answer`, or as `image_list_bytes` when the call
+    asks for the data (``"answer": "data"``, as a remote microscope does)."""
     from fibsem.structures.image import FibsemImage
 
     if not isinstance(result, (list, tuple)) or not result:

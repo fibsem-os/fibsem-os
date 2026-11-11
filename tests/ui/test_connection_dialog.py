@@ -278,3 +278,44 @@ def test_a_configuration_that_resolves_nowhere_shows_in_the_panel(dialog):
 
     assert dialog.details_title.text() == "No configuration"
     assert "could not be found" in dialog.details_subtitle.text()
+
+
+@pytest.fixture
+def devices_dialog(qapp, tmp_path, monkeypatch):
+    """A configuration that lists only devices (a cryo-FM), selected."""
+    import yaml
+
+    from fibsem.server.devices import served_fm_settings
+
+    path = tmp_path / "cryo-fm.yaml"
+    settings = served_fm_settings("fm")
+    settings["info"] = {"name": "cryo-fm", "instrument": "devices"}
+    path.write_text(yaml.safe_dump(settings))
+    monkeypatch.setitem(cfg.USER_CONFIGURATIONS, "cryo-fm", {"path": str(path)})
+    d = ConnectionDialog(session=AppSession())
+    d.show()
+    d.configuration_combo.setCurrentText("cryo-fm")
+    yield d
+    d.session.disconnect()
+    d.deleteLater()
+
+
+def test_a_devices_configuration_connects_and_shows_its_devices(
+    devices_dialog, monkeypatch
+):
+    assert "Devices only" in devices_dialog.details_subtitle.text()
+
+    devices_dialog.connect_button.click()
+
+    assert devices_dialog.session.microscope is None
+    assert devices_dialog.session.instrument is not None
+    assert devices_dialog.changed is True
+    reopened = ConnectionDialog(session=devices_dialog.session)
+    assert reopened.details_title.text() == "Devices connected"
+    assert "light_source" in reopened.details_subtitle.text()
+    assert reopened.connect_button.text() == "Reconnect"
+
+    _answer_disconnect(monkeypatch, True)
+    reopened.disconnect_from_microscope()
+    assert devices_dialog.session.instrument is None
+    reopened.deleteLater()
