@@ -387,8 +387,19 @@ def draw_correlation(case: Case, runs: List[Run]):
             )
         except (KeyError, TypeError, ValueError):
             pass
+    errors = []
+    for result, answer in runs:
+        d = score_case(case, answer or {})[0].details
+        if "across_um" in d:
+            errors.append(
+                f"r{result['repeat']} across {d['across_um']}, along {d['along_um']}"
+            )
+        elif "error_um" in d:
+            errors.append(f"r{result['repeat']} {d['error_um']}")
     ax.set_title(
-        "FIB image. circle/x: target; squares: fiducial pairs, numbered", fontsize=9
+        "FIB image. circle/x: target; squares: fiducial pairs, numbered"
+        + (f"\nerror (um): {'; '.join(errors)}" if errors else ""),
+        fontsize=9,
     )
     _legend(ax, runs)
     return fig
