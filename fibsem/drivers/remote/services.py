@@ -30,8 +30,9 @@ import functools
 import importlib
 import inspect
 import math
+import os
 import threading
-from typing import Any, Callable, Dict, Optional, Type
+from typing import Any, Callable, Dict, List, Optional, Type
 
 from psygnal import Signal
 
@@ -45,6 +46,10 @@ from fibsem.drivers.remote.devices import (
     RemoteParts,
 )
 from fibsem.services.core import _CLASSES, Service
+from fibsem.services.imaging import Imaging, acquisition_record
+from fibsem.structures.image import FibsemImage
+from fibsem.structures.settings import BeamType
+from fibsem.util import timestamps
 
 STOP_POLL_S = 0.1  # how often a long command's stop event is looked at
 
@@ -74,6 +79,8 @@ class RemoteService(RemoteParts, Service):
             raise OperationCancelledError(f"{self.name}.{command} was stopped")
         answer = self._post_command(command, timeout, kwargs)
         if not isinstance(answer, dict):  # an image, an array, a list of frames
+            for image in _images(answer):
+                self.session.stamp(image)  # this computer's user and experiment
             return answer
         info = self._description["commands"].get(command, {})
         if not info.get("long"):
@@ -133,12 +140,14 @@ def remote_service_class(name: str, description: Dict[str, Any]) -> Type[RemoteS
                 if isinstance(value, (Signal, DeviceParameter)):
                     namespace[attr] = value
         namespace["remote_signals"] = local.remote_signals
-        for method in local.client_side:
-            namespace[method] = inspect.getattr_static(local, method)
     for kind in ("commands", "queries"):
         for method, info in description.get(kind, {}).items():
             real = getattr(local, method, None) if local is not None else None
             namespace[method] = _forward(method, kind, info, real)
+    if local is not None:
+        for method in local.client_side:
+            namespace[method] = inspect.getattr_static(local, method)
+    namespace.update(_SAVED_HERE.get(name, {}))
     if local is not None:
         queries = description.get("queries", {})
         for attr, query in local.remote_properties.items():
@@ -186,6 +195,51 @@ def _forward(
     if signature is not None:
         method.__signature__ = signature  # type: ignore[attr-defined]
     return method
+
+
+def _images(result: Any) -> List[FibsemImage]:
+    """The FibsemImages in a command's *result*: it, or those in a list of them."""
+    if isinstance(result, FibsemImage):
+        return [result]
+    if isinstance(result, (list, tuple)):
+        return [image for item in result for image in _images(item)]
+    return []
+
+
+def _acquire_saved_here(
+    self: RemoteService,
+    beam_type: BeamType = BeamType.ELECTRON,
+    image_settings: Any = None,
+    path: Optional[str] = None,
+    filename: Optional[str] = None,
+) -> FibsemImage:
+    """`Imaging.acquire` on a remote microscope: acquired on the server, saved in
+    *path* on this computer and recorded here."""
+    name = filename or f"image-{timestamps.now():%Y%m%d-%H%M%S}"
+    if os.path.basename(name) != name or name in (".", ".."):
+        raise ValueError(f"filename is a name, not a path: {name!r}")
+    image = self.call_command(
+        "acquire", beam_type=beam_type, image_settings=image_settings
+    )
+    if path is None:
+        return image
+    settings = image.metadata.image_settings if image.metadata else None
+    beam = settings.beam_type if settings and settings.beam_type else beam_type
+    suffix = "eb" if beam is BeamType.ELECTRON else "ib"
+    saved = image.save(path=os.path.join(path, f"{name}_{suffix}"))
+    self.session.record("image_acquired", acquisition_record(image, saved))
+    return image
+
+
+functools.update_wrapper(_acquire_saved_here, Imaging.acquire)
+_acquire_saved_here.__dict__.pop("__wrapped__", None)
+_acquire_saved_here.__name__ = "acquire"
+
+# A served command a remote microscope runs its own way: one that saves, saving
+# on this computer, since the paths given are this computer's.
+_SAVED_HERE: Dict[str, Dict[str, Callable]] = {
+    "imaging": {"acquire": _acquire_saved_here}
+}
 
 
 def connect_remote_services(client: DeviceClient) -> Dict[str, RemoteService]:

@@ -217,3 +217,57 @@ def test_reference_images_come_back_as_images(remote):
     assert images[1] is None
     assert isinstance(images[0], FibsemImage) and images[0].data.shape == (48, 64)
     assert images[0].metadata is not None
+
+
+def test_a_saved_image_is_saved_on_this_computer(remote, tmp_path):
+    """A task's save path is this computer's: the server acquires, this side
+    saves and records, and the server is never sent the path (it would refuse
+    one outside its experiment)."""
+    from fibsem import acquire
+
+    records = []
+    remote.session.record_signal.connect(lambda kind, payload: records.append(payload))
+    settings = ImageSettings(
+        resolution=(64, 48), save=True, path=str(tmp_path), filename="ref"
+    )
+    try:
+        image = acquire.acquire_image(remote, settings)
+        pair = remote.imaging.reference_images(settings)
+        sets = remote.imaging.reference_image_sets(settings, hfws=[80e-6, 150e-6])
+        agent = remote.imaging.acquire(BeamType.ION, path=str(tmp_path), filename="a")
+    finally:
+        remote.session.record_signal.disconnect()
+    assert image.filepath == str(tmp_path / "ref_eb.tif")
+    assert [i.filepath for i in pair] == [
+        str(tmp_path / "ref_eb.tif"),
+        str(tmp_path / "ref_ib.tif"),
+    ]
+    assert len(sets) == 2 and sets[1][1].filepath.endswith("ref_image_res_02_ib.tif")
+    assert agent.filepath == str(tmp_path / "a_ib.tif")
+    assert {p.name for p in tmp_path.iterdir()} == {
+        "ref_eb.tif",
+        "ref_ib.tif",
+        "ref_image_res_01_eb.tif",
+        "ref_image_res_01_ib.tif",
+        "ref_image_res_02_eb.tif",
+        "ref_image_res_02_ib.tif",
+        "a_ib.tif",
+    }
+    assert [r["path"] for r in records][:1] == [str(tmp_path / "ref_eb.tif")]
+
+
+def test_an_image_unsaved_says_so(remote):
+    image = remote.acquire_image(ImageSettings(resolution=(64, 48)))
+    assert image.filepath is None
+
+
+def test_images_carry_this_computers_experiment(remote):
+    from fibsem.structures.system import FibsemExperimentRef
+
+    before = remote.session.experiment
+    remote.session.experiment = FibsemExperimentRef(name="here")
+    try:
+        image = remote.acquire_image(ImageSettings(resolution=(64, 48)))
+    finally:
+        remote.session.experiment = before
+    assert image.metadata.experiment.name == "here"

@@ -397,7 +397,9 @@ def read(response: httpx.Response) -> Any:
     """A successful answer as the data it carries."""
     content_type = response.headers.get("content-type", "")
     if content_type.startswith(TIFF_MEDIA_TYPE):
-        return FibsemImage.load(io.BytesIO(response.content))
+        image = FibsemImage.load(io.BytesIO(response.content))
+        image.filepath = None  # saved nowhere here yet
+        return image
     if content_type.startswith(FRAMES_MEDIA_TYPE):
         return frames_from_bytes(response.content)
     if content_type.startswith(IMAGES_MEDIA_TYPE):
