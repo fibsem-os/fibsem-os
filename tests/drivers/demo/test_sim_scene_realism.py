@@ -58,6 +58,9 @@ def _scene(microscope, **kwargs) -> SampleScene:
         "crack_density": 0.0,
         "rip_fraction": 0.0,
         "fiducial": True,
+        # the 800 um central patch these checks were laid out on: they look
+        # at how things render, not where a whole grid puts them
+        "extent": 800e-6,
         **kwargs,
     }
     scene = SampleScene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)

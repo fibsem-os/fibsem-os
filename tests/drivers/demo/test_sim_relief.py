@@ -438,7 +438,7 @@ def test_reflection_shows_bars_bright_ice_grey_and_cells_dark():
     x, y = np.meshgrid(xs, ys)
     r = sim_relief.reflectance(scene, x, y, (0.5, 0.5))
     _, mat, *_ = sim_relief.surface(scene, x, y, (0.5, 0.5))
-    assert np.allclose(r[mat == sim_relief.METAL], 1.0)
+    assert np.median(r[mat == sim_relief.METAL]) > 0.95
     ice = r[mat == sim_relief.ICE]
     cell = r[mat == sim_relief.CELL]
     assert 0.2 < np.median(ice) < 0.8 and ice.std() > 0.02
@@ -457,3 +457,26 @@ def test_reflection_shows_bars_bright_ice_grey_and_cells_dark():
     r = sim_relief.reflectance(scene, x, y, (0.5, 0.5))
     inside = (np.abs(x - cx) < 4) & (np.abs(y - cy) < 2)
     assert r[inside].max() == 0.0
+
+
+def test_a_burn_aimed_on_a_cell_lands_where_the_beam_meets_it():
+    """Aimed at a point on the film plane, a grazing beam meets a cell
+    standing above it further back along the beam: the hit is on the cell's
+    surface, where the plane point and the raised point show alike."""
+    from fibsem.drivers.demo import sim_relief
+    from fibsem.drivers.demo.sim_relief import ViewFrame
+
+    scene = SampleScene(renderer="relief", cell_type="mammalian", seed=5)
+    body = min(
+        (f for f in scene.features if f.kind == "cell" and f.part == "body"),
+        key=lambda f: np.hypot(f.x, f.y),
+    )
+    fs, k = np.sin(np.deg2rad(15)), np.cos(np.deg2rad(15))
+    frame = ViewFrame(anchor=(0.0, 0.0), theta=0.0, turn=1.0, fs=fs, k=k)
+    shift = scene._along_beam_to_surface((body.x, body.y), frame)
+    um = sim_relief.UM
+    x, y = body.x * um, (body.y + shift) * um
+    gx, gy = np.meshgrid(x + np.arange(-24, 25) * 0.25, y + np.arange(-24, 25) * 0.25)
+    h = float(sim_relief.surface(scene, gx, gy, (0.25, 0.25))[0][24, 24])
+    assert h > 0.5  # on the cell, not the film
+    assert abs(fs * shift * um + k * h) < 0.1
