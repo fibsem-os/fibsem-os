@@ -18,7 +18,14 @@ TASKS = (
     "square_quality",
 )
 # What a square is, in a square_quality case.
-SQUARE_LABELS = ("good", "no_cells", "damaged", "thick", "cell_near_bar")
+SQUARE_LABELS = (
+    "good",
+    "no_cells",
+    "damaged",
+    "thick",
+    "cell_near_bar",
+    "cell_too_big",
+)
 
 
 @dataclass
