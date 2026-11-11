@@ -16,6 +16,7 @@ import threading
 import time
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 pytest.importorskip("PyQt5")
@@ -190,3 +191,89 @@ def test_a_slow_draw_leaves_the_window_as_long_free(qapp):
     coalescer.flush()
     assert coalescer._timer.interval() == 100  # fast again: back to the base rate
     coalescer.stop()
+
+
+def _fm_frame(shape, pixel_size=1e-7):
+    from fibsem.fm.structures import (
+        FluorescenceChannelMetadata,
+        FluorescenceImage,
+        FluorescenceImageMetadata,
+    )
+
+    data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+    metadata = FluorescenceImageMetadata(
+        pixel_size_x=pixel_size,
+        pixel_size_y=pixel_size,
+        resolution=(shape[-1], shape[-2]),
+        channels=[FluorescenceChannelMetadata(name="reflection")],
+    )
+    return FluorescenceImage(data=data, metadata=metadata)
+
+
+class TestLiveFramesAreBinnedForDisplay:
+    def test_a_full_frame_is_drawn_at_most_1024_across(self):
+        from fibsem.ui.widgets.fluorescence_control_widget import binned_for_display
+
+        frame = _fm_frame((1, 1, 2048, 2048))
+        shown = binned_for_display(frame)
+
+        assert shown.data.shape == (1, 1, 1024, 1024)
+        assert shown.data.dtype == np.uint16
+        # The same field of view: the scalebar and click-to-move stay right.
+        assert shown.metadata.pixel_size_x == pytest.approx(2e-7)
+        assert shown.metadata.pixel_size_y == pytest.approx(2e-7)
+        assert shown.metadata.resolution == (1024, 1024)
+        # Mean binning keeps the brightness.
+        assert float(shown.data.mean()) == pytest.approx(
+            float(frame.data.mean()), rel=1e-3
+        )
+        # The acquired frame is untouched.
+        assert frame.data.shape == (1, 1, 2048, 2048)
+        assert frame.metadata.pixel_size_x == pytest.approx(1e-7)
+
+    def test_small_frames_and_z_stacks_are_shown_as_they_are(self):
+        from fibsem.ui.widgets.fluorescence_control_widget import binned_for_display
+
+        small = _fm_frame((1, 1, 512, 512))
+        stack = _fm_frame((1, 5, 2048, 2048))
+        assert binned_for_display(small) is small
+        assert binned_for_display(stack) is stack
+
+    def test_an_odd_size_is_cropped_to_whole_bins(self):
+        from fibsem.ui.widgets.fluorescence_control_widget import binned_for_display
+
+        shown = binned_for_display(_fm_frame((1, 1, 2049, 3001)))
+        assert shown.data.shape == (1, 1, 683, 1000)
+        assert shown.metadata.pixel_size_x == pytest.approx(3e-7)
+
+
+def test_the_fm_panel_draws_the_binned_frame_and_clicks_by_it(qapp, monkeypatch):
+    from PyQt5.QtWidgets import QWidget
+
+    import fibsem.config as _fibsem_config
+    from fibsem import utils
+    from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
+
+    config = os.path.join(
+        os.path.dirname(_fibsem_config.__file__),
+        "config",
+        "sim-arctis-configuration.yaml",
+    )
+    microscope, _ = utils.setup_session(manufacturer="Demo", config_path=config)
+    host = QWidget()
+    widget = FMControlWidget(microscope=microscope, parent=host)
+    drawn = []
+    monkeypatch.setattr(
+        widget,
+        "_view_controller",
+        lambda: SimpleNamespace(set_fm_image=drawn.append),
+    )
+    try:
+        widget.update_image(_fm_frame((1, 1, 2048, 2048)))
+        assert drawn[0].data.shape[-2:] == (1024, 1024)
+        # Double-click maps canvas pixels with the shape and pixel size drawn.
+        assert widget._fm_image_shape == (1024, 1024)
+        assert widget._fm_pixelsize == pytest.approx(2e-7)
+    finally:
+        monkeypatch.undo()  # closing asks the real controller
+        widget.close()
