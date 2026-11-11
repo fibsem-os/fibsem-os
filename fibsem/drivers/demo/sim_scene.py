@@ -298,6 +298,37 @@ class SceneGrid:
     extent: float  # m, content is grown over +/- extent/2 about the centre
 
 
+def _lamella_gap(pass_corners, all_corners):
+    """The gap (m) a pass's patterns leave about their middle, between the
+    nearest cut below and above it, over the middle 80 % of the patterns'
+    width: (narrowest, mean, (x0, x1, lo, hi) of the narrowest band), or
+    None when the middle is cut or nothing lies either side."""
+    if len(pass_corners) < 2:
+        return None
+    pts = np.vstack(pass_corners)
+    y0 = float(np.mean([c[:, 1].mean() for c in pass_corners]))
+    xa, xb = pts[:, 0].min(), pts[:, 0].max()
+    x0, x1 = xa + 0.1 * (xb - xa), xb - 0.1 * (xb - xa)
+    xs = np.linspace(x0, x1, 41)
+    below = np.full(xs.shape, -np.inf)
+    above = np.full(xs.shape, np.inf)
+    for c in all_corners:
+        lo, hi = sim_relief.polygon_span(np.asarray(c, dtype=float), xs)
+        hit = lo <= hi
+        if np.any(hit & (lo <= y0) & (hi >= y0)):
+            return None
+        below = np.where(hit & (hi < y0), np.maximum(below, hi), below)
+        above = np.where(hit & (lo > y0), np.minimum(above, lo), above)
+    if not (np.all(np.isfinite(below)) and np.all(np.isfinite(above))):
+        return None
+    gap = above - below
+    return (
+        float(gap.min()),
+        float(gap.mean()),
+        (float(x0), float(x1), float(below.max()), float(above.min())),
+    )
+
+
 @dataclass
 class MilledRegion:
     """A pattern that was milled: a convex polygon on the sample surface,
@@ -655,6 +686,21 @@ class SampleScene:
     # how strongly the SEM charges an uncoated grid (cells, ice): bright
     # patches and streaks along the scan, worse with a longer dwell; 0 = never
     charging: float = 1.0
+    # milling is not perfect: each pass drifts by a seeded offset (m, sigma)
+    # and a pattern cuts a little past its edges (m, up to)
+    mill_drift: float = 20e-9
+    mill_overcut: float = 30e-9
+    # the beam's tail: a pattern cuts wider at higher current (half the spot
+    # size) and its walls lean in going down (degrees), so a lamella is
+    # thicker at its bottom; a cut face carries vertical curtaining stripes
+    mill_kerf: bool = True
+    mill_taper: float = 1.5
+    curtaining: float = 1.0
+    # a thin lamella can be damaged: below a seeded thickness (m, range) each
+    # polishing pass has this chance of starting damage (a ragged front face,
+    # a crack across, a piece broken out), which grows with each pass after
+    damage_below: Tuple[float, float] = (150e-9, 300e-9)
+    damage_chance: float = 0.4
     # the coat on the grid, laid down by the GIS and the sputter coater (or
     # set for a grid that comes in coated); m
     gis_thickness: float = 0.0
@@ -696,6 +742,12 @@ class SampleScene:
     reference_position: Optional[FibsemStagePosition] = None
     features: List[SceneFeature] = field(default_factory=list)
     milled: List[MilledRegion] = field(default_factory=list)
+    # one record per milling pass: the drift, the planned and true gap
+    # between its trenches, and any damage (see `mill`)
+    mill_passes: List[dict] = field(default_factory=list)
+    # where a thin lamella's damage started: {"pass", "kind"}, or None
+    damage_started: Optional[dict] = None
+    _cuts: List[np.ndarray] = field(default_factory=list, repr=False)
     # the grids on the holder. With no calibrated, occupied slot handed in
     # (`holder_slots`, set by the simulator from its sample holder before
     # each acquisition) there is one grid, centred on the world anchor -
@@ -1042,6 +1094,7 @@ class SampleScene:
         self._populate()
         # trenches were cut in grids that are no longer where they were
         self.milled = []
+        self.mill_passes, self._cuts, self.damage_started = [], [], None
         logging.debug(
             {
                 "msg": "sample_scene_grids_placed",
@@ -1188,9 +1241,19 @@ class SampleScene:
                 polygon=polygon, turn=frame.turn, fs=frame.fs, k=frame.k
             )
 
+        n_pass = len(self.mill_passes)
+        rng = np.random.default_rng([int(self.seed) & 0x7FFFFFFF, 47, n_pass])
+        drift = rng.normal(0.0, self.mill_drift, 2) if self.mill_drift > 0 else (0, 0)
+        kerf = 0.0
+        if self.mill_kerf and beam_current:
+            # half the spot: ~15 nm at 100 pA, ~110 nm at 15 nA
+            kerf = 0.5 * 30e-9 * (float(beam_current) / 1e-10) ** 0.4
+        planned: List[np.ndarray] = []
+        actual: List[np.ndarray] = []
         regions: List[MilledRegion] = []
         for p in patterns:
             depth = float(getattr(p, "depth", 1e-6) or 1e-6)
+            drawn = len(planned)
             if hasattr(p, "start_x"):  # a line: a thin rectangle along it
                 half = float(getattr(p, "width", 0.5e-6) or 0.5e-6) / 2
                 dx_, dy_ = p.end_x - p.start_x, p.end_y - p.start_y
@@ -1215,14 +1278,39 @@ class SampleScene:
                 rot = float(getattr(p, "rotation", 0.0) or 0.0)
                 c, s_ = np.cos(rot), np.sin(rot)
                 hw, hh = float(p.width) / 2, float(p.height) / 2
+                planned.append(
+                    np.array(
+                        [
+                            (p.centre_x + x * c - y * s_, p.centre_y + x * s_ + y * c)
+                            for x, y in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh))
+                        ]
+                    )
+                )
+                grow = float(rng.uniform(0.0, self.mill_overcut)) + kerf
+                hw, hh = hw + grow, hh + grow
                 corners = [
                     (p.centre_x + x * c - y * s_, p.centre_y + x * s_ + y * c)
                     for x, y in ((-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh))
                 ]
+            if len(planned) == drawn:  # not a rectangle: drawn as cut
+                planned.append(np.array(corners, dtype=float))
+            corners = [(x + drift[0], y + drift[1]) for x, y in corners]
+            actual.append(np.array(corners, dtype=float))
             points = np.array([world(x, y) for x, y in corners])
             regions.append(
                 MilledRegion(points=points, depth=depth, beam_cut=cut(corners))
             )
+        record = self._record_pass(planned, actual, drift)
+        record["current"] = beam_current
+        record["kerf"] = kerf
+        if record.get("gap") is not None:
+            depth = min(float(getattr(p, "depth", 1e-6) or 1e-6) for p in patterns)
+            lean = np.tan(np.deg2rad(self.mill_taper))
+            record["gap_at_depth"] = record["gap"] + 2 * lean * depth
+        damage = self._damage(record, rng)
+        for corners in damage:
+            points = np.array([world(x, y) for x, y in corners])
+            regions.append(MilledRegion(points=points, beam_cut=cut(corners)))
         self.milled.extend(regions)
         logging.debug(
             {
@@ -1232,6 +1320,87 @@ class SampleScene:
             }
         )
         return regions
+
+    def _record_pass(self, planned, actual, drift) -> dict:
+        """Note a milling pass: what was drawn, what was cut, and the gap the
+        pass leaves between the trenches either side of its patterns' middle
+        (the lamella's true thickness, m), from everything milled at this
+        pose so far."""
+        record = {
+            "pass": len(self.mill_passes),
+            "drift": (float(drift[0]), float(drift[1])),
+            "planned_gap": _lamella_gap(planned, planned),
+            "gap": None,
+            "damage": None,
+        }
+        self._cuts.extend(actual)
+        record["actual"] = actual
+        measured = _lamella_gap(actual, self._cuts)
+        if measured is not None:
+            record["gap"], record["gap_mean"], record["band"] = measured
+        if record["planned_gap"] is not None:
+            record["planned_gap"] = record["planned_gap"][1]
+        self.mill_passes.append(record)
+        return record
+
+    def _damage(self, record: dict, rng: np.random.Generator) -> List[np.ndarray]:
+        """A thin lamella's damage, as extra cuts (pattern coordinates): it
+        starts on a pass below the seeded thickness, by chance, and grows on
+        every pass after."""
+        if record.get("gap") is None or record["gap"] <= 0:
+            return []
+        threshold = float(
+            np.random.default_rng([int(self.seed) & 0x7FFFFFFF, 53]).uniform(
+                *self.damage_below
+            )
+        )
+        started = self.damage_started
+        if started is None:
+            if record["gap"] >= threshold or rng.uniform() >= self.damage_chance:
+                return []
+            kind = str(rng.choice(["ragged", "crack", "broken"]))
+            self.damage_started = started = {"pass": record["pass"], "kind": kind}
+        severity = record["pass"] - started["pass"] + 1
+        record["damage"] = {"kind": started["kind"], "severity": severity}
+        x0, x1, lo, hi = record["band"]
+        width, gap = x1 - x0, hi - lo
+        cuts: List[np.ndarray] = []
+
+        def box(xa, xb, ya, yb):
+            return np.array([(xa, ya), (xb, ya), (xb, yb), (xa, yb)])
+
+        if started["kind"] == "ragged":
+            # bites out of the front face, more each pass
+            for _ in range(4 * severity):
+                xc = rng.uniform(x0, x1)
+                half = rng.uniform(0.1e-6, 0.5e-6)
+                bite = gap * rng.uniform(0.3, 0.9)
+                if rng.uniform() < 0.5:
+                    cuts.append(box(xc - half, xc + half, hi - bite, hi + 1e-9))
+                else:
+                    cuts.append(box(xc - half, xc + half, lo - 1e-9, lo + bite))
+        elif started["kind"] == "crack":
+            # a thin crack across, a new one each pass
+            for _ in range(severity):
+                xc = rng.uniform(x0 + 0.2 * width, x1 - 0.2 * width)
+                lean = np.tan(np.deg2rad(rng.uniform(-30, 30))) * gap
+                half = 25e-9
+                cuts.append(
+                    np.array(
+                        [
+                            (xc - half, lo - 1e-9),
+                            (xc + half, lo - 1e-9),
+                            (xc + half + lean, hi + 1e-9),
+                            (xc - half + lean, hi + 1e-9),
+                        ]
+                    )
+                )
+        else:
+            # a piece broken out, wider each pass
+            xc = rng.uniform(x0 + 0.25 * width, x1 - 0.25 * width)
+            half = min(0.5e-6 * severity, 0.45 * width)
+            cuts.append(box(xc - half, xc + half, lo - 1e-9, hi + 1e-9))
+        return cuts
 
     def burn(
         self,
@@ -1922,6 +2091,13 @@ class SampleScene:
         "grid_radius",  # m
         "grid_rim_width",  # m
         "renderer",  # flat | relief
+        "mill_drift",  # m, sigma of each milling pass's drift
+        "mill_overcut",  # m, how far past its edges a pattern may cut
+        "mill_kerf",  # a higher current cuts wider
+        "mill_taper",  # degrees the trench walls lean in going down
+        "curtaining",  # strength of the stripes down a cut face (0 = none)
+        "damage_below",  # [min, max] m, the seeded thickness damage can start below
+        "damage_chance",  # per polishing pass below it
         "charging",  # SEM charging strength on an uncoated grid (0 = never)
         "gis_thickness",  # m, a GIS coat the grid comes in with
         "sputter_thickness",  # m, a sputter coat the grid comes in with
@@ -1945,6 +2121,7 @@ class SampleScene:
             "bacteria_length",
             "ice_size",
             "sphere_size",
+            "damage_below",
             "rpe_island_radius",
             "soma_radius",
             "neurite_length",

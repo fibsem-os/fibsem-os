@@ -346,11 +346,31 @@ def surface(
     bottom = np.where(beyond, -60.0, bottom)
 
     cut = None
+    curtain = np.zeros(shape[1], dtype=np.float32)
     if scene.milled:
+        curtain = _curtain(scene, x, h, specks, sx)
         h, bottom, cut = _mill(scene, x, y, h, bottom)
         mat[h <= VOID / 2] = NOTHING
     del base
-    return h.astype(np.float32), mat, bottom.astype(np.float32), cut
+    return h.astype(np.float32), mat, bottom.astype(np.float32), cut, curtain
+
+
+def _curtain(scene, x, h, specks, sx):
+    """Curtaining down a cut face, per column: fine stripes along the beam,
+    strongest under bumps on the top (cells, specks, frost); a GIS cap
+    smooths the top and takes most of them away."""
+    amp = scene.curtaining * np.exp(-scene.gis_thickness / 0.5e-6)
+    if amp <= 0:
+        return np.zeros(x.shape[1], dtype=np.float32)
+    top = np.where(h > VOID / 2, h, np.nan)
+    rough = np.nan_to_num(
+        np.nanstd(top - ndi.gaussian_filter(np.nan_to_num(top), 2.0), axis=0)
+    )
+    bumps = specks.max(axis=0)
+    weight = np.clip(0.3 + 2.0 * bumps + 3.0 * rough, 0, 2)
+    stripes = value_noise(x[0], np.zeros_like(x[0]), 0.25, int(scene.seed) + 71)
+    stripes = stripes - ndi.gaussian_filter1d(stripes, max(1.0, 1.5 / sx))
+    return (amp * 0.5 * weight * stripes).astype(np.float32)
 
 
 def _mill(scene, x, y, h, bottom):
@@ -365,7 +385,10 @@ def _mill(scene, x, y, h, bottom):
     floor = bottom.copy()
     lowered = np.zeros(h.shape, dtype=bool)
     for region in scene.milled:
-        a, b = _cut_range(scene, region, x, y)
+        a, b = _cut_range(scene, region, x, y, top)
+        # a pattern cuts only as deep as it was set to: a floor is left
+        # where that is short of the bottom
+        a = np.maximum(a, top - region.depth * UM)
         meets = (b > a) & (a < top) & (b > floor)
         above = meets & (b < top)
         floor = np.where(above, b, floor)
@@ -377,9 +400,10 @@ def _mill(scene, x, y, h, bottom):
     return top, floor, lowered & ~gone
 
 
-def _cut_range(scene, region, x, y):
+def _cut_range(scene, region, x, y, top=None):
     """The heights (lo, hi) a milled region removes from each column at
-    (x, y) um; lo > hi where it misses."""
+    (x, y) um; lo > hi where it misses. The cut narrows as it goes down
+    from `top` (the walls lean in: a taper)."""
     cut: Optional[BeamCut] = getattr(region, "beam_cut", None)
     if cut is None:
         # a region with no beam (a spot burn): straight down through it
@@ -391,9 +415,17 @@ def _cut_range(scene, region, x, y):
     if abs(cut.k) < 1e-6:
         inside = (w0 >= lo) & (w0 <= hi)
         return np.where(inside, -1e3, 1.0), np.where(inside, 1e3, 0.0)
-    a, b = (lo - w0) / cut.k, (hi - w0) / cut.k
-    if cut.k < 0:
-        a, b = b, a
+    t = np.tan(np.deg2rad(scene.mill_taper)) if top is not None else 0.0
+    ref = top if top is not None else 0.0
+    if t and abs(cut.k) > 2 * t:
+        # lo + t (ref - h) <= w0 + k h <= hi - t (ref - h)
+        a1 = (lo + t * ref - w0) / (cut.k + t)
+        b1 = (hi - t * ref - w0) / (cut.k - t)
+        a, b = (a1, b1) if cut.k > 0 else (b1, a1)
+    else:
+        a, b = (lo - w0) / cut.k, (hi - w0) / cut.k
+        if cut.k < 0:
+            a, b = b, a
     miss = ~np.isfinite(lo) | (lo > hi)
     return np.where(miss, 1.0, a), np.where(miss, 0.0, b)
 
@@ -483,7 +515,7 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         cache[key] = hit
         while len(cache) > CACHE_SIZE:
             cache.popitem(last=False)
-    h, mat, bottom, cut = hit
+    h, mat, bottom, cut, curtain = hit
     which = 0 if beam == "SEM" else 1
 
     # shading from the surface normal: SE yield rises as the beam meets it
@@ -526,7 +558,8 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         # a face the beam cut is smooth: an even tone, darker in a trench
         # floor (fewer electrons get out)
         face = cut & (mat != NOTHING)
-        shade[face] = 0.6 * MATERIAL[ICE][which]
+        stripes = np.broadcast_to(1 + curtain[None, :], shade.shape)
+        shade[face] = 0.6 * MATERIAL[ICE][which] * stripes[face]
     shade[mat == NOTHING] = MATERIAL[NOTHING][which]
 
     # project: the first sample along the beam to reach a row is what it shows
@@ -539,7 +572,7 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     out = np.empty((n_rows, len(u)), dtype=np.float32)
     out_q = np.zeros((n_rows, len(u)), dtype=np.float32)
     slack = dy * fs / pix + 1.0
-    wall = 0.8 * mat_y
+    wall = 0.8 * mat_y * (1 + curtain[None, :])
     void = MATERIAL[NOTHING][which]
     for c in range(len(u)):
         idx = np.searchsorted(top[:, c], rows)

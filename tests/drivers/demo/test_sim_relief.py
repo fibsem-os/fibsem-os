@@ -147,7 +147,7 @@ def test_rpe_and_neuron_cells_grow_and_stand_up(cell_type):
     xa = body.x * 1e6 + np.arange(-20, 20, 0.5)
     ya = body.y * 1e6 + np.arange(-20, 20, 0.5)
     x, y = np.meshgrid(xa, ya)
-    h, _, _, _ = sim_relief.surface(scene, x, y, (0.5, 0.5))
+    h, _, _, _, _ = sim_relief.surface(scene, x, y, (0.5, 0.5))
     assert h[40, 40] - np.median(h) > 0.5
 
 
@@ -163,7 +163,7 @@ def test_ice_plates_frost_and_spheres():
     xa = ball.x * 1e6 + np.arange(-5, 5, 0.1)
     ya = ball.y * 1e6 + np.arange(-5, 5, 0.1)
     x, y = np.meshgrid(xa, ya)
-    h, mat, _, _ = sim_relief.surface(scene, x, y, (0.1, 0.1))
+    h, mat, _, _, _ = sim_relief.surface(scene, x, y, (0.1, 0.1))
     assert mat[50, 50] == sim_relief.SPHERE
     assert h[50, 50] - np.median(h) > 0.5 * ball.sigma * 1e6
     assert sim_relief.MATERIAL[sim_relief.SPHERE][0] < 0.5
@@ -218,3 +218,60 @@ def test_the_demo_coater_and_gis_coat_the_sample(monkeypatch):
         assert scene.gis_thickness == pytest.approx(0.8e-6)
     finally:
         microscope.disconnect()
+
+
+def _lamella(microscope, gap, height=6e-6, depth=1e-6):
+    for y in (gap / 2 + height / 2, -(gap / 2 + height / 2)):
+        microscope.draw_pattern(
+            FibsemRectangleSettings(
+                width=20e-6, height=height, depth=depth, centre_x=0.0, centre_y=y
+            )
+        )
+    microscope.run_milling()
+
+
+def test_a_pass_records_the_true_gap(microscope):
+    """Milling drifts and overcuts a little: each pass records the gap it
+    planned and the one it left, and they differ."""
+    scene = _use(microscope, renderer="relief", damage_chance=0.0, **PLAIN)
+    _lamella(microscope, 1e-6)
+    record = scene.mill_passes[-1]
+    assert record["planned_gap"] == pytest.approx(1e-6, rel=1e-6)
+    assert record["gap"] != pytest.approx(1e-6, abs=1e-9)
+    assert abs(record["gap"] - 1e-6) < 0.3e-6
+    assert record["gap_at_depth"] > record["gap"]
+
+
+def test_a_shallow_trench_leaves_a_floor(microscope):
+    """A pattern cuts only as deep as it is set: short of the bottom, the
+    FIB sees a floor, not the dark through-cut."""
+    _use(microscope, renderer="relief", cell_type="rpe", film="continuous")
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=20e-6, height=8e-6, depth=0.2e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    image = _image(microscope, BeamType.ION, hfw=40e-6)
+    middle = image[171 - 20 : 171 + 20, 256 - 40 : 256 + 40]
+    assert np.median(middle) > 40
+
+
+def test_a_thin_lamella_can_be_damaged(microscope):
+    """Below the seeded thickness, a pass can start damage; the pass and the
+    kind are recorded, and it grows on the passes after."""
+    scene = _use(
+        microscope,
+        renderer="relief",
+        damage_chance=1.0,
+        damage_below=(0.5e-6, 0.5e-6),
+        **PLAIN,
+    )
+    _lamella(microscope, 1e-6)
+    assert scene.damage_started is None
+    _lamella(microscope, 0.3e-6, height=0.35e-6)
+    started = scene.damage_started
+    assert started["pass"] == 1
+    assert started["kind"] in ("ragged", "crack", "broken")
+    _lamella(microscope, 0.25e-6, height=0.375e-6)
+    assert scene.mill_passes[-1]["damage"]["severity"] == 2
