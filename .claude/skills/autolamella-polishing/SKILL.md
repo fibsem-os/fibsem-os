@@ -1,11 +1,11 @@
 ---
 name: autolamella-polishing
-description: Polishing a lamella to its target thickness — the target and the stop rules, the fields of view, measuring the band, and Iterative Polishing one pass at a time with an SEM image. Read fibsem-agent and autolamella first, then this before the first polishing pass, in the Polishing task or by hand.
+description: Polishing a lamella to its target thickness — the target and the stop rules, the fields of view, measuring the band, and Iterative Polishing one pass at a time with an SEM image. Read fibsem-agent, fibsem-microscope and autolamella first, then this before the first polishing pass, in the Polishing task or by hand.
 ---
 
 # Polishing a lamella
 
-Read fibsem-agent and autolamella first. This skill is how to thin a
+Read fibsem-agent, fibsem-microscope and autolamella first. This skill is how to thin a
 lamella to the operator's target: in the Polishing task's milling proposal,
 by hand with one `milling_run_stage` per step, or with Iterative Polishing.
 The same rules hold in all three. A lamella targeted with the FM adds
@@ -40,7 +40,7 @@ Either way, stop at once on a stop sign below. For every pass:
   each pass: set its `alignment.full_frame_below` (80 pA, say) so the
   low-current passes align on the full frame, and don't re-align by hand as
   well. By hand (`milling_run_stage`), re-align to the reference yourself
-  before every step (fibsem-agent, *Align to the image you placed on*).
+  before every step (fibsem-microscope, *Align to the image you placed on*).
 - After every step, a FIB image and an SEM image, both saved as files, not
   previews, so the operator can review them later. Read the faces only on
   FIB images 3072 px wide: on a real run, faces read on 1536 px images led

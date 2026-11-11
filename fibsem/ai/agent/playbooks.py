@@ -34,9 +34,9 @@ optional skills, subagents, reminders and rules add up along ``extends``, the pa
 first; ``session`` settings and ``instrument`` too, the child's winning.
 
 The shipped base playbook is the one place the agent's defaults live: it sits
-under every playbook, a lab's copy of the base included, so its skill, its
-session settings and its instrument kind hold wherever nothing overrides them
-(`load`). A session starts on the
+under every playbook, a lab's copy of the base included, so its session
+settings and its instrument kind hold wherever nothing overrides them, and its
+skills under every playbook of its instrument kind (`load`). A session starts on the
 playbook its launch names, else on ``fibsem-agent``, the base the shipped ones
 extend; the agent proposes a better fit at intake and sets it with
 ``playbook_set`` once the operator agrees. ``session`` counts only at the
@@ -243,15 +243,19 @@ def available(checkout: Optional[Path]) -> List[str]:
 
 def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
     """Playbook *name* with what it extends added in, on the shipped base
-    playbook's skills, session settings and instrument kind; a
+    playbook's session settings and instrument kind, and its skills for a
+    playbook of the base's instrument kind; a
     `PlaybookError` says what is wrong with it. *efforts*, when given, are
     the efforts allowed."""
     playbook = _load(name, checkout, [], tuple(efforts))
     base = shipped_base(checkout)
     if base is not None:
-        playbook.skills = _merge(base.skills, playbook.skills)
-        playbook.session = base.session.merged(playbook.session)
         playbook.instrument = playbook.instrument or base.instrument
+        # The base's skills are for its instrument kind: a playbook for
+        # another kind names its own.
+        if playbook.instrument == base.instrument:
+            playbook.skills = _merge(base.skills, playbook.skills)
+        playbook.session = base.session.merged(playbook.session)
     if checkout is not None:
         kinds = instruments.kinds(checkout)
         if (playbook.instrument or instruments.DEFAULT) not in kinds:

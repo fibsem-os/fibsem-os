@@ -1,11 +1,11 @@
 ---
 name: autolamella-lead
-description: Run a whole AutoLamella session at Drive that the operator starts and leaves, from the intake to the review, with the autolamella-verifier, -investigator and -auditor agents checking the key decisions. The main way AutoLamella runs. Read fibsem-agent and autolamella first, then this when nobody will be at the microscope during the run.
+description: Run a whole AutoLamella session at Drive that the operator starts and leaves, from the intake to the review, with the autolamella-verifier, -investigator and -auditor agents checking the key decisions. The main way AutoLamella runs. Read fibsem-agent, fibsem-microscope and autolamella first, then this when nobody will be at the microscope during the run.
 ---
 
 # Leading an AutoLamella run
 
-Read the fibsem-agent and autolamella skills first. This skill is how
+Read the fibsem-agent, fibsem-microscope and autolamella skills first. This skill is how
 to run a whole lamella session at **Drive** that the operator starts and
 leaves. Use it when nobody will be at the microscope during the run and the
 `autolamella-*` agents are in your Agent tool; without them, supervise the
@@ -76,7 +76,7 @@ Keep everything you hold (a site, a placement, a lamella left UNASSESSED) in
    8. Is this a dry run on the Demo microscope?
    Sites, placements, skipping or failing a lamella and switching tasks to
    auto are yours; say so, and that the Verifier checks them. Say too that
-   a hardware error stops the run until they're back (fibsem-agent, *A
+   a hardware error stops the run until they're back (fibsem-microscope, *A
    hardware error is the operator's*).
 1. **Sites.** Pick them by screen-grids' *Finding sites*, and check each
    one there before you keep it. Call the Verifier with the

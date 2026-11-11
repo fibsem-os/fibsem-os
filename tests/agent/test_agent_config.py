@@ -43,11 +43,19 @@ def test_a_session_loads_what_its_playbooks_name(lab, checkout):
     autolamella = _loaded("autolamella", checkout)
     assert "fibsem-experiment" not in autolamella.skills
     assert "autolamella-correlative" not in autolamella.skills
-    assert autolamella.skills[:2] == ["fibsem-agent", "autolamella"]
+    assert autolamella.skills[:3] == [
+        "fibsem-agent",
+        "fibsem-microscope",
+        "autolamella",
+    ]
     assert "autolamella-verifier" in autolamella.agents
 
     experiment = _loaded("fibsem-experiment", checkout)
-    assert experiment.skills == ["fibsem-agent", "fibsem-experiment"]
+    assert experiment.skills == [
+        "fibsem-agent",
+        "fibsem-microscope",
+        "fibsem-experiment",
+    ]
     assert experiment.agents == []
 
 
@@ -97,7 +105,7 @@ def test_the_defaults_are_the_shipped_base_playbooks(lab, checkout):
     ours = playbooks.load(playbooks.DEFAULT, checkout)
     assert ours.session.max_turns == 7
     assert ours.session.quiet_min == base.session.quiet_min
-    assert ours.skills == ["fibsem-agent"]
+    assert ours.skills == ["fibsem-agent", "fibsem-microscope"]
 
 
 def test_the_session_settings_show_where_each_comes_from(lab, checkout):
@@ -158,7 +166,11 @@ def test_show_config_says_what_it_loads_and_its_timers(lab, capsys):
         == 0
     )
     config = json.loads(capsys.readouterr().out)
-    assert config["skills"] == ["fibsem-agent", "fibsem-experiment"]
+    assert config["skills"] == [
+        "fibsem-agent",
+        "fibsem-microscope",
+        "fibsem-experiment",
+    ]
     assert config["specialists"] == []
     assert config["instrument"] == "fibsem"
     assert (
@@ -168,3 +180,36 @@ def test_show_config_says_what_it_loads_and_its_timers(lab, capsys):
     assert harness_mod.main(["--show-config", "--json"]) == 0
     config = json.loads(capsys.readouterr().out)
     assert "autolamella-verifier" in config["specialists"]
+
+
+def test_the_base_skills_go_only_to_playbooks_of_its_instrument_kind(tmp_path, lab):
+    # A checkout shipping two instrument kinds: the base playbook's and a
+    # hypothetical standalone cryo-FM's.
+    root = tmp_path / "checkout"
+    shipped = root / ".claude" / "fibsem-agent"
+    (shipped / "playbooks").mkdir(parents=True)
+    (shipped / "playbooks" / "fibsem-agent.yaml").write_text(
+        "instrument: fibsem\n"
+        "skills: [fibsem-agent, fibsem-microscope]\n"
+        "session: {max_turns: 40}\n"
+    )
+    for kind in ("fibsem", "cryo-fm"):
+        (shipped / "instruments" / kind).mkdir(parents=True)
+        (shipped / "instruments" / kind / "prompt.md").write_text("words")
+    for skill in ("fibsem-agent", "fibsem-microscope", "fibsem-experiment", "cryo-fm"):
+        (root / ".claude" / "skills" / skill).mkdir(parents=True)
+        (root / ".claude" / "skills" / skill / "SKILL.md").write_text("---\n---\n")
+    (lab / "cryo-fm.yaml").write_text(
+        "instrument: cryo-fm\nskills: [fibsem-agent, cryo-fm]\n"
+    )
+    (lab / "fib-work.yaml").write_text("skills: [fibsem-experiment]\n")
+
+    other = playbooks.load("cryo-fm", root)
+    assert other.instrument == "cryo-fm"
+    assert other.skills == ["fibsem-agent", "cryo-fm"]
+    # The base's session settings still hold for every kind.
+    assert other.session.max_turns == 40
+
+    fib = playbooks.load("fib-work", root)
+    assert fib.instrument == "fibsem"
+    assert fib.skills == ["fibsem-agent", "fibsem-microscope", "fibsem-experiment"]

@@ -1,11 +1,11 @@
 ---
 name: autolamella-coincidence-milling
-description: Polishing with FM stacks between passes, on an instrument whose FM and FIB look at the same point (such as the Arctis) — Iterative Polishing following a target and a control pass by pass. Read fibsem-agent, autolamella, autolamella-polishing and autolamella-correlative first, then this when the FM is coincident with the FIB.
+description: Polishing with FM stacks between passes, on an instrument whose FM and FIB look at the same point (such as the Arctis) — Iterative Polishing following a target and a control pass by pass. Read fibsem-agent, fibsem-microscope, autolamella, autolamella-polishing and autolamella-correlative first, then this when the FM is coincident with the FIB.
 ---
 
 # Milling with a coincident FM
 
-Read fibsem-agent, autolamella, autolamella-polishing and
+Read fibsem-agent, fibsem-microscope, autolamella, autolamella-polishing and
 autolamella-correlative first. This skill is for an instrument whose FM and
 FIB look at the same point, so the FM can image the lamella between passes
 without moving the stage. Without a coincident FM it doesn't apply: polish
@@ -18,7 +18,7 @@ start it yourself, at any level. Propose it, and use it only after the
 operator says yes for this run, and only at Drive.
 
 This is about the FM and the FIB. Bringing the SEM and FIB onto the same
-feature is fibsem-agent's *Coincidence: do it yourself*.
+feature is fibsem-microscope's *Coincidence: do it yourself*.
 
 ## Iterative Polishing with the FM
 
