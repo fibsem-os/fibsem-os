@@ -61,9 +61,26 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Rips**: a seeded fraction of squares (`rip_fraction`) has the film torn away. Each rip
   is its own tear (size, orientation, where it starts, how ragged), a square beside a
   ripped one rips more readily, and a bright curled edge rings each rip.
-- **Ice** (`ice_density`): flat bright plates with an irregular outline.
+- **Ice** (`ice_density`): flat bright plates with an irregular outline (hexagons in the
+  relief renderer).
+- **Frost** (`frost_density`): patches of small bright grains.
+- **Spheres** (`sphere_density`, `sphere_size`): dark round balls standing on the film.
+- **Cracks** (`crack_density`): hairline cracks in the film, a dark wandering line (some
+  branched) that doesn't open the film the way a rip does.
 - **Contamination** (`contamination_density`): small bright specks over film and bars
   alike, the aperiodic content that breaks a mesh-pitch alias in real images.
+
+## Charging and coating
+
+An uncoated grid charges in the SEM (`charging`, 0 turns it off): cells, ice plates and
+anything standing up off the film glow, the glow runs on along the scan lines, and
+charged lines flicker. A longer dwell charges more. The Demo sputter coater and GIS coat
+the sample: a sputter coat (`sputter_thickness`, 0.5 nm/s) takes most of the charging
+away and brightens the SEM a little; a GIS coat (`gis_thickness`, 0.04 um/s with the
+valve open) smooths the detail, reads brighter in the FIB, takes some charging away, and
+is milled through like the rest. Set either thickness in the config for a grid that comes
+in coated. The coat is laid over everything, so a trench milled before a deposition is
+not filled in.
 
 ## Milling leaves marks
 
@@ -73,6 +90,23 @@ When milling runs, the drawn patterns are committed to the world as trenches (po
 the surface, so a rectangle rotated in the FIB view lands where the surface has it). From
 then on every view, either beam, any tilt, shows them.
 
+
+### Milling is not perfect
+
+Each milling pass drifts by a seeded offset (`mill_drift`) and its patterns cut a little
+past their edges (`mill_overcut`), more at higher current (`mill_kerf`: half the spot
+size). A pattern cuts only as deep as its `depth`: short of the bottom it leaves a floor.
+The trench walls lean in going down (`mill_taper`, degrees), so a lamella is thicker at
+its bottom, and a cut face carries vertical curtaining stripes, strongest under bumps on
+the top and mostly gone under a GIS cap (`curtaining`).
+
+Every pass is recorded in `scene.mill_passes`: the drift, the current and kerf, the
+planned gap between the trenches either side of its patterns' middle, the true gap left
+(`gap`, narrowest; `gap_mean`), the gap at the patterns' depth (`gap_at_depth`), and any
+damage. Below a seeded thickness (`damage_below`) each pass has a chance
+(`damage_chance`) of starting damage, recorded in `scene.damage_started` (pass and kind):
+a ragged front face, a crack across, or a piece broken out. It grows with every pass
+after.
 ## The fluorescence view
 
 ![Fluorescence channels](img/simulator/fluorescence.png)
@@ -181,6 +215,20 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `ice_size` | [6e-06, 1.6e-05] | ice plate radius range (m) |
 | `contamination_density` | 15 | specks per 100 x 100 um, on film and bars alike |
 | `contamination_size` | [8e-07, 3e-06] | speck sigma range (m) |
+| `frost_density` | 0.15 | frost patches per 100 x 100 um |
+| `sphere_density` | 0.4 | dark spheres per 100 x 100 um |
+| `sphere_size` | [4e-07, 2e-06] | sphere radius range (m) |
+| `crack_density` | 0.3 | hairline cracks in the film per 100 x 100 um |
+| `mill_drift` | 2e-08 | sigma of each milling pass's drift (m) |
+| `mill_overcut` | 3e-08 | how far past its edges a pattern may cut (m) |
+| `mill_kerf` | true | a higher current cuts wider |
+| `mill_taper` | 1.5 | degrees the trench walls lean in going down |
+| `curtaining` | 1 | strength of the stripes down a cut face (0 = none) |
+| `damage_below` | [1.5e-07, 3e-07] | the seeded thickness below which damage can start (m) |
+| `damage_chance` | 0.4 | chance per pass below it that damage starts |
+| `charging` | 1 | SEM charging strength on an uncoated grid (0 = never) |
+| `gis_thickness` | 0 | GIS coat the grid starts with (m) |
+| `sputter_thickness` | 0 | sputter coat the grid starts with (m) |
 
 ### Noise
 
