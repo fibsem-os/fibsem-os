@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
 UM = 1e6
 VOID = -60.0  # um; the height of nothing (through the grid, or milled away)
+FLOOR_SMOOTH = 3.0  # um; a milled floor is flat over this scale
 FILM_THICKNESS = 0.25  # um; what is under the bare ice before nothing
 BAR_THICKNESS = 18.0  # um
 BAR_TOP = 0.0  # um; the film lies on top of the bars, flush with the squares
@@ -373,6 +374,14 @@ def _curtain(scene, x, h, specks, sx):
     return (amp * 0.5 * weight * stripes).astype(np.float32)
 
 
+def _smooth_top(h, sigma):
+    """Smooth the solid top, leaving out the holes (VOID)."""
+    solid = (h > VOID / 2).astype(np.float32)
+    num = ndi.gaussian_filter(np.where(solid > 0, h, 0.0), sigma)
+    den = ndi.gaussian_filter(solid, sigma)
+    return np.where(den > 1e-3, num / np.maximum(den, 1e-3), h)
+
+
 def _mill(scene, x, y, h, bottom):
     """Cut each milled pattern along the beam that milled it.
 
@@ -385,11 +394,17 @@ def _mill(scene, x, y, h, bottom):
     floor = bottom.copy()
     lowered = np.zeros(h.shape, dtype=bool)
     stopped = np.zeros(h.shape, dtype=bool)
+    # the level a pattern's depth is measured from: the surface with its
+    # small bumps smoothed away, so a floor comes out flat, not a lowered
+    # copy of the top
+    sx = abs(float(x[0, 1] - x[0, 0])) if x.shape[1] > 1 else 1.0
+    sy = abs(float(y[1, 0] - y[0, 0])) if y.shape[0] > 1 else 1.0
+    level = _smooth_top(h, (FLOOR_SMOOTH / max(sy, 1e-3), FLOOR_SMOOTH / max(sx, 1e-3)))
     for region in scene.milled:
         a, b = _cut_range(scene, region, x, y, top)
         # a pattern cuts only as deep as it was set to: a floor is left
         # where that is short of the bottom
-        limit = top - region.depth * UM
+        limit = np.minimum(top, level - region.depth * UM)
         short = limit > a
         a = np.maximum(a, limit)
         meets = (b > a) & (a < top) & (b > floor)
