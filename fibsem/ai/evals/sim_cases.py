@@ -136,6 +136,8 @@ def scene_options(
 
 
 def _demo_microscope():
+    # the images and the milling, without the simulator's waits
+    os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(
         manufacturer="Demo",
         config_path=os.path.join(

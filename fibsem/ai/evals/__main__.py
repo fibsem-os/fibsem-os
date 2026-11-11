@@ -88,6 +88,14 @@ def _parser() -> argparse.ArgumentParser:
         help="the FIB overview's milling angle in degrees (default 38)",
     )
     make_sim.add_argument(
+        "--task",
+        nargs="+",
+        choices=("grid", "polishing"),
+        default=["grid"],
+        help="grid: squares, labels and sites from an overview; polishing: a "
+        "lamella milled pass by pass (default grid)",
+    )
+    make_sim.add_argument(
         "--set",
         action="append",
         default=[],
@@ -131,14 +139,17 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "make-sim":
-        from fibsem.ai.evals import sim_cases
+        from fibsem.ai.evals import sim_cases, sim_polishing
 
         overrides = {}
         for item in args.set:
             name, _, value = item.partition("=")
             overrides[name.strip()] = yaml.safe_load(value)
         for seed in args.seeds:
-            for beam in args.beam:
+            if "polishing" in args.task:
+                folder = sim_polishing.write_case(seed, args.out, overrides)
+                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            for beam in args.beam if "grid" in args.task else []:
                 for folder in sim_cases.write_cases(
                     seed,
                     args.out,

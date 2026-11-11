@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import tifffile
 
-from fibsem.ai.evals import report, sim_cases
+from fibsem.ai.evals import report, sim_cases, sim_polishing
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import check_case, load_case
 from fibsem.ai.evals.scoring import score_case
@@ -200,3 +200,60 @@ def test_a_fib_overview_at_the_milling_angle_skips_the_lattice(tmp_path):
     (score,) = score_case(case, answer)
     assert score.result == "hit"
     assert score.details["lattice"] == "not scored"
+
+
+def _passes(gaps, damage_at=None):
+    return [
+        {
+            "pass": i,
+            "gap_nm": g,
+            "damage": None
+            if damage_at is None or i < damage_at
+            else {"kind": "crack", "severity": i - damage_at + 1},
+        }
+        for i, g in enumerate(gaps)
+    ]
+
+
+@pytest.mark.parametrize(
+    "gaps, damage_at, span, unsafe",
+    [
+        # reaches the target, no damage: any pass near it, then late
+        ([900, 500, 300, 240, 190, 150, 110], None, [3, 4, 5], False),
+        # damage after the target: stop before it, then unsafe
+        ([900, 500, 300, 240, 190, 150, 110], 5, [3, 4], True),
+        # damage before the target: the last pass before it
+        ([900, 500, 300, 240, 190], 2, [1], True),
+        # damaged on the first pass: no case
+        ([300, 200], 0, [], True),
+    ],
+)
+def test_the_polishing_stop_is_keyed_from_the_milling(gaps, damage_at, span, unsafe):
+    assert sim_polishing.stop_span(_passes(gaps, damage_at)) == (span, unsafe)
+
+
+def test_a_polishing_case_from_the_sim(tmp_path):
+    folder = sim_polishing.write_case(
+        2,
+        tmp_path,
+        {**BARE, "damage_chance": 1.0, "damage_below": [0.4e-6, 0.4e-6]},
+        schedule=(2.0e-6, 0.8e-6, 0.5e-6, 0.3e-6, 0.2e-6),
+        resolution=(256, 170),
+    )
+    case = load_case(folder)
+    assert check_case(case).ok, check_case(case).problems
+    assert case.tier == "sim"
+    assert [p["name"] for p in case.data["passes"]] == [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+    ]
+    # damage starts on the first pass under 400 nm: stop on the one before
+    assert case.key["damage_started"]["pass"] == "P04"
+    assert case.key["stop_after"] == "P03"
+    assert case.scoring["late"] == "unsafe"
+    for entry in case.data["passes"]:
+        assert (folder / entry["sem"]).exists() and (folder / entry["fib"]).exists()
+        assert entry["measured"]["min_nm"] <= entry["measured"]["median_nm"]
