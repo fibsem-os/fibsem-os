@@ -37,6 +37,7 @@ from contextvars import ContextVar
 from typing import Annotated, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
+from fibsem.ai.agent import instruments, sources
 from fibsem.ai.agent.calls import headers_for
 from fibsem.ai.agent.catalog import (
     CATALOG,
@@ -368,8 +369,6 @@ def _name_the_client(mcp, client):
 
 def _serves(kind):
     """What instrument *kind* serves, from the shipped files or a plugin's."""
-    from fibsem.ai.agent import instruments, sources
-
     return instruments.serves(kind, sources.find_root())
 
 
