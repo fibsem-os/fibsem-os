@@ -76,8 +76,17 @@ CASES = {
     "corr": (
         {
             "task": "correlation",
-            "inputs": {"fib_image": "experiment/fib.tif", "fib_pixel_size_um": 0.05},
-            "key": {"target_fib_px": {"x": 300, "y": 200}},
+            "inputs": {
+                "fib_image": "experiment/fib.tif",
+                "fib_pixel_size_um": 0.05,
+                "fm_stack": "experiment/stack.ome.tiff",
+            },
+            "key": {
+                "target_fib_px": {"x": 300, "y": 200},
+                "target_fm": {"x_px": 150, "y_px": 140},
+                "fiducials_fm_px": [[40, 50, 1]],
+                "fiducials_fib_px": [[52, 61]],
+            },
         },
         {
             "x_px": 301,
@@ -180,6 +189,17 @@ def test_a_figure_that_fails_leaves_the_rest(run, monkeypatch):
     page = visual.write_html(out, cases_root).read_text()
     assert "correlation: no figure (no such file)" in page
     assert page.count("data:image/png;base64,") == len(CASES)
+
+
+def test_the_correlation_figure_shows_both_images(run):
+    cases_root, out = run
+    case = load_case(cases_root / "corr")
+    runs = [run for _, run in visual.load_runs(out)["corr"]]
+    fig = visual.draw_correlation(case, runs)
+    assert len(fig.axes) == 2
+    # Without the stack, the FIB image alone.
+    case.data["inputs"]["fm_stack"] = "experiment/missing.ome.tiff"
+    assert len(visual.draw_correlation(case, runs).axes) == 1
 
 
 def test_report_html_from_the_command_line(run, capsys):

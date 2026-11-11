@@ -42,7 +42,9 @@ Run = Tuple[Dict[str, Any], Optional[Dict[str, Any]]]
 def _colour(n: int) -> str:
     import matplotlib
 
-    return matplotlib.colormaps["tab10"](n % 10)
+    # tab10 without its green, which is the key's.
+    picks = (0, 1, 3, 4, 5, 6, 8, 9)
+    return matplotlib.colormaps["tab10"](picks[n % len(picks)])
 
 
 # --- images -----------------------------------------------------------------
@@ -280,32 +282,101 @@ def draw_fm_target(case: Case, runs: List[Run]):
     return fig
 
 
+def _fm_overview(path: Path, step: int = 4) -> np.ndarray:
+    """An FM stack as an RGB max projection over z, shrunk by *step*: the
+    first channel (reflection) in magenta, the last (the label) in green."""
+    import tifffile
+
+    data = tifffile.memmap(path, mode="r")
+    if data.ndim == 3:
+        data = data[None]
+    while data.ndim > 4:
+        data = data[0]
+    first = _stretch(np.asarray(data[0, :, ::step, ::step]).max(axis=0))
+    last = _stretch(np.asarray(data[-1, :, ::step, ::step]).max(axis=0))
+    return np.dstack([first, last, first])
+
+
+def _mark_points(ax, points, colour, marker, size, numbered=True):
+    for i, (x, y) in enumerate(points, 1):
+        ax.plot(x, y, marker, mfc="none", mec=colour, color=colour, ms=size, mew=2)
+        if numbered:
+            ax.annotate(
+                str(i),
+                (x, y),
+                (5, 5),
+                textcoords="offset points",
+                color=colour,
+                fontsize=8,
+                fontweight="bold",
+            )
+
+
+def _pairs(answer: Dict[str, Any], side: str) -> List[Tuple[float, float]]:
+    points = []
+    for f in answer.get("fiducials") or []:
+        try:
+            points.append((float(f[side][0]), float(f[side][1])))
+        except (KeyError, IndexError, TypeError, ValueError):
+            points.append((np.nan, np.nan))
+    return points
+
+
 def draw_correlation(case: Case, runs: List[Run]):
-    image = _read_image(_input(case, "fib_image"))
-    fig, ax = _figure(10, 7)
-    _show(ax, image, extent=(0, image.shape[1], image.shape[0], 0))
-    target = case.key["target_fib_px"]
-    ax.plot(target["x"], target["y"], "o", mfc="none", mec=KEY, ms=14, mew=2)
+    """The FM stack (when it can be read) beside the FIB image: the key's
+    target and fiducials in green, each repeat's in its colour, fiducial
+    pairs numbered alike on both sides."""
+    fib = _read_image(_input(case, "fib_image"))
+    key = case.key
+    fm = None
+    if case.data.get("inputs", {}).get("fm_stack"):
+        try:
+            step = 4
+            fm = (_fm_overview(_input(case, "fm_stack"), step), step)
+        except Exception as e:  # the FIB side still says most of it
+            log.warning("No FM panel for %s: %s", case.id, e)
+    fig, axes = _figure(16 if fm else 10, 7, ncols=2 if fm else 1, squeeze=False)
+    axes = axes[0]
+    if fm:
+        image, step = fm
+        ax = axes[0]
+        h, w = image.shape[:2]
+        ax.imshow(image, extent=(0, w * step, h * step, 0))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_title(
+            "FM max projection (green: label, magenta: reflection)", fontsize=9
+        )
+        _mark_points(ax, [p[:2] for p in key.get("fiducials_fm_px") or []], KEY, "s", 9)
+        target = key.get("target_fm") or {}
+        if "x_px" in target:
+            ax.plot(
+                target["x_px"], target["y_px"], "o", mfc="none", mec=KEY, ms=16, mew=2.5
+            )
+        for n, (_, answer) in enumerate(runs):
+            _mark_points(ax, _pairs(answer or {}, "fm_px"), _colour(n), "s", 7)
+    ax = axes[-1]
+    _show(ax, fib, extent=(0, fib.shape[1], fib.shape[0], 0))
+    _mark_points(ax, key.get("fiducials_fib_px") or [], KEY, "s", 9)
+    target = key["target_fib_px"]
+    ax.plot(target["x"], target["y"], "o", mfc="none", mec=KEY, ms=16, mew=2.5)
     for n, (_, answer) in enumerate(runs):
         answer = answer or {}
-        for f in answer.get("fiducials") or []:
-            try:
-                fx, fy = f["fib_px"][:2]
-                ax.plot(fx, fy, "s", mfc="none", mec=_colour(n), ms=6)
-            except (KeyError, TypeError, ValueError):
-                pass
+        _mark_points(ax, _pairs(answer, "fib_px"), _colour(n), "s", 7)
         try:
             ax.plot(
                 float(answer["x_px"]),
                 float(answer["y_px"]),
                 "x",
                 color=_colour(n),
-                ms=12,
-                mew=2.5,
+                ms=14,
+                mew=3,
             )
         except (KeyError, TypeError, ValueError):
             pass
-    ax.set_title("x: target, squares: fiducials", fontsize=9)
+    ax.set_title(
+        "FIB image. circle/x: target; squares: fiducial pairs, numbered", fontsize=9
+    )
     _legend(ax, runs)
     return fig
 
