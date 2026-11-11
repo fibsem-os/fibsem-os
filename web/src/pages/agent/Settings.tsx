@@ -12,8 +12,9 @@ export interface LibraryOptions {
   levels: string[];
   modes: string[];
   efforts: string[];
-  /** Each reminder point; *instrument* is the kind whose tools it fires on, "" for any. */
-  reminders: { when: string; label: string; instrument: string }[];
+  /** Each hook; *instrument* is the kind whose tools it fires on ("" for any), and
+   *  *by_playbook* one for an app's workflow, off until a playbook's `hooks` names it. */
+  reminders: { when: string; label: string; instrument: string; by_playbook: boolean }[];
   skills: string[];
   playbooks: string[];
   agents: string[];
@@ -97,16 +98,20 @@ function Reminders({
   value,
   options,
   instrument,
+  hooks,
   onChange,
 }: {
   value: Reminder[];
   options: LibraryOptions;
-  /** The playbook's instrument kind: only its reminder points are offered. */
+  /** The playbook's instrument kind and the app hooks it switches on: only those are offered. */
   instrument: string;
+  hooks: string[];
   onChange: (value: Reminder[]) => void;
 }) {
   const set = (i: number, r: Partial<Reminder>) => onChange(value.map((v, j) => (j === i ? { ...v, ...r } : v)));
-  const fits = options.reminders.filter((o) => !o.instrument || o.instrument === instrument);
+  const fits = options.reminders.filter(
+    (o) => (!o.instrument || o.instrument === instrument) && (!o.by_playbook || hooks.includes(o.when)),
+  );
   // A row keeps its own point, so a reminder that doesn't fit still shows.
   const offered = (when: string) => options.reminders.filter((o) => fits.includes(o) || o.when === when);
   return (
@@ -200,7 +205,7 @@ function usePlaybook(name: string) {
   return useQuery({
     queryKey: ["library", "playbooks", name],
     queryFn: () =>
-      api<{ session?: Inherited | null; instrument?: string | null }>(
+      api<{ session?: Inherited | null; instrument?: string | null; hooks?: string[] | null }>(
         `/app/library/playbooks/${encodeURIComponent(name)}`,
       ),
     enabled: !!name,
@@ -213,10 +218,10 @@ function useInherited(base: string): Inherited {
   return (base && parent.data?.session) || {};
 }
 
-/** The instrument kind of the playbook *base*, or "". */
-function useInstrument(base: string): string {
+/** The instrument kind of the playbook *base* ("" if none), and the app hooks it switches on. */
+function useKind(base: string): { instrument: string; hooks: string[] } {
   const parent = usePlaybook(base);
-  return (base && parent.data?.instrument) || "";
+  return { instrument: (base && parent.data?.instrument) || "", hooks: (base && parent.data?.hooks) || [] };
 }
 
 /** Where an empty setting's value comes from, beside it. */
@@ -371,10 +376,12 @@ export function PlaybookSettings({
   const session = (data.session && typeof data.session === "object" ? data.session : {}) as Data;
   // What a session started on it runs with, its own settings and those it builds on.
   const resolved = useInherited(name);
-  // Its instrument kind: its own, else what it builds on, else as saved.
-  const parentKind = useInstrument(text(data.extends));
-  const savedKind = useInstrument(name);
-  const instrument = text(data.instrument) || parentKind || savedKind;
+  // Its instrument kind: its own, else what it builds on, else as saved; and the
+  // app hooks it and what it builds on switch on.
+  const parent = useKind(text(data.extends));
+  const saved = useKind(name);
+  const instrument = text(data.instrument) || parent.instrument || saved.instrument;
+  const hooks = [...strings(data.hooks), ...parent.hooks];
   if (!onChange || !options) {
     const values = Object.fromEntries(Object.entries(resolved).map(([k, v]) => [k, v.value]));
     const elsewhere = [...new Set(Object.values(resolved).map((v) => v.source))].filter((n) => n !== name);
@@ -509,7 +516,7 @@ export function PlaybookSettings({
         </div>
       </Row>
       <Row form label="Reminders">
-        <Reminders value={reminders} options={options} instrument={instrument} onChange={(v) => set("reminders", asMapping(v))} />
+        <Reminders value={reminders} options={options} instrument={instrument} hooks={hooks} onChange={(v) => set("reminders", asMapping(v))} />
       </Row>
       <Row form label="Rules">
         <TextList value={rules} add="Add rule" onChange={(v) => set("rules", v)} />

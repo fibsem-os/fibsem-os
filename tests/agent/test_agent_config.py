@@ -241,3 +241,32 @@ def test_a_reminder_on_another_kinds_tools_is_refused(tmp_path, lab):
     assert [h.when for h in playbooks.load("fib-mill", root).hooks] == [
         "before_milling"
     ]
+
+
+def test_an_apps_hook_is_on_only_where_a_playbook_switches_it_on(tmp_path, lab):
+    root = tmp_path / "checkout"
+    shipped = root / ".claude" / "fibsem-agent"
+    (shipped / "playbooks").mkdir(parents=True)
+    (shipped / "playbooks" / "fibsem-agent.yaml").write_text("instrument: fibsem\n")
+    (shipped / "instruments" / "fibsem").mkdir(parents=True)
+    (shipped / "instruments" / "fibsem" / "prompt.md").write_text("words")
+    (lab / "fib-work.yaml").write_text("reminders: {polishing_pass: Measure.}\n")
+    with pytest.raises(playbooks.PlaybookError, match="hooks"):
+        playbooks.load("fib-work", root)
+
+    (lab / "lamellae.yaml").write_text(
+        "hooks: [polishing_pass]\nreminders: {polishing_pass: Measure.}\n"
+    )
+    assert playbooks.load("lamellae", root).switched_on == ["polishing_pass"]
+    # One that extends it has the hook on too, for an optional skill's reminders.
+    (lab / "my-lamellae.yaml").write_text(
+        "extends: lamellae\noptional:\n"
+        "  - {skill: fibsem-agent, when: always, reminders: {polishing_pass: Look.}}\n"
+    )
+    (root / ".claude" / "skills" / "fibsem-agent").mkdir(parents=True)
+    (root / ".claude" / "skills" / "fibsem-agent" / "SKILL.md").write_text("---\n---\n")
+    assert playbooks.load("my-lamellae", root).switched_on == ["polishing_pass"]
+
+    (lab / "typo.yaml").write_text("hooks: [polish]\n")
+    with pytest.raises(playbooks.PlaybookError, match="no hook polish"):
+        playbooks.load("typo", root)

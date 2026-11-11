@@ -22,6 +22,7 @@
           polishing_pass: Measure the band before you decide.
         agents: [autolamella-verifier]   # subagents, on while it is loaded
     agents: [my-checker]             # subagents, on with the playbook
+    hooks: [polishing_pass]          # app hooks it switches on (`reminders`)
     reminders:
       before_milling: Confirm the current and depth.
     rules:
@@ -30,7 +31,7 @@
 
 A playbook is ``<name>.yaml`` in the lab's ``~/.fibsem/knowledge/playbooks/``
 or the shipped ``.claude/fibsem-agent/playbooks/``, the lab's winning. Skills,
-optional skills, subagents, reminders and rules add up along ``extends``, the parent's
+optional skills, subagents, hooks, reminders and rules add up along ``extends``, the parent's
 first; ``session`` settings and ``instrument`` too, the child's winning.
 
 The shipped base playbook is the one place the agent's defaults live: it sits
@@ -68,6 +69,7 @@ FIELDS = (
     "skills",
     "optional",
     "agents",
+    "hooks",
     "reminders",
     "rules",
     "plan",
@@ -162,6 +164,8 @@ class Playbook:
     skills: List[str] = field(default_factory=list)
     optional: List[Optional_] = field(default_factory=list)
     hooks: List[reminders.Hook] = field(default_factory=list)
+    # The app hooks it switches on (``hooks``), for its reminders to use.
+    switched_on: List[str] = field(default_factory=list)
     rules: List[str] = field(default_factory=list)
     # The subagents its work calls (`subagents`), by name.
     agents: List[str] = field(default_factory=list)
@@ -189,6 +193,7 @@ class Playbook:
             "description": self.description,
             "extends": self.chain[:-1],
             "instrument": self.instrument,
+            "hooks": list(self.switched_on),
             "skills": list(self.skills),
             "optional": [
                 {
@@ -268,17 +273,17 @@ def load(name: str, checkout: Optional[Path], efforts=()) -> Playbook:
 
 
 def _check_reminders(playbook: Playbook) -> None:
-    """Refuse a reminder on another instrument kind's tools: it would never fire."""
+    """Refuse a reminder on a hook the playbook can't use: another instrument
+    kind's, or an app's it doesn't switch on. It would never fire."""
     kind = playbook.instrument or instruments.DEFAULT
+    offered = reminders.offered(kind, playbook.switched_on)
     hooks = playbook.hooks + [h for o in playbook.optional for h in o.hooks]
-    wrong = sorted(
-        {h.when for h in hooks if not reminders.HOOK_OPTIONS[h.when].fits(kind)}
-    )
-    if wrong:
-        raise PlaybookError(
-            f"{playbook.path}: reminder {', '.join(wrong)} is for another instrument "
-            f"kind's tools, not {kind}'s"
-        )
+    for when in sorted({h.when for h in hooks} - set(offered)):
+        if not reminders.HOOK_OPTIONS[when].fits(kind):
+            why = f"is for another instrument kind's tools, not {kind}'s"
+        else:
+            why = "is an app's hook: switch it on with hooks: [...]"
+        raise PlaybookError(f"{playbook.path}: reminder {when} {why}")
 
 
 def shipped_base(checkout: Optional[Path]) -> Optional[Playbook]:
@@ -366,6 +371,12 @@ def _read(
         raise PlaybookError(f"{path}: instrument is one instrument kind's name")
     skills = _names(data.get("skills"), "skills", path)
     optional = _optional(data.get("optional"), path)
+    switched_on = _names(data.get("hooks"), "hooks", path)
+    unknown = [h for h in switched_on if h not in reminders.HOOK_OPTIONS]
+    if unknown:
+        raise PlaybookError(
+            f"{path}: no hook {', '.join(unknown)} (fibsem-agent --list-hooks)"
+        )
     hooks = _reminders(data.get("reminders"), path)
     rules = _names(data.get("rules"), "rules", path)
     agents = _names(data.get("agents"), "agents", path)
@@ -400,6 +411,7 @@ def _read(
         skills=_merge(parent.skills if parent else [], skills),
         optional=_merge_optional(parent.optional if parent else [], optional),
         hooks=(parent.hooks if parent else []) + hooks,
+        switched_on=_merge(parent.switched_on if parent else [], switched_on),
         rules=_merge(parent.rules if parent else [], rules),
         agents=_merge(parent.agents if parent else [], agents),
         plan=plan or (parent.plan if parent else list(PLAN)),
