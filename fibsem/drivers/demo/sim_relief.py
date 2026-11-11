@@ -58,6 +58,9 @@ MATERIAL = {
     COAT: (1.08, 1.35),
     NOTHING: (0.04, 0.03),
 }
+# a GIS coat seen edge-on, along the top of a cut face: the metal in it
+# makes it the brightest band on the face, in both beams
+COAT_EDGE = (1.6, 1.7)
 BRIGHTNESS = 115.0  # grey level of plain ice
 CACHE_SIZE = 8
 
@@ -347,13 +350,16 @@ def surface(
     bottom = np.where(beyond, -60.0, bottom)
 
     cut = None
+    below = None
     curtain = np.zeros(shape[1], dtype=np.float32)
     if scene.milled:
         curtain = _curtain(scene, x, h, specks, sx)
+        uncut = h
         h, bottom, cut = _mill(scene, x, y, h, bottom)
+        below = (uncut - h).astype(np.float32)
         mat[h <= VOID / 2] = NOTHING
     del base
-    return h.astype(np.float32), mat, bottom.astype(np.float32), cut, curtain
+    return h.astype(np.float32), mat, bottom.astype(np.float32), cut, curtain, below
 
 
 def _curtain(scene, x, h, specks, sx):
@@ -536,7 +542,7 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         cache[key] = hit
         while len(cache) > CACHE_SIZE:
             cache.popitem(last=False)
-    h, mat, bottom, cut, curtain = hit
+    h, mat, bottom, cut, curtain, below = hit
     which = 0 if beam == "SEM" else 1
 
     # shading from the surface normal: SE yield rises as the beam meets it
@@ -578,13 +584,15 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     if cut is not None:
         # a floor a pattern stopped short at keeps the surface it was cut
         # from, lower and a little darker (fewer electrons get out); a face
-        # the beam cut through is smooth and carries the curtaining stripes
+        # the beam cut through is smooth and carries the curtaining
         solid = mat != NOTHING
         floor = (cut == 2) & solid
         face = (cut == 1) & solid
-        stripes = np.broadcast_to(1 + curtain[None, :], shade.shape)
         shade[floor] = 0.7 * shade[floor]
-        shade[face] = 0.6 * MATERIAL[ICE][which] * stripes[face]
+        r, c = np.nonzero(face)
+        shade[face] = _face(
+            scene, which, 0.6 * MATERIAL[ICE][which], curtain[c], xw[c], below[r, c]
+        )
     shade[mat == NOTHING] = MATERIAL[NOTHING][which]
 
     # project: the first sample along the beam to reach a row is what it shows
@@ -597,8 +605,11 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     out = np.empty((n_rows, len(u)), dtype=np.float32)
     out_q = np.zeros((n_rows, len(u)), dtype=np.float32)
     slack = dy * fs / pix + 1.0
-    wall = 0.8 * mat_y * (1 + curtain[None, :])
+    # a wall shows what the column is made of; under a GIS coat that is ice
+    under = np.where(mat == COAT, MATERIAL[ICE][which], mat_y)
     void = MATERIAL[NOTHING][which]
+    side_k = np.zeros((n_rows, len(u)), dtype=np.int64)
+    side_m = np.zeros((n_rows, len(u)), dtype=bool)
     for c in range(len(u)):
         idx = np.searchsorted(top[:, c], rows)
         seen = idx < len(Y)
@@ -609,12 +620,42 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         # below a sample's own top the row sees its side - a wall facing
         # the beam (a bar through a tear, a trench's far wall): one even tone
         side = rows < rows_s[kk, c] - slack
-        value = np.where(side, wall[kk, c], shade[kk, c])
-        out[:, c] = np.where(seen & solid, value, void)
+        out[:, c] = np.where(seen & solid, shade[kk, c], void)
         out_q[:, c] = np.where(seen & solid & ~side, q[kk, c], 0.0)
+        side_k[:, c] = kk
+        side_m[:, c] = side & seen & solid
+    if side_m.any():
+        out[side_m] = _wall(
+            scene, which, side_k, side_m, rows_s, rows, under, curtain, xw, pix, kabs
+        )
     if sigma < 0:
         out, out_q = out[::-1], out_q[::-1]
     return out, out_q
+
+
+def _wall(scene, which, side_k, side_m, rows_s, rows, under, curtain, xw, pix, kabs):
+    """The rows that see a wall straight on (a trench's far wall, a
+    lamella's face), from how far below the wall's top edge each looks."""
+    r, c = np.nonzero(side_m)
+    kk = side_k[r, c]
+    z = (rows_s[kk, c] - rows[r]) * pix / max(kabs, 1e-3)
+    return _face(scene, which, 0.8 * under[kk, c], curtain[c], xw[c], z)
+
+
+def _face(scene, which, base, curtain, x, z):
+    """The tone of points on a cut face, `z` um below its top edge at world
+    x (um): curtains start under the top and fade down the face, each its
+    own length, and a GIS coat is a bright band along the top."""
+    seed = int(scene.seed)
+    reach = 1.0 + 3.0 * (1 + value_noise(x * 4.0, np.zeros_like(x), 1.0, seed + 91))
+    waver = value_noise(x * 12.0, z, 1.5, seed + 89)
+    run = np.exp(-z / reach) * np.clip(0.4 + 1.2 * waver, 0.0, 1.5)
+    value = base * (1 + curtain * run)
+    gis = scene.gis_thickness * UM
+    if gis > 0:
+        band = np.clip((gis - z) / 0.05 + 0.5, 0.0, 1.0)
+        value = value + band * (COAT_EDGE[which] - value)
+    return value
 
 
 def _finish(scene, img, rng, q=None, charge=0.0):

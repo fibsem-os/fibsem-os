@@ -147,7 +147,7 @@ def test_rpe_and_neuron_cells_grow_and_stand_up(cell_type):
     xa = body.x * 1e6 + np.arange(-20, 20, 0.5)
     ya = body.y * 1e6 + np.arange(-20, 20, 0.5)
     x, y = np.meshgrid(xa, ya)
-    h, _, _, _, _ = sim_relief.surface(scene, x, y, (0.5, 0.5))
+    h, _, _, _, _, _ = sim_relief.surface(scene, x, y, (0.5, 0.5))
     assert h[40, 40] - np.median(h) > 0.5
 
 
@@ -163,7 +163,7 @@ def test_ice_plates_frost_and_spheres():
     xa = ball.x * 1e6 + np.arange(-5, 5, 0.1)
     ya = ball.y * 1e6 + np.arange(-5, 5, 0.1)
     x, y = np.meshgrid(xa, ya)
-    h, mat, _, _, _ = sim_relief.surface(scene, x, y, (0.1, 0.1))
+    h, mat, _, _, _, _ = sim_relief.surface(scene, x, y, (0.1, 0.1))
     assert mat[50, 50] == sim_relief.SPHERE
     assert h[50, 50] - np.median(h) > 0.5 * ball.sigma * 1e6
     assert sim_relief.MATERIAL[sim_relief.SPHERE][0] < 0.5

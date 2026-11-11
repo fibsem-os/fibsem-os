@@ -2649,7 +2649,9 @@ class SampleScene:
             gone = (
                 self.milled_fraction(xs_world, ys_world) > 0.5 if self.milled else None
             )
-            self._stamp_membrane(canvas, far_red, bodies, defocus, view, gone)
+            self._stamp_membrane(
+                canvas, far_red, bodies, defocus, view, gone, (xs_world, ys_world)
+            )
 
         if rng is None:
             rng = np.random.default_rng()
@@ -2844,7 +2846,9 @@ class SampleScene:
                 canvas, pts, 0.12e-6, 0.4 * FM_INTENSITY * weight, defocus, view
             )
 
-    def _stamp_membrane(self, canvas, weight, bodies, defocus, view, gone=None):
+    def _stamp_membrane(
+        self, canvas, weight, bodies, defocus, view, gone=None, world=None
+    ):
         """The plasma membrane: each in-view cell's outline, a bright ring
         where its body's edge falls, blurred by the FM's own defocus."""
         ax, ay, cx, cy, pix, fs, turn = view
@@ -2858,7 +2862,20 @@ class SampleScene:
         mask = np.clip(mask, 0, 1)
         # the outline: a thin band where the body's edge falls (its
         # half-height contour), over a faint top
-        ring = np.exp(-(((mask - 0.5) / 0.12) ** 2)) + 0.1 * mask
+        if world is not None:
+            # a real outline wanders, thickens and fades along its length,
+            # with brighter patches (ruffles, contacts) and gaps
+            um = sim_relief.UM
+            wx, wy = np.broadcast_arrays(world[0] * um, world[1] * um)
+            seed = int(self.seed) + 97
+            mask = mask + 0.12 * sim_relief.value_noise(wx, wy, 2.5, seed)
+            patchy = sim_relief.value_noise(wx, wy, 1.2, seed + 1)
+            spots = np.clip(sim_relief.value_noise(wx, wy, 0.4, seed + 2), 0, 1) ** 3
+        else:
+            patchy, spots = 0.0, 0.0
+        band = np.exp(-(((mask - 0.5) / 0.12) ** 2))
+        ring = band * np.clip(0.75 + 0.6 * patchy + 2.0 * spots, 0.1, 2.5)
+        ring = ring + 0.1 * np.clip(mask, 0, 1)
         if gone is not None:
             ring[gone] = 0.0  # milled away
         blur = abs(float(defocus or 0.0)) / max(self.fm_axial_range, 1e-9)
