@@ -32,6 +32,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from psygnal import Signal
 
 from fibsem.hooks import HookEvent, HookManager
+from fibsem.instrument import needs_microscope
 from fibsem.workflows.actions import ACTION, action_record
 from fibsem.workflows.queue import QUEUE_ACTIONS, QueueOp
 from fibsem.workflows.status import TaskStatus
@@ -477,7 +478,8 @@ class WorkflowRunner:
                 return refused("a workflow is already running", "task_running")
             microscope = self._session.microscope
             if microscope is None:
-                return refused("no microscope is connected", "not_found")
+                why = needs_microscope(getattr(self._session, "instrument", None))
+                return refused(why, "not_found")
             if experiment is None or experiment.task_protocol is None:
                 return refused("no experiment is loaded", "no_experiment")
             current = microscope.control.current

@@ -28,6 +28,7 @@ from fibsem.alerts import Alerts
 from fibsem.devices.runs import Runs
 from fibsem.imaging.latest import LatestImages
 from fibsem.imaging.overview_session import OverviewSession
+from fibsem.instrument import CONNECTED_MESSAGE, DeviceInstrument, configured_kind
 from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.events import EventBuffer
 from fibsem.workflows.runner import WorkflowRunner
@@ -82,6 +83,9 @@ class AppSession:
         executor: Optional[EditExecutor] = None,
     ) -> None:
         self._microscope: Optional[Any] = None
+        # The devices a ``devices`` configuration connected, with no microscope
+        # (a `DeviceInstrument`); None otherwise.
+        self._devices: Optional[Any] = None
         # The connected microscope's settings (its configuration and image
         # settings), None while disconnected.
         self.settings: Optional[Any] = None
@@ -205,7 +209,14 @@ class AppSession:
 
     @property
     def microscope(self) -> Optional[Any]:
+        """The connected FIB/SEM microscope, or None (also while only devices are)."""
         return self._microscope
+
+    @property
+    def instrument(self) -> Optional[Any]:
+        """Whatever is connected: the microscope, or the devices a ``devices``
+        configuration built (`fibsem.instrument.DeviceInstrument`), or None."""
+        return self._microscope if self._microscope is not None else self._devices
 
     @microscope.setter
     def microscope(self, microscope: Optional[Any]) -> None:
@@ -221,18 +232,19 @@ class AppSession:
         progress: Optional[Callable[[str], None]] = None,
         **options: Any,
     ) -> Any:
-        """Connect the microscope *configuration_path* names (the default
+        """Connect the instrument *configuration_path* names (the default
         configuration when None), record its events, and say so on
-        ``changed``. Runs on the calling thread; *progress* hears each step.
-        *options* go to `utils.setup_session` (``manufacturer``,
-        ``ip_address``, ``debug``). Raises ValueError while a microscope is
-        connected or another connect is under way, and whatever connecting
-        raised."""
+        ``changed``: a microscope, or with ``info.instrument: devices`` only the
+        devices the file lists, remote ones included. Runs on the calling
+        thread; *progress* hears each step. *options* go to
+        `utils.setup_session` (``manufacturer``, ``ip_address``, ``debug``).
+        Raises ValueError while something is connected or another connect is
+        under way, and whatever connecting raised."""
         if not self._connect_lock.acquire(blocking=False):
             raise ValueError("A connect is already under way.")
         try:
-            if self.microscope is not None:
-                raise ValueError("A microscope is connected; disconnect it first.")
+            if self.instrument is not None:
+                raise ValueError(f"{CONNECTED_MESSAGE}; disconnect it first.")
             self.connect_error = None
 
             def step(line: str) -> None:
@@ -242,6 +254,9 @@ class AppSession:
 
             step("Connecting…")
             try:
+                devices = devices_configuration(configuration_path)
+                if devices is not None:
+                    return self._connect_devices(devices, configuration_path, step)
                 microscope, settings = utils.setup_session(
                     config_path=configuration_path, progress=step, **options
                 )
@@ -262,35 +277,62 @@ class AppSession:
         finally:
             self._connect_lock.release()
 
+    def _connect_devices(
+        self,
+        settings: Dict[str, Any],
+        configuration_path: Optional[str],
+        step: Callable[[str], None],
+    ) -> Any:
+        """Build the devices a ``devices`` configuration lists and keep them as
+        what is connected. Called by `connect`, under its lock."""
+        from fibsem.server.devices import device_instrument
+
+        step("Connecting the devices…")
+        instrument = device_instrument(settings, allow_remote=True)
+        with self.changed.paused():
+            self.settings = None
+            self.configuration_path = str(
+                configuration_path or cfg.DEFAULT_CONFIGURATION_PATH
+            )
+            self._devices = instrument
+            self.changed.emit(MICROSCOPE)
+            self.start_recording()
+        return instrument
+
     def disconnect(self) -> Optional[str]:
-        """Let the microscope go and stop recording its events; the App Server
-        stays up. Refused (RuntimeError) while a run is on. Returns why the
-        client did not close cleanly, or None: the session lets go of it
-        either way."""
-        if self.microscope is None:
+        """Let the microscope (or the devices) go and stop recording their
+        events; the App Server stays up. Refused (RuntimeError) while a run is
+        on. Returns why the client did not close cleanly, or None: the session
+        lets go of it either way."""
+        instrument = self.instrument
+        if instrument is None:
             return None
         if self.runner.is_running:
             raise RuntimeError("A run is on: stop it before disconnecting.")
-        microscope = self.microscope
         error = None
         try:
-            microscope.disconnect()
+            instrument.disconnect()
         except Exception as e:  # noqa: BLE001 - a failed teardown still ends it
-            logging.error(f"Could not cleanly disconnect the microscope: {e}")
+            logging.error(f"Could not cleanly disconnect: {e}")
             error = str(e)
         with self.changed.paused():
             self.stop_recording()
             self.settings = None
             self.configuration_path = None
-            self.microscope = None
+            if instrument is self._devices:
+                self._devices = None
+                self.changed.emit(MICROSCOPE)
+            else:
+                self.microscope = None
         return error
 
     @property
     def connection(self) -> Dict[str, Any]:
-        """Whether a microscope is connected, with which configuration, what a
-        connect is doing or why the last failed, and the configurations it can
-        connect with."""
+        """Whether anything is connected, with which configuration (and what
+        kind of instrument), what a connect is doing or why the last failed,
+        and the configurations it can connect with."""
         microscope = self.microscope
+        instrument = self.instrument
         info = (
             getattr(getattr(self.settings, "system", None), "info", None)
             if microscope is not None
@@ -307,17 +349,19 @@ class AppSession:
         )
         run = self.connect_runs.latest
         return {
-            "connected": microscope is not None,
+            "connected": instrument is not None,
             "connecting": self.connecting,
             "error": self.connect_error,
             "configuration": None
-            if microscope is None
+            if instrument is None
             else {
                 "name": name,
                 "path": path,
                 "manufacturer": getattr(info, "manufacturer", None),
                 "model": getattr(info, "model", None),
                 "address": getattr(info, "ip_address", None),
+                "instrument": instrument.kind,
+                "devices": sorted(instrument.devices),
             },
             "configurations": [
                 {"name": known, "default": known == cfg.DEFAULT_CONFIGURATION_NAME}
@@ -401,24 +445,25 @@ class AppSession:
         self.event_buffer.append(kind, payload)
 
     def start_recording(self) -> None:
-        """Record events for the connected microscope.
+        """Record events for what is connected (the microscope, or the devices).
 
-        Keeps the stream it has for the same microscope: a client may ask again
-        whenever it refreshes. A different microscope gets a new stream, and
-        no microscope none. Never raises: the recording is a record of the
+        Keeps the stream it has for the same one: a client may ask again
+        whenever it refreshes. Another gets a new stream, and nothing
+        connected none. Never raises: the recording is a record of the
         connection, and failing to keep one must not stop the connection being
         used.
         """
+        instrument = self.instrument
         recorder = self.recorder
-        if recorder is not None and recorder.microscope is self.microscope:
+        if recorder is not None and recorder.microscope is instrument:
             return
         self.stop_recording()
-        if self.microscope is None:
+        if instrument is None:
             return
         recorded = self.experiment or self.plain_experiment
         try:
             self.recorder = EventRecorder(
-                self.microscope,
+                instrument,
                 experiment_path=recorded.path if recorded else None,
                 # tasks and the agent mark their own calls; the rest are the
                 # operator's
@@ -483,3 +528,12 @@ class _Connecting:
 
     name = "connection"
     session = None
+
+
+def devices_configuration(path: Optional[str]) -> Optional[Dict[str, Any]]:
+    """The settings of *path* (the default configuration when None) when it
+    connects only devices (``info.instrument: devices``), else None."""
+    from fibsem.server.devices import read_server_settings
+
+    settings = read_server_settings(str(path or cfg.DEFAULT_CONFIGURATION_PATH))
+    return settings if configured_kind(settings) == DeviceInstrument.kind else None
