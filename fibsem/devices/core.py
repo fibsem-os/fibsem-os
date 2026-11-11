@@ -158,6 +158,13 @@ class DeviceParameter(Parameter):
                 f"{type(device).__name__} '{device.name}' has no '{self.name}' on this backend"
             ) from None
 
+    def __set__(self, device: _Controllable, value: Any) -> None:
+        # Assigning would only hide the parameter on this object and write nothing.
+        raise AttributeError(
+            f"'{self.name}' is a parameter: write it with "
+            f"{type(device).__name__}.{self.name}.set_value(...)"
+        )
+
     def __repr__(self) -> str:
         unit = f", unit={self.unit!r}" if self.unit else ""
         return f"DeviceParameter({self.type.__name__}{unit})"

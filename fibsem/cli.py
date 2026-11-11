@@ -550,8 +550,10 @@ def _print_experiments(experiments) -> None:
 
 
 def cmd_pair_device(args) -> int:
-    """Pair this computer with a Device Server, by the code its --pair shows,
-    and keep the token where a remote entry's connect reads it."""
+    """Pair this computer with a Device Server, by the code its --pair shows, or
+    with another computer's App Server, by the code its Computers list shows; keep
+    the token where a remote entry's (or ``info.driver: remote``'s) connect reads
+    it."""
     from fibsem.client.pairing import pair
 
     address, _, port = args.server.rpartition(":")
@@ -559,7 +561,7 @@ def cmd_pair_device(args) -> int:
         print(f"error: {args.server!r} is not ADDRESS:PORT", file=sys.stderr)
         return 2
     pair(args.code, f"http://{address}:{port}")
-    print(f"Paired with the Device Server at {address}:{port}.")
+    print(f"Paired with the server at {address}:{port}.")
     return 0
 
 
@@ -925,6 +927,16 @@ def _add_pair_device_parser(sub) -> None:
         description="Pair with the Device Server at ADDRESS:PORT using the code its "
         "--pair shows (5 minutes, works once). The token is kept for every later "
         "connect, so the remote entry names only address and port.",
+    )
+    p.add_argument("server", metavar="ADDRESS:PORT")
+    p.add_argument("code")
+    p.set_defaults(func=cmd_pair_device, needs_server=False)
+    p = sub.add_parser(
+        "pair",
+        help="Pair this computer with another computer's App Server",
+        description="Pair with the App Server at ADDRESS:PORT using the code its "
+        "Computers list shows. The token is kept for every later connect of a "
+        "configuration with info.driver: remote at that address.",
     )
     p.add_argument("server", metavar="ADDRESS:PORT")
     p.add_argument("code")

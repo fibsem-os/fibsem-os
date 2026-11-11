@@ -1,7 +1,10 @@
 """Reminders: what is said to the agent at the moment it makes a matching
 tool call, so it doesn't rely on remembering a skill. A playbook lists its own
 (``reminders: {when: say}``); ``HOOK_OPTIONS`` is the one list of when a
-reminder can fire: which tools, before or after the call.
+reminder can fire: which tools, before or after the call. Hooks are defined
+only here; a playbook configures them. One on an instrument kind's tools is for
+playbooks of that kind only, and one for an app's workflow is off until a
+playbook switches it on with ``hooks: [...]`` (`offered`).
 
     fibsem-agent --list-hooks
 """
@@ -27,6 +30,14 @@ class HookOption:
     input_matches: Tuple[Tuple[str, str], ...] = ()
     # For event WATCHER: a pattern on the watcher's lines, said with that turn.
     line: str = ""
+    # The instrument kind whose tools it fires on, or "" for any kind.
+    instrument: str = ""
+    # For one app's workflow: off until a playbook's ``hooks`` switches it on.
+    by_playbook: bool = False
+
+    def fits(self, kind: Optional[str]) -> bool:
+        """Whether a playbook of instrument *kind* can use it."""
+        return not self.instrument or self.instrument == kind
 
     def on_lines(self, lines: List[str]) -> bool:
         return bool(self.line) and any(re.search(self.line, x) for x in lines)
@@ -52,17 +63,24 @@ class HookOption:
 # An option said with a turn of watcher lines, not by an SDK hook on a call.
 WATCHER = "Watcher"
 
+# The FIB-SEM's kind, for the options on its tools (milling, beams, alignment)
+# and AutoLamella's tasks.
+FIBSEM = "fibsem"
+
 HOOK_OPTIONS: Dict[str, HookOption] = {
     "site": HookOption(
         "At a site",
         "PreToolUse",
         "item_add|item_set_position|item_set_pose|item_move_to_pose",
     ),
-    "before_milling": HookOption("Before milling", "PreToolUse", "milling_run_.*"),
+    "before_milling": HookOption(
+        "Before milling", "PreToolUse", "milling_run_.*", instrument=FIBSEM
+    ),
     "after_auto": HookOption(
         "After an auto step",
         "PostToolUse",
         "beam_auto_.*|fm_auto_focus|alignment_.*",
+        instrument=FIBSEM,
     ),
     # An Iterative Polishing pass has ended: only its facts carry "Pass data".
     "after_polish_pass": HookOption(
@@ -70,6 +88,8 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PostToolUse",
         "service_wait_for_run",
         answer_has="Pass data",
+        instrument=FIBSEM,
+        by_playbook=True,
     ),
     # Deciding or suggesting one of Setup's proposals: its position, point of
     # interest or alignment area. By the task's name in the protocol.
@@ -78,6 +98,8 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PreToolUse",
         "proposal_decide|proposal_suggest",
         input_matches=(("task_name", r"setup|select.*position"),),
+        instrument=FIBSEM,
+        by_playbook=True,
     ),
     # Deciding or suggesting a pass of the Polishing task's mill.
     "polishing_pass": HookOption(
@@ -85,6 +107,8 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "PreToolUse",
         "proposal_decide|proposal_suggest",
         input_matches=(("task_name", r"polish"),),
+        instrument=FIBSEM,
+        by_playbook=True,
     ),
     # A task finished: the watcher's line, not a tool call.
     "after_task": HookOption(
@@ -97,6 +121,16 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
         "When a workflow starts", "PreToolUse", "workflow_start|workflow_start_grids"
     ),
 }
+
+
+def offered(kind: Optional[str], switched_on: List[str]) -> List[str]:
+    """The hooks a playbook of instrument *kind* can set reminders on, with
+    *switched_on* the app hooks its ``hooks`` names."""
+    return [
+        when
+        for when, option in HOOK_OPTIONS.items()
+        if option.fits(kind) and (not option.by_playbook or when in switched_on)
+    ]
 
 
 @dataclass
@@ -164,6 +198,8 @@ def hook_rows() -> List[dict]:
                 "label": option.label,
                 "fires": timing,
                 "tools": option.tools or option.line,
+                "instrument": option.instrument or "any",
+                "by_playbook": option.by_playbook,
             }
         )
     return rows
