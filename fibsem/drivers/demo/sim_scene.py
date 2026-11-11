@@ -227,6 +227,12 @@ RELIEF_OPAQUE = 1.5e-6
 # the orientation mark at the grid's centre: a square this many bar widths across
 CENTRE_MARK_SIZE = 2.4
 CENTRE_MARK_GROOVE = 4e-6  # m, how deep the ring in its middle is pressed
+# coating: how fast the GIS and the sputter coater lay it down, and the
+# thicknesses that take away about two-thirds of the SEM charging
+GIS_RATE = 0.04e-6  # m/s with the valve open
+SPUTTER_RATE = 0.5e-9  # m/s
+SPUTTER_DISCHARGE = 5e-9  # m
+GIS_DISCHARGE = 1e-6  # m
 RIP_FLAP_WIDTH = 1.5e-6  # m, the curled film edge round a rip
 HOLE_DEPTH = 45.0
 RIP_DEPTH = 80.0
@@ -646,6 +652,13 @@ class SampleScene:
     # "relief" gives everything a height and looks along the beam (shading,
     # occlusion, trenches cut along the milling beam) - see sim_relief
     renderer: str = "flat"
+    # how strongly the SEM charges an uncoated grid (cells, ice): bright
+    # patches and streaks along the scan, worse with a longer dwell; 0 = never
+    charging: float = 1.0
+    # the coat on the grid, laid down by the GIS and the sputter coater (or
+    # set for a grid that comes in coated); m
+    gis_thickness: float = 0.0
+    sputter_thickness: float = 0.0
     # the grid's usable radius; beyond it the metal rim, then the holder
     grid_radius: float = 1.4e-3  # m
     grid_rim_width: float = 150e-6  # m
@@ -924,6 +937,58 @@ class SampleScene:
             inside = np.clip(1 - dist.min(axis=1), 0, None)
             depth[idx] = np.maximum(depth[idx], inside.astype(np.float32))
         return depth
+
+    def deposit(self, seconds: float) -> None:
+        """A GIS deposition with the valve open *seconds*: a thicker coat."""
+        self.gis_thickness += GIS_RATE * max(float(seconds), 0.0)
+        logging.debug(
+            {"msg": "sample_scene_deposited", "gis_thickness": self.gis_thickness}
+        )
+
+    def sputter(self, seconds: float) -> None:
+        """A sputter coat of *seconds*: a thin metal layer."""
+        self.sputter_thickness += SPUTTER_RATE * max(float(seconds), 0.0)
+        logging.debug(
+            {
+                "msg": "sample_scene_sputtered",
+                "sputter_thickness": self.sputter_thickness,
+            }
+        )
+
+    def charge_strength(self, dwell_time: Optional[float]) -> float:
+        """How much the SEM charges the sample now: the scene's `charging`,
+        less what the coat carries away, more the longer each pixel dwells.
+        0 with no dwell given."""
+        if not dwell_time or self.charging <= 0:
+            return 0.0
+        coat = np.exp(-self.sputter_thickness / SPUTTER_DISCHARGE) / (
+            1.0 + self.gis_thickness / GIS_DISCHARGE
+        )
+        dwell = float(np.clip(np.sqrt(dwell_time / 1e-6), 0.0, 2.5))
+        return float(self.charging * coat * dwell)
+
+    @staticmethod
+    def charge_up(
+        data: np.ndarray,
+        charge: np.ndarray,
+        strength: float,
+        rng: Optional[np.random.Generator] = None,
+    ) -> np.ndarray:
+        """SEM charging on a grey-level image: the insulating parts (`charge`,
+        0..1 per pixel) glow, the glow runs on along each scan line past
+        them, and charged lines flicker from one line to the next."""
+        if strength <= 0 or not charge.any():
+            return data
+        from scipy.signal import lfilter
+
+        width = data.shape[1]
+        decay = np.exp(-1.0 / max(0.04 * width, 1.0))
+        trail = lfilter([1 - decay], [1, -decay], charge, axis=1)
+        out = data + strength * (30.0 * charge + 22.0 * trail)
+        if rng is not None:
+            lines = rng.normal(0, 1, (data.shape[0], 1))
+            out = out + strength * 10.0 * np.clip(charge + trail, 0, 1) * lines
+        return out
 
     def place_grids(self, projection: BeamStageProjection) -> None:
         """Lay the grids out from the holder's slots, when they changed.
@@ -1864,6 +1929,9 @@ class SampleScene:
         "grid_radius",  # m
         "grid_rim_width",  # m
         "renderer",  # flat | relief
+        "charging",  # SEM charging strength on an uncoated grid (0 = never)
+        "gis_thickness",  # m, a GIS coat the grid comes in with
+        "sputter_thickness",  # m, a sputter coat the grid comes in with
         "centre_mark",  # the orientation square at the grid's centre
     )
 
@@ -1935,6 +2003,7 @@ class SampleScene:
         rng: Optional[np.random.Generator] = None,
         beam_shift: Tuple[float, float] = (0.0, 0.0),
         beam_current: Optional[float] = None,
+        dwell_time: Optional[float] = None,
     ) -> np.ndarray:
         """Render one beam's view of the scene at the current stage position.
 
@@ -1971,8 +2040,11 @@ class SampleScene:
                 beam_type, stage_position, projection, beam_shift, beam_current
             )
             beam = "SEM" if beam_type is BeamType.ELECTRON else "FIB"
+            charge = 0.0
+            if beam_type is BeamType.ELECTRON:
+                charge = self.charge_strength(dwell_time)
             return sim_relief.render(
-                self, beam, frame, pixel_size, (width, height), rng
+                self, beam, frame, pixel_size, (width, height), rng, charge
             )
 
         # where the world anchor appears in the CURRENT view. Asked this way
@@ -2067,6 +2139,7 @@ class SampleScene:
             # the way an SE edge effect does, without amplifying flat noise
             edge = np.tanh(np.hypot(gx, gy) / EDGE_GRADIENT_SCALE)
             data = data + t["edge_highlight"] * EDGE_INTENSITY * edge
+        data = self._coat(data, beam_type, t)
         # what is torn or off-grid overrides whatever was drawn there
         data = np.where(rips, t["film"] + t["rips"], data)
         data = np.where(rim, t["rim"], data)
@@ -2078,11 +2151,35 @@ class SampleScene:
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
             if halo is not None:
                 data = np.where(halo, data + HALO_INTENSITY, data)
+        if beam_type is BeamType.ELECTRON:
+            strength = self.charge_strength(dwell_time)
+            if strength > 0:
+                charge = np.clip(ndi_gaussian(cover, 3.0), 0, 1)
+                if trench is not None:
+                    charge = np.where(trench, 0.0, charge)
+                noisy = self.noise_sigma > 0 or self.noise_fraction > 0
+                data = self.charge_up(data, charge, strength, rng if noisy else None)
         data = data + rng.normal(0, self.noise_sigma, canvas.shape)
         if self.noise_fraction > 0:
             uniform = rng.uniform(0, 255, canvas.shape)
             data = (1 - self.noise_fraction) * data + self.noise_fraction * uniform
         return np.clip(data, 0, 255).astype(np.uint8)
+
+    def _coat(self, data, beam_type, t):
+        """The flat renderer's coat: a GIS layer smooths the detail away and
+        reads brighter in the FIB; a sputter coat brightens the SEM a little.
+        (A trench, drawn after, is cut through it.)"""
+        if self.gis_thickness <= 0 and self.sputter_thickness <= 0:
+            return data
+        out = data
+        if self.gis_thickness > 0:
+            keep = float(np.exp(-self.gis_thickness / 0.8e-6))
+            out = t["film"] + keep * (out - t["film"])
+            if beam_type is BeamType.ION:
+                out = out + 25.0 * (1 - keep)
+        if self.sputter_thickness > 0 and beam_type is BeamType.ELECTRON:
+            out = out * (1 + 0.12 * (1 - np.exp(-self.sputter_thickness / 5e-9)))
+        return out
 
     def render_fm(
         self,

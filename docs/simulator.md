@@ -70,6 +70,18 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Contamination** (`contamination_density`): small bright specks over film and bars
   alike, the aperiodic content that breaks a mesh-pitch alias in real images.
 
+## Charging and coating
+
+An uncoated grid charges in the SEM (`charging`, 0 turns it off): cells, ice plates and
+anything standing up off the film glow, the glow runs on along the scan lines, and
+charged lines flicker. A longer dwell charges more. The Demo sputter coater and GIS coat
+the sample: a sputter coat (`sputter_thickness`, 0.5 nm/s) takes most of the charging
+away and brightens the SEM a little; a GIS coat (`gis_thickness`, 0.04 um/s with the
+valve open) smooths the detail, reads brighter in the FIB, takes some charging away, and
+is milled through like the rest. Set either thickness in the config for a grid that comes
+in coated. The coat is laid over everything, so a trench milled before a deposition is
+not filled in.
+
 ## Milling leaves marks
 
 ![Milled trench](img/simulator/milling.png)
@@ -190,6 +202,9 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `sphere_density` | 0.4 | dark spheres per 100 x 100 um |
 | `sphere_size` | [4e-07, 2e-06] | sphere radius range (m) |
 | `crack_density` | 0.3 | hairline cracks in the film per 100 x 100 um |
+| `charging` | 1 | SEM charging strength on an uncoated grid (0 = never) |
+| `gis_thickness` | 0 | GIS coat the grid starts with (m) |
+| `sputter_thickness` | 0 | sputter coat the grid starts with (m) |
 
 ### Noise
 

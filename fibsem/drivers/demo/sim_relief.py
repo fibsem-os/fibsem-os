@@ -35,7 +35,17 @@ CRACK_DEPTH = 0.6  # um; a hairline crack's groove at its line
 ICE_BLANKET = 3.0  # um; cells sit in the ice, the surface over them this smooth
 
 # secondary-electron yield per material: (SEM, FIB)
-ICE, CELL, METAL, CRYSTAL, HOLE, HOLDER, SPHERE, NOTHING = 0, 1, 2, 3, 4, 5, 6, 9
+ICE, CELL, METAL, CRYSTAL, HOLE, HOLDER, SPHERE, COAT, NOTHING = (
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    9,
+)
 MATERIAL = {
     ICE: (1.0, 1.0),
     CELL: (1.16, 0.9),
@@ -44,6 +54,7 @@ MATERIAL = {
     HOLE: (0.86, 0.9),
     HOLDER: (0.7, 0.8),
     SPHERE: (0.2, 0.3),
+    COAT: (1.08, 1.35),
     NOTHING: (0.04, 0.03),
 }
 BRIGHTNESS = 115.0  # grey level of plain ice
@@ -314,6 +325,16 @@ def surface(
     mat[crystal & solid] = CRYSTAL
     mat[sphere & solid] = SPHERE
 
+    gis = scene.gis_thickness * UM
+    if gis > 0:
+        # the GIS lays an organometallic coat over everything: it fills the
+        # fine detail in, so the top is smoother, and covers what it lies on
+        sm = max(gis, 0.3)
+        smooth = ndi.gaussian_filter(h, (sm / sy, sm / sx))
+        h = np.maximum(h, smooth) + gis
+        if gis >= 0.2:
+            mat[solid & (mat != NOTHING)] = COAT
+
     # what is torn or past the grid is nothing (a broken hole too: no ice
     # across it); the holder sits far below
     if holes.any():
@@ -385,8 +406,10 @@ def render(
     pixel_size: float,
     resolution: Tuple[int, int],
     rng: Optional[np.random.Generator] = None,
+    charge: float = 0.0,
 ) -> np.ndarray:
-    """One beam's view of the scene as a uint8 image (height, width)."""
+    """One beam's view of the scene as a uint8 image (height, width);
+    `charge` is how strongly the (SEM) beam charges it."""
     width, height = int(resolution[0]), int(resolution[1])
     pix = pixel_size * UM
     ax, ay = frame.anchor
@@ -404,7 +427,7 @@ def render(
         w = np.arange(cw.min() - pix, cw.max() + 2 * pix, pix)
     else:
         u, w = vx - ax, vy - ay
-    canvas = _canvas(scene, beam, frame, u, w, pix)
+    canvas, q = _canvas(scene, beam, frame, u, w, pix)
     if rotated:
         gx, gy = np.meshgrid(vx, vy)
         cu = gx * cos_t + gy * sin_t - ax
@@ -415,9 +438,13 @@ def render(
             order=1,
             cval=MATERIAL[NOTHING][0],
         )
+        if charge > 0:
+            q = ndi.map_coordinates(
+                q, [(cw - w[0]) / pix, (cu - u[0]) / pix], order=1, cval=0.0
+            )
     else:
         img = canvas
-    return _finish(scene, img, rng)
+    return _finish(scene, img, rng, q if charge > 0 else None, charge)
 
 
 def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
@@ -445,6 +472,7 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         round(pix, 6),
         round(dy, 6),
         len(scene.milled),
+        round(scene.gis_thickness * UM, 4),
         id(scene),
     )
     cache = _cache(scene)
@@ -473,6 +501,17 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     occl = np.clip(1 + 0.25 * np.tanh((hs - smooth) / 0.6), 0.6, 1.3)
     curv = -(ndi.laplace(ndi.gaussian_filter(hs, (0.4 / dy, 0.4 / pix))) / pix**2)
     edge = 1 + 0.6 * np.tanh(np.clip(curv, 0, None) * 0.8)
+    if beam == "SEM" and scene.sputter_thickness > 0:
+        # a sputtered metal coat gives a little more signal
+        mat_y = mat_y * (1 + 0.12 * (1 - np.exp(-scene.sputter_thickness / 5e-9)))
+    # what charges in the SEM: what stands up off the film (cells, plates,
+    # beads), the thicker the more
+    rel = hs - ndi.gaussian_filter(hs, (15.0 / dy, 15.0 / pix))
+    insulator = np.isin(mat, (CELL, CRYSTAL, SPHERE)) | ((mat == COAT) & (rel > 0.3))
+    q = np.clip(np.maximum(rel / 1.5, 0.7 * insulator), 0, 1)
+    q = ndi.gaussian_filter(q * (mat != NOTHING), (1.0 / dy, 1.0 / pix))
+    if cut is not None:
+        q[cut] = 0.0
     if beam == "SEM":
         # the in-chamber detector sits off to one side: faces toward it are brighter
         toward = (-gx_ * 0.5 - gy_ * 0.6 + 0.6) / norm
@@ -498,6 +537,7 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     n_rows = len(w)
     rows = np.arange(n_rows, dtype=np.float64)
     out = np.empty((n_rows, len(u)), dtype=np.float32)
+    out_q = np.zeros((n_rows, len(u)), dtype=np.float32)
     slack = dy * fs / pix + 1.0
     wall = 0.8 * mat_y
     void = MATERIAL[NOTHING][which]
@@ -513,14 +553,24 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         side = rows < rows_s[kk, c] - slack
         value = np.where(side, wall[kk, c], shade[kk, c])
         out[:, c] = np.where(seen & solid, value, void)
+        out_q[:, c] = np.where(seen & solid & ~side, q[kk, c], 0.0)
     if sigma < 0:
-        out = out[::-1]
-    return out
+        out, out_q = out[::-1], out_q[::-1]
+    return out, out_q
 
 
-def _finish(scene, img, rng):
-    """Probe blur, scan-line jitter, per-line gain and shot noise, as grey levels."""
+def _finish(scene, img, rng, q=None, charge=0.0):
+    """Probe blur, charging, scan-line jitter, per-line gain and shot noise,
+    as grey levels."""
     img = ndi.gaussian_filter(img, 0.7)
+    if q is not None and charge > 0:
+        noisy = scene.noise_sigma > 0 or scene.noise_fraction > 0
+        if noisy and rng is None:
+            rng = np.random.default_rng()
+        img = (
+            scene.charge_up(img * BRIGHTNESS, q, charge, rng if noisy else None)
+            / BRIGHTNESS
+        )
     if scene.noise_sigma > 0 or scene.noise_fraction > 0:
         if rng is None:
             rng = np.random.default_rng()

@@ -182,3 +182,39 @@ def test_a_crack_is_a_dark_line_in_the_film():
         .crack_depth(np.array([x]), np.array([y]))
         .any()
     )
+
+
+def test_a_coat_takes_the_charging_away():
+    """An uncoated grid charges in the SEM, more with a longer dwell; a
+    sputter coat takes most of it away, and a GIS coat some."""
+    scene = SampleScene()
+    assert scene.charge_strength(None) == 0.0
+    short, long = scene.charge_strength(0.2e-6), scene.charge_strength(3e-6)
+    assert 0 < short < long
+    scene.sputter(15)
+    assert scene.charge_strength(3e-6) < 0.5 * long
+    gis = SampleScene()
+    gis.deposit(25)
+    assert gis.gis_thickness == pytest.approx(1e-6)
+    assert gis.charge_strength(3e-6) < long
+
+
+def test_the_demo_coater_and_gis_coat_the_sample(monkeypatch):
+    """Coating through the coating service coats the simulated sample."""
+    monkeypatch.setenv("FIBSEM_SIM_NO_DELAY", "1")
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
+    )
+    try:
+        microscope.system.sim["sample"] = {"enabled": True}
+        microscope._connection.setup_sample_scene()
+        scene = microscope._connection.sample_scene
+        microscope.coating.sputter(10)
+        microscope.coating.deposit(20)
+        assert scene.sputter_thickness > 0
+        assert scene.gis_thickness == pytest.approx(0.8e-6)
+    finally:
+        microscope.disconnect()
