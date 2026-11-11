@@ -101,27 +101,27 @@ def _predicted_fiducial(microscope) -> tuple:
 
 
 def test_channels_respond_to_the_excitation_and_emission_pair():
-    bars, cells, subset, fiducial = fm_channel_weights(None, 550)
+    bars, cells, subset, fiducial = fm_channel_weights(None, 550)[:4]
     assert bars == 1.0 and fiducial > 0  # reflection: the grid, and the fiducial
-    _, cells, subset, fiducial = fm_channel_weights(520, 488)
+    _, cells, subset, fiducial = fm_channel_weights(520, 488)[:4]
     assert cells > 0.7 and subset < 0.05 and fiducial < 0.05  # GFP channel
-    _, cells, subset, fiducial = fm_channel_weights(610, 561)
+    _, cells, subset, fiducial = fm_channel_weights(610, 561)[:4]
     assert subset > 0.7 and cells < 0.05  # mCherry channel
-    _, cells, subset, fiducial = fm_channel_weights(460, 365)
+    _, cells, subset, fiducial = fm_channel_weights(460, 365)[:4]
     assert fiducial > 0.7 and cells < 0.05  # DAPI channel
     # a mismatched pair: 488 excitation collected in the red band bleeds
     # weakly rather than showing nothing or everything
-    _, cells, subset, _ = fm_channel_weights(610, 488)
+    _, cells, subset, _ = fm_channel_weights(610, 488)[:4]
     assert 0 < subset < 0.1 and cells < 0.05
     assert fm_channel_weights("reflection", None) == fm_channel_weights(None, None)
     # the simulated FM's own filter: emission "Fluorescence" is an open band,
     # so its excitation lines pick the dye - 365 fiducial, 450 cells, 550
-    # subset, 635 nothing
+    # subset, 635 the far-red label (none by default)
     line = {ex: fm_channel_weights("Fluorescence", ex) for ex in (365, 450, 550, 635)}
     assert line[365][3] > 0.7 and line[365][1] < 0.05
     assert line[450][1] > 0.7 and line[450][2] < 0.05
     assert line[550][2] > 0.9 and line[550][1] < 0.05
-    assert max(line[635][1:]) < 0.05
+    assert max(line[635][1:4]) < 0.05 and line[635][4] > 0.7
 
 
 def test_channels_show_different_structures(microscope):

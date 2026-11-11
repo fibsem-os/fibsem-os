@@ -114,7 +114,9 @@ class Imaging(Service):
     ion = Role(Beam, required=False, doc="The ion beam.")
     fm = Role(FM, required=False, doc="The fluorescence microscope.")
 
-    client_side = ("show",)
+    # Acquired on the server, saved here: on a remote microscope the paths are
+    # this computer's.
+    client_side = ("show", "acquire_image", "reference_images", "reference_image_sets")
 
     # Tile progress (`TiledProgress`) from a beam or fluorescence tiled overview,
     # however it was started: each tile, the stitch, and how the run ended. Emitted

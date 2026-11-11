@@ -19,7 +19,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 from fibsem.devices.beam import Beam
 from fibsem.devices.chamber import Chamber
 from fibsem.devices.core import Device
-from fibsem.devices.fm import FM, Objective
+from fibsem.devices.fm import Objective
 from fibsem.devices.gis import GasInjector
 from fibsem.devices.manipulator import Manipulator
 from fibsem.devices.sputter_coater import SputterCoater
@@ -57,9 +57,6 @@ _BLOCKED: Tuple[Tuple[type, Dict[str, Any]], ...] = (
     # mills: a run lending control would carry on beside it. run_stage and
     # run_task hold control until the mill ends.
     (Milling, {"command": {"start"}}),
-    # A z-stack's cancel: the agent stops the FM through imaging.stop, under
-    # the stop rule like every other stop.
-    (FM, {"command": {"cancel"}}),
 )
 
 _WHY = {
@@ -70,7 +67,6 @@ _WHY = {
     GasInjector: "deposit with coating_deposit, which runs the whole sequence",
     SputterCoater: "sputter with coating_sputter",
     Objective: "the objective's safety limit",
-    FM: "stop the FM with the imaging service's stop",
     StageMovement: "move with safe_absolute_stage_movement (stage_move_absolute)",
     Milling: "mill with milling_run_stage or milling_run_task, which hold control until the mill ends",
 }
