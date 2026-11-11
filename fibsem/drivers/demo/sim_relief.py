@@ -384,20 +384,26 @@ def _mill(scene, x, y, h, bottom):
     top = h.copy()
     floor = bottom.copy()
     lowered = np.zeros(h.shape, dtype=bool)
+    stopped = np.zeros(h.shape, dtype=bool)
     for region in scene.milled:
         a, b = _cut_range(scene, region, x, y, top)
         # a pattern cuts only as deep as it was set to: a floor is left
         # where that is short of the bottom
-        a = np.maximum(a, top - region.depth * UM)
+        limit = top - region.depth * UM
+        short = limit > a
+        a = np.maximum(a, limit)
         meets = (b > a) & (a < top) & (b > floor)
         above = meets & (b < top)
         floor = np.where(above, b, floor)
         drop = meets & ~above
         top = np.where(drop, np.maximum(a, floor), top)
         lowered |= drop
+        stopped = np.where(drop, short, stopped)
     gone = top <= floor + 1e-6
     top = np.where(gone, VOID, top)
-    return top, floor, lowered & ~gone
+    # 1 = a face the beam cut through, 2 = a floor it stopped short at
+    cut = np.where(lowered & ~gone, np.where(stopped, 2, 1), 0).astype(np.int8)
+    return top, floor, cut
 
 
 def _cut_range(scene, region, x, y, top=None):
@@ -543,7 +549,7 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     q = np.clip(np.maximum(rel / 1.5, 0.7 * insulator), 0, 1)
     q = ndi.gaussian_filter(q * (mat != NOTHING), (1.0 / dy, 1.0 / pix))
     if cut is not None:
-        q[cut] = 0.0
+        q[cut > 0] = 0.0
     if beam == "SEM":
         # the in-chamber detector sits off to one side: faces toward it are brighter
         toward = (-gx_ * 0.5 - gy_ * 0.6 + 0.6) / norm
@@ -555,10 +561,14 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     flat = max(fs / np.hypot(fs, kabs), 0.05) ** -0.75
     shade = mat_y * yield_ * occl * edge * det / flat * (1 + 0.2 * (1 - fs))
     if cut is not None:
-        # a face the beam cut is smooth: an even tone, darker in a trench
-        # floor (fewer electrons get out)
-        face = cut & (mat != NOTHING)
+        # a floor a pattern stopped short at keeps the surface it was cut
+        # from, lower and a little darker (fewer electrons get out); a face
+        # the beam cut through is smooth and carries the curtaining stripes
+        solid = mat != NOTHING
+        floor = (cut == 2) & solid
+        face = (cut == 1) & solid
         stripes = np.broadcast_to(1 + curtain[None, :], shade.shape)
+        shade[floor] = 0.7 * shade[floor]
         shade[face] = 0.6 * MATERIAL[ICE][which] * stripes[face]
     shade[mat == NOTHING] = MATERIAL[NOTHING][which]
 
