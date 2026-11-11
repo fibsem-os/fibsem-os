@@ -188,6 +188,8 @@ def surface(
     metal = (bars | rim).astype(np.float32)
     h = BAR_TOP * ndi.gaussian_filter(metal, (2.0 / sy, 2.0 / sx))
     mat[bars | rim] = METAL
+    # the ring pressed into the grid's orientation mark
+    h -= scene.centre_mark_groove(x / UM, y / UM) * UM * bars
     seed = int(scene.seed)
     # ice: long waves and fine grain, fixed to the world
     h += fbm(

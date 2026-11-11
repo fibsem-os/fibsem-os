@@ -226,6 +226,7 @@ RELIEF_OPAQUE = 1.5e-6
 # the FM reflection's view of the support, on the same scale
 # the orientation mark at the grid's centre: a square this many bar widths across
 CENTRE_MARK_SIZE = 2.4
+CENTRE_MARK_GROOVE = 4e-6  # m, how deep the ring in its middle is pressed
 RIP_FLAP_WIDTH = 1.5e-6  # m, the curled film edge round a rip
 HOLE_DEPTH = 45.0
 RIP_DEPTH = 80.0
@@ -1172,7 +1173,8 @@ class SampleScene:
 
     def _centre_mark(self, x_rot: np.ndarray, y_rot: np.ndarray) -> np.ndarray:
         """The orientation mark at the bar crossing nearest the grid's
-        centre: a bigger square of metal with one corner rounded."""
+        centre: a bigger square of metal with one corner rounded (the ring
+        groove in its middle is `centre_mark_groove`)."""
         half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
         corner = 0.6 * half  # radius of the rounded corner
         dx = x_rot - self.grid_pitch / 2
@@ -1181,6 +1183,28 @@ class SampleScene:
         cut = (dx > half - corner) & (dy > half - corner)
         rounded = np.hypot(dx - (half - corner), dy - (half - corner)) <= corner
         return square & (~cut | rounded)
+
+    def centre_mark_groove(
+        self, xs_world: np.ndarray, ys_world: np.ndarray
+    ) -> np.ndarray:
+        """How deep (m) the ring groove pressed into the middle of each
+        grid's orientation mark is, at world points: a donut sunk into the
+        metal, round in section."""
+        depth = np.zeros(np.broadcast(xs_world, ys_world).shape, dtype=np.float32)
+        if not self.centre_mark:
+            return depth
+        half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
+        mid, width = 0.35 * half, 0.1 * half
+        for grid in self.grids:
+            cos_r, sin_r = np.cos(grid.rotation), np.sin(grid.rotation)
+            xs, ys = xs_world - grid.x, ys_world - grid.y
+            dx = xs * cos_r + ys * sin_r - self.grid_pitch / 2
+            dy = -xs * sin_r + ys * cos_r - self.grid_pitch / 2
+            t = (np.hypot(dx, dy) - mid) / width
+            depth = np.maximum(
+                depth, CENTRE_MARK_GROOVE * np.sqrt(np.clip(1 - t * t, 0, None))
+            )
+        return depth
 
     def _grid_masks(self, grid: SceneGrid, xs: np.ndarray, ys: np.ndarray):
         """One grid's (bars, holes, rips, inside, rim) from coordinates
@@ -1809,6 +1833,7 @@ class SampleScene:
         ys_world = turn * (-vx * sin_t + vy * cos_t) / fs
 
         bars, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
+        groove = self.centre_mark_groove(xs_world, ys_world) / CENTRE_MARK_GROOVE
         hole_rim = ndi_binary_dilation(holes, iterations=2) & ~holes & ~bars
         # the curled flap of film round a rip: a bright edge ~1.5 um wide
         flap = int(np.clip(np.ceil(RIP_FLAP_WIDTH / pixel_size), 1, 12))
@@ -1816,6 +1841,7 @@ class SampleScene:
         for b, canvas in canvases.items():
             t = layers[b]
             canvas[bars] += t["bars"] * (self.grid_intensity / 90.0)
+            canvas -= 0.6 * t["bars"] * (self.grid_intensity / 90.0) * groove * bars
             canvas[holes] += t["holes"]
             canvas[hole_rim] += t["hole_rim"]
             canvas[rip_rim] += t["rip_rim"]
