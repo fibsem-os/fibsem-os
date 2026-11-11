@@ -1,0 +1,11 @@
+# A microscope served by another computer's App Server (the support PC, say): this
+# computer's App Server, web app and agent use it like a local microscope, and the
+# experiment is saved here. Pair once with `fibsem-cli pair <ip_address>:<port> <code>`,
+# the code the other App Server's Computers list shows. The instrument's own
+# configuration stays on that computer.
+version: 2                                                  # configuration schema version
+info:
+    name: remote-microscope-configuration                   # a descriptive name for your configuration                     [SPECIFIED]
+    driver: remote                                          # the microscope is another App Server's                        [SPECIFIED]
+    ip_address: 127.0.0.1                                   # through an SSH tunnel, else the support PC's address          [USER]
+    port: 8001                                              # its App Server's port                                         [USER]

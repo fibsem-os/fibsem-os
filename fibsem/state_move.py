@@ -28,6 +28,7 @@ SHIPPED_CONFIGURATIONS = frozenset(
         "jeol-configuration.yaml",
         "microscope-configuration.yaml",
         "odemis-configuration.yaml",
+        "remote-microscope-configuration.yaml",
         "sim-arctis-configuration.yaml",
         "sim-iflm-configuration.yaml",
         "tescan-configuration.yaml",
