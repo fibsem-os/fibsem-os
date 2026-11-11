@@ -378,3 +378,26 @@ def test_square_quality_key_problems(tmp_path):
     problems = check_case(case).problems
     assert "square 1: unknown label 'great'" in problems
     assert "square 2 is keyed but not in squares" in problems
+
+
+def test_polishing_stop_with_a_span_of_right_passes(tmp_path):
+    passes = [{"name": n} for n in ("p1", "p2", "p3", "p4")]
+    case = make_case(
+        tmp_path,
+        "span",
+        {
+            **BASE,
+            "id": "span",
+            "task": "polishing_stop",
+            "passes": passes,
+            "key": {"stop_after": ["p2", "p3"]},
+        },
+    )
+    assert check_case(case).ok
+
+    def stop_at(name):
+        return result(case, {"passes": [{"name": name, "decision": "stop"}]}).result
+
+    assert stop_at("p1") == "early"
+    assert stop_at("p2") == "hit" and stop_at("p3") == "hit"
+    assert stop_at("p4") == "unsafe"

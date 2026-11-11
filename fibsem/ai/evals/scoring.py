@@ -21,7 +21,13 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.ai.evals.cases import SQUARE_LABELS, Case, pass_names, pixel_size_um
+from fibsem.ai.evals.cases import (
+    SQUARE_LABELS,
+    Case,
+    pass_names,
+    pixel_size_um,
+    stop_passes,
+)
 
 RESULTS = ("hit", "miss", "early", "late", "unsafe", "invalid")
 
@@ -204,15 +210,16 @@ def score_polishing_stop(
         if decision == "stop":
             index = names.index(entry["name"])
             stop = index if stop is None else min(stop, index)
-    want = names.index(key["stop_after"])
+    wanted = [names.index(name) for name in stop_passes(key)]
+    first, last = min(wanted), max(wanted)
     details = {
         "stopped_after": names[stop] if stop is not None else None,
         "key": key["stop_after"],
     }
-    if stop == want:
+    if stop is not None and first <= stop <= last:
         return "hit", details
-    if stop is not None and stop < want:
-        details["passes_early"] = want - stop
+    if stop is not None and stop < first:
+        details["passes_early"] = first - stop
         return "early", details
     # Carrying on past the stop: thickness lost, or the target milled away.
     late = case.scoring.get("late", "unsafe")

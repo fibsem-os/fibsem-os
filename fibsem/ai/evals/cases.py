@@ -143,7 +143,8 @@ def _key_problems(case: Case) -> List[str]:
             problems.append("no inputs fib_pixel_size_um")
     elif case.task == "polishing_stop":
         names = pass_names(case)
-        if key.get("stop_after") not in names:
+        stops = stop_passes(key)
+        if not stops or any(stop not in names for stop in stops):
             problems.append(f"key stop_after {key.get('stop_after')!r} is not a pass")
     elif case.task == "site_selection":
         for square in key.get("good", []) + key.get("bad", []):
@@ -177,6 +178,15 @@ def _key_problems(case: Case) -> List[str]:
                     f"part {name}: key names unknown passes {sorted(unknown)}"
                 )
     return problems
+
+
+def stop_passes(key: Dict[str, Any]) -> List[str]:
+    """The passes after which stopping is right: ``stop_after`` names one, or
+    a list of them when any in that span will do."""
+    stop = key.get("stop_after")
+    if stop is None:
+        return []
+    return [str(s) for s in stop] if isinstance(stop, list) else [str(stop)]
 
 
 def pass_names(case: Case) -> List[str]:

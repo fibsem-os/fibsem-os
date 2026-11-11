@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from fibsem.ai.evals import report
-from fibsem.ai.evals.cases import Case, find_cases, load_case, pass_names
+from fibsem.ai.evals.cases import Case, find_cases, load_case, pass_names, stop_passes
 from fibsem.ai.evals.runner import ANSWER, RESULT
 from fibsem.ai.evals.scoring import InvalidAnswer, match_squares, yes_no
 
@@ -417,9 +417,13 @@ def draw_polishing_stop(case: Case, runs: List[Run], key=None, part=None):
     hi = [p.get("measured", {}).get("max_nm", np.nan) for p in passes]
     ax.fill_between(xs, lo, hi, color="#cccccc", label="min-max")
     ax.plot(xs, med, "k.-", label="median")
-    want = names.index(key["stop_after"])
-    ax.axvline(
-        want, color=KEY, lw=3, alpha=0.6, label=f"key: stop after {key['stop_after']}"
+    wanted = [names.index(name) for name in stop_passes(key)]
+    ax.axvspan(
+        min(wanted) - 0.08,
+        max(wanted) + 0.08,
+        color=KEY,
+        alpha=0.4,
+        label="key: stop after " + " or ".join(stop_passes(key)),
     )
     for n, (result, answer) in enumerate(runs):
         stop = _stops(
