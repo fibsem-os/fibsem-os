@@ -64,6 +64,10 @@ class File:
     # A playbook's session settings with what it extends added in: each
     # setting's {value, source}, the playbook that sets it.
     session: Optional[Dict[str, Dict[str, Any]]] = None
+    # A playbook's instrument kind, its own or what it extends; None for the rest.
+    instrument: Optional[str] = None
+    # The app hooks a playbook switches on, its own and what it extends.
+    hooks: Optional[List[str]] = None
 
 
 @dataclass
@@ -73,7 +77,8 @@ class Options:
     levels: List[str]
     modes: List[str]
     efforts: List[str]
-    # Each reminder's ``when`` and its label, in `reminders.HOOK_OPTIONS` order.
+    # Each hook: its ``when``, its label, its instrument kind ("" for any) and
+    # whether a playbook must switch it on, in `reminders.HOOK_OPTIONS` order.
     reminders: List[Dict[str, str]]
     skills: List[str]
     playbooks: List[str]
@@ -217,8 +222,13 @@ def read(kind: str, name: str, source: Optional[str] = None) -> File:
         raise LibraryError("not_found", f"No {source} {kind[:-1]} {name!r}.")
     text = path.read_text(encoding="utf-8")
     data = _data(kind, text)
-    session = _session(name, data) if kind == "playbooks" else None
-    return File(name, source, text, str(path), lab, shipped, data, session)
+    session = instrument = hooks = None
+    if kind == "playbooks":
+        session, instrument = _session(name, data), _instrument(name, data)
+        hooks = _switched_on(name, data)
+    return File(
+        name, source, text, str(path), lab, shipped, data, session, instrument, hooks
+    )
 
 
 def _session(name: str, data: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
@@ -245,6 +255,44 @@ def _session(name: str, data: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, A
     if base is not None:
         for key, value in base.session.as_dict().items():
             found.setdefault(key, {"value": value, "source": playbooks.DEFAULT})
+    return found
+
+
+def _instrument(name: str, data: Optional[Dict[str, Any]]) -> Optional[str]:
+    """*name*'s instrument kind: its own, else the first up its ``extends``,
+    else the shipped base's."""
+    seen = set()
+    while isinstance(data, dict) and name not in seen:
+        seen.add(name)
+        if isinstance(data.get("instrument"), str):
+            return data["instrument"]
+        parent = data.get("extends")
+        if not isinstance(parent, str):
+            break
+        try:
+            name, data = parent, read("playbooks", parent).data
+        except LibraryError:
+            break
+    base = playbooks.shipped_base(sources.find_root())
+    return base.instrument if base is not None else None
+
+
+def _switched_on(name: str, data: Optional[Dict[str, Any]]) -> List[str]:
+    """The app hooks *name* switches on, with those of what it extends."""
+    found: List[str] = []
+    seen = set()
+    while isinstance(data, dict) and name not in seen:
+        seen.add(name)
+        own = data.get("hooks")
+        if isinstance(own, list):
+            found += [h for h in own if isinstance(h, str) and h not in found]
+        parent = data.get("extends")
+        if not isinstance(parent, str):
+            break
+        try:
+            name, data = parent, read("playbooks", parent).data
+        except LibraryError:
+            break
     return found
 
 
@@ -334,7 +382,12 @@ def options() -> Options:
         modes=list(playbooks.MODES),
         efforts=list(harness.EFFORTS),
         reminders=[
-            {"when": when, "label": option.label}
+            {
+                "when": when,
+                "label": option.label,
+                "instrument": option.instrument,
+                "by_playbook": option.by_playbook,
+            }
             for when, option in reminders.HOOK_OPTIONS.items()
         ],
         skills=[item.name for item in items("skills")],
