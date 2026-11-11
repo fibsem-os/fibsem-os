@@ -564,13 +564,7 @@ def _finish(scene, img, rng, q=None, charge=0.0):
     as grey levels."""
     img = ndi.gaussian_filter(img, 0.7)
     if q is not None and charge > 0:
-        noisy = scene.noise_sigma > 0 or scene.noise_fraction > 0
-        if noisy and rng is None:
-            rng = np.random.default_rng()
-        img = (
-            scene.charge_up(img * BRIGHTNESS, q, charge, rng if noisy else None)
-            / BRIGHTNESS
-        )
+        img = scene.charge_up(img * BRIGHTNESS, q, charge) / BRIGHTNESS
     if scene.noise_sigma > 0 or scene.noise_fraction > 0:
         if rng is None:
             rng = np.random.default_rng()

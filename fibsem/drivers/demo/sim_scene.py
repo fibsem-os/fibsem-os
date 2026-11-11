@@ -968,26 +968,19 @@ class SampleScene:
         return float(self.charging * coat * dwell)
 
     @staticmethod
-    def charge_up(
-        data: np.ndarray,
-        charge: np.ndarray,
-        strength: float,
-        rng: Optional[np.random.Generator] = None,
-    ) -> np.ndarray:
+    def charge_up(data: np.ndarray, charge: np.ndarray, strength: float) -> np.ndarray:
         """SEM charging on a grey-level image: the insulating parts (`charge`,
-        0..1 per pixel) glow, the glow runs on along each scan line past
-        them, and charged lines flicker from one line to the next."""
+        0..1 per pixel) glow and lose their detail, and the film round them
+        goes dark."""
         if strength <= 0 or not charge.any():
             return data
-        from scipy.signal import lfilter
-
-        width = data.shape[1]
-        decay = np.exp(-1.0 / max(0.04 * width, 1.0))
-        trail = lfilter([1 - decay], [1, -decay], charge, axis=1)
-        out = data + strength * (30.0 * charge + 22.0 * trail)
-        if rng is not None:
-            lines = rng.normal(0, 1, (data.shape[0], 1))
-            out = out + strength * 10.0 * np.clip(charge + trail, 0, 1) * lines
+        size = max(data.shape) / 1024.0
+        reach = ndi_gaussian(charge, 25.0 * size)
+        halo = np.clip(reach - charge, 0, None)
+        k = np.clip(strength * charge, 0, 1)
+        blurred = ndi_gaussian(data, 2.0 * size)
+        out = data + 0.6 * k * (blurred - data)
+        out = out + 40.0 * strength * np.tanh(1.5 * charge) - 60.0 * strength * halo
         return out
 
     def place_grids(self, projection: BeamStageProjection) -> None:
@@ -2157,8 +2150,7 @@ class SampleScene:
                 charge = np.clip(ndi_gaussian(cover, 3.0), 0, 1)
                 if trench is not None:
                     charge = np.where(trench, 0.0, charge)
-                noisy = self.noise_sigma > 0 or self.noise_fraction > 0
-                data = self.charge_up(data, charge, strength, rng if noisy else None)
+                data = self.charge_up(data, charge, strength)
         data = data + rng.normal(0, self.noise_sigma, canvas.shape)
         if self.noise_fraction > 0:
             uniform = rng.uniform(0, 255, canvas.shape)
