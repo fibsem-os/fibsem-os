@@ -182,3 +182,19 @@ def test_a_file_shared_from_another_case_is_linked_in(case, tmp_path):
     assert "stack.ome.tiff" in placed and "iter/p1.tif" in placed
     assert (experiment / "stack.ome.tiff").read_bytes() == b"stack"
     assert "- stack.ome.tiff" in task_text(case, placed)
+
+
+def test_the_squares_to_label_are_in_the_task_but_not_their_labels(tmp_path):
+    folder = tmp_path / "quality"
+    folder.mkdir()
+    data = {
+        "id": "quality",
+        "task": "square_quality",
+        "brief": "Label each square.",
+        "squares": [{"square": 7, "x_px": 3457, "y_px": 305}],
+        "key": {"labels": {"7": "damaged"}},
+    }
+    (folder / "case.yaml").write_text(yaml.safe_dump(data))
+    text = task_text(load_case(folder), [])
+    assert "- 7: x_px 3457, y_px 305" in text
+    assert "damaged" not in text.split("## Answer")[0]

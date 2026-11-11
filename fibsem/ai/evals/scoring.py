@@ -11,6 +11,8 @@ Answer shapes (``answer.json``):
 - correlation: ``{"x_px", "y_px", "fiducials": [...], "fit_rms_um", "reason"}``
 - polishing_stop: ``{"passes": [{"name", "decision": "carry_on"|"stop", "reason"}, ...]}``
 - target_present: ``{"present": {"<pass>": true|false, ...}}``
+- square_finding: ``{"squares": [{"x_px", "y_px"}, ...], "pitch_px", "angle_deg"}``
+- square_quality: ``{"labels": {"<square>": "<label>", ...}}``
 
 A case with parts is answered as ``{"parts": {"a": {...}, "b": {...}}}``.
 """
@@ -19,7 +21,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
-from fibsem.ai.evals.cases import Case, pass_names, pixel_size_um
+from fibsem.ai.evals.cases import SQUARE_LABELS, Case, pass_names, pixel_size_um
 
 RESULTS = ("hit", "miss", "early", "late", "unsafe", "invalid")
 
@@ -44,6 +46,16 @@ ANSWER_SHAPES: Dict[str, Any] = {
         "passes": [{"name": "<pass>", "decision": "carry_on | stop", "reason": "..."}]
     },
     "target_present": {"present": {"<pass>": "yes | no"}, "reason": "..."},
+    "square_finding": {
+        "squares": [{"x_px": 0, "y_px": 0}],
+        "pitch_px": 0,
+        "angle_deg": 0,
+        "reason": "...",
+    },
+    "square_quality": {
+        "labels": {"<square>": " | ".join(SQUARE_LABELS)},
+        "reason": "...",
+    },
 }
 
 
@@ -235,12 +247,125 @@ def score_target_present(
     return ("hit" if not wrong and not unanswered else "miss"), details
 
 
+def _match(points: List[tuple], squares: List[Dict[str, Any]], radius: float):
+    """Each point paired with at most one square and each square with at most
+    one point, nearest pairs first, within *radius*."""
+    pairs = sorted(
+        (math.hypot(x - sq["x_px"], y - sq["y_px"]), i, j)
+        for i, (x, y) in enumerate(points)
+        for j, sq in enumerate(squares)
+    )
+    used_points, used_squares, matched = set(), set(), {}
+    for d, i, j in pairs:
+        if d > radius:
+            break
+        if i in used_points or j in used_squares:
+            continue
+        used_points.add(i)
+        used_squares.add(j)
+        matched[i] = j
+    return matched
+
+
+def score_square_finding(
+    case: Case, answer: Dict[str, Any], key: Dict[str, Any]
+) -> tuple:
+    found = answer.get("squares")
+    if not isinstance(found, list):
+        raise InvalidAnswer("no squares list")
+    points = [_point(p) for p in found]
+    squares = key["squares"]
+    sc = case.scoring
+    pitch = float(key["pitch_px"])
+    radius = float(sc.get("match_radius_px", pitch / 3))
+    matched = _match(points, squares, radius)
+    # Optional squares (cut by a tile edge, or hidden) count when found and
+    # are not missed when not.
+    required = [j for j, sq in enumerate(squares) if not sq.get("optional")]
+    found_required = len(set(matched.values()) & set(required))
+    recall = found_required / len(required) if required else 1.0
+    precision = len(matched) / len(points) if points else 0.0
+    details: Dict[str, Any] = {
+        "found": len(points),
+        "matched": len(matched),
+        "required_found": found_required,
+        "required_total": len(required),
+        "extra": len(points) - len(matched),
+        "recall": round(recall, 3),
+        "precision": round(precision, 3),
+    }
+    ok = recall >= float(sc.get("min_recall", 0.8)) and precision >= float(
+        sc.get("min_precision", 0.9)
+    )
+    try:
+        pitch_error = abs(float(answer["pitch_px"]) - pitch) / pitch
+        # Lattice directions repeat every 90 degrees.
+        turn = (float(answer["angle_deg"]) - float(key["angle_deg"])) % 90
+        angle_error = min(turn, 90 - turn)
+    except (KeyError, TypeError, ValueError):
+        details["lattice"] = "no pitch_px or angle_deg"
+        return "miss", details
+    details.update(
+        pitch_error=round(pitch_error, 3), angle_error_deg=round(angle_error, 1)
+    )
+    ok = (
+        ok
+        and pitch_error <= float(sc.get("pitch_tolerance", 0.1))
+        and angle_error <= float(sc.get("angle_tolerance_deg", 5))
+    )
+    return ("hit" if ok else "miss"), details
+
+
+def score_square_quality(
+    case: Case, answer: Dict[str, Any], key: Dict[str, Any]
+) -> tuple:
+    labels = answer.get("labels")
+    if not isinstance(labels, dict):
+        raise InvalidAnswer("no labels map")
+    said = {}
+    for name, value in labels.items():
+        label = value.get("label") if isinstance(value, dict) else value
+        label = str(label).strip().lower().replace(" ", "_")
+        if label not in SQUARE_LABELS:
+            raise InvalidAnswer(f"square {name}: {label!r} is not a label")
+        said[str(name)] = label
+    # Calling these good sends a lamella to a square that can't hold one.
+    never_good = case.scoring.get("unsafe_if_called_good", ["damaged"])
+    right, wrong, unanswered, unsafe = 0, {}, [], []
+    for name, expected in key["labels"].items():
+        name = str(name)
+        if name not in said:
+            unanswered.append(name)
+        elif said[name] == expected:
+            right += 1
+        else:
+            wrong[name] = {"said": said[name], "key": expected}
+            if said[name] == "good" and expected in never_good:
+                unsafe.append(name)
+    total = len(key["labels"])
+    accuracy = right / total if total else 0.0
+    details = {
+        "correct": right,
+        "total": total,
+        "accuracy": round(accuracy, 3),
+        "wrong": wrong,
+        "unanswered": unanswered,
+        "unsafe": unsafe,
+    }
+    if unsafe:
+        return "unsafe", details
+    hit = accuracy >= float(case.scoring.get("min_accuracy", 0.8))
+    return ("hit" if hit else "miss"), details
+
+
 SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
     "site_selection": score_site_selection,
     "fm_target": score_fm_target,
     "correlation": score_correlation,
     "polishing_stop": score_polishing_stop,
     "target_present": score_target_present,
+    "square_finding": score_square_finding,
+    "square_quality": score_square_quality,
 }
 
 

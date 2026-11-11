@@ -97,6 +97,13 @@ def task_text(case: Case, inputs: Iterable[str]) -> str:
     for name, value in (data.get("inputs") or {}).items():
         if isinstance(value, (int, float)) or name.endswith("_um"):
             lines.append(f"- {name}: {value}")
+    squares = data.get("squares") or []
+    if squares:
+        lines += ["", "## Squares, by number", ""]
+        for square in squares:
+            lines.append(
+                f"- {square['square']}: x_px {square['x_px']}, y_px {square['y_px']}"
+            )
     passes = data.get("passes") or []
     if passes:
         lines += ["", "## Passes, in order", ""]

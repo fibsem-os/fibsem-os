@@ -14,7 +14,11 @@ TASKS = (
     "correlation",
     "polishing_stop",
     "target_present",
+    "square_finding",
+    "square_quality",
 )
+# What a square is, in a square_quality case.
+SQUARE_LABELS = ("good", "no_cells", "damaged", "thick", "cell_near_bar")
 
 
 @dataclass
@@ -145,6 +149,26 @@ def _key_problems(case: Case) -> List[str]:
         for square in key.get("good", []) + key.get("bad", []):
             if not {"x_px", "y_px"} <= set(square):
                 problems.append(f"key square without x_px, y_px: {square}")
+    elif case.task == "square_finding":
+        squares = key.get("squares") or []
+        if not squares:
+            problems.append("key has no squares")
+        for square in squares:
+            if not {"x_px", "y_px"} <= set(square):
+                problems.append(f"key square without x_px, y_px: {square}")
+        for name in ("pitch_px", "angle_deg"):
+            if name not in key:
+                problems.append(f"key has no {name}")
+    elif case.task == "square_quality":
+        shown = {str(s.get("square")) for s in case.data.get("squares") or []}
+        labels = key.get("labels") or {}
+        if not labels:
+            problems.append("key has no labels")
+        for name, label in labels.items():
+            if label not in SQUARE_LABELS:
+                problems.append(f"square {name}: unknown label {label!r}")
+            if str(name) not in shown:
+                problems.append(f"square {name} is keyed but not in squares")
     for name, part in case.parts.items():
         if part.get("task") == "target_present":
             unknown = set(part.get("key") or {}) - set(pass_names(case))

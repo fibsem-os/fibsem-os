@@ -261,3 +261,120 @@ def test_cli(tmp_path, polish_case, capsys):
     assert main(["score", str(polish_case.path), str(answer)]) == 0
     assert json.loads(capsys.readouterr().out)["result"] == "hit"
     assert main(["check", str(tmp_path)]) == 0
+
+
+@pytest.fixture
+def finding_case(tmp_path):
+    # A 3 x 3 grid at 100 px pitch, turned 0 degrees; the corner one is cut
+    # by a tile edge.
+    squares = [
+        {"square": 3 * r + c + 1, "x_px": 100 * c, "y_px": 100 * r}
+        for r in range(3)
+        for c in range(3)
+    ]
+    squares[-1]["optional"] = True
+    return make_case(
+        tmp_path,
+        "find",
+        {
+            **BASE,
+            "id": "find",
+            "task": "square_finding",
+            "key": {"squares": squares, "pitch_px": 100, "angle_deg": 0},
+        },
+    )
+
+
+def test_square_finding(finding_case):
+    grid = [
+        {"x_px": 100 * c + 5, "y_px": 100 * r - 5} for r in range(3) for c in range(3)
+    ]
+    lattice = {"pitch_px": 104, "angle_deg": 88}
+    hit = result(finding_case, {"squares": grid, **lattice})
+    assert hit.result == "hit"
+    assert hit.details["recall"] == 1.0 and hit.details["angle_error_deg"] == 2.0
+    # Leaving out the optional corner is no loss.
+    assert result(finding_case, {"squares": grid[:-1], **lattice}).result == "hit"
+    # Half the squares missed.
+    assert result(finding_case, {"squares": grid[:4], **lattice}).result == "miss"
+    # Bars called squares: every point between two squares is extra.
+    bars = grid + [{"x_px": 100 * c + 50, "y_px": 50} for c in range(3)]
+    extra = result(finding_case, {"squares": bars, **lattice})
+    assert extra.result == "miss" and extra.details["extra"] == 3
+    # Two points on one square match it once.
+    twice = result(finding_case, {"squares": grid + grid[:1], **lattice})
+    assert twice.details["matched"] == 9 and twice.details["extra"] == 1
+    assert (
+        result(finding_case, {"squares": grid, "pitch_px": 150, "angle_deg": 0}).result
+        == "miss"
+    )
+    assert result(finding_case, {"squares": grid}).result == "miss"
+    assert result(finding_case, {"pitch_px": 100}).result == "invalid"
+    assert check_case(finding_case).ok
+
+
+@pytest.fixture
+def quality_case(tmp_path):
+    return make_case(
+        tmp_path,
+        "quality",
+        {
+            **BASE,
+            "id": "quality",
+            "task": "square_quality",
+            "squares": [
+                {"square": n, "x_px": 100 * n, "y_px": 0} for n in (1, 2, 3, 4, 5)
+            ],
+            "key": {
+                "labels": {
+                    "1": "good",
+                    "2": "damaged",
+                    "3": "no_cells",
+                    "4": "thick",
+                    "5": "cell_near_bar",
+                }
+            },
+        },
+    )
+
+
+def test_square_quality(quality_case):
+    right = {
+        "1": "good",
+        "2": {"label": "damaged", "reason": "torn"},
+        "3": "no cells",
+        "4": "thick",
+        "5": "cell_near_bar",
+    }
+    hit = result(quality_case, {"labels": right})
+    assert hit.result == "hit" and hit.details["accuracy"] == 1.0
+    # One of five wrong is 80 %, still a hit; two is a miss.
+    assert result(quality_case, {"labels": {**right, "4": "no_cells"}}).result == "hit"
+    assert (
+        result(quality_case, {"labels": {**right, "4": "good", "5": "good"}}).result
+        == "miss"
+    )
+    # A torn square called good is unsafe.
+    unsafe = result(quality_case, {"labels": {**right, "2": "good"}})
+    assert unsafe.result == "unsafe" and unsafe.details["unsafe"] == ["2"]
+    missing = result(quality_case, {"labels": {"1": "good"}})
+    assert missing.result == "miss" and len(missing.details["unanswered"]) == 4
+    assert result(quality_case, {"labels": {"1": "fine"}}).result == "invalid"
+    assert check_case(quality_case).ok
+
+
+def test_square_quality_key_problems(tmp_path):
+    case = make_case(
+        tmp_path,
+        "bad",
+        {
+            **BASE,
+            "id": "bad",
+            "task": "square_quality",
+            "squares": [{"square": 1, "x_px": 0, "y_px": 0}],
+            "key": {"labels": {"1": "great", "2": "good"}},
+        },
+    )
+    problems = check_case(case).problems
+    assert "square 1: unknown label 'great'" in problems
+    assert "square 2 is keyed but not in squares" in problems
