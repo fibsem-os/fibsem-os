@@ -378,10 +378,14 @@ def run_cases(
         for case, repeat in runs:
             done(run_case(case, repeat, config))
         return results
-    with ThreadPoolExecutor(max_workers=config.jobs) as pool:
+    pool = ThreadPoolExecutor(max_workers=config.jobs)
+    try:
         futures = [pool.submit(run_case, case, r, config) for case, r in runs]
         for future in as_completed(futures):
             done(future.result())
+    finally:
+        # A Ctrl-C (or a failed run) starts no more runs; those running end.
+        pool.shutdown(wait=True, cancel_futures=True)
     return results
 
 

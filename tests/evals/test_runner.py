@@ -220,3 +220,16 @@ def test_a_case_can_raise_its_own_budget(case, tmp_path):
     assert case_budget(case, config) == 1.0
     case.data["budget_usd"] = 2.0
     assert case_budget(case, config) == 2.0
+
+
+def test_a_stopped_parallel_run_starts_no_more(case, tmp_path, monkeypatch):
+    started = []
+
+    def run(case, repeat, config):
+        started.append(repeat)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("fibsem.ai.evals.runner.run_case", run)
+    with pytest.raises(KeyboardInterrupt):
+        run_cases([case], config(tmp_path, repeats=8, jobs=2))
+    assert len(started) < 8
