@@ -40,7 +40,7 @@ def _parser() -> argparse.ArgumentParser:
         "--budget-usd",
         type=float,
         default=1.0,
-        help="each run's spending cap (default 1)",
+        help="each run's spending cap, unless the case sets budget_usd (default 1)",
     )
     run.add_argument(
         "--timeout-min",

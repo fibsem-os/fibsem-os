@@ -198,3 +198,12 @@ def test_the_squares_to_label_are_in_the_task_but_not_their_labels(tmp_path):
     text = task_text(load_case(folder), [])
     assert "- 7: x_px 3457, y_px 305" in text
     assert "damaged" not in text.split("## Answer")[0]
+
+
+def test_a_case_can_raise_its_own_budget(case, tmp_path):
+    from fibsem.ai.evals.runner import case_budget
+
+    config = RunConfig(out=tmp_path / "out", budget_usd=1.0)
+    assert case_budget(case, config) == 1.0
+    case.data["budget_usd"] = 2.0
+    assert case_budget(case, config) == 2.0

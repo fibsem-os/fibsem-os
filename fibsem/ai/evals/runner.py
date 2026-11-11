@@ -78,6 +78,12 @@ class RunConfig:
     server_command: List[str] = field(default_factory=lambda: server_command())
 
 
+def case_budget(case: Case, config: RunConfig) -> float:
+    """The run's spending cap: the case's own ``budget_usd`` when it gives
+    one, for a case that needs more work than most."""
+    return float(case.data.get("budget_usd") or config.budget_usd)
+
+
 def run_dir(config: RunConfig, case: Case, repeat: int) -> Path:
     return Path(config.out) / case.id / f"r{repeat}"
 
@@ -275,7 +281,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
             "--goal",
             goal_text(case),
             "--max-budget-usd",
-            str(config.budget_usd),
+            str(case_budget(case, config)),
         ]
         for flag, value in (
             ("--playbook", config.playbook),
