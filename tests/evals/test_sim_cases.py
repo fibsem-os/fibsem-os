@@ -7,7 +7,13 @@ import numpy as np
 import pytest
 import tifffile
 
-from fibsem.ai.evals import report, sim_cases, sim_correlation, sim_polishing
+from fibsem.ai.evals import (
+    report,
+    sim_cases,
+    sim_correlation,
+    sim_placement,
+    sim_polishing,
+)
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import check_case, load_case
 from fibsem.ai.evals.scoring import score_case
@@ -284,3 +290,22 @@ def test_a_correlation_case_from_the_sim(tmp_path):
     assert all(0 <= x < w and 0 <= y < h for x, y in burns)
     assert (folder / case.data["inputs"]["fib_image"]).exists()
     assert (folder / case.data["inputs"]["fm_stack"]).exists()
+
+
+def test_a_setup_placement_case_from_the_sim(tmp_path):
+    folder = sim_placement.write_case(1, tmp_path, resolution=(384, 256))
+    case = load_case(folder)
+    assert check_case(case).ok, check_case(case).problems
+    assert case.tier == "sim" and case.data["playbook"] == "autolamella"
+    from PIL import Image
+
+    ok = np.array(Image.open(folder / case.key["ok_mask"])) > 0
+    unsafe = np.array(Image.open(folder / case.key["unsafe_mask"])) > 0
+    assert ok.shape == (256, 384) and ok.any() and not (ok & unsafe).any()
+    y, x = np.argwhere(ok)[len(np.argwhere(ok)) // 2]
+    [hit] = score_case(case, {"x_px": float(x), "y_px": float(y)})
+    assert hit.result == "hit"
+    if unsafe.any():
+        y, x = np.argwhere(unsafe)[0]
+        [bad] = score_case(case, {"x_px": float(x), "y_px": float(y)})
+        assert bad.result == "unsafe"

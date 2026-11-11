@@ -521,6 +521,54 @@ def draw_target_present(case: Case, runs: List[Run], key=None, part=None):
     return fig
 
 
+def draw_setup_placement(case: Case, runs: List[Run]):
+    """The FIB image with the key's masks tinted (green: ok, red: unsafe) and
+    each repeat's lamella centre as an x."""
+    from PIL import Image
+
+    image = _read_image(_input(case, "fib_image"))
+    fig, ax = _figure(10, 7)
+    h, w = image.shape
+    _show(ax, image, extent=(0, w, h, 0))
+    for name, colour in (
+        ("ok_mask", (0.17, 0.63, 0.17)),
+        ("unsafe_mask", (0.84, 0.15, 0.16)),
+    ):
+        path = case.key.get(name)
+        if not path or not (case.path / path).is_file():
+            continue
+        mask = np.array(Image.open(case.path / path)) > 0
+        tint = np.zeros((*mask.shape, 4))
+        tint[mask] = (*colour, 0.35)
+        ax.imshow(tint, extent=(0, w, h, 0))
+    target = case.key.get("target_px") or {}
+    if "x" in target:
+        ax.plot(target["x"], target["y"], "o", mfc="none", mec=KEY, ms=16, mew=2.5)
+    results = []
+    for n, (result, answer) in enumerate(runs):
+        try:
+            ax.plot(
+                float(answer["x_px"]),
+                float(answer["y_px"]),
+                "x",
+                color=_colour(n),
+                ms=14,
+                mew=3,
+            )
+        except (KeyError, TypeError, ValueError):
+            pass
+        results.append(
+            f"r{result['repeat']} {score_case(case, answer or {})[0].result}"
+        )
+    ax.set_title(
+        "FIB image. green: ok centres; red: a trench or the lamella on a bar"
+        + (f"\n{'; '.join(results)}" if results else ""),
+        fontsize=9,
+    )
+    _legend(ax, runs)
+    return fig
+
+
 DRAW: Dict[str, Callable] = {
     "site_selection": draw_site_selection,
     "square_finding": draw_square_finding,
@@ -529,6 +577,7 @@ DRAW: Dict[str, Callable] = {
     "correlation": draw_correlation,
     "polishing_stop": draw_polishing_stop,
     "target_present": draw_target_present,
+    "setup_placement": draw_setup_placement,
 }
 
 
