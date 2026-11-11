@@ -430,6 +430,7 @@ class Milling(Service):
     rtm_frame = Signal(object)
 
     remote_signals = ("notable_reading", "patterns_changed")
+    client_side = ("estimate_stage",)
 
     # How often `run` looks at the instrument, in seconds.
     poll_interval: float = 1.0
@@ -831,6 +832,7 @@ class Milling(Service):
         self.draw(patterns)
         return self._milling_current(live=True)
 
+    @query
     def current_used(self) -> Dict[str, Any]:
         """The current the last setup left the milling beam at, and the warning
         when it is not the one asked for (`_milling_current`, not read again)."""
@@ -913,6 +915,7 @@ class Milling(Service):
             stage_run.end_as(end)
         self._end_step(end)
 
+    @command
     def stop_pattern(self) -> None:
         """Stop the pattern milling now, and nothing more: the mill step ends
         ``ended`` and a milling task goes on. For a strategy that ends a mill on

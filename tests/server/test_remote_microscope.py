@@ -177,3 +177,43 @@ def test_back_to_back_commands_never_find_the_last_one_in_control(remote):
     """Control is given up before a command's answer is sent."""
     for _ in range(200):
         remote.milling.clear()
+
+
+def test_what_workflows_read_off_the_services_is_served(remote, microscope):
+    """The calls the app and its tasks make on a service, beyond its commands:
+    each answers as the server's would."""
+    position = microscope.get_stage_position()
+    assert remote.orientations == microscope.orientations
+    assert remote.stage_movement.supports_vertical_move(BeamType.ION) == (
+        microscope.stage_movement.supports_vertical_move(BeamType.ION)
+    )
+    assert remote.stage_movement.fm_calibration_needed() == (
+        microscope.stage_movement.fm_calibration_needed()
+    )
+    assert remote.sample_handling.grid_inventory() == (
+        microscope.sample_handling.grid_inventory()
+    )
+    assert remote.sample_handling.grid_at_position(position) == (
+        microscope.sample_handling.grid_at_position(position)
+    )
+    assert remote.milling.current_used() == microscope.milling.current_used()
+    remote.stop_milling()  # stop_pattern, with nothing milling: nothing to do
+
+
+def test_what_touches_no_hardware_runs_here(remote, microscope):
+    stage = microscope.milling.estimate_stage  # a classmethod: no server call
+    assert remote.milling.estimate_stage.__func__ is stage.__func__
+    shown = []
+    remote.imaging.image_shown.connect(shown.append)
+    image = FibsemImage.generate_blank_image(resolution=(32, 24))
+    remote.imaging.show(image)  # to this app's views, not the server's
+    assert shown == [image]
+
+
+def test_reference_images_come_back_as_images(remote):
+    images = remote.imaging.reference_images(
+        ImageSettings(resolution=(64, 48), save=False), ion=False
+    )
+    assert images[1] is None
+    assert isinstance(images[0], FibsemImage) and images[0].data.shape == (48, 64)
+    assert images[0].metadata is not None

@@ -115,6 +115,13 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="the cases folder, for runs made before results kept their case's path",
     )
+    compare = sub.add_parser(
+        "compare",
+        help="run folders side by side (such as one per model), scored with "
+        "today's keys",
+    )
+    compare.add_argument("outs", type=Path, nargs="+")
+    compare.add_argument("--cases", type=Path, default=None)
     return parser
 
 
@@ -158,6 +165,10 @@ def main(argv=None) -> int:
                     milling_angle=args.milling_angle,
                 ):
                     print(f"Wrote {folder}")
+        return 0
+
+    if args.command == "compare":
+        print(visual.compare_table(args.outs, args.cases))
         return 0
 
     if args.command == "report":

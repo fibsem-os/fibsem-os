@@ -708,6 +708,38 @@ def _live_html(case: Case, rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def compare_table(outs: List[Path], cases_root: Optional[Path] = None) -> str:
+    """A markdown table of each case (and part) against each run folder:
+    hits of repeats, scored with the case's key as it is now, and the mean
+    cost of a run."""
+    cases = {c.id: c for c in find_cases(cases_root)} if cases_root else {}
+    columns = [load_runs(out) for out in outs]
+    cells: Dict[str, Dict[int, str]] = defaultdict(dict)
+    for n, runs in enumerate(columns):
+        for case_id, items in runs.items():
+            pairs = [run for _, run in items]
+            case = _find_case(case_id, pairs, cases)
+            if case is None:
+                continue
+            hits: Dict[Optional[str], List[bool]] = defaultdict(list)
+            for _, answer in pairs:
+                for score in score_case(case, answer or {}):
+                    hits[score.part].append(score.result == "hit")
+            cost = sum(float(r.get("spent_usd") or 0) for r, _ in pairs) / len(pairs)
+            for part, got in hits.items():
+                name = case_id + (f" ({part})" if part else "")
+                cells[name][n] = f"{sum(got)}/{len(got)} (${cost:.2f})"
+    names = [Path(out).name for out in outs]
+    lines = [
+        "| Case | " + " | ".join(names) + " |",
+        "|---" * (len(names) + 1) + "|",
+    ]
+    for name in sorted(cells):
+        row = [cells[name].get(n, "-") for n in range(len(outs))]
+        lines.append(f"| {name} | " + " | ".join(row) + " |")
+    return "\n".join(lines)
+
+
 def write_html(out: Path, cases_root: Optional[Path] = None) -> Path:
     """The page for the run folder *out*, written into it; its path."""
     out = Path(out)

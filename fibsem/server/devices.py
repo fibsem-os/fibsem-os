@@ -136,8 +136,10 @@ from fibsem.server import operator_token
 from fibsem.server.auth import refusal_error, require_operator
 from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.images import (
+    IMAGES_MEDIA_TYPE,
     TIFF_MEDIA_TYPE,
     image_answer,
+    image_list_bytes,
     is_image_list,
     is_image_result,
     tiff_bytes,
@@ -556,7 +558,12 @@ _NO_BODY = Body(default={})
 
 
 # What a command answers that is not JSON: a beam's image, a z-stack, an array.
-BINARY_ANSWERS = (TIFF_MEDIA_TYPE, FRAMES_MEDIA_TYPE, NPY_MEDIA_TYPE)
+BINARY_ANSWERS = (
+    TIFF_MEDIA_TYPE,
+    FRAMES_MEDIA_TYPE,
+    NPY_MEDIA_TYPE,
+    IMAGES_MEDIA_TYPE,
+)
 
 
 def build_device_router(
@@ -799,6 +806,8 @@ def build_device_router(
         # "answer": "preview" asks for what an agent reads. Otherwise the data
         # itself, for programs.
         preview = body.get("answer") == "preview"
+        if body.get("answer") == "data" and is_image_list(result):
+            return Response(image_list_bytes(result), media_type=IMAGES_MEDIA_TYPE)
         if (preview and is_image_result(result)) or is_image_list(result):
             return answer(ResultAnswer(json_answer(result, preview)))
         if isinstance(result, FibsemImage):  # a beam's image: TIFF

@@ -32,7 +32,11 @@ from fibsem.devices.wire import (
     frames_from_bytes,
 )
 from fibsem.server.discovery import read_discovery_file
-from fibsem.server.images import TIFF_MEDIA_TYPE
+from fibsem.server.images import (
+    IMAGES_MEDIA_TYPE,
+    TIFF_MEDIA_TYPE,
+    image_list_from_bytes,
+)
 from fibsem.server.leases import LEASE_HEADER
 from fibsem.server.operator_token import read_operator_token
 from fibsem.structures.image import FibsemImage
@@ -396,6 +400,8 @@ def read(response: httpx.Response) -> Any:
         return FibsemImage.load(io.BytesIO(response.content))
     if content_type.startswith(FRAMES_MEDIA_TYPE):
         return frames_from_bytes(response.content)
+    if content_type.startswith(IMAGES_MEDIA_TYPE):
+        return image_list_from_bytes(response.content)
     if content_type.startswith(NPY_MEDIA_TYPE):
         data = np.load(io.BytesIO(response.content), allow_pickle=False)
         metadata = response.headers.get(FRAME_METADATA_HEADER)

@@ -297,6 +297,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
             if value:
                 command += [flag, value]
         result["session_id"] = session_id
+        result["model"] = config.model or "default"
         with open(folder / "agent.log", "w") as agent_log:
             agent = subprocess.Popen(
                 command, env=env, stdout=agent_log, stderr=subprocess.STDOUT
