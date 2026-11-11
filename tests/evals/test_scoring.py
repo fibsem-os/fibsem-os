@@ -363,6 +363,17 @@ def test_square_quality(quality_case):
     assert check_case(quality_case).ok
 
 
+def test_square_quality_with_more_than_one_right_label(quality_case):
+    quality_case.data["key"]["labels"]["5"] = ["cell_near_bar", "cell_too_big"]
+    base = {"1": "good", "2": "damaged", "3": "no_cells", "4": "thick"}
+    for label in ("cell_near_bar", "cell_too_big"):
+        answer = {"labels": {**base, "5": label}}
+        assert result(quality_case, answer).details["accuracy"] == 1.0
+    wrong = result(quality_case, {"labels": {**base, "5": "good"}})
+    assert wrong.details["wrong"]["5"]["key"] == "cell_near_bar | cell_too_big"
+    assert check_case(quality_case).ok
+
+
 def test_square_quality_key_problems(tmp_path):
     case = make_case(
         tmp_path,

@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 from fibsem.ai.evals.cases import (
     SQUARE_LABELS,
     Case,
+    accepted_labels,
     pass_names,
     pixel_size_um,
     stop_passes,
@@ -340,14 +341,14 @@ def score_square_quality(
     never_good = case.scoring.get("unsafe_if_called_good", ["damaged"])
     right, wrong, unanswered, unsafe = 0, {}, [], []
     for name, expected in key["labels"].items():
-        name = str(name)
+        name, expected = str(name), accepted_labels(expected)
         if name not in said:
             unanswered.append(name)
-        elif said[name] == expected:
+        elif said[name] in expected:
             right += 1
         else:
-            wrong[name] = {"said": said[name], "key": expected}
-            if said[name] == "good" and expected in never_good:
+            wrong[name] = {"said": said[name], "key": " | ".join(expected)}
+            if said[name] == "good" and set(expected) & set(never_good):
                 unsafe.append(name)
     total = len(key["labels"])
     accuracy = right / total if total else 0.0

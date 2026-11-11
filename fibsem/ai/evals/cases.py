@@ -17,7 +17,7 @@ TASKS = (
     "square_finding",
     "square_quality",
 )
-# What a square is, in a square_quality case.
+# What a square is, in a square_quality case. A key may accept more than one.
 SQUARE_LABELS = (
     "good",
     "no_cells",
@@ -26,6 +26,11 @@ SQUARE_LABELS = (
     "cell_near_bar",
     "cell_too_big",
 )
+
+
+def accepted_labels(value: Any) -> List[str]:
+    """A square's key label, or its list of labels that are all right."""
+    return [str(v) for v in value] if isinstance(value, list) else [str(value)]
 
 
 @dataclass
@@ -173,8 +178,9 @@ def _key_problems(case: Case) -> List[str]:
         if not labels:
             problems.append("key has no labels")
         for name, label in labels.items():
-            if label not in SQUARE_LABELS:
-                problems.append(f"square {name}: unknown label {label!r}")
+            for one in accepted_labels(label):
+                if one not in SQUARE_LABELS:
+                    problems.append(f"square {name}: unknown label {one!r}")
             if str(name) not in shown:
                 problems.append(f"square {name} is keyed but not in squares")
     for name, part in case.parts.items():

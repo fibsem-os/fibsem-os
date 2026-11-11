@@ -18,7 +18,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from fibsem.ai.evals import report
-from fibsem.ai.evals.cases import Case, find_cases, load_case, pass_names, stop_passes
+from fibsem.ai.evals.cases import (
+    Case,
+    accepted_labels,
+    find_cases,
+    load_case,
+    pass_names,
+    stop_passes,
+)
 from fibsem.ai.evals.runner import ANSWER, RESULT
 from fibsem.ai.evals.scoring import (
     InvalidAnswer,
@@ -240,16 +247,16 @@ def draw_square_quality(case: Case, runs: List[Run]):
         crop = image[max(0, y - half) : y + half, max(0, x - half) : x + half]
         _show(ax, crop)
         name = str(sq["square"])
-        want = labels.get(name, "?")
+        want = accepted_labels(labels.get(name, "?"))
         said = []
         for result, answer in runs:
             value = ((answer or {}).get("labels") or {}).get(name)
             value = value.get("label") if isinstance(value, dict) else value
             value = str(value or "-").replace(" ", "_")
             said.append(value)
-        wrong = any(s != want for s in said)
+        wrong = any(s not in want for s in said)
         ax.set_title(
-            f"{name}: {want}\n" + " ".join(said),
+            f"{name}: {' | '.join(want)}\n" + " ".join(said),
             fontsize=7,
             color="red" if wrong else "black",
         )
