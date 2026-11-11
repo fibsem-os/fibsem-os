@@ -686,8 +686,15 @@ def build_server(
     def get_microscope_state():
         return answer(StateAnswer(served.require().get_state()))
 
+    def _still_allowed(websocket: WebSocket) -> Callable[[], bool]:
+        """Whether a stream's caller may still read it: the operator (a paired
+        computer too) at any level, the agent at Watch or above."""
+        operator = is_operator_token(auth, websocket.headers.get("Authorization"))
+        return lambda: operator or auth.reaches(AgentLevel.WATCH)
+
     # Every device's and service's changes as they happen, in the Device Server's
-    # shape: a read, at Watch, until the level drops below it. A browser page is
+    # shape: a read, at Watch, until the level drops below it (the operator's
+    # stays open at any level). A browser page is
     # refused, since a websocket gets no CORS.
     @whole.websocket("/events", dependencies=[Depends(_watch)])
     async def microscope_events(websocket: WebSocket):
@@ -698,7 +705,7 @@ def build_server(
         await stream_events(
             websocket,
             {"device": served.devices, "service": served.services},
-            allowed=lambda: auth.reaches(AgentLevel.WATCH),
+            allowed=_still_allowed(websocket),
         )
 
     # A beam's live frames, opened by a client that shows them: a read, at Watch.
@@ -711,7 +718,7 @@ def build_server(
         await stream_live(
             websocket,
             live_source(served.devices, device),
-            allowed=lambda: auth.reaches(AgentLevel.WATCH),
+            allowed=_still_allowed(websocket),
         )
 
     # Who is in control, and a lease on it for calls that must not interleave

@@ -14,7 +14,7 @@ fibsem/ai/agent/manager.py 1
 fibsem/ai/agent/mcp/sidecar.py 4
 fibsem/ai/agent/pictures.py 17
 fibsem/ai/agent/session.py 8
-fibsem/ai/agent/sources.py 1
+fibsem/ai/agent/sources.py 2
 fibsem/ai/agent/watch.py 1
 fibsem/ai/evals/__main__.py 1
 fibsem/alignment/coincidence.py 10
@@ -187,6 +187,6 @@ fibsem/workflows/outputs.py 2
 fibsem/workflows/proposals.py 6
 fibsem/workflows/reference_images.py 1
 fibsem/workflows/runner.py 1
-fibsem/workflows/session.py 5
+fibsem/workflows/session.py 7
 fibsem/workflows/site_task.py 1
 fibsem/workflows/task.py 1

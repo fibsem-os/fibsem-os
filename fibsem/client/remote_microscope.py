@@ -149,6 +149,11 @@ class RemoteMicroscope(FibsemMicroscope):
             f"({len(self.devices)} devices, {len(self.services)} services)"
         )
 
+    @property
+    def reachable(self) -> bool:
+        """Whether the App Server answers now: its event stream is open."""
+        return self._client is not None and self._client.connected
+
     def _remote_fm(self, host: str, port: int, parts: Dict[str, Any]) -> Any:
         """The FM over its served parts, on this connection; None when the
         server serves no FM."""
@@ -167,3 +172,21 @@ class RemoteMicroscope(FibsemMicroscope):
             self._client.close()
             self._client = None
         logging.info(f"Disconnected from the microscope at {self.url}")
+
+
+def remote_microscope(system: Any) -> RemoteMicroscope:
+    """The microscope a configuration with ``info.driver: remote`` names: the App
+    Server at its ``ip_address`` and ``port`` (8001 by default), reached with the
+    token this computer was paired with there. `connect_microscope` connects it.
+
+    Never another token: without a pairing, it says how to pair."""
+    info = system.info
+    url = f"http://{info.ip_address}:{info.port or 8001}"
+    token = paired_token(url)
+    if token is None:
+        raise ServerUnreachable(
+            f"This computer is not paired with the App Server at {url}: pair once "
+            f"with fibsem-cli pair {info.ip_address}:{info.port or 8001} <code> (the code "
+            "its Computers list shows)."
+        )
+    return RemoteMicroscope(url, token)

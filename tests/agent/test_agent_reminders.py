@@ -133,8 +133,12 @@ def test_the_shipped_playbooks_build_on_the_base(checkout):
     for name in playbooks.available(checkout):
         found = playbooks.load(name, checkout, harness_mod.EFFORTS)
         assert found.description, name
-        assert found.chain[0] == playbooks.DEFAULT, name
         assert found.session == base.session, "they keep the base's settings"
+        # Another instrument kind's stand on their own: the base's rules are a
+        # FIB-SEM's.
+        if found.instrument != base.instrument:
+            continue
+        assert found.chain[0] == playbooks.DEFAULT, name
         assert found.rules[: len(base.rules)] == base.rules, name
 
 
