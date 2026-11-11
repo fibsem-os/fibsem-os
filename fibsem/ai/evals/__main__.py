@@ -90,10 +90,11 @@ def _parser() -> argparse.ArgumentParser:
     make_sim.add_argument(
         "--task",
         nargs="+",
-        choices=("grid", "polishing"),
+        choices=("grid", "polishing", "correlation"),
         default=["grid"],
         help="grid: squares, labels and sites from an overview; polishing: a "
-        "lamella milled pass by pass (default grid)",
+        "lamella milled pass by pass; correlation: spot burns round an FM "
+        "target, with the FIB image and FM stack (default grid)",
     )
     make_sim.add_argument(
         "--set",
@@ -146,7 +147,7 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "make-sim":
-        from fibsem.ai.evals import sim_cases, sim_polishing
+        from fibsem.ai.evals import sim_cases, sim_correlation, sim_polishing
 
         overrides = {}
         for item in args.set:
@@ -155,6 +156,9 @@ def main(argv=None) -> int:
         for seed in args.seeds:
             if "polishing" in args.task:
                 folder = sim_polishing.write_case(seed, args.out, overrides)
+                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            if "correlation" in args.task:
+                folder = sim_correlation.write_case(seed, args.out, overrides)
                 print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
             for beam in args.beam if "grid" in args.task else []:
                 for folder in sim_cases.write_cases(

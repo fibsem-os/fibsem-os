@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import tifffile
 
-from fibsem.ai.evals import report, sim_cases, sim_polishing
+from fibsem.ai.evals import report, sim_cases, sim_correlation, sim_polishing
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import check_case, load_case
 from fibsem.ai.evals.scoring import score_case
@@ -262,3 +262,25 @@ def test_a_polishing_case_from_the_sim(tmp_path):
 def test_sim_cases_name_the_autolamella_playbook(bare):
     out, folders = bare
     assert {load_case(f).data["playbook"] for f in folders} == {"autolamella"}
+
+
+def test_a_correlation_case_from_the_sim(tmp_path):
+    folder = sim_correlation.write_case(
+        1,
+        tmp_path,
+        fib_resolution=(384, 256),
+        z_range=(0.0, 1e-6),
+        channels=sim_correlation.CHANNELS[:1],
+    )
+    case = load_case(folder)
+    assert check_case(case).ok, check_case(case).problems
+    assert case.tier == "sim"
+    assert case.data["playbook"] == "autolamella-correlative"
+    w, h = case.data["inputs"]["fib_size_px"]
+    target = case.key["target_fib_px"]
+    assert 0.3 * w < target["x"] < 0.7 * w and 0.3 * h < target["y"] < 0.7 * h
+    burns = case.key["fiducials_fib_px"]
+    assert len(burns) == len(case.key["fiducials_fm_px"]) >= 6
+    assert all(0 <= x < w and 0 <= y < h for x, y in burns)
+    assert (folder / case.data["inputs"]["fib_image"]).exists()
+    assert (folder / case.data["inputs"]["fm_stack"]).exists()
