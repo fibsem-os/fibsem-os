@@ -16,8 +16,12 @@ A long command (a mill, an overview) waits on its run, as a local call does, and
 raises as the run did. A stop event passed to it stays here: setting it stops the
 run on the server, and the call raises `OperationCancelledError`.
 
-Not yet: a result that is an image list, or an image from a long command, comes
-back as the server's summary of it (its saved path), not the image.
+A method the service lists as ``client_side`` runs here, on this class (an
+estimate, an image sent to this app's views). A property it lists in
+``remote_properties`` is read with its query (``stage_movement.orientations``).
+
+Not yet: an image from a long command comes back as the server's summary of it
+(its saved path), not the image.
 """
 
 from __future__ import annotations
@@ -129,10 +133,17 @@ def remote_service_class(name: str, description: Dict[str, Any]) -> Type[RemoteS
                 if isinstance(value, (Signal, DeviceParameter)):
                     namespace[attr] = value
         namespace["remote_signals"] = local.remote_signals
+        for method in local.client_side:
+            namespace[method] = inspect.getattr_static(local, method)
     for kind in ("commands", "queries"):
         for method, info in description.get(kind, {}).items():
             real = getattr(local, method, None) if local is not None else None
             namespace[method] = _forward(method, kind, info, real)
+    if local is not None:
+        queries = description.get("queries", {})
+        for attr, query in local.remote_properties.items():
+            if query in queries:
+                namespace[attr] = property(lambda self, q=query: self.call_query(q))
     title = local.__name__ if local is not None else name.title().replace("_", "")
     return type(f"Remote{title}", (RemoteService,), namespace)
 

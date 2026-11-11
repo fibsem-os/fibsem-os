@@ -114,6 +114,8 @@ class Imaging(Service):
     ion = Role(Beam, required=False, doc="The ion beam.")
     fm = Role(FM, required=False, doc="The fluorescence microscope.")
 
+    client_side = ("show",)
+
     # Tile progress (`TiledProgress`) from a beam or fluorescence tiled overview,
     # however it was started: each tile, the stitch, and how the run ended. Emitted
     # on the acquiring thread. A Signal, not a Parameter: it carries a preview image.

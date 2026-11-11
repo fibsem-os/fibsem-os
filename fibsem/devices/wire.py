@@ -158,15 +158,19 @@ def command_body(
     kwargs: Optional[Mapping[str, Any]] = None,
     reason: Optional[str] = None,
     preview: bool = False,
+    data: bool = False,
 ) -> Dict[str, Any]:
     """A command's or query's request body: its *kwargs* as JSON, the *reason* a
     stop carries beside them (the server gives it to a command that takes one
-    too), and with *preview* an image answered as an agent reads it."""
+    too), and with *preview* an image answered as an agent reads it, with *data*
+    an image list answered as the images."""
     body: Dict[str, Any] = {"kwargs": dict(kwargs or {})}
     if reason is not None:
         body["reason"] = str(reason)
     if preview:
         body["answer"] = "preview"
+    elif data:
+        body["answer"] = "data"
     return body
 
 

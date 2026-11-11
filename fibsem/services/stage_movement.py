@@ -172,6 +172,8 @@ class StageMovement(Service):
     ``move_to_milling_angle``, which says whether the stage reached the angle.
     """
 
+    remote_properties = {"orientations": "orientation_table"}
+
     stage = Role(Stage, doc="The stage that moves.")
     electron = Role(
         Beam,
@@ -228,6 +230,11 @@ class StageMovement(Service):
     @orientations.setter
     def orientations(self, table: Dict[str, FibsemStagePosition]) -> None:
         self._orientations = table
+
+    @query
+    def orientation_table(self) -> Dict[str, FibsemStagePosition]:
+        """`orientations`, as a query: a remote microscope reads it this way."""
+        return self.orientations
 
     def turned_over(self, tilt: float) -> bool:
         """Whether the stage has the sample turned over at this tilt, in radians.
@@ -1231,6 +1238,7 @@ class StageMovement(Service):
         delta = self._view_stage_delta(dx, dy, view_tilt=self._view_tilt(beam_type))
         return apply_delta(base_position, delta)
 
+    @query
     def supports_vertical_move(self, beam_type: BeamType = BeamType.ION) -> bool:
         """Whether coincidence can be restored from the given view."""
         return beam_type in self.vertical_move_views
@@ -1925,6 +1933,7 @@ class StageMovement(Service):
             and not self.fm_is_a_pose()
         )
 
+    @query
     def fm_calibration_needed(self) -> bool:
         """Is travel to the FM refused until SEM to FM is calibrated? True on an
         offset mount until a calibration holds for the fitted holder; never on a

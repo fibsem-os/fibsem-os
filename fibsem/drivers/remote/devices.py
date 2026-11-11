@@ -474,7 +474,7 @@ class RemoteParts:
             else None
         )
         body = command_body(
-            {name: to_wire(value) for name, value in kwargs.items()}, reason
+            {name: to_wire(value) for name, value in kwargs.items()}, reason, data=True
         )
         return self.client.request("POST", path, timeout, json=body)
 
