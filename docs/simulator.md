@@ -230,11 +230,11 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | key | default | what it does |
 | -- | -- | -- |
 | `cell_type` | mammalian | `mammalian` (default), `yeast`, `bacteria`, `mixed`, `none` |
-| `extent` | 0.0008 | content is grown over +/- extent/2 about the grid centre (m) |
+| `extent` | None | content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); None fills the whole grid |
 | `mammalian_density` | 7 | mammalian: cells per 150 x 150 um |
 | `mammalian_radius` | [1.8e-05, 3e-05] | mammalian: body radius range (m) |
 | `nucleus_radius` | [5e-06, 7e-06] | mammalian: nucleus radius range (m) |
-| `n_clusters` | 35 | yeast: clusters over the extent |
+| `n_clusters` | 120 | yeast: clusters per 800 x 800 um |
 | `cells_per_cluster` | [3, 8] | yeast: cells per cluster (inclusive range) |
 | `cell_size` | [4.5e-06, 1.2e-05] | yeast: sigma range per cell (m) |
 | `cluster_spread` | 1.5e-05 | yeast: how far cells scatter round a cluster (m) |
