@@ -112,6 +112,18 @@ function Results({ results }: { results: string[] }) {
   );
 }
 
+/** Repeats where every result (each part) is a hit, out of all repeats. */
+function Score({ now }: { now: string[][] }) {
+  if (!now.length) return null;
+  const hits = now.filter((r) => r.length > 0 && r.every((x) => x === "hit")).length;
+  const colour = hits === now.length ? "text-[#3fb950]" : hits === 0 ? "text-[#f85149]" : "text-[#d29922]";
+  return (
+    <span className={cn("text-[12px] font-semibold", colour)}>
+      {hits}/{now.length}
+    </span>
+  );
+}
+
 function CaseList({ run, picked, pick }: { run: string; picked: string | null; pick: (id: string) => void }) {
   const summary = useQuery({ queryKey: ["evals-run", run], queryFn: () => get<RunSummary>(runPath(run)) });
   const [task, setTask] = useState<string | null>(null);
@@ -201,7 +213,7 @@ function CaseList({ run, picked, pick }: { run: string; picked: string | null; p
             )}
           </span>
           <span className="truncate text-[13px]">{c.id}</span>
-          <Results results={c.now.flat()} />
+          <Score now={c.now} />
         </button>
       ))}
     </div>
