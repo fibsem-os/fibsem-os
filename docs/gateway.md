@@ -35,7 +35,7 @@ over an SSH tunnel, as it reaches the App Server.
 The gateway runs in a small window, on the taskbar (the Dock on a Mac). It shows the app, with
 **Start** and **Stop**; the microscope's connection; and the agent, with **End**. **Pair a
 computer** shows a code for another computer's browser. **Open page** opens the gateway's page,
-and **Restart gateway** and **Stop gateway** do as they say. The desktop shortcut brings the window to
+and **Restart** and **Stop** at the bottom restart or stop the gateway. The desktop shortcut brings the window to
 the front, starting the gateway first if none runs.
 Its icon's badge shows the app: grey for off, blue with its window, purple without one. Closing the window asks,
 then stops the gateway. Stopping it also stops an app without its window that isn't running a

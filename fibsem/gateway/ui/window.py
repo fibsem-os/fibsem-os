@@ -283,11 +283,11 @@ class GatewayWindow(QWidget):
         self.pair_button.clicked.connect(self._pair_button)
         self._hide_code()
 
-        self.restart_button = QPushButton("Restart gateway")
+        self.restart_button = QPushButton("Restart")
         self.restart_button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.restart_button.clicked.connect(self.restart_gateway)
         self.restart_button.setVisible(self._restart is not None)
-        self.stop_button = QPushButton("Stop gateway")
+        self.stop_button = QPushButton("Stop")
         self.stop_button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.stop_button.clicked.connect(self.close)
         buttons = QHBoxLayout()
