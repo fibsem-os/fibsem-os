@@ -1,6 +1,7 @@
 """The agent manager against a stand-in ``fibsem-agent`` (``stand_in.py``):
 real processes and real session folders, no model."""
 
+import os
 import sys
 import threading
 import time
@@ -349,3 +350,20 @@ def test_on_windows_the_agent_gets_a_hidden_console_not_none(monkeypatch):
     flags = manager._detached()["creationflags"]
     assert flags & 0x8000000 and flags & 0x200
     assert not flags & 0x8
+
+
+def test_a_record_being_read_is_written_once_the_read_is_done(tmp_path, monkeypatch):
+    # Windows refuses to replace a file another process has open.
+    replace, refused = os.replace, []
+
+    def busy(source, target):
+        if len(refused) < 3:
+            refused.append(target)
+            raise PermissionError(13, "in use")
+        replace(source, target)
+
+    monkeypatch.setattr(manager.os, "replace", busy)
+    monkeypatch.setattr(manager, "REPLACE_WAIT_S", 0.0)
+    session = manager.SessionFolder.open("s1", {"cwd": "here"}, tmp_path)
+    assert len(refused) == 3
+    assert len(session.record()["runs"]) == 1
