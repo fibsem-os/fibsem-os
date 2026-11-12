@@ -420,3 +420,30 @@ def test_a_milled_frame_walked_in_part_matches_one_walked_whole(
         assert np.array_equal(hit_q, whole[0]) and np.array_equal(hit_m, whole[1])
         # and the milling did change what is seen
         assert not np.array_equal(hit_q, col["walk"][1][0])
+
+
+def test_the_surface_from_above_says_where_cells_and_cuts_are(microscope):
+    scene = _use(microscope, renderer="solid", **{**PLAIN, "cell_type": "rpe"})
+    f = _body(scene)
+    x = f.x * 1e6 + np.arange(-30, 30, 0.5)
+    y = f.y * 1e6 + np.arange(-30, 30, 0.5)
+    z, mat = sim_solid.surface(scene, x, y)
+    assert mat[60, 60] == sim_solid.CELL and z[60, 60] > 2.0
+    assert mat[0, 0] in (sim_solid.ICE, sim_solid.CELL)
+    assert (mat == sim_solid.ICE).any()
+
+    _mill(microscope, (10e-6, 6e-6, 0.0))
+    px, py = np.mean(scene.milled[0].points, axis=0) * 1e6
+    z, _ = sim_solid.surface(
+        scene, px + np.arange(-2, 3) * 0.5, py + np.arange(-2, 3) * 0.5
+    )
+    assert z[2, 2] < -1.0  # the cut went down through the ice
+
+
+def test_the_fiducial_cross_is_the_brightest_thing_in_view(microscope):
+    _use(microscope, renderer="solid", fiducial=True, **PLAIN)
+    for beam_type in (BeamType.ELECTRON, BeamType.ION):
+        image = _image(microscope, beam_type, hfw=80e-6)
+        h, w = image.shape
+        centre = image[h // 2 - 60 : h // 2 + 60, w // 2 - 60 : w // 2 + 60]
+        assert np.percentile(centre, 99) > np.median(image) + 60

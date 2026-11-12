@@ -64,6 +64,8 @@ ICE_BLANKET = 3.0  # the ice lies over a cell as a dome this smooth
 ICE_CLOSE = 0.35  # and follows each cell's own shape this closely
 PLATE = 0.4  # an ice plate's thickness
 CELL_MAX = 5.5  # the tallest a cell stands
+CELL_SPREAD = 1.2  # a cell spread thin on the film, with no height of its own
+NUCLEUS_BULGE = 2.0  # how far such a cell stands up over its nucleus
 CLUMP_REACH = 12.0  # how far a clump of grains can reach from its speck
 RPE_RADIUS = 1.1  # an epithelial cell's radius, in its feature's size
 NUCLEUS_RADIUS = 1.4  # and a nucleus's
@@ -98,6 +100,7 @@ NOTHING = (0.1, 0.04)
 TILT = (0.5, 0.42)  # how strongly a slope changes the yield
 BAR_UNDER = (0.22, 0.12)  # how much a bar under thin ice adds
 BAR_DEPTH = 5.0  # the ice over which a bar fades
+BEAD = (2.6, 1.9)  # the yield of a fiducial's beads: the brightest thing in view
 HOLE_UNDER = (0.2, 0.1)  # how much darker thin ice is with no film under it
 CRACK = 0.9  # um; how deep a crack in the film grooves the ice over it
 ORGANELLE_STEP = 0.5  # um; a view coarser than this shows no organelles
@@ -255,6 +258,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     n_lo = np.zeros(shape, dtype=f32)
     n_hi = np.full(shape, NONE, dtype=f32)
     plate = np.zeros(shape, dtype=f32)
+    bulge = np.zeros(shape, dtype=f32)  # where a nucleus lies
     lift = np.zeros(shape, dtype=f32)  # the ice over the smooth-domed cells
     grains = []
     inclusions = []
@@ -274,7 +278,9 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         if box is None:
             continue
         if f.kind == "fiducial" or f.part in ("sphere", "frost"):
-            grains.append((fx, fy, sigma * (1.0 if f.part == "sphere" else 1.2), 0.0))
+            r = sigma * (1.0 if f.part == "sphere" else 1.2)
+            # a fiducial's beads are bright; everything else on the ice is dark
+            grains.append((fx, fy, r, 0.0 if f.kind != "fiducial" else -1.0))
             continue
         if f.kind == "contamination":
             grains.extend(_clump(f, seed))
@@ -295,14 +301,18 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             over = tall * np.cos(0.5 * np.pi * np.minimum(rr / 1.2, 1)) ** 2
             lift[box] = np.maximum(lift[box], over)
         elif f.part in ("body", "bud", "neurite"):
-            # a cell stands about as tall as it is wide, up to a limit
-            tall = min(2.4 * sigma * min(f.eccentricity, 1.0), CELL_MAX)
+            # a cell stands as tall as the scene says, else about as tall as
+            # it is wide, up to what a spread cell reaches
+            tall = min(2.4 * sigma * min(f.eccentricity, 1.0), CELL_SPREAD)
+            if f.height > 0:
+                tall = min(f.height * UM, CELL_MAX)
             top = (tall * np.exp(-0.5 * r2**f.sharpness)).astype(f32)
             higher = top > dome[box]
             cell_id[box] = np.where(higher & (top > 0.05), f.cell_id, cell_id[box])
             dome[box] = np.maximum(dome[box], top)
         elif f.part == "nucleus":
             # an ellipsoid inside the cell, a little off the film
+            bulge[box] = np.maximum(bulge[box], np.exp(-0.5 * r2).astype(f32))
             # no two alike: its size, how high it sits, and sometimes lobes
             for ox, oy, size, rise in _lobes(f, seed):
                 r2 = _radius2(f, X[box] - fx - ox, Y[box] - fy - oy)
@@ -319,6 +329,9 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
                 )
                 n_hi[box] = np.where(inside, np.maximum(n_hi[box], mid + t), n_hi[box])
     in_cell = dome > 0.05
+    # a spread cell is thin, and stands up over its nucleus
+    spread = in_cell & (dome <= CELL_SPREAD + 0.01) & (lift <= 0)
+    dome = dome + NUCLEUS_BULGE * bulge * spread * np.clip(dome / CELL_SPREAD, 0, 1)
     blanket = _gauss(dome, (ICE_BLANKET / sy, ICE_BLANKET / sx))
     # the ice lies close over each cell, and in a broad swell over a group
     close = _gauss(dome, (ICE_CLOSE / sy, ICE_CLOSE / sx)) + ICE_OVER_CELL * (
@@ -358,7 +371,9 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     p_lo = np.full(shape, -NONE, dtype=f32)
     p_hi = np.full(shape, NONE, dtype=f32)
     p_id = np.full(shape, -1, dtype=np.int32)
+    bead = np.zeros(shape, dtype=bool)
     for n, (fx, fy, r, lifted) in enumerate(grains):
+        bright, lifted = lifted < 0, max(lifted, 0.0)
         cols = np.nonzero(np.abs(x - fx) < r)[0]
         rows = np.nonzero(np.abs(y - fy) < r)[0]
         if not len(cols) or not len(rows):
@@ -371,6 +386,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         p_lo[box] = np.where(inside, np.minimum(p_lo[box], zc - t), p_lo[box])
         p_hi[box] = np.where(inside, np.maximum(p_hi[box], zc + t), p_hi[box])
         p_id[box] = np.where(inside, n, p_id[box])
+        if bright:
+            bead[box] |= inside
     p_hi = np.minimum(p_hi, Z_MAX - 0.5)
 
     # where the film is torn, or past the grid, there is nothing
@@ -412,6 +429,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         "level": level.astype(f32),
         "cell_id": cell_id,
         "particle_id": p_id,
+        "bead": bead,
         "bar_weight": weight,
         # thin ice across a hole in the film, with no cell on it
         "hole": (holes & ~in_cell) * np.exp(-np.clip(ice, 0, None) / 2.0).astype(f32),
@@ -770,6 +788,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         "surface": surface,
         "bar": at(col["bar_weight"]),
         "hole": at(col["hole"]),
+        "bead": at(col["bead"]),
         "opening": opening,
         "lean": lean,
         "view": (fs, kabs),
@@ -803,6 +822,7 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     if which == 0 and scene.sputter_thickness > 0:
         # a sputtered metal coat gives a little more signal
         mat_top = mat_top * (1 + 0.12 * (1 - np.exp(-scene.sputter_thickness / 5e-9)))
+    mat_top = np.where(particle & hit["bead"], BEAD[which], mat_top)
     shade[top] = (mat_top * tilt)[top]
     # a bar under thin ice shows through
     bar = hit["bar"]
@@ -883,6 +903,18 @@ def top(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> np.ndarray:
     below where there is nothing."""
     surface = columns(scene, x, y, step)["surface"]
     return np.where(surface > NONE / 2, surface, sim_relief.VOID)
+
+
+def surface(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step=None):
+    """The sample from straight above on a grid of world points, x (W,) and
+    y (H,) in um, after milling: the height of its top (far below where there
+    is nothing) and what is there (VOID, ICE, CELL, ...). Ice that lies over
+    a cell is given as CELL: it says where the cells are."""
+    view = Plan(scene, np.asarray(x, dtype=float), np.asarray(y, dtype=float))
+    z, mat = view.top()
+    cell = view.col["cell"][1]
+    mat = np.where((mat == ICE) & (cell > NONE / 2) & (cell < z), CELL, mat)
+    return np.where(mat == VOID, sim_relief.VOID, z).astype(np.float32), mat
 
 
 def damage(scene, kind: str, severity: int, ends, slope: float, rng) -> list:
