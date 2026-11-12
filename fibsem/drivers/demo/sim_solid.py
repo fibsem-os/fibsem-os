@@ -339,7 +339,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     close = _gauss(dome, (ICE_CLOSE / sy, ICE_CLOSE / sx)) + ICE_OVER_CELL * (
         _gauss(in_cell.astype(f32), (2 * ICE_CLOSE / sy, 2 * ICE_CLOSE / sx))
     )
-    ice = ice + np.where(lift > 0, lift, np.maximum(blanket, close)) + PLATE * plate
+    rise = np.where(lift > 0, lift, np.maximum(blanket, close)).astype(f32)
+    ice = ice + rise + PLATE * plate
     # a crack in the film is a groove in thin ice, open along its middle
     thin = np.exp(-np.clip(ice, 0, None) / 1.5)
     ice = ice - CRACK * crack * thin
@@ -432,6 +433,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         "cell_id": cell_id,
         "particle_id": p_id,
         "bead": bead,
+        "rise": rise,  # how far the ice stands up over the cells
         # a cell under its ice, by how thin that ice is: soft at its edge
         "cell_under": _gauss(
             np.where(in_cell, np.exp(-np.clip(ice - cell, 0, None) / CELL_DEPTH), 0.0),
@@ -1126,7 +1128,7 @@ class Plan:
             mat = np.zeros(z.shape, dtype=np.uint8)
             for k in SLOTS[::-1]:
                 lo, hi = self.col[k]
-                mat[(lo <= z) & (z <= hi)] = MATERIAL[k]
+                mat[(lo <= z) & (z <= hi) & (hi > NONE / 2)] = MATERIAL[k]
             return mat
 
         mat = material(z)
@@ -1163,40 +1165,90 @@ def plan(scene: "SampleScene", x: np.ndarray, y: np.ndarray) -> Plan:
     return kept[1]
 
 
-# reflected light: ice on the film is a thin film, so thickness reads as
-# fringes (see sim_relief)
+# reflected light, relative to a grid bar
 REFLECTANCE = {PARTICLE: 1.15, COAT: 0.8, BAR: 1.0, FILM: 0.5}
+FRINGE = 0.42  # um; the height of ice between two fringes seen (550 nm light)
 
 
 def reflectance(scene: "SampleScene", view: Plan) -> np.ndarray:
-    """What the FM sees in reflected light, relative to a grid bar: the bars
-    bright through the ice over them; the ice grey, in fringes where it is
-    thin and its thickness changes; steep ice (a cell's dome, a particle)
-    scattering the light away; a milled face rough and dim; nothing where the
-    sample was milled through."""
+    """What the FM sees in reflected light, relative to a grid bar. The film
+    is an uneven grey, with a bright dot where ice spans a hole. A cell's
+    dome has a bright ring round its foot and fine broken fringes up its
+    flank, each a step in the ice's height, fading to a soft grey middle.
+    Bars are bright through the ice over them, particles brighter. A milled
+    face is rough and dim with a bright ragged edge, and where the sample
+    was milled through there is nothing."""
     z, mat = view.top()
+    col = view.col
     sx, sy = view.step
     X, Y = np.meshgrid(view.x, view.y)
     seed = int(scene.seed)
     solid = mat != VOID
-    thick = np.clip(z - FILM_TOP, 0, None)
-    thick = thick + 0.15 * (1 + sim_relief.value_noise(X, Y, 40.0, seed + 301))
-    fringe = 0.5 + 0.5 * np.cos(2 * np.pi * thick / sim_relief.FRINGE_PERIOD)
-    out = 0.35 + 0.3 * fringe * np.exp(-thick / sim_relief.FRINGE_FADE)
-    gy, gx = np.gradient(np.where(solid, z, 0.0), sy, sx)
-    scatter = 1 / (1 + (np.hypot(gx, gy) / 0.4) ** 2)
-    # a milled face is rough: it scatters more of the light away
-    scatter = scatter * np.where(z < view.col["surface"] - 0.05, 0.5, 1.0)
-    out = out * scatter
+    whole = solid & (z >= col["surface"] - 0.05)
+
+    def noise(scale, k):
+        return sim_relief.value_noise(X, Y, scale, seed + k)
+
+    # the open film: uneven, in slow patches and finer mottle
+    out = 0.3 * np.clip(1 + 0.45 * noise(22.0, 301) + 0.2 * noise(5.0, 302), 0.3, 2.0)
+    # a hole with ice across it is a small bright dot
+    spot = _gauss(col["hole"], (0.45 / sy, 0.45 / sx)) ** 3
+    out = out + 0.45 * spot
+
+    # a cell's dome, by how far its ice stands up
+    h = col["rise"] + 0.06 * noise(3.0, 303)
+    dome = np.clip(h / 0.25, 0, 1)
+    inner = 0.26 + 0.16 * np.clip(h / 4.0, 0, 1)
+    # fringes too fine for this sampling wash out to their mean
+    gy, gx = np.gradient(h, sy, sx)
+    per_sample = np.hypot(gx * sx, gy * sy) / FRINGE
+    seen = np.clip(1.5 - 3.0 * per_sample, 0, 1)
+    fringe = np.cos(2 * np.pi * h / FRINGE)
+    broken = np.clip(0.7 + 1.5 * noise(1.3, 304), 0, 1) * np.clip(
+        0.85 + 1.0 * noise(6.0, 307), 0, 1
+    )
+    flank = np.exp(-((np.clip(h, 0, None) / 2.4) ** 2))
+    inner = inner + 0.5 * fringe * broken * flank * seen
+    # the ring round its foot, uneven along its length
+    ring = np.exp(-(((h - 0.3) / 0.25) ** 2)) * np.clip(
+        0.8 + 0.6 * noise(4.0, 305), 0.3, 1.4
+    )
+    inner = inner + 0.95 * ring
+    out = out * (1 - dome) + inner * dome
+
     for m, v in REFLECTANCE.items():
-        out[mat == m] = v * scatter[mat == m]
+        out[mat == m] = v
     # a bar shows through the ice over it
-    bar = view.col["bar_weight"] * np.isin(mat, (ICE, COAT))
-    out = out + bar * np.exp(-np.clip(z, 0, None) / BAR_DEPTH) * (scatter - out)
-    # ice across a hole has no film behind it to reflect
-    out = out * (1 - 0.5 * view.col["hole"] * (mat == ICE))
+    bar = col["bar_weight"] * np.isin(mat, (ICE, COAT))
+    out = out + bar * np.exp(-np.clip(z, 0, None) / BAR_DEPTH) * (1.0 - out)
+    # a milled face is rough and dim; the edge it leaves is bright and ragged
+    cut = (~whole).astype(np.float32)
+    out = np.where(whole, out, 0.12 * out)
+    near = _gauss(cut, (0.8 / sy, 0.8 / sx))
+    edge = np.clip(near * 2.5, 0, 1) * whole
+    out = out + 1.1 * edge * np.clip(0.6 + 0.9 * noise(1.2, 306), 0, 1.5)
     out[~solid] = 0.0
     return out.astype(np.float32)
+
+
+def cell_depth(view: Plan, levels: int = 12) -> tuple:
+    """How much cell is left in each column after milling (um), and which
+    cell it is: what a dye through the whole cell shows from above. The
+    nucleus keeps the dye out of part of it."""
+    col = view.col
+    top = col["cell"][1]
+    there = top > NONE / 2
+    tall = np.where(there, top - FILM_TOP, 0.0).astype(np.float32)
+    kept = np.ones(tall.shape, dtype=np.float32)
+    if view.removed:
+        gone = np.zeros(tall.shape, dtype=np.float32)
+        for t in (np.arange(levels) + 0.5) / levels:
+            gone += view.gone(FILM_TOP + t * tall)
+        kept = 1 - gone / levels
+    n_lo, n_hi = col["nucleus"]
+    nucleus = np.where(n_hi > NONE / 2, np.clip(n_hi - n_lo, 0, None), 0.0)
+    depth = np.clip(tall - 0.45 * nucleus, 0, None) * kept
+    return depth.astype(np.float32), col["cell_id"]
 
 
 def _cache(scene) -> "OrderedDict":

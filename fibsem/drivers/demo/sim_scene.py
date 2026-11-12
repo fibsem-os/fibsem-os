@@ -101,6 +101,8 @@ REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6, 0.0)
 # the FM's fluorescence intensity for a fully-dyed part, on the beam
 # intensity scale the stamper uses
 FM_INTENSITY = 90.0
+FM_CELL_DEPTH = 9.0  # um; the cell thickness that glows at FM_INTENSITY
+FM_GLOW_HAZE = 2.5e-6  # m; how far out-of-focus light from a cell spreads
 FM_PSF_SIGMA = 0.13e-6  # m; an in-focus point source
 CILIUM_SIGMA = 0.09e-6  # m; a ~250 nm wide cilium, under the PSF
 # a source spread dimmer than this (canvas scale; the camera's noise is ~0.3)
@@ -2670,7 +2672,17 @@ class SampleScene:
             self._plan = self._fm_plan(xs_world, ys_world)
         if bars >= 1.0 and self.renderer in ("relief", "solid"):
             return self._fm_reflection(xs_world, ys_world, defocus, rng)
-        if bars > 0:
+        if bars > 0 and self._plan is not None:
+            # a little reflected light leaks into a fluorescence channel
+            plan, step = self._plan
+            leak = sim_solid.reflectance(self, plan)
+            canvas += (
+                0.3
+                * bars
+                * self.grid_intensity
+                * self._fm_full(leak, step, height, width)
+            )
+        elif bars > 0:
             canvas[bar_mask] += bars * self.grid_intensity
             # in reflection the holes and rips read dark, the rim bright
             canvas[holes] -= bars * HOLE_DEPTH
@@ -2687,6 +2699,7 @@ class SampleScene:
             float(ys_world.min()),
             float(ys_world.max()),
         )
+        dyed: dict = {}  # per cell, how strongly its whole body is dyed
         for idx in in_view:
             f = self.features[idx]
             if f.kind == "fiducial":
@@ -2712,6 +2725,14 @@ class SampleScene:
                     weight = FM_INTENSITY * body_dye * 0.6
                 else:
                     weight = FM_INTENSITY * body_dye
+                if self._plan is not None and f.part in ("body", "nucleus", "bud"):
+                    # the solid sample: a dye through the cell glows by how
+                    # much cell there is (see _fm_glow), not as a flat shape
+                    if f.part != "nucleus":
+                        dyed[int(f.cell_id)] = max(
+                            dyed.get(int(f.cell_id), 0.0), FM_INTENSITY * body_dye
+                        )
+                    weight = FM_INTENSITY * fiducial if f.part == "nucleus" else 0.0
             if weight <= 0:
                 continue
             if f.part == "organelle" and f.sigma < 1e-6:
@@ -2731,6 +2752,8 @@ class SampleScene:
             # milling beam takes away the part of each column it passes
             # through, so from above a trench reaches as far as the SEM sees
             canvas *= 1.0 - self.milled_fraction(xs_world, ys_world)
+        if dyed:
+            canvas += self._fm_glow(dyed, xs_world, ys_world, pixel_size)
         if bars > 0 and self.milled:
             canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
@@ -2836,6 +2859,26 @@ class SampleScene:
                     mode="edge",
                 )
         return r
+
+    def _fm_glow(self, dyed: dict, xs_world, ys_world, pixel_size) -> np.ndarray:
+        """The glow of cells dyed through: brightest where the cell is
+        thickest, gone where it was milled away, with the haze a widefield
+        FM adds from above and below the focal plane."""
+        plan, step = self._plan
+        depth, cell_id = sim_solid.cell_depth(plan)
+        ids = np.array(sorted(dyed), dtype=np.int64)
+        level = np.array([dyed[i] for i in ids], dtype=np.float32)
+        at = np.clip(np.searchsorted(ids, cell_id), 0, len(ids) - 1)
+        glow = np.where(ids[at] == cell_id, level[at], 0.0) * depth / FM_CELL_DEPTH
+        height, width = ys_world.shape[0], xs_world.shape[1]
+        glow = self._fm_full(glow.astype(np.float32), step, height, width)
+        sharp = _blur(glow, max(FM_PSF_SIGMA / pixel_size, 0.6))
+        haze = _blur(glow, min(FM_GLOW_HAZE / pixel_size, 60.0))
+        # a real cell is not evenly dyed: brighter and dimmer patches
+        um = sim_relief.UM
+        wx, wy = np.broadcast_arrays(xs_world * um, ys_world * um)
+        patchy = 1 + 0.3 * sim_relief.value_noise(wx, wy, 6.0, int(self.seed) + 71)
+        return (0.3 * sharp + 0.7 * haze) * np.clip(patchy, 0.5, 1.5)
 
     def _fm_reflected(self, r, step, xs_world, ys_world, defocus, rng):
         """The reflection frame from the sample's reflectance."""

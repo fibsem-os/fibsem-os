@@ -55,8 +55,11 @@ brightens at grazing incidence.
   from (ice, cell, nucleus). Milled edges have a bright rim, cut faces are curtained, a GIS
   coat is a real layer that shows as a bright band along the top of a cut, and a damaged
   lamella has jagged bites, wandering cracks or a torn hole in its face. The FM looks at
-  the same sample from above: the reflection comes from whatever is on top at each point,
-  and fluorescence is lost exactly where a cut removed it. Every cell type stands under
+  the same sample from above. In reflection a cell's dome has a bright ring round its foot
+  and broken fringes up its flank, ice across a film hole is a bright dot, and a milled
+  edge is bright and ragged. A dye through the whole cell is a soft glow that follows how
+  much cell there is, so a lamella is a bright band between its trenches, and fluorescence
+  is lost exactly where a cut removed it. Every cell type stands under
   its own ice, a holey film has ice across its holes (none where one broke), and a crack
   is a groove. No two cells are alike inside: nuclei differ in size and height and some are
   lobed, and the cytoplasm holds the cell's lipid droplets (the ones the FM labels) and
