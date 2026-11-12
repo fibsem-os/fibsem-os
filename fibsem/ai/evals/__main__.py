@@ -1,5 +1,5 @@
 """``python -m fibsem.ai.evals``: check cases, score one answer, run the agent
-on cases and report the results."""
+on cases and report the results, and make cases from the simulator."""
 
 import argparse
 import json
@@ -7,6 +7,8 @@ import os
 import shlex
 import sys
 from pathlib import Path
+
+import yaml
 
 from fibsem import paths
 from fibsem.ai.agent import playbooks, sources
@@ -43,6 +45,12 @@ def _parser() -> argparse.ArgumentParser:
     common.add_argument("--jobs", type=int, default=1, help="runs at once (default 1)")
     common.add_argument(
         "--only", default=None, help="only cases whose path holds this text"
+    )
+    common.add_argument(
+        "--tier",
+        choices=("real", "sim", "all"),
+        default="all",
+        help="only real cases, or only sim cases (default: both, scored apart)",
     )
     common.add_argument("--effort", default=None)
     common.add_argument(
@@ -108,6 +116,43 @@ def _parser() -> argparse.ArgumentParser:
     )
     matrix_report.add_argument("out", type=Path)
     matrix_report.add_argument("--cases", type=Path, default=None)
+    make_sim = sub.add_parser(
+        "make-sim",
+        help="make grid cases (squares, labels, sites) from the simulator, one per seed",
+    )
+    make_sim.add_argument("--out", type=Path, required=True, help="the cases folder")
+    make_sim.add_argument("--seeds", type=int, nargs="+", required=True)
+    make_sim.add_argument(
+        "--beam",
+        nargs="+",
+        choices=("SEM", "FIB"),
+        default=["SEM"],
+        help="whose overview: the SEM face on, the FIB at the milling angle, or both",
+    )
+    make_sim.add_argument(
+        "--milling-angle",
+        type=float,
+        default=38.0,
+        help="the FIB overview's milling angle in degrees (default 38)",
+    )
+    make_sim.add_argument(
+        "--task",
+        nargs="+",
+        choices=("grid", "polishing", "correlation", "placement", "fm-target"),
+        default=["grid"],
+        help="grid: squares, labels and sites from an overview; polishing: a "
+        "lamella milled pass by pass; correlation: spot burns round an FM "
+        "target, with the FIB image and FM stack; placement: where the lamella "
+        "goes on a FIB image at the milling angle; fm-target: whether an FM "
+        "stack has a target at the site, and where (default grid)",
+    )
+    make_sim.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="a scene option for every seed, such as crack_density=0.5",
+    )
     report = sub.add_parser("report", help="the results of a run folder, as a table")
     report.add_argument("out", type=Path)
     report.add_argument(
@@ -167,6 +212,43 @@ def main(argv=None) -> int:
             print(json.dumps(s.to_dict()))
         return 0
 
+    if args.command == "make-sim":
+        from fibsem.ai.evals import (
+            sim_cases,
+            sim_correlation,
+            sim_fm_target,
+            sim_placement,
+            sim_polishing,
+        )
+
+        overrides = {}
+        for item in args.set:
+            name, _, value = item.partition("=")
+            overrides[name.strip()] = yaml.safe_load(value)
+        for seed in args.seeds:
+            if "polishing" in args.task:
+                folder = sim_polishing.write_case(seed, args.out, overrides)
+                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            if "correlation" in args.task:
+                folder = sim_correlation.write_case(seed, args.out, overrides)
+                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            if "placement" in args.task:
+                folder = sim_placement.write_case(seed, args.out, overrides)
+                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            if "fm-target" in args.task:
+                folder = sim_fm_target.write_case(seed, args.out, overrides)
+                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            for beam in args.beam if "grid" in args.task else []:
+                for folder in sim_cases.write_cases(
+                    seed,
+                    args.out,
+                    overrides,
+                    beam=beam,
+                    milling_angle=args.milling_angle,
+                ):
+                    print(f"Wrote {folder}")
+        return 0
+
     if args.command == "compare":
         print(visual.compare_table(args.outs, args.cases))
         return 0
@@ -197,7 +279,8 @@ def main(argv=None) -> int:
     cases = [
         c
         for c in find_cases(args.root)
-        if args.only is None or args.only in c.path.as_posix()
+        if (args.only is None or args.only in c.path.as_posix())
+        and args.tier in ("all", c.tier)
     ]
     broken = [c for c in cases if not check_case(c).ok]
     if broken:

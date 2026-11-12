@@ -274,6 +274,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         "case": case.id,
         "repeat": repeat,
         "task": case.task,
+        "tier": case.tier,
         "case_path": str(case.path.resolve()),
     }
     # The run's own App Server, beside any other on this PC: its own port,

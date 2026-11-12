@@ -18,6 +18,9 @@ TASKS = (
     "square_quality",
     "setup_placement",
 )
+# Where a case's images come from: a real session, or the simulator. Sim
+# cases are scored apart and never count towards the real scores.
+TIERS = ("real", "sim")
 # What a square is, in a square_quality case. A key may accept more than one.
 SQUARE_LABELS = (
     "good",
@@ -86,6 +89,10 @@ class Case:
         return self.data.get("parts") or {}
 
     @property
+    def tier(self) -> str:
+        return str(self.data.get("tier") or "real")
+
+    @property
     def status(self) -> str:
         """keyed, parked or unkeyed."""
         status = str(self.key.get("status", "")).lower()
@@ -152,6 +159,8 @@ def check_case(case: Case) -> CaseCheck:
         check.problems.append(f"format {data.get('format')!r}, expected {FORMAT}")
     if case.task not in TASKS:
         check.problems.append(f"unknown task {case.task!r}")
+    if case.tier not in TIERS:
+        check.problems.append(f"unknown tier {case.tier!r}")
     for name, part in case.parts.items():
         if part.get("task") not in TASKS:
             check.problems.append(f"part {name}: unknown task {part.get('task')!r}")
