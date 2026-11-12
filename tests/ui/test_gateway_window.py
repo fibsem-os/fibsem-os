@@ -161,7 +161,7 @@ def test_closing_asks_and_no_keeps_the_gateway(made, monkeypatch):
     asked = []
     _answer(monkeypatch, QMessageBox.StandardButton.No, asked)
     window.show()
-    window.stop_action.trigger()
+    window.stop_button.click()
     assert window.isVisible() and made.quits == []
     assert "Stop the gateway?" in asked[0]
     _answer(monkeypatch, QMessageBox.StandardButton.Yes)
@@ -193,9 +193,7 @@ def test_the_question_says_what_happens_to_the_app():
 
 def test_restart_asks_then_restarts(made, monkeypatch):
     window = made.window
-    assert not window.restart_action.isVisible(), (
-        "no restart without the gateway's hook"
-    )
+    assert window.restart_button.isHidden(), "no restart without the gateway's hook"
     restarts = []
     window._restart = lambda: restarts.append(1)
     _answer(monkeypatch, QMessageBox.StandardButton.No)

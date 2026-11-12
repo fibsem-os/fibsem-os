@@ -258,10 +258,15 @@ class GatewayWindow(QWidget):
         names.setSpacing(0)
         names.addWidget(title)
         names.addWidget(where)
+        self.open_button = QPushButton("Open page")
+        self.open_button.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
+        self.open_button.setDefault(True)
+        self.open_button.clicked.connect(self.open_page)
         header = QHBoxLayout()
         header.setSpacing(10)
         header.addWidget(self.icon_label)
         header.addLayout(names, 1)
+        header.addWidget(self.open_button, 0, Qt.AlignmentFlag.AlignTop)
 
         self.app = _Section("App")
         self.app.button.clicked.connect(self._app_button)
@@ -278,26 +283,17 @@ class GatewayWindow(QWidget):
         self.pair_button.clicked.connect(self._pair_button)
         self._hide_code()
 
-        self.open_button = QPushButton("Open page")
-        self.open_button.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
-        self.open_button.setDefault(True)
-        self.open_button.clicked.connect(self.open_page)
-        # Stopping and restarting the gateway, in one menu.
-        self.gateway_button = QPushButton("Gateway")
-        self.gateway_button.setStyleSheet(
-            SECONDARY_BUTTON_STYLESHEET + "QPushButton { padding-right: 22px; }"
-            " QPushButton::menu-indicator { subcontrol-position: right center;"
-            " right: 7px; }"
-        )
-        menu = QMenu(self.gateway_button)
-        self.restart_action = menu.addAction("Restart gateway", self.restart_gateway)
-        self.restart_action.setVisible(self._restart is not None)
-        self.stop_action = menu.addAction("Stop gateway", self.close)
-        self.gateway_button.setMenu(menu)
+        self.restart_button = QPushButton("Restart gateway")
+        self.restart_button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.restart_button.clicked.connect(self.restart_gateway)
+        self.restart_button.setVisible(self._restart is not None)
+        self.stop_button = QPushButton("Stop gateway")
+        self.stop_button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.stop_button.clicked.connect(self.close)
         buttons = QHBoxLayout()
         buttons.addStretch()
-        buttons.addWidget(self.gateway_button)
-        buttons.addWidget(self.open_button)
+        buttons.addWidget(self.restart_button)
+        buttons.addWidget(self.stop_button)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 14)
