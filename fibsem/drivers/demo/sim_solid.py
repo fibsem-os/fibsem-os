@@ -65,6 +65,7 @@ ICE_CLOSE = 0.35  # and follows each cell's own shape this closely
 PLATE = 0.4  # an ice plate's thickness
 CELL_MAX = 5.5  # the tallest a cell stands
 ROUND_EDGE = 1.5  # where a standing cell's rounded top meets the film, in its own r^2
+MOUND = (2.0, 4.0)  # um; how high an adherent cell stands at its middle
 CELL_SPREAD = 1.2  # a cell spread thin on the film, with no height of its own
 NUCLEUS_BULGE = 2.0  # how far such a cell stands up over its nucleus
 CLUMP_REACH = 12.0  # how far a clump of grains can reach from its speck
@@ -263,6 +264,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     plate = np.zeros(shape, dtype=f32)
     bulge = np.zeros(shape, dtype=f32)  # where a nucleus lies
     lift = np.zeros(shape, dtype=f32)  # the ice over the smooth-domed cells
+    skirt = np.zeros(shape, dtype=bool)  # where an adherent cell is spread
     grains = []
     inclusions = []
     fine = max(sx, sy) <= ORGANELLE_STEP
@@ -313,7 +315,11 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
                 # a cell that stands up is round over the top, not a plateau
                 top = tall * np.sqrt(np.clip(1 - r2 / ROUND_EDGE, 0, None))
             else:
-                top = tall * np.exp(-0.5 * r2**f.sharpness)
+                # an adherent cell: a broad low mound, each its own height,
+                # running out into a thin skirt
+                mound = MOUND[0] + (MOUND[1] - MOUND[0]) * f.wobble_phase / (2 * np.pi)
+                top = tall * np.exp(-0.5 * r2**1.5) + mound * np.exp(-r2 / 0.5)
+                skirt[box] |= top > 0.05
             top = top.astype(f32)
             higher = top > dome[box]
             cell_id[box] = np.where(higher & (top > 0.05), f.cell_id, cell_id[box])
@@ -338,7 +344,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
                 n_hi[box] = np.where(inside, np.maximum(n_hi[box], mid + t), n_hi[box])
     in_cell = dome > 0.05
     # a spread cell is thin, and stands up over its nucleus
-    spread = in_cell & (dome <= CELL_SPREAD + 0.01) & (lift <= 0)
+    spread = in_cell & (skirt | (dome <= CELL_SPREAD + 0.01)) & (lift <= 0)
     dome = dome + NUCLEUS_BULGE * bulge * spread * np.clip(dome / CELL_SPREAD, 0, 1)
     blanket = _gauss(dome, (ICE_BLANKET / sy, ICE_BLANKET / sx))
     # the ice lies close over each cell, and in a broad swell over a group
