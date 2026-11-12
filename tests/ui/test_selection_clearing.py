@@ -21,9 +21,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt
+from qtpy.QtCore import Qt
 
 from fibsem.applications.autolamella.structures import (
     Lamella,
@@ -66,22 +66,22 @@ def _workflow_list(tasks, checked: bool) -> WorkflowTaskList:
 def test_clearing_the_lamella_selection_unticks_the_header(qapp, lamellae):
     """The reported bug: rows cleared, header still reading "Select All"."""
     widget = _lamella_list(lamellae, checked=True)
-    assert widget._header.checkbox_all.checkState() == Qt.Checked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Checked
 
     widget.set_all_selected(False)
 
     assert widget.get_selected() == []
-    assert widget._header.checkbox_all.checkState() == Qt.Unchecked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Unchecked
 
 
 def test_clearing_the_task_selection_unticks_the_header(qapp, tasks):
     widget = _workflow_list(tasks, checked=True)
-    assert widget._header.checkbox_all.checkState() == Qt.Checked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Checked
 
     widget.set_all_selected(False)
 
     assert widget.get_selected() == []
-    assert widget._header.checkbox_all.checkState() == Qt.Unchecked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Unchecked
 
 
 def test_reorder_after_a_clear_does_not_resurrect_the_selection(qapp, tasks):
@@ -98,7 +98,7 @@ def test_reorder_after_a_clear_does_not_resurrect_the_selection(qapp, tasks):
     widget._on_reordered(list(reversed(tasks)))
 
     assert widget.get_selected() == []
-    assert widget._header.checkbox_all.checkState() == Qt.Unchecked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Unchecked
 
 
 def test_selecting_all_ticks_every_row(qapp, lamellae):
@@ -108,7 +108,7 @@ def test_selecting_all_ticks_every_row(qapp, lamellae):
     widget.set_all_selected(True)
 
     assert len(widget.get_selected()) == len(lamellae)
-    assert widget._header.checkbox_all.checkState() == Qt.Checked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Checked
 
 
 @pytest.mark.parametrize("checked", [True, False])

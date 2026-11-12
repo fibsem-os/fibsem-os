@@ -31,7 +31,7 @@ import gc
 import logging
 from typing import Optional
 
-from PyQt5.QtCore import QCoreApplication, QObject, QThread, QTimer
+from qtpy.QtCore import QCoreApplication, QObject, QThread, QTimer
 
 __all__ = ["MainThreadGarbageCollector", "install_main_thread_gc"]
 

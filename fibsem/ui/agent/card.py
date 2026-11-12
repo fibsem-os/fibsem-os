@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QMouseEvent
+from qtpy.QtWidgets import (
     QAction,
     QActionGroup,
     QFrame,
@@ -109,7 +109,7 @@ class _ElidedLabel(QLabel):
     def _elide(self) -> None:
         shown = self.fontMetrics().elidedText(
             self._full,
-            Qt.ElideRight,  # type: ignore
+            Qt.TextElideMode.ElideRight,  # type: ignore
             max(0, self.width()),
         )
         super().setText(shown)
@@ -118,7 +118,7 @@ class _ElidedLabel(QLabel):
 def _link(text: str) -> QPushButton:
     button = QPushButton(text)
     button.setObjectName("agentLink")
-    button.setCursor(Qt.PointingHandCursor)  # type: ignore
+    button.setCursor(Qt.CursorShape.PointingHandCursor)  # type: ignore
     font = button.font()
     font.setPointSizeF(font.pointSizeF() - 1)
     button.setFont(font)
@@ -168,14 +168,14 @@ class _LevelRow(QWidget):
         self._action = action
         self._menu = menu
         self.setObjectName("levelRow")
-        self.setAttribute(Qt.WA_Hover)  # type: ignore
-        self.setAttribute(Qt.WA_StyledBackground)  # type: ignore
-        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)  # type: ignore
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # type: ignore
+        self.setCursor(Qt.CursorShape.PointingHandCursor)  # type: ignore
         layout = QHBoxLayout(self)
         layout.setContentsMargins(9, 6, 20, 6)
         layout.setSpacing(10)
         self._dot = QLabel()
-        self._dot.setAlignment(Qt.AlignTop)  # type: ignore
+        self._dot.setAlignment(Qt.AlignmentFlag.AlignTop)  # type: ignore
         layout.addWidget(self._dot)
         text = QVBoxLayout()
         text.setSpacing(1)
@@ -191,7 +191,7 @@ class _LevelRow(QWidget):
         self._dot.setStyleSheet(f"color: {colour};")
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
-        if event.button() == Qt.LeftButton:  # type: ignore
+        if event.button() == Qt.MouseButton.LeftButton:  # type: ignore
             self._menu.close()
             self._action.trigger()
 
@@ -202,11 +202,11 @@ class LevelMenu(QPushButton):
     level changes rarely and each change matters, so it is one click further
     than a switch would be. Says what was picked; shows what it is told."""
 
-    level_chosen = pyqtSignal(object)  # AgentLevel
+    level_chosen = Signal(object)  # AgentLevel
 
     def __init__(self) -> None:
         super().__init__()
-        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self.setCursor(Qt.CursorShape.PointingHandCursor)  # type: ignore
         self.setToolTip("Change what the agent may do")
         self.menu_ = QMenu(self)
         self.menu_.setStyleSheet(LEVEL_MENU)
@@ -260,15 +260,15 @@ class LevelMenu(QPushButton):
 class AgentCard(QFrame):
     """What waits, what the agent is doing, and its controls."""
 
-    level_chosen = pyqtSignal(object)  # AgentLevel
-    stop_clicked = pyqtSignal()
-    event_log_clicked = pyqtSignal()
-    chat_clicked = pyqtSignal()
+    level_chosen = Signal(object)  # AgentLevel
+    stop_clicked = Signal()
+    event_log_clicked = Signal()
+    chat_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("agentCard")
-        self.setAttribute(Qt.WA_StyledBackground)  # type: ignore
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)  # type: ignore
         self.setStyleSheet(_CARD)
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, Any]] = None
@@ -287,7 +287,7 @@ class AgentCard(QFrame):
         line = QHBoxLayout()
         line.setSpacing(8)
         self.waiting_word = _label("", WAITING_COLOR, bold=True)
-        self.waiting_word.setAlignment(Qt.AlignTop)  # type: ignore
+        self.waiting_word.setAlignment(Qt.AlignmentFlag.AlignTop)  # type: ignore
         line.addWidget(self.waiting_word)
         self.waiting_label = _label("", TEXT_STRONG_COLOR, wrap=True)
         line.addWidget(self.waiting_label, 1)
@@ -295,7 +295,7 @@ class AgentCard(QFrame):
         self.answer_link = _link("Open in Agent page")
         self.answer_link.setToolTip("Answer the agent in your browser.")
         self.answer_link.clicked.connect(self.chat_clicked)
-        waiting.addWidget(self.answer_link, 0, Qt.AlignLeft)  # type: ignore
+        waiting.addWidget(self.answer_link, 0, Qt.AlignmentFlag.AlignLeft)  # type: ignore
         layout.addWidget(self.waiting_row)
 
         # What the agent is doing on the microscope, at every level.

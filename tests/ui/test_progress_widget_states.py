@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui import stylesheets
 from fibsem.ui.widgets.progress_widget import FibsemProgressWidget, ProgressUpdate

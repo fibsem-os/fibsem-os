@@ -7,7 +7,7 @@ only the pattern positions, so a lamella's own depths, currents and parameters
 went back to the protocol's.
 
 The real main window and protocol editor on Demo, with the real dialog; only
-its ``exec_`` is answered.
+its ``exec`` is answered.
 """
 
 import os
@@ -18,7 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict  # noqa: E402
 
@@ -86,7 +86,7 @@ def _global_edit(window, experiment, monkeypatch, update_lamellae=True, said=Non
         return protocol_editor_module.QDialog.Accepted
 
     monkeypatch.setattr(
-        protocol_editor_module.AutoLamellaGlobalTaskEditDialog, "exec_", accept
+        protocol_editor_module.AutoLamellaGlobalTaskEditDialog, "exec", accept
     )
     said = [] if said is None else said
     monkeypatch.setattr(

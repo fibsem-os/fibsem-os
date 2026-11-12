@@ -44,8 +44,8 @@ import logging
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.poses import remove_lamella
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
@@ -65,16 +65,16 @@ class AutoLamellaOverviewTabBase(QWidget):
 
     # Whether there is a live widget to drive. The window listens so it can enable or
     # disable the tab; neither tab touches the tab bar itself.
-    availability_changed = pyqtSignal(bool)
+    availability_changed = Signal(bool)
     # A lamella was picked in this tab's own list. The window forwards it to the other
     # lists; nothing here selects them directly, which is what keeps the sync in one
     # place instead of four.
-    lamella_selected = pyqtSignal(object)
+    lamella_selected = Signal(object)
     # Whether a run is in progress in this tab, forwarded from the widget. The window
     # listens so it can stop the *other* overview taking the stage; it
     # connects to the tab rather than the widget because the widget is rebuilt on every
     # reconnection and a subscription to the old one would be stale and undisconnectable.
-    acquiring_changed = pyqtSignal(bool)
+    acquiring_changed = Signal(bool)
 
     # What this canvas marks, in the words a message needs: "has no fluorescence pose to
     # move to" against "has no position to move to". A user reading the second one on the

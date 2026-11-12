@@ -10,7 +10,7 @@ switches between editable (corner handles + drag/resize) and read-only (static).
 
 import sys
 
-from PyQt5.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import FibsemRectangle
@@ -74,7 +74,7 @@ def main() -> None:
     win = AlignmentOverlayTest()
     win.setStyleSheet(NAPARI_STYLE + "QWidget { background: #262930; color: #d1d2d4; }")
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

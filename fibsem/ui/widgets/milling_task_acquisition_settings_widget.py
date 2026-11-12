@@ -1,5 +1,5 @@
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
 
 from fibsem.milling.tasks import MillingTaskAcquisitionSettings
 from fibsem.ui.widgets.custom_widgets import align_form
@@ -13,7 +13,7 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
     configuring acquisition settings during milling tasks.
     """
 
-    settings_changed = pyqtSignal(MillingTaskAcquisitionSettings)
+    settings_changed = Signal(MillingTaskAcquisitionSettings)
 
     def __init__(self, parent=None, show_advanced=False):
         """Initialize the MillingTaskAcquisitionSettings widget.
@@ -56,9 +56,13 @@ class FibsemMillingTaskAcquisitionSettingsWidget(QWidget):
         self.image_settings_widget.show_field_of_view(False)  # uses milling task fov
 
         layout.addWidget(QLabel("SEM Image"), 0, 0)
-        layout.addWidget(self.acquire_sem_checkbox, 0, 1, alignment=Qt.AlignLeft)
+        layout.addWidget(
+            self.acquire_sem_checkbox, 0, 1, alignment=Qt.AlignmentFlag.AlignLeft
+        )
         layout.addWidget(QLabel("FIB Image"), 1, 0)
-        layout.addWidget(self.acquire_fib_checkbox, 1, 1, alignment=Qt.AlignLeft)
+        layout.addWidget(
+            self.acquire_fib_checkbox, 1, 1, alignment=Qt.AlignmentFlag.AlignLeft
+        )
         layout.addWidget(self.image_settings_widget, 2, 0, 1, 2)
 
     def _connect_signals(self):

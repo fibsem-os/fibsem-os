@@ -5,7 +5,7 @@ import logging
 import os
 from typing import Optional
 
-from PyQt5 import QtCore, QtWidgets
+from qtpy import QtCore, QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.experiment_setup import (
@@ -248,8 +248,12 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
         self.btn_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
-        button_box.addButton(self.btn_ok, QtWidgets.QDialogButtonBox.AcceptRole)
-        button_box.addButton(self.btn_cancel, QtWidgets.QDialogButtonBox.RejectRole)
+        button_box.addButton(
+            self.btn_ok, QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        button_box.addButton(
+            self.btn_cancel, QtWidgets.QDialogButtonBox.ButtonRole.RejectRole
+        )
 
         main_layout.addWidget(button_box)
 
@@ -437,10 +441,11 @@ class AutoLamellaCreateExperimentWidget(QtWidgets.QDialog):
                 self,
                 "Experiment Exists",
                 f"An experiment named '{experiment_name}' already exists in this directory.\n\nDo you want to overwrite it?",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.StandardButton.Yes
+                | QtWidgets.QMessageBox.StandardButton.No,
+                QtWidgets.QMessageBox.StandardButton.No,
             )
-            if reply == QtWidgets.QMessageBox.No:
+            if reply == QtWidgets.QMessageBox.StandardButton.No:
                 return
 
         # Create the experiment
@@ -503,10 +508,10 @@ def create_experiment_dialog(
     """
     # Create and show the dialog
     dialog = AutoLamellaCreateExperimentWidget(parent)
-    result = dialog.exec_()
+    result = dialog.exec()
 
     # Handle the result
-    if result == QtWidgets.QDialog.Accepted:
+    if result == QtWidgets.QDialog.DialogCode.Accepted:
         experiment = dialog.get_experiment()
         if experiment:
             logging.info(f"Experiment created: {experiment.name}")

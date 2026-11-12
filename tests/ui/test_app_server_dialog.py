@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.server.agent.setup import agent_setup_text, sidecar_path  # noqa: E402
@@ -57,7 +57,7 @@ def test_the_dialog_shows_status_services_and_the_agent(qapp):
 
 
 def test_the_operator_token_is_copied_and_renewed(qapp, host):
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
 
     dialog = AppServerDialog(lambda: host)
     dialog._btn_copy_operator.click()

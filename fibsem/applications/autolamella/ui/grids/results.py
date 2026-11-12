@@ -15,9 +15,9 @@ from __future__ import annotations
 import os
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QPixmap
+from qtpy.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -101,8 +101,8 @@ class _HistoryRow(QWidget):
     """One history entry: a separator, a line saying what and how it went,
     and the image it recorded, if any -- with an offer to mark positions on it."""
 
-    mark_clicked = pyqtSignal(str)  # the image's path
-    open_clicked = pyqtSignal(str)  # the image's path
+    mark_clicked = Signal(str)  # the image's path
+    open_clicked = Signal(str)  # the image's path
 
     def __init__(
         self,
@@ -121,7 +121,7 @@ class _HistoryRow(QWidget):
         layout.setSpacing(4)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
@@ -175,11 +175,14 @@ class _HistoryRow(QWidget):
             if not pixmap.isNull():
                 self.tile.setPixmap(
                     pixmap.scaled(
-                        _TILE_W, _TILE_H, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                        _TILE_W,
+                        _TILE_H,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
                     )
                 )
             self.tile.clicked.connect(self.open_clicked)
-            layout.addWidget(self.tile, 0, Qt.AlignLeft)
+            layout.addWidget(self.tile, 0, Qt.AlignmentFlag.AlignLeft)
         elif (
             state.name not in _EXCHANGE_ENTRY_NAMES
             and state.status is TaskStatus.Completed
@@ -195,7 +198,7 @@ class GridResultsWidget(QWidget):
     """The selected grid: its name, the latest run, and its history with images."""
 
     # (GridRecord, image path): an overview to mark positions on.
-    mark_requested = pyqtSignal(object, str)
+    mark_requested = Signal(object, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -210,7 +213,7 @@ class GridResultsWidget(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget()
         self._layout = QVBoxLayout(content)

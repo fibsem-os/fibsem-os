@@ -15,8 +15,8 @@ import logging
 from dataclasses import fields
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.ui.edit_recording import PendingEdits
@@ -57,7 +57,7 @@ class TaskConfigEditor(QWidget):
     *level* is ``protocol`` or ``item``, as in ``task_configs``.
     """
 
-    edited = pyqtSignal(str)  # the task name, after an edit changed its config
+    edited = Signal(str)  # the task name, after an edit changed its config
 
     def __init__(
         self,

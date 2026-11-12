@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -82,7 +82,7 @@ class MicroscopeStateWidget(QWidget):
 
     #: Refresh was pressed. Reading the instrument is a device call and this widget
     #: does not make those -- the host decides what one costs.
-    refresh_requested = pyqtSignal()
+    refresh_requested = Signal()
 
     def __init__(self, show_refresh: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -362,9 +362,9 @@ def _key_label(text: str) -> QLabel:
 
 def _value_label(text: str, colour: str) -> QLabel:
     label = QLabel(text)
-    label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     # Monospaced so the digits line up down the column; a stage position read as a
     # ragged list of numbers is harder to compare than one that is aligned.
     label.setStyleSheet(f"color: {colour}; font-family: monospace;")
-    label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     return label

@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QDialog, QMessageBox, QVBoxLayout, QWidget
 
 from fibsem.theme.tokens import SURFACE_COLOR, TEXT_COLOR
 from fibsem.ui.widgets.workflow.task_editor import WorkflowTaskEditorWidget
@@ -20,7 +20,7 @@ class TaskEditorDialog(QDialog):
     removed from the workflow: the editor's Remove asks here, this confirms,
     closes, and tells the host which task to drop."""
 
-    remove_requested = pyqtSignal(object)  # TaskPlan
+    remove_requested = Signal(object)  # TaskPlan
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -62,10 +62,10 @@ class TaskEditorDialog(QDialog):
             self,
             "Remove Task",
             f"Remove <b>{task.name}</b> from workflow?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             return
         self.reject()
         self.remove_requested.emit(task)

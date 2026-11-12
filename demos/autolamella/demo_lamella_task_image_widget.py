@@ -18,7 +18,7 @@ import os
 import sys
 from typing import List, Optional
 
-from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.task_outputs import (
@@ -126,7 +126,7 @@ def main() -> None:
     widget.set_lamella(lamella)
 
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -27,8 +27,8 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QPushButton,
@@ -76,8 +76,8 @@ class FMRegionSelectorWidget(QWidget):
         selection_changed: which region is selected, by index, or None.
     """
 
-    regions_changed = pyqtSignal()
-    selection_changed = pyqtSignal(object)
+    regions_changed = Signal()
+    selection_changed = Signal(object)
 
     def __init__(
         self, microscope: FibsemMicroscope, parent: Optional[QWidget] = None
@@ -106,9 +106,13 @@ class FMRegionSelectorWidget(QWidget):
         self._chip_strip.setStyleSheet(VIEW_STRIP_STYLE)
         self._chip_strip.setWidgetResizable(True)
         self._chip_strip.setFixedHeight(34)
-        self._chip_strip.setFrameShape(QFrame.NoFrame)
-        self._chip_strip.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._chip_strip.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._chip_strip.setFrameShape(QFrame.Shape.NoFrame)
+        self._chip_strip.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._chip_strip.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self._chip_strip.hide()
 
         layout = QVBoxLayout(self)

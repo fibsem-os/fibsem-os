@@ -8,7 +8,7 @@ import pytest
 
 from tests.fixtures.microscopes import demo_microscope
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
@@ -23,7 +23,7 @@ microscope = demo_microscope("sim-iflm-configuration.yaml", scope="function")
 
 
 def _texts(widget) -> str:
-    from PyQt5.QtWidgets import QLabel, QTableWidget
+    from qtpy.QtWidgets import QLabel, QTableWidget
 
     parts = [label.text() for label in widget.findChildren(QLabel)]
     for table in widget.findChildren(QTableWidget):
@@ -182,7 +182,7 @@ def test_saving_a_slot_calibration_refreshes_the_tab(qapp, microscope):
 
 
 def test_a_loader_holder_has_no_slots_to_calibrate(qapp):
-    from PyQt5.QtWidgets import QPushButton
+    from qtpy.QtWidgets import QPushButton
 
     path = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml")
     microscope, _ = utils.setup_session(
@@ -340,7 +340,7 @@ def test_save_writes_the_defaults_and_clears_the_change(qapp, site, toasts):
 def test_closing_with_unsaved_changes_asks_first(
     qapp, site, toasts, monkeypatch, answer, closed, saved
 ):
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     asked = []
     monkeypatch.setattr(
@@ -364,7 +364,7 @@ def test_closing_with_unsaved_changes_asks_first(
 
 
 def test_closing_with_nothing_to_save_does_not_ask(qapp, site, toasts, monkeypatch):
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: pytest.fail("asked"))
     window = MicroscopeConfigurationWindow(site)

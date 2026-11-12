@@ -1,7 +1,7 @@
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QGridLayout,
     QLabel,
     QWidget,
@@ -22,7 +22,7 @@ _SPECS = ZParameters.params
 
 
 class ZParametersWidget(QWidget):
-    settings_changed = pyqtSignal(ZParameters)
+    settings_changed = Signal(ZParameters)
 
     def __init__(self, z_parameters: ZParameters, parent: Optional[QWidget] = None):
         super().__init__(parent)

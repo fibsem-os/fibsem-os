@@ -19,7 +19,7 @@ truncates the extra ``modifiers`` argument for slots that don't want it).
 
 import sys
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -128,7 +128,7 @@ def main() -> None:
     win = ModifierTestWidget()
     win.setStyleSheet(NAPARI_STYLE + "QWidget { background: #262930; color: #d1d2d4; }")
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

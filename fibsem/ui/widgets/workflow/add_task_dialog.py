@@ -2,8 +2,8 @@
 
 from typing import Collection, Dict, Optional, Tuple
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -50,7 +50,7 @@ class AddTaskDialog(QDialog):
         for task_type, config_cls in config_classes.items():
             self.type_combo.addItem(config_cls.display_name, task_type)
             self.type_combo.setItemData(
-                self.type_combo.count() - 1, task_type, Qt.ToolTipRole
+                self.type_combo.count() - 1, task_type, Qt.ItemDataRole.ToolTipRole
             )
         self.type_combo.currentIndexChanged.connect(self._suggest_name)
         form.addRow("Task", self.type_combo)
@@ -61,7 +61,9 @@ class AddTaskDialog(QDialog):
         form.addRow("Name", self.name_edit)
         layout.addLayout(form)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

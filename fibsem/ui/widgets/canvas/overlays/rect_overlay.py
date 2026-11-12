@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from matplotlib.patches import Rectangle as MplRectangle
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 
 from fibsem.ui.widgets.canvas.overlays.base import (
     CanvasOverlay,  # noqa: F401  (re-exported by package)
@@ -65,7 +65,7 @@ class RectOverlay(QObject):
         RectOverlay(color="white", facecolor=None, linestyle="--", resizable=True)
     """
 
-    rect_changed = pyqtSignal(dict)  # {x0,y0,x1,y1,cx,cy,width,height} pixels
+    rect_changed = Signal(dict)  # {x0,y0,x1,y1,cx,cy,width,height} pixels
 
     def __init__(
         self,

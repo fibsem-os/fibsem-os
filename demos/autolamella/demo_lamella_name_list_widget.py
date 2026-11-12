@@ -6,7 +6,7 @@ python demos/autolamella/demo_lamella_name_list_widget.py <experiment.yaml>
 import sys
 from pathlib import Path
 
-from PyQt5.QtWidgets import QApplication, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QApplication, QVBoxLayout, QWidget
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaNameListWidget
@@ -52,7 +52,7 @@ def main():
     layout.addWidget(widget)
 
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -5,7 +5,9 @@ import re
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem.structures.settings import BeamType  # noqa: E402
 from fibsem.ui.utils import beam_choices  # noqa: E402

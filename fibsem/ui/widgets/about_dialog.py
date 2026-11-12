@@ -9,8 +9,8 @@ the whole thing on the clipboard as plain text.
 import logging
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt
+from qtpy.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
@@ -104,7 +104,7 @@ def _environment_rows() -> List[Tuple[str, str]]:
 
     rows = [
         ("Python", ctx.get("python_version", _UNKNOWN)),
-        ("Qt", ctx.get("PyQt5", _UNKNOWN)),
+        ("Qt", ctx.get("Qt", _UNKNOWN)),
         ("napari", ctx.get("napari", _UNKNOWN)),
         ("Platform", ctx.get("platform", _UNKNOWN)),
     ]
@@ -149,7 +149,7 @@ class AboutDialog(QDialog):
         meta.setStyleSheet(
             f"color: {_TEXT_MUTED}; font-size: 12px; font-family: {_MONO};"
         )
-        meta.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        meta.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         meta_row.addWidget(meta)
         meta_row.addWidget(self._build_update_slot())
         meta_row.addStretch()
@@ -208,14 +208,14 @@ class AboutDialog(QDialog):
         self.copy_button = QToolButton()
         self.copy_button.setIcon(fibsem_icon("mdi:content-copy", color=_TEXT_MUTED))
         self.copy_button.setToolTip("Copy details to clipboard")
-        self.copy_button.setCursor(Qt.PointingHandCursor)
+        self.copy_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.copy_button.setAutoRaise(True)
         self.copy_button.setStyleSheet(
             "QToolButton { border: none; padding: 4px; border-radius: 3px; }"
             f"QToolButton:hover {{ background-color: {_PANEL}; }}"
         )
         self.copy_button.clicked.connect(self._copy_to_clipboard)
-        header.addWidget(self.copy_button, 0, Qt.AlignTop)
+        header.addWidget(self.copy_button, 0, Qt.AlignmentFlag.AlignTop)
         return header
 
     # -- the update slot -----------------------------------------------------
@@ -394,7 +394,7 @@ class AboutDialog(QDialog):
         column.addWidget(heading)
 
         rule = QFrame()
-        rule.setFrameShape(QFrame.HLine)
+        rule.setFrameShape(QFrame.Shape.HLine)
         rule.setStyleSheet(
             f"color: {_BORDER}; background-color: {_BORDER}; max-height: 1px;"
         )
@@ -415,9 +415,11 @@ class AboutDialog(QDialog):
                 else "font-size: 12px;"
             )
             value_label.setStyleSheet(f"color: {_TEXT}; {font}")
-            value_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-            grid.addWidget(key_label, row, 0, Qt.AlignTop)
-            grid.addWidget(value_label, row, 1, Qt.AlignTop)
+            value_label.setTextInteractionFlags(
+                Qt.TextInteractionFlag.TextSelectableByMouse
+            )
+            grid.addWidget(key_label, row, 0, Qt.AlignmentFlag.AlignTop)
+            grid.addWidget(value_label, row, 1, Qt.AlignmentFlag.AlignTop)
         column.addLayout(grid)
         return box
 
@@ -452,4 +454,4 @@ def open_about_dialog(
     parent: Optional[QWidget] = None,
 ) -> None:
     """Show the about dialog modally."""
-    AboutDialog(microscope=microscope, application=application, parent=parent).exec_()
+    AboutDialog(microscope=microscope, application=application, parent=parent).exec()

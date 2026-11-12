@@ -15,7 +15,7 @@ from copy import deepcopy  # noqa: E402
 
 import pytest  # noqa: E402
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402

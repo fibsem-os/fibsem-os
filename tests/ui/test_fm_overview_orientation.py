@@ -20,9 +20,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QDialog, QMessageBox
+from qtpy.QtWidgets import QDialog, QMessageBox
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.ui.fm.widgets import fm_overview_widget as module
@@ -79,8 +79,8 @@ def accept_dialog(monkeypatch):
         def __init__(self, **kwargs):
             opened.append(kwargs)
 
-        def exec_(self):
-            return QDialog.Accepted
+        def exec(self):
+            return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(module, "FMOverviewConfirmationDialog", _Dialog)
     return opened
@@ -346,7 +346,9 @@ class TestTheMoveAction:
     def test_it_asks_before_moving(self, widget, no_worker, monkeypatch):
         """A real stage move, so it gets the same confirmation as the others here."""
         _pose(widget, "NONE")
-        monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.No)
+        monkeypatch.setattr(
+            QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.No
+        )
 
         widget.move_to_fm_device()
 
@@ -354,7 +356,9 @@ class TestTheMoveAction:
 
     def test_it_moves_when_confirmed(self, widget, no_worker, monkeypatch):
         _pose(widget, "NONE")
-        monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+        monkeypatch.setattr(
+            QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes
+        )
 
         widget.move_to_fm_device()
 
@@ -385,7 +389,9 @@ class TestTheMoveAction:
     def test_it_refuses_during_a_run(self, widget, no_worker, monkeypatch):
         """The stage is walking the grid; taking it somewhere else mid-tileset is not a
         thing a confirmation dialog should be able to authorise."""
-        monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Yes)
+        monkeypatch.setattr(
+            QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes
+        )
         widget._set_running(True)
 
         widget.move_to_fm_device()

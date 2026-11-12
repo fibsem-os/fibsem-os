@@ -14,8 +14,10 @@ import shutil
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
-pytest.importorskip("PyQt5")
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip("qtpy.QtWidgets")
 
 import fibsem.config as cfg
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget

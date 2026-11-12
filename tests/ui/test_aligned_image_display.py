@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 import yaml
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.fm.composite import composite_fm_layers
 from fibsem.fm.structures import (
@@ -108,7 +108,7 @@ def _record(widget, key):
 
 
 def _wait_until(condition, timeout_ms=2000):
-    from PyQt5.QtTest import QTest
+    from qtpy.QtTest import QTest
 
     waited = 0
     while not condition() and waited < timeout_ms:
@@ -118,7 +118,7 @@ def _wait_until(condition, timeout_ms=2000):
 
 
 def _wait(ms):
-    from PyQt5.QtTest import QTest
+    from qtpy.QtTest import QTest
 
     QTest.qWait(ms)
 

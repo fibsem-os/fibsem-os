@@ -43,7 +43,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 import matplotlib.patheffects as pe
-from PyQt5.QtCore import pyqtSignal
+from qtpy.QtCore import Signal
 
 from fibsem.correlation.points import POINT_RULES, point_names, types_on
 from fibsem.correlation.structures import Coordinate, PointStatus, PointType
@@ -134,12 +134,12 @@ class CoordinateOverlay(PointOverlay):
 
     # Identity-carrying counterparts of the base's index-based signals. The base
     # ones still fire; consumers here should use these.
-    coordinate_selected = pyqtSignal(object)  # Coordinate
-    coordinate_moved = pyqtSignal(object)  # Coordinate (drag finished)
-    coordinate_removed = pyqtSignal(object)  # Coordinate (emitted after removal)
+    coordinate_selected = Signal(object)  # Coordinate
+    coordinate_moved = Signal(object)  # Coordinate (drag finished)
+    coordinate_removed = Signal(object)  # Coordinate (emitted after removal)
     # The view decides which PointType a new point gets (it owns the menu), so
     # the overlay only reports where the user asked for one.
-    add_requested = pyqtSignal(float, float)  # x, y
+    add_requested = Signal(float, float)  # x, y
 
     def __init__(
         self,

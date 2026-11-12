@@ -10,15 +10,15 @@ import os
 from typing import Callable, Optional
 
 import numpy as np
-from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QAction, QMenu
+from qtpy.QtCore import QObject, Signal
+from qtpy.QtWidgets import QAction, QMenu
 
 from fibsem.structures.settings import BeamType
 
 
 class CoincidenceMenu(QObject):
     # CoincidenceProgress from the loop's worker, delivered on the GUI thread.
-    progress = pyqtSignal(object)
+    progress = Signal(object)
 
     def __init__(
         self,

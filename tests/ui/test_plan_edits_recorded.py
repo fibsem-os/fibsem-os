@@ -16,10 +16,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict  # noqa: E402
-from PyQt5.QtTest import QTest  # noqa: E402
+from qtpy.QtTest import QTest  # noqa: E402
 
 from fibsem.acting import OPERATOR  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
@@ -230,7 +230,7 @@ def test_applying_to_other_lamellae_records_what_each_was_and_became(
         def __init__(self, **kwargs):
             pass
 
-        def exec_(self):
+        def exec(self):
             return lamella_editor_module.QDialog.Accepted
 
         def get_selected_lamella_names(self):
@@ -425,7 +425,7 @@ def test_a_global_edit_records_the_protocol_and_each_lamella(
         return protocol_editor_module.QDialog.Accepted
 
     monkeypatch.setattr(
-        protocol_editor_module.AutoLamellaGlobalTaskEditDialog, "exec_", accept
+        protocol_editor_module.AutoLamellaGlobalTaskEditDialog, "exec", accept
     )
     monkeypatch.setattr(
         protocol_editor_module.QMessageBox, "information", lambda *a, **k: None
@@ -459,7 +459,7 @@ def test_adding_a_task_records_it_on_the_protocol_and_each_lamella(
         dialog._on_accept()
         return protocol_editor_module.QDialog.Accepted
 
-    monkeypatch.setattr(protocol_editor_module.AddTaskDialog, "exec_", accept)
+    monkeypatch.setattr(protocol_editor_module.AddTaskDialog, "exec", accept)
 
     protocol_editor._on_add_task_clicked()
     _settle(window)
@@ -551,7 +551,7 @@ def test_the_protocol_s_spot_burn_points_are_recorded(
         dialog.findChild(SpotBurnCoordinatesWidget)._add_coordinate()
         return protocol_editor_module.QDialog.Accepted
 
-    monkeypatch.setattr(protocol_editor_module.QDialog, "exec_", accept)
+    monkeypatch.setattr(protocol_editor_module.QDialog, "exec", accept)
 
     editor._on_spot_burn_coordinates_clicked()
     _settle(window)
@@ -632,7 +632,7 @@ def _accept_correlation(editor, monkeypatch, result):
         def set_prior_runs(self, runs):
             pass
 
-        def exec_(self):
+        def exec(self):
             return lamella_editor_module.QDialog.Accepted
 
         def deleteLater(self):
@@ -838,7 +838,7 @@ def test_an_edit_whose_record_cannot_be_taken_is_still_made(
         def __init__(self, **kwargs):
             pass
 
-        def exec_(self):
+        def exec(self):
             return lamella_editor_module.QDialog.Accepted
 
         def get_selected_lamella_names(self):

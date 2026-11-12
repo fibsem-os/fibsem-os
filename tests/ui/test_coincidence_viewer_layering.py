@@ -21,10 +21,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 
 @pytest.fixture()
@@ -138,7 +138,7 @@ def test_it_leaves_alone_a_window_the_operator_moved_to(viewer_widget, monkeypat
     A window pulled forward as a side effect does not take focus, so the case this
     exists for still restacks -- only a deliberate switch holds the active window.
     """
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtWidgets import QWidget
 
     elsewhere = QWidget()
     elsewhere.setWindowTitle("some other window of ours")
@@ -156,7 +156,7 @@ def test_it_leaves_alone_a_window_the_operator_moved_to(viewer_widget, monkeypat
 def test_an_embedded_viewer_does_not_restack_its_host(viewer_widget, monkeypatch):
     """`window()` on an embedded widget is somebody else's window, and raising it is
     somebody else's call. Only a top-level viewer restacks itself."""
-    from PyQt5.QtWidgets import QVBoxLayout, QWidget
+    from qtpy.QtWidgets import QVBoxLayout, QWidget
 
     calls = []
     monkeypatch.setattr(

@@ -1,8 +1,8 @@
 import logging
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QGridLayout,
     QProgressBar,
     QPushButton,
@@ -35,7 +35,7 @@ class FibsemMillingWidget(QWidget):
     the threading and progress updates.
     """
 
-    finished_milling_signal = pyqtSignal()
+    finished_milling_signal = Signal()
 
     def __init__(self, microscope: FibsemMicroscope, parent: "MillingTaskConfigWidget"):
         super().__init__(parent)

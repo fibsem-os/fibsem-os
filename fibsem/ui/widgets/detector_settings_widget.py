@@ -1,5 +1,5 @@
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QComboBox,
     QFormLayout,
     QHBoxLayout,
@@ -21,7 +21,7 @@ from fibsem.workflows.actions import record_operator_action
 class _LabeledSlider(QWidget):
     """A horizontal QDoubleSlider with a value label and a % toggle button."""
 
-    valueChanged = pyqtSignal(float)
+    valueChanged = Signal(float)
 
     def __init__(
         self, min_val: float = 0.0, max_val: float = 1.0, decimals: int = 3, parent=None
@@ -71,7 +71,7 @@ class _LabeledSlider(QWidget):
 
 
 class FibsemDetectorSettingsWidget(QWidget):
-    settings_changed = pyqtSignal(FibsemDetectorSettings)
+    settings_changed = Signal(FibsemDetectorSettings)
 
     def __init__(
         self,

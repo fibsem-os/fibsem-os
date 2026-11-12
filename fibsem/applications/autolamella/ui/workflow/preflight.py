@@ -15,8 +15,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Optional, Sequence
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -108,7 +108,7 @@ def _task_row(
     duration = QLabel(format_duration_rounded(task.seconds, pad=True))
     duration.setStyleSheet(_ON_PANEL + f"color: {TEXT}; font-size: 11px;")
     duration.setFixedWidth(_DURATION_WIDTH)
-    duration.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    duration.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
     layout.addWidget(duration)
     return row
 
@@ -289,8 +289,8 @@ class WorkflowPreflightDialog(QDialog):
         button = QToolButton()
         button.setText(f"{len(self.estimate.item_names)} lamellae")
         button.setCheckable(True)
-        button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        button.setArrowType(Qt.RightArrow)
+        button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        button.setArrowType(Qt.ArrowType.RightArrow)
         # Transparent explicitly: NAPARI_STYLE gives every QToolButton a
         # BORDER_COLOR fill and a radius, which reads as a raised control next to the
         # chips it sits beside.
@@ -300,7 +300,9 @@ class WorkflowPreflightDialog(QDialog):
         )
 
         def _toggle(checked: bool) -> None:
-            button.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
+            button.setArrowType(
+                Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+            )
             names.setVisible(checked)
             self.adjustSize()
 
@@ -395,7 +397,7 @@ def confirm_run_workflow_dialog(
     """
     attendance = run_attendance(experiment.task_protocol, plan.request.task_names)
     dlg = WorkflowPreflightDialog(plan.estimate, attendance, parent=parent)
-    return dlg.exec_() == QDialog.Accepted
+    return dlg.exec() == QDialog.DialogCode.Accepted
 
 
 def confirm_add_to_queue_dialog(
@@ -488,7 +490,7 @@ def confirm_add_to_queue_dialog(
     btn_row.addWidget(yes_btn)
     layout.addLayout(btn_row)
 
-    return dlg.exec_() == QDialog.Accepted
+    return dlg.exec() == QDialog.DialogCode.Accepted
 
 
 def _priced_note(estimate: AdditionEstimate) -> str:

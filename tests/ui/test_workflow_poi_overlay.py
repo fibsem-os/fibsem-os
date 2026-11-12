@@ -20,7 +20,7 @@ import types
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.structures.image import FibsemImage, FibsemImageMetadata
 from fibsem.structures.settings import BeamType, ImageSettings, MicroscopeState, Point

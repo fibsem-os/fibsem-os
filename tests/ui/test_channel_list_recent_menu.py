@@ -1,7 +1,7 @@
 """Headless tests for the recent-channels quick-select menu in ChannelListWidget.
 
 Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
-The real ``_on_add_channel`` opens a modal ``QMenu.exec_()``; tests stub that
+The real ``_on_add_channel`` opens a modal ``QMenu.exec()``; tests stub that
 to capture the menu, and exercise the row/selection/removal helpers directly.
 """
 
@@ -11,9 +11,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QMenu, QWidgetAction
+from qtpy.QtWidgets import QMenu, QWidgetAction
 
 from fibsem.fm import config as fm_config
 from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
@@ -107,7 +107,7 @@ def test_no_recents_adds_directly_without_menu(qapp, monkeypatch):
     monkeypatch.setattr(clw, "load_recent_channels", lambda state: [])
     monkeypatch.setattr(
         QMenu,
-        "exec_",
+        "exec",
         lambda *a, **k: pytest.fail("menu must not open with no recents"),
     )
     before = w._list.count()
@@ -137,7 +137,7 @@ def test_menu_lists_new_channel_then_recents(qapp, monkeypatch):
         captured["menu"] = self
         return None
 
-    monkeypatch.setattr(QMenu, "exec_", fake_exec)
+    monkeypatch.setattr(QMenu, "exec", fake_exec)
     w._on_add_channel()
 
     menu = captured["menu"]

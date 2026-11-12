@@ -13,9 +13,9 @@ from dataclasses import replace
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, QTimer, Signal
+from qtpy.QtGui import QColor, QIcon, QPixmap
+from qtpy.QtWidgets import (
     QApplication,
     QButtonGroup,
     QCheckBox,
@@ -84,7 +84,7 @@ _SEGMENT_STYLE = f"""
 class _Segmented(QWidget):
     """A row of mutually exclusive buttons: PNG | TIFF. Emits the chosen index."""
 
-    changed = pyqtSignal(int)
+    changed = Signal(int)
 
     def __init__(self, labels: Sequence[str], index: int = 0, parent=None) -> None:
         super().__init__(parent)
@@ -114,7 +114,7 @@ class _SliderRow(QWidget):
     """`Min ───●──── 0.12`: a caption, a slider and its value, as the canvas's
     contrast popover lays them out."""
 
-    changed = pyqtSignal(float)
+    changed = Signal(float)
 
     def __init__(
         self, label: str, lo: float, hi: float, value: float, step: float
@@ -595,4 +595,4 @@ def open_image_export(parent: Optional[QWidget] = None, start_dir: str = "") -> 
         return
     finally:
         QApplication.restoreOverrideCursor()
-    ImageExportDialog(image, parent).exec_()
+    ImageExportDialog(image, parent).exec()

@@ -23,9 +23,9 @@ import pytest
 
 # CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there. Without this the
 # module-level import below turns a skip into a collection error.
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication, QWidget
+from qtpy.QtWidgets import QApplication, QWidget
 
 from fibsem import utils
 from fibsem.structures.image import FibsemImage

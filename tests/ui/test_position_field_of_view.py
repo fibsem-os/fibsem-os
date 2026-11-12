@@ -30,11 +30,11 @@ import numpy as np
 import pytest
 
 # CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there.
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from matplotlib.patches import Rectangle  # noqa: E402
 from matplotlib.text import Annotation  # noqa: E402
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures.image import FibsemImage  # noqa: E402

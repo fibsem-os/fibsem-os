@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QPoint, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QPoint, Qt, Signal
+from qtpy.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -117,7 +117,7 @@ def shrink_progress_text(progress: FibsemProgressWidget) -> FibsemProgressWidget
     column and out of the window. Ignored horizontally, it takes the width it is given.
     """
     progress.setStyleSheet(f"QProgressBar {{ font-size: {PROGRESS_FONT_PX}px; }}")
-    progress.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+    progress.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
     return progress
 
 
@@ -193,10 +193,10 @@ class PlacedOverviewImageRecord:
 class FMOverviewWidget(OverviewWidgetBase):
     """Configure, run and view a fluorescence overview acquisition."""
 
-    overview_acquired = pyqtSignal(FluorescenceImage)
+    overview_acquired = Signal(FluorescenceImage)
     # A run that failed before its run could report it on `tiled_progress`: the
     # service refused it, or its folder could not be made. Crosses from the worker.
-    _run_failed = pyqtSignal(str)
+    _run_failed = Signal(str)
 
     # A user right-clicked the canvas and asked for a position there. Both carry a
     # *fluorescence* stage position -- the canvas is anchored on the FM side, and both
@@ -207,7 +207,7 @@ class FMOverviewWidget(OverviewWidgetBase):
     # lamellae or experiments, which is what lets it open standalone against a
     # simulator. A host that owns an experiment decides what a position *means*, whether
     # the user should be asked first, and what else moves with it.
-    position_add_requested = pyqtSignal(object)  # FibsemStagePosition
+    position_add_requested = Signal(object)  # FibsemStagePosition
 
     # Internal hop from the acquisition thread to the GUI thread. The microscope's
     # progress signals are psygnals, which call their callbacks synchronously on
@@ -220,12 +220,12 @@ class FMOverviewWidget(OverviewWidgetBase):
     # each drives its own bar: the run as a whole, and the tile currently being taken.
     # `object`, not `TiledProgress`: psygnal hands a slot whatever was emitted, and a
     # plugin-loaded producer is not obliged to emit the typed record.
-    _tile_progress_received = pyqtSignal(object)
+    _tile_progress_received = Signal(object)
     # `object`, not the typed record, for the same reason.
-    _fm_progress_received = pyqtSignal(object)
+    _fm_progress_received = Signal(object)
     # Same hop for something starting or finishing on the FM, which is reported from
     # whichever thread finished with it -- for our own runs, the acquisition worker.
-    _fm_acquiring_changed = pyqtSignal(bool)
+    _fm_acquiring_changed = Signal(bool)
 
     def __init__(
         self,
@@ -488,9 +488,9 @@ class FMOverviewWidget(OverviewWidgetBase):
         scroll.setMaximumWidth(560)
         # Vertical only: a horizontal bar here means a control is refusing to shrink,
         # and scrolling sideways to reach a spinbox is worse than a cramped one.
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.canvas)
 
         # Two bars: across the grid, and within the tile being acquired. Both are
@@ -1717,10 +1717,10 @@ class FMOverviewWidget(OverviewWidgetBase):
             "Confirm Movement",
             f"Move the stage to the fluorescence microscope?\n\n"
             f"{self.microscope.explain_imaging_state('FM')}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             logging.info("Move to FM device cancelled by user")
             return
 
@@ -2195,7 +2195,7 @@ class FMOverviewWidget(OverviewWidgetBase):
             unreachable=self._unreachable(parameters),
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             logging.info("Overview acquisition cancelled before starting")
             return
 

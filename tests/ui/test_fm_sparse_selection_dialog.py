@@ -12,9 +12,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QDialog, QSizePolicy
+from qtpy.QtWidgets import QDialog, QSizePolicy
 
 from fibsem.fm.structures import (
     AutoFocusMode,
@@ -96,7 +96,7 @@ def test_accepting_with_nothing_selected_does_nothing(dialog):
     dialog._accept()
 
     assert dialog.selection is None
-    assert dialog.result() != QDialog.Accepted
+    assert dialog.result() != QDialog.DialogCode.Accepted
 
 
 # ── the two panes move together ──────────────────────────────────────────
@@ -264,7 +264,7 @@ def test_the_warning_gets_its_own_row_and_elides(dialog):
     stretch(dialog, _TOO_TALL)
 
     assert dialog.sizeHint().width() <= before
-    assert dialog._warning.sizePolicy().horizontalPolicy() == QSizePolicy.Ignored
+    assert dialog._warning.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Ignored
 
 
 def test_the_warning_goes_away_with_the_problem(dialog):

@@ -6,8 +6,8 @@ Run directly:
 
 import sys
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -121,7 +121,7 @@ def main() -> None:
     sidebar_layout.addWidget(btn_row)
 
     # ── window: canvas | sidebar ─────────────────────────────────────────
-    window = QSplitter(Qt.Horizontal)
+    window = QSplitter(Qt.Orientation.Horizontal)
     window.addWidget(controller.widget)
     window.addWidget(sidebar)
     window.setStretchFactor(0, 3)
@@ -174,7 +174,7 @@ def main() -> None:
     # Standalone harness: a plain Qt window, not a napari dock. napari was only ever
     # hosting the widget here (FIB-407).
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

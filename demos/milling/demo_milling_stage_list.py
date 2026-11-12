@@ -6,7 +6,7 @@ Run directly:
 
 import sys
 
-from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning import get_pattern
@@ -76,7 +76,7 @@ def main() -> None:
     list_widget.order_changed.connect(on_order)
 
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

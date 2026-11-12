@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.ui.overview.container import (  # noqa: E402
     MODALITY_FIBSEM,
@@ -324,7 +324,7 @@ def test_a_chip_is_the_same_size_whichever_state_it_is_in(qapp):
     """The active view chip carries a 1px border and the resting one used `border: none`,
     so a chip grew by 2px the moment it became the acquisition view -- and sat 2px taller
     than the modality chips beside it once the two shared a row."""
-    from PyQt5.QtWidgets import QPushButton
+    from qtpy.QtWidgets import QPushButton
 
     from fibsem.ui.widgets.overview_widget import (
         VIEW_CHIP_STYLE,

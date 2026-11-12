@@ -8,10 +8,10 @@ import tempfile
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict  # noqa: E402
-from PyQt5.QtWidgets import QDialog, QWidget  # noqa: E402
+from qtpy.QtWidgets import QDialog, QWidget  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
@@ -51,8 +51,8 @@ def test_an_added_task_saves_its_milling_images_to_each_lamella(editor, monkeypa
         def __init__(self, *args, **kwargs):
             pass
 
-        def exec_(self):
-            return QDialog.Accepted
+        def exec(self):
+            return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(editor_module, "AddTaskDialog", _Dialog)
 
@@ -75,7 +75,7 @@ def test_the_add_dialog_numbers_a_taken_name(editor, monkeypatch):
     configs["Rough Milling"] = MillRoughTaskConfig(task_name="Rough Milling")
     shown = []
     monkeypatch.setattr(
-        editor_module.AddTaskDialog, "exec_", lambda d: shown.append(d) or 0
+        editor_module.AddTaskDialog, "exec", lambda d: shown.append(d) or 0
     )
     editor._on_add_task_clicked()
 
@@ -97,8 +97,8 @@ def test_adding_and_removing_a_task_is_recorded_as_the_app_server_s(
         def __init__(self, *args, **kwargs):
             pass
 
-        def exec_(self):
-            return QDialog.Accepted
+        def exec(self):
+            return QDialog.DialogCode.Accepted
 
     recorded = []
     monkeypatch.setattr(editor_module, "AddTaskDialog", _Dialog)

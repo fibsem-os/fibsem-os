@@ -17,11 +17,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QPoint, Qt
-from PyQt5.QtGui import QWheelEvent
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QPoint, Qt
+from qtpy.QtGui import QWheelEvent
+from qtpy.QtWidgets import (
     QApplication,
     QDoubleSpinBox,
     QScrollArea,
@@ -62,9 +62,9 @@ def _wheel(widget):
         QPoint(0, -120),
         QPoint(0, -120),
         -120,
-        Qt.Vertical,
-        Qt.NoButton,
-        Qt.NoModifier,
+        Qt.Orientation.Vertical,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
     )
 
 

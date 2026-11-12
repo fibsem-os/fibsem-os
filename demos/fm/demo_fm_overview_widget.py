@@ -20,7 +20,7 @@ import os
 import sys
 
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QMainWindow
+from qtpy.QtWidgets import QApplication, QMainWindow
 
 import fibsem.config as cfg
 from fibsem import utils
@@ -67,7 +67,7 @@ def main() -> int:
     window.setCentralWidget(widget)
     window.resize(1500, 900)
     window.show()
-    return app.exec_()
+    return app.exec()
 
 
 if __name__ == "__main__":

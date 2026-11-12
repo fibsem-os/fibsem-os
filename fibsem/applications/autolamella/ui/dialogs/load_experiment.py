@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -256,10 +256,10 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.list_recent_experiments = QtWidgets.QListWidget()
         self.list_recent_experiments.setStyleSheet(RECENT_LIST_STYLESHEET)
         self.list_recent_experiments.setHorizontalScrollBarPolicy(
-            QtCore.Qt.ScrollBarAlwaysOff
+            QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
         self.list_recent_experiments.setSelectionMode(
-            QtWidgets.QAbstractItemView.SingleSelection
+            QtWidgets.QAbstractItemView.SelectionMode.SingleSelection
         )
         recent_layout.addWidget(self.list_recent_experiments)
 
@@ -295,8 +295,12 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
         self.btn_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
-        button_box.addButton(self.btn_ok, QtWidgets.QDialogButtonBox.AcceptRole)
-        button_box.addButton(self.btn_cancel, QtWidgets.QDialogButtonBox.RejectRole)
+        button_box.addButton(
+            self.btn_ok, QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        button_box.addButton(
+            self.btn_cancel, QtWidgets.QDialogButtonBox.ButtonRole.RejectRole
+        )
 
         main_layout.addWidget(button_box)
 
@@ -564,18 +568,18 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
 
         if not recents:
             placeholder = QtWidgets.QListWidgetItem("No recent experiments")
-            placeholder.setFlags(QtCore.Qt.NoItemFlags)
-            placeholder.setForeground(QtCore.Qt.gray)
+            placeholder.setFlags(QtCore.Qt.ItemFlag.NoItemFlags)
+            placeholder.setForeground(QtCore.Qt.GlobalColor.gray)
             self.list_recent_experiments.addItem(placeholder)
             return
 
         for info in recents:
             item = QtWidgets.QListWidgetItem(self.list_recent_experiments)
-            item.setData(QtCore.Qt.UserRole, info.path)
+            item.setData(QtCore.Qt.ItemDataRole.UserRole, info.path)
             # Unavailable rows (unreadable experiment.yaml) are shown greyed out
             # and made non-interactive so a click can't try to load them.
             if not info.available:
-                item.setFlags(QtCore.Qt.NoItemFlags)
+                item.setFlags(QtCore.Qt.ItemFlag.NoItemFlags)
                 item.setToolTip(f"{info.path}\n\nThis experiment could not be read.")
             else:
                 item.setToolTip(info.path)
@@ -607,18 +611,18 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         folder_label = QtWidgets.QLabel()
         folder_label.setPixmap(fibsem_icon(icon_name, color=icon_color).pixmap(18, 18))
         folder_label.setFixedWidth(18)
-        layout.addWidget(folder_label, alignment=QtCore.Qt.AlignVCenter)
+        layout.addWidget(folder_label, alignment=QtCore.Qt.AlignmentFlag.AlignVCenter)
 
         # Name + date (stacked)
         text_layout = QtWidgets.QVBoxLayout()
         text_layout.setContentsMargins(0, 0, 0, 0)
         text_layout.setSpacing(5)
 
-        name_label = ElidedLabel(info.name, mode=QtCore.Qt.ElideMiddle)
+        name_label = ElidedLabel(info.name, mode=QtCore.Qt.TextElideMode.ElideMiddle)
         name_label.setStyleSheet(f"color: {name_color}; background: transparent;")
         name_font = name_label.font()
         name_font.setPixelSize(13)
-        name_font.setWeight(QtGui.QFont.DemiBold)
+        name_font.setWeight(QtGui.QFont.Weight.DemiBold)
         name_label.setFont(name_font)
         name_label.setToolTip(info.name)
 
@@ -642,7 +646,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         if available:
             layout.addWidget(
                 self._make_lamella_pill(info.num_items),
-                alignment=QtCore.Qt.AlignVCenter,
+                alignment=QtCore.Qt.AlignmentFlag.AlignVCenter,
             )
         return widget
 
@@ -680,7 +684,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         A single click is a lightweight preview, so a missing protocol does not
         pop a modal warning here; it surfaces on the OK / double-click commit.
         """
-        path = item.data(QtCore.Qt.UserRole)
+        path = item.data(QtCore.Qt.ItemDataRole.UserRole)
         if not path:
             return
         self._load_experiment_from_path(path, warn_on_missing_protocol=False)
@@ -689,7 +693,7 @@ class AutoLamellaLoadExperimentWidget(QtWidgets.QDialog):
         self, item: QtWidgets.QListWidgetItem
     ) -> None:
         """Load the selected recent experiment and accept immediately (double click)."""
-        path = item.data(QtCore.Qt.UserRole)
+        path = item.data(QtCore.Qt.ItemDataRole.UserRole)
         if not path:
             return
         if self._load_experiment_from_path(path):
@@ -735,10 +739,10 @@ def load_experiment_dialog(
     """
     # Create and show the dialog
     dialog = AutoLamellaLoadExperimentWidget(parent)
-    result = dialog.exec_()
+    result = dialog.exec()
 
     # Handle the result
-    if result == QtWidgets.QDialog.Accepted:
+    if result == QtWidgets.QDialog.DialogCode.Accepted:
         experiment = dialog.get_experiment()
         if experiment:
             logging.info(f"Experiment loaded: {experiment.name}")

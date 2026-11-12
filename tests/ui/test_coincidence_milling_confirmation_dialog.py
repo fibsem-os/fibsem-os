@@ -17,9 +17,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication, QPushButton
+from qtpy.QtWidgets import QApplication, QPushButton
 
 from fibsem.applications.autolamella.ui.coincidence.confirmation import (
     CoincidenceMillingConfirmationDialog,
@@ -72,7 +72,7 @@ def _dialog(stages=None, channel_name="GFP (488 nm)", lamella_name="01-calm-musk
 
 def _text(dialog) -> str:
     """Everything the dialog puts on screen, flattened."""
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     return "\n".join(label.text() for label in dialog.findChildren(QLabel))
 
