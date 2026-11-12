@@ -20,6 +20,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -47,6 +48,7 @@ from fibsem.util import timestamps
 __all__ = ["AGENT_NAME", "API_KEY", "GatewayAgent", "AgentState"]
 
 API_KEY = "ANTHROPIC_API_KEY"
+KEY_KEPT_S = 30.0
 # The agent's pairing, as the App Server's list of paired computers shows it.
 AGENT_NAME = "fibsem-agent (gateway)"
 SESSIONS_SHOWN = 5
@@ -128,14 +130,31 @@ def _spent(record: dict) -> Optional[float]:
     return round(sum(spent), 2) if spent else None
 
 
-def _why_not(record: dict, platform: str) -> Optional[str]:
+# Whether each working folder was there, and when that was read: the page
+# lists the sessions every 2 s, and a folder on a slow drive can take seconds.
+FOLDER_KEPT_S = 60.0
+_folders_seen: Dict[str, Tuple[float, bool]] = {}
+
+
+def _folder_there(cwd: str) -> bool:
+    """Whether *cwd* is a folder, as read in the last `FOLDER_KEPT_S`."""
+    seen = _folders_seen.get(cwd)
+    if seen is None or time.monotonic() - seen[0] > FOLDER_KEPT_S:
+        seen = (time.monotonic(), Path(cwd).is_dir())
+        _folders_seen[cwd] = seen
+    return seen[1]
+
+
+def _why_not(
+    record: dict, platform: str, is_dir: Callable[[str], bool] = os.path.isdir
+) -> Optional[str]:
     """Why the session can't be resumed here, or None when it can."""
     if not record.get("session_id"):
         return "It has no session id."
     if record.get("mode") == "code" and platform == "win32":
         return "It ran code, which has no sandbox on Windows."
     cwd = record.get("cwd")
-    if cwd and not Path(cwd).is_dir() and Path(cwd).name != RUN:
+    if cwd and not is_dir(cwd) and Path(cwd).name != RUN:
         return "Its working folder is gone."
     return None
 
@@ -169,7 +188,7 @@ def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
         "ended": ended,
         "gateway": bool(managed),
         "resumed": bool((managed.get("about") or {}).get("resumed")),
-        "cannot_resume": _why_not(record, platform),
+        "cannot_resume": _why_not(record, platform, _folder_there),
     }
 
 
@@ -206,6 +225,8 @@ class GatewayAgent:
         self._answers_by_flags: Dict[Tuple[str, ...], Tuple[Any, Any]] = {}
         self._environ = os.environ if environ is None else environ
         self._stored = stored
+        # Whether there is a key, and when that was read (the page's state).
+        self._key_seen: Optional[Tuple[float, bool]] = None
         self._platform = platform
         self.microscope = microscope or socket.gethostname()
         self._lock = threading.Lock()
@@ -242,7 +263,7 @@ class GatewayAgent:
         return AgentState(
             running=running,
             sessions=rows[:SESSIONS_SHOWN],
-            api_key=bool(self._api_key()),
+            api_key=self._has_key(),
             microscope=self.microscope,
         )
 
@@ -483,6 +504,14 @@ class GatewayAgent:
     def _api_key(self) -> Optional[str]:
         """The environment's key, else the stored one: read at each start."""
         return self._environ.get(API_KEY) or self._stored(API_KEY)
+
+    def _has_key(self) -> bool:
+        """Whether there is a key, read again after `KEY_KEPT_S`: the stored
+        one is a keyring lookup, too slow for every refresh of the page."""
+        seen = self._key_seen
+        if seen is None or time.monotonic() - seen[0] > KEY_KEPT_S:
+            seen = self._key_seen = (time.monotonic(), bool(self._api_key()))
+        return seen[1]
 
     def _pair(self) -> Dict[str, str]:
         """A fresh agent token, replacing any agent paired before, and the

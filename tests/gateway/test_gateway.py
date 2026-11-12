@@ -440,3 +440,43 @@ def test_a_recent_experiment_is_read_again_only_when_its_file_changes(
     os.utime(yaml_path, ns=(time.time_ns(), time.time_ns() + 10**9))
     assert module.recent_experiments()[0].name == "grid3-renamed"
     assert len(read) == 2
+
+
+def test_the_page_gets_the_facts_last_read_and_never_reads_the_drive(tmp_path):
+    reads = []
+    recent = [RecentExperiment("grid3", "/experiments/grid3", "AutoLamella")]
+
+    def slow_recent():
+        reads.append("recent")
+        if len(reads) > 1:
+            raise OSError("the drive went away")
+        return recent
+
+    gateway = Gateway(
+        home=tmp_path,
+        app_registry=lambda: {},
+        last=lambda: None,
+        recent=slow_recent,
+        new_folder=lambda: "/experiments",
+        configurations=lambda: [],
+        discovery=lambda: None,
+    )
+    assert gateway.state().recent_experiments == recent
+    gateway.state()
+    assert reads == ["recent"]
+    # a read that fails keeps the last value
+    gateway.refresh_facts()
+    assert reads == ["recent", "recent"]
+    assert gateway.state().recent_experiments == recent
+
+
+def test_the_history_reads_only_its_last_lines(tmp_path):
+    from fibsem.gateway.gateway import _tail
+
+    path = tmp_path / "history.jsonl"
+    path.write_text("".join(f'{{"n": {i}}}\n' for i in range(5000)))
+    assert _tail(path, 3) == ['{"n": 4997}', '{"n": 4998}', '{"n": 4999}']
+    path.write_text("a\nb\n")
+    assert _tail(path, 50) == ["a", "b"]
+    path.write_text("x" * 100_000 + "\nlast\n")
+    assert _tail(path, 2) == ["x" * 100_000, "last"]
