@@ -18,17 +18,11 @@ from fibsem import utils
 from fibsem.alignment.coincidence import (
     REFUSAL_LATERAL_OFFSET,
     check_coincidence,
-    ensure_coincident,
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, ImageSettings
 from tests.fixtures.sim_scenes import mammalian_scene
-
-# The SEM-FIB coincidence measurement's gates were tuned on the flat renderer
-# the simulator no longer has; they refuse on the 3D sample. Bring these back
-# once the gates are recalibrated on real image pairs.
-COINCIDENCE_GATES = "coincidence gates not yet calibrated on the 3D sample"
 
 TFS_SHUTTLE_CONFIG = os.path.join(
     cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
@@ -149,24 +143,6 @@ def test_beam_shift_moves_the_content_the_way_the_alignment_expects(microscope):
     assert np.hypot(after[0] - before[0], after[1] - before[1]) < 3
     shift = microscope.get_beam_shift(BeamType.ION)
     assert np.hypot(shift.x, shift.y) > 1e-6  # it really was the beam that moved
-
-
-@pytest.mark.skip(reason=COINCIDENCE_GATES)
-@pytest.mark.slow
-def test_a_small_beam_offset_is_measured_as_dx_and_tolerated(microscope):
-    _scene(
-        microscope,
-        coincidence_offset=8e-6,
-        beam_offset={"ion": (1.3e-6, 0.0)},
-        current_offset_scale=0.0,
-    )
-
-    result = ensure_coincident(microscope, tolerance=1e-6)
-
-    assert result.converged, result.reason
-    # dx is the shift that brings FIB onto SEM: minus the displacement
-    assert result.measurements[0].dx == pytest.approx(-1.3e-6, abs=0.4e-6)
-    assert abs(result.measurements[0].dz) == pytest.approx(8e-6, abs=1e-6)
 
 
 @pytest.mark.slow

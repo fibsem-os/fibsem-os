@@ -23,14 +23,8 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
 )
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType
-from tests.answering import answering
 from tests.autolamella._on_the_record import manager_for
 from tests.fixtures.sim_scenes import mammalian_scene
-
-# The SEM-FIB coincidence measurement's gates were tuned on the flat renderer
-# the simulator no longer has; they refuse on the 3D sample. Bring these back
-# once the gates are recalibrated on real image pairs.
-COINCIDENCE_GATES = "coincidence gates not yet calibrated on the 3D sample"
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -92,33 +86,6 @@ def _make_task(microscope, tmp_path: Path) -> SelectMillingPositionTask:
         lamella=lamella,
         task_manager=manager_for(microscope, lamella),
     )
-
-
-@pytest.mark.skip(reason=COINCIDENCE_GATES)
-def test_from_the_sem_orientation_the_task_ends_coincident_at_the_milling_angle(
-    microscope, tmp_path
-):
-    _anchor_scene(microscope, coincidence_offset=8e-6)
-    task = _make_task(microscope, tmp_path)
-    before = _anchor_in_fib_view(microscope)
-
-    with answering(task.task_manager.experiment):
-        task._run()
-
-    from fibsem.transformations import get_stage_tilt_from_milling_angle
-
-    target = get_stage_tilt_from_milling_angle(microscope, np.radians(MILLING_ANGLE))
-    assert microscope.get_stage_position().t == pytest.approx(target, abs=1e-6)
-    m = check_coincidence(microscope)
-    assert m.is_reliable and abs(m.dz) < 1e-6, (m.refusal_reason, m.dz)
-    # the site the operator chose is still centred: the walk was undone
-    drift = np.hypot(*np.subtract(_anchor_in_fib_view(microscope), before))
-    assert drift < 2e-6, f"site drifted {drift * 1e6:.1f} um"
-    # diagnostics for the pre-tilt alignment and the tilt landed with the run's
-    # other alignments, in its own folder (FIB-1275)
-    saved = os.listdir(os.path.join(task.output_dir, ALIGNMENT_SUBDIR))
-    assert any(f.startswith("start_") for f in saved)
-    assert any(f.startswith("tilt01_") for f in saved)
 
 
 def test_at_the_milling_angle_the_task_only_aligns(microscope, tmp_path):

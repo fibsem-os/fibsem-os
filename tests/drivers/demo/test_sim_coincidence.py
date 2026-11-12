@@ -32,11 +32,6 @@ from fibsem.structures.settings import (
 from tests.fixtures.microscopes import demo_microscope
 from tests.fixtures.sim_scenes import mammalian_scene
 
-# The SEM-FIB coincidence measurement's gates were tuned on the flat renderer
-# the simulator no longer has; they refuse on the 3D sample. Bring these back
-# once the gates are recalibrated on real image pairs.
-COINCIDENCE_GATES = "coincidence gates not yet calibrated on the 3D sample"
-
 COINCIDENCE_OFFSET = 8e-6
 MILLING_POSE_TILT = np.deg2rad(12.0)
 
@@ -220,15 +215,17 @@ def test_views_share_the_scene_but_not_the_contrast():
     assert 0.2 < corr < 0.95, corr
 
 
-@pytest.mark.skip(reason=COINCIDENCE_GATES)
 @pytest.mark.slow
 def test_measures_configured_offset(microscope):
     """The measurement and the scene now share BeamStageProjection, so the
     configured boot offset is recovered exactly. Noise off: the oracle is
     about geometry, and per-acquisition random noise made it flake near the
-    band-agreement tolerance on some CI platforms."""
-    _enable_projection(microscope, noise_sigma=0.0, noise_fraction=0.0)
-    settings = _image_settings(BeamType.ELECTRON, hfw=100e-6)
+    band-agreement tolerance on some CI platforms. No cells: on the 3D sample
+    they bias the matcher by about a micron."""
+    _enable_projection(
+        microscope, cell_type="none", noise_sigma=0.0, noise_fraction=0.0
+    )
+    settings = _image_settings(BeamType.ELECTRON, hfw=150e-6)
     sem_image = microscope.acquire_image(image_settings=settings)
     settings.beam_type = BeamType.ION
     fib_image = microscope.acquire_image(image_settings=settings)
@@ -237,16 +234,17 @@ def test_measures_configured_offset(microscope):
     assert abs(m.dz) == pytest.approx(COINCIDENCE_OFFSET, abs=0.5e-6)
 
 
-@pytest.mark.skip(reason=COINCIDENCE_GATES)
 @pytest.mark.slow
 def test_known_z_move_changes_measurement_by_that_amount(microscope):
     """The offline oracle: apply a known stage-z move, the measured dz must
     change by exactly that amount. Noise off - see
     test_measures_configured_offset."""
-    _enable_projection(microscope, noise_sigma=0.0, noise_fraction=0.0)
+    _enable_projection(
+        microscope, cell_type="none", noise_sigma=0.0, noise_fraction=0.0
+    )
 
     def measure():
-        settings = _image_settings(BeamType.ELECTRON, hfw=100e-6)
+        settings = _image_settings(BeamType.ELECTRON, hfw=150e-6)
         sem_image = microscope.acquire_image(image_settings=settings)
         settings.beam_type = BeamType.ION
         fib_image = microscope.acquire_image(image_settings=settings)

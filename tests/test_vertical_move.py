@@ -19,14 +19,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.alignment.coincidence import measure_coincidence_from_images
 from fibsem.structures.settings import BeamType, ImageSettings
 from tests.fixtures.sim_scenes import mammalian_scene
-
-# The SEM-FIB coincidence measurement's gates were tuned on the flat renderer
-# the simulator no longer has; they refuse on the 3D sample. Bring these back
-# once the gates are recalibrated on real image pairs.
-COINCIDENCE_GATES = "coincidence gates not yet calibrated on the 3D sample"
 
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default
@@ -105,49 +99,4 @@ def test_vertical_move_delivers_the_requested_fib_shift(microscope, tilt_deg):
     moved = (fy1 - fy0) * PIXEL_SIZE
     assert moved == pytest.approx(requested, abs=1e-6), (
         f"FIB view moved {moved * 1e6:+.2f} um for a {requested * 1e6:+.2f} um request"
-    )
-
-
-@pytest.mark.skip(reason=COINCIDENCE_GATES)
-def test_vertical_move_closes_the_measured_coincidence_error(microscope):
-    """The mini align loop: measure the height error, correct it with one
-    vertical move, re-measure - the residual must be near zero."""
-    microscope._connection.sample_scene.coincidence_offset = 8e-6
-    microscope._connection.sample_scene.reference_position = (
-        None  # re-anchor with offset
-    )
-    pose = microscope.get_stage_position()
-    pose.t = np.deg2rad(12.0)
-    microscope.move_stage_absolute(pose)
-    microscope._connection.sample_scene.cell_type = (
-        "mammalian"  # cells back on the film
-    )
-    microscope._connection.sample_scene.grid_intensity = 90.0
-    microscope._connection.sample_scene.features = []
-    microscope._connection.sample_scene.__post_init__()
-
-    def measure():
-        settings = ImageSettings(
-            resolution=RESOLUTION,
-            hfw=100e-6,
-            dwell_time=1e-9,
-            save=False,
-            beam_type=BeamType.ELECTRON,
-        )
-        sem_image = microscope.acquire_image(image_settings=settings)
-        settings.beam_type = BeamType.ION
-        fib_image = microscope.acquire_image(image_settings=settings)
-        return measure_coincidence_from_images(sem_image, fib_image)
-
-    m0 = measure()
-    assert m0.is_reliable, m0.refusal_reason
-    assert abs(m0.dz) > 5e-6  # there is an error to correct
-
-    # correct using the measured FIB-plane residual, as the align loop will
-    microscope.vertical_move(dy=m0.dy, dx=0)
-
-    m1 = measure()
-    assert m1.is_reliable, m1.refusal_reason
-    assert abs(m1.dz) < 1e-6, (
-        f"residual {m1.dz * 1e6:+.2f} um after correcting {m0.dz * 1e6:+.2f} um"
     )

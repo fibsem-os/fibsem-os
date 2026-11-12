@@ -324,8 +324,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
   per view). The fluorescence view is stamped per frame, about 0.4 s.
 - The SEM to FIB coincidence measurement (an option, off in the workflow by default) was
   calibrated on an older, flat renderer. On the 3D sample its gates refuse many correct
-  measurements, and the holey film's 4 um lattice can alias it; its tests are skipped
-  until the gates are recalibrated on real image pairs.
+  measurements, cells bias it by about a micron, and the holey film's 4 um lattice can
+  alias it. Its simulator tests measure on a scene without cells.
 - The scene is generated fresh from its seed on every connect. The same seed gives the
   same grid; milled trenches do not survive a reconnect.
 
