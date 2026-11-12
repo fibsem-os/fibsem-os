@@ -58,6 +58,11 @@ MATERIAL = {
     COAT: (1.08, 1.35),
     NOTHING: (0.04, 0.03),
 }
+# a GIS coat seen edge-on, along the top of a cut face: the metal in it
+# makes it the brightest band on the face, in both beams
+COAT_EDGE = (1.6, 1.7)
+# how much brighter (SEM, FIB) ice or a coat reads over a grid bar
+BAR_UNDER = (0.25, 0.25)
 BRIGHTNESS = 115.0  # grey level of plain ice
 CACHE_SIZE = 8
 
@@ -170,6 +175,30 @@ def fbm(x, y, scales, amps, seed, finest=0.0):
 
 
 # --------------------------------------------------------------------- heights
+def _gauss(a: np.ndarray, sigma) -> np.ndarray:
+    """A gaussian blur (sigma in samples, per axis) that stays cheap when it
+    is wide: an axis blurred by more than a few samples is block-averaged,
+    blurred at sigma / step and scaled back, which a blur that wide cannot
+    tell from the direct one."""
+    a = np.asarray(a)
+    sig = np.broadcast_to(np.asarray(sigma, dtype=float), (a.ndim,))
+    steps = tuple(int(min(16, s // 4)) if s >= 8 else 1 for s in sig)
+    if all(st == 1 for st in steps):
+        return ndi.gaussian_filter(a, tuple(sig))
+    pad = [(0, (-n) % st) for n, st in zip(a.shape, steps)]
+    work = np.pad(a.astype(np.float32, copy=False), pad, mode="edge")
+    shape = []
+    for n, st in zip(work.shape, steps):
+        shape += [n // st, st]
+    small = work.reshape(shape).mean(axis=tuple(range(1, 2 * a.ndim, 2)))
+    small = ndi.gaussian_filter(small, tuple(s / st for s, st in zip(sig, steps)))
+    # back to the samples: each block's value sits at its centre
+    coords = [(np.arange(n) - (st - 1) / 2) / st for n, st in zip(a.shape, steps)]
+    grid = np.meshgrid(*coords, indexing="ij")
+    out = ndi.map_coordinates(small, grid, order=1, mode="nearest")
+    return out.astype(a.dtype if a.dtype.kind == "f" else np.float32)
+
+
 def _feature_height(f) -> float:
     """How tall a feature stands (um): its own height when it has one, else
     from what it is and its size."""
@@ -192,17 +221,86 @@ def _feature_height(f) -> float:
 def surface(
     scene: "SampleScene", x: np.ndarray, y: np.ndarray, step: Tuple[float, float]
 ):
-    """Height (um), material, the height each column's material starts at, and
-    which samples a milling cut made, on a grid of world points (x, y) in um
-    (x varying along columns, y along rows). `step` is the sampling along
-    (columns, rows) in um, for the smoothing."""
+    """Height (um), material, the height each column's material starts at,
+    which samples a milling cut made, the curtaining per column, and how far
+    each cut sample was lowered, on a grid of world points (x, y) in um (x
+    varying along columns, y along rows). `step` is the sampling along
+    (columns, rows) in um, for the smoothing.
+
+    The sample before milling is worked out once per grid of points and
+    kept; milling then cuts only the patterns added since the last call, so
+    a view imaged again after another pass costs only the new cut."""
+    base = _unmilled_cached(scene, x, y, step)
+    h, mat, bottom = base["h"], base["mat"], base["bottom"]
+    if not scene.milled:
+        return h, mat, bottom, None, base["curtain"], None
+    top, floor, cut = _mill(scene, x, y, base)
+    mat = mat.copy()
+    mat[top <= VOID / 2] = NOTHING
+    below = (h - top).astype(np.float32)
+    return (
+        top.astype(np.float32),
+        mat,
+        floor.astype(np.float32),
+        cut,
+        base["curtain"],
+        below,
+    )
+
+
+def _unmilled_cached(scene, x, y, step) -> dict:
+    sx, sy = step
+    key = (
+        "unmilled",
+        scene.seed,
+        x.shape,
+        round(float(x[0, 0]), 4),
+        round(float(x[0, -1]), 4),
+        round(float(y[0, 0]), 4),
+        round(float(y[-1, 0]), 4),
+        round(float(sx), 6),
+        round(float(sy), 6),
+        round(scene.gis_thickness * UM, 4),
+        round(float(scene.curtaining), 4),
+        len(scene.features),
+        id(scene.features),
+    )
+    cache = _cache(scene)
+    base = cache.get(key)
+    if base is None:
+        h, mat, bottom, specks, bar = _unmilled(scene, x, y, step)
+        h = h.astype(np.float32)
+        base = {
+            "bar": bar,
+            "h": h,
+            "mat": mat,
+            "bottom": bottom.astype(np.float32),
+            "curtain": _curtain(scene, x, h, specks, sx),
+            # the level a pattern's depth is measured from: the surface with
+            # its small bumps smoothed away, so a floor comes out flat, not a
+            # lowered copy of the top
+            "level": _smooth_top(
+                h, (FLOOR_SMOOTH / max(sy, 1e-3), FLOOR_SMOOTH / max(sx, 1e-3))
+            ),
+        }
+        cache[key] = base
+        while len(cache) > CACHE_SIZE:
+            cache.popitem(last=False)
+    else:
+        cache.move_to_end(key)
+    return base
+
+
+def _unmilled(scene, x, y, step):
+    """The sample before any milling: height, material, bottom and the
+    specks on top (for the curtaining)."""
     bars, holes, rips, rim, beyond = scene.film_masks(x / UM, y / UM)
     shape = x.shape
     mat = np.zeros(shape, dtype=np.uint8)
     sx, sy = step
     # the film lies over the bars: their tops stand a little proud, rounded
     metal = (bars | rim).astype(np.float32)
-    h = BAR_TOP * ndi.gaussian_filter(metal, (2.0 / sy, 2.0 / sx))
+    h = BAR_TOP * _gauss(metal, (2.0 / sy, 2.0 / sx))
     mat[bars | rim] = METAL
     # the ring pressed into the grid's orientation mark
     h -= scene.centre_mark_groove(x / UM, y / UM) * UM * bars
@@ -305,9 +403,9 @@ def surface(
             x, y, (3.0, 1.0, 0.35), (0.12, 0.07, 0.04), seed + 5, 2 * min(sx, sy)
         )
         texture = np.where(lift > 0.05, texture, 0)
-        soft = ndi.gaussian_filter(lift, (ICE_BLANKET / sy, ICE_BLANKET / sx))
+        soft = _gauss(lift, (ICE_BLANKET / sy, ICE_BLANKET / sx))
         # fine things (a neurite, a granule) keep their shape through it
-        fine = np.clip(lift - ndi.gaussian_filter(lift, (1.0 / sy, 1.0 / sx)), 0, None)
+        fine = np.clip(lift - _gauss(lift, (1.0 / sy, 1.0 / sx)), 0, None)
         h = h + np.maximum(0.2 * lift + soft, 0) + 0.6 * fine + 0.3 * texture
         # a cell covers the holes under it: no dip shows through
         h = h + 0.12 * rim_dip * np.clip(lift / 0.3, 0, 1)
@@ -320,7 +418,7 @@ def surface(
     if plate.any():
         # an ice plate lies on the film: flat on top, the holes and the
         # film's ripple under it hidden
-        level = ndi.gaussian_filter(h, (3.0 / sy, 3.0 / sx))
+        level = _gauss(h, (3.0 / sy, 3.0 / sx))
         h = h + plate * (level - h)
     h = h + specks
     mat[crystal & solid] = CRYSTAL
@@ -331,7 +429,7 @@ def surface(
         # the GIS lays an organometallic coat over everything: it fills the
         # fine detail in, so the top is smoother, and covers what it lies on
         sm = max(gis, 0.3)
-        smooth = ndi.gaussian_filter(h, (sm / sy, sm / sx))
+        smooth = _gauss(h, (sm / sy, sm / sx))
         h = np.maximum(h, smooth) + gis
         if gis >= 0.2:
             mat[solid & (mat != NOTHING)] = COAT
@@ -346,14 +444,8 @@ def surface(
     h = np.where(beyond, -30.0, h)
     bottom = np.where(beyond, -60.0, bottom)
 
-    cut = None
-    curtain = np.zeros(shape[1], dtype=np.float32)
-    if scene.milled:
-        curtain = _curtain(scene, x, h, specks, sx)
-        h, bottom, cut = _mill(scene, x, y, h, bottom)
-        mat[h <= VOID / 2] = NOTHING
     del base
-    return h.astype(np.float32), mat, bottom.astype(np.float32), cut, curtain
+    return h, mat, bottom, specks, bars | rim
 
 
 def _curtain(scene, x, h, specks, sx):
@@ -377,30 +469,39 @@ def _curtain(scene, x, h, specks, sx):
 def _smooth_top(h, sigma):
     """Smooth the solid top, leaving out the holes (VOID)."""
     solid = (h > VOID / 2).astype(np.float32)
-    num = ndi.gaussian_filter(np.where(solid > 0, h, 0.0), sigma)
-    den = ndi.gaussian_filter(solid, sigma)
+    num = _gauss(np.where(solid > 0, h, 0.0), sigma)
+    den = _gauss(solid, sigma)
     return np.where(den > 1e-3, num / np.maximum(den, 1e-3), h)
 
 
-def _mill(scene, x, y, h, bottom):
+def _mill(scene, x, y, base: dict):
     """Cut each milled pattern along the beam that milled it.
 
     A column of sample runs from `bottom` up to `h`, and a pattern removes the
     heights that project into it. What is left above a pattern stays and the
     column's floor rises to it (a lamella, or an overhang); a pattern that
     reaches the top lowers the top instead. One piece per column is kept, the
-    top one: what is below it is hidden from above."""
-    top = h.copy()
-    floor = bottom.copy()
-    lowered = np.zeros(h.shape, dtype=bool)
-    stopped = np.zeros(h.shape, dtype=bool)
-    # the level a pattern's depth is measured from: the surface with its
-    # small bumps smoothed away, so a floor comes out flat, not a lowered
-    # copy of the top
-    sx = abs(float(x[0, 1] - x[0, 0])) if x.shape[1] > 1 else 1.0
-    sy = abs(float(y[1, 0] - y[0, 0])) if y.shape[0] > 1 else 1.0
-    level = _smooth_top(h, (FLOOR_SMOOTH / max(sy, 1e-3), FLOOR_SMOOTH / max(sx, 1e-3)))
-    for region in scene.milled:
+    top one: what is below it is hidden from above. The state after the
+    patterns already cut is kept in `base`, so only new ones are cut."""
+    done = base.get("milled")
+    regions = list(scene.milled)
+    if (
+        done is None
+        or len(done["regions"]) > len(regions)
+        or any(a is not b for a, b in zip(done["regions"], regions))
+    ):
+        h = base["h"]
+        done = {
+            "regions": [],
+            "top": h.copy(),
+            "floor": base["bottom"].copy(),
+            "lowered": np.zeros(h.shape, dtype=bool),
+            "stopped": np.zeros(h.shape, dtype=bool),
+        }
+    top, floor = done["top"], done["floor"]
+    lowered, stopped = done["lowered"], done["stopped"]
+    level = base["level"]
+    for region in regions[len(done["regions"]) :]:
         a, b = _cut_range(scene, region, x, y, top)
         # a pattern cuts only as deep as it was set to: a floor is left
         # where that is short of the bottom
@@ -412,8 +513,15 @@ def _mill(scene, x, y, h, bottom):
         floor = np.where(above, b, floor)
         drop = meets & ~above
         top = np.where(drop, np.maximum(a, floor), top)
-        lowered |= drop
+        lowered = lowered | drop
         stopped = np.where(drop, short, stopped)
+    base["milled"] = {
+        "regions": regions,
+        "top": top,
+        "floor": floor,
+        "lowered": lowered,
+        "stopped": stopped,
+    }
     gone = top <= floor + 1e-6
     top = np.where(gone, VOID, top)
     # 1 = a face the beam cut through, 2 = a floor it stopped short at
@@ -430,9 +538,13 @@ def _cut_range(scene, region, x, y, top=None):
         # a region with no beam (a spot burn): straight down through it
         inside = scene._polygon_mask(region.points * UM, x, y)
         return np.where(inside, -1e3, 1.0), np.where(inside, 1e3, 0.0)
-    u = cut.turn * x
     w0 = cut.turn * y * cut.fs
-    lo, hi = polygon_span(cut.polygon, u)
+    if x.ndim == 2 and x.shape[0] > 1 and np.array_equal(x[0], x[-1]):
+        # a grid: every row has the same columns, so one row's span does
+        lo, hi = polygon_span(cut.polygon, cut.turn * x[0])
+        lo, hi = np.broadcast_to(lo, x.shape), np.broadcast_to(hi, x.shape)
+    else:
+        lo, hi = polygon_span(cut.polygon, cut.turn * x)
     if abs(cut.k) < 1e-6:
         inside = (w0 >= lo) & (w0 <= hi)
         return np.where(inside, -1e3, 1.0), np.where(inside, 1e3, 0.0)
@@ -533,10 +645,11 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     if hit is None:
         gx, gy = np.meshgrid(xw, yw)
         hit = surface(scene, gx, gy, (pix, dy))
+        hit = (*hit, _unmilled_cached(scene, gx, gy, (pix, dy))["bar"])
         cache[key] = hit
         while len(cache) > CACHE_SIZE:
             cache.popitem(last=False)
-    h, mat, bottom, cut, curtain = hit
+    h, mat, bottom, cut, curtain, below, bar = hit
     which = 0 if beam == "SEM" else 1
 
     # shading from the surface normal: SE yield rises as the beam meets it
@@ -549,6 +662,12 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     mat_y = np.zeros(h.shape, dtype=np.float32)
     for m, v in MATERIAL.items():
         mat_y[mat == m] = v[which]
+    # a bar under thin ice or a coat still shows: the ice over it is thinner
+    # and the metal below gives more signal (less through a cell)
+    over = bar & (mat != METAL) & (mat != NOTHING)
+    if over.any():
+        through = np.where(mat == CELL, 0.3, 1.0)
+        mat_y = mat_y * (1 + BAR_UNDER[which] * over * through)
     box = (max(1, int(3.5 / dy)), max(1, int(3.5 / pix)))
     smooth = ndi.uniform_filter(ndi.uniform_filter(hs, box), box)
     occl = np.clip(1 + 0.25 * np.tanh((hs - smooth) / 0.6), 0.6, 1.3)
@@ -559,12 +678,14 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         mat_y = mat_y * (1 + 0.12 * (1 - np.exp(-scene.sputter_thickness / 5e-9)))
     # what charges in the SEM: what stands up off the film (cells, plates,
     # beads), the thicker the more
-    rel = hs - ndi.gaussian_filter(hs, (15.0 / dy, 15.0 / pix))
+    rel = hs - _gauss(hs, (15.0 / dy, 15.0 / pix))
     insulator = np.isin(mat, (CELL, CRYSTAL, SPHERE)) | ((mat == COAT) & (rel > 0.3))
     q = np.clip(np.maximum(rel / 1.5, 0.7 * insulator), 0, 1)
-    q = ndi.gaussian_filter(q * (mat != NOTHING), (1.0 / dy, 1.0 / pix))
+    q = _gauss(q * (mat != NOTHING), (1.0 / dy, 1.0 / pix))
     if cut is not None:
         q[cut > 0] = 0.0
+    # the bar below carries the charge away
+    q = q * np.where(bar, 0.5, 1.0)
     if beam == "SEM":
         # the in-chamber detector sits off to one side: faces toward it are brighter
         toward = (-gx_ * 0.5 - gy_ * 0.6 + 0.6) / norm
@@ -578,13 +699,15 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     if cut is not None:
         # a floor a pattern stopped short at keeps the surface it was cut
         # from, lower and a little darker (fewer electrons get out); a face
-        # the beam cut through is smooth and carries the curtaining stripes
+        # the beam cut through is smooth and carries the curtaining
         solid = mat != NOTHING
         floor = (cut == 2) & solid
         face = (cut == 1) & solid
-        stripes = np.broadcast_to(1 + curtain[None, :], shade.shape)
         shade[floor] = 0.7 * shade[floor]
-        shade[face] = 0.6 * MATERIAL[ICE][which] * stripes[face]
+        r, c = np.nonzero(face)
+        shade[face] = _face(
+            scene, which, 0.6 * MATERIAL[ICE][which], curtain[c], xw[c], below[r, c]
+        )
     shade[mat == NOTHING] = MATERIAL[NOTHING][which]
 
     # project: the first sample along the beam to reach a row is what it shows
@@ -597,8 +720,11 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
     out = np.empty((n_rows, len(u)), dtype=np.float32)
     out_q = np.zeros((n_rows, len(u)), dtype=np.float32)
     slack = dy * fs / pix + 1.0
-    wall = 0.8 * mat_y * (1 + curtain[None, :])
+    # a wall shows what the column is made of; under a GIS coat that is ice
+    under = np.where(mat == COAT, MATERIAL[ICE][which], mat_y)
     void = MATERIAL[NOTHING][which]
+    side_k = np.zeros((n_rows, len(u)), dtype=np.int64)
+    side_m = np.zeros((n_rows, len(u)), dtype=bool)
     for c in range(len(u)):
         idx = np.searchsorted(top[:, c], rows)
         seen = idx < len(Y)
@@ -609,12 +735,42 @@ def _canvas(scene, beam, frame: ViewFrame, u, w, pix):
         # below a sample's own top the row sees its side - a wall facing
         # the beam (a bar through a tear, a trench's far wall): one even tone
         side = rows < rows_s[kk, c] - slack
-        value = np.where(side, wall[kk, c], shade[kk, c])
-        out[:, c] = np.where(seen & solid, value, void)
+        out[:, c] = np.where(seen & solid, shade[kk, c], void)
         out_q[:, c] = np.where(seen & solid & ~side, q[kk, c], 0.0)
+        side_k[:, c] = kk
+        side_m[:, c] = side & seen & solid
+    if side_m.any():
+        out[side_m] = _wall(
+            scene, which, side_k, side_m, rows_s, rows, under, curtain, xw, pix, kabs
+        )
     if sigma < 0:
         out, out_q = out[::-1], out_q[::-1]
     return out, out_q
+
+
+def _wall(scene, which, side_k, side_m, rows_s, rows, under, curtain, xw, pix, kabs):
+    """The rows that see a wall straight on (a trench's far wall, a
+    lamella's face), from how far below the wall's top edge each looks."""
+    r, c = np.nonzero(side_m)
+    kk = side_k[r, c]
+    z = (rows_s[kk, c] - rows[r]) * pix / max(kabs, 1e-3)
+    return _face(scene, which, 0.8 * under[kk, c], curtain[c], xw[c], z)
+
+
+def _face(scene, which, base, curtain, x, z):
+    """The tone of points on a cut face, `z` um below its top edge at world
+    x (um): curtains start under the top and fade down the face, each its
+    own length, and a GIS coat is a bright band along the top."""
+    seed = int(scene.seed)
+    reach = 1.0 + 3.0 * (1 + value_noise(x * 4.0, np.zeros_like(x), 1.0, seed + 91))
+    waver = value_noise(x * 12.0, z, 1.5, seed + 89)
+    run = np.exp(-z / reach) * np.clip(0.4 + 1.2 * waver, 0.0, 1.5)
+    value = base * (1 + curtain * run)
+    gis = scene.gis_thickness * UM
+    if gis > 0:
+        band = np.clip((gis - z) / 0.05 + 0.5, 0.0, 1.0)
+        value = value + band * (COAT_EDGE[which] - value)
+    return value
 
 
 def _finish(scene, img, rng, q=None, charge=0.0):
@@ -638,6 +794,44 @@ def _finish(scene, img, rng, q=None, charge=0.0):
         counts = 30.0 * (12.0 / max(scene.noise_sigma, 1.0)) ** 2
         img = rng.poisson(np.clip(img, 0, None) * counts) / counts
     return np.clip(img * BRIGHTNESS, 0, 255).astype(np.uint8)
+
+
+# reflected light: ice and the film under it make a thin film, so thickness
+# reads as fringes; their period in thickness is wavelength / (2 n)
+FRINGE_PERIOD = 0.21  # um, 550 nm light in ice (n = 1.31)
+FRINGE_FADE = 0.8  # um; through thicker ice the fringes wash out
+REFLECTANCE = {METAL: 1.0, CRYSTAL: 1.15, SPHERE: 1.2, HOLDER: 0.2, NOTHING: 0.0}
+
+
+def reflectance(scene, x: np.ndarray, y: np.ndarray, step: Tuple[float, float]):
+    """What the FM sees in reflected light on a grid of world points (um),
+    relative to a grid bar: the bars bright; the ice grey, in fringes as its
+    thickness changes (over a cell, round its edge, down a lamella); steep or
+    rough ice scattering the light away, so cells read dark and textured;
+    what is milled through, nothing."""
+    h, mat, bottom, _, _, below = surface(scene, x, y, step)
+    sx, sy = step
+    seed = int(scene.seed)
+    solid = h > VOID / 2
+    # the ice's own thickness, plus a slow swell across a square
+    swell = 0.15 * (1 + value_noise(x, y, 40.0, seed + 301))
+    thick = np.clip(h - bottom, 0, None) + swell
+    fringe = 0.5 + 0.5 * np.cos(2 * np.pi * thick / FRINGE_PERIOD)
+    out = 0.35 + 0.3 * fringe * np.exp(-thick / FRINGE_FADE)
+    gy, gx = np.gradient(np.where(solid, h, 0.0), sy, sx)
+    slope = np.hypot(gx, gy)
+    out = out / (1 + (slope / 0.4) ** 2)
+    out = out * (1 + 0.15 * value_noise(x, y, 0.6, seed + 302) * (mat == CELL))
+    out[mat == HOLE] *= 0.85
+    scatter = 1 / (1 + (slope / 0.4) ** 2)
+    if below is not None:
+        # a milled floor is rough: it scatters more of the light away
+        scatter = scatter * np.where(below > 0.05, 0.5, 1.0)
+    for m, v in REFLECTANCE.items():
+        # bright, but a pit milled in it (a spot burn on a bar) still shows
+        out[mat == m] = v * scatter[mat == m]
+    out[~solid] = 0.0
+    return out.astype(np.float32)
 
 
 def _cache(scene) -> "OrderedDict":

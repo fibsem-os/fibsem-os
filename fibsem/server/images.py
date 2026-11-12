@@ -232,7 +232,9 @@ def image_list_from_bytes(content: bytes):
                 return None
             if isinstance(item, list):
                 return [images(i) for i in item]
-            return FibsemImage.load(io.BytesIO(archive.read(f"{item}.tif")))
+            image = FibsemImage.load(io.BytesIO(archive.read(f"{item}.tif")))
+            image.filepath = None  # saved nowhere here yet
+            return image
 
         return images(json.loads(archive.read("layout.json")))
 

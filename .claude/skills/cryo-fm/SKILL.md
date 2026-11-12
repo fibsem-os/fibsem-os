@@ -30,8 +30,11 @@ The devices, by their names in `device_list`:
   gives a usable image: light bleaches the sample.
 - One image: `device_call_command` device=fm command=acquire_frame. It answers
   the image's summary and a preview you can look at, saved with the experiment.
-- A z-stack: `acquire_z_stack`. It moves the objective through focus and takes
-  a while; `cancel` stops it.
+- A z-stack: `acquire_z_stack` with kwargs `channels` (each
+  `{"name", "excitation_wavelength", "power", "exposure_time"}`, the wavelength
+  one of `filter_set`'s choices), `positions` (objective positions in metres)
+  and `restore_position` (where focus goes back to). It takes a while;
+  `cancel`, with a reason, stops it.
 - Look at every image before you act on it. Judge it only once its focus and
   brightness are good enough; fix them first.
 

@@ -12,7 +12,8 @@ Answer shapes (``answer.json``):
 - polishing_stop: ``{"passes": [{"name", "decision": "carry_on"|"stop", "reason"}, ...]}``
 - target_present: ``{"present": {"<pass>": true|false, ...}}``
 - square_finding: ``{"squares": [{"x_px", "y_px"}, ...], "pitch_px", "angle_deg"}``
-- square_quality: ``{"labels": {"<square>": "<label>", ...}}``
+- square_quality: ``{"labels": {"<square>": {"site": "good|bad", "reasons":
+  [...]}, ...}}`` (an old ``"<label>"`` per square is still read)
 
 A case with parts is answered as ``{"parts": {"a": {...}, "b": {...}}}``.
 """
@@ -23,12 +24,16 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
+from PIL import Image
+
 from fibsem.ai.evals.cases import (
-    SQUARE_LABELS,
+    SITES,
+    SQUARE_REASONS,
     Case,
-    accepted_labels,
     pass_names,
     pixel_size_um,
+    square_call,
     stop_passes,
 )
 
@@ -61,13 +66,26 @@ ANSWER_SHAPES: Dict[str, Any] = {
         "angle_deg": 0,
         "reason": "...",
     },
+    "setup_placement": {"x_px": 0, "y_px": 0, "reason": "..."},
     "square_quality": {
-        "labels": {"<square>": " | ".join(SQUARE_LABELS)},
+        "labels": {
+            "<square>": {"site": " | ".join(SITES), "reasons": list(SQUARE_REASONS)}
+        },
         "reason": "...",
     },
 }
 # What an answer's fields mean, where the shape alone leaves it open.
 ANSWER_NOTES = {
+    "square_quality": (
+        "site is whether you would put a lamella in the square: good or bad. "
+        "reasons lists what you see that matters, from those shown (any that "
+        "apply, or none); a good site can have reasons too, such as cells "
+        "near a bar with room left for a lamella."
+    ),
+    "setup_placement": (
+        "x_px, y_px is the lamella's centre on the FIB image; the trenches sit "
+        "above and below it as the protocol sets."
+    ),
     "square_finding": (
         "pitch_px is the centre-to-centre distance between neighbouring "
         "squares along a grid bar (not along the image's x or y); angle_deg "
@@ -381,29 +399,48 @@ def score_square_finding(
 def score_square_quality(
     case: Case, answer: Dict[str, Any], key: Dict[str, Any]
 ) -> tuple:
+    """The headline is the site call, good or bad, against the key; the
+    reasons are scored apart (recall and precision over every square) and
+    never decide the headline."""
     labels = answer.get("labels")
     if not isinstance(labels, dict):
         raise InvalidAnswer("no labels map")
     said = {}
     for name, value in labels.items():
-        label = value.get("label") if isinstance(value, dict) else value
-        label = str(label).strip().lower().replace(" ", "_")
-        if label not in SQUARE_LABELS:
-            raise InvalidAnswer(f"square {name}: {label!r} is not a label")
-        said[str(name)] = label
+        call = square_call(value)
+        old = not (isinstance(value, dict) and "site" in value)
+        if old and not set(call["reasons"]) <= set(SQUARE_REASONS):
+            raise InvalidAnswer(f"square {name}: {value!r} is not a label")
+        if len(call["sites"]) != 1 or call["sites"][0] not in SITES:
+            raise InvalidAnswer(
+                f"square {name}: site {call['sites']} is not good or bad"
+            )
+        said[str(name)] = call
     # Calling these good sends a lamella to a square that can't hold one.
-    never_good = case.scoring.get("unsafe_if_called_good", ["damaged"])
+    never_good = set(case.scoring.get("unsafe_if_called_good", ["damaged", "thick"]))
     right, wrong, unanswered, unsafe = 0, {}, [], []
-    for name, expected in key["labels"].items():
-        name, expected = str(name), accepted_labels(expected)
+    found = expected_reasons = given_reasons = 0
+    for name, entry in key["labels"].items():
+        name, want = str(name), square_call(entry)
         if name not in said:
             unanswered.append(name)
-        elif said[name] in expected:
+            expected_reasons += len(want["reasons"])
+            continue
+        got = said[name]
+        site = got["sites"][0]
+        if site in want["sites"]:
             right += 1
         else:
-            wrong[name] = {"said": said[name], "key": " | ".join(expected)}
-            if said[name] == "good" and set(expected) & set(never_good):
+            wrong[name] = {
+                "said": site,
+                "key": " | ".join(want["sites"]),
+                "key_reasons": want["reasons"],
+            }
+            if site == "good" and set(want["reasons"]) & never_good:
                 unsafe.append(name)
+        found += len(set(got["reasons"]) & set(want["reasons"]))
+        expected_reasons += len(set(want["reasons"]))
+        given_reasons += len(set(got["reasons"]))
     total = len(key["labels"])
     accuracy = right / total if total else 0.0
     details = {
@@ -413,11 +450,47 @@ def score_square_quality(
         "wrong": wrong,
         "unanswered": unanswered,
         "unsafe": unsafe,
+        "reasons_recall": round(found / expected_reasons, 3)
+        if expected_reasons
+        else None,
+        "reasons_precision": round(found / given_reasons, 3) if given_reasons else None,
     }
     if unsafe:
         return "unsafe", details
     hit = accuracy >= float(case.scoring.get("min_accuracy", 0.8))
     return ("hit" if hit else "miss"), details
+
+
+def _mask(case: Case, rel: str) -> np.ndarray:
+    with Image.open(case.path / rel) as image:
+        return np.asarray(image.convert("L")) > 0
+
+
+def score_setup_placement(
+    case: Case, answer: Dict[str, Any], key: Dict[str, Any]
+) -> tuple:
+    """Hit when the lamella's centre is where the whole lamella sits on the
+    target with both trenches clear (``ok_mask``); unsafe where a trench cuts
+    a bar or the lamella misses every cell (``unsafe_mask``); else a miss."""
+    x, y = _point(answer)
+    ok, unsafe = _mask(case, key["ok_mask"]), _mask(case, key["unsafe_mask"])
+    size = float(pixel_size_um(case))
+    target = key["target_px"]
+    details: Dict[str, Any] = {
+        "to_target_um": round(math.hypot(x - target["x"], y - target["y"]) * size, 3)
+    }
+    col, row = int(round(x)), int(round(y))
+    inside = 0 <= row < ok.shape[0] and 0 <= col < ok.shape[1]
+    if not inside:
+        details["outside_image"] = True
+        return "miss", details
+    rows, cols = np.nonzero(ok)
+    if rows.size:
+        nearest = np.hypot(cols - x, rows - y).min()
+        details["to_ok_um"] = round(float(nearest) * size, 3)
+    if ok[row, col]:
+        return "hit", details
+    return ("unsafe" if unsafe[row, col] else "miss"), details
 
 
 SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
@@ -428,6 +501,7 @@ SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
     "target_present": score_target_present,
     "square_finding": score_square_finding,
     "square_quality": score_square_quality,
+    "setup_placement": score_setup_placement,
 }
 
 

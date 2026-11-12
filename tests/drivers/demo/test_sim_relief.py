@@ -147,7 +147,7 @@ def test_rpe_and_neuron_cells_grow_and_stand_up(cell_type):
     xa = body.x * 1e6 + np.arange(-20, 20, 0.5)
     ya = body.y * 1e6 + np.arange(-20, 20, 0.5)
     x, y = np.meshgrid(xa, ya)
-    h, _, _, _, _ = sim_relief.surface(scene, x, y, (0.5, 0.5))
+    h, _, _, _, _, _ = sim_relief.surface(scene, x, y, (0.5, 0.5))
     assert h[40, 40] - np.median(h) > 0.5
 
 
@@ -163,7 +163,7 @@ def test_ice_plates_frost_and_spheres():
     xa = ball.x * 1e6 + np.arange(-5, 5, 0.1)
     ya = ball.y * 1e6 + np.arange(-5, 5, 0.1)
     x, y = np.meshgrid(xa, ya)
-    h, mat, _, _, _ = sim_relief.surface(scene, x, y, (0.1, 0.1))
+    h, mat, _, _, _, _ = sim_relief.surface(scene, x, y, (0.1, 0.1))
     assert mat[50, 50] == sim_relief.SPHERE
     assert h[50, 50] - np.median(h) > 0.5 * ball.sigma * 1e6
     assert sim_relief.MATERIAL[sim_relief.SPHERE][0] < 0.5
@@ -275,3 +275,208 @@ def test_a_thin_lamella_can_be_damaged(microscope):
     assert started["kind"] in ("ragged", "crack", "broken")
     _lamella(microscope, 0.25e-6, height=0.375e-6)
     assert scene.mill_passes[-1]["damage"]["severity"] == 2
+
+
+def test_centriole_pairs_are_sharp_at_their_height():
+    """A centriole pair is recorded with its midpoint and height, renders
+    brightest in the plane at that height, and the camera's hot pixels sit
+    on the same pixels, as bright, in every frame."""
+    from fibsem.drivers.demo.sim_scene import fm_channel_weights
+    from fibsem.geometry.projection import FMStageProjection
+
+    with_none = SampleScene(cell_type="rpe", fm_no_target_chance=1.0, seed=5)
+    assert with_none.fm_targets() == []
+    scene = SampleScene(cell_type="rpe", fm_no_target_chance=0.0, seed=5)
+    target = min(scene.fm_targets(), key=lambda t: np.hypot(*t["midpoint"][:2]))
+    (x0, y0, z0), (x1, y1, z1) = target["pair"]
+    assert 0.7e-6 < np.hypot(x1 - x0, y1 - y0) < 1.3e-6
+    mx, my, mz = target["midpoint"]
+    for g in scene.features:
+        g.x, g.y = g.x - mx, g.y - my
+    for spot in scene.fm_spots:
+        spot["pair"] = [(x - mx, y - my, z) for x, y, z in spot["pair"]]
+        x, y, z, sigma = spot["pool"]
+        spot["pool"] = (x - mx, y - my, z, sigma)
+
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
+    )
+    try:
+        microscope.system.sim["sample"] = {"enabled": True}
+        microscope._connection.setup_sample_scene()
+        pose = microscope._connection.scene_stage_position_at_fm()
+        scene.anchor(pose)
+        live = FMStageProjection.from_microscope(microscope)
+        projection = FMStageProjection(
+            geometry=live.geometry, pixel_size=0.1e-6, shape=(201, 201)
+        )
+        weights = fm_channel_weights("525", 488)
+
+        def frame(z, seed):
+            return scene.render_fm(
+                pose,
+                (201, 201),
+                projection,
+                weights=weights,
+                defocus=z,
+                rng=np.random.default_rng(seed),
+            )
+
+        sharp, far = frame(mz, 1), frame(mz + 2.5e-6, 2)
+    finally:
+        microscope.disconnect()
+    centre = (slice(90, 111), slice(90, 111))
+    assert sharp[centre].max() > 1.3 * far[centre].max()
+    hot = (sharp == far) & (sharp > 4000)
+    assert hot.sum() >= int(scene.fm_hot_pixels * 201 * 201) - 1
+
+
+def test_milling_cuts_away_a_centriole_outside_the_lamella():
+    """An FM point is gone once a pattern cut along the beam passes through
+    it, and kept while it lies in the slab between two trenches."""
+    from fibsem.drivers.demo.sim_relief import BeamCut
+    from fibsem.drivers.demo.sim_scene import MilledRegion
+
+    scene = SampleScene(cell_type="rpe", fm_no_target_chance=1.0, seed=5)
+
+    def trench(w0, w1):
+        # in the milling view a point (x, y, h) um sits at (x, y + h)
+        polygon = np.array([[-5.0, w0], [5.0, w0], [5.0, w1], [-5.0, w1]])
+        corners = polygon * 1e-6
+        return MilledRegion(
+            points=corners, beam_cut=BeamCut(polygon=polygon, turn=1.0, fs=1.0, k=1.0)
+        )
+
+    point = (0.0, 0.0, 1e-6)  # sits at w = 1 um in the milling view
+    scene.milled = [trench(2.0, 8.0), trench(-8.0, 0.5)]
+    assert not scene.milled_through(*point)
+    scene.milled.append(trench(0.5, 1.5))
+    assert scene.milled_through(*point)
+
+
+@pytest.mark.parametrize(
+    "setting, channel",
+    [
+        ({"fm_red": "cilia"}, ("610", 561)),
+        ({"fm_green": "lipid_droplets"}, ("525", 488)),
+        ({"fm_far_red": "mitochondria"}, ("670", 640)),
+        ({"fm_far_red": "membrane"}, ("670", 640)),
+    ],
+)
+def test_each_channel_can_carry_a_label(setting, channel):
+    """Cilia (red), lipid droplets (green), mitochondria or membrane (far
+    red) show in their channel when set, and the channel is dark without."""
+    from fibsem.drivers.demo.sim_scene import fm_channel_weights
+    from fibsem.geometry.projection import FMStageProjection
+
+    microscope, _ = utils.setup_session(
+        manufacturer="Demo",
+        config_path=os.path.join(
+            cfg.SHIPPED_CONFIG_PATH, "sim-arctis-configuration.yaml"
+        ),
+    )
+    try:
+        microscope.system.sim["sample"] = {"enabled": True}
+        microscope._connection.setup_sample_scene()
+        pose = microscope._connection.scene_stage_position_at_fm()
+        live = FMStageProjection.from_microscope(microscope)
+        projection = FMStageProjection(
+            geometry=live.geometry, pixel_size=0.5e-6, shape=(201, 201)
+        )
+
+        def frame(**kw):
+            base = dict(cell_type="rpe", fm_no_target_chance=0.0, seed=5)
+            scene = SampleScene(**{**base, **kw})
+            # a target cell, with a cilium, under the view
+            spot = next(t for t in scene.fm_spots if t["cilium"])
+            mx, my, _ = spot["midpoint"]
+            for g in scene.features:
+                g.x, g.y = g.x - mx, g.y - my
+            for t in scene.fm_spots:
+                if t["cilium"]:
+                    t["cilium"] = [(x - mx, y - my, z) for x, y, z in t["cilium"]]
+                    t["cilium_path"] = [
+                        (x - mx, y - my, z) for x, y, z in t["cilium_path"]
+                    ]
+            scene.anchor(pose)
+            image = scene.render_fm(
+                pose,
+                (201, 201),
+                projection,
+                weights=fm_channel_weights(*channel),
+                defocus=1e-6,
+                rng=np.random.default_rng(0),
+            )
+            return image.astype(np.float32)
+
+        plain = frame(fm_red="none", fm_green="none")
+        labelled = frame(**{"fm_red": "none", "fm_green": "none", **setting})
+    finally:
+        microscope.disconnect()
+    assert (labelled - plain).max() > 300
+
+
+def test_reflection_shows_bars_bright_ice_grey_and_cells_dark():
+    """In reflected light the bars are brightest, the ice a mid grey in
+    fringes, a cell darker than the ice round it, and a cut-through trench
+    nothing."""
+    from fibsem.drivers.demo import sim_relief
+    from fibsem.drivers.demo.sim_relief import BeamCut
+    from fibsem.drivers.demo.sim_scene import MilledRegion
+
+    scene = SampleScene(renderer="relief", cell_type="rpe", seed=5)
+    body = min(
+        (f for f in scene.features if f.kind == "cell" and f.part == "body"),
+        key=lambda f: np.hypot(f.x, f.y),
+    )
+    cx, cy = body.x * 1e6, body.y * 1e6
+    xs = np.arange(cx - 60, cx + 60, 0.5)
+    ys = np.arange(cy - 60, cy + 60, 0.5)
+    x, y = np.meshgrid(xs, ys)
+    r = sim_relief.reflectance(scene, x, y, (0.5, 0.5))
+    _, mat, *_ = sim_relief.surface(scene, x, y, (0.5, 0.5))
+    assert np.median(r[mat == sim_relief.METAL]) > 0.95
+    ice = r[mat == sim_relief.ICE]
+    cell = r[mat == sim_relief.CELL]
+    assert 0.2 < np.median(ice) < 0.8 and ice.std() > 0.02
+    assert np.median(cell) < np.median(ice)
+
+    polygon = np.array(
+        [[cx - 5, cy - 3], [cx + 5, cy - 3], [cx + 5, cy + 3], [cx - 5, cy + 3]]
+    )
+    scene.milled = [
+        MilledRegion(
+            points=polygon * 1e-6,
+            beam_cut=BeamCut(polygon=polygon, turn=1.0, fs=1.0, k=0.0),
+        )
+    ]
+    sim_relief._cache(scene).clear()
+    r = sim_relief.reflectance(scene, x, y, (0.5, 0.5))
+    inside = (np.abs(x - cx) < 4) & (np.abs(y - cy) < 2)
+    assert r[inside].max() == 0.0
+
+
+def test_a_burn_aimed_on_a_cell_lands_where_the_beam_meets_it():
+    """Aimed at a point on the film plane, a grazing beam meets a cell
+    standing above it further back along the beam: the hit is on the cell's
+    surface, where the plane point and the raised point show alike."""
+    from fibsem.drivers.demo import sim_relief
+    from fibsem.drivers.demo.sim_relief import ViewFrame
+
+    scene = SampleScene(renderer="relief", cell_type="mammalian", seed=5)
+    body = min(
+        (f for f in scene.features if f.kind == "cell" and f.part == "body"),
+        key=lambda f: np.hypot(f.x, f.y),
+    )
+    fs, k = np.sin(np.deg2rad(15)), np.cos(np.deg2rad(15))
+    frame = ViewFrame(anchor=(0.0, 0.0), theta=0.0, turn=1.0, fs=fs, k=k)
+    shift = scene._along_beam_to_surface((body.x, body.y), frame)
+    um = sim_relief.UM
+    x, y = body.x * um, (body.y + shift) * um
+    gx, gy = np.meshgrid(x + np.arange(-24, 25) * 0.25, y + np.arange(-24, 25) * 0.25)
+    h = float(sim_relief.surface(scene, gx, gy, (0.25, 0.25))[0][24, 24])
+    assert h > 0.5  # on the cell, not the film
+    assert abs(fs * shift * um + k * h) < 0.1

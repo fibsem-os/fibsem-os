@@ -28,6 +28,7 @@ TASK_SKILLS = {
     "target_present": "autolamella-coincidence-milling",
     "fm_target": "autolamella-correlative",
     "correlation": "autolamella-correlative",
+    "setup_placement": "autolamella",
 }
 
 

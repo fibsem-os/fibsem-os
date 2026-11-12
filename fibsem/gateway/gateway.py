@@ -22,7 +22,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import fibsem
 from fibsem.server.discovery import DISCOVERY_DIR, _pid_alive, read_discovery_file
@@ -216,14 +216,29 @@ def last_experiment() -> Optional[str]:
     return str(Path(path).parent) if path else None
 
 
+# Each recent experiment's summary, kept until its file changes: parsing an
+# experiment.yaml takes up to seconds and the page reads the state often.
+_recent_kept: Dict[str, Tuple[Tuple[int, int], "RecentExperiment"]] = {}
+
+
 def recent_experiments() -> List["RecentExperiment"]:
     """The recent experiments on this PC still on disk, newest first."""
-    from fibsem.config import get_recent_experiments
+    from fibsem.config import peek_experiment, recent_experiment_paths
 
-    return [
-        RecentExperiment(name=s.name, folder=str(Path(s.path).parent), app=s.app)
-        for s in get_recent_experiments()
-    ]
+    found = []
+    for path in recent_experiment_paths():
+        try:
+            info = os.stat(path)
+        except OSError:
+            continue
+        stamp = (info.st_mtime_ns, info.st_size)
+        kept = _recent_kept.get(path)
+        if kept is None or kept[0] != stamp:
+            s = peek_experiment(path)
+            kept = (stamp, RecentExperiment(s.name, str(Path(path).parent), s.app))
+            _recent_kept[path] = kept
+        found.append(kept[1])
+    return found
 
 
 def experiments_folder() -> str:
@@ -316,6 +331,14 @@ class Gateway:
         return self._home / "gateway-history.jsonl"
 
     # -- reading -----------------------------------------------------------
+
+    def mode(self) -> GatewayState:
+        """The state's mode and switch only, cheap to read every second."""
+        with self._lock:
+            state = replace(self._state)
+            state.switch = self._switch
+            state.switching = self._switch is not None
+        return state
 
     def state(self) -> GatewayState:
         with self._lock:
@@ -732,7 +755,15 @@ class Gateway:
 
         self._watcher = threading.Thread(target=loop, name="gateway", daemon=True)
         self._watcher.start()
+        # read the recent experiments once now, so the page's first load is quick
+        threading.Thread(target=self._warm, name="gateway-recent", daemon=True).start()
         threading.Thread(target=newer, name="gateway-newer", daemon=True).start()
+
+    def _warm(self) -> None:
+        try:
+            self._recent()
+        except Exception:  # noqa: BLE001 - the page reads them again
+            logging.debug("Reading the recent experiments failed", exc_info=True)
 
     def close(self) -> None:
         """Stop watching. An app without its window keeps running; a new
