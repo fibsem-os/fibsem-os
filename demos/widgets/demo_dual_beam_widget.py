@@ -11,7 +11,7 @@ any setting: the change goes to the simulator, and the widget's signals print it
 import sys
 from pprint import pprint
 
-from PyQt5.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QApplication, QPushButton, QVBoxLayout, QWidget
 
 from fibsem import utils
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget
@@ -46,7 +46,7 @@ def main() -> int:
 
     window.setWindowTitle("FibsemDualBeamWidget")
     window.show()
-    return app.exec_()
+    return app.exec()
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ import pytest
 
 from tests.fixtures.microscopes import demo_microscope
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.saved_positions import load_saved_positions  # noqa: E402
 from fibsem.session_state import session_state_for  # noqa: E402

@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import Callable, List, Optional
 
-from PyQt5.QtCore import QTimer
+from qtpy.QtCore import QTimer
 
 from fibsem.applications.autolamella import launch
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
@@ -103,12 +103,12 @@ def run_ui(
     _start_update_check(on_done=window.experiment_header.update_version_chip)
     if args.quickstart or args.quickload:
         # Once the event loop is running, not inline here: connecting blocks for
-        # seconds against real hardware, and doing it before exec_() would hold up
+        # seconds against real hardware, and doing it before exec() would hold up
         # the first paint — an empty window frame for the whole wait. A zero timer
         # fires as soon as the window system's queue, that first paint included,
         # has drained.
         QTimer.singleShot(0, lambda: window.quickstart(load_experiment=args.quickload))
-    code = app.exec_()
+    code = app.exec()
     # The window has stopped the recording and let the microscope go.
     window.session.stop_app_server()
     sys.exit(code)

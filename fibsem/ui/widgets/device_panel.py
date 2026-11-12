@@ -19,8 +19,8 @@ import logging
 from dataclasses import replace
 from typing import Any, Dict, Mapping, Optional
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QObject, Qt, Signal
+from qtpy.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -43,7 +43,7 @@ class _Bridge(QObject):
     """Moves a device's ``changed``, which arrives on any thread, onto the GUI
     thread."""
 
-    changed = pyqtSignal(str, object)
+    changed = Signal(str, object)
 
 
 def no_argument_commands(device: Any) -> Dict[str, Any]:
@@ -74,7 +74,7 @@ class DevicePanel(QWidget):
 
         layout = QVBoxLayout(self)
         heading = QLabel(f"<b>{device.name}</b>  ·  {_describe(device)}")
-        heading.setTextFormat(Qt.RichText)
+        heading.setTextFormat(Qt.TextFormat.RichText)
         layout.addWidget(heading)
 
         form = QFormLayout()
@@ -172,7 +172,7 @@ class DevicePanel(QWidget):
             asked = QMessageBox.question(
                 self, "Run command", f"Run {self.device.name}.{name}()?"
             )
-            if asked != QMessageBox.Yes:
+            if asked != QMessageBox.StandardButton.Yes:
                 return
         self.status.setText(f"{name}: running…")
         worker = FunctionWorker(getattr(self.device, name))

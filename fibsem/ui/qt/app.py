@@ -5,8 +5,8 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtGui import QIcon
+from qtpy.QtWidgets import QApplication
 
 from fibsem.tools.app_identity import set_app_identity
 from fibsem.ui.qt.gc import install_main_thread_gc

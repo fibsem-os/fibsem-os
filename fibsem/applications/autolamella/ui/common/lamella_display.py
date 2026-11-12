@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 
-from PyQt5.QtWidgets import QAction, QLabel, QMenu
+from qtpy.QtWidgets import QAction, QLabel, QMenu
 
 from fibsem.applications.autolamella.config_edits import (
     edit_item_fields,

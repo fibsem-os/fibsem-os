@@ -17,11 +17,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from typing import TYPE_CHECKING
 
-from PyQt5.QtWidgets import QDialog
+from qtpy.QtWidgets import QDialog
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
@@ -71,8 +71,8 @@ def accept_dialog(monkeypatch):
         def __init__(self, **kwargs):
             opened.append(kwargs)
 
-        def exec_(self):
-            return QDialog.Accepted
+        def exec(self):
+            return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(module, "FMOverviewConfirmationDialog", _Dialog)
     return opened

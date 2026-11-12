@@ -2,7 +2,7 @@
 
 import sys
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 
@@ -40,4 +40,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = TestWindow()
     w.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

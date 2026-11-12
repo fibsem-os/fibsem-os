@@ -4,7 +4,9 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem.ui.widgets.about_dialog import AboutDialog, mask_serial_number
 
@@ -85,7 +87,7 @@ def test_microscope_section_skipped_when_info_unavailable(qapp):
 
 
 def _slot_text(dialog):
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     return " ".join(
         w.text() for w in dialog._update_slot.findChildren(QLabel) if w.text()
@@ -93,7 +95,7 @@ def _slot_text(dialog):
 
 
 def _slot_buttons(dialog):
-    from PyQt5.QtWidgets import QToolButton
+    from qtpy.QtWidgets import QToolButton
 
     return dialog._update_slot.findChildren(QToolButton)
 

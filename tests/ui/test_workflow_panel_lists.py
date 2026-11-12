@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     Lamella,
@@ -134,7 +134,7 @@ def test_the_gear_says_when_something_in_it_is_set(panel):
 
 
 def test_the_hints_are_the_question_marks_tooltip(panel):
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     from fibsem.applications.autolamella.ui.workflow.lamella_run import TASK_LIST_HINTS
 

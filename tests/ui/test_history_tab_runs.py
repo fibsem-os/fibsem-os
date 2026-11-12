@@ -14,11 +14,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QEvent, Qt  # noqa: E402
-from PyQt5.QtTest import QTest  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
+from qtpy.QtCore import QEvent, Qt  # noqa: E402
+from qtpy.QtTest import QTest  # noqa: E402
+from qtpy.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
 import fibsem.applications.autolamella.ui.lamella.history as history_tab  # noqa: E402
 import fibsem.config as cfg  # noqa: E402
@@ -131,7 +131,7 @@ def _shown(widget):
     # rows added to a panel already on screen are shown on the next pass of the
     # event loop, and the rows they replaced are deleted on it
     QApplication.processEvents()
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     return [
         label.text()
         for label in widget._content.findChildren(QLabel)
@@ -148,7 +148,7 @@ def _settled(widget):
         QApplication.processEvents()
         time.sleep(0.01)
     QApplication.processEvents()
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     return widget
 
 
@@ -310,14 +310,14 @@ def test_a_thumbnail_opens_in_the_viewer_after_the_rows_are_rebuilt(
         _shown(widget)
 
     (path, thumbnail), *_ = widget._placeholder_labels.items()
-    QTest.mouseClick(thumbnail, Qt.LeftButton)
+    QTest.mouseClick(thumbnail, Qt.MouseButton.LeftButton)
 
     assert opened == [path]
 
 
 def _operation_lines(widget):
     QApplication.processEvents()
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     return [
         line
         for line in widget._content.findChildren(_ClickableRow)
@@ -371,9 +371,11 @@ def test_switching_to_a_lamella_with_other_tasks_keeps_the_filter_menu(
     other.task_history = [_run("Setup Lamella Position", "s1", 0)]
 
     widget.set_lamella(None)  # as loading another experiment does
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)  # the old header goes
+    QApplication.sendPostedEvents(
+        None, QEvent.Type.DeferredDelete
+    )  # the old header goes
     widget.set_lamella(other)
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
     texts = [a.text() for a in widget._filter_button.menu().actions()]
     assert "Setup Lamella Position" in texts and ROUGH not in texts
@@ -568,7 +570,7 @@ def opened(monkeypatch):
 
     dialogs = []
     monkeypatch.setattr(
-        AnimationExportDialog, "exec_", lambda self: dialogs.append(self)
+        AnimationExportDialog, "exec", lambda self: dialogs.append(self)
     )
     return dialogs
 

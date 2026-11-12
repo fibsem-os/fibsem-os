@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import QPoint, Qt, pyqtSignal
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QPoint, Qt, Signal
+from qtpy.QtGui import QColor
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QFrame,
@@ -69,7 +69,7 @@ class ListHeader(QWidget):
     The tick box is `checkbox_all`; the list sets it from its rows with `sync`.
     """
 
-    select_all_changed = pyqtSignal(bool)
+    select_all_changed = Signal(bool)
 
     def __init__(
         self,
@@ -139,11 +139,11 @@ class ReorderableListWidget(QListWidget):
     item's UserRole data -- after a drop. Qt drops the item widgets when items
     move, so the owner listens to `reordered` and rebuilds its rows."""
 
-    reordered = pyqtSignal(list)
+    reordered = Signal(list)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setDragDropMode(QAbstractItemView.InternalMove)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
 
     def dropEvent(self, event) -> None:
@@ -164,7 +164,7 @@ class OptionsPopup(QFrame):
         margins: tuple[int, int, int, int] = (8, 8, 8, 8),
         spacing: int = 6,
     ) -> None:
-        super().__init__(parent, Qt.Popup)
+        super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("optionsPopup")
         self.setStyleSheet(
             f"#optionsPopup {{ background: {PANEL_COLOR}; "
@@ -219,7 +219,7 @@ def row_chip(text: str, colour: str) -> QLabel:
     and height, so the chips in the panel's lists are one kind."""
     label = QLabel(text)
     label.setFixedHeight(CHIP_HEIGHT)
-    label.setAlignment(Qt.AlignCenter)
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     label.setStyleSheet(
         tinted_chip_style(colour, selector="QLabel").replace(
             "padding: 0 6px 0 4px", "padding: 0 7px"

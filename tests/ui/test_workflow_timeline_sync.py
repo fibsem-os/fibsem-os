@@ -20,9 +20,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -372,8 +372,8 @@ class _ParentUI(QObject):
     matters: a queue edit reaching the wrong signal is what crashed the app.
     """
 
-    workflow_status_signal = pyqtSignal(object)
-    queue_changed_signal = pyqtSignal(dict)
+    workflow_status_signal = Signal(object)
+    queue_changed_signal = Signal(dict)
 
     def __init__(self):
         super().__init__()

@@ -15,8 +15,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, List, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -135,8 +135,8 @@ def calibration_tooltip(slot: GridSlot) -> str:
 class _SlotRow(QWidget):
     """One slot: name, the grid in it (editable inline), calibration, and Move."""
 
-    move_clicked = pyqtSignal(object)  # GridSlot
-    grid_named = pyqtSignal(object, str)  # GridSlot, new name ("" clears it)
+    move_clicked = Signal(object)  # GridSlot
+    grid_named = Signal(object, str)  # GridSlot, new name ("" clears it)
 
     def __init__(
         self,
@@ -148,7 +148,7 @@ class _SlotRow(QWidget):
         super().__init__(parent)
         self.slot = slot
         self._has_microscope = has_microscope
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         self.setFixedHeight(_ROW_HEIGHT)
         layout = QHBoxLayout(self)
@@ -249,13 +249,13 @@ class SampleHolderWidget(QWidget):
     ``holder_changed``. Naming an empty slot or clearing one is not a rename.
     """
 
-    holder_changed = pyqtSignal(object)  # SampleHolder
-    grid_renamed = pyqtSignal(str, str)  # old name, new name
+    holder_changed = Signal(object)  # SampleHolder
+    grid_renamed = Signal(str, str)  # old name, new name
     # A request to drive to a calibrated slot. The host (the Movement widget) routes
     # it through its own move path, so the position readout and the post-move
     # images follow, exactly as for a saved position. Unhosted, `move_directly`
     # sends the stage itself.
-    move_to_requested = pyqtSignal(object)  # FibsemStagePosition
+    move_to_requested = Signal(object)  # FibsemStagePosition
 
     def __init__(self, microscope=None, parent=None, move_directly: bool = False):
         super().__init__(parent)
@@ -310,10 +310,10 @@ class SampleHolderWidget(QWidget):
 
         self._list = QListWidget()
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
-        self._list.setSelectionMode(QListWidget.NoSelection)
+        self._list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         # Fixed (the default) lays item widgets out once, at whatever width the
         # list had then; a later resize or restyle leaves them clipped.
-        self._list.setResizeMode(QListWidget.Adjust)
+        self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setMinimumHeight(2 * _ROW_HEIGHT)

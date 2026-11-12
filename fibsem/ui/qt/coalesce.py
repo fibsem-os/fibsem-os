@@ -11,7 +11,7 @@ import threading
 import time
 from typing import Any, Callable, List
 
-from PyQt5.QtCore import QObject, QTimer
+from qtpy.QtCore import QObject, QTimer
 
 # How often live views redraw: 10 a second. The camera rarely gives more new frames.
 LIVE_DRAW_INTERVAL_MS = 100

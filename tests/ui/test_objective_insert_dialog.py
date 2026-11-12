@@ -11,9 +11,9 @@ import time
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
+from qtpy.QtWidgets import QApplication, QDialog  # noqa: E402
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
@@ -29,8 +29,8 @@ class _Picked:
     def __init__(self, tilt_deg, parent=None):
         self.selected_tilt = -180.0
 
-    def exec_(self):
-        return QDialog.Accepted
+    def exec(self):
+        return QDialog.DialogCode.Accepted
 
 
 class _NeverAsked:

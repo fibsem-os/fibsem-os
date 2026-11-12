@@ -44,14 +44,15 @@ __all__ = [
 DEFAULT_MAX_DEPTH = 3
 
 
-def default_experiment_directory() -> str:
+def default_experiment_directory(quiet: bool = False) -> str:
     """Where a new experiment goes: the preference when it names a folder that
     exists, else the experiments folder in the state root (the Create dialog's
-    default)."""
+    default). *quiet* skips the warning for a missing preferred folder, for a
+    caller that asks again and again."""
     preferred = load_user_preferences().shared.default_experiment_directory
     if preferred and os.path.isdir(preferred):
         return str(preferred)
-    if preferred:
+    if preferred and not quiet:
         logging.warning(
             f"Preference default_experiment_directory '{preferred}' does not exist; using default."
         )

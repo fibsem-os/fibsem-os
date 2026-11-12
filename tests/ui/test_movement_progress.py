@@ -20,10 +20,12 @@ import threading
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import QEventLoop, QTimer
+from qtpy import QtWidgets
+from qtpy.QtCore import QEventLoop, QTimer
 
 # The real construction seam: a host with a view controller, a real image widget and a
 # Demo microscope. Building the widget through `__new__` and hand-injecting a label
@@ -53,7 +55,7 @@ def _pump(ms: int = 200) -> None:
     """Let queued signals and the debounced info-bar render run."""
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 def _run(condition, tries: int = 15) -> None:

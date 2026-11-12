@@ -3,7 +3,7 @@ tests of an experiment with no window, whose edits must still land there."""
 
 from concurrent.futures import Future
 
-from PyQt5.QtCore import QCoreApplication, QThread
+from qtpy.QtCore import QCoreApplication, QThread
 from superqt import ensure_main_thread
 
 

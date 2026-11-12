@@ -8,9 +8,9 @@ rectangle, or use the presets.
 
 from typing import List, Optional
 
-from PyQt5.QtCore import QRect, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QMouseEvent, QPainter, QPen
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QRect, Qt, Signal
+from qtpy.QtGui import QColor, QMouseEvent, QPainter, QPen
+from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -49,7 +49,7 @@ GAP_PX = 2
 class TileMaskGrid(QWidget):
     """The grid itself: rows x cols of togglable cells."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, rows: int = 3, cols: int = 3, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -59,7 +59,7 @@ class TileMaskGrid(QWidget):
         self._drag_value: Optional[bool] = None
         self._hover: Optional[tuple] = None
         self.setMouseTracking(True)
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.setMinimumSize(120, 120)
 
     # ── state ────────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ class TileMaskGrid(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         painter.fillRect(self.rect(), PANEL)
 
         for r in range(self._rows):
@@ -167,7 +167,7 @@ class TileMaskGrid(QWidget):
                 else:
                     if hovered:
                         painter.fillRect(rect, BORDER)
-                    painter.setPen(QPen(DISABLED_EDGE, 1, Qt.DashLine))
+                    painter.setPen(QPen(DISABLED_EDGE, 1, Qt.PenStyle.DashLine))
                 painter.drawRect(rect)
 
         painter.end()
@@ -210,7 +210,7 @@ class TileMaskGrid(QWidget):
 class TileMaskWidget(QWidget):
     """The grid plus its presets and a live count."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, rows: int = 3, cols: int = 3, parent: Optional[QWidget] = None):
         super().__init__(parent)

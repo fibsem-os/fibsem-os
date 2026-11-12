@@ -19,8 +19,8 @@ from napari.layers import Labels as NapariLabelsLayer
 from napari.layers import Points as NapariPointsLayer
 from napari.utils.events import Event
 from PIL import Image
-from PyQt5 import QtWidgets
-from PyQt5.QtGui import QFont
+from qtpy import QtWidgets
+from qtpy.QtGui import QFont
 
 from fibsem.segmentation import utils as seg_utils
 from fibsem.segmentation.config import (
@@ -249,7 +249,10 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         self.gridLayout_2.addWidget(self.pushButton_load_data, 4, 0, 1, 3)
 
         tab_spacer = QtWidgets.QSpacerItem(
-            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+            20,
+            40,
+            QtWidgets.QSizePolicy.Policy.Minimum,
+            QtWidgets.QSizePolicy.Policy.Expanding,
         )
         self.gridLayout_2.addItem(tab_spacer, 5, 0, 1, 3)
 
@@ -284,7 +287,10 @@ class FibsemLabellingUI(QtWidgets.QDialog):
         layout.addWidget(self.label_instructions, 11, 0, 1, 2)
 
         spacer = QtWidgets.QSpacerItem(
-            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+            20,
+            40,
+            QtWidgets.QSizePolicy.Policy.Minimum,
+            QtWidgets.QSizePolicy.Policy.Expanding,
         )
         layout.addItem(spacer, 13, 0, 1, 2)
 

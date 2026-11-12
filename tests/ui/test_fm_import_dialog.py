@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import tifffile
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.fm.reader import read_source
 from fibsem.ui.widgets import fm_import_dialog

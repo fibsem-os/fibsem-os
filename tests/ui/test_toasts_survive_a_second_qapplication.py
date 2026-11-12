@@ -20,12 +20,12 @@ import textwrap
 
 import pytest
 
-pytest.importorskip("PyQt5", reason="UI dependencies not installed")
+pytest.importorskip("qtpy.QtWidgets", reason="UI dependencies not installed")
 
 SEQUENCE = textwrap.dedent(
     """
-    from PyQt5.QtCore import QEvent
-    from PyQt5.QtWidgets import QApplication, QWidget
+    from qtpy.QtCore import QEvent
+    from qtpy.QtWidgets import QApplication, QWidget
 
     from fibsem.ui import notification_service
 
@@ -52,7 +52,7 @@ SEQUENCE = textwrap.dedent(
         assert window.received == [("hello", "info", True, False)], window.received
         window.close()
         window.deleteLater()
-        QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
     app = QApplication([])

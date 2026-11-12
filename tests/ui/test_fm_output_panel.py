@@ -21,9 +21,11 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.imaging.tiled import stamped_overview_name
@@ -137,7 +139,7 @@ def microscope():
 
 @pytest.fixture
 def widget(microscope, tmp_path, monkeypatch):
-    from PyQt5.QtWidgets import QDialog
+    from qtpy.QtWidgets import QDialog
 
     from fibsem.ui.fm.widgets import fm_overview_widget as module
     from fibsem.ui.fm.widgets.fm_overview_widget import FMOverviewWidget
@@ -146,8 +148,8 @@ def widget(microscope, tmp_path, monkeypatch):
         def __init__(self, **kwargs):
             pass
 
-        def exec_(self):
-            return QDialog.Accepted
+        def exec(self):
+            return QDialog.DialogCode.Accepted
 
     class _Worker:
         def __init__(self, *args, **kwargs):

@@ -21,12 +21,12 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QEvent, QPoint, QRect, QSize, Qt
-from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QEvent, QPoint, QRect, QSize, Qt
+from qtpy.QtGui import QMouseEvent
+from qtpy.QtTest import QTest
+from qtpy.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.fm_canvas import (
     FMCanvasWidget,
@@ -66,21 +66,25 @@ def _move(widget, pos: QPoint):
     # QTest.mouseMove only warps the cursor on the offscreen platform; the drag
     # handler needs the actual move event, so deliver one by hand.
     ev = QMouseEvent(
-        QEvent.MouseMove,
+        QEvent.Type.MouseMove,
         pos,
         widget.mapToGlobal(pos),
-        Qt.NoButton,
-        Qt.LeftButton,
-        Qt.NoModifier,
+        Qt.MouseButton.NoButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
     )
     _app.sendEvent(widget, ev)
 
 
 def _drag(widget, start: QPoint, dx: int, dy: int):
     end = start + QPoint(dx, dy)
-    QTest.mousePress(widget, Qt.LeftButton, Qt.NoModifier, start)
+    QTest.mousePress(
+        widget, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, start
+    )
     _move(widget, end)
-    QTest.mouseRelease(widget, Qt.LeftButton, Qt.NoModifier, end)
+    QTest.mouseRelease(
+        widget, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end
+    )
     _app.processEvents()
 
 

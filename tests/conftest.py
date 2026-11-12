@@ -214,7 +214,7 @@ def qapp():
     """
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     try:
-        from PyQt5.QtWidgets import QApplication
+        from qtpy.QtWidgets import QApplication
     except Exception as exc:  # pragma: no cover - environment without Qt
         pytest.skip(f"PyQt5 not available: {exc}")
     app = QApplication.instance() or QApplication([])
@@ -255,8 +255,8 @@ def destroy_widgets_after_test(qapp):
     Only widgets that appear during the test are touched, so a module-scoped fixture's
     widget built by an earlier test is left alone.
     """
-    from PyQt5.QtCore import QEvent
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtCore import QEvent
+    from qtpy.QtWidgets import QApplication
 
     before = set(QApplication.topLevelWidgets())
     yield
@@ -264,7 +264,7 @@ def destroy_widgets_after_test(qapp):
         if widget not in before:
             widget.close()
             widget.deleteLater()
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 @pytest.fixture

@@ -20,8 +20,8 @@ Typical use::
 """
 
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -38,12 +38,12 @@ from fibsem.ui.stylesheets import CANVAS_PANEL_STYLE as _PANEL_STYLE
 class ContrastGammaControl(QFrame):
     """Floating contrast/gamma popover. Emits ``changed`` on any adjustment."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("canvasPanel")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(_PANEL_STYLE)
         self.setFixedWidth(220)
         self.setVisible(False)
@@ -55,7 +55,7 @@ class ContrastGammaControl(QFrame):
         form.setSpacing(3)
 
         def row(lo, hi, default, step, cb):
-            sld = QDoubleSlider(Qt.Horizontal)
+            sld = QDoubleSlider(Qt.Orientation.Horizontal)
             sld.setRange(lo, hi)
             sld.setSingleStep(step)
             sld.setValue(default)

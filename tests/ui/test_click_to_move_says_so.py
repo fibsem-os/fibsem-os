@@ -28,10 +28,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QObject, pyqtSignal  # noqa: E402
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from qtpy.QtCore import QObject, Signal  # noqa: E402
+from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession  # noqa: E402
 from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
@@ -51,10 +51,10 @@ class SynchronousWorker(QObject):
     handling untestable, which is how the failure path went unwritten for this long.
     """
 
-    started = pyqtSignal()
-    returned = pyqtSignal(object)
-    errored = pyqtSignal(object)
-    finished = pyqtSignal()
+    started = Signal()
+    returned = Signal(object)
+    errored = Signal(object)
+    finished = Signal()
 
     def __init__(self, fn, *args, **kwargs):
         super().__init__()

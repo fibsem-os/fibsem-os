@@ -22,7 +22,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.acting import TASK, Actor, current_actor
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
@@ -539,7 +539,7 @@ def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp, monkeypatch):
 
 def test_a_mill_that_ends_after_its_widget_is_gone_calls_nothing(ui, qapp, monkeypatch):
     """Closing the window mid-mill: the run's end reaches no deleted widget."""
-    from PyQt5.QtCore import QCoreApplication, QEvent
+    from qtpy.QtCore import QCoreApplication, QEvent
 
     from fibsem.services.milling import Milling
 
@@ -557,7 +557,7 @@ def test_a_mill_that_ends_after_its_widget_is_gone_calls_nothing(ui, qapp, monke
     release.set()
     worker.join(5)  # its finished signal is queued, not yet delivered
     widget.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     _settle(qapp, 0.1)
 
 

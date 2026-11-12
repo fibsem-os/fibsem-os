@@ -64,10 +64,10 @@ def main_window(
         ui.session.disconnect()
         with quit_stubbed(qapp):
             win.close()
-        from PyQt5.QtCore import QCoreApplication, QEvent
+        from qtpy.QtCore import QCoreApplication, QEvent
 
         win.deleteLater()
-        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         qapp.processEvents()
 
 
@@ -75,7 +75,7 @@ def main_window(
 def quit_stubbed(app) -> Iterator[None]:
     """``app.quit()`` does nothing inside the block. A window's closeEvent ends in
     app.quit(), which on the shared test QApplication latches an interrupt every
-    later QEventLoop.exec_() returns from."""
+    later QEventLoop.exec() returns from."""
     original_quit = app.quit
     app.quit = lambda: None
     try:
@@ -86,7 +86,7 @@ def quit_stubbed(app) -> Iterator[None]:
 
 def close_window(win) -> None:
     """Close the window as a test ends, with quit stubbed for the close."""
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
 
     with quit_stubbed(QApplication.instance()):
         win.close()

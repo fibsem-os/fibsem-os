@@ -36,9 +36,9 @@ except ModuleNotFoundError as e:  # pragma: no cover - dependency guard
         "(added in this version). Install it with:\n"
         "    pip install 'fibsem[ui]'   (or: pip install qtawesome)"
     ) from e
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QIcon, QPainter, QPixmap
-from PyQt5.QtSvg import QSvgRenderer
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QIcon, QPainter, QPixmap
+from qtpy.QtSvg import QSvgRenderer
 
 # qtawesome's font prefix for Material Design Icons v6.
 _MDI = "mdi6"

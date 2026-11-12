@@ -9,9 +9,9 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QMessageBox  # noqa: E402
+from qtpy.QtWidgets import QMessageBox  # noqa: E402
 
 from tests.run_state import StubRunner
 
@@ -56,7 +56,9 @@ def test_the_stop_button_records_the_operator_s_stop(
     main_ui, recorder, runner, monkeypatch
 ):
     monkeypatch.setattr(
-        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+        QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
     )
     main_ui.run_view._on_stop_workflow_clicked()
     assert runner.stops == ["run"]
@@ -65,7 +67,9 @@ def test_the_stop_button_records_the_operator_s_stop(
 
 def test_a_stop_not_confirmed_records_nothing(main_ui, recorder, runner, monkeypatch):
     monkeypatch.setattr(
-        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
+        QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
     )
     main_ui.run_view._on_stop_workflow_clicked()
     assert runner.stops == [], "stopped without a yes"
@@ -75,7 +79,9 @@ def test_a_stop_not_confirmed_records_nothing(main_ui, recorder, runner, monkeyp
 def test_closing_the_window_mid_run_records_the_stop(
     main_ui, recorder, runner, monkeypatch
 ):
-    monkeypatch.setattr(QMessageBox, "exec_", lambda self: QMessageBox.Yes)
+    monkeypatch.setattr(
+        QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes
+    )
     assert main_ui.run_view.confirm_close() is True
     assert _stops(recorder) == [
         ({"stopped": "workflow", "via": "closing the window"}, "operator")

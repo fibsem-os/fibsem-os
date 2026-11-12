@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.imaging.tiling.progress import (  # noqa: E402
     MODALITY_FLUORESCENCE,
@@ -46,11 +46,11 @@ def _report(status, **fields):
 
 
 def _outlast_the_outcome():
-    from PyQt5.QtCore import QEventLoop, QTimer
+    from qtpy.QtCore import QEventLoop, QTimer
 
     loop = QEventLoop()
     QTimer.singleShot(80, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 def test_tiles_show_the_count_and_the_bar(bar):

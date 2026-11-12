@@ -16,9 +16,9 @@ import numpy as np
 import pytest
 import tifffile
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QDialog
+from qtpy.QtWidgets import QDialog
 
 from fibsem.fm.reader import assumed_geometry, assumed_pose
 from fibsem.fm.structures import (
@@ -138,13 +138,13 @@ def accept(monkeypatch):
 
     answers = SimpleNamespace(seen=[], before=[])
 
-    def exec_(dialog):
+    def exec(dialog):
         answers.seen.append(dialog)
         for hook in answers.before:
             hook(dialog)
-        return QDialog.Accepted
+        return QDialog.DialogCode.Accepted
 
-    monkeypatch.setattr(ImportImageDialog, "exec_", exec_)
+    monkeypatch.setattr(ImportImageDialog, "exec", exec)
     return answers
 
 
@@ -277,7 +277,9 @@ class TestLoadAsksOnlyWhenItMustAndKeepsACopy:
     def test_cancel_adds_nothing_and_writes_nothing(
         self, widget, tmp_path, monkeypatch
     ):
-        monkeypatch.setattr(ImportImageDialog, "exec_", lambda d: QDialog.Rejected)
+        monkeypatch.setattr(
+            ImportImageDialog, "exec", lambda d: QDialog.DialogCode.Rejected
+        )
         assert widget.open_aligned_image(_foreign_tiff(str(tmp_path))) is None
         assert widget.aligned_images.keys() == []
         assert not os.path.exists(widget.aligned_image_folder())

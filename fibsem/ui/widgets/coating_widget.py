@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Any, List, Optional
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QTimer
+from qtpy.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QHBoxLayout,

@@ -23,9 +23,11 @@ import threading
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QEventLoop, QTimer
+from qtpy.QtCore import QEventLoop, QTimer
 
 sys.path.insert(0, os.path.dirname(__file__))  # not str.rsplit: Windows paths
 from test_milling_lockout import _config_with_a_stage  # noqa: E402
@@ -48,7 +50,7 @@ def _session():
 def _pump(ms: int = 100) -> None:
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 def _run(condition, tries: int = 30) -> None:

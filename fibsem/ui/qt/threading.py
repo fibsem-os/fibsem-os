@@ -13,14 +13,14 @@ What belongs in a worker body
 that started it is off limits there. Either return a value and do every GUI update in
 a slot on ``returned`` / ``errored`` (``ObjectiveControlWidget`` is the model; prefer
 this one), or, for a worker that reports while it runs, emit one of the widget's own
-``pyqtSignal``s: emitting is safe from any thread, calling is not.
+``Signal``s: emitting is safe from any thread, calling is not.
 
 Either way, **let the exception out**: ``FunctionWorker`` logs it with a traceback and
 re-emits it as ``errored``, the only way the widget can tell a failed run from a
 finished one.
 
 The one call allowed from a body: ``notification_service.show_toast`` (and ``show``),
-a queued ``pyqtSignal`` behind a function. Qt picks the connection type from the
+a queued ``Signal`` behind a function. Qt picks the connection type from the
 receiver's thread, and every receiver is a widget on the GUI thread.
 
 ``@ensure_main_thread`` would make a widget call from a body correctly synchronised.
@@ -36,7 +36,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Callable, Optional, Set
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 
 from fibsem.acting import OPERATOR
 from fibsem.control import MicroscopeBusy
@@ -73,10 +73,10 @@ class FunctionWorker(QObject):
     unmarked.
     """
 
-    started = pyqtSignal()
-    returned = pyqtSignal(object)
-    errored = pyqtSignal(object)
-    finished = pyqtSignal()
+    started = Signal()
+    returned = Signal(object)
+    errored = Signal(object)
+    finished = Signal()
 
     def __init__(self, func: Callable, *args, **kwargs):
         super().__init__()

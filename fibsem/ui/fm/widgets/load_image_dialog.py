@@ -7,8 +7,8 @@ import os
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
@@ -34,7 +34,7 @@ from fibsem.ui.stylesheets import (
 class LoadImageDialog(QDialog):
     """Dialog for loading FluorescenceImage from OME-TIFF files."""
 
-    image_loaded_signal = pyqtSignal(FluorescenceImage)
+    image_loaded_signal = Signal(FluorescenceImage)
 
     def __init__(self, parent=None, start_directory: Optional[str] = None):
         super().__init__(parent)

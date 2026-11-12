@@ -10,8 +10,8 @@ import re
 
 import pytest
 
-pytest.importorskip("PyQt5")
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.stylesheets import (  # noqa: E402
     BORDER_STATE_COLOURS,
@@ -87,7 +87,7 @@ def test_the_run_s_border_follows_what_the_run_is_doing():
 
 
 def test_a_mirrored_border_takes_the_switch_and_the_purple_but_keeps_its_state(qapp):
-    from PyQt5.QtCore import QCoreApplication, QEvent
+    from qtpy.QtCore import QCoreApplication, QEvent
 
     from fibsem.ui.widgets.run_border import RunBorder
 
@@ -114,5 +114,5 @@ def test_a_mirrored_border_takes_the_switch_and_the_purple_but_keeps_its_state(q
 
     # A viewer that has closed is skipped.
     viewer.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     main.set_on(False)

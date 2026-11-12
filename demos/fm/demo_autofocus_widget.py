@@ -9,7 +9,7 @@ shows the current AutoFocusSettings as the user edits.
 
 import sys
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QLabel,
@@ -81,7 +81,7 @@ def main() -> None:
 
     win.resize(460, 360)
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

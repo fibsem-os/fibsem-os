@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict
 

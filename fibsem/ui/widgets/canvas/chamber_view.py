@@ -24,9 +24,9 @@ import math
 from datetime import datetime
 from typing import Optional, Sequence
 
-from PyQt5.QtCore import QRect, QRectF, QSize, Qt
-from PyQt5.QtGui import QColor, QPainter, QPen, QPixmap
-from PyQt5.QtWidgets import QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
+from qtpy.QtCore import QRect, QRectF, QSize, Qt
+from qtpy.QtGui import QColor, QPainter, QPen, QPixmap
+from qtpy.QtWidgets import QLabel, QStackedWidget, QToolButton, QVBoxLayout, QWidget
 
 from fibsem.geometry.stage_places import is_half_turn
 from fibsem.structures.settings import FibsemStagePosition
@@ -65,7 +65,7 @@ class _Inset(QWidget):
     def __init__(self, scene: "_Scene") -> None:
         super().__init__(scene)
         self._scene = scene
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip("Swap the views")
 
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt naming
@@ -94,7 +94,9 @@ class _Inset(QWidget):
                 diagram.resize(hidden_size)
                 painter.fillRect(rect, QColor(CANVAS_BG))
                 scaled = pixmap.scaled(
-                    self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                    self.size(),
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
                 )
                 painter.drawPixmap(
                     (self.width() - scaled.width()) // 2,
@@ -102,13 +104,13 @@ class _Inset(QWidget):
                     scaled,
                 )
             painter.setPen(QPen(QColor(BORDER_COLOR), 1))
-            painter.setBrush(Qt.NoBrush)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(self.rect().adjusted(0, 0, -1, -1))
         finally:
             painter.end()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self._scene.swap()
         event.accept()
 
@@ -202,7 +204,9 @@ class ChamberView(QWidget):
         self.diagram = self.scene.diagram
         self.map = self.scene.map
 
-        self._empty = QLabel("No stage position yet", alignment=Qt.AlignCenter)
+        self._empty = QLabel(
+            "No stage position yet", alignment=Qt.AlignmentFlag.AlignCenter
+        )
         self._empty.setStyleSheet(_EMPTY_STYLE)
 
         self._stack = QStackedWidget()

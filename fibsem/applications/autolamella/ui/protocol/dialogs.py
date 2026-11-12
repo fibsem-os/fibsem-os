@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -266,7 +266,7 @@ _FIELDS = ("name", "description", "version")
 class ProtocolHeaderWidget(QWidget):
     """`AutoLamella Protocol · v1.0`, and a pencil."""
 
-    edit_clicked = pyqtSignal()
+    edit_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -317,7 +317,9 @@ class ProtocolDetailsDialog(QDialog):
             form.addRow(field.capitalize(), edit)
             self.edits[field] = edit
         layout.addLayout(form)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)

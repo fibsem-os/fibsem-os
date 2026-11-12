@@ -27,10 +27,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 from psygnal.containers import EventedDict
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QApplication, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QApplication, QWidget
 
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
@@ -346,7 +346,7 @@ class _FakeImageWidget(QWidget):
     """Stands in for FibsemImageSettingsWidget, which is canvas-only now: it still
     carries the FIB image and still emits on every new frame, but has no napari layer."""
 
-    viewer_update_signal = pyqtSignal()
+    viewer_update_signal = Signal()
 
     def __init__(self, image):
         super().__init__()

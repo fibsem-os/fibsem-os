@@ -1,9 +1,9 @@
 import logging
 from typing import TYPE_CHECKING, Dict, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QColor
+from qtpy.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -112,12 +112,12 @@ class _DirtyBanner(QWidget):
     so it covers nothing either.
     """
 
-    apply_clicked = pyqtSignal()
+    apply_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("dirtyBanner")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setFixedHeight(32)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(10, 0, 6, 0)
@@ -186,11 +186,11 @@ class _DirtyBanner(QWidget):
 class AutoLamellaProtocolTaskConfigEditor(QWidget):
     """A widget to edit the AutoLamella protocol."""
 
-    workflow_config_changed = pyqtSignal(object)  # AutoLamellaWorkflowConfig
+    workflow_config_changed = Signal(object)  # AutoLamellaWorkflowConfig
     # The grid protocol changed on this editor's Grid page (a task added,
     # removed, or edited and saved). Re-emitted here because the Grid page is
     # built inside this editor, after the window has wired its signals.
-    grid_protocol_changed = pyqtSignal()
+    grid_protocol_changed = Signal()
 
     def __init__(self, session: "AppSession", parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -347,7 +347,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col1_layout.addStretch()
         col1_scroll = QScrollArea()
         col1_scroll.setWidgetResizable(True)
-        col1_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+        col1_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # type: ignore
         col1_scroll.setWidget(col1_content)
 
         # --- Column 2: Task parameters ---
@@ -360,17 +360,17 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         col2_layout.addStretch()
         col2_scroll = QScrollArea()
         col2_scroll.setWidgetResizable(True)
-        col2_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+        col2_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # type: ignore
         col2_scroll.setWidget(col2_content)
 
         # --- Column 3: Milling parameters (config panels) ---
         col3_scroll = QScrollArea()
         col3_scroll.setWidgetResizable(True)
-        col3_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+        col3_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # type: ignore
         col3_scroll.setWidget(self.task_editor.milling)
 
         # --- 3-column splitter ---
-        splitter = QSplitter(Qt.Horizontal)  # type: ignore
+        splitter = QSplitter(Qt.Orientation.Horizontal)  # type: ignore
         splitter.addWidget(col1_scroll)
         splitter.addWidget(col2_scroll)
         splitter.addWidget(col3_scroll)
@@ -575,7 +575,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
 
         dialog.resize(1000, 560)
         try:
-            if dialog.exec_() == QDialog.Accepted:
+            if dialog.exec() == QDialog.DialogCode.Accepted:
                 # the fields the dialog edits (``apply_settings``), so the task's
                 # others (milling, reference imaging, autofocus) survive the edit
                 settings = coord_widget.get_settings()
@@ -588,7 +588,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 )
         finally:
             # QDialog(self) parents the dialog to this editor, so Qt keeps it alive after
-            # exec_ returns and every open would strand another canvas + controller for
+            # exec returns and every open would strand another canvas + controller for
             # the session. Delete after reading the settings, never before.
             dialog.deleteLater()
 
@@ -614,7 +614,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             self.experiment.task_protocol.task_config,
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted or dialog.chosen is None:
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.chosen is None:
             return
         task_type, task_name = dialog.chosen
         via = "add task"
@@ -651,11 +651,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
             "It is removed from the protocol, the workflow and every lamella, "
             "including any changes made to a lamella's copy. Task history is kept.\n\n"
             "This action cannot be undone.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             # Remove from experiment
             if selected_task_name in self.experiment.task_protocol.task_config:
                 via = "remove task"
@@ -686,7 +686,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         """Show dialog for globally editing reference imaging and milling FoV."""
         dialog = AutoLamellaGlobalTaskEditDialog(self.experiment, parent=self)
 
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             via = "global edit"
             update_lamella = dialog.checkbox_update_existing.isChecked()
             selected_task_names = dialog.get_selected_tasks()
@@ -763,7 +763,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         layout.addLayout(btn_row)
 
         try:
-            if dialog.exec_() == QDialog.Accepted:
+            if dialog.exec() == QDialog.DialogCode.Accepted:
                 self.experiment.task_protocol.lamella_defaults = (
                     template_widget.get_template()
                 )
@@ -777,7 +777,7 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
         if protocol is None:
             return
         dialog = ProtocolDetailsDialog(protocol, parent=self)
-        if dialog.exec_() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         for field, value in dialog.values().items():
             if getattr(protocol, field, None) != value:
@@ -829,11 +829,11 @@ class AutoLamellaProtocolTaskConfigEditor(QWidget):
                 f"{num_lamella} existing lamella?\n\nThis will overwrite their current task configurations, while "
                 f"keeping any existing milling pattern positions unchanged."
             ),
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
 
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             # Perform the sync (from base protocol to all lamella)
             all_lamella_names = [p.name for p in self.experiment.positions]
             self._edits.touch_task_configs(

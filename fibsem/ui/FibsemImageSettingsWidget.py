@@ -1,8 +1,8 @@
 import logging
 from typing import Any, Callable, List, Optional
 
-from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import QEvent, pyqtSignal
+from qtpy import QtCore, QtWidgets
+from qtpy.QtCore import QEvent, Signal
 from superqt import ensure_main_thread
 
 from fibsem import acquire, utils
@@ -30,10 +30,10 @@ from fibsem.ui.widgets.image_settings_widget import ImageSettingsWidget
 
 
 class FibsemImageSettingsWidget(QtWidgets.QWidget):
-    viewer_update_signal = pyqtSignal()  # when the viewer is updated
-    acquisition_progress_signal = pyqtSignal(dict)
-    alignment_area_updated = pyqtSignal(FibsemRectangle)
-    _live_changed = pyqtSignal()  # a beam's live view started or ended
+    viewer_update_signal = Signal()  # when the viewer is updated
+    acquisition_progress_signal = Signal(dict)
+    alignment_area_updated = Signal(FibsemRectangle)
+    _live_changed = Signal()  # a beam's live view started or ended
 
     def __init__(
         self,
@@ -162,7 +162,10 @@ class FibsemImageSettingsWidget(QtWidgets.QWidget):
 
         self.gridLayout_2.addItem(
             QtWidgets.QSpacerItem(
-                20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+                20,
+                40,
+                QtWidgets.QSizePolicy.Policy.Minimum,
+                QtWidgets.QSizePolicy.Policy.Expanding,
             ),
             10,
             0,

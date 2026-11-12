@@ -1,8 +1,8 @@
 import copy
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QGridLayout, QLabel, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QGridLayout, QLabel, QWidget
 
 from fibsem.applications.autolamella.workflows.tasks.tasks import (
     AcquireFluorescenceImageConfig,
@@ -15,8 +15,8 @@ if TYPE_CHECKING:
 
 
 class AutoLamellaFluorescenceAcquisitionTaskConfigWidget(QWidget):
-    channel_settings_changed = pyqtSignal(list)
-    settings_changed = pyqtSignal(AcquireFluorescenceImageConfig)
+    channel_settings_changed = Signal(list)
+    settings_changed = Signal(AcquireFluorescenceImageConfig)
 
     def __init__(
         self,

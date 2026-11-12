@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QColor, QIcon, QPixmap
+from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFrame,
@@ -54,15 +54,15 @@ def _color_icon(color: str, size: int = 12) -> QIcon:
 class TileGridOptionsPanel(QFrame):
     """Show/hide, colour and fill opacity for the tile grid overlay, and re-centre it."""
 
-    visibility_changed = pyqtSignal(bool)
-    color_changed = pyqtSignal(str)
-    fill_alpha_changed = pyqtSignal(float)
-    centre_requested = pyqtSignal()
+    visibility_changed = Signal(bool)
+    color_changed = Signal(str)
+    fill_alpha_changed = Signal(float)
+    centre_requested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setObjectName("canvasPanel")
         self.setStyleSheet(CANVAS_PANEL_STYLE)
         self.setFixedWidth(196)
@@ -108,7 +108,7 @@ class TileGridOptionsPanel(QFrame):
         # Off by default -- outlines alone show the tile boundaries without hiding the
         # data. Turned up, the fill doubles as an overlap map.
         root.addWidget(QLabel("Fill"))
-        self.slider_alpha = QSlider(Qt.Horizontal)
+        self.slider_alpha = QSlider(Qt.Orientation.Horizontal)
         self.slider_alpha.setRange(0, 40)  # per-cent; above ~40 the data is unreadable
         self.slider_alpha.setValue(0)
         self.slider_alpha.valueChanged.connect(

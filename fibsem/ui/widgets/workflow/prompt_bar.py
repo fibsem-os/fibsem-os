@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QGridLayout, QLabel, QPushButton, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QGridLayout, QLabel, QPushButton, QWidget
 
 from fibsem.ui import stylesheets
 
@@ -18,7 +18,7 @@ _RUN_BUTTONS = ("Run Milling", "Run Spot Burn")
 class PromptBar(QWidget):
     # A button was pressed: True for the positive one. Both are disabled until
     # the next question, or `reopen`.
-    answered = pyqtSignal(bool)
+    answered = Signal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

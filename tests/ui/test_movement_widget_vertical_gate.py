@@ -22,7 +22,7 @@ from unittest.mock import Mock
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures.settings import BeamType, Point

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtWidgets import QWidget
+from qtpy.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.ui.protocol.forms import (
     AutoLamellaFluorescenceAcquisitionTaskConfigWidget,

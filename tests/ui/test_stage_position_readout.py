@@ -45,10 +45,12 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QPoint, QPointF, Qt  # noqa: E402
-from PyQt5.QtGui import QWheelEvent  # noqa: E402
+from qtpy.QtCore import QPoint, QPointF, Qt  # noqa: E402
+from qtpy.QtGui import QWheelEvent  # noqa: E402
 
 # Same construction seam the rest of tests/ui uses: a host with a view controller, a
 # real image widget and a Demo microscope. The movement widget asserts on its parent,
@@ -105,9 +107,9 @@ def _wheel(delta: int = 120) -> QWheelEvent:
         QPointF(5.0, 5.0),
         QPoint(0, delta),
         QPoint(0, delta),
-        Qt.NoButton,
-        Qt.NoModifier,
-        Qt.NoScrollPhase,
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
         False,
     )
 

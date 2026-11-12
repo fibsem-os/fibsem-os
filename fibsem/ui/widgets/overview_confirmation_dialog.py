@@ -15,7 +15,7 @@ is only the facts a beam run is described by.
 
 from typing import List, Optional, Sequence, Tuple
 
-from PyQt5.QtWidgets import QWidget
+from qtpy.QtWidgets import QWidget
 
 from fibsem import constants
 from fibsem.structures.settings import OverviewAcquisitionSettings

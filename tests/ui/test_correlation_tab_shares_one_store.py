@@ -22,10 +22,10 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from matplotlib.backend_bases import KeyEvent, MouseEvent
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.correlation.structures import (
     Coordinate,

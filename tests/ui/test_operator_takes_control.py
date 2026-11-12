@@ -10,10 +10,10 @@ import threading
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QEventLoop, QTimer
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QEventLoop, QTimer
+from qtpy.QtWidgets import QApplication
 
 from fibsem import utils
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW
@@ -33,7 +33,7 @@ def _run(worker: FunctionWorker, **start) -> bool:
     QTimer.singleShot(5000, loop.quit)
     started = worker.start(**start)
     if started:
-        loop.exec_()
+        loop.exec()
     _app.processEvents()
     return started
 
@@ -177,7 +177,7 @@ def _arctis():
 
 
 def test_a_refused_objective_move_leaves_the_objective(toasts):
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtWidgets import QWidget
 
     from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
 

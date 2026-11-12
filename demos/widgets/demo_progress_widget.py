@@ -8,8 +8,8 @@ with simulate buttons.  Run without hardware:
 
 import sys
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QTimer
+from qtpy.QtWidgets import (
     QApplication,
     QGroupBox,
     QHBoxLayout,
@@ -224,7 +224,7 @@ def main():
     app.setStyle("Fusion")
     w = ProgressDemo()
     w.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

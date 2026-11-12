@@ -18,7 +18,7 @@ import types
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import Point

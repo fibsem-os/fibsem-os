@@ -13,7 +13,7 @@ intensities to mimic a live update.
 import sys
 
 import numpy as np
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -77,7 +77,7 @@ def main() -> None:
     lay.addLayout(bar)
     lay.addWidget(info)
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

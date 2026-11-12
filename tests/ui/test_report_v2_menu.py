@@ -17,10 +17,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtGui import QDesktopServices  # noqa: E402
-from PyQt5.QtTest import QTest  # noqa: E402
+from qtpy.QtGui import QDesktopServices  # noqa: E402
+from qtpy.QtTest import QTest  # noqa: E402
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.tools import pdf_export  # noqa: E402

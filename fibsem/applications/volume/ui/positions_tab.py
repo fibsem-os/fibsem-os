@@ -13,9 +13,9 @@ import logging
 import os
 from typing import TYPE_CHECKING, Dict, List, Optional
 
-from PyQt5.QtCore import QSize, Qt, QTimer
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, QTimer
+from qtpy.QtGui import QImage, QPixmap
+from qtpy.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QHBoxLayout,
@@ -162,9 +162,9 @@ class SliceScrubber(QWidget):
         self.sem_button.setChecked(True)
 
         self.image = QLabel("No slices yet")
-        self.image.setAlignment(Qt.AlignCenter)
+        self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.image.setMinimumSize(320, 240)
-        self.image.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        self.image.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
         self.image.setStyleSheet(f"background: #000; color: {TEXT_MUTED_COLOR};")
         self.hfw = QLabel(self.image)
         self.hfw.setStyleSheet(f"color: {TEXT_STRONG_COLOR}; background: transparent;")
@@ -179,7 +179,7 @@ class SliceScrubber(QWidget):
         ):
             button.setFixedWidth(32)
             button.setToolTip(tip)
-        self.slider = QSlider(Qt.Horizontal)
+        self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setPageStep(1)
         self.follow = QCheckBox("Follow")
         self.follow.setChecked(True)
@@ -209,7 +209,7 @@ class SliceScrubber(QWidget):
         self.play_button.clicked.connect(self._toggle_play)
         self.slider.valueChanged.connect(self._show_slice)
         self.slider.sliderMoved.connect(lambda _v: self.follow.setChecked(False))
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
     @property
     def slices(self) -> List[StackSlice]:
@@ -325,8 +325,8 @@ class SliceScrubber(QWidget):
         return " · ".join(parts)
 
     def keyPressEvent(self, event) -> None:
-        if event.key() in (Qt.Key_Left, Qt.Key_Right):
-            self.step(-1 if event.key() == Qt.Key_Left else 1)
+        if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            self.step(-1 if event.key() == Qt.Key.Key_Left else 1)
             return
         super().keyPressEvent(event)
 
@@ -369,7 +369,7 @@ class PositionsTab(QWidget):
     @property
     def selected(self) -> Optional[str]:
         item = self.list.currentItem()
-        return None if item is None else item.data(Qt.UserRole)
+        return None if item is None else item.data(Qt.ItemDataRole.UserRole)
 
     def refresh(self) -> None:
         """Draw the cards from the experiment summary, keeping the selection,
@@ -385,7 +385,7 @@ class PositionsTab(QWidget):
             card = PositionCard()
             card.show_position(position, row, self._latest(position))
             item = QListWidgetItem()
-            item.setData(Qt.UserRole, row.item_name)
+            item.setData(Qt.ItemDataRole.UserRole, row.item_name)
             item.setSizeHint(QSize(0, CARD_HEIGHT))
             self.list.addItem(item)
             self.list.setItemWidget(item, card)

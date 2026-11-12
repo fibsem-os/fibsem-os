@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.ui import window as window_module  # noqa: E402
 from fibsem.applications.autolamella.ui.protocol import (  # noqa: E402

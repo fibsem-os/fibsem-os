@@ -8,9 +8,9 @@ from __future__ import annotations
 
 from typing import Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QPointF, QRectF, QSize, Qt
-from PyQt5.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
-from PyQt5.QtWidgets import QStyledItemDelegate
+from qtpy.QtCore import QPointF, QRectF, QSize, Qt
+from qtpy.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from qtpy.QtWidgets import QStyledItemDelegate
 
 from fibsem.fm.structures import REFLECTION, EmissionFilter, matching_emission_filter
 from fibsem.ui.widgets.custom_widgets import ValueComboBox

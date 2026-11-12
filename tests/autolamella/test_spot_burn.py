@@ -35,7 +35,7 @@ from tests.protocols import planned, task_protocol
 # everywhere once the parameter-widget classes were replaced (FIB-526/FIB-384).
 try:
     import superqt  # noqa: F401
-    from PyQt5 import QtWidgets  # noqa: F401
+    from qtpy import QtWidgets  # noqa: F401
 except ImportError as exc:  # pragma: no cover - exercised only in the no-UI CI env
     _MISSING_UI_DEPS = str(exc)
 else:

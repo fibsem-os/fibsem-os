@@ -14,7 +14,7 @@ import pytest
 
 from tests.fixtures.main_window import quit_stubbed
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict  # noqa: E402
 

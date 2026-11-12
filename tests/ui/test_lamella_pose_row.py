@@ -12,10 +12,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QLabel, QPushButton
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QLabel, QPushButton
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella.selected import (
@@ -67,8 +69,8 @@ def test_the_position_is_a_button_not_a_label(qapp):
     row = LamellaPoseRowWidget("MILLING", _state())
 
     assert isinstance(row.position_button, QPushButton)
-    assert row.position_button.focusPolicy() != Qt.NoFocus
-    assert row.position_button.cursor().shape() == Qt.PointingHandCursor
+    assert row.position_button.focusPolicy() != Qt.FocusPolicy.NoFocus
+    assert row.position_button.cursor().shape() == Qt.CursorShape.PointingHandCursor
 
 
 def test_the_row_looks_unchanged_until_hovered(qapp):
@@ -136,12 +138,12 @@ def test_clicking_the_position_opens_the_full_state(qapp):
 
 
 def test_the_popup_dismisses_itself(qapp):
-    """`Qt.Popup`, not a dialog. It closes on a click outside and does not block, so a
+    """`Qt.WindowType.Popup`, not a dialog. It closes on a click outside and does not block, so a
     pose can be read without losing the canvas and two poses are two clicks."""
     row = LamellaPoseRowWidget("MILLING", _state())
     row.position_button.click()
 
-    assert bool(row._popup.windowFlags() & Qt.Popup)
+    assert bool(row._popup.windowFlags() & Qt.WindowType.Popup)
     assert row._popup.isModal() is False
 
 

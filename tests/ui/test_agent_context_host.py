@@ -14,7 +14,7 @@ import json
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict
 
@@ -112,7 +112,7 @@ class _Dialog:
     def show(self):
         _Dialog.opened.append("show")
 
-    def exec_(self):
+    def exec(self):
         raise AssertionError("the run summary must not block the window")
 
 

@@ -17,8 +17,8 @@ sub-configs and reference imaging to show, and no type selector.
 
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QGridLayout,
     QLabel,
     QVBoxLayout,
@@ -90,7 +90,7 @@ class AutoLamellaTaskParametersConfigWidget(AdvancedRows, QWidget):
     beside this one by the Protocol and Lamella tabs.
     """
 
-    parameter_changed = pyqtSignal(str, object)  # field name, new value
+    parameter_changed = Signal(str, object)  # field name, new value
 
     def __init__(
         self,

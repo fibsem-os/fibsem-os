@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -65,8 +65,8 @@ def _pass_spinbox(name: str, minimum: float, maximum: float) -> ValueSpinBox:
 class _PassRowWidget(QWidget):
     """One sweep pass: enabled checkbox + range + step + remove button."""
 
-    changed = pyqtSignal()
-    remove_clicked = pyqtSignal(object)  # _PassRowWidget
+    changed = Signal()
+    remove_clicked = Signal(object)  # _PassRowWidget
 
     def __init__(
         self, sweep_pass: FocusSweepPass, parent: Optional[QWidget] = None
@@ -144,7 +144,7 @@ class _PassRowWidget(QWidget):
 
 
 class _PassListHeader(QWidget):
-    add_clicked = pyqtSignal()
+    add_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -197,7 +197,7 @@ class AutofocusWidget(QWidget):
     :meth:`set_pass_editing_enabled(True)` is called.
     """
 
-    settings_changed = pyqtSignal(AutoFocusSettings)
+    settings_changed = Signal(AutoFocusSettings)
 
     MAX_PASSES = 5
 
@@ -243,7 +243,7 @@ class AutofocusWidget(QWidget):
         layout.addLayout(self._rows_container)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 

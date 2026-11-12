@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow  # noqa: E402

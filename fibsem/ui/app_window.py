@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Optional
 
-from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
+from qtpy.QtWidgets import QApplication, QMainWindow, QTabWidget
 
 import fibsem.config as fibsem_cfg
 from fibsem.acting import OPERATOR
@@ -263,7 +263,7 @@ class AppWindow(QMainWindow):
             enabled=preference.enabled or self.session.host_app_server,
             serve_microscope=preference.microscope,
         )
-        dialog.exec_()
+        dialog.exec()
 
     def _set_app_server_enabled(self, enabled: bool) -> None:
         """Tools → Host: save whether the server runs, and act on it now."""

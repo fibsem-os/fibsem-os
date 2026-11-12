@@ -16,7 +16,7 @@ timeout.
 from concurrent.futures import InvalidStateError
 from typing import TYPE_CHECKING, Callable, Dict, Type
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 
 from fibsem.structures.settings import BeamType
 from fibsem.workflows.interaction import (
@@ -40,7 +40,7 @@ __all__ = ["QtResponder"]
 class QtResponder(QObject):
     """Acts on workflow instructions by driving the panel's widgets, on the GUI thread."""
 
-    _submitted = pyqtSignal(object, object)  # (Request, Future)
+    _submitted = Signal(object, object)  # (Request, Future)
 
     def __init__(self, panel: "MicroscopePanel"):
         super().__init__()

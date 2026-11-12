@@ -4,8 +4,8 @@ import logging
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -33,7 +33,7 @@ class FibsemStrategySettingsWidget(AdvancedRows, QWidget):
     Strategies with no config fields (e.g. Standard) show an empty-state label.
     """
 
-    strategy_changed = pyqtSignal(object)  # MillingStrategyConfig
+    strategy_changed = Signal(object)  # MillingStrategyConfig
 
     def __init__(
         self,

@@ -10,7 +10,7 @@ from __future__ import annotations
 import weakref
 from typing import List, Optional
 
-from PyQt5.QtWidgets import QFrame, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QFrame, QVBoxLayout, QWidget
 
 from fibsem.ui.stylesheets import shown_border_state
 

@@ -2,8 +2,8 @@
 
 import sys
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QTimer
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -158,7 +158,7 @@ def main():
 
     w.resize(320, 180)
     w.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

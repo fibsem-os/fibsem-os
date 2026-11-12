@@ -521,3 +521,36 @@ def test_a_session_in_its_own_run_folder_needs_no_folder_named(made, tmp_path):
     agent.resume("by-hand", "watch", "operator", "page")
     assert until(lambda: len(_record(tmp_path).get("runs", [])) == 2)
     assert _record(tmp_path)["args"] == ["--playbook", "default", "--url", URL]
+
+
+def test_the_keyring_is_not_asked_on_every_refresh_of_the_page(tmp_path):
+    from fibsem.gateway import agent as module
+
+    asked = []
+    agent = GatewayAgent(
+        FakeGateway(),
+        PairedTokens(tmp_path / "paired.json"),
+        root=tmp_path / "sessions",
+        environ={},
+        stored=lambda name: asked.append(name) or "sk-stored",
+    )
+    assert agent.state().api_key and agent.state().api_key
+    assert asked == [API_KEY]
+    agent._key_seen = (time.monotonic() - module.KEY_KEPT_S - 1, False)
+    assert agent.state().api_key and len(asked) == 2
+
+
+def test_a_sessions_working_folder_is_looked_at_once_a_minute(tmp_path, monkeypatch):
+    from fibsem.gateway import agent as module
+
+    monkeypatch.setattr(module, "_folders_seen", {})
+    folder = tmp_path / "work"
+    folder.mkdir()
+    record = {"session_id": "s1", "cwd": str(folder)}
+    assert module._row(record)["cannot_resume"] is None
+    folder.rmdir()
+    assert module._row(record)["cannot_resume"] is None, "kept for a minute"
+    # resuming always looks again
+    assert module._why_not(record, "linux") == "Its working folder is gone."
+    module._folders_seen[str(folder)] = (time.monotonic() - 61, True)
+    assert module._row(record)["cannot_resume"] == "Its working folder is gone."

@@ -2,7 +2,7 @@
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.gateway.gateway import (  # noqa: E402
     OFF,

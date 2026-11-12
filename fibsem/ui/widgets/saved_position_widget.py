@@ -4,8 +4,8 @@ import logging
 from copy import deepcopy
 from typing import List, Optional
 
-from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, QSize, Qt, Signal
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QHBoxLayout,
@@ -40,11 +40,11 @@ _NAME_EDIT_STYLE = (
 
 
 class SavedPositionRowWidget(QWidget):
-    name_changed = pyqtSignal(object, str)  # (FibsemStagePosition, name)
-    move_to_clicked = pyqtSignal(object)  # FibsemStagePosition
-    update_clicked = pyqtSignal(object)  # FibsemStagePosition
-    remove_clicked = pyqtSignal(object)  # FibsemStagePosition
-    row_clicked = pyqtSignal(object)  # FibsemStagePosition
+    name_changed = Signal(object, str)  # (FibsemStagePosition, name)
+    move_to_clicked = Signal(object)  # FibsemStagePosition
+    update_clicked = Signal(object)  # FibsemStagePosition
+    remove_clicked = Signal(object)  # FibsemStagePosition
+    row_clicked = Signal(object)  # FibsemStagePosition
 
     def __init__(self, position: FibsemStagePosition, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -115,7 +115,7 @@ class SavedPositionRowWidget(QWidget):
 
 
 class _SavedPositionListHeader(QWidget):
-    add_clicked = pyqtSignal()
+    add_clicked = Signal()
 
     def __init__(self, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -153,9 +153,9 @@ class _SavedPositionListHeader(QWidget):
 
 
 class SavedPositionListWidget(QWidget):
-    move_to_requested = pyqtSignal(object)  # FibsemStagePosition
-    positions_updated = pyqtSignal(list)  # List[FibsemStagePosition]
-    position_selected = pyqtSignal(object)  # FibsemStagePosition
+    move_to_requested = Signal(object)  # FibsemStagePosition
+    positions_updated = Signal(list)  # List[FibsemStagePosition]
+    position_selected = Signal(object)  # FibsemStagePosition
 
     def __init__(self, microscope=None, parent: QWidget = None) -> None:
         super().__init__(parent)
@@ -174,7 +174,7 @@ class SavedPositionListWidget(QWidget):
         layout.addWidget(self._header)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFixedHeight(1)
         sep.setStyleSheet("background: #3a3d42; border: none;")
         layout.addWidget(sep)
@@ -182,14 +182,14 @@ class SavedPositionListWidget(QWidget):
         self._list = QListWidget()
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setSpacing(0)
-        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._list.setAlternatingRowColors(False)
         layout.addWidget(self._list)
 
         self._empty_label = QLabel("No saved positions")
-        self._empty_label.setAlignment(Qt.AlignCenter)
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._empty_label.setStyleSheet("color: #666; font-size: 11px; padding: 8px;")
         self._empty_label.setVisible(False)
         layout.addWidget(self._empty_label)
@@ -331,7 +331,7 @@ class SavedPositionListWidget(QWidget):
         confirmed = message_box_ui(
             text=f"Remove '{position.name}'? This cannot be undone.",
             title="Remove Position",
-            buttons=QMessageBox.Yes | QMessageBox.No,
+            buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             parent=self,
         )
         if confirmed:
@@ -343,7 +343,7 @@ class SavedPositionListWidget(QWidget):
         confirmed = message_box_ui(
             text=f"Update '{position.name}' to the current stage position?",
             title="Update Position",
-            buttons=QMessageBox.Yes | QMessageBox.No,
+            buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             parent=self,
         )
         if confirmed:
@@ -353,7 +353,7 @@ class SavedPositionListWidget(QWidget):
         confirmed = message_box_ui(
             text=f"Move stage to '{position.name}'?",
             title="Move to Position",
-            buttons=QMessageBox.Yes | QMessageBox.No,
+            buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             parent=self,
         )
         if confirmed:

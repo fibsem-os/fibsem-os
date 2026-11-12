@@ -24,8 +24,8 @@ from __future__ import annotations
 import datetime
 from typing import Callable, List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QHBoxLayout,
@@ -105,7 +105,7 @@ class CorrelationSetupSection(QWidget):
         whether a source can be applied at all. Refusing restores the controls.
     """
 
-    seed_requested = pyqtSignal(str, object)
+    seed_requested = Signal(str, object)
 
     def __init__(
         self,
@@ -195,7 +195,7 @@ class CorrelationSetupSection(QWidget):
         self.run_combo.setStyleSheet(_CONTROL_STYLE)
         # Run names are short; sized to them like the Method panel's combos,
         # not stretched like the image pickers that hold paths.
-        self.run_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.run_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.run_combo.setMinimumContentsLength(10)
         self.run_combo.setMinimumWidth(150)
         run_layout.addWidget(self.run_combo)

@@ -5,9 +5,9 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.structures.image import FibsemImage  # noqa: E402
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas  # noqa: E402

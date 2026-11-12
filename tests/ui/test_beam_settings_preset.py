@@ -16,10 +16,12 @@ import threading
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QEventLoop, QTimer
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QEventLoop, QTimer
+from qtpy.QtWidgets import QApplication
 
 from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata
@@ -33,7 +35,7 @@ def _pump(ms: int = 50) -> None:
     """Let queued cross-thread signals deliver."""
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 class FakeParameter:
