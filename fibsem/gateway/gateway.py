@@ -57,6 +57,10 @@ STOP_WAIT_S = 60.0
 POLL_S = 1.0
 NEWER_EVERY_S = 24 * 3600.0
 HISTORY_SHOWN = 50
+# How often the facts read from disk (recent experiments, the experiments
+# folder, configurations, apps) are read again in the background: the page
+# gets the last values read and never waits on a slow or missing drive.
+FACTS_EVERY_S = 10.0
 EXPERIMENT_FILE = "experiment.yaml"
 
 
@@ -245,7 +249,22 @@ def experiments_folder() -> str:
     """Where a new experiment goes: the preference, or the default folder."""
     from fibsem.workflows.experiments import default_experiment_directory
 
-    return default_experiment_directory()
+    return default_experiment_directory(quiet=True)
+
+
+def _tail(path: Path, lines: int) -> List[str]:
+    """The last *lines* lines of *path*, reading only the end of the file."""
+    with open(path, "rb") as f:
+        size = f.seek(0, os.SEEK_END)
+        want = 512 * lines
+        while True:
+            start = max(0, size - want)
+            f.seek(start)
+            found = f.read().decode("utf-8", errors="replace").splitlines()
+            if start == 0 or len(found) > lines:
+                # the first line read may be cut off part way
+                return found[-lines:] if start == 0 else found[1:][-lines:]
+            want *= 4
 
 
 def _python() -> str:
@@ -304,6 +323,9 @@ class Gateway:
         self._recent = recent
         self._new_folder = new_folder
         self._configurations = configurations
+        self._facts: Optional[dict] = None
+        self._facts_lock = threading.Lock()
+        self._facts_due = threading.Event()
         self._discovery = discovery
         self._running = running
         self._python = python or _python()
@@ -346,22 +368,43 @@ class Gateway:
             state.switch = self._switch
             state.switching = self._switch is not None
         state.holder = self._holder()
+        facts = self._facts if self._facts is not None else self.refresh_facts()
         state.apps = [
             GatewayApp(key=key, name=app.name, headless=app.serve is not None)
-            for key, app in self._apps().items()
+            for key, app in facts["apps"].items()
         ]
-        state.last_experiment = self._last()
-        state.recent_experiments = self._recent()
-        state.experiments_folder = self._new_folder()
+        state.last_experiment = facts["last"]
+        state.recent_experiments = facts["recent"]
+        state.experiments_folder = facts["folder"]
         state.connection = list(self._connection)
         state.configurations = [
             GatewayConfiguration(name=c["name"], default=c["default"])
-            for c in self._configurations()
+            for c in facts["configurations"]
         ]
         state.newer = self._newer
         found = self._discovery()
         state.app_url = found["url"] if found else None
         return state
+
+    def refresh_facts(self) -> dict:
+        """Read the facts that come from disk again. One that fails keeps its
+        last value."""
+        with self._facts_lock:
+            facts = dict(self._facts or {})
+            for name, read, empty in (
+                ("apps", self._apps, {}),
+                ("last", self._last, None),
+                ("recent", self._recent, []),
+                ("folder", self._new_folder, ""),
+                ("configurations", self._configurations, []),
+            ):
+                try:
+                    facts[name] = read()
+                except Exception:  # noqa: BLE001 - the page shows the last read
+                    logging.debug(f"Reading the gateway's {name} failed", exc_info=True)
+                    facts.setdefault(name, empty)
+            self._facts = facts
+            return facts
 
     def check_newer(self) -> None:
         """Ask whether newer code exists (PyPI, or GitHub for a checkout)."""
@@ -372,7 +415,7 @@ class Gateway:
 
     def history(self, limit: int = HISTORY_SHOWN) -> History:
         try:
-            lines = self.history_file.read_text().splitlines()
+            lines = _tail(self.history_file, limit)
         except OSError:
             return History()
         switches = []
@@ -708,6 +751,8 @@ class Gateway:
                 f.write(json.dumps(asdict(line)) + "\n")
         except OSError:
             logging.exception("Gateway history not written")
+        # the last experiment and the recent ones may have changed
+        self._facts_due.set()
 
     # -- watching ----------------------------------------------------------
 
@@ -753,19 +798,19 @@ class Gateway:
                 if self._closed.wait(NEWER_EVERY_S):
                     return
 
+        def facts():
+            while not self._closed.is_set():
+                self._facts_due.clear()
+                self.refresh_facts()
+                self._facts_due.wait(FACTS_EVERY_S)
+
         self._watcher = threading.Thread(target=loop, name="gateway", daemon=True)
         self._watcher.start()
-        # read the recent experiments once now, so the page's first load is quick
-        threading.Thread(target=self._warm, name="gateway-recent", daemon=True).start()
+        threading.Thread(target=facts, name="gateway-facts", daemon=True).start()
         threading.Thread(target=newer, name="gateway-newer", daemon=True).start()
-
-    def _warm(self) -> None:
-        try:
-            self._recent()
-        except Exception:  # noqa: BLE001 - the page reads them again
-            logging.debug("Reading the recent experiments failed", exc_info=True)
 
     def close(self) -> None:
         """Stop watching. An app without its window keeps running; a new
         gateway shows it as a holder until it ends."""
         self._closed.set()
+        self._facts_due.set()

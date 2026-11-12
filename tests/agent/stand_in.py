@@ -1,6 +1,7 @@
 """A stand-in for ``fibsem-agent``, run by the manager's tests: it keeps its
 session's record the way the harness does and ends as ``STAND_IN_PLAN`` says,
-one entry per run: an exit code, ``crash`` (exits without recording), ``fatal``
+one entry per run: an exit code, ``crash`` (exits without recording), ``refuse``
+(prints why and exits without recording, as a refusal before the log opens), ``fatal``
 (1, not resumable), ``wait`` (until its stop file, then 0) or ``ignore``
 (never stops by itself)."""
 
@@ -31,6 +32,9 @@ def main() -> int:
     step = plan[min(runs, len(plan)) - 1]
     if step == "crash":
         os._exit(9)
+    if step == "refuse":
+        print("The lab-x playbook isn't on this PC.", file=sys.stderr, flush=True)
+        os._exit(1)
     if step == "fatal":
         session.end(
             1, "the model can't answer (authentication_failed)", resumable=False
