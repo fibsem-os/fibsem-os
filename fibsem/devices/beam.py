@@ -713,6 +713,10 @@ class Beam(Device):
         finally:
             if scanned:
                 self.scanner.resources.release(SCANNER_RESOURCE, self.name)
+            # Not live before the end is signalled: a listener reads is_live then.
+            with self._live_lock:
+                if self._live_thread is threading.current_thread():
+                    self._live_thread = None
             self._report_live(False)
 
     def _live(self, stop: threading.Event) -> None:

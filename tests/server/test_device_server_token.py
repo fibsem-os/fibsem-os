@@ -60,6 +60,8 @@ def test_another_computer_pairs_by_command_once(beams, tmp_path, monkeypatch):
     monkeypatch.setattr(
         "fibsem.server.operator_token.DEVICE_TOKEN_FILE", tmp_path / "none.json"
     )
+    # A pairing kept here would outlive the test and match a later server on this port.
+    monkeypatch.setattr("fibsem.client.pairing.REMOTE_DIR", tmp_path / "remote")
     try:
         with pytest.raises(RemoteDeviceNotPaired, match="fibsem-cli pair-device"):
             DeviceClient("127.0.0.1", server.port)

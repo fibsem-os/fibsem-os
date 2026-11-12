@@ -18,6 +18,7 @@ from fibsem.alignment.coincidence import (
     ensure_coincident,
 )
 from fibsem.structures.settings import BeamType
+from tests.fixtures.sim_scenes import flat_scene
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -81,10 +82,9 @@ def microscope():
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 8e-6
     microscope._connection.setup_sample_scene()
-    from fibsem.drivers.demo.sim_scene import SampleScene
 
     # deterministic scene: the loop is about control flow and geometry
-    scene = SampleScene(
+    scene = flat_scene(
         coincidence_offset=8e-6,
         fiducial=True,
         noise_sigma=0.0,

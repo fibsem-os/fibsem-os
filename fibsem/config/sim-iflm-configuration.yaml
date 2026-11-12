@@ -87,7 +87,7 @@ sim:
         tilt_axis_offset: 0.0                              # surface height above the tilt axis (m); >0 makes the stage non-eucentric
         grid_pitch: 125.0e-6                               # mesh pitch (m)
         grid_bar_width: 35.0e-6                            # bar width (m)
-        cell_type: mammalian                               # mammalian (adherent, fried-egg) | yeast | bacteria | mixed | none
+        cell_type: rpe                                     # rpe (single domed cells) | mammalian (adherent, fried-egg) | yeast | bacteria | mixed | none
         mammalian_density: 7.0                             # cells per 150 x 150 um; mammalian_radius / nucleus_radius set the sizes
         n_clusters: 120                                    # yeast: cell clumps over the extent
         cell_size: [1.8e-6, 2.8e-6]                        # yeast cell radius range (m)
@@ -96,7 +96,7 @@ sim:
         grid_rotation: null                                # degrees; null = random within +/- 45
         fiducial: false                                    # a cross at each grid centre, a navigation landmark; absent on a real grid
         contamination_density: 15.0                        # specks per 100 x 100 um (aperiodic content on film and bars)
-        film: continuous                                   # continuous | holey (Quantifoil-style lattice: hole_diameter, hole_pitch; the coincidence measurement does not handle the lattice yet)
+        film: holey                                        # holey (Quantifoil-style lattice: hole_diameter, hole_pitch) | continuous
         rip_fraction: 0.03                                 # squares with the film torn away
         ice_density: 0.4                                   # ice plates per 100 x 100 um
         grid_radius: 1.4e-3                                # usable radius (m); beyond it the rim, then the holder

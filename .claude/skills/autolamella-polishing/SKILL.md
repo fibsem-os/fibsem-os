@@ -48,8 +48,11 @@ Either way, stop at once on a stop sign below. For every pass:
 - Measure the band, don't trust the gap, and stop on the first of: the band
   under the target (with stop thicker); the band faint or low in contrast, even if it still looks
   wide (a faint band is already thin: a lamella milled through on the next
-  pass when this was read as width); the SEM shows a crack, a break, a hole,
-  bending or the face deteriorating.
+  pass when this was read as width); the band stops thinning (a pass that
+  milled leaves it no thinner, within about 20 nm, than the pass before: more
+  passes only cost time and risk the faces, so stop there, above the target
+  if need be, and say why); the SEM shows a crack, a break, a hole, bending
+  or the face deteriorating.
 - On a correlative lamella, the faces follow the target:
   autolamella-correlative's *Polishing to a target*.
 - The polishing patterns can't be rotated to follow a tilted band. If the

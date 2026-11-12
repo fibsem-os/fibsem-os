@@ -1,0 +1,485 @@
+"""Running the agent on eval cases, one case and repeat at a time.
+
+Each run gets its own state root (``FIBSEM_HOME``) holding a frozen copy of
+the lab's knowledge and a new experiment with the case's inputs in it, an App
+Server on the Demo microscope serving that experiment, and fibsem-agent at
+Watch with the case's task as its goal. The run ends when the agent writes
+``answer.json``, stops, or runs out of time; the answer is then scored and the
+session's usage kept beside it.
+
+Each run's App Server has its own port and discovery file, so runs go
+beside one another and beside the operator's own. A run that already has its
+result is kept when the same folder is run again; one that stopped part way
+is moved aside and run again. Nothing here moves a microscope: the Demo microscope is the only one
+it connects, and Watch is the level.
+"""
+
+import hashlib
+import json
+import logging
+import os
+import shutil
+import socket
+import subprocess
+import sys
+import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterable, List, Optional
+
+import yaml
+
+from fibsem import __version__, paths
+from fibsem.ai.agent import manager, mirror, sources
+from fibsem.ai.evals.cases import Case, input_paths
+from fibsem.ai.evals.scoring import ANSWER_NOTES, ANSWER_SHAPES, score_case
+from fibsem.server import discovery
+
+log = logging.getLogger(__name__)
+
+ANSWER = "answer.json"
+TASK = "task.md"
+RESULT = "result.json"
+INPUTS = "experiment"
+# The session files kept with each run.
+SESSION_FILES = (manager.RECORD, manager.LOG, "usage.jsonl", mirror.FILE)
+POLL_S = 2.0
+STOP_WAIT_S = 60.0
+
+
+class RunnerError(RuntimeError):
+    pass
+
+
+def agent_command() -> List[str]:
+    return manager.agent_command()
+
+
+def server_command() -> List[str]:
+    return [
+        sys.executable,
+        "-m",
+        "fibsem.applications.autolamella.launch",
+        "--manufacturer",
+        "Demo",
+    ]
+
+
+@dataclass
+class RunConfig:
+    out: Path
+    repeats: int = 3
+    playbook: Optional[str] = None
+    model: Optional[str] = None
+    effort: Optional[str] = None
+    budget_usd: float = 1.0
+    timeout_s: float = 20 * 60
+    server_wait_s: float = 120.0
+    # Runs at once: each has its own App Server, on its own port.
+    jobs: int = 1
+    # Code mode: the agent may also write and run code in the run's work
+    # folder (sandboxed, no network); else it reads and writes files only.
+    code: bool = False
+    # The knowledge each run starts from; the lab's own when None.
+    knowledge: Optional[Path] = None
+    agent_command: List[str] = field(default_factory=lambda: agent_command())
+    server_command: List[str] = field(default_factory=lambda: server_command())
+
+
+# ``RunConfig.playbook`` for each case's own (its ``playbook:``; the base
+# playbook for a case that names none).
+CASE_PLAYBOOK = "case"
+
+
+def run_playbook(case: Case, config: RunConfig) -> Optional[str]:
+    """The playbook a run of *case* starts on; None for the base one."""
+    if config.playbook == CASE_PLAYBOOK:
+        return case.data.get("playbook") or None
+    return config.playbook
+
+
+def case_budget(case: Case, config: RunConfig) -> float:
+    """The run's spending cap: the case's own ``budget_usd`` when it gives
+    one, for a case that needs more work than most."""
+    return float(case.data.get("budget_usd") or config.budget_usd)
+
+
+def run_dir(config: RunConfig, case: Case, repeat: int) -> Path:
+    return Path(config.out) / case.id / f"r{repeat}"
+
+
+def task_text(case: Case, inputs: Iterable[str]) -> str:
+    """What the agent is told: the case's brief, its files and the answer's
+    shape, never its key or what the run did."""
+    data = case.data
+    lines = [f"# Eval task: {case.id}", "", str(data.get("brief", "")).strip(), ""]
+    for name in ("sample", "instrument", "mode"):
+        if data.get(name):
+            lines.append(f"- {name.capitalize()}: {data[name]}")
+    stack = data.get("stack")
+    if stack:
+        about = {k: v for k, v in stack.items() if k not in ("file", "axes")}
+        lines.append(f"- Stack {_shown(stack.get('file'))}: {json.dumps(about)}")
+    for name, value in (data.get("inputs") or {}).items():
+        if isinstance(value, (int, float)) or name.endswith("_um"):
+            lines.append(f"- {name}: {value}")
+    squares = data.get("squares") or []
+    if squares:
+        lines += ["", "## Squares, by number", ""]
+        for square in squares:
+            lines.append(
+                f"- {square['square']}: x_px {square['x_px']}, y_px {square['y_px']}"
+            )
+    passes = data.get("passes") or []
+    if passes:
+        lines += ["", "## Passes, in order", ""]
+        for entry in passes:
+            files = {
+                k: _shown(v)
+                for k, v in entry.items()
+                if isinstance(v, str) and k != "name"
+            }
+            measured = entry.get("measured")
+            extra = f" measured {json.dumps(measured)}" if measured else ""
+            lines.append(f"- {entry['name']}: {json.dumps(files)}{extra}")
+    lines += [
+        "",
+        "## Files",
+        "",
+        "The open experiment holds the case's files; read them with the "
+        "experiment tools by these paths:",
+        "",
+    ]
+    lines += [f"- {path}" for path in sorted(inputs)]
+    lines += ["", "## Answer", ""]
+    if case.parts:
+        lines.append(f'Write {ANSWER} in your files folder as {{"parts": {{...}}}}:')
+        for name, part in case.parts.items():
+            shape = json.dumps(ANSWER_SHAPES[part["task"]])
+            lines += ["", f"- Part {name}: {part.get('question', '')}", f"  {shape}"]
+    else:
+        lines.append(f"Write {ANSWER} in your files folder, shaped like this:")
+        lines += ["", json.dumps(ANSWER_SHAPES[case.task], indent=2)]
+    tasks = [case.task] + [part["task"] for part in case.parts.values()]
+    for task in dict.fromkeys(tasks):
+        if task in ANSWER_NOTES:
+            lines += ["", ANSWER_NOTES[task]]
+    lines += [
+        "",
+        "Look and read only. Once the answer is written you are done; say so and stop.",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _shown(path: Optional[str]) -> Optional[str]:
+    """A case input's path as the experiment holds it."""
+    if path is None:
+        return None
+    prefix = INPUTS + "/"
+    if path.startswith("../"):
+        return Path(path).name
+    return path[len(prefix) :] if path.startswith(prefix) else path
+
+
+def goal_text(case: Case) -> str:
+    return (
+        f"Eval case {case.id}: read {TASK} in your files folder, do what it "
+        f"asks, and write {ANSWER} there."
+    )
+
+
+def link_inputs(case: Case, experiment: Path) -> List[str]:
+    """The case's inputs, linked (copied where links can't be made) into the
+    experiment's folder: everything under its experiment/, and a file it
+    shares from another case (``../``) at the top. The paths the experiment
+    holds them at."""
+    source = case.path / INPUTS
+    files = {}
+    for path in sorted(source.rglob("*")) if source.is_dir() else []:
+        if path.is_file() and path.name != "experiment.yaml":
+            files[path.relative_to(source).as_posix()] = path
+    for rel in input_paths(case):
+        if rel.startswith("../"):
+            files[Path(rel).name] = case.path / rel
+    for rel, path in files.items():
+        target = experiment / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(path, target)
+        except OSError:
+            shutil.copy2(path, target)
+    return sorted(files)
+
+
+def prepare_home(home: Path, knowledge: Optional[Path]) -> None:
+    """A state root that lets a local agent connect without a click and
+    starts from a copy of *knowledge*."""
+    prefs = home / "config" / "user-preferences.yaml"
+    prefs.parent.mkdir(parents=True, exist_ok=True)
+    install = {"app_server": {"enabled": True, "allow_local_agents": True}}
+    prefs.write_text(yaml.safe_dump({"install": install}))
+    if knowledge is not None and knowledge.is_dir():
+        shutil.copytree(knowledge, home / "knowledge")
+
+
+def _wait_for(check: Callable[[], bool], timeout_s: float, proc=None) -> bool:
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        if proc is not None and proc.poll() is not None:
+            return False
+        time.sleep(0.5)
+    return check()
+
+
+def _end(proc: subprocess.Popen, wait_s: float) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(wait_s)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+
+
+def _read_answer(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        answer = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return answer if isinstance(answer, dict) else None
+
+
+def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
+    """One run of the agent on *case*; its result, also saved in the run's
+    folder."""
+    folder = run_dir(config, case, repeat)
+    if folder.exists():
+        raise RunnerError(f"{folder} exists: give another --out, or remove it.")
+    home, work = folder / "home", folder / "work"
+    experiments = home / "experiments"
+    experiment = experiments / case.id
+    work.mkdir(parents=True)
+    experiments.mkdir(parents=True)
+    knowledge = config.knowledge or paths.state_root() / "knowledge"
+    prepare_home(home, knowledge)
+    env = {**os.environ, paths.STATE_ROOT_ENV: str(home)}
+
+    started = time.monotonic()
+    result: Dict[str, Any] = {
+        "case": case.id,
+        "repeat": repeat,
+        "task": case.task,
+        "tier": case.tier,
+        "case_path": str(case.path.resolve()),
+    }
+    # The run's own App Server, beside any other on this PC: its own port,
+    # and its discovery file in the run's home.
+    found_at = home / "app-server.json"
+    server_log = open(folder / "server.log", "w")
+    server = subprocess.Popen(
+        config.server_command
+        + ["--create", str(experiment), "--experiments", str(experiments)]
+        + ["--port", str(_free_port()), "--discovery", str(found_at)],
+        env=env,
+        stdout=server_log,
+        stderr=subprocess.STDOUT,
+    )
+    agent = None
+    try:
+
+        def serving() -> bool:
+            found = discovery.read_discovery_file(found_at)
+            return found is not None and found.get("pid") == server.pid
+
+        if not _wait_for(serving, config.server_wait_s, server):
+            raise RunnerError(
+                f"The App Server did not start; see {folder / 'server.log'}."
+            )
+        inputs = link_inputs(case, experiment)
+        (work / TASK).write_text(task_text(case, inputs))
+
+        session_id = str(uuid.uuid4())
+        command = config.agent_command + [
+            "--session-id",
+            session_id,
+            "--code" if config.code else "--files",
+            str(work),
+            "--goal",
+            goal_text(case),
+            "--max-budget-usd",
+            str(case_budget(case, config)),
+        ]
+        for flag, value in (
+            ("--playbook", run_playbook(case, config)),
+            ("--model", config.model),
+            ("--effort", config.effort),
+        ):
+            if value:
+                command += [flag, value]
+        result["session_id"] = session_id
+        result["model"] = config.model or "default"
+        result["code"] = config.code
+        result["playbook"] = run_playbook(case, config) or "fibsem-agent"
+        result["version"] = code_version(home / "knowledge")
+        with open(folder / "agent.log", "w") as agent_log:
+            # The agent finds its own run's server, not this PC's.
+            agent_env = {**env, discovery.DISCOVERY_FILE_ENV: str(found_at)}
+            agent = subprocess.Popen(
+                command, env=agent_env, stdout=agent_log, stderr=subprocess.STDOUT
+            )
+            answered = _wait_for(
+                lambda: _read_answer(work / ANSWER) is not None,
+                config.timeout_s,
+                agent,
+            )
+            timed_out = not answered and agent.poll() is None
+            session = manager.session_folder(session_id)
+            if agent.poll() is None:
+                session.mkdir(parents=True, exist_ok=True)
+                (session / manager.STOP).touch()
+                try:
+                    agent.wait(STOP_WAIT_S)
+                except subprocess.TimeoutExpired:
+                    _end(agent, 10)
+        result["agent_exit"] = agent.returncode
+        result["status"] = (
+            "answered" if answered else "timeout" if timed_out else "no_answer"
+        )
+        result.update(_collect_session(session, folder / "session"))
+    finally:
+        if agent is not None and agent.poll() is None:
+            _end(agent, 10)
+        _end(server, 30)
+        server_log.close()
+
+    result["seconds"] = round(time.monotonic() - started, 1)
+    answer = _read_answer(work / ANSWER)
+    result["scores"] = [s.to_dict() for s in score_case(case, answer or {})]
+    (folder / RESULT).write_text(json.dumps(result, indent=2))
+    return result
+
+
+def _collect_session(session: Path, into: Path) -> Dict[str, Any]:
+    """The session's record, log and usage, copied beside the run; what it
+    spent."""
+    into.mkdir(parents=True, exist_ok=True)
+    for name in SESSION_FILES:
+        if (session / name).is_file():
+            shutil.copy2(session / name, into / name)
+    if (session / mirror.FOLDER).is_dir():
+        shutil.copytree(session / mirror.FOLDER, into / mirror.FOLDER)
+    runs = manager.read_json(session / manager.RECORD).get("runs") or [{}]
+    last = runs[-1]
+    return {
+        key: last[key]
+        for key in ("spent_usd", "turns", "tokens", "reason")
+        if key in last
+    }
+
+
+def run_cases(
+    cases: Iterable[Case],
+    config: RunConfig,
+    on_result: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> List[Dict[str, Any]]:
+    """Every keyed case, *config.repeats* times each, *config.jobs* at a
+    time; the results in the order they finish."""
+    runs = []
+    for case in cases:
+        if case.status != "keyed":
+            log.info("Skipping %s: %s", case.id, case.status)
+            continue
+        for repeat in range(1, config.repeats + 1):
+            if _kept(run_dir(config, case, repeat)):
+                log.info("Keeping %s r%d: it has its result", case.id, repeat)
+            else:
+                runs.append((case, repeat))
+    results = []
+
+    def done(result):
+        results.append(result)
+        if on_result is not None:
+            on_result(result)
+
+    if config.jobs <= 1:
+        for case, repeat in runs:
+            done(run_case(case, repeat, config))
+        return results
+    pool = ThreadPoolExecutor(max_workers=config.jobs)
+    try:
+        futures = [pool.submit(run_case, case, r, config) for case, r in runs]
+        for future in as_completed(futures):
+            done(future.result())
+    finally:
+        # A Ctrl-C (or a failed run) starts no more runs; those running end.
+        pool.shutdown(wait=True, cancel_futures=True)
+    return results
+
+
+def _kept(folder: Path) -> bool:
+    """Whether the run in *folder* finished; one that stopped part way is
+    moved aside (``r1.stopped``, ``r1.stopped-2``, ...) to run again."""
+    if (folder / RESULT).is_file():
+        return True
+    if folder.exists():
+        aside, n = folder.with_name(folder.name + ".stopped"), 1
+        while aside.exists():
+            n += 1
+            aside = folder.with_name(f"{folder.name}.stopped-{n}")
+        folder.rename(aside)
+    return False
+
+
+def _digest(root: Path) -> Optional[str]:
+    """A short hash of every file under *root*, None when it is missing."""
+    if not root.is_dir():
+        return None
+    sha = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        sha.update(path.relative_to(root).as_posix().encode())
+        sha.update(path.read_bytes())
+    return sha.hexdigest()[:12]
+
+
+def code_version(knowledge: Path) -> Dict[str, Any]:
+    """What a run's agent ran with: the fibsem version, the checkout's
+    commit and the files changed since it, and a hash of the skills and
+    agents and of the knowledge, so two runs show whether they differ."""
+    root = sources.find_root()
+    found: Dict[str, Any] = {"fibsem": __version__}
+    if root is None:
+        return found
+    claude = root / sources.CLAUDE
+    found["skills"] = _digest(claude)
+    found["knowledge"] = _digest(knowledge)
+
+    def git(*args) -> Optional[str]:
+        try:
+            done = subprocess.run(
+                ["git", "-C", str(root), *args],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return done.stdout.strip() if done.returncode == 0 else None
+
+    commit = git("rev-parse", "--short", "HEAD")
+    if commit:
+        found["commit"] = commit
+        changed = git("status", "--porcelain", "--", sources.CLAUDE, "fibsem")
+        found["changed"] = [line[3:] for line in (changed or "").splitlines()]
+    return found
+
+
+def _free_port() -> int:
+    """A port no server on this PC listens on, for a run's App Server."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]

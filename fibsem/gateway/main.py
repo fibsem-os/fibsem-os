@@ -1,4 +1,4 @@
-"""``fibsem-gateway``: run the gateway (with a tray icon given ``--tray``),
+"""``fibsem-gateway``: run the gateway (in a small window, unless ``--no-window``),
 install it to start at logon, stop or restart it, open pairing, show whether the app runs, open
 its page (`fibsem.gateway.launch`), and put a desktop shortcut for that on the
 Desktop.
@@ -69,8 +69,14 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run the gateway (the default).")
     run.add_argument("--port", type=int, default=GATEWAY_PORT)
-    # The tray is off for now: it slowed the gateway on a microscope PC.
-    run.add_argument("--tray", action="store_true", help="Show the tray icon.")
+    run.add_argument(
+        "--no-window", action="store_true", help="Run without the gateway's window."
+    )
+    run.add_argument(
+        "--minimised", action="store_true", help="Start with the window minimised."
+    )
+    # the tray is gone: its flags are accepted and ignored
+    run.add_argument("--tray", action="store_true", help=argparse.SUPPRESS)
     run.add_argument("--no-tray", action="store_true", help=argparse.SUPPRESS)
     install = commands.add_parser(
         "install", help="Start the gateway at logon (Windows: a Startup shortcut)."
@@ -84,7 +90,7 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="The hub may start and stop apps.",
     )
-    commands.add_parser("stop", help="Stop the gateway, as the tray's Quit does.")
+    commands.add_parser("stop", help="Stop the gateway, as closing its window does.")
     commands.add_parser("restart", help="Stop the gateway and start it again.")
     commands.add_parser("status", help="Show whether the app runs.")
     commands.add_parser(
@@ -106,7 +112,7 @@ def _connection(extra: List[str]) -> List[str]:
     return extra
 
 
-def run(port: int, tray: bool, connection: List[str]) -> int:
+def run(port: int, window: bool, connection: List[str], minimised: bool = False) -> int:
     import uvicorn
 
     from fibsem.gateway.server import GatewayAuth, build_gateway_app
@@ -119,9 +125,19 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
     gateway = Gateway(connection)
     auth = GatewayAuth.from_disk()
     agent = GatewayAgent(gateway, auth.pairing.tokens)
-    # Set by the quit route or the tray's Restart; *again* starts a new one.
+    microscope = HostMicroscope()
+    # Set by the quit route; *again* starts a new one.
     stopping = threading.Event()
     again = threading.Event()
+
+    # The window sets *has_window* once up; the shortcut sets *bring_forward*.
+    has_window = threading.Event()
+    bring_forward = threading.Event()
+
+    def on_show() -> bool:
+        if has_window.is_set():
+            bring_forward.set()
+        return has_window.is_set()
 
     def on_quit(restart: bool) -> None:
         if restart:
@@ -130,7 +146,7 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
 
     server = Server(
         uvicorn.Config(
-            build_gateway_app(gateway, auth, agent, HostMicroscope(), on_quit),
+            build_gateway_app(gateway, auth, agent, microscope, on_quit, on_show),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -146,21 +162,36 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
     gateway.start()
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
-        if not (tray and _run_tray(gateway, auth, port, agent, stopping, on_quit)):
+        if not (
+            window
+            and _run_window(
+                gateway,
+                auth,
+                port,
+                agent,
+                stopping,
+                minimised,
+                microscope,
+                (has_window, bring_forward),
+                lambda: on_quit(True),
+            )
+        ):
             # in short waits: Ctrl-C does not break a bare wait on Windows
             while not stopping.wait(0.5):
                 pass
     except KeyboardInterrupt:
         pass
     finally:
-        quit_gateway(gateway)
+        # A restart leaves the app running for the next gateway to take back.
+        if not again.is_set():
+            quit_gateway(gateway)
         gateway.close()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)
         # the port is free for the next gateway once the server has stopped
         thread.join(10)
     if again.is_set():
-        flags = ["--tray"] if tray else []
+        flags = [] if window else ["--no-window"]
         if port != GATEWAY_PORT:
             flags += ["--port", str(port)]
         start_gateway([*flags, *connection])
@@ -177,14 +208,26 @@ def quit_gateway(gateway: Gateway) -> None:
         logging.warning("Gateway quit: %s", refusal)
 
 
-def _run_tray(gateway: Gateway, auth, port: int, agent, stopping, on_quit) -> bool:
-    """The tray's event loop until Quit (or *stopping*); False when Qt or a
-    tray isn't there."""
+def _run_window(
+    gateway: Gateway,
+    auth,
+    port: int,
+    agent,
+    stopping,
+    minimised,
+    microscope,
+    shown,
+    restart,
+) -> bool:
+    """The window until it closes (or *stopping*); False when Qt or a display
+    isn't there."""
     try:
-        from fibsem.gateway.ui.tray import run_tray
+        from fibsem.gateway.ui.window import run_window
     except ImportError:
         return False
-    return run_tray(gateway, auth, port, agent, stopping, on_quit)
+    return run_window(
+        gateway, auth, port, agent, stopping, minimised, microscope, shown, restart
+    )
 
 
 def _startup_folder() -> Path:
@@ -205,8 +248,8 @@ def pythonw() -> Path:
 
 
 def start_gateway(args: Sequence[str] = ()) -> None:
-    """Run the gateway apart from this process: with no tray and no
-    connection flags (as the logon shortcut does) unless *args* say."""
+    """Run the gateway apart from this process, with its window and no
+    connection flags unless *args* say."""
     if sys.platform == "win32":
         python = pythonw()
         flags = {
@@ -228,8 +271,10 @@ def start_gateway(args: Sequence[str] = ()) -> None:
 
 def shortcut_command(path: Path, connection: List[str]) -> List[str]:
     """PowerShell that writes a shortcut at *path* running the gateway with no
-    console (``pythonw``)."""
-    arguments = subprocess.list2cmdline(["-m", "fibsem.gateway", "run", *connection])
+    console (``pythonw``) and its window minimised."""
+    arguments = subprocess.list2cmdline(
+        ["-m", "fibsem.gateway", "run", "--minimised", *connection]
+    )
 
     def quoted(text: str) -> str:
         return "'" + text.replace("'", "''") + "'"
@@ -289,7 +334,7 @@ def stop(
     sleep: Callable[[float], None] = time.sleep,
 ) -> int:
     """``fibsem-gateway stop`` / ``restart``: ask the running gateway to quit
-    (and start again), as the tray's Quit does. One that doesn't answer is
+    (and start again), as closing its window does. One that doesn't answer is
     ended by its pid."""
     found = read_gateway_file()
     if found is None:
@@ -338,7 +383,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv = ["run", *argv]
     args, extra = _parser().parse_known_args(argv)
     if args.command == "run":
-        return run(args.port, args.tray and not args.no_tray, _connection(extra))
+        return run(args.port, not args.no_window, _connection(extra), args.minimised)
     if extra:
         _parser().error(f"unrecognized arguments: {' '.join(extra)}")
     if args.command == "install":

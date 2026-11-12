@@ -1,0 +1,275 @@
+"""The eval runner end to end, with stand-ins for the App Server and the agent."""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+from fibsem.ai.evals import report, visual
+from fibsem.ai.evals.__main__ import main
+from fibsem.ai.evals.cases import load_case
+from fibsem.ai.evals.runner import (
+    RunConfig,
+    link_inputs,
+    run_case,
+    run_cases,
+    task_text,
+)
+from fibsem.server import discovery
+
+FAKES = str(Path(__file__).with_name("fakes.py"))
+
+
+@pytest.fixture
+def home(tmp_path, monkeypatch):
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("FIBSEM_HOME", raising=False)
+    monkeypatch.setattr(
+        discovery, "DISCOVERY_FILE", home / ".fibsem" / "app-server.json"
+    )
+    monkeypatch.setattr(
+        discovery, "LEGACY_DISCOVERY_FILE", home / ".fibsem" / "old.json"
+    )
+    return home
+
+
+@pytest.fixture
+def case(tmp_path):
+    folder = tmp_path / "cases" / "polish"
+    (folder / "experiment" / "iter").mkdir(parents=True)
+    for name in ("p1", "p2", "p3"):
+        (folder / "experiment" / "iter" / f"{name}.tif").write_bytes(b"x")
+    (folder / "reference").mkdir()
+    (folder / "reference" / "what-the-run-did.json").write_text("{}")
+    data = {
+        "id": "polish",
+        "task": "polishing_stop",
+        "format": 0,
+        "brief": "Say carry on or stop after each pass.",
+        "sample": "test cells",
+        "passes": [
+            {"name": n, "fib": f"experiment/iter/{n}.tif", "measured": {"median_nm": m}}
+            for n, m in (("p1", 400), ("p2", 210), ("p3", 190))
+        ],
+        "key": {"stop_after": "p3", "reason": "secret reason"},
+    }
+    (folder / "case.yaml").write_text(yaml.safe_dump(data))
+    return load_case(folder)
+
+
+def config(tmp_path, **kwargs):
+    kwargs.setdefault("repeats", 1)
+    return RunConfig(
+        out=tmp_path / "out",
+        server_command=[sys.executable, FAKES, "server", "--manufacturer", "Demo"],
+        agent_command=[sys.executable, FAKES, "agent"],
+        server_wait_s=20,
+        **kwargs,
+    )
+
+
+STOP_AT_P3 = {
+    "passes": [
+        {"name": "p1", "decision": "carry_on"},
+        {"name": "p2", "decision": "carry_on"},
+        {"name": "p3", "decision": "stop"},
+    ]
+}
+
+
+def test_run_scores_the_answer(home, case, tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    result = run_case(case, 1, config(tmp_path, timeout_s=20))
+    assert result["status"] == "answered"
+    assert [s["result"] for s in result["scores"]] == ["hit"]
+    assert result["spent_usd"] == 0.25
+
+    folder = tmp_path / "out" / "polish" / "r1"
+    task = (folder / "work" / "task.md").read_text()
+    assert "iter/p2.tif" in task and "median_nm" in task and "passes" in task
+    assert "secret reason" not in task and "stop_after" not in task
+    experiment = folder / "home" / "experiments" / "polish"
+    assert (experiment / "iter" / "p1.tif").read_bytes() == b"x"
+    assert not (experiment / "what-the-run-did.json").exists()
+    assert json.loads((folder / "result.json").read_text())["case"] == "polish"
+    assert (folder / "session" / "session.json").is_file()
+    # Each run starts from its own state root, which lets the agent connect.
+    prefs = yaml.safe_load(
+        (folder / "home" / "config" / "user-preferences.yaml").read_text()
+    )
+    assert prefs["install"]["app_server"]["allow_local_agents"] is True
+    assert discovery.read_discovery_file() is None  # the server was ended
+
+    (row,) = report.summarise(report.load_results(tmp_path / "out"))
+    assert (row["runs"], row["hit"], row["all_repeats_right"]) == (1, 1, 1)
+    assert "| polishing_stop | yes | 1 | 1 | 0 | 0 | 1 of 1 |" in report.table([row])
+
+
+def test_code_mode_runs_the_agent_with_code_in_its_work_folder(
+    home, case, tmp_path, monkeypatch
+):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    result = run_case(case, 1, config(tmp_path, timeout_s=20, code=True))
+    assert result["status"] == "answered" and result["code"] is True
+    session = tmp_path / "out" / "polish" / "r1" / "session" / "session.json"
+    assert json.loads(session.read_text())["code"] is True
+
+
+def test_run_stops_an_agent_that_never_answers(home, case, tmp_path, monkeypatch):
+    monkeypatch.delenv("EVAL_FAKE_ANSWER", raising=False)
+    result = run_case(case, 1, config(tmp_path, timeout_s=1))
+    assert result["status"] == "timeout"
+    assert result["agent_exit"] == 0  # stopped through its stop file
+    assert [s["result"] for s in result["scores"]] == ["invalid"]
+
+
+def test_runs_beside_another_app_server_and_in_parallel(
+    home, case, tmp_path, monkeypatch
+):
+    # This PC's own App Server stays where it is.
+    discovery.DISCOVERY_FILE.parent.mkdir(parents=True)
+    discovery.DISCOVERY_FILE.write_text(
+        json.dumps({"url": "http://127.0.0.1:8001", "token": "x", "pid": os.getpid()})
+    )
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    results = run_cases([case], config(tmp_path, repeats=3, jobs=3, timeout_s=20))
+    assert sorted(r["repeat"] for r in results) == [1, 2, 3]
+    assert all(r["status"] == "answered" for r in results)
+    # Each agent was pointed at its own run's server, on its own port.
+    servers = {
+        json.loads(
+            (
+                tmp_path / "out" / "polish" / f"r{n}" / "session" / "session.json"
+            ).read_text()
+        )["server"]
+        for n in (1, 2, 3)
+    }
+    assert len(servers) == 3 and "http://127.0.0.1:8001" not in servers
+    assert discovery.read_discovery_file()["url"] == "http://127.0.0.1:8001"
+
+
+def test_repeats_and_skips_unkeyed(home, case, tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    case.data["key"] = {"status": "TODO"}
+    assert run_cases([case], config(tmp_path, timeout_s=20)) == []
+    case.data["key"] = {"stop_after": "p2"}
+    cfg = config(tmp_path, timeout_s=20)
+    cfg.repeats = 2
+    results = run_cases([case], cfg)
+    assert [(r["repeat"], r["scores"][0]["result"]) for r in results] == [
+        (1, "late"),
+        (2, "late"),
+    ]
+
+
+def test_cli_run_and_report(home, case, tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    monkeypatch.setattr(
+        "fibsem.ai.evals.runner.server_command",
+        lambda: [sys.executable, FAKES, "server"],
+    )
+    monkeypatch.setattr(
+        "fibsem.ai.evals.runner.agent_command",
+        lambda: [sys.executable, FAKES, "agent"],
+    )
+    out = tmp_path / "out"
+    code = main(
+        [
+            "run",
+            str(case.path.parent),
+            "--out",
+            str(out),
+            "--repeats",
+            "1",
+        ]
+    )
+    assert code == 0
+    assert "polish r1: answered, hit" in capsys.readouterr().out
+    assert (out / "report.md").is_file()
+    assert main(["report", str(out)]) == 0
+
+
+def test_a_file_shared_from_another_case_is_linked_in(case, tmp_path):
+    shared = case.path.parent / "fm" / "experiment" / "stack.ome.tiff"
+    shared.parent.mkdir(parents=True)
+    shared.write_bytes(b"stack")
+    case.data["inputs"] = {"fm_stack": "../fm/experiment/stack.ome.tiff"}
+    experiment = tmp_path / "exp"
+    placed = link_inputs(case, experiment)
+    assert "stack.ome.tiff" in placed and "iter/p1.tif" in placed
+    assert (experiment / "stack.ome.tiff").read_bytes() == b"stack"
+    assert "- stack.ome.tiff" in task_text(case, placed)
+
+
+def test_the_squares_to_label_are_in_the_task_but_not_their_labels(tmp_path):
+    folder = tmp_path / "quality"
+    folder.mkdir()
+    data = {
+        "id": "quality",
+        "task": "square_quality",
+        "brief": "Label each square.",
+        "squares": [{"square": 7, "x_px": 3457, "y_px": 305}],
+        "key": {"labels": {"7": "damaged"}},
+    }
+    (folder / "case.yaml").write_text(yaml.safe_dump(data))
+    text = task_text(load_case(folder), [])
+    assert "- 7: x_px 3457, y_px 305" in text
+    assert "damaged" not in text.split("## Answer")[0]
+
+
+def test_a_case_can_raise_its_own_budget(case, tmp_path):
+    from fibsem.ai.evals.runner import case_budget
+
+    config = RunConfig(out=tmp_path / "out", budget_usd=1.0)
+    assert case_budget(case, config) == 1.0
+    case.data["budget_usd"] = 2.0
+    assert case_budget(case, config) == 2.0
+
+
+def test_a_stopped_parallel_run_starts_no_more(case, tmp_path, monkeypatch):
+    started = []
+
+    def run(case, repeat, config):
+        started.append(repeat)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("fibsem.ai.evals.runner.run_case", run)
+    with pytest.raises(KeyboardInterrupt):
+        run_cases([case], config(tmp_path, repeats=8, jobs=2))
+    assert len(started) < 8
+
+
+def test_a_run_records_what_it_ran_with(home, case, tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    result = run_case(case, 1, config(tmp_path, timeout_s=20))
+    version = result["version"]
+    assert version["fibsem"] and len(version["skills"]) == 12
+    out = tmp_path / "out"
+    assert "Ran with:" in visual.compare_table([out])
+    assert "(MIXED)" not in visual.compare_table([out])
+
+
+def test_running_a_folder_again_keeps_finished_runs(home, case, tmp_path, monkeypatch):
+    monkeypatch.setenv("EVAL_FAKE_ANSWER", json.dumps(STOP_AT_P3))
+    first = run_cases([case], config(tmp_path, timeout_s=20, repeats=2))
+    assert len(first) == 2
+    stopped = tmp_path / "out" / "polish" / "r2"
+    (stopped / "result.json").unlink()  # as if stopped part way
+    again = run_cases([case], config(tmp_path, timeout_s=20, repeats=2))
+    assert [r["repeat"] for r in again] == [2]
+    assert (tmp_path / "out" / "polish" / "r2.stopped" / "work").is_dir()
+    assert len(report.load_results(tmp_path / "out")) == 2
+
+
+def test_the_square_finding_task_says_how_pitch_is_measured(tmp_path):
+    folder = tmp_path / "finding"
+    folder.mkdir()
+    data = {"id": "finding", "task": "square_finding", "brief": "Find squares."}
+    (folder / "case.yaml").write_text(yaml.safe_dump(data))
+    assert "along a grid bar" in task_text(load_case(folder), [])

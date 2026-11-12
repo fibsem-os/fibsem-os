@@ -181,3 +181,46 @@ def test_defocus_blurs_the_image(microscope):
         return smooth.max() - np.median(smooth)
 
     assert peak_contrast(blurred) < 0.5 * peak_contrast(sharp)
+
+
+def test_the_solid_sample_shows_in_the_fm_and_loses_what_is_milled(microscope):
+    from fibsem.structures.settings import FibsemRectangleSettings
+
+    def reflection() -> np.ndarray:
+        microscope.move_to_device("FM")
+        microscope.fm.objective.move_absolute(microscope.fm.objective.focus_position)
+        return microscope.fm.acquire_image(REFLECTION).data.astype(np.float32)
+
+    microscope.move_to_device("FIBSEM")
+    scene = SampleScene(
+        renderer="solid",
+        cell_type="rpe",
+        coincidence_offset=0.0,
+        rip_fraction=0.0,
+        noise_sigma=0.0,
+        noise_fraction=0.0,
+    )
+    scene.anchor(microscope.get_stage_position())
+    microscope._connection.sample_scene = scene
+    before = reflection()
+    assert ndi.gaussian_filter(before, 3).std() > 20  # bars and cells show
+
+    microscope.move_to_device("FIBSEM")
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=12e-6, height=8e-6, depth=10e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    after = reflection()
+    changed = ndi.gaussian_filter(np.abs(after - before), 2)
+    cy, cx = np.unravel_index(np.argmax(changed), changed.shape)
+    height, width = changed.shape
+    # the cut is the one thing that changed, and it sits at the centre
+    assert abs(cy - height / 2) < height / 5 and abs(cx - width / 2) < width / 5
+    assert changed.max() > 20 * np.median(changed) + 50
+
+    # a fluorophore above the film is gone inside the cut and kept beside it
+    x, y = np.mean(scene.milled[0].points, axis=0)
+    assert scene.milled_through(x, y, 1e-6)
+    assert not scene.milled_through(x + 40e-6, y, 1e-6)

@@ -572,9 +572,11 @@ def render(
     resolution: Tuple[int, int],
     rng: Optional[np.random.Generator] = None,
     charge: float = 0.0,
+    canvas=None,
 ) -> np.ndarray:
     """One beam's view of the scene as a uint8 image (height, width);
-    `charge` is how strongly the (SEM) beam charges it."""
+    `charge` is how strongly the (SEM) beam charges it. `canvas` draws the
+    view (this module's height field unless another is given)."""
     width, height = int(resolution[0]), int(resolution[1])
     pix = pixel_size * UM
     ax, ay = frame.anchor
@@ -592,7 +594,7 @@ def render(
         w = np.arange(cw.min() - pix, cw.max() + 2 * pix, pix)
     else:
         u, w = vx - ax, vy - ay
-    canvas, q = _canvas(scene, beam, frame, u, w, pix)
+    canvas, q = (canvas or _canvas)(scene, beam, frame, u, w, pix)
     if rotated:
         gx, gy = np.meshgrid(vx, vy)
         cu = gx * cos_t + gy * sin_t - ax

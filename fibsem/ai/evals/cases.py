@@ -14,7 +14,53 @@ TASKS = (
     "correlation",
     "polishing_stop",
     "target_present",
+    "square_finding",
+    "square_quality",
+    "setup_placement",
 )
+# Where a case's images come from: a real session, or the simulator. Sim
+# cases are scored apart and never count towards the real scores.
+TIERS = ("real", "sim")
+# What a square is, in a square_quality case. A key may accept more than one.
+SQUARE_LABELS = (
+    "good",
+    "no_cells",
+    "damaged",
+    "thick",
+    "cell_near_bar",
+    "cell_too_big",
+)
+
+
+# A square_quality square is a good or bad site, with reasons beside it (a
+# good site can have some): the old single label is still read.
+SITES = ("good", "bad")
+SQUARE_REASONS = tuple(label for label in SQUARE_LABELS if label != "good")
+
+
+def _word(value: Any) -> str:
+    return str(value).strip().lower().replace(" ", "_")
+
+
+def square_call(value: Any) -> Dict[str, Any]:
+    """A square's key entry or answer as ``{"sites": [...], "reasons": [...]}``:
+    ``sites`` holds every site call that is right (a key may accept both).
+    ``{"site", "reasons"}`` is read as it is; an old label, or list of
+    labels, maps good to a good site and anything else to a bad site with
+    that label as its reason."""
+    if isinstance(value, dict) and "site" in value:
+        site = value["site"]
+        sites = [_word(s) for s in (site if isinstance(site, list) else [site])]
+        reasons = value.get("reasons") or []
+        reasons = [
+            _word(r) for r in (reasons if isinstance(reasons, list) else [reasons])
+        ]
+        return {"sites": sites, "reasons": reasons}
+    if isinstance(value, dict):
+        value = value.get("label")
+    labels = [_word(v) for v in (value if isinstance(value, list) else [value])]
+    sites = sorted({"good" if label == "good" else "bad" for label in labels})
+    return {"sites": sites, "reasons": [label for label in labels if label != "good"]}
 
 
 @dataclass
@@ -41,6 +87,10 @@ class Case:
     @property
     def parts(self) -> Dict[str, Dict[str, Any]]:
         return self.data.get("parts") or {}
+
+    @property
+    def tier(self) -> str:
+        return str(self.data.get("tier") or "real")
 
     @property
     def status(self) -> str:
@@ -91,6 +141,13 @@ def _input_paths(value: Any) -> Iterator[str]:
         yield value
 
 
+def input_paths(case: Case) -> List[str]:
+    """The input files a case names, relative to its folder: its own under
+    experiment/, or another case's (``../``)."""
+    keys = ("inputs", "stack", "passes", "views", "inputs_extra")
+    return list(_input_paths({k: case.data.get(k) for k in keys}))
+
+
 def check_case(case: Case) -> CaseCheck:
     """What is missing or wrong in a case. Parked cases are only read."""
     check = CaseCheck(case)
@@ -102,14 +159,17 @@ def check_case(case: Case) -> CaseCheck:
         check.problems.append(f"format {data.get('format')!r}, expected {FORMAT}")
     if case.task not in TASKS:
         check.problems.append(f"unknown task {case.task!r}")
+    if case.tier not in TIERS:
+        check.problems.append(f"unknown tier {case.tier!r}")
     for name, part in case.parts.items():
         if part.get("task") not in TASKS:
             check.problems.append(f"part {name}: unknown task {part.get('task')!r}")
+    playbook = data.get("playbook")
+    if playbook is not None and not isinstance(playbook, str):
+        check.problems.append("playbook is the name of one playbook")
     if case.status == "parked":
         return check
-    for rel in _input_paths(
-        {k: data.get(k) for k in ("inputs", "stack", "passes", "views", "inputs_extra")}
-    ):
+    for rel in input_paths(case):
         if not (case.path / rel).exists():
             check.problems.append(f"missing input {rel}")
     if case.status == "keyed":
@@ -134,12 +194,51 @@ def _key_problems(case: Case) -> List[str]:
             problems.append("no inputs fib_pixel_size_um")
     elif case.task == "polishing_stop":
         names = pass_names(case)
-        if key.get("stop_after") not in names:
+        stops = stop_passes(key)
+        if not stops or any(stop not in names for stop in stops):
             problems.append(f"key stop_after {key.get('stop_after')!r} is not a pass")
     elif case.task == "site_selection":
         for square in key.get("good", []) + key.get("bad", []):
             if not {"x_px", "y_px"} <= set(square):
                 problems.append(f"key square without x_px, y_px: {square}")
+    elif case.task == "square_finding":
+        squares = key.get("squares") or []
+        if not squares:
+            problems.append("key has no squares")
+        for square in squares:
+            if not {"x_px", "y_px"} <= set(square):
+                problems.append(f"key square without x_px, y_px: {square}")
+        for name in ("pitch_px", "angle_deg"):
+            if name not in key:
+                problems.append(f"key has no {name}")
+    elif case.task == "setup_placement":
+        for name in ("ok_mask", "bad_mask"):
+            rel = key.get(name) if name == "ok_mask" else bad_mask(key)
+            if not rel:
+                problems.append(f"key has no {name}")
+            elif not str(rel).startswith("reference/"):
+                problems.append(f"key {name} must sit under reference/, out of sight")
+            elif not (case.path / rel).is_file():
+                problems.append(f"key {name} {rel} is missing")
+        if not {"x", "y"} <= set(key.get("target_px") or {}):
+            problems.append("key has no target_px x, y")
+        if not pixel_size_um(case):
+            problems.append("no inputs fib_pixel_size_um")
+    elif case.task == "square_quality":
+        shown = {str(s.get("square")) for s in case.data.get("squares") or []}
+        labels = key.get("labels") or {}
+        if not labels:
+            problems.append("key has no labels")
+        for name, label in labels.items():
+            call = square_call(label)
+            for site in call["sites"]:
+                if site not in SITES:
+                    problems.append(f"square {name}: site {site!r} is not good or bad")
+            for reason in call["reasons"]:
+                if reason not in SQUARE_REASONS:
+                    problems.append(f"square {name}: unknown reason {reason!r}")
+            if str(name) not in shown:
+                problems.append(f"square {name} is keyed but not in squares")
     for name, part in case.parts.items():
         if part.get("task") == "target_present":
             unknown = set(part.get("key") or {}) - set(pass_names(case))
@@ -150,6 +249,21 @@ def _key_problems(case: Case) -> List[str]:
     return problems
 
 
+def bad_mask(key: Dict[str, Any]) -> Optional[str]:
+    """A setup placement key's mask of costly placements (``unsafe_mask`` in
+    keys written before the rename)."""
+    return key.get("bad_mask") or key.get("unsafe_mask")
+
+
+def stop_passes(key: Dict[str, Any]) -> List[str]:
+    """The passes after which stopping is right: ``stop_after`` names one, or
+    a list of them when any in that span will do."""
+    stop = key.get("stop_after")
+    if stop is None:
+        return []
+    return [str(s) for s in stop] if isinstance(stop, list) else [str(stop)]
+
+
 def pass_names(case: Case) -> List[str]:
     return [p.get("name") for p in case.data.get("passes") or []]
 
@@ -157,6 +271,6 @@ def pass_names(case: Case) -> List[str]:
 def pixel_size_um(case: Case) -> Optional[float]:
     if case.task == "fm_target":
         return (case.data.get("stack") or {}).get("pixel_size_um")
-    if case.task == "correlation":
+    if case.task in ("correlation", "setup_placement"):
         return (case.data.get("inputs") or {}).get("fib_pixel_size_um")
     return None
