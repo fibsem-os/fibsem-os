@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -27,12 +27,19 @@ interface RunSummary {
   cases: CaseRow[];
 }
 
+interface Answer {
+  repeat: number;
+  said: string;
+  reason: string;
+}
+
 interface Item {
   id: string;
   kind: string;
   title: string;
+  key_text: string;
   repeats: number[];
-  said: string[];
+  answers: Answer[];
   actions: { action: string; label: string }[];
 }
 
@@ -40,6 +47,7 @@ interface Repeat {
   repeat: number;
   then: string[];
   now: string[];
+  did: string;
   status: string;
   cost_usd: number;
   seconds: number;
@@ -49,6 +57,8 @@ interface Repeat {
 interface CaseDetail {
   id: string;
   task: string;
+  task_text: string;
+  key_text: string;
   brief: string;
   figures: string[];
   repeats: Repeat[];
@@ -57,6 +67,17 @@ interface CaseDetail {
   settled: { at: string; run: string; id: string; action: string }[];
   can_settle: boolean;
 }
+
+const TASKS: Record<string, string> = {
+  site_selection: "Sites",
+  square_quality: "Square labels",
+  square_finding: "Squares",
+  polishing_stop: "Polishing",
+  fm_target: "FM target",
+  correlation: "Correlation",
+  target_present: "Target present",
+};
+const taskName = (task: string) => TASKS[task] ?? "Case not found";
 
 const COLOURS: Record<string, string> = {
   hit: "text-[#3fb950]",
@@ -90,15 +111,36 @@ function Results({ results }: { results: string[] }) {
 }
 
 function CaseList({ run, picked, pick }: { run: string; picked: string | null; pick: (id: string) => void }) {
-  const summary = useQuery({
-    queryKey: ["evals-run", run],
-    queryFn: () => get<RunSummary>(runPath(run)),
-  });
+  const summary = useQuery({ queryKey: ["evals-run", run], queryFn: () => get<RunSummary>(runPath(run)) });
+  const [task, setTask] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   if (summary.isError) return <p className="text-[13px] text-destructive">{String(summary.error)}</p>;
   if (!summary.data) return <p className="text-[13px] text-muted-foreground">Reading the run…</p>;
+  const cases = summary.data.cases;
+  const tasks = [...new Set(cases.map((c) => c.task))];
+  const shown = cases.filter((c) => (task === null || c.task === task) && (!open || c.open > 0));
+  const chip = (on: boolean) =>
+    cn(
+      "cursor-pointer rounded-full border px-2.5 py-0.5 text-[12px]",
+      on ? "border-primary bg-accent text-foreground" : "border-border text-muted-foreground hover:bg-accent",
+    );
   return (
-    <div className="flex flex-col gap-1.5">
-      {summary.data.cases.map((c) => (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-1.5">
+        <button className={chip(task === null)} onClick={() => setTask(null)}>
+          All {cases.length}
+        </button>
+        {tasks.map((t) => (
+          <button key={t} className={chip(task === t)} onClick={() => setTask(task === t ? null : t)}>
+            {taskName(t)} {cases.filter((c) => c.task === t).length}
+          </button>
+        ))}
+      </div>
+      <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
+        <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />
+        Only cases to settle
+      </label>
+      {shown.map((c) => (
         <button
           key={c.id}
           onClick={() => pick(c.id)}
@@ -107,14 +149,15 @@ function CaseList({ run, picked, pick }: { run: string; picked: string | null; p
             c.id === picked ? "border-primary bg-accent" : "border-border bg-transparent hover:bg-accent",
           )}
         >
-          <span className="flex items-center gap-2 text-[13px]">
-            <span className="min-w-0 flex-1 truncate">{c.id}</span>
+          <span className="flex items-center gap-2">
+            <span className="text-[12px] text-muted-foreground">{taskName(c.task)}</span>
             {c.open > 0 && (
-              <span className="rounded-full bg-[#f0883e33] px-2 text-[11px] font-semibold text-[#f0883e]">
-                {c.open}
+              <span className="ml-auto rounded-full bg-[#f0883e33] px-2 text-[11px] font-semibold text-[#f0883e]">
+                {c.open} to settle
               </span>
             )}
           </span>
+          <span className="truncate text-[13px]">{c.id}</span>
           <Results results={c.now.flat()} />
         </button>
       ))}
@@ -140,60 +183,98 @@ function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
       client.invalidateQueries({ queryKey: ["evals-run", run] });
     },
   });
-  if (!detail.can_settle)
-    return <p className="text-[13px] text-muted-foreground">Nothing to settle for this task here yet.</p>;
-  if (!item) return <p className="text-[13px] text-[#3fb950]">Nothing left to settle.</p>;
+  if (!detail.can_settle) return null;
+  if (!item)
+    return (
+      <section className="rounded-md border border-border bg-card px-4 py-3 text-[13px] text-[#3fb950]">
+        Nothing to settle: every answer is one the key accepts.
+      </section>
+    );
   return (
-    <div className="flex flex-col gap-3">
-      <div className="text-[12px] text-muted-foreground">To settle: {detail.items.length} left</div>
-      <div className="text-[14px] font-semibold">{item.title}</div>
-      <div className="text-[13px] text-muted-foreground">
-        {item.repeats.length} of {detail.repeats.length} repeats
-      </div>
+    <section className="flex flex-wrap gap-4 rounded-md border border-border bg-card p-4">
       <img
         key={item.id}
         src={`${casePath(run, detail.id)}/items/${enc(item.id)}.png`}
         alt={item.title}
-        className="w-full rounded border border-border"
+        className="w-full max-w-[460px] flex-[1_1_320px] self-start rounded border border-border bg-white"
         onError={(e) => (e.currentTarget.style.display = "none")}
       />
-      {item.said.map((s, i) => (
-        <p key={i} className="m-0 text-[13px] text-muted-foreground">
-          “{s}”
-        </p>
-      ))}
-      {item.actions.map((a, i) => (
-        <Button
-          key={a.action}
-          variant={i === 0 ? "primary" : "default"}
-          disabled={settle.isPending}
-          onClick={() => settle.mutate(a.action)}
-        >
-          {a.label}
-        </Button>
-      ))}
-      <Button disabled={settle.isPending} onClick={() => settle.mutate("keep")}>
-        Keep the key
-      </Button>
-      {settle.isError && <p className="m-0 text-[13px] text-destructive">{String(settle.error)}</p>}
-    </div>
+      <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-3">
+        <div className="text-[12px] text-muted-foreground">To settle: 1 of {detail.items.length}</div>
+        <div className="text-[15px] font-semibold">{item.title}</div>
+        <div className="text-[13px]">{item.key_text}</div>
+        <table className="w-full border-collapse text-[13px]">
+          <tbody>
+            {item.answers.map((a) => (
+              <tr key={a.repeat} className="border-t border-border align-top">
+                <td className="py-1.5 pr-3 text-muted-foreground">r{a.repeat}</td>
+                <td className="py-1.5 pr-3 font-medium whitespace-nowrap">{a.said}</td>
+                <td className="py-1.5 text-muted-foreground">{a.reason}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex flex-wrap gap-2">
+          {item.actions.map((a, i) => (
+            <Button
+              key={a.action}
+              variant={i === 0 ? "primary" : "default"}
+              disabled={settle.isPending}
+              onClick={() => settle.mutate(a.action)}
+            >
+              {a.label}
+            </Button>
+          ))}
+          <Button disabled={settle.isPending} onClick={() => settle.mutate("keep")}>
+            Keep the key
+          </Button>
+        </div>
+        {settle.isError && <p className="m-0 text-[13px] text-destructive">{String(settle.error)}</p>}
+      </div>
+    </section>
+  );
+}
+
+function Fold({ title, open, children }: { title: string; open?: boolean; children: ReactNode }) {
+  return (
+    <details open={open} className="rounded-md border border-border bg-card px-4 py-2">
+      <summary className="cursor-pointer text-[13px] font-semibold text-muted-foreground">{title}</summary>
+      <div className="mt-2 flex flex-col gap-2">{children}</div>
+    </details>
   );
 }
 
 function CaseView({ run, id }: { run: string; id: string }) {
-  const detail = useQuery({
-    queryKey: ["evals-case", run, id],
-    queryFn: () => get<CaseDetail>(casePath(run, id)),
-  });
+  const detail = useQuery({ queryKey: ["evals-case", run, id], queryFn: () => get<CaseDetail>(casePath(run, id)) });
   if (detail.isError) return <p className="p-4 text-[13px] text-destructive">{String(detail.error)}</p>;
   if (!detail.data) return <p className="p-4 text-[13px] text-muted-foreground">Drawing the case…</p>;
   const d = detail.data;
   // The figures are redrawn with the key as it is after each choice.
   const version = d.settled.length;
   return (
-    <div className="flex flex-wrap items-stretch">
-      <main className="flex min-w-0 flex-[999_1_560px] flex-col gap-3 p-4">
-        <p className="m-0 text-[13px] text-muted-foreground">{d.brief}</p>
+    <div className="flex flex-col gap-3 p-4">
+      <header className="flex flex-col gap-1">
+        <h2 className="m-0 text-[16px] font-semibold">{d.task_text}</h2>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
+          <span>{d.id}</span>
+          {d.key_text && <span>Key: {d.key_text}</span>}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+          {d.repeats.map((r) => (
+            <span key={r.repeat}>
+              r{r.repeat} <Results results={r.now} /> <span className="text-muted-foreground">{r.did}</span>
+            </span>
+          ))}
+        </div>
+        {d.live.map((row) => (
+          <div key={row.part ?? ""} className="text-[13px] text-muted-foreground">
+            {row.part ? `Part ${row.part}: ` : ""}The real run scored <Results results={[row.live]} />; {row.same} of{" "}
+            {row.eval.length} repeats did the same.
+          </div>
+        ))}
+      </header>
+      <Settle run={run} detail={d} />
+      <Fold title="Whole case: the key and every repeat" open={!d.items.length}>
         {d.figures.map((caption, n) => (
           <figure key={`${n}-${version}`} className="m-0 flex flex-col gap-1">
             <img
@@ -204,44 +285,24 @@ function CaseView({ run, id }: { run: string; id: string }) {
             {d.figures.length > 1 && <figcaption className="text-[12px] text-muted-foreground">{caption}</figcaption>}
           </figure>
         ))}
-        <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-[13px]">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="px-2 py-1.5 font-medium">Repeat</th>
-                <th className="px-2 py-1.5 font-medium">Now</th>
-                <th className="px-2 py-1.5 font-medium">When run</th>
-                <th className="px-2 py-1.5 font-medium">Cost</th>
-                <th className="px-2 py-1.5 font-medium">Reason</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.repeats.map((r) => (
-                <tr key={r.repeat} className="border-t border-border align-top">
-                  <td className="px-2 py-1.5">r{r.repeat}</td>
-                  <td className="px-2 py-1.5">
-                    <Results results={r.now} />
-                  </td>
-                  <td className="px-2 py-1.5">
-                    <Results results={r.then} />
-                  </td>
-                  <td className="px-2 py-1.5 tabular-nums">${r.cost_usd.toFixed(2)}</td>
-                  <td className="px-2 py-1.5 text-muted-foreground">{r.reason}</td>
-                </tr>
+      </Fold>
+      <Fold title="What the agent was asked">
+        <p className="m-0 text-[13px]">{d.brief}</p>
+      </Fold>
+      <Fold title="Each repeat's reasons">
+        {d.repeats.map((r) => (
+          <div key={r.repeat} className="text-[13px]">
+            <div className="font-medium">
+              r{r.repeat} · ${r.cost_usd.toFixed(2)} · {Math.round(r.seconds)} s · when run <Results results={r.then} />
+            </div>
+            <ul className="m-0 pl-5 text-muted-foreground">
+              {r.reason.split(" / ").map((line, i) => (
+                <li key={i}>{line.replace(/^\d+\. /, "")}</li>
               ))}
-            </tbody>
-          </table>
-        </div>
-        {d.live.map((row) => (
-          <p key={row.part ?? ""} className="m-0 text-[13px]">
-            {row.part ? `Part ${row.part}: ` : ""}Real run <Results results={[row.live]} />, same as the real run in{" "}
-            {row.same} of {row.eval.length} repeats
-          </p>
+            </ul>
+          </div>
         ))}
-      </main>
-      <aside className="flex max-w-[320px] min-w-[260px] flex-[1_1_280px] flex-col gap-3 border-l border-border p-4">
-        <Settle run={run} detail={d} />
-      </aside>
+      </Fold>
     </div>
   );
 }

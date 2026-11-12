@@ -63,15 +63,25 @@ def test_keeping_the_key_changes_nothing_and_is_not_asked_again(run):  # noqa: F
     assert review.disagreements(after, runs) == []
 
 
-def test_a_square_label_can_be_accepted_as_well(run):  # noqa: F811
+def test_a_square_site_can_be_accepted_as_well(run):  # noqa: F811
     cases_root, out = run
     case = load_case(cases_root / "quality")
     runs = _runs(out, "quality")
     (item,) = review.disagreements(case, runs)
-    assert item["id"] == "square:2:good" and item["key"] == ["damaged"]
+    # The old label "damaged" reads as a bad site with that reason.
+    assert item["id"] == "square:2:good" and item["key"] == ["bad"]
     after = review.settle(case, runs, item["id"], "accept")
-    assert after.key["labels"]["2"] == ["damaged", "good"]
+    assert after.key["labels"]["2"] == {"site": ["bad", "good"], "reasons": ["damaged"]}
     assert review.disagreements(after, runs) == []
+
+
+def test_a_square_site_can_be_changed(run):  # noqa: F811
+    cases_root, out = run
+    case = load_case(cases_root / "quality")
+    runs = _runs(out, "quality")
+    (item,) = review.disagreements(case, runs)
+    after = review.settle(case, runs, item["id"], "replace")
+    assert after.key["labels"]["2"] == {"site": "good", "reasons": ["damaged"]}
 
 
 def test_a_late_stop_widens_the_span(run):  # noqa: F811
@@ -113,6 +123,7 @@ def test_the_routes(run):  # noqa: F811
     assert site["open"] == 1 and site["now"] == [["hit"], ["hit"]]
     detail = client.get("/evals/runs/out/cases/site").json()
     assert detail["can_settle"] and len(detail["repeats"]) == 2
+    assert detail["repeats"][0]["did"] == "1 of 2 picks on good squares"
     (item,) = detail["items"]
     figure = client.get("/evals/runs/out/cases/site/figures/0.png")
     assert figure.status_code == 200 and figure.content[:4] == b"\x89PNG"

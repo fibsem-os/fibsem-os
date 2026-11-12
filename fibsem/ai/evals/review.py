@@ -20,9 +20,9 @@ import yaml
 
 from fibsem.ai.evals.cases import (
     Case,
-    accepted_labels,
     load_case,
     pass_names,
+    square_call,
     stop_passes,
 )
 
@@ -95,6 +95,7 @@ def _site_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
                     "points": [],
                     "repeats": [],
                     "reasons": [],
+                    "by": {},
                 }
                 groups.append(group)
             group["points"].append((x, y))
@@ -103,6 +104,7 @@ def _site_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
             reason = str(pick.get("reason") or "") if isinstance(pick, dict) else ""
             if reason and reason not in group["reasons"]:
                 group["reasons"].append(reason)
+            group["by"].setdefault(_repeat(result), reason)
     items = []
     for group in groups:
         xs, ys = zip(*group["points"])
@@ -115,6 +117,17 @@ def _site_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
                 "y_px": y,
                 "repeats": sorted(group["repeats"]),
                 "title": f"Site at ({x}, {y}) is not in the key",
+                "key_text": "Not in the key as good or bad",
+                "answers": [
+                    {
+                        "repeat": _repeat(result),
+                        "said": "picked it"
+                        if _repeat(result) in group["by"]
+                        else "did not pick it",
+                        "reason": group["by"].get(_repeat(result), ""),
+                    }
+                    for result, _ in runs
+                ],
                 "said": group["reasons"][:3],
                 "actions": [
                     {"action": "good", "label": "Add as good"},
@@ -126,33 +139,56 @@ def _site_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
 
 
 def _square_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
+    """Squares where a repeat called the site (good or bad) other than the
+    key does. The reasons are shown beside it, not settled."""
     labels = case.key.get("labels") or {}
     kept = {e.get("id") for e in _kept(case)}
     items = []
-    for name, want in labels.items():
-        name, want = str(name), accepted_labels(want)
+    for name, value in labels.items():
+        name, want = str(name), square_call(value)
         said: Dict[str, List[int]] = {}
+        answers = []
         for result, answer in runs:
-            value = ((answer or {}).get("labels") or {}).get(name)
-            if value is None:
-                continue
-            said.setdefault(_label(value), []).append(_repeat(result))
-        for label, repeats in sorted(said.items(), key=lambda kv: -len(kv[1])):
-            item_id = f"square:{name}:{label}"
-            if label in want or item_id in kept:
+            given = ((answer or {}).get("labels") or {}).get(name)
+            call = square_call(given) if given is not None else None
+            reason = given.get("reason", "") if isinstance(given, dict) else ""
+            site = call["sites"][0] if call and call["sites"] else "-"
+            answers.append(
+                {
+                    "repeat": _repeat(result),
+                    "said": site
+                    + (
+                        f" ({', '.join(call['reasons'])})"
+                        if call and call["reasons"]
+                        else ""
+                    ),
+                    "reason": str(reason or ""),
+                }
+            )
+            if call and call["sites"]:
+                said.setdefault(site, []).append(_repeat(result))
+        key_text = " or ".join(want["sites"]) + (
+            f" ({', '.join(want['reasons'])})" if want["reasons"] else ""
+        )
+        for site, repeats in sorted(said.items(), key=lambda kv: -len(kv[1])):
+            item_id = f"square:{name}:{site}"
+            if site in want["sites"] or item_id in kept:
                 continue
             items.append(
                 {
                     "id": item_id,
                     "kind": "square",
                     "square": name,
-                    "label": label,
-                    "key": want,
+                    "site": site,
+                    "key": want["sites"],
                     "repeats": sorted(repeats),
-                    "title": f"Square {name}: agent said {label}, key says {' or '.join(want)}",
+                    "title": f"Square {name}: agent called it a {site} site, the key says {' or '.join(want['sites'])}",
+                    "key_text": "Key: " + key_text,
+                    "answers": answers,
                     "said": [],
                     "actions": [
-                        {"action": "accept", "label": f"Accept {label} as well"}
+                        {"action": "accept", "label": f"Accept {site} as well"},
+                        {"action": "replace", "label": f"Change the key to {site}"},
                     ],
                 }
             )
@@ -175,8 +211,24 @@ def _stop_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
     span = stop_passes(case.key)
     kept = {e.get("id") for e in _kept(case)}
     stops: Dict[str, Dict[str, Any]] = {}
+    answers = []
     for result, answer in runs:
         stop = _stop(answer, names)
+        reason = next(
+            (
+                str(p.get("reason") or "")
+                for p in (answer or {}).get("passes") or []
+                if isinstance(p, dict) and stop and p.get("name") == stop
+            ),
+            "",
+        )
+        answers.append(
+            {
+                "repeat": _repeat(result),
+                "said": f"stopped after {stop}" if stop else "never stopped",
+                "reason": reason,
+            }
+        )
         if stop is None or stop in span:
             continue
         entry = stops.setdefault(stop, {"repeats": [], "reasons": []})
@@ -200,6 +252,8 @@ def _stop_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
                 "repeats": sorted(entry["repeats"]),
                 "title": f"Stopped after {stop}, the key's span is {', '.join(span)}"
                 + (" (early)" if early else " (late)"),
+                "key_text": "Key: stop after " + " or ".join(span),
+                "answers": answers,
                 "said": entry["reasons"][:3],
                 "actions": [{"action": "accept", "label": f"Widen the span to {stop}"}],
             }
@@ -234,10 +288,15 @@ def _changed_key(case: Case, item: Dict[str, Any], action: str) -> Dict[str, Any
         key.setdefault(action, []).append(
             {"x_px": item["x_px"], "y_px": item["y_px"], "from": "review"}
         )
-    elif item["kind"] == "square" and action == "accept":
+    elif item["kind"] == "square" and action in ("accept", "replace"):
         labels = key.setdefault("labels", {})
         name = next((k for k in labels if str(k) == item["square"]), item["square"])
-        labels[name] = accepted_labels(labels.get(name, [])) + [item["label"]]
+        call = square_call(labels.get(name))
+        sites = call["sites"] + [item["site"]] if action == "accept" else [item["site"]]
+        labels[name] = {
+            "site": sites if len(sites) > 1 else sites[0],
+            "reasons": call["reasons"],
+        }
     elif item["kind"] == "stop" and action == "accept":
         names = pass_names(case)
         wanted = [names.index(s) for s in stop_passes(key)] + [
