@@ -64,6 +64,7 @@ ICE_BLANKET = 3.0  # the ice lies over a cell as a dome this smooth
 ICE_CLOSE = 0.35  # and follows each cell's own shape this closely
 PLATE = 0.4  # an ice plate's thickness
 CELL_MAX = 5.5  # the tallest a cell stands
+ROUND_EDGE = 1.5  # where a standing cell's rounded top meets the film, in its own r^2
 CELL_SPREAD = 1.2  # a cell spread thin on the film, with no height of its own
 NUCLEUS_BULGE = 2.0  # how far such a cell stands up over its nucleus
 CLUMP_REACH = 12.0  # how far a clump of grains can reach from its speck
@@ -308,7 +309,12 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             tall = min(2.4 * sigma * min(f.eccentricity, 1.0), CELL_SPREAD)
             if f.height > 0:
                 tall = min(f.height * UM, CELL_MAX)
-            top = (tall * np.exp(-0.5 * r2**f.sharpness)).astype(f32)
+            if f.height > 0 or scene.cell_type != "mammalian":
+                # a cell that stands up is round over the top, not a plateau
+                top = tall * np.sqrt(np.clip(1 - r2 / ROUND_EDGE, 0, None))
+            else:
+                top = tall * np.exp(-0.5 * r2**f.sharpness)
+            top = top.astype(f32)
             higher = top > dome[box]
             cell_id[box] = np.where(higher & (top > 0.05), f.cell_id, cell_id[box])
             dome[box] = np.maximum(dome[box], top)
