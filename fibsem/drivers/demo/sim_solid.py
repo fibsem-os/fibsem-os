@@ -101,14 +101,16 @@ TILT = (0.5, 0.42)  # how strongly a slope changes the yield
 BAR_UNDER = (0.22, 0.12)  # how much a bar under thin ice adds
 BAR_DEPTH = 5.0  # the ice over which a bar fades
 BEAD = (2.6, 1.9)  # the yield of a fiducial's beads: the brightest thing in view
+CELL_UNDER = (0.3, 0.22)  # how much a cell under thin ice adds
+CELL_DEPTH = 1.5  # the ice over which a cell fades
 HOLE_UNDER = (0.2, 0.1)  # how much darker thin ice is with no film under it
 CRACK = 0.9  # um; how deep a crack in the film grooves the ice over it
 ORGANELLE_STEP = 0.5  # um; a view coarser than this shows no organelles
 BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
 RIM = (1.5, 1.2)  # how bright the rim round a milled edge is
 RIM_WIDTH = 1.1  # um
-CURTAIN = 0.55  # how strongly curtaining streaks a cut face
-GROOVE = 0.14  # um; how deep curtaining grooves a cut
+CURTAIN = 0.28  # how strongly curtaining streaks a cut face
+GROOVE = 0.08  # um; how deep curtaining grooves a cut
 CACHE_SIZE = 2  # views kept (one per beam)
 
 
@@ -430,6 +432,11 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         "cell_id": cell_id,
         "particle_id": p_id,
         "bead": bead,
+        # a cell under its ice, by how thin that ice is: soft at its edge
+        "cell_under": _gauss(
+            np.where(in_cell, np.exp(-np.clip(ice - cell, 0, None) / CELL_DEPTH), 0.0),
+            (0.6 / sy, 0.6 / sx),
+        ).astype(f32),
         "bar_weight": weight,
         # thin ice across a hole in the film, with no cell on it
         "hole": (holes & ~in_cell) * np.exp(-np.clip(ice, 0, None) / 2.0).astype(f32),
@@ -789,6 +796,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         "bar": at(col["bar_weight"]),
         "hole": at(col["hole"]),
         "bead": at(col["bead"]),
+        "cell_under": at(col["cell_under"]),
         "opening": opening,
         "lean": lean,
         "view": (fs, kabs),
@@ -830,6 +838,8 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     over_bar = bar * np.exp(-np.clip(z_hit, 0, None) / BAR_DEPTH)
     shade[under] *= (1 + BAR_UNDER[which] * over_bar)[under]
     shade[under] *= (1 - HOLE_UNDER[which] * hit["hole"])[under]
+    # so does a cell: the ice over it is thin, and it charges a little
+    shade[under] *= (1 + CELL_UNDER[which] * hit["cell_under"])[under]
     # a cut face or a wall shows what it was cut from, darker further down
     depth = np.clip(hit["surface"] - z_hit, 0, None)
     inside = mat_in * (0.75 + 0.35 * hit["lean"]) * np.exp(-depth / 7.0)

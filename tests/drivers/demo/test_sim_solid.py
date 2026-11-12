@@ -263,7 +263,7 @@ def test_curtaining_streaks_a_cut_face_unless_turned_off(microscope, monkeypatch
         face = hit["kind"][flip] == 2
         row = np.argmax(face.sum(axis=1))
         spread[curtaining] = image[row][face[row]].std()
-    assert spread[1.0] > 1.8 * max(spread[0.0], 0.5)
+    assert spread[1.0] > 1.4 * max(spread[0.0], 0.5)
 
 
 def test_a_gis_coat_is_a_layer_on_top_and_a_bright_band_on_a_cut(
