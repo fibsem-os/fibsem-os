@@ -286,7 +286,7 @@ def write_case(
         for x, y in burns:
             vx, vy = fib.view(x, y)
             image_points.append((float(vx), float(-vy)))
-        scene.burn(
+        regions = scene.burn(
             image_points,
             BeamType.ION,
             fib.position,
@@ -323,10 +323,13 @@ def write_case(
 
         target_fib = fib.px(tx, ty, tz)
         target_fm = _fm_px(microscope, scene, tx, ty)
-        # a burn sits where the film-plane aim lands, drawn on the surface there
-        burns_fib = [fib.px(x, y, _surface_height(scene, x, y)) for x, y in burns]
-        burns_fm = [_fm_px(microscope, scene, x, y) for x, y in burns]
-        film_slice = slice_of(0.0)
+        # each burn shows in the FIB where it was aimed; it lands where the
+        # beam meets the surface, which is where the FM sees it
+        burns_fib = [fib.px(x, y) for x, y in burns]
+        landed = [r.points.mean(axis=0) for r in regions]
+        heights = [_surface_height(scene, x, y) for x, y in landed]
+        burns_fm = [_fm_px(microscope, scene, x, y) for x, y in landed]
+        burn_slices = [slice_of(z) for z in heights]
     finally:
         microscope.disconnect()
 
@@ -371,7 +374,8 @@ def write_case(
             },
             "target_height_um": round(tz * 1e6, 3),
             "fiducials_fm_px": [
-                [round(x, 1), round(y, 1), round(film_slice, 2)] for x, y in burns_fm
+                [round(x, 1), round(y, 1), round(z, 2)]
+                for (x, y), z in zip(burns_fm, burn_slices)
             ],
             "fiducials_fib_px": [[round(x, 1), round(y, 1)] for x, y in burns_fib],
         },
@@ -391,7 +395,7 @@ def write_case(
             {
                 "midpoint_m": [float(v) for v in target["midpoint"]],
                 "cilium_m": [[float(v) for v in p] for p in target["cilium"]],
-                "burns_world_m": [list(p) for p in burns],
+                "burns_world_m": [[float(v) for v in p] for p in landed],
             },
             sort_keys=False,
         )
