@@ -229,7 +229,9 @@ class GatewayWindow(QWidget):
         self._reports.done.connect(self._finished)
         self.setWindowTitle(GATEWAY.name)
         self.setStyleSheet(
-            NAPARI_STYLE + MESSAGE_BOX_STYLESHEET + "QPushButton { font-size: 12px; }"
+            NAPARI_STYLE
+            + MESSAGE_BOX_STYLESHEET
+            + "QPushButton, QMenu { font-size: 12px; }"
         )
         self._build()
 
