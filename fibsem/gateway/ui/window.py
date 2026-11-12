@@ -55,7 +55,7 @@ from fibsem.theme.tokens import (
     TEXT_STRONG_COLOR,
     WARN_COLOR,
 )
-from fibsem.tools.app_identity import set_app_identity
+from fibsem.tools.app_identity import bring_to_front, set_app_identity
 from fibsem.tools.apps import GATEWAY, ICONS_DIR
 from fibsem.ui.stylesheets import (
     GHOST_BUTTON_STYLESHEET,
@@ -133,9 +133,11 @@ def _gateway_pixmap(colour: str, size: int) -> QPixmap:
     return pixmap
 
 
-def stop_question(state: GatewayState) -> str:
-    """What stopping the gateway does to the app, for the question."""
+def stop_question(state: GatewayState, restart: bool = False) -> str:
+    """What stopping (or restarting) the gateway does to the app."""
     if state.mode == OFF:
+        if restart:
+            return "It starts again in a few seconds."
         return "The gateway's page stops working until the gateway starts again."
     if state.window:
         return "The app keeps running."
@@ -200,6 +202,8 @@ class GatewayWindow(QWidget):
         stopping=None,
         microscope=None,
         clock: Callable[[], float] = time.monotonic,
+        shown: Optional[tuple] = None,
+        restart: Optional[Callable[[], None]] = None,
     ):
         super().__init__()
         self._gateway = gateway
@@ -208,8 +212,13 @@ class GatewayWindow(QWidget):
         self._agent = agent
         self._microscope = microscope
         self._clock = clock
+        # (has_window, bring_forward): set the first once up; the desktop
+        # shortcut sets the second to bring this window to the front.
+        self._has_window, self._bring_forward = shown or (None, None)
         # Set by the quit route (`fibsem-gateway stop`, the page): close.
         self._stopping = stopping
+        # Asks the gateway to stop and start again (it then sets *stopping*).
+        self._restart = restart
         self._quitting = False
         self._closed = threading.Event()
         self._colour: Optional[str] = None
@@ -278,13 +287,23 @@ class GatewayWindow(QWidget):
         self.open_button.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         self.open_button.setDefault(True)
         self.open_button.clicked.connect(self.open_page)
-        self.stop_button = QPushButton("Stop gateway")
-        self.stop_button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
-        self.stop_button.clicked.connect(self.close)
+        # Stopping and restarting the gateway, in one menu.
+        self.gateway_button = QPushButton("Gateway")
+        self.gateway_button.setStyleSheet(
+            SECONDARY_BUTTON_STYLESHEET
+            + "QPushButton { padding-right: 22px; }"
+            " QPushButton::menu-indicator { subcontrol-position: right center;"
+            " right: 7px; }"
+        )
+        menu = QMenu(self.gateway_button)
+        self.restart_action = menu.addAction("Restart gateway", self.restart_gateway)
+        self.restart_action.setVisible(self._restart is not None)
+        self.stop_action = menu.addAction("Stop gateway", self.close)
+        self.gateway_button.setMenu(menu)
         buttons = QHBoxLayout()
         buttons.addWidget(self.pair_button)
         buttons.addStretch()
-        buttons.addWidget(self.stop_button)
+        buttons.addWidget(self.gateway_button)
         buttons.addWidget(self.open_button)
 
         layout = QVBoxLayout(self)
@@ -306,6 +325,9 @@ class GatewayWindow(QWidget):
         if self._stopping is not None and self._stopping.is_set():
             self._quit()
             return
+        if self._bring_forward is not None and self._bring_forward.is_set():
+            self._bring_forward.clear()
+            self.bring_to_front()
         state = self._gateway.mode()
         self._state = state
         folder = state.experiment if state.mode != OFF else None
@@ -336,6 +358,12 @@ class GatewayWindow(QWidget):
         self._code_until = 0.0
         self.code_box.hide()
         self.adjustSize()
+
+    def bring_to_front(self) -> None:
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+        bring_to_front()
 
     def _read_loop(self) -> None:
         """The agent's row and the microscope's connection, every few seconds."""
@@ -458,6 +486,15 @@ class GatewayWindow(QWidget):
         answer = QMessageBox.question(self, title, text)
         return answer == QMessageBox.StandardButton.Yes
 
+    def restart_gateway(self) -> None:
+        if self._restart is None or not self._ask(
+            "Restart the gateway",
+            f"Restart the gateway?\n\n{stop_question(self._gateway.mode(), True)}",
+        ):
+            return
+        self._restart()
+        self.refresh()
+
     def closeEvent(self, event) -> None:
         if self._quitting or self._ask(
             "Stop the gateway",
@@ -498,6 +535,8 @@ def run_window(
     stopping=None,
     minimised=False,
     microscope=None,
+    shown: Optional[tuple] = None,
+    restart: Optional[Callable[[], None]] = None,
 ) -> bool:
     """The window until it closes (or *stopping* is set); False when there is
     no display to show it on."""
@@ -506,10 +545,14 @@ def run_window(
     set_app_identity(GATEWAY.name, GATEWAY.app_id)
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName(GATEWAY.name)
-    window = GatewayWindow(gateway, auth, port, agent, stopping, microscope)
+    window = GatewayWindow(
+        gateway, auth, port, agent, stopping, microscope, shown=shown, restart=restart
+    )
     if minimised:
         window.showMinimized()
     else:
         window.show()
+    if shown is not None:
+        shown[0].set()
     app.exec()
     return True

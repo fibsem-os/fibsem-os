@@ -1,9 +1,10 @@
-"""Open the gateway's page at this PC: the "Agent Gateway" desktop shortcut
-and ``fibsem-gateway open`` run it.
+"""Show the gateway at this PC: the "Agent Gateway" desktop shortcut and
+``fibsem-gateway open`` run it.
 
-It starts the gateway when none runs, then opens its page in the browser signed
-in as the operator, as the window's Open page does. Nothing else starts: the operator
-picks the microscope, the app and the agent on the page.
+It starts the gateway when none runs, then brings the gateway's window to the
+front. A gateway without a window opens its page in the browser instead, signed
+in as the operator, as the window's Open page does. Nothing else starts: the
+operator picks the microscope, the app and the agent in the window or on the page.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ from fibsem.unreleased import refuse
 __all__ = ["OpenFailed", "gateway_page", "open_gateway", "open_gateway_page"]
 
 GATEWAY_WAIT_S = 60.0
+# How long a gateway just started has to open its window.
+WINDOW_WAIT_S = 15.0
 POLL_S = 1.0
 
 
@@ -62,11 +65,41 @@ def gateway_page(
     return f"{gateway['url']}/ui/gateway#token={token() or ''}"
 
 
-def open_gateway(open_page: Callable[[str], Any] = webbrowser.open) -> int:
-    """`gateway_page` in the browser; a failure printed and shown in a dialog,
-    since a desktop shortcut has no console to read."""
+def show_window(
+    ask: Callable[..., Any] = call,
+    wait_s: float = 0.0,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> bool:
+    """Bring the gateway's window to the front, waiting up to *wait_s* for it
+    to open; False when the gateway runs without one."""
+    deadline = clock() + wait_s
+    while True:
+        try:
+            answer = ask("POST", "/gateway/show", {}, timeout=5.0)
+            if answer and answer.get("shown"):
+                return True
+        except (OSError, ValueError):
+            pass  # a gateway from before the route: open the page
+        if clock() >= deadline:
+            return False
+        sleep(POLL_S)
+
+
+def open_gateway(
+    open_page: Callable[[str], Any] = webbrowser.open,
+    ask: Callable[..., Any] = call,
+    show: Callable[..., bool] = show_window,
+    page: Callable[..., str] = gateway_page,
+) -> int:
+    """The gateway's window in front, else `gateway_page` in the browser; a
+    failure printed and shown in a dialog, since a desktop shortcut has no
+    console to read."""
     try:
-        open_page(gateway_page())
+        started = not _answers(ask)
+        url = page(ask=ask)
+        if not show(ask=ask, wait_s=WINDOW_WAIT_S if started else 0.0):
+            open_page(url)
     except OpenFailed as failed:
         print(failed)
         _show(str(failed))

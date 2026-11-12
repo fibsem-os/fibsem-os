@@ -73,3 +73,61 @@ def test_the_shortcut_opens_the_gateway(tmp_path, monkeypatch):
     assert "Agent Gateway" in shortcut.name
     if not written:
         assert "fibsem-gateway-open" in shortcut.read_text()
+
+
+class ShowGateway(FakeGateway):
+    """A gateway whose window comes up after *opens_after* show calls, or
+    never (None: it runs without one)."""
+
+    def __init__(self, up=True, opens_after=0):
+        super().__init__(up)
+        self.opens_after = opens_after
+        self.shows = 0
+
+    def ask(self, method, route, body=None, timeout=3.0):
+        if route == "/gateway/show":
+            self.shows += 1
+            return {
+                "shown": self.opens_after is not None and self.shows > self.opens_after
+            }
+        return super().ask(method, route, body, timeout)
+
+
+def _open(gateway):
+    from fibsem.gateway import launch
+
+    opened = []
+    times = iter(range(0, 1000))
+
+    def show(ask, wait_s):
+        return launch.show_window(
+            ask, wait_s, clock=lambda: float(next(times)), sleep=lambda s: None
+        )
+
+    def page(ask):
+        return _page(gateway, start=gateway.start)
+
+    assert launch.open_gateway(opened.append, gateway.ask, show, page) == 0
+    return opened
+
+
+def test_the_shortcut_brings_the_window_forward_and_opens_no_page():
+    gateway = ShowGateway()
+    assert _open(gateway) == []
+    assert gateway.shows == 1
+
+
+def test_a_gateway_just_started_is_given_time_to_open_its_window():
+    gateway = ShowGateway(up=False, opens_after=3)
+
+    def start():
+        gateway.up = True
+
+    gateway.start = start
+    assert _open(gateway) == []
+    assert gateway.shows == 4
+
+
+def test_a_gateway_without_a_window_opens_its_page():
+    gateway = ShowGateway(opens_after=None)
+    assert _open(gateway) == [f"{URL}/ui/gateway#token=operator"]

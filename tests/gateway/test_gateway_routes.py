@@ -599,3 +599,25 @@ def test_without_a_quit_the_gateway_has_no_quit_route(setup):
     client, _, _ = setup
     r = client.post("/gateway/quit", json={}, headers=_as(OPERATOR_TOKEN))
     assert r.status_code in (404, 405)
+
+
+def test_show_brings_the_window_forward_for_the_operator_only(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from fibsem.gateway.gateway import Gateway
+    from fibsem.gateway.server import GatewayAuth, build_gateway_app
+
+    auth = GatewayAuth.from_disk(tmp_path / "token.json", tmp_path / "paired.json")
+    asked = []
+    app = build_gateway_app(
+        Gateway(home=tmp_path, discovery=lambda: None),
+        auth,
+        on_show=lambda: asked.append(1) or True,
+    )
+    client = TestClient(app)
+    r = client.post("/gateway/show", headers={"Authorization": f"Bearer {auth.token}"})
+    assert r.json() == {"shown": True} and asked == [1]
+    assert client.post("/gateway/show").status_code in (401, 403)
+    bare = TestClient(build_gateway_app(Gateway(home=tmp_path), auth))
+    r = bare.post("/gateway/show", headers={"Authorization": f"Bearer {auth.token}"})
+    assert r.json() == {"shown": False}

@@ -130,6 +130,15 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     stopping = threading.Event()
     again = threading.Event()
 
+    # The window sets *has_window* once up; the shortcut sets *bring_forward*.
+    has_window = threading.Event()
+    bring_forward = threading.Event()
+
+    def on_show() -> bool:
+        if has_window.is_set():
+            bring_forward.set()
+        return has_window.is_set()
+
     def on_quit(restart: bool) -> None:
         if restart:
             again.set()
@@ -137,7 +146,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
 
     server = Server(
         uvicorn.Config(
-            build_gateway_app(gateway, auth, agent, microscope, on_quit),
+            build_gateway_app(gateway, auth, agent, microscope, on_quit, on_show),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -155,7 +164,17 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     try:
         if not (
             window
-            and _run_window(gateway, auth, port, agent, stopping, minimised, microscope)
+            and _run_window(
+                gateway,
+                auth,
+                port,
+                agent,
+                stopping,
+                minimised,
+                microscope,
+                (has_window, bring_forward),
+                lambda: on_quit(True),
+            )
         ):
             # in short waits: Ctrl-C does not break a bare wait on Windows
             while not stopping.wait(0.5):
@@ -188,7 +207,15 @@ def quit_gateway(gateway: Gateway) -> None:
 
 
 def _run_window(
-    gateway: Gateway, auth, port: int, agent, stopping, minimised, microscope
+    gateway: Gateway,
+    auth,
+    port: int,
+    agent,
+    stopping,
+    minimised,
+    microscope,
+    shown,
+    restart,
 ) -> bool:
     """The window until it closes (or *stopping*); False when Qt or a display
     isn't there."""
@@ -196,7 +223,9 @@ def _run_window(
         from fibsem.gateway.ui.window import run_window
     except ImportError:
         return False
-    return run_window(gateway, auth, port, agent, stopping, minimised, microscope)
+    return run_window(
+        gateway, auth, port, agent, stopping, minimised, microscope, shown, restart
+    )
 
 
 def _startup_folder() -> Path:
