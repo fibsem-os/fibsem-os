@@ -679,7 +679,7 @@ class SampleScene:
     film: str = "continuous"
     hole_diameter: float = 2.0e-6  # m  (R2/2: 2 um holes, 2 um apart)
     hole_pitch: float = 4.0e-6  # m
-    broken_hole_fraction: float = 0.02
+    broken_hole_fraction: float = 0.006
     # a seeded fraction of squares with the film torn away (a rip)
     rip_fraction: float = 0.03
     # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
@@ -1881,7 +1881,7 @@ class SampleScene:
     def _broken_holes(self, x_rot: np.ndarray, y_rot: np.ndarray, seed: int):
         """Where the film is broken round a seeded few holes, in a grid's
         frame: each a torn patch of its own size, stretch and ragged outline
-        about its hole, big enough sometimes to run into the next hole."""
+        about its hole, a little bigger than the hole was."""
         if self.broken_hole_fraction <= 0:
             return np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
         pitch = self.hole_pitch
@@ -1898,10 +1898,10 @@ class SampleScene:
                 hx = x_rot - (hi + 0.5) * pitch
                 hy = y_rot - (hj + 0.5) * pitch
                 size = self.hole_diameter * (
-                    0.6 + 0.9 * _lattice_draw(hi, hj, seed + 8)
+                    0.55 + 0.5 * _lattice_draw(hi, hj, seed + 8)
                 )
                 phi = np.pi * _lattice_draw(hi, hj, seed + 9)
-                stretch = 1.0 + 0.8 * _lattice_draw(hi, hj, seed + 10)
+                stretch = 1.0 + 0.5 * _lattice_draw(hi, hj, seed + 10)
                 phase = 2 * np.pi * _lattice_draw(hi, hj, seed + 11)
                 c, s_ = np.cos(phi), np.sin(phi)
                 u = (hx * c + hy * s_) / stretch
