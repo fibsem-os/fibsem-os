@@ -170,6 +170,8 @@ def _row(record: dict, platform: str = sys.platform) -> Dict[str, Any]:
         "gateway": bool(managed),
         "resumed": bool((managed.get("about") or {}).get("resumed")),
         "cannot_resume": _why_not(record, platform),
+        # what the agent last printed, when it ended before its log said why
+        "output": managed.get("output"),
     }
 
 
