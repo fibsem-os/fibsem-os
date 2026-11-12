@@ -1,6 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ListFilter } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Popup } from "@/components/ui/popup";
 import { cn } from "@/lib/utils";
 
 // The eval review page, served by `python -m fibsem.ai.evals serve` on this
@@ -119,27 +121,68 @@ function CaseList({ run, picked, pick }: { run: string; picked: string | null; p
   const cases = summary.data.cases;
   const tasks = [...new Set(cases.map((c) => c.task))];
   const shown = cases.filter((c) => (task === null || c.task === task) && (!open || c.open > 0));
-  const chip = (on: boolean) =>
+  const item = (on: boolean) =>
     cn(
-      "cursor-pointer rounded-full border px-2.5 py-0.5 text-[12px]",
-      on ? "border-primary bg-accent text-foreground" : "border-border text-muted-foreground hover:bg-accent",
+      "flex cursor-pointer items-center gap-2 rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
+      on && "bg-accent",
     );
+  const filtered = task !== null || open;
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap gap-1.5">
-        <button className={chip(task === null)} onClick={() => setTask(null)}>
-          All {cases.length}
-        </button>
-        {tasks.map((t) => (
-          <button key={t} className={chip(task === t)} onClick={() => setTask(task === t ? null : t)}>
-            {taskName(t)} {cases.filter((c) => c.task === t).length}
-          </button>
-        ))}
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] text-muted-foreground">
+          {filtered ? `${shown.length} of ${cases.length} cases` : `${cases.length} cases`}
+        </span>
+        <div className="ml-auto">
+          <Popup
+            label="Filter"
+            align="right"
+            className="top-[calc(100%+4px)] bottom-auto w-52"
+            trigger={(isOpen, toggle) => (
+              <button
+                className={cn(
+                  "flex shrink-0 cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] hover:bg-accent hover:text-foreground",
+                  filtered ? "text-primary" : "text-muted-foreground",
+                )}
+                aria-label="Filter"
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
+                onClick={toggle}
+              >
+                <ListFilter size={14} />
+                {task !== null ? taskName(task) : "All"}
+              </button>
+            )}
+          >
+            {(close) => (
+              <div role="menu" className="flex flex-col">
+                {[null, ...tasks].map((t) => (
+                  <button
+                    key={t ?? "all"}
+                    role="menuitemradio"
+                    aria-checked={task === t}
+                    className={item(task === t)}
+                    onClick={() => {
+                      setTask(t);
+                      close();
+                    }}
+                  >
+                    {t === null ? "All tasks" : taskName(t)}
+                    <span className="ml-auto text-[12px] text-muted-foreground">
+                      {t === null ? cases.length : cases.filter((c) => c.task === t).length}
+                    </span>
+                  </button>
+                ))}
+                <div className="my-1 border-t border-border" />
+                <label className={item(false)}>
+                  <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />
+                  Only cases to settle
+                </label>
+              </div>
+            )}
+          </Popup>
+        </div>
       </div>
-      <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
-        <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />
-        Only cases to settle
-      </label>
       {shown.map((c) => (
         <button
           key={c.id}
