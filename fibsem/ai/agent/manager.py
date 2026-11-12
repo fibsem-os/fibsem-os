@@ -33,6 +33,8 @@ log = logging.getLogger("fibsem.agent.manager")
 RECORD = "session.json"
 MANAGED = "manager.json"
 LOG = "fibsem-agent.log"
+# fibsem-agent's console: what it says before its log opens, such as a refusal.
+OUTPUT = "fibsem-agent-output.txt"
 STOP = "stop"
 # The agent's own files, when it was given no folder.
 WORK = "work"
@@ -247,6 +249,16 @@ def agent_command() -> List[str]:
     return [sys.executable, "-m", "fibsem.ai.agent.harness"]
 
 
+def last_output(folder: Path, limit: int = 300) -> Optional[str]:
+    """The last line fibsem-agent printed in *folder*, or None."""
+    try:
+        lines = (folder / OUTPUT).read_text(errors="replace").splitlines()
+    except OSError:
+        return None
+    said = next((line.strip() for line in reversed(lines) if line.strip()), None)
+    return said[:limit] if said else None
+
+
 class AgentSessionManager:
     """Starts ``fibsem-agent`` for a microscope, resumes it after its app
     comes back within a restart budget, and ends it. One agent per
@@ -311,7 +323,7 @@ class AgentSessionManager:
             if goal:
                 launch += ["--goal", goal]
             agent = Agent(microscope, session_id, folder, env=dict(env or {}))
-            agent.process = self._spawn(launch, env)
+            agent.process = self._spawn(launch, env, folder)
             self._agents[microscope] = agent
             log.info("Started the agent for %s (session %s).", microscope, session_id)
             return agent
@@ -342,7 +354,7 @@ class AgentSessionManager:
             }
             write_json(folder / MANAGED, managed)
             agent = Agent(microscope, session_id, folder, env=dict(env or {}))
-            agent.process = self._spawn(args + ["--resume", session_id], env)
+            agent.process = self._spawn(args + ["--resume", session_id], env, folder)
             self._agents[microscope] = agent
             log.info("Resumed session %s for %s.", session_id, microscope)
             return agent
@@ -402,17 +414,19 @@ class AgentSessionManager:
         return rows
 
     def _spawn(
-        self, args: List[str], env: Optional[Dict[str, str]]
+        self, args: List[str], env: Optional[Dict[str, str]], folder: Path
     ) -> subprocess.Popen:
         child_env = {**os.environ, **(env or {})}
-        return subprocess.Popen(
-            self._command + args,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            env=child_env,
-            **_detached(),
-        )
+        folder.mkdir(parents=True, exist_ok=True)
+        with open(folder / OUTPUT, "ab") as output:
+            return subprocess.Popen(
+                self._command + args,
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                env=child_env,
+                **_detached(),
+            )
 
     def _alive(self, agent: Agent) -> bool:
         if agent.process is not None:
@@ -481,7 +495,7 @@ class AgentSessionManager:
             self._on_resume(agent.microscope, managed.get("about") or {})
         except Exception:  # noqa: BLE001 - the host's step never stops the resume
             log.exception("Before resuming the agent for %s", agent.microscope)
-        agent.process = self._spawn(args, env)
+        agent.process = self._spawn(args, env, agent.folder)
         agent.state = "running"
         log.info(
             "Resumed the agent for %s (session %s).", agent.microscope, agent.session_id
@@ -491,6 +505,9 @@ class AgentSessionManager:
         agent.state, agent.ended = "ended", why
         managed = read_json(agent.folder / MANAGED)
         managed["ended"] = why
+        said = last_output(agent.folder)
+        if said:
+            managed["output"] = said
         write_json(agent.folder / MANAGED, managed)
         log.info("The agent for %s ended: %s.", agent.microscope, why)
 

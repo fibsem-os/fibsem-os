@@ -165,6 +165,18 @@ def test_a_crash_is_resumed_once_an_hour(make):
     assert "exit_code" not in runs(agent)[1], "a crash records nothing"
 
 
+def test_what_an_agent_printed_before_it_died_is_kept(make):
+    # A refusal before fibsem-agent opens its log is only on its console.
+    mgr, env = make("refuse,refuse")
+    agent = start(mgr, env)
+    until(lambda: agent.state == "ended", mgr)
+    assert agent.ended == "restarts used up"
+    said = (agent.folder / manager.OUTPUT).read_text()
+    assert said.count("The lab-x playbook isn't on this PC.") == 2
+    output = read_json(agent.folder / MANAGED)["output"]
+    assert output == "The lab-x playbook isn't on this PC."
+
+
 def test_one_agent_per_microscope(make):
     mgr, env = make("wait")
     start(mgr, env)
