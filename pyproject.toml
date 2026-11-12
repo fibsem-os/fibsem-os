@@ -196,6 +196,9 @@ filterwarnings = [
     # anyio 4.15 deprecated the anyio.abc.BlockingPortal alias; starlette's
     # TestClient (through 1.6.0) still imports it, at import time - third-party.
     "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
+    # PySide warns where PyQt raises TypeError when a slot that is not connected is
+    # disconnected; the code already treats that as nothing to do.
+    "ignore:libpyside. Failed to disconnect:RuntimeWarning",
 ]
 
 [tool.ruff]

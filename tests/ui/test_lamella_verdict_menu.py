@@ -167,7 +167,12 @@ def test_a_grid_s_verdict_menu_is_a_lamella_s(lamella, monkeypatch):
         shown["bold"] = [a.text() for a in menu.actions() if a.font().bold()]
         return None  # dismissed
 
-    monkeypatch.setattr(QMenu, "exec", _exec)
+    import fibsem.applications.autolamella.ui.grids.card as card_module
+
+    class StubMenu(QMenu):  # patching QMenu.exec does not reach an instance on PySide
+        exec = _exec
+
+    monkeypatch.setattr(card_module, "QMenu", StubMenu)
     grid = GridRecord(name="grid-a")
     grid.quality.set_defect(state=Verdict.REWORK)
     GridCardWidget(grid)._on_quality_clicked()

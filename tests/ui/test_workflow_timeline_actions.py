@@ -163,12 +163,13 @@ def test_the_id_survives_the_row_moving_under_the_menu(widget, queue):
 def test_the_button_appears_on_hover_and_leaves_again(widget):
     """Right-click alone is undiscoverable; a permanent button on every row of a
     dense timeline is noise. Hover is the compromise."""
-    from qtpy.QtCore import QEvent
+    from qtpy.QtCore import QEvent, QPointF
+    from qtpy.QtGui import QEnterEvent
 
     row = widget._outer._rows[2]
     assert not row._btn_actions.isVisibleTo(row)
 
-    row.enterEvent(QEvent(QEvent.Type.Enter))
+    row.enterEvent(QEnterEvent(QPointF(1, 1), QPointF(1, 1), QPointF(1, 1)))
     assert row._btn_actions.isVisibleTo(row)
 
     row.leaveEvent(QEvent(QEvent.Type.Leave))
@@ -176,11 +177,12 @@ def test_the_button_appears_on_hover_and_leaves_again(widget):
 
 
 def test_hovering_a_row_shows_nothing_when_no_run_is_live(widget):
-    from qtpy.QtCore import QEvent
+    from qtpy.QtCore import QPointF
+    from qtpy.QtGui import QEnterEvent
 
     widget.set_actions_enabled(False)
     row = widget._outer._rows[2]
-    row.enterEvent(QEvent(QEvent.Type.Enter))
+    row.enterEvent(QEnterEvent(QPointF(1, 1), QPointF(1, 1), QPointF(1, 1)))
     assert not row._btn_actions.isVisibleTo(row)
 
 

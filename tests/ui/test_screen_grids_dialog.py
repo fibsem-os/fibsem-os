@@ -17,6 +17,8 @@ pytest.importorskip(
     "qtpy.QtWidgets"
 )  # CI installs .[test] only; the UI extra is deliberate
 
+from qtpy.QtWidgets import QDialog  # noqa: E402
+
 import fibsem.config as cfg
 from fibsem import utils
 from fibsem.applications.autolamella.structures import (
@@ -153,7 +155,7 @@ def test_names_typed_during_the_scan_are_held_until_screen(
     assert "Will replace the xT name 'grid-elm'" in rows["Slot-02"].note.text()
 
     dialog.btn_screen.click()
-    assert dialog.result() == dialog.Accepted
+    assert dialog.result() == QDialog.DialogCode.Accepted
     assert dialog.grid_names == ["grid-birch", "grid-oak", "Grid-05"]
     assert _slot_names(unscanned) == {
         "Slot-01": "grid-birch",
@@ -169,7 +171,7 @@ def test_cancel_writes_nothing(qapp, unscanned, experiment):
     dialog._rows["Slot-01"].field.setText("grid-birch")
     dialog._apply()
     dialog.btn_cancel.click()
-    assert dialog.result() == dialog.Rejected
+    assert dialog.result() == QDialog.DialogCode.Rejected
     assert dialog.grid_names == []
     assert experiment.grids == []
     assert _slot_names(unscanned)["Slot-01"] == "Grid-01"
@@ -251,7 +253,7 @@ def test_a_name_that_does_not_stick_is_said_at_screen(
     dialog._rows["Slot-01"].field.setText("grid-oak")
     dialog._apply()
     dialog.btn_screen.click()
-    assert dialog.result() != dialog.Accepted
+    assert dialog.result() != QDialog.DialogCode.Accepted
     assert "reads back" in dialog.error_label.text()
     assert _slot_names(arctis)["Slot-01"] == "Grid-01"
     assert experiment.grids == []

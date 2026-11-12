@@ -19,7 +19,7 @@ import pytest
 
 pytest.importorskip("qtpy.QtWidgets")
 
-from qtpy.QtCore import QPoint, Qt
+from qtpy.QtCore import QPoint, QPointF, Qt
 from qtpy.QtGui import QWheelEvent
 from qtpy.QtWidgets import (
     QApplication,
@@ -57,14 +57,14 @@ def _scroll_area(factory, count=40):
 
 def _wheel(widget):
     return QWheelEvent(
-        QPoint(10, 10),
-        widget.mapToGlobal(QPoint(10, 10)),
+        QPointF(10, 10),
+        QPointF(widget.mapToGlobal(QPoint(10, 10))),
         QPoint(0, -120),
         QPoint(0, -120),
-        -120,
-        Qt.Orientation.Vertical,
         Qt.MouseButton.NoButton,
         Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
     )
 
 

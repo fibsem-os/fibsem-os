@@ -5,7 +5,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
 import numpy as np
-from qtpy.QtCore import QEvent, Signal
+from qtpy.QtCore import QEvent, Qt, Signal
 from qtpy.QtWidgets import (
     QCheckBox,
     QGridLayout,
@@ -253,9 +253,7 @@ class FMControlWidget(QWidget):
         scroll_area = QScrollArea()
         scroll_area.setWidget(scroll_content)
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(
-            1
-        )  # Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         # create grid layout for buttons
         button_layout = QGridLayout()

@@ -42,6 +42,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -157,7 +158,7 @@ def _table(headers: Sequence[str], rows: List[Sequence], stretch: int) -> QTable
 def _panel(title: str, content: QWidget) -> TitledPanel:
     panel = TitledPanel(title, content=content, collapsible=False)
     policy = panel.sizePolicy()
-    policy.setVerticalPolicy(policy.Maximum)
+    policy.setVerticalPolicy(QSizePolicy.Policy.Maximum)
     panel.setSizePolicy(policy)
     return panel
 

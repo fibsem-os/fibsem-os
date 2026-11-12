@@ -84,6 +84,7 @@ def _send(canvas, overlay, name, x, y, mods=(), button=1):
     gui = QMouseEvent(
         qtype,
         QPointF(0, 0),
+        QPointF(0, 0),
         Qt.MouseButton.LeftButton,
         Qt.MouseButton.LeftButton,
         flags,

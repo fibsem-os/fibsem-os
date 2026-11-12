@@ -228,6 +228,9 @@ class ValueComboBox(QComboBox):
         self._unit = unit
         self._format_fn = format_fn
         self._decimals = decimals
+        # PySide stores an Enum that subclasses str or int as its plain value; this
+        # maps the value back to the member so callers get what they added.
+        self._members: dict = {}
         if items:
             self.add_values(items)
         install_wheel_blocker(self)
@@ -251,6 +254,21 @@ class ValueComboBox(QComboBox):
     def add_value(self, item) -> None:
         """Append a single item, storing the raw value as item data."""
         self.addItem(self._format_item(item), item)
+
+    def addItem(self, *args, **kwargs) -> None:
+        for arg in (*args, *kwargs.values()):
+            if isinstance(arg, Enum) and isinstance(arg, (str, int)):
+                self._members[arg.value] = arg
+        super().addItem(*args, **kwargs)
+
+    def itemData(self, index: int, role: int = Qt.ItemDataRole.UserRole):
+        data = super().itemData(index, role)
+        if isinstance(data, Enum) or isinstance(data, bool):
+            return data
+        return self._members.get(data, data) if isinstance(data, (str, int)) else data
+
+    def currentData(self, role: int = Qt.ItemDataRole.UserRole):
+        return self.itemData(self.currentIndex(), role)
 
     def add_values(self, items) -> None:
         """Append several items."""
