@@ -182,7 +182,9 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     except KeyboardInterrupt:
         pass
     finally:
-        quit_gateway(gateway)
+        # A restart leaves the app running for the next gateway to take back.
+        if not again.is_set():
+            quit_gateway(gateway)
         gateway.close()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)

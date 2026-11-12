@@ -480,3 +480,69 @@ def test_the_history_reads_only_its_last_lines(tmp_path):
     assert _tail(path, 50) == ["a", "b"]
     path.write_text("x" * 100_000 + "\nlast\n")
     assert _tail(path, 2) == ["x" * 100_000, "last"]
+
+
+def _reap(gateway):
+    # The first gateway's child: reaped here, as its real parent would be gone.
+    proc = gateway._proc
+    threading.Thread(target=proc.wait, daemon=True).start()
+
+
+def test_a_new_gateway_takes_back_the_app_and_stops_it(tmp_path, fakes):
+    first = _gateway(tmp_path, fakes)
+    exp = _experiment(tmp_path)
+    started = _headless(first, experiment=exp)
+    _reap(first)
+    first.close()
+    fakes.found = {"pid": started.pid, "url": "http://127.0.0.1:8001"}
+    again = _gateway(tmp_path, fakes)
+    state = again.adopt()
+    assert (state.mode, state.app, state.pid) == (RUNNING, "stand-in", started.pid)
+    assert (state.experiment, state.who) == (exp, "operator")
+    assert state.holder is None
+    assert again.history().switches[0].result == "taken back"
+    fakes.found = None
+    state = again.stop("operator", "page")
+    assert state.mode == OFF and not state.last_exit.killed
+    assert not again.run_file.exists()
+    assert _wait_for(lambda: f"serving {exp}" in Path(state.last_exit.log).read_text())
+
+
+def test_a_taken_back_app_that_wont_stop_is_killed(tmp_path, fakes):
+    first = _gateway(tmp_path, fakes, serve="stubborn")
+    started = _headless(first, last=True)
+    _reap(first)
+    again = _gateway(tmp_path, fakes, stop_wait_s=1.0)
+    assert again.adopt().pid == started.pid
+    assert again.stop("operator", "page").last_exit.killed
+    assert _wait_for(lambda: first._proc.poll() is not None)
+
+
+def test_a_claimed_window_is_taken_back(tmp_path, fakes):
+    window = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        _gateway(tmp_path, fakes).claim(
+            window.pid, "stand-in", "operator", "desktop launch"
+        )
+        state = _gateway(tmp_path, fakes).adopt()
+        assert (state.mode, state.window, state.pid) == (RUNNING, True, window.pid)
+    finally:
+        window.kill()
+        window.wait()
+
+
+@pytest.mark.parametrize("held_by_another", [False, True])
+def test_nothing_is_taken_back_when_the_app_is_gone(tmp_path, fakes, held_by_another):
+    first = _gateway(tmp_path, fakes)
+    started = _headless(first, last=True)
+    if held_by_another:
+        fakes.found = {"pid": 424242, "url": "http://127.0.0.1:8001"}
+    else:
+        first._proc.kill()
+        first._proc.wait()
+    again = _gateway(tmp_path, fakes)
+    assert again.adopt().mode == OFF
+    assert not again.run_file.exists()
+    if held_by_another:
+        first.stop("operator", "page")
+    assert started.pid

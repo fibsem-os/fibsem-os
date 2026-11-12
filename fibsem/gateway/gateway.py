@@ -9,6 +9,7 @@ refused unless the operator forces it, and a host the gateway didn't start (a
 hand-run ``fibsem-autolamella-server``) blocks every start until it goes: two
 things never hold the microscope at once. Only the operator closes a window,
 and a window that asks a question as it closes is left to answer at the PC.
+An app still running when the gateway restarts is taken back as it starts.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -62,6 +64,8 @@ HISTORY_SHOWN = 50
 # gets the last values read and never waits on a slow or missing drive.
 FACTS_EVERY_S = 10.0
 EXPERIMENT_FILE = "experiment.yaml"
+# The app the gateway runs, kept so a new gateway (a restart) takes it back.
+RUN_FILE = "gateway-app.json"
 
 
 class GatewayRefused(Exception):
@@ -478,6 +482,7 @@ class Gateway:
             self._record(OFF, RUNNING, who, via, "started", app, experiment, window)
             with self._lock:
                 self._state.who, self._state.via = who, via
+            self._keep_run()
         return self.state()
 
     def stop(
@@ -516,7 +521,81 @@ class Gateway:
                     via=via,
                     last_exit=self._state.last_exit,
                 )
+            self._keep_run()
             self._record(OFF, RUNNING, who, via, "claimed", app, None, True)
+        return self.state()
+
+    # -- the app across a restart --------------------------------------------
+
+    @property
+    def run_file(self) -> Path:
+        return self._home / RUN_FILE
+
+    def _keep_run(self) -> None:
+        with self._lock:
+            state, stop_file, log = self._state, self._stop_file, self._log
+        run = {
+            "pid": state.pid,
+            "app": state.app,
+            "window": state.window,
+            "experiment": state.experiment,
+            "since": state.since,
+            "who": state.who,
+            "via": state.via,
+            "stop_file": str(stop_file) if stop_file else None,
+            "log": str(log) if log else None,
+        }
+        try:
+            self.run_file.parent.mkdir(parents=True, exist_ok=True)
+            self.run_file.write_text(json.dumps(run))
+        except OSError:
+            logging.exception("Gateway: the running app not kept")
+
+    def adopt(self) -> GatewayState:
+        """Take back the app an earlier gateway here started or claimed, if its
+        process still runs: the page, the window and Stop work on it again."""
+        try:
+            run = json.loads(self.run_file.read_text())
+            pid = run["pid"]
+        except (OSError, ValueError, TypeError, KeyError):
+            return self.state()
+        with self._lock:
+            if self._state.mode != OFF:
+                return self.state()
+        if not _pid_alive(pid):
+            self.run_file.unlink(missing_ok=True)
+            return self.state()
+        found = self._discovery()
+        if found is not None and found.get("pid") != pid:
+            # Another host holds the microscope: the record is stale.
+            self.run_file.unlink(missing_ok=True)
+            return self.state()
+        with self._lock:
+            self._claimed = pid
+            self._stop_file = Path(run["stop_file"]) if run.get("stop_file") else None
+            self._log = Path(run["log"]) if run.get("log") else None
+            self._state = GatewayState(
+                mode=RUNNING,
+                version=self._state.version,
+                app=run.get("app"),
+                window=bool(run.get("window")),
+                experiment=run.get("experiment"),
+                pid=pid,
+                since=run.get("since"),
+                who=run.get("who"),
+                via=run.get("via"),
+            )
+        logging.info("Gateway took back %s (pid %d)", run.get("app"), pid)
+        self._record(
+            OFF,
+            RUNNING,
+            "gateway",
+            "gateway",
+            "taken back",
+            run.get("app"),
+            run.get("experiment"),
+            bool(run.get("window")),
+        )
         return self.state()
 
     def _app(self, key: Optional[str], window: bool) -> App:
@@ -669,9 +748,9 @@ class Gateway:
             self._close_window()
             return
         with self._lock:
-            proc, stop_file = self._proc, self._stop_file
+            proc, stop_file, pid = self._proc, self._stop_file, self._claimed
         if proc is None:
-            self._ended(None)
+            self._ended(None, self._stop_pid(pid, stop_file) if pid else False)
             return
         if stop_file is not None:
             stop_file.touch()
@@ -684,6 +763,25 @@ class Gateway:
             proc.wait()
             killed = True
         self._ended(proc.returncode, killed)
+
+    def _stop_pid(self, pid: int, stop_file: Optional[Path]) -> bool:
+        """Stop a process taken back from an earlier gateway, by its stop file,
+        else killed. Whether it was killed."""
+        if stop_file is not None:
+            stop_file.touch()
+        end = time.monotonic() + self._stop_wait_s
+        while _pid_alive(pid) and stop_file is not None:
+            if time.monotonic() > end:
+                break
+            time.sleep(0.2)
+        if not _pid_alive(pid):
+            return False
+        logging.warning("Gateway: pid %d didn't stop; killing it", pid)
+        try:
+            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+        except OSError:
+            pass
+        return True
 
     def _close_window(self) -> None:
         """Ask the window to close as its own close button does, and wait for
@@ -730,6 +828,7 @@ class Gateway:
             )
             self._proc = self._stop_file = self._log = None
             self._claimed = None
+        self.run_file.unlink(missing_ok=True)
 
     def _record(
         self, from_mode, to_mode, who, via, result, app, experiment, window=None
@@ -782,7 +881,8 @@ class Gateway:
         )
 
     def start(self) -> None:
-        """Watch the running mode's process on a daemon thread."""
+        """Take back a running app, then watch its process on a daemon thread."""
+        self.adopt()
 
         def loop():
             while not self._closed.wait(POLL_S):
@@ -810,7 +910,6 @@ class Gateway:
         threading.Thread(target=newer, name="gateway-newer", daemon=True).start()
 
     def close(self) -> None:
-        """Stop watching. An app without its window keeps running; a new
-        gateway shows it as a holder until it ends."""
+        """Stop watching. The app keeps running; a new gateway takes it back."""
         self._closed.set()
         self._facts_due.set()
