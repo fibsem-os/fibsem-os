@@ -13,9 +13,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFontMetrics
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QColor, QFontMetrics
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QFileDialog,
@@ -203,7 +203,9 @@ class ScriptManagerDialog(QDialog):
         style_with_tooltip(
             self.meta_label, f"font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
         )
-        self.meta_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.meta_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
         self.meta_label.setMinimumWidth(160)
         titles.addWidget(self.title_label)
         titles.addWidget(self.meta_label)
@@ -263,15 +265,17 @@ class ScriptManagerDialog(QDialog):
         detail_layout = QHBoxLayout(detail_panel)
         detail_layout.setContentsMargins(11, 9, 11, 9)
         self.detail_label = QLabel()
-        self.detail_label.setTextFormat(Qt.RichText)
+        self.detail_label.setTextFormat(Qt.TextFormat.RichText)
         style_with_tooltip(
             self.detail_label, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT};"
         )
         # the consequence of running this sits opposite the facts about it, so it
         # reads as a warning rather than another line of metadata
         self.consequence_label = QLabel()
-        self.consequence_label.setTextFormat(Qt.RichText)
-        self.consequence_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.consequence_label.setTextFormat(Qt.TextFormat.RichText)
+        self.consequence_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         style_with_tooltip(
             self.consequence_label, f"border: none; font-size: {_FS_BODY}px;"
         )
@@ -309,11 +313,11 @@ class ScriptManagerDialog(QDialog):
             f"border-radius: 6px;",
         )
         layout = QVBoxLayout(panel)
-        layout.setAlignment(Qt.AlignCenter)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(6)
 
         headline = QLabel("No scripts in this folder")
-        headline.setAlignment(Qt.AlignCenter)
+        headline.setAlignment(Qt.AlignmentFlag.AlignCenter)
         style_with_tooltip(
             headline, f"border: none; font-size: {_FS_NAME}px; color: {_TEXT};"
         )
@@ -321,7 +325,7 @@ class ScriptManagerDialog(QDialog):
             "Use New script… to start one from a template, "
             "or Change folder… to look somewhere else."
         )
-        hint.setAlignment(Qt.AlignCenter)
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         style_with_tooltip(
             hint, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
         )
@@ -329,8 +333,8 @@ class ScriptManagerDialog(QDialog):
         # pip-installed user will not find it on disk and would otherwise be told
         # only to write one from scratch.
         examples = QLabel(EXAMPLES_HINT)
-        examples.setTextFormat(Qt.RichText)
-        examples.setAlignment(Qt.AlignCenter)
+        examples.setTextFormat(Qt.TextFormat.RichText)
+        examples.setAlignment(Qt.AlignmentFlag.AlignCenter)
         examples.setWordWrap(True)
         style_with_tooltip(
             examples, f"border: none; font-size: {_FS_BODY}px; color: {_TEXT_MUTED};"
@@ -351,14 +355,16 @@ class ScriptManagerDialog(QDialog):
         table.verticalHeader().setDefaultSectionSize(56)
         table.setShowGrid(False)
         table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.itemSelectionChanged.connect(self._on_selection_changed)
         table.doubleClicked.connect(self.run_selected)
 
         header = table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header.setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, header.Stretch)
         table.setColumnWidth(2, 130)
@@ -503,7 +509,7 @@ class ScriptManagerDialog(QDialog):
         # fires before layout and a near-zero width elides the path away entirely
         available = max(self.meta_label.width(), 240)
         elided = QFontMetrics(self.meta_label.font()).elidedText(
-            directory, Qt.ElideMiddle, available
+            directory, Qt.TextElideMode.ElideMiddle, available
         )
         self.meta_label.setText(f"{self._summary}  ·  {elided}")
         self.meta_label.setToolTip(directory)

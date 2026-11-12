@@ -38,16 +38,16 @@ from typing import List, Tuple
 
 import pytest
 
-pytest.importorskip("PyQt5")
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import (  # noqa: E402
+from qtpy.QtCore import (  # noqa: E402
     Qt,
     QtWarningMsg,
     qInstallMessageHandler,
 )
-from PyQt5.QtGui import QPixmap  # noqa: E402
-from PyQt5.QtWidgets import QLabel  # noqa: E402
+from qtpy.QtGui import QPixmap  # noqa: E402
+from qtpy.QtWidgets import QLabel  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaWorkflowConfig,

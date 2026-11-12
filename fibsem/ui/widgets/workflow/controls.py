@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QHBoxLayout, QPushButton, QWidget
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import QHBoxLayout, QPushButton, QWidget
 
 from fibsem.theme.tokens import GRAY_ICON_COLOR
 from fibsem.ui.icon import fibsem_icon
@@ -58,10 +58,10 @@ _AGENT_DECIDES = (
 class WorkflowControls(QWidget):
     """Attention Required, the supervision chip, and Run or Stop Workflow."""
 
-    run_clicked = pyqtSignal()
-    stop_clicked = pyqtSignal()
-    supervision_clicked = pyqtSignal()
-    attention_clicked = pyqtSignal()
+    run_clicked = Signal()
+    stop_clicked = Signal()
+    supervision_clicked = Signal()
+    attention_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -82,7 +82,7 @@ class WorkflowControls(QWidget):
 
         # The current task's supervision while a run is going.
         self.supervision_btn = QPushButton("Supervised")
-        self.supervision_btn.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self.supervision_btn.setCursor(Qt.CursorShape.PointingHandCursor)  # type: ignore
         self.supervision_btn.setToolTip("Click to toggle supervision")
         self.supervision_btn.clicked.connect(self.supervision_clicked)
 

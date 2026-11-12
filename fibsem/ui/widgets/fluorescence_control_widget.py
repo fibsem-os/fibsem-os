@@ -5,8 +5,8 @@ import threading
 from typing import TYPE_CHECKING, Any, Callable, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QEvent, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QGridLayout,
     QLabel,
@@ -100,7 +100,7 @@ def binned_for_display(
 class FMControlWidget(QWidget):
     """Widget for Fluorescence Microscope Control"""
 
-    acquisition_finished_signal = pyqtSignal()
+    acquisition_finished_signal = Signal()
 
     def __init__(
         self,
@@ -253,7 +253,9 @@ class FMControlWidget(QWidget):
         scroll_area = QScrollArea()
         scroll_area.setWidget(scroll_content)
         scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(1)  # Qt.ScrollBarAlwaysOff
+        scroll_area.setHorizontalScrollBarPolicy(
+            1
+        )  # Qt.ScrollBarPolicy.ScrollBarAlwaysOff
 
         # create grid layout for buttons
         button_layout = QGridLayout()
@@ -877,7 +879,7 @@ class FMControlWidget(QWidget):
         if not is_close:
             # Show warning dialog to user
             msg_box = QMessageBox(self)
-            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setIcon(QMessageBox.Icon.Warning)
             msg_box.setWindowTitle("Position Mismatch Warning")
             msg_box.setText(
                 f"Current stage position is not close to selected {self._noun.lower()} '{item.name}' fluorescence pose."
@@ -890,13 +892,15 @@ class FMControlWidget(QWidget):
             )
 
             # Create custom buttons
-            msg_box.addButton("Continue", QMessageBox.AcceptRole)
-            cancel_button = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+            msg_box.addButton("Continue", QMessageBox.ButtonRole.AcceptRole)
+            cancel_button = msg_box.addButton(
+                "Cancel", QMessageBox.ButtonRole.RejectRole
+            )
 
             if cancel_button is not None:
                 msg_box.setDefaultButton(cancel_button)
 
-            msg_box.exec_()
+            msg_box.exec()
 
             # Check which button was clicked
             if msg_box.clickedButton() == cancel_button:

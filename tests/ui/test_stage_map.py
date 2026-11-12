@@ -9,9 +9,11 @@ import pytest
 
 from tests.fixtures.microscopes import demo_microscope
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QRectF
+from qtpy.QtCore import QRectF
 
 from fibsem import utils
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow

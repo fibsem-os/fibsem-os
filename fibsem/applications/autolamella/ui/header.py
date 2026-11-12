@@ -6,9 +6,9 @@ from __future__ import annotations
 import html
 from typing import Callable, List, Tuple
 
-from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtGui import QIcon, QPainter, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt
+from qtpy.QtGui import QIcon, QPainter, QPixmap
+from qtpy.QtWidgets import (
     QAction,
     QHBoxLayout,
     QMenu,
@@ -99,7 +99,7 @@ def set_button_icon(
     ratio = pixmap.devicePixelRatio() or 1.0
     padded = QPixmap(pixmap.width() + round(gap * ratio), pixmap.height())
     padded.setDevicePixelRatio(ratio)
-    padded.fill(Qt.transparent)
+    padded.fill(Qt.GlobalColor.transparent)
     painter = QPainter(padded)
     painter.drawPixmap(0, 0, pixmap)
     painter.end()
@@ -151,7 +151,9 @@ class ExperimentHeader(QWidget):
         # Hug the name. A QPushButton's default policy lets it grow to fill the
         # layout, which here means straight back out to the maximum width above --
         # the corner widget would be no narrower than the pair it replaces.
-        self.btn_experiment_menu.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.btn_experiment_menu.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed
+        )
         self.btn_experiment_menu.setVisible(False)
         experiment_menu = QMenu(self.btn_experiment_menu)
         # The File menu's own QAction objects, not copies of them, so the two places
@@ -170,7 +172,9 @@ class ExperimentHeader(QWidget):
             self.btn_update_available, "mdi:arrow-up-circle-outline", color=ACCENT_COLOR
         )
         self.btn_update_available.setStyleSheet(ACCENT_CHIP_BUTTON_STYLESHEET)
-        self.btn_update_available.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.btn_update_available.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed
+        )
         self.btn_update_available.setVisible(False)
         # The About dialog already says what is installed, what is out and how to
         # update; the chip only points there.
@@ -226,7 +230,7 @@ class ExperimentHeader(QWidget):
             self.btn_experiment_menu.setText(
                 metrics.elidedText(
                     experiment.name,
-                    Qt.ElideMiddle,
+                    Qt.TextElideMode.ElideMiddle,
                     metrics.horizontalAdvance(experiment.name) - overflow,
                 )
             )

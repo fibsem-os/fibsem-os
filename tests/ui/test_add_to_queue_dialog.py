@@ -18,11 +18,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from datetime import datetime, timedelta
 
-from PyQt5.QtWidgets import QDialog, QLabel
+from qtpy.QtWidgets import QDialog, QLabel
 
 from fibsem.applications.autolamella.ui.workflow.preflight import (
     confirm_add_to_queue_dialog,
@@ -54,9 +54,9 @@ def show(app, monkeypatch):
 
     def fake_exec(self):
         built.append(self)
-        return QDialog.Rejected
+        return QDialog.DialogCode.Rejected
 
-    monkeypatch.setattr(QDialog, "exec_", fake_exec)
+    monkeypatch.setattr(QDialog, "exec", fake_exec)
 
     def open_it(estimate=None, already=(), run_next=False):
         confirm_add_to_queue_dialog(
@@ -233,7 +233,7 @@ def test_the_position_is_named_both_ways(show):
 
 
 def test_the_count_in_the_button_matches_what_will_be_queued(show):
-    from PyQt5.QtWidgets import QPushButton
+    from qtpy.QtWidgets import QPushButton
 
     dialog = show(None)
     labels = [b.text() for b in dialog.findChildren(QPushButton)]
@@ -243,7 +243,7 @@ def test_the_count_in_the_button_matches_what_will_be_queued(show):
 
 def test_cancel_is_the_default_button(show):
     """Adding work to a running queue is not the safe outcome of a stray Return."""
-    from PyQt5.QtWidgets import QPushButton
+    from qtpy.QtWidgets import QPushButton
 
     dialog = show(None)
     default = [b.text() for b in dialog.findChildren(QPushButton) if b.isDefault()]

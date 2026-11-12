@@ -29,8 +29,8 @@ import logging
 from functools import partial
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QPushButton,
@@ -119,13 +119,13 @@ class AutoLamellaOverviewContainerTab(QWidget):
     # Whether *either* modality has a live widget, i.e. whether the tab does anything at
     # all. The window listens so it can enable or disable the tab; this object does not
     # touch the tab bar, exactly as neither host tab does.
-    availability_changed = pyqtSignal(bool)
+    availability_changed = Signal(bool)
     # Forwarded from whichever host tab raised it, once the other has followed it.
-    lamella_selected = pyqtSignal(object)
+    lamella_selected = Signal(object)
     # True while *either* modality is acquiring.
-    acquiring_changed = pyqtSignal(bool)
+    acquiring_changed = Signal(bool)
     # The modality now showing, for a host that wants to say so somewhere.
-    modality_changed = pyqtSignal(str)
+    modality_changed = Signal(str)
 
     def __init__(
         self,
@@ -202,7 +202,7 @@ class AutoLamellaOverviewContainerTab(QWidget):
             chip = QPushButton(MODALITY_LABELS[modality])
             chip.setCheckable(True)
             chip.setChecked(modality == self._modality)
-            chip.setCursor(Qt.PointingHandCursor)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
             chip.setStyleSheet(MODALITY_CHIP_STYLE)
             chip.clicked.connect(partial(self._on_chip_clicked, modality))
             self._strip_layout.addWidget(chip)
@@ -211,10 +211,16 @@ class AutoLamellaOverviewContainerTab(QWidget):
         self.modality_strip = QScrollArea()
         self.modality_strip.setWidget(chips_row)
         self.modality_strip.setWidgetResizable(True)
-        self.modality_strip.setFrameShape(QFrame.NoFrame)
-        self.modality_strip.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.modality_strip.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.modality_strip.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.modality_strip.setFrameShape(QFrame.Shape.NoFrame)
+        self.modality_strip.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.modality_strip.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.modality_strip.setSizePolicy(
+            QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed
+        )
         # The strip's own background, the same way the page's view strip carries it, and
         # not `background: transparent` -- a scroll area's *viewport* is a separate
         # widget that the sheet does not reach, so transparent left it painting the
@@ -229,8 +235,8 @@ class AutoLamellaOverviewContainerTab(QWidget):
         # gap alone the modality chips read as the first two of one long row, which is
         # the reading this whole arrangement exists to prevent.
         self._divider = QFrame()
-        self._divider.setFrameShape(QFrame.VLine)
-        self._divider.setFrameShadow(QFrame.Plain)
+        self._divider.setFrameShape(QFrame.Shape.VLine)
+        self._divider.setFrameShadow(QFrame.Shadow.Plain)
         self._divider.setStyleSheet(f"color: {BORDER_COLOR};")
         self._divider.setFixedHeight(chips_row.sizeHint().height())
         self._divider.setVisible(False)
@@ -249,7 +255,7 @@ class AutoLamellaOverviewContainerTab(QWidget):
         # two scroll areas inside carry the same sheet and always painted correctly,
         # because `QScrollArea` is itself a `QFrame`.
         bar = QFrame()
-        bar.setFrameShape(QFrame.NoFrame)
+        bar.setFrameShape(QFrame.Shape.NoFrame)
         bar.setObjectName("viewStrip")
         bar.setStyleSheet(VIEW_STRIP_STYLE)
         bar_layout = QHBoxLayout(bar)
@@ -258,7 +264,7 @@ class AutoLamellaOverviewContainerTab(QWidget):
         bar_layout.addWidget(self.modality_strip)
         bar_layout.addWidget(self._divider)
         bar_layout.addWidget(self._view_slot, stretch=1)
-        bar.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        bar.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         return bar
 
     # ── lending the active page's view chips a place in the bar ──────────

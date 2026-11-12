@@ -17,8 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Type
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QComboBox,
     QDialog,
     QFormLayout,
@@ -80,7 +80,7 @@ def _config_classes() -> Dict[str, Type[GridTaskConfig]]:
 
 
 class _BeamOverviewEditor(QWidget):
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -124,7 +124,7 @@ class _BeamOverviewEditor(QWidget):
 
 
 class _FluorescenceOverviewEditor(QWidget):
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -202,8 +202,8 @@ _EDITORS: Dict[str, Type[QWidget]] = {
 class GridTaskEditorPanel(QWidget):
     """The selected task's settings: a title, a hint, reset, and the form."""
 
-    changed = pyqtSignal()  # an edit in the showing form
-    reset_clicked = pyqtSignal()
+    changed = Signal()  # an edit in the showing form
+    reset_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -314,7 +314,7 @@ class GridProtocolWidget(QWidget):
     ``editor_panel``. Standalone, they sit either side of a splitter.
     """
 
-    protocol_changed = pyqtSignal()
+    protocol_changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None, embedded: bool = False):
         super().__init__(parent)
@@ -334,7 +334,7 @@ class GridProtocolWidget(QWidget):
         if not embedded:
             layout = QVBoxLayout(self)
             layout.setContentsMargins(0, 0, 0, 0)
-            splitter = QSplitter(Qt.Horizontal)
+            splitter = QSplitter(Qt.Orientation.Horizontal)
             splitter.setChildrenCollapsible(False)
             left = QWidget()
             left_layout = QVBoxLayout(left)
@@ -348,7 +348,7 @@ class GridProtocolWidget(QWidget):
             right_layout.setContentsMargins(4, 8, 8, 8)
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
-            scroll.setFrameShape(QScrollArea.NoFrame)
+            scroll.setFrameShape(QScrollArea.Shape.NoFrame)
             scroll.setWidget(self.editor_panel)
             right_layout.addWidget(scroll)
             splitter.addWidget(right)
@@ -452,7 +452,7 @@ class GridProtocolWidget(QWidget):
             default_names=_DEFAULT_NAMES,
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted or dialog.chosen is None:
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.chosen is None:
             return
         self.add_task(*dialog.chosen)
 
@@ -480,10 +480,10 @@ class GridProtocolWidget(QWidget):
                 self,
                 "Remove grid task",
                 f"Remove {name} from the protocol? Its recorded outputs are kept.",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            != QMessageBox.Yes
+            != QMessageBox.StandardButton.Yes
         ):
             return
         self.remove_task(name)

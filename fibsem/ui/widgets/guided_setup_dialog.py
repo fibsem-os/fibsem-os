@@ -34,8 +34,8 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtCore import Qt, pyqtSignal
+from qtpy import QtCore, QtGui, QtWidgets
+from qtpy.QtCore import Qt, Signal
 
 from fibsem import config as cfg
 from fibsem import guided_setup as wizard
@@ -208,13 +208,13 @@ class ChoiceCard(QtWidgets.QFrame):
     space, which on an instrument PC with a trackball is not a rare way to work.
     """
 
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, title: str, summary: str, icon: str = "", parent=None) -> None:
         super().__init__(parent)
         self.setObjectName("choiceCard")
-        self.setCursor(Qt.PointingHandCursor)
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._icon_name = icon
         self._selected = False
 
@@ -225,7 +225,7 @@ class ChoiceCard(QtWidgets.QFrame):
         self._icon = QtWidgets.QLabel()
         self._icon.setStyleSheet(ON_PANEL)
         self._icon.setFixedSize(22, 22)
-        row.addWidget(self._icon, 0, Qt.AlignVCenter)
+        row.addWidget(self._icon, 0, Qt.AlignmentFlag.AlignVCenter)
 
         column = QtWidgets.QVBoxLayout()
         column.setSpacing(2)
@@ -238,7 +238,7 @@ class ChoiceCard(QtWidgets.QFrame):
         self._tick = QtWidgets.QLabel()
         self._tick.setStyleSheet(ON_PANEL)
         self._tick.setFixedSize(18, 18)
-        row.addWidget(self._tick, 0, Qt.AlignVCenter)
+        row.addWidget(self._tick, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.set_selected(False)
 
@@ -276,12 +276,12 @@ class ChoiceCard(QtWidgets.QFrame):
             self._tick.clear()
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        self.setFocus(Qt.MouseFocusReason)
+        self.setFocus(Qt.FocusReason.MouseFocusReason)
         self.clicked.emit()
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 - Qt naming
-        if event.key() in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.clicked.emit()
             return
         super().keyPressEvent(event)
@@ -304,7 +304,7 @@ class StatusCard(QtWidgets.QFrame):
         self._icon = QtWidgets.QLabel()
         self._icon.setStyleSheet(ON_PANEL)
         self._icon.setFixedSize(20, 20)
-        row.addWidget(self._icon, 0, Qt.AlignTop)
+        row.addWidget(self._icon, 0, Qt.AlignmentFlag.AlignTop)
 
         column = QtWidgets.QVBoxLayout()
         column.setSpacing(2)
@@ -497,7 +497,7 @@ class StageDiagram(QtWidgets.QWidget):
 
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt naming
         painter = QtGui.QPainter(self)
-        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
         width, height = self.width(), self.height()
         painter.fillRect(self.rect(), QtGui.QColor(self.BACKGROUND_COLOUR))
         if self.FRAME_COLOUR is not None:
@@ -541,7 +541,7 @@ class StageDiagram(QtWidgets.QWidget):
         for index, line in enumerate(lines if self._show_readout else []):
             painter.drawText(
                 QtCore.QRectF(12, 10 + index * 14, width - 24, 14),
-                Qt.AlignLeft | Qt.AlignVCenter,
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 line,
             )
 
@@ -601,7 +601,9 @@ class StageDiagram(QtWidgets.QWidget):
 
         painter.setPen(QtGui.QPen(QtGui.QColor(self.PLATE_COLOUR), 2))
         painter.drawLine(-95, int(plate_y), 95, int(plate_y))
-        painter.setPen(QtGui.QPen(QtGui.QColor(self.PLATE_COLOUR), 1, Qt.DashLine))
+        painter.setPen(
+            QtGui.QPen(QtGui.QColor(self.PLATE_COLOUR), 1, Qt.PenStyle.DashLine)
+        )
         painter.drawLine(-95, int(plate_y) + 8, 95, int(plate_y) + 8)
 
         body = QtGui.QPolygonF(
@@ -617,7 +619,7 @@ class StageDiagram(QtWidgets.QWidget):
         gradient = QtGui.QLinearGradient(front_x, 0, back_x, 0)
         gradient.setColorAt(0, QtGui.QColor(self.SHUTTLE_COLOURS[0]))
         gradient.setColorAt(1, QtGui.QColor(self.SHUTTLE_COLOURS[1]))
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(gradient)
         painter.drawPolygon(body)
 
@@ -637,8 +639,10 @@ class StageDiagram(QtWidgets.QWidget):
             # Light, not the accent: this is drawn over the shuttle body, which is
             # the accent colour, so blue on blue was unreadable. Reads as a
             # dimension line over the part, which is what it is.
-            painter.setPen(QtGui.QPen(QtGui.QColor(self.WEDGE_COLOUR), 1, Qt.DotLine))
-            painter.setBrush(Qt.NoBrush)
+            painter.setPen(
+                QtGui.QPen(QtGui.QColor(self.WEDGE_COLOUR), 1, Qt.PenStyle.DotLine)
+            )
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             # A half turn swaps which end of the ramp is its foot, so the wedge has to
             # move with it; drawn from the wrong end it floats off the holder entirely.
             span = self.ramp_tilt()
@@ -671,7 +675,7 @@ class StageDiagram(QtWidgets.QWidget):
             painter.setPen(QtGui.QColor(self.WEDGE_COLOUR))
             painter.drawText(
                 QtCore.QRectF(label_at.x() - 22, label_at.y() - 8, 44, 16),
-                Qt.AlignCenter,
+                Qt.AlignmentFlag.AlignCenter,
                 f"{self._pre_tilt:g}°",
             )
         painter.end()
@@ -689,7 +693,7 @@ class StageDiagram(QtWidgets.QWidget):
         x = cx + 96.0
         y = min(height - 30.0, cy + 58.0)
         painter.setPen(QtGui.QPen(QtGui.QColor(TEXT_MUTED_COLOR), 1))
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(QtCore.QPointF(x, y), radius, radius)
         span = radius * 0.62
         painter.drawLine(
@@ -704,7 +708,7 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setFont(font)
         painter.drawText(
             QtCore.QRectF(x - 150, y + radius + 4, 300, 26),
-            Qt.AlignHCenter | Qt.AlignTop,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
             f"≈{self._station_offset_mm:g} mm in x, into the page,\nfrom the SEM / FIB station",
         )
 
@@ -747,11 +751,11 @@ class StageDiagram(QtWidgets.QWidget):
             )
         )
         # The front element, so which end faces the sample is never in doubt.
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(glass)
         painter.drawRect(QtCore.QRectF(-7, -gap - 3, 14, 3))
         # The working distance, which is what a collision closes.
-        painter.setPen(QtGui.QPen(edge, 1, Qt.DotLine))
+        painter.setPen(QtGui.QPen(edge, 1, Qt.PenStyle.DotLine))
         painter.drawLine(QtCore.QPointF(0, 0), QtCore.QPointF(0, -gap))
         label_at = painter.transform().map(QtCore.QPointF(0, -gap - length - 20))
         painter.restore()
@@ -767,7 +771,7 @@ class StageDiagram(QtWidgets.QWidget):
             label = "FM"
         painter.drawText(
             QtCore.QRectF(label_at.x() - 90, label_at.y() - 7, 180, 14),
-            Qt.AlignCenter,
+            Qt.AlignmentFlag.AlignCenter,
             label,
         )
 
@@ -795,7 +799,7 @@ class StageDiagram(QtWidgets.QWidget):
         painter.setPen(QtGui.QColor(colour))
         painter.drawText(
             QtCore.QRectF(x2 - 34, y2 + (2 if from_below else -16), 68, 14),
-            Qt.AlignCenter,
+            Qt.AlignmentFlag.AlignCenter,
             name,
         )
 
@@ -808,7 +812,7 @@ class _RailRow(QtWidgets.QWidget):
     click to get back to somewhere they have been.
     """
 
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, index: int, title: str, parent=None) -> None:
         super().__init__(parent)
@@ -818,9 +822,9 @@ class _RailRow(QtWidgets.QWidget):
         row.setSpacing(9)
 
         self._marker = QtWidgets.QLabel(str(index + 1))
-        self._marker.setAlignment(Qt.AlignCenter)
+        self._marker.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._marker.setFixedSize(20, 20)
-        row.addWidget(self._marker, 0, Qt.AlignTop)
+        row.addWidget(self._marker, 0, Qt.AlignmentFlag.AlignTop)
 
         column = QtWidgets.QVBoxLayout()
         column.setSpacing(0)
@@ -846,10 +850,14 @@ class _RailRow(QtWidgets.QWidget):
         that it shows what will actually be written.
         """
         self._navigable = bool(navigable)
-        self.setCursor(Qt.PointingHandCursor if navigable else Qt.ArrowCursor)
+        self.setCursor(
+            Qt.CursorShape.PointingHandCursor
+            if navigable
+            else Qt.CursorShape.ArrowCursor
+        )
 
     def mousePressEvent(self, event) -> None:
-        if self._navigable and event.button() == Qt.LeftButton:
+        if self._navigable and event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit()
             return
         super().mousePressEvent(event)
@@ -918,7 +926,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
     refusing -- so the connection tab has something it can actually select.
     """
 
-    configuration_saved = pyqtSignal(str)
+    configuration_saved = Signal(str)
 
     def __init__(self, parent=None, microscope=None) -> None:
         super().__init__(parent)
@@ -955,7 +963,7 @@ class GuidedSetupDialog(QtWidgets.QDialog):
         outer.addWidget(self._build_rail())
 
         divider = QtWidgets.QFrame()
-        divider.setFrameShape(QtWidgets.QFrame.VLine)
+        divider.setFrameShape(QtWidgets.QFrame.Shape.VLine)
         divider.setStyleSheet(f"color: {BORDER_COLOR};")
         outer.addWidget(divider)
 
@@ -982,8 +990,8 @@ class GuidedSetupDialog(QtWidgets.QDialog):
             # is the one below the fold.
             area = QtWidgets.QScrollArea()
             area.setWidgetResizable(True)
-            area.setFrameShape(QtWidgets.QFrame.NoFrame)
-            area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            area.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
+            area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             area.setStyleSheet("background: transparent;")
             area.setWidget(build())
             self._stack.addWidget(area)
@@ -2082,7 +2090,7 @@ def open_guided_setup(parent=None, microscope=None) -> Optional[str]:
     dialog = GuidedSetupDialog(parent=parent, microscope=microscope)
     saved: List[str] = []
     dialog.configuration_saved.connect(saved.append)
-    dialog.exec_()
+    dialog.exec()
     return saved[0] if saved else None
 
 

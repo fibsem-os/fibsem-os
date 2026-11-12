@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
@@ -202,7 +202,7 @@ def test_seed_request_none_clears_coordinates(qapp):
 
 def test_manual_edits_prompt_before_reseeding(qapp, monkeypatch):
     """A hand-moved point must not be silently replaced by a re-seed."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
@@ -218,7 +218,9 @@ def test_manual_edits_prompt_before_reseeding(qapp, monkeypatch):
     assert w.session.has_manual_edits()
 
     monkeypatch.setattr(
-        ctw.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Cancel)
+        ctw.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Cancel),
     )
     section.rb_none.setChecked(True)  # would clear — but the user cancels
     assert w.data.fib_coordinates[0].point.x == 111.0

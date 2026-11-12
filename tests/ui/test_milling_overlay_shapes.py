@@ -28,7 +28,9 @@ import matplotlib  # noqa: E402
 import numpy as np  # noqa: E402
 import pytest  # noqa: E402
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 matplotlib.use("Agg")
 

@@ -11,9 +11,9 @@ import os
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
-from PyQt5.QtCore import QEvent, Qt, QTimer
-from PyQt5.QtGui import QColor, QIcon, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, Qt, QTimer
+from qtpy.QtGui import QColor, QIcon, QPixmap
+from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,

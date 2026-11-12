@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QLabel,
     QWidget,
 )
@@ -44,7 +44,7 @@ def _supported_settings(
 
 
 class FibsemMillingSettingsWidget(AdvancedRows, QWidget):
-    settings_changed = pyqtSignal(object)  # FibsemMillingSettings
+    settings_changed = Signal(object)  # FibsemMillingSettings
 
     def __init__(
         self,

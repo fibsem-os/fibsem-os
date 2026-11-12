@@ -19,9 +19,9 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import LamellaDefaultConfig
 from fibsem.applications.autolamella.ui.protocol.lamella_template import (

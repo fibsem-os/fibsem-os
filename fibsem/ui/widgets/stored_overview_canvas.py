@@ -24,8 +24,8 @@ import math
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.config import POSITION_FOV_HEIGHT, POSITION_FOV_WIDTH
 from fibsem.fm.preview import composite_projection
@@ -122,10 +122,10 @@ class StoredOverviewCanvas(QWidget):
     asked for; what a mark means, and whether anything is written, is the owner's.
     """
 
-    position_add_requested = pyqtSignal(object, object)
-    position_move_requested = pyqtSignal(str, object)
-    position_selected = pyqtSignal(str)
-    view_changed = pyqtSignal(str)
+    position_add_requested = Signal(object, object)
+    position_move_requested = Signal(str, object)
+    position_selected = Signal(str)
+    view_changed = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

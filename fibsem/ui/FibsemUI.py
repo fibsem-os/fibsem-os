@@ -13,8 +13,8 @@ no markers, which is the whole of what `BeamOverviewTab` adds on top of it.
 
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QLabel,
     QMainWindow,
     QTabWidget,
@@ -109,7 +109,7 @@ class FibsemUI(QMainWindow):
         self._overview_layout.setContentsMargins(0, 0, 0, 0)
 
         self._overview_placeholder = QLabel(NO_MICROSCOPE_MESSAGE)
-        self._overview_placeholder.setAlignment(Qt.AlignCenter)
+        self._overview_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._overview_layout.addWidget(self._overview_placeholder)
 
         self.tab_widget.addTab(
@@ -216,7 +216,7 @@ def main(argv: Optional[List[str]] = None, splash: Optional[Splash] = None):
     fibsem_ui.show()
     if splash is not None:
         splash.finish(fibsem_ui)
-    app.exec_()
+    app.exec()
 
 
 if __name__ == "__main__":

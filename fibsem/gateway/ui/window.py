@@ -9,10 +9,10 @@ import os
 import sys
 from typing import Optional
 
-from PyQt5.QtCore import QByteArray, Qt, QTimer, QUrl
-from PyQt5.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
-from PyQt5.QtSvg import QSvgRenderer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QByteArray, Qt, QTimer, QUrl
+from qtpy.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
+from qtpy.QtSvg import QSvgRenderer
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -65,9 +65,9 @@ def gateway_icon(colour: str) -> QIcon:
     svg = (ICONS_DIR / "gateway.svg").read_text().replace("#007ACC", colour)
     size = 128
     pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.transparent)
+    pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     QSvgRenderer(QByteArray(svg.encode())).render(painter)
     painter.end()
     return QIcon(pixmap)
@@ -151,7 +151,7 @@ class GatewayWindow(QWidget):
             "Stop the gateway",
             f"Stop the gateway?\n\n{stop_question(self._gateway.mode())}",
         )
-        return answer == QMessageBox.Yes
+        return answer == QMessageBox.StandardButton.Yes
 
     def closeEvent(self, event) -> None:
         if self._quitting or self.ask_to_stop():
@@ -196,5 +196,5 @@ def run_window(
         window.showMinimized()
     else:
         window.show()
-    app.exec_()
+    app.exec()
     return True

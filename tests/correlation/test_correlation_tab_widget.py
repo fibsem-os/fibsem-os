@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 
 from fibsem.codec.upgrades.correlation import CORRELATION_FILE_VERSION
@@ -863,9 +863,11 @@ def _scroll_event(canvas, *, button, shift):
     """
     from types import SimpleNamespace
 
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
-    mods = Qt.ShiftModifier if shift else Qt.NoModifier
+    mods = (
+        Qt.KeyboardModifier.ShiftModifier if shift else Qt.KeyboardModifier.NoModifier
+    )
     gui = SimpleNamespace(modifiers=lambda: mods)
     return SimpleNamespace(
         inaxes=canvas._ax, xdata=1.0, ydata=1.0, button=button, guiEvent=gui
@@ -880,9 +882,9 @@ def _wheel(canvas, *, angle=(0, 0), pixel=(0, 0), shift=True):
     event never reached _on_scroll at all.
     """
     import numpy as np
-    from PyQt5.QtCore import QPoint, QPointF, Qt
-    from PyQt5.QtGui import QWheelEvent
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtCore import QPoint, QPointF, Qt
+    from qtpy.QtGui import QWheelEvent
+    from qtpy.QtWidgets import QApplication
 
     if canvas._ax.images == []:
         canvas.set_image(np.zeros((64, 64), np.uint8))
@@ -895,9 +897,11 @@ def _wheel(canvas, *, angle=(0, 0), pixel=(0, 0), shift=True):
             pos,
             QPoint(*pixel),
             QPoint(*angle),
-            Qt.NoButton,
-            Qt.ShiftModifier if shift else Qt.NoModifier,
-            Qt.NoScrollPhase,
+            Qt.MouseButton.NoButton,
+            Qt.KeyboardModifier.ShiftModifier
+            if shift
+            else Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase,
             False,
         ),
     )
@@ -940,14 +944,14 @@ def test_save_plot_in_view_menu_and_test_menu_removed(qapp):
 
 
 def test_dialog_allows_window_minimise(qapp):
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabDialog,
     )
 
     d = CorrelationTabDialog()
-    assert bool(d.windowFlags() & Qt.WindowMinimizeButtonHint)
+    assert bool(d.windowFlags() & Qt.WindowType.WindowMinimizeButtonHint)
     assert hasattr(d, "_min_shortcut")
 
 
@@ -1034,7 +1038,7 @@ def test_discover_fib_falls_back_to_non_ome_tif(tmp_path):
 def test_load_error_reverts_path_field(qapp, monkeypatch):
     """A failed load reverts the picker to the last-good file, so the selection
     never shows an image that isn't actually loaded."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
 
@@ -1243,8 +1247,8 @@ def _fit_combos(w):
 def test_fit_combos_ignore_the_wheel(qapp):
     """Scrolling past the Fit Settings panel must not silently change a fit
     method or channel — the selection has to survive a wheel event."""
-    from PyQt5.QtCore import QPoint, Qt
-    from PyQt5.QtGui import QWheelEvent
+    from qtpy.QtCore import QPoint, Qt
+    from qtpy.QtGui import QWheelEvent
 
     w = _widget(qapp)
     for combo in _fit_combos(w):
@@ -1260,9 +1264,9 @@ def test_fit_combos_ignore_the_wheel(qapp):
                     combo.mapToGlobal(QPoint(5, 5)),
                     QPoint(0, -120),
                     QPoint(0, -120),
-                    Qt.NoButton,
-                    Qt.NoModifier,
-                    Qt.ScrollUpdate,
+                    Qt.MouseButton.NoButton,
+                    Qt.KeyboardModifier.NoModifier,
+                    Qt.ScrollPhase.ScrollUpdate,
                     False,
                 ),
             )
@@ -1489,7 +1493,7 @@ def test_menu_load_correlation_accepts_a_legacy_result_file(
 ):
     """FIB-264: the single Load action dispatches on shape, so selecting the
     legacy result file — the exact FIB-263 misclick — now just loads it."""
-    from PyQt5.QtWidgets import QFileDialog, QMessageBox
+    from qtpy.QtWidgets import QFileDialog, QMessageBox
 
     w = _widget(qapp)
     _, result_path = _project(tmp_path, w)
@@ -1511,7 +1515,7 @@ def test_menu_load_correlation_warns_on_a_foreign_file(qapp, tmp_path, monkeypat
     """A genuinely unreadable/foreign JSON still warns rather than crashing."""
     import json
 
-    from PyQt5.QtWidgets import QFileDialog, QMessageBox
+    from qtpy.QtWidgets import QFileDialog, QMessageBox
 
     w = _widget(qapp)
     junk = tmp_path / "notes.json"
@@ -1668,7 +1672,7 @@ def test_fit_confirmation_dialog_constructs(qapp):
 
 def test_fit_dialog_sizes_wide_figure_to_aspect(qapp):
     import numpy as np
-    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+    from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
     from fibsem.imaging.localise import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
@@ -1724,7 +1728,7 @@ def test_humanize_fit_error_maps_known_modes():
 
 
 def test_fit_dialog_shows_channel_for_fm_only(qapp):
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
@@ -1759,7 +1763,7 @@ def test_fit_dialog_shows_channel_for_fm_only(qapp):
 
 
 def test_error_dialog_splits_title_and_wrapped_reason(qapp):
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
         FitConfirmationDialog,
@@ -1842,7 +1846,7 @@ def test_diagnostic_toggle_reveals_and_hides_figure(qapp):
 
 def test_accept_is_default_button_not_the_toggle(qapp):
     import numpy as np
-    from PyQt5.QtWidgets import QPushButton
+    from qtpy.QtWidgets import QPushButton
 
     from fibsem.imaging.localise import PointFitDiagnostic
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import (
@@ -1979,7 +1983,7 @@ def test_f_hotkey_noop_without_selection(qapp, monkeypatch):
 
 
 def test_f_hotkey_skips_while_editing_a_field(qapp, monkeypatch):
-    from PyQt5.QtWidgets import QApplication, QLineEdit
+    from qtpy.QtWidgets import QApplication, QLineEdit
 
     w = _widget(qapp)
     fitted = []
@@ -2053,7 +2057,7 @@ def test_auto_accept_applies_without_dialog(qapp, monkeypatch):
 
 
 def test_auto_accept_error_still_shows_dialog(qapp, monkeypatch):
-    from PyQt5.QtWidgets import QDialog
+    from qtpy.QtWidgets import QDialog
 
     import fibsem.ui.correlation.widgets.correlation_tab_widget as mod
     from fibsem.ui.correlation.widgets.fit_confirmation_dialog import FitStatus
@@ -2068,8 +2072,8 @@ def test_auto_accept_error_still_shows_dialog(qapp, monkeypatch):
         def __init__(self, *a, **k):
             constructed.append(True)
 
-        def exec_(self):
-            return QDialog.Rejected
+        def exec(self):
+            return QDialog.DialogCode.Rejected
 
     monkeypatch.setattr(mod, "FitConfirmationDialog", _FakeDialog)
 
@@ -2110,7 +2114,7 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
     from types import SimpleNamespace
 
     import numpy as np
-    from PyQt5.QtWidgets import QDialog
+    from qtpy.QtWidgets import QDialog
 
     import fibsem.imaging.localise as localise
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
@@ -2127,7 +2131,7 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
 
     # Reject → coordinate unchanged.
     monkeypatch.setattr(
-        ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Rejected
+        ctw.FitConfirmationDialog, "exec", lambda self: QDialog.DialogCode.Rejected
     )
     w._on_refit_requested(coord)
     assert (coord.point.x, coord.point.y) == (20.0, 20.0)
@@ -2135,7 +2139,7 @@ def test_refit_applies_on_accept_not_on_reject(qapp, monkeypatch):
 
     # Accept → coordinate moved and flagged.
     monkeypatch.setattr(
-        ctw.FitConfirmationDialog, "exec_", lambda self: QDialog.Accepted
+        ctw.FitConfirmationDialog, "exec", lambda self: QDialog.DialogCode.Accepted
     )
     w._on_refit_requested(coord)
     assert (coord.point.x, coord.point.y) == (23.0, 24.0)

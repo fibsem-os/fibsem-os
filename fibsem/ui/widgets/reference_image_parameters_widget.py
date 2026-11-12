@@ -1,7 +1,7 @@
 import copy
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QGridLayout,
     QHBoxLayout,
@@ -56,7 +56,7 @@ WIDGET_CONFIG = {
 
 
 class ReferenceImageParametersWidget(QWidget):
-    settings_changed = pyqtSignal(ReferenceImageParameters)
+    settings_changed = Signal(ReferenceImageParameters)
 
     def __init__(self, parent=None):
         """Initialize the ReferenceImageParameters widget.

@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPainter
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtGui import QColor, QCursor, QFontMetrics, QIcon, QPainter
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
     QAction,
@@ -43,8 +43,8 @@ from fibsem.utils import format_value
 
 
 class QFilePathLineEdit(QWidget):
-    textChanged = pyqtSignal(str)
-    editingFinished = pyqtSignal()
+    textChanged = Signal(str)
+    editingFinished = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -67,8 +67,8 @@ class QFilePathLineEdit(QWidget):
 
     def browse_file(self):
         file_dialog = QFileDialog(self)
-        file_dialog.setFileMode(QFileDialog.ExistingFile)
-        if file_dialog.exec_():
+        file_dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if file_dialog.exec():
             selected_files = file_dialog.selectedFiles()
             if selected_files:
                 self.lineEdit.setText(selected_files[0])
@@ -83,8 +83,8 @@ class QFilePathLineEdit(QWidget):
 
 
 class QDirectoryLineEdit(QWidget):
-    textChanged = pyqtSignal(str)
-    editingFinished = pyqtSignal()
+    textChanged = Signal(str)
+    editingFinished = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -127,8 +127,8 @@ class QDirectoryLineEdit(QWidget):
 class QFileLineEdit(QWidget):
     """Line edit with a browse button that opens a file picker dialog."""
 
-    textChanged = pyqtSignal(str)
-    editingFinished = pyqtSignal()
+    textChanged = Signal(str)
+    editingFinished = Signal()
 
     def __init__(self, filter: str = "YAML files (*.yaml *.yml)", parent=None):
         super().__init__(parent)
@@ -425,7 +425,7 @@ class ContextMenu(QMenu):
         selected = menu.show_at_cursor()  # Returns the selected ContextMenuAction or None
     """
 
-    actionTriggered = pyqtSignal(object)  # Emits ContextMenuAction when triggered
+    actionTriggered = Signal(object)  # Emits ContextMenuAction when triggered
 
     def __init__(self, config: ContextMenuConfig, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -456,7 +456,7 @@ class ContextMenu(QMenu):
             The selected ContextMenuAction, or None if cancelled.
             If the action has a callback, it will be executed automatically.
         """
-        selected_action = self.exec_(QCursor.pos())
+        selected_action = self.exec(QCursor.pos())
 
         if selected_action is None:
             return None
@@ -497,7 +497,7 @@ def scrollable(widget: QWidget) -> QScrollArea:
     """
     scroll = QScrollArea()
     scroll.setWidgetResizable(True)
-    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     scroll.setWidget(widget)
     return scroll
 
@@ -621,7 +621,7 @@ class TitledPanel(QWidget):
             widget.setMaximumHeight(_PANEL_HEADER_HEIGHT)
         # Insert before the collapse button (always the last item)
         self._header_layout.insertWidget(
-            self._header_layout.count() - 1, widget, 0, Qt.AlignVCenter
+            self._header_layout.count() - 1, widget, 0, Qt.AlignmentFlag.AlignVCenter
         )
 
     def set_content(self, widget: QWidget) -> None:
@@ -654,7 +654,7 @@ class _SpinnerLabel(QLabel):
         self._icon = fibsem_icon(icon_name, color=color, animation=self._spin)
         self._active = False
         self.setFixedSize(size, size)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setStyleSheet("background: transparent;")
 
     def paintEvent(self, event):
@@ -781,9 +781,9 @@ class TaskNameListWidget(QWidget):
     Call ``set_buttons_visible(add, remove)`` to show/hide the header buttons.
     """
 
-    task_selected = pyqtSignal(str)
-    add_clicked = pyqtSignal()
-    remove_clicked = pyqtSignal()
+    task_selected = Signal(str)
+    add_clicked = Signal()
+    remove_clicked = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -815,8 +815,8 @@ class TaskNameListWidget(QWidget):
 
         # List
         self._list = QListWidget()
-        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         outer.addWidget(self._list)
 
         # Per-task status chips and tooltips, by task name; reapplied when the
@@ -855,7 +855,7 @@ class TaskNameListWidget(QWidget):
                 continue
             text, colour = state
             row = QWidget()
-            row.setAttribute(Qt.WA_TransparentForMouseEvents)
+            row.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
             row.setStyleSheet("background: transparent;")
             layout = QHBoxLayout(row)
             layout.setContentsMargins(0, 0, 8, 0)
@@ -902,7 +902,7 @@ class TaskNameListWidget(QWidget):
 
     def select(self, name: str) -> None:
         """Select the item with the given name (exact match)."""
-        items = self._list.findItems(name, Qt.MatchExactly)  # type: ignore
+        items = self._list.findItems(name, Qt.MatchFlag.MatchExactly)  # type: ignore
         if items:
             self._list.setCurrentItem(items[0])
 
@@ -951,7 +951,7 @@ class ElidedLabel(QLabel):
         self,
         text: str = "",
         parent: Optional[QWidget] = None,
-        mode: Qt.TextElideMode = Qt.ElideRight,
+        mode: Qt.TextElideMode = Qt.TextElideMode.ElideRight,
     ) -> None:
         """
         Args:
@@ -965,7 +965,7 @@ class ElidedLabel(QLabel):
         self._full_text = ""
         # Ignored horizontally: the label neither asks for room nor refuses to shrink,
         # which is the whole point -- its content must not set anyone's minimum.
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.setText(text)
 
     def setText(self, text: Optional[str]) -> None:  # noqa: N802 - Qt naming
@@ -1059,9 +1059,9 @@ def align_form(layout) -> None:
     elif isinstance(layout, QFormLayout):
         # AllNonFixedFieldsGrow, not ExpandingFieldsGrow: the generated controls
         # keep Qt's Preferred policy, which the latter leaves at natural width.
-        layout.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        layout.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         for row in range(layout.rowCount()):
-            item = layout.itemAt(row, QFormLayout.LabelRole)
+            item = layout.itemAt(row, QFormLayout.ItemRole.LabelRole)
             if item is not None and item.widget() is not None:
                 item.widget().setMinimumWidth(FORM_LABEL_WIDTH)
 
@@ -1089,7 +1089,7 @@ def header_chip(text: str, colour: str) -> QLabel:
     24px header reads as a button.
     """
     label = QLabel(text)
-    label.setAlignment(Qt.AlignCenter)
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
     label.setFixedHeight(14)
     set_header_chip(label, text, colour)
     return label

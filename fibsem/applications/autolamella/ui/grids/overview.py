@@ -58,8 +58,8 @@ from functools import partial
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -166,7 +166,7 @@ class GridOverviewView(QWidget):
             chip.setToolTip(view)
             chip.setCheckable(True)
             chip.setChecked(view == self.canvas.view)
-            chip.setCursor(Qt.PointingHandCursor)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
             chip.setStyleSheet(VIEW_CHIP_STYLE)
             chip.clicked.connect(partial(self._on_chip_clicked, view))
             self._chips_layout.addWidget(chip)
@@ -225,9 +225,9 @@ class GridPositionsWidget(GridOverviewView):
         lamella_selected(Lamella): a marked lamella was picked here.
     """
 
-    load_requested = pyqtSignal(object)
-    done_requested = pyqtSignal()
-    lamella_selected = pyqtSignal(object)
+    load_requested = Signal(object)
+    done_requested = Signal()
+    lamella_selected = Signal(object)
 
     def __init__(
         self,
@@ -652,7 +652,7 @@ class QuadOverviewPage(GridOverviewView):
         lamella_selected(Lamella): a lamella was clicked on the overview.
     """
 
-    lamella_selected = pyqtSignal(object)
+    lamella_selected = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -679,7 +679,9 @@ class QuadOverviewPage(GridOverviewView):
         self.grid_selector = QComboBox()
         self.grid_selector.setStyleSheet(CELL_SELECTOR_STYLE)
         # "Current grid (none; showing Grid-A)" is longer than a grid's own name.
-        self.grid_selector.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        self.grid_selector.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToContents
+        )
         self.grid_selector.activated.connect(self._on_grid_chosen)
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -696,7 +698,7 @@ class QuadOverviewPage(GridOverviewView):
         self.caption.setStyleSheet(_CAPTION_STYLE)
         self.caption.hide()
 
-        self.empty = QLabel(alignment=Qt.AlignCenter)
+        self.empty = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
         self.empty.setStyleSheet(_EMPTY_STYLE)
         self.empty.setWordWrap(True)
 

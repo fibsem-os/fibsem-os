@@ -6,7 +6,7 @@ Run directly:
 
 import sys
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QFormLayout,
@@ -107,7 +107,7 @@ def main() -> None:
     btn_enabled.clicked.connect(on_print_enabled)
 
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

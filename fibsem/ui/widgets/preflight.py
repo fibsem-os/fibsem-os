@@ -19,8 +19,8 @@ for one caller.
 from datetime import datetime
 from typing import Iterable, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -201,12 +201,12 @@ def detail_block(
         label.setFixedWidth(label_width)
         label.setWordWrap(wrap_labels)
         if isinstance(value_text, PathValue):
-            value = ElidedLabel(str(value_text), mode=Qt.ElideLeft)
+            value = ElidedLabel(str(value_text), mode=Qt.TextElideMode.ElideLeft)
         else:
             value = QLabel(value_text)
             value.setWordWrap(True)
         value.setStyleSheet(f"color: {TEXT}; font-size: 11px; border: none;")
-        row.addWidget(label, alignment=Qt.AlignTop)
+        row.addWidget(label, alignment=Qt.AlignmentFlag.AlignTop)
         row.addWidget(value, stretch=1)
         layout.addLayout(row)
     return frame

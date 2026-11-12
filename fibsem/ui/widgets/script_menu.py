@@ -15,7 +15,7 @@ Knows nothing about experiments, microscopes or AutoLamella.
 from pathlib import Path
 from typing import Callable, Optional
 
-from PyQt5.QtWidgets import QAction, QMenu, QWidget
+from qtpy.QtWidgets import QAction, QMenu, QWidget
 
 from fibsem.ui.widgets.script_runner import (
     Confirmer,
@@ -80,4 +80,4 @@ class ScriptMenuController:
         from fibsem.ui.widgets.script_manager_dialog import ScriptManagerDialog
 
         dialog = ScriptManagerDialog(runner=self.runner, parent=self.parent)
-        dialog.exec_()
+        dialog.exec()

@@ -4,9 +4,9 @@ import threading
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QMessageBox  # noqa: E402
+from qtpy.QtWidgets import QMessageBox  # noqa: E402
 
 from fibsem.gateway.gateway import OFF, RUNNING, STARTING, Gateway  # noqa: E402
 from fibsem.gateway.server import GatewayAuth  # noqa: E402
@@ -64,14 +64,16 @@ def test_closing_asks_and_no_keeps_the_gateway(made, monkeypatch):
     monkeypatch.setattr(
         QMessageBox,
         "question",
-        lambda parent, title, text: asked.append(text) or QMessageBox.No,
+        lambda parent, title, text: asked.append(text) or QMessageBox.StandardButton.No,
     )
     window.show()
     window.stop_button.click()
     assert window.isVisible() and quits == []
     assert "Stop the gateway?" in asked[0]
     monkeypatch.setattr(
-        QMessageBox, "question", lambda parent, title, text: QMessageBox.Yes
+        QMessageBox,
+        "question",
+        lambda parent, title, text: QMessageBox.StandardButton.Yes,
     )
     window.close()
     assert not window.isVisible() and len(quits) == 1

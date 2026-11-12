@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 import fibsem.applications.autolamella.ui.launch as ui_launch  # noqa: E402
 import fibsem.config as fibsem_cfg  # noqa: E402

@@ -24,9 +24,9 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication, QWidget
+from qtpy.QtWidgets import QApplication, QWidget
 
 from fibsem.constants import METRE_TO_MICRON
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope

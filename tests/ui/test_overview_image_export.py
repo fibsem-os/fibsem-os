@@ -20,11 +20,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 # CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there.
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 import numpy as np  # noqa: E402
 from PIL import Image  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QFileDialog  # noqa: E402
+from qtpy.QtWidgets import QApplication, QFileDialog  # noqa: E402
 
 from fibsem.applications.autolamella.poses import build_lamella_poses  # noqa: E402
 from fibsem.applications.autolamella.structures import Experiment, Lamella  # noqa: E402

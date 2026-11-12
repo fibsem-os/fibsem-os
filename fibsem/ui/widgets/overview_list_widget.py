@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QHBoxLayout,
@@ -44,8 +44,8 @@ _ROW_HEIGHT = 30
 class OverviewRowWidget(QWidget):
     """One overview: its name, and what to do with it."""
 
-    visibility_toggled = pyqtSignal(str, bool)
-    remove_clicked = pyqtSignal(str)
+    visibility_toggled = Signal(str, bool)
+    remove_clicked = Signal(str)
 
     def __init__(
         self, record: "PlacedOverviewImageRecord", parent: Optional[QWidget] = None
@@ -152,9 +152,9 @@ class OverviewRowWidget(QWidget):
 class OverviewListWidget(QWidget):
     """Every overview on the canvas, oldest first."""
 
-    visibility_toggled = pyqtSignal(str, bool)
-    remove_requested = pyqtSignal(str)
-    selection_changed = pyqtSignal(object)  # record id, or None
+    visibility_toggled = Signal(str, bool)
+    remove_requested = Signal(str)
+    selection_changed = Signal(object)  # record id, or None
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -172,10 +172,10 @@ class OverviewListWidget(QWidget):
         self._list.setSpacing(0)
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setAlternatingRowColors(False)
-        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setFocusPolicy(Qt.NoFocus)
-        self._list.setFrameShape(QFrame.NoFrame)
+        self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._list.setFrameShape(QFrame.Shape.NoFrame)
         self._list.itemSelectionChanged.connect(self._on_selection_changed)
         layout.addWidget(self._list)
 
@@ -202,7 +202,7 @@ class OverviewListWidget(QWidget):
             row.remove_clicked.connect(self.remove_requested)
             item = QListWidgetItem()
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
-            item.setData(Qt.UserRole, record.id)
+            item.setData(Qt.ItemDataRole.UserRole, record.id)
             self._list.addItem(item)
             self._list.setItemWidget(item, row)
             self._rows[record.id] = row
@@ -218,12 +218,12 @@ class OverviewListWidget(QWidget):
 
     def selected_id(self) -> Optional[str]:
         items = self._list.selectedItems()
-        return items[0].data(Qt.UserRole) if items else None
+        return items[0].data(Qt.ItemDataRole.UserRole) if items else None
 
     def select(self, record_id: Optional[str]) -> None:
         for index in range(self._list.count()):
             item = self._list.item(index)
-            if item.data(Qt.UserRole) == record_id:
+            if item.data(Qt.ItemDataRole.UserRole) == record_id:
                 self._list.setCurrentItem(item)
                 return
         self._list.clearSelection()

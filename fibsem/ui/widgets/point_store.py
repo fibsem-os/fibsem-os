@@ -13,7 +13,7 @@ the state the signal announces. A bulk operation emits once.
 
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 
 from fibsem.correlation import points as point_rules
 from fibsem.correlation.points import CorrelationPoints
@@ -39,9 +39,9 @@ class PointStore(QObject):
         Read ``selection`` / ``current``.
     """
 
-    structure_changed = pyqtSignal()
-    points_changed = pyqtSignal(tuple)  # Tuple[Coordinate, ...]
-    selection_changed = pyqtSignal()
+    structure_changed = Signal()
+    points_changed = Signal(tuple)  # Tuple[Coordinate, ...]
+    selection_changed = Signal()
 
     def __init__(
         self,

@@ -13,7 +13,9 @@ import pytest
 
 from tests.fixtures.main_window import close_window
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 import fibsem.config as cfg
 from fibsem import utils
@@ -286,7 +288,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     the scan runs on its own thread, a name typed during it is applied at
     Screen, and the run screens exactly the grids found, under those names.
     The tasks themselves are stood in for: this is about the wiring."""
-    from PyQt5.QtTest import QTest
+    from qtpy.QtTest import QTest
 
     from fibsem.applications.autolamella.ui import window as module
     from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
@@ -304,7 +306,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         def __init__(self, *args, **kwargs):
             pass
 
-        def exec_(self):
+        def exec(self):
             return 0
 
     monkeypatch.setattr(run_view_module, "WorkflowSummaryDialog", _NoDialog)
@@ -337,7 +339,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
         dialog.btn_screen.click()
         return dialog.result()
 
-    monkeypatch.setattr(workflow_tab.ScreenGridsDialog, "exec_", _drive)
+    monkeypatch.setattr(workflow_tab.ScreenGridsDialog, "exec", _drive)
 
     window = module.AutoLamellaWindow()
     ui = window

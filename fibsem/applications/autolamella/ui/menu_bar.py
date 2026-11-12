@@ -11,9 +11,9 @@ import os
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
-from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import QAction, QDialog, QMainWindow, QMessageBox
+from qtpy.QtCore import QObject, Qt, Signal
+from qtpy.QtGui import QKeySequence
+from qtpy.QtWidgets import QAction, QDialog, QMainWindow, QMessageBox
 
 import fibsem.config as fibsem_cfg
 from fibsem import unreleased
@@ -62,7 +62,7 @@ class MenuActions:
 
 class MainMenuBar(QObject):
     # Preferences saved from the menu (the dialog or a Test-menu toggle).
-    preferences_saved = pyqtSignal(object)
+    preferences_saved = Signal(object)
 
     def __init__(
         self,
@@ -177,14 +177,18 @@ class MainMenuBar(QObject):
         view_menu.addSeparator()
         self.action_toggle_fullscreen = QAction("Full Screen", self._host)
         self.action_toggle_fullscreen.setCheckable(True)
-        self.action_toggle_fullscreen.setShortcut(QKeySequence(Qt.Key_F5))
-        self.action_toggle_fullscreen.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.action_toggle_fullscreen.setShortcut(QKeySequence(Qt.Key.Key_F5))
+        self.action_toggle_fullscreen.setShortcutContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
         self.action_toggle_fullscreen.triggered.connect(self._hotkey_toggle_fullscreen)
         view_menu.addAction(self.action_toggle_fullscreen)
 
         self.action_exit_fullscreen = QAction("Exit Full Screen", self._host)
-        self.action_exit_fullscreen.setShortcut(QKeySequence(Qt.Key_Escape))
-        self.action_exit_fullscreen.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        self.action_exit_fullscreen.setShortcut(QKeySequence(Qt.Key.Key_Escape))
+        self.action_exit_fullscreen.setShortcutContext(
+            Qt.ShortcutContext.WidgetWithChildrenShortcut
+        )
         self.action_exit_fullscreen.triggered.connect(self._hotkey_exit_fullscreen)
         view_menu.addAction(self.action_exit_fullscreen)
 
@@ -233,14 +237,14 @@ class MainMenuBar(QObject):
             raise RuntimeError("Failed to create Imaging menu in AutoLamella UI.")
         self.imaging_actions: list = []  # added to the Microscope-tab container for scoping
         for label, key, handler in (
-            ("Acquire", Qt.Key_F2, self._hotkey_acquire),
-            ("Live Acquisition", Qt.Key_F6, self._hotkey_toggle_live),
-            ("Auto Contrast", Qt.Key_F9, self._hotkey_autocontrast),
-            ("Auto Focus", Qt.Key_F11, self._hotkey_autofocus),
+            ("Acquire", Qt.Key.Key_F2, self._hotkey_acquire),
+            ("Live Acquisition", Qt.Key.Key_F6, self._hotkey_toggle_live),
+            ("Auto Contrast", Qt.Key.Key_F9, self._hotkey_autocontrast),
+            ("Auto Focus", Qt.Key.Key_F11, self._hotkey_autofocus),
         ):
             action = QAction(label, self._host)
             action.setShortcut(QKeySequence(key))
-            action.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            action.setShortcutContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             action.triggered.connect(handler)
             imaging_menu.addAction(action)
             self.imaging_actions.append(action)
@@ -302,7 +306,7 @@ class MainMenuBar(QObject):
         # Always visible: it is where the server is turned on. Next
         # to Scripts.
         self.action_app_server = QAction("Host...", self._host)
-        self.action_app_server.setMenuRole(QAction.NoRole)
+        self.action_app_server.setMenuRole(QAction.MenuRole.NoRole)
         self.action_app_server.setToolTip(
             "The fibsem host: whether it is serving, its services, and the event log"
         )
@@ -322,7 +326,7 @@ class MainMenuBar(QObject):
         # "Setup Wizard...", displaced Edit -> Preferences and opened this instead --
         # nothing about the connection was wrong, the action was simply no longer in
         # the menu it had been added to. This name is safe; the next one might not be.
-        self.action_guided_setup.setMenuRole(QAction.NoRole)
+        self.action_guided_setup.setMenuRole(QAction.MenuRole.NoRole)
         self.action_guided_setup.setToolTip(
             "A guided walkthrough that configures fibsemOS to work with your microscope"
         )
@@ -529,7 +533,7 @@ class MainMenuBar(QObject):
         dialog = PreferencesDialog(
             fibsem_cfg.load_user_preferences(), parent=self._host
         )
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             preferences = dialog.get_preferences()
             fibsem_cfg.save_user_preferences(preferences)
             self.preferences_saved.emit(preferences)
@@ -608,7 +612,7 @@ class MainMenuBar(QObject):
         """Open the read-only listing of registered extensions."""
         from fibsem.ui.widgets.plugins_dialog import PluginsDialog
 
-        PluginsDialog(parent=self._host).exec_()
+        PluginsDialog(parent=self._host).exec()
 
     def _on_create_desktop_shortcut(self, app: App = AUTOLAMELLA):
         """Create a launcher shortcut for ``app``, confirming overwrites.
@@ -617,7 +621,7 @@ class MainMenuBar(QObject):
         """
         from pathlib import Path
 
-        from PyQt5.QtWidgets import QFileDialog
+        from qtpy.QtWidgets import QFileDialog
 
         from fibsem.tools import desktop_shortcut
 
@@ -638,10 +642,10 @@ class MainMenuBar(QObject):
                 self._host,
                 "Create Desktop Shortcut",
                 f"A shortcut already exists at:\n{exc}\n\nReplace it?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            if reply != QMessageBox.Yes:
+            if reply != QMessageBox.StandardButton.Yes:
                 return
             try:
                 path = desktop_shortcut.create_desktop_shortcut(
@@ -776,8 +780,8 @@ class MainMenuBar(QObject):
         worker.start()
 
     def _on_report_v2_written(self, path) -> None:
-        from PyQt5.QtCore import QUrl
-        from PyQt5.QtGui import QDesktopServices
+        from qtpy.QtCore import QUrl
+        from qtpy.QtGui import QDesktopServices
 
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         self._show_toast(f"Report written: {path.name}", "success")

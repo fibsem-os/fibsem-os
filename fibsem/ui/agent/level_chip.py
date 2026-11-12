@@ -24,8 +24,8 @@ from __future__ import annotations
 import math
 from typing import Any, Callable, Dict, Optional
 
-from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
-from PyQt5.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
+from qtpy.QtCore import QPoint, Qt, QTimer, Signal
+from qtpy.QtWidgets import QApplication, QFrame, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.ai.agent.levels import AgentLevel, chip_request_text
 from fibsem.theme.tokens import BORDER_COLOR
@@ -76,7 +76,7 @@ class _CardPopup(QFrame):
     """The card on its own, above the chip; a click elsewhere closes it."""
 
     def __init__(self, card: AgentCard, parent: QWidget) -> None:
-        super().__init__(parent, Qt.Popup)  # type: ignore
+        super().__init__(parent, Qt.WindowType.Popup)  # type: ignore
         self.setObjectName("agentCardPopup")
         self.setStyleSheet(
             f"#agentCardPopup {{ border: 1px solid {BORDER_COLOR}; border-radius: 4px; }}"
@@ -90,10 +90,10 @@ class _CardPopup(QFrame):
 class AgentLevelChip(QPushButton):
     """The agent's level, and the card it opens."""
 
-    level_chosen = pyqtSignal(object)  # AgentLevel
-    stop_clicked = pyqtSignal()
-    event_log_clicked = pyqtSignal()
-    chat_clicked = pyqtSignal()
+    level_chosen = Signal(object)  # AgentLevel
+    stop_clicked = Signal()
+    event_log_clicked = Signal()
+    chat_clicked = Signal()
 
     def __init__(
         self,
@@ -112,7 +112,7 @@ class AgentLevelChip(QPushButton):
         self._request: Optional[Dict[str, Any]] = None
         self._suggestion: Optional[Dict[str, str]] = None
         self._asking: Optional[Dict[str, Any]] = None
-        self.setCursor(Qt.PointingHandCursor)  # type: ignore
+        self.setCursor(Qt.CursorShape.PointingHandCursor)  # type: ignore
         self._acting = False
         self._pulse_ms = 0
         self._pulse = QTimer(self)

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -24,16 +24,16 @@ from fibsem.ui.widgets.canvas.overlay_controls import panel_hint
 
 
 class AlignedImagePanel(QWidget):
-    load_requested = pyqtSignal()
-    remove_requested = pyqtSignal(str)  # key
-    selected = pyqtSignal(str)  # key, "" for none
-    align_toggled = pyqtSignal(bool)
-    reset_requested = pyqtSignal(str)  # key
-    mirror_toggled = pyqtSignal(str, bool)  # key, mirrored left to right
-    fit_requested = pyqtSignal(str)  # key: pick point pairs and fit
-    opacity_changed = pyqtSignal(str, float)  # key, 0..1
-    signal_only_changed = pyqtSignal(str, bool)  # key, dark drawn clear
-    channels_requested = pyqtSignal(str)  # key: open its channel controls
+    load_requested = Signal()
+    remove_requested = Signal(str)  # key
+    selected = Signal(str)  # key, "" for none
+    align_toggled = Signal(bool)
+    reset_requested = Signal(str)  # key
+    mirror_toggled = Signal(str, bool)  # key, mirrored left to right
+    fit_requested = Signal(str)  # key: pick point pairs and fit
+    opacity_changed = Signal(str, float)  # key, 0..1
+    signal_only_changed = Signal(str, bool)  # key, dark drawn clear
+    channels_requested = Signal(str)  # key: open its channel controls
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -97,7 +97,7 @@ class AlignedImagePanel(QWidget):
         )
         layout.addRow(self.btn_fit)
 
-        self.slider_opacity = QSlider(Qt.Horizontal)
+        self.slider_opacity = QSlider(Qt.Orientation.Horizontal)
         self.slider_opacity.setRange(0, 100)
         self.slider_opacity.setValue(60)
         self.slider_opacity.valueChanged.connect(

@@ -17,7 +17,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
 from fibsem.workflows.queue import QueueOp, TaskQueue
@@ -163,24 +163,24 @@ def test_the_id_survives_the_row_moving_under_the_menu(widget, queue):
 def test_the_button_appears_on_hover_and_leaves_again(widget):
     """Right-click alone is undiscoverable; a permanent button on every row of a
     dense timeline is noise. Hover is the compromise."""
-    from PyQt5.QtCore import QEvent
+    from qtpy.QtCore import QEvent
 
     row = widget._outer._rows[2]
     assert not row._btn_actions.isVisibleTo(row)
 
-    row.enterEvent(QEvent(QEvent.Enter))
+    row.enterEvent(QEvent(QEvent.Type.Enter))
     assert row._btn_actions.isVisibleTo(row)
 
-    row.leaveEvent(QEvent(QEvent.Leave))
+    row.leaveEvent(QEvent(QEvent.Type.Leave))
     assert not row._btn_actions.isVisibleTo(row)
 
 
 def test_hovering_a_row_shows_nothing_when_no_run_is_live(widget):
-    from PyQt5.QtCore import QEvent
+    from qtpy.QtCore import QEvent
 
     widget.set_actions_enabled(False)
     row = widget._outer._rows[2]
-    row.enterEvent(QEvent(QEvent.Enter))
+    row.enterEvent(QEvent(QEvent.Type.Enter))
     assert not row._btn_actions.isVisibleTo(row)
 
 

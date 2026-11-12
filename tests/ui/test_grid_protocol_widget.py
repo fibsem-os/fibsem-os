@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 import yaml
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtWidgets import QDialog
+from qtpy.QtWidgets import QDialog
 
 import fibsem.config as cfg
 from fibsem import utils
@@ -174,12 +176,14 @@ def test_removing_a_task_drops_it_from_what_requires_it(widget, experiment):
 
 
 def test_the_trash_icon_asks_first(widget, monkeypatch):
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     widget.add_task(BEAM, "overview_sem")
     asked = []
     monkeypatch.setattr(
-        QMessageBox, "question", lambda *a, **k: asked.append(True) or QMessageBox.No
+        QMessageBox,
+        "question",
+        lambda *a, **k: asked.append(True) or QMessageBox.StandardButton.No,
     )
     widget.task_list.btn_remove.click()
     assert asked == [True] and widget.task_names == ["overview_sem"]
@@ -200,7 +204,7 @@ def test_the_add_dialog_suggests_a_unique_name(widget, experiment, monkeypatch):
     widget.add_task(BEAM, "overview_sem")
     shown = []
     monkeypatch.setattr(
-        AddTaskDialog, "exec_", lambda d: shown.append(d) or QDialog.Rejected
+        AddTaskDialog, "exec", lambda d: shown.append(d) or QDialog.DialogCode.Rejected
     )
     widget._on_add()
     (dialog,) = shown

@@ -12,8 +12,8 @@ except Exception:
 
 from datetime import datetime
 
-from PyQt5.QtCore import QPoint, QPropertyAnimation, Qt, QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QPoint, QPropertyAnimation, Qt, QTimer
+from qtpy.QtWidgets import (
     QApplication,
     QGraphicsOpacityEffect,
     QHBoxLayout,
@@ -59,7 +59,7 @@ _LINK_BUTTON_STYLE = f"""
 def _link_button(text: str) -> QPushButton:
     button = QPushButton(text)
     button.setStyleSheet(_LINK_BUTTON_STYLE)
-    button.setCursor(Qt.PointingHandCursor)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
     return button
 
 
@@ -85,9 +85,13 @@ class ToastNotification(QWidget):
     def __init__(self, parent=None, duration: int = 5000):
         super().__init__(parent)
         self.duration = duration
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.Tool
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
 
         # Main container
         self.container = QWidget(self)
@@ -101,8 +105,8 @@ class ToastNotification(QWidget):
         # Icon label (optional)
         self.icon_label = QLabel()
         self.icon_label.setFixedSize(20, 20)
-        self.icon_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self.icon_label, 0, Qt.AlignTop)
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.icon_label, 0, Qt.AlignmentFlag.AlignTop)
 
         # Message label
         self.message_label = QLabel()
@@ -119,7 +123,7 @@ class ToastNotification(QWidget):
         text_layout = QVBoxLayout()
         text_layout.setSpacing(4)
         text_layout.addWidget(self.message_label)
-        text_layout.addWidget(self.action_btn, 0, Qt.AlignLeft)
+        text_layout.addWidget(self.action_btn, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addLayout(text_layout, 1)
 
         # Close button
@@ -127,8 +131,8 @@ class ToastNotification(QWidget):
         self.close_btn.setIcon(fibsem_icon("mdi:close", color="#888"))
         self.close_btn.setFixedSize(20, 20)
         self.close_btn.clicked.connect(self.hide_toast)
-        self.close_btn.setCursor(Qt.PointingHandCursor)
-        layout.addWidget(self.close_btn, 0, Qt.AlignTop)
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        layout.addWidget(self.close_btn, 0, Qt.AlignmentFlag.AlignTop)
 
         # Main layout
         main_layout = QVBoxLayout(self)
@@ -281,8 +285,8 @@ class NotificationHistoryPopup(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedSize(350, 500)
 
         # Container
@@ -332,7 +336,9 @@ class NotificationHistoryPopup(QWidget):
         # Scroll area for notifications
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self.scroll_area.setStyleSheet("""
             QScrollArea {
                 border: none;
@@ -351,7 +357,7 @@ class NotificationHistoryPopup(QWidget):
 
         # Empty state label
         self.empty_label = QLabel("No notifications")
-        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setStyleSheet(f"color: {DISABLED_TEXT_COLOR}; padding: 20px;")
         self.notifications_layout.insertWidget(0, self.empty_label)
 
@@ -394,7 +400,7 @@ class NotificationHistoryPopup(QWidget):
         icons = {"info": "ℹ", "success": "✓", "warning": "⚠", "error": "✕"}
         icon_label = QLabel(icons.get(notification_type, "ℹ"))
         icon_label.setFixedSize(20, 20)
-        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_label.setStyleSheet(f"color: {color}; font-size: 14px; font-weight: bold;")
         item_layout.addWidget(icon_label)
 
@@ -458,7 +464,7 @@ class NotificationBell(QWidget):
         super().__init__(parent)
         self.count = 0
         self.setFixedSize(28, 28)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Bell icon button using QToolButton with a Material Design icon
         self.bell_btn = QToolButton()
@@ -470,7 +476,7 @@ class NotificationBell(QWidget):
         # Badge
         self.badge = QLabel("0")
         self.badge.setFixedSize(14, 14)
-        self.badge.setAlignment(Qt.AlignCenter)
+        self.badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.badge.hide()
 
         # Layout
@@ -590,7 +596,7 @@ class ToastManager:
         Tracked rather than read off ``QApplication.activeWindow()`` at show time,
         because that is ``None`` whenever the app itself is not focused -- exactly the
         case this exists for, a run that finishes while the operator is in the
-        microscope software. Only ``Qt.Window`` types qualify, which skips the app's
+        microscope software. Only ``Qt.WindowType.Window`` types qualify, which skips the app's
         own transient chrome (toasts, popovers, tooltips) and short-lived dialogs: a
         toast anchored to a dialog would be destroyed with it mid-fade.
 
@@ -604,7 +610,7 @@ class ToastManager:
         if now is None:
             return
         window = now.window()
-        if window is not None and window.windowType() == Qt.Window:
+        if window is not None and window.windowType() == Qt.WindowType.Window:
             self._last_active = weakref.ref(window)
 
     def _anchor(self) -> QWidget:

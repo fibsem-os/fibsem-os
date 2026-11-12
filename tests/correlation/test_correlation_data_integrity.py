@@ -18,7 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.correlation.structures import (
     Coordinate,
@@ -141,7 +141,7 @@ def test_autosave_failure_is_reported_not_swallowed(qapp, tmp_path, monkeypatch)
 
 def _load_via_picker(w, monkeypatch, answer):
     """Drive a user-initiated image load, answering the confirm with `answer`."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
 
@@ -160,7 +160,7 @@ def _load_via_picker(w, monkeypatch, answer):
 
 
 def test_changing_the_image_clears_coordinates_and_result(qapp, monkeypatch):
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     w = _widget()
     w.set_fib_image(
@@ -169,21 +169,21 @@ def test_changing_the_image_clears_coordinates_and_result(qapp, monkeypatch):
     w.set_data(_inputs(x=1382.0))
     _load_result(w, _result(w.data), adopt_inputs=False)
 
-    _load_via_picker(w, monkeypatch, QMessageBox.Ok)
+    _load_via_picker(w, monkeypatch, QMessageBox.StandardButton.Ok)
 
     assert w.data.fib_coordinates == []  # points belonged to the previous image
     assert w.session.result is None
 
 
 def test_declining_the_change_keeps_both_image_and_points(qapp, monkeypatch):
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     w = _widget()
     original = FibsemImage.generate_blank_image(resolution=(1536, 1024), hfw=80e-6)
     w.set_fib_image(original)
     w.set_data(_inputs(x=1382.0))
 
-    _load_via_picker(w, monkeypatch, QMessageBox.Cancel)
+    _load_via_picker(w, monkeypatch, QMessageBox.StandardButton.Cancel)
 
     assert w.data.fib_coordinates[0].point.x == 1382.0
     assert w.session.fib_image is original
@@ -216,13 +216,13 @@ def test_image_combo_is_guarded_against_the_mouse_wheel(qapp):
     event: without the guard an event-based check *hangs* offscreen instead of
     failing, which is a useless diagnostic in CI.
     """
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     from fibsem.ui.utils import _WHEEL_GUARD_PROPERTY
 
     combo = _widget()._images_tab._fib_picker.combo
     assert combo.property(_WHEEL_GUARD_PROPERTY) is True
-    assert combo.focusPolicy() == Qt.StrongFocus  # no wheel-focus either
+    assert combo.focusPolicy() == Qt.FocusPolicy.StrongFocus  # no wheel-focus either
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ to Move via the top-right toolbar toggle (the feature points go inert).
 import sys
 
 import numpy as np
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QHBoxLayout,
@@ -96,7 +96,7 @@ def main() -> None:
     lay.addLayout(bar)
     lay.addWidget(log)
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -4,8 +4,8 @@ import logging
 from copy import deepcopy
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QLabel,
     QVBoxLayout,
     QWidget,
@@ -24,7 +24,7 @@ class FibsemPatternSettingsWidget(AdvancedRows, QWidget):
     Selecting a different pattern type from the combobox rebuilds the form.
     """
 
-    pattern_changed = pyqtSignal(object)  # BasePattern
+    pattern_changed = Signal(object)  # BasePattern
 
     def __init__(
         self,

@@ -8,9 +8,9 @@ completion time and duration, count chips and a primary OK button.
 from typing import List, Optional
 
 import pandas as pd
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QFont
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QColor, QFont
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QHBoxLayout,
@@ -113,15 +113,15 @@ def run_counts_text(df: Optional[pd.DataFrame]) -> str:
 
 
 class _NumericItem(QTableWidgetItem):
-    """Table item that sorts by its numeric Qt.UserRole value rather than text.
+    """Table item that sorts by its numeric Qt.ItemDataRole.UserRole value rather than text.
 
     Lets the Duration column (displayed as a clock, '4:05') sort by the underlying
     seconds, so e.g. '12:00' sorts after '4:05'.
     """
 
     def __lt__(self, other: QTableWidgetItem) -> bool:
-        a = self.data(Qt.UserRole)
-        b = other.data(Qt.UserRole)
+        a = self.data(Qt.ItemDataRole.UserRole)
+        b = other.data(Qt.ItemDataRole.UserRole)
         if a is not None and b is not None:
             return a < b
         return super().__lt__(other)
@@ -245,13 +245,13 @@ class WorkflowSummaryDialog(QDialog):
         table.setShowGrid(False)
         table.setAlternatingRowColors(True)
         table.setSortingEnabled(True)
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        table.setFocusPolicy(Qt.NoFocus)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         mono_font = QFont("Menlo")
-        mono_font.setStyleHint(QFont.Monospace)
+        mono_font.setStyleHint(QFont.StyleHint.Monospace)
 
         rows = [] if df is None or df.empty else df.to_dict("records")
         table.setRowCount(len(rows))
@@ -276,9 +276,11 @@ class WorkflowSummaryDialog(QDialog):
                 sort_value = float(dur_seconds) if not pd.isna(dur_seconds) else -1.0
             except (TypeError, ValueError):
                 sort_value = -1.0
-            duration_item.setData(Qt.UserRole, sort_value)
+            duration_item.setData(Qt.ItemDataRole.UserRole, sort_value)
             duration_item.setForeground(QColor(_TEXT_MUTED))
-            duration_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            duration_item.setTextAlignment(
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            )
             duration_item.setFont(mono_font)
 
             for col, item in enumerate(
@@ -292,9 +294,9 @@ class WorkflowSummaryDialog(QDialog):
         header.setStretchLastSection(False)
         fixed_widths = {0: 140, 2: 190, 3: 110, 4: 100}
         for col, width in fixed_widths.items():
-            header.setSectionResizeMode(col, QHeaderView.Interactive)
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
             table.setColumnWidth(col, width)
-        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         table.verticalHeader().setDefaultSectionSize(34)
         return table
 

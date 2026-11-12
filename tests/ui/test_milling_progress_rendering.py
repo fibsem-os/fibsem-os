@@ -22,7 +22,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.ui.coincidence.viewer import (
     FluorescenceCoincidenceViewerWidget,  # noqa: E402
@@ -106,7 +106,7 @@ class _MillingWidgetHost:
     _on_milling_run = FibsemMillingWidget._on_milling_run
 
     def __init__(self):
-        from PyQt5.QtWidgets import QProgressBar, QPushButton, QWidget
+        from qtpy.QtWidgets import QProgressBar, QPushButton, QWidget
 
         self.progressBar_milling = QProgressBar()
         self.progressBar_milling_stages = QProgressBar()
@@ -144,7 +144,7 @@ class _CoincidenceHost:
     _on_milling_progress = FluorescenceCoincidenceViewerWidget._on_milling_progress
 
     def __init__(self):
-        from PyQt5.QtWidgets import (
+        from qtpy.QtWidgets import (
             QAction,
             QDoubleSpinBox,
             QLabel,

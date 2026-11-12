@@ -23,7 +23,7 @@ import os
 from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QDialog,
     QFrame,
     QHBoxLayout,
@@ -202,7 +202,7 @@ class FMSparseSelectionDialog(QDialog):
     ) -> Optional[SparseSelection]:
         """Run the dialog and return the selection, or None if it was cancelled."""
         dialog = cls(microscope, views, parameters, channel_settings, zparams, parent)
-        dialog.exec_()
+        dialog.exec()
         return dialog.selection
 
     def _accept(self) -> None:

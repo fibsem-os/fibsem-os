@@ -14,10 +14,10 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QLabel
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QApplication, QLabel
 
 from fibsem import config as cfg
 from fibsem.fm.structures import (
@@ -538,8 +538,7 @@ def test_every_open_bar_of_the_kind_follows_at_once(controller):
 def test_a_closed_window_s_bar_does_not_stop_the_others():
     """A bar can outlive its widget in the set of open bars (a closed lamella
     editor); reaching it from the picker's slot would abort the application."""
-    from PyQt5 import sip
-
+    from fibsem.ui.qt import sip
     from fibsem.ui.widgets.canvas.view_info_bar import choose_field_keys
 
     gone, kept = ViewInfoBar("SEM"), ViewInfoBar("SEM")
@@ -790,4 +789,4 @@ def test_the_chip_passes_clicks_through_to_the_image(controller):
     controller.set_image(BeamType.ELECTRON, _beam_image())
     controller.stage_move_started()
     badge = controller.widget.sem_canvas._live_badge
-    assert badge.testAttribute(Qt.WA_TransparentForMouseEvents)
+    assert badge.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)

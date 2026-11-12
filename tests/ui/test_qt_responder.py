@@ -22,7 +22,7 @@ from copy import deepcopy
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.structures.settings import BeamType
 from fibsem.workflows import status as workflow_status

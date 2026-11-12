@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QFormLayout,
     QVBoxLayout,
     QWidget,
@@ -36,10 +36,8 @@ class ChannelSettingsWidget(QWidget):
     Shown by FluorescenceMultiChannelWidget when a row is selected.
     """
 
-    channel_changed = pyqtSignal(object)  # ChannelSettings
-    channel_field_changed = pyqtSignal(
-        object, str, object
-    )  # ChannelSettings, field, value
+    channel_changed = Signal(object)  # ChannelSettings
+    channel_field_changed = Signal(object, str, object)  # ChannelSettings, field, value
 
     def __init__(
         self,
@@ -79,9 +77,11 @@ class ChannelSettingsWidget(QWidget):
         # dead space on the right, so pin all three to the house style.
         # AllNonFixedFieldsGrow, not ExpandingFieldsGrow: the latter only grows fields
         # that already carry an Expanding policy, which none of these do.
-        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         self.excitation_combo = ValueComboBox(
             items=self._excitation_items,

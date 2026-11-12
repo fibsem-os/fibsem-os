@@ -2,8 +2,8 @@
 
 import sys
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QApplication,
     QGroupBox,
     QHBoxLayout,
@@ -47,7 +47,7 @@ class IconToolButtonDemo(QWidget):
 
         root = QVBoxLayout(self)
         root.setSpacing(12)
-        root.setAlignment(Qt.AlignTop)
+        root.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # ── 1. Non-checkable action buttons ───────────────────────────────
         g1 = _section("Non-checkable action buttons")
@@ -186,4 +186,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = IconToolButtonDemo()
     w.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

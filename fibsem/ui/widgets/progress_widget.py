@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from PyQt5.QtWidgets import QHBoxLayout, QProgressBar, QWidget
+from qtpy.QtWidgets import QHBoxLayout, QProgressBar, QWidget
 
 from fibsem.theme import tokens
 from fibsem.ui import stylesheets

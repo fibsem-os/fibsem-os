@@ -23,7 +23,7 @@ import json
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.correlation.history import LamellaCorrelation
 from fibsem.correlation.structures import (
@@ -278,9 +278,9 @@ def test_a_cancelled_correlation_leaves_no_run_behind(qapp, tmp_path, monkeypatc
         opened.append(self)
         self.widget.set_data(_inputs(x=999.0))  # the user picks, then thinks better
         self.widget.data_changed.emit(self.widget.data)
-        return 0  # QDialog.Rejected
+        return 0  # QDialog.DialogCode.Rejected
 
-    monkeypatch.setattr(ctw.CorrelationTabDialog, "exec_", _cancel)
+    monkeypatch.setattr(ctw.CorrelationTabDialog, "exec", _cancel)
 
     lamella = tmp_path / "lamella-01"
     lamella.mkdir()
@@ -296,7 +296,7 @@ def test_each_open_starts_a_new_correlation_on_the_apps_session(
     """The dialog views the app's correlation, so whatever reads the session
     sees the one open; the next open starts afresh, not from the last one's
     points, and the closed dialog is deleted rather than left listening."""
-    from PyQt5.QtCore import QCoreApplication, QEvent
+    from qtpy.QtCore import QCoreApplication, QEvent
 
     import fibsem.ui.correlation.widgets.correlation_tab_widget as ctw
     from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
@@ -309,15 +309,15 @@ def test_each_open_starts_a_new_correlation_on_the_apps_session(
     def _pick_then_cancel(self):
         seen.append((self.widget.session, list(self.widget.session.points.coordinates)))
         self.widget.set_data(_inputs(x=999.0))
-        return 0  # QDialog.Rejected
+        return 0  # QDialog.DialogCode.Rejected
 
-    monkeypatch.setattr(ctw.CorrelationTabDialog, "exec_", _pick_then_cancel)
+    monkeypatch.setattr(ctw.CorrelationTabDialog, "exec", _pick_then_cancel)
     lamella = tmp_path / "lamella-01"
     lamella.mkdir()
     stub = _editor_stub(str(lamella), "", image=None)
 
     Editor._open_correlation_dialog(stub)
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     assert stub.findChildren(ctw.CorrelationTabDialog) == []
     Editor._open_correlation_dialog(stub)
 

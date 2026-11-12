@@ -21,9 +21,9 @@ import pytest
 
 # CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there. Without this the
 # module-level imports below turn a skip into a collection error.
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.fm.structures import (
     EmissionFilter,

@@ -31,9 +31,11 @@ import tempfile
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtWidgets import QWidget  # noqa: E402
+from qtpy.QtWidgets import QWidget  # noqa: E402
 
 import fibsem.config as fconfig  # noqa: E402
 from fibsem import utils  # noqa: E402

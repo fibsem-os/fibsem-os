@@ -15,7 +15,7 @@ import argparse
 import os
 import sys
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 import fibsem.config as cfg
 from fibsem import utils

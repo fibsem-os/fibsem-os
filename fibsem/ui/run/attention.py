@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PyQt5.QtCore import QObject
+from qtpy.QtCore import QObject
 
 from fibsem.ui.sound import play_notification_sound
 from fibsem.workflows.proposals import (

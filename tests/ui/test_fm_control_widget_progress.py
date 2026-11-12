@@ -18,7 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.fm.progress import (  # noqa: E402
     FluorescenceAcquisitionProgress,
@@ -38,7 +38,7 @@ class _Host:
     _on_acquisition_progress = FMControlWidget._on_acquisition_progress
 
     def __init__(self):
-        from PyQt5.QtWidgets import QLabel, QProgressBar
+        from qtpy.QtWidgets import QLabel, QProgressBar
 
         self.progressBar_current_acquisition = QProgressBar()
         self.progressText = QLabel()

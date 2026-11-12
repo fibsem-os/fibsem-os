@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, Iterable, List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QLabel, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QLabel, QWidget
 
 from fibsem.imaging.overview_session import POSITIONS, SELECTION, OverviewSession
 from fibsem.structures.settings import FibsemStagePosition
@@ -45,13 +45,13 @@ class OverviewWidgetBase(QWidget):
     # several facts cannot end up holding a stale answer. The host that matters
     # is the window, which must stop the other overview driving the stage while
     # this one is mid-tileset.
-    acquiring_changed = pyqtSignal(bool)
+    acquiring_changed = Signal(bool)
     # Requests, not commands: the widget knows nothing about lamellae, so a host
     # that owns an experiment decides what a position means and whether to ask
     # first. Each widget declares `position_add_requested` with what it carries.
-    position_move_requested = pyqtSignal(str, object)  # name, FibsemStagePosition
+    position_move_requested = Signal(str, object)  # name, FibsemStagePosition
     # A marked position was clicked, by the name it was marked under.
-    position_selected = pyqtSignal(str)
+    position_selected = Signal(str)
 
     # Screen-space hit radius for picking a marker, matching `PointOverlay`'s. In
     # pixels rather than stage microns so how close you have to click does not change

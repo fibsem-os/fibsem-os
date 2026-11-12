@@ -26,9 +26,9 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 _app = QApplication.instance() or QApplication(sys.argv)
 

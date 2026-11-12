@@ -6,9 +6,9 @@ import numbers
 from typing import Any, Callable, Optional
 
 import pandas as pd
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor, QPalette
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QColor, QPalette
+from qtpy.QtWidgets import (
     QHeaderView,
     QTableWidget,
     QTableWidgetItem,
@@ -26,11 +26,11 @@ from fibsem.theme.tokens import (
 
 
 class _SortableItem(QTableWidgetItem):
-    """A cell that sorts by the number it holds (``Qt.UserRole``) rather than by its
+    """A cell that sorts by the number it holds (``Qt.ItemDataRole.UserRole``) rather than by its
     text, so ``10`` sorts after ``9``."""
 
     def __lt__(self, other: QTableWidgetItem) -> bool:
-        a, b = self.data(Qt.UserRole), other.data(Qt.UserRole)
+        a, b = self.data(Qt.ItemDataRole.UserRole), other.data(Qt.ItemDataRole.UserRole)
         if a is not None and b is not None:
             return a < b
         return super().__lt__(other)
@@ -69,8 +69,10 @@ class DataFrameTableWidget(QWidget):
         self.table_widget.setAlternatingRowColors(True)
 
         # Set selection behavior
-        self.table_widget.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table_widget.setSelectionMode(QTableWidget.SingleSelection)
+        self.table_widget.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectRows
+        )
+        self.table_widget.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
 
         # Apply dark theme palette (matching autolamella_workflow_widget)
         palette = self.table_widget.palette()
@@ -125,7 +127,7 @@ class DataFrameTableWidget(QWidget):
                     and not isinstance(value, bool)
                     and not pd.isna(value)
                 ):
-                    item.setData(Qt.UserRole, float(value))
+                    item.setData(Qt.ItemDataRole.UserRole, float(value))
 
                 # Apply custom formatting if provided
                 if self.cell_formatter is not None:
@@ -141,7 +143,7 @@ class DataFrameTableWidget(QWidget):
                             item.setFont(font)
 
                 # Make items read-only
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
                 self.table_widget.setItem(i, j, item)
 
@@ -152,7 +154,7 @@ class DataFrameTableWidget(QWidget):
         header = self.table_widget.horizontalHeader()
         header.setStretchLastSection(True)
         for i in range(num_cols):
-            header.setSectionResizeMode(i, QHeaderView.Interactive)
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
 
         # Re-enable sorting
         self.table_widget.setSortingEnabled(True)

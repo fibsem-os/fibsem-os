@@ -37,10 +37,10 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtTest import QTest
+from qtpy.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.protocol import lamella_editor as editor_module
@@ -147,7 +147,7 @@ class TestTheFlushPoints:
         the test would pass with the override deleted. Sending the event is what
         exercises our half; delivering it on a tab switch is Qt's.
         """
-        from PyQt5.QtGui import QHideEvent
+        from qtpy.QtGui import QHideEvent
 
         editor._save_experiment()
         editor.hideEvent(QHideEvent())
