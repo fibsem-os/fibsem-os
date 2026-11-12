@@ -50,11 +50,14 @@ brightens at grazing incidence.
 - `relief` gives everything a height and looks along the beam: tall things hide what is
   behind them, and a pattern is cut along the milling beam.
 - `solid` builds the sample from objects that can lie under one another: grid bars, the
-  film, cells with a nucleus, one sheet of ice over them, and particles resting on the ice.
-  A cut face shows what it was cut from (ice, cell, nucleus). It is being built up and is
-  off by default. So far it draws the SEM and FIB images and the milled patterns; the
-  milling effects (bright rims, curtaining, damage, coats), holes and cracks in the film,
-  and the FM view are not in it yet, and the FM still comes from the relief.
+  film, cells with a nucleus, one sheet of ice over them (standing up in a broad ridge over
+  each bar), and clumps of particles resting on the ice. A cut face shows what it was cut
+  from (ice, cell, nucleus). Milled edges have a bright rim, cut faces are curtained, a GIS
+  coat is a real layer that shows as a bright band along the top of a cut, and a damaged
+  lamella has jagged bites, wandering cracks or a torn hole in its face. The FM looks at
+  the same sample from above: the reflection comes from whatever is on top at each point,
+  and fluorescence is lost exactly where a cut removed it. It is being built up and is off
+  by default: holes and cracks in the film are not in it yet.
 
 ## Cell types
 

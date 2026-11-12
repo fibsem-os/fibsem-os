@@ -190,3 +190,141 @@ def test_a_cut_face_shows_the_cell_and_its_nucleus(microscope, monkeypatch):
         assert (face == material).sum() > 20, material
     tones = {sim_solid.INSIDE[m][0] for m in (1, 2, 3)}
     assert len(tones) == 3
+
+
+def _trace(microscope, monkeypatch, beam_type, hfw):
+    """An image, and what each of its pixels met."""
+    hits = []
+    trace = sim_solid.trace
+    monkeypatch.setattr(
+        sim_solid, "trace", lambda *a: hits.append(trace(*a)) or hits[-1]
+    )
+    image = _image(microscope, beam_type, hfw=hfw)
+    monkeypatch.setattr(sim_solid, "trace", trace)
+    return image, hits[-1]
+
+
+def test_rpe_cells_stand_apart_as_domes():
+    """The rpe cells: big domes a few micrometres tall, clear of one another,
+    each with a nucleus."""
+    scene = SampleScene(cell_type="rpe", renderer="solid", rip_fraction=0.0)
+    bodies = [f for f in scene.features if f.kind == "cell" and f.part == "body"]
+    nuclei = [f for f in scene.features if f.part == "nucleus"]
+    assert len(bodies) == len(nuclei) > 50
+    xy = np.array([(f.x, f.y) for f in bodies])
+    radius = np.array([f.sigma for f in bodies]) * sim_solid.RPE_RADIUS
+    assert 11e-6 <= radius.min() and radius.max() <= 21e-6
+    gap = np.hypot(*(xy[:, None] - xy[None]).transpose(2, 0, 1))
+    np.fill_diagonal(gap, np.inf)
+    assert (gap > radius[:, None] + radius[None]).all()
+    body = bodies[0]
+    stack = _stack(scene, body.x * 1e6, body.y * 1e6)
+    assert stack["ice"][1] == pytest.approx(body.height * 1e6, abs=1.5)
+    assert stack["cell"][1] < stack["ice"][1]
+
+
+def test_contamination_is_a_clump_of_grains_on_the_ice():
+    scene = SampleScene(cell_type="none", renderer="solid", rip_fraction=0.0)
+    speck = next(
+        f for f in scene.features if f.kind == "contamination" and f.part == "body"
+    )
+    grains = sim_solid._clump(speck, int(scene.seed))
+    assert len(grains) >= 2
+    assert grains == sim_solid._clump(speck, int(scene.seed))
+    x, y, r, _ = grains[0]
+    stack = _stack(scene, x, y)
+    assert stack["particle"][1] > stack["ice"][1]
+
+
+def test_a_milled_edge_has_a_bright_rim(microscope, monkeypatch):
+    """The top next to a trench glows in the SEM; away from it, it doesn't."""
+    _use(microscope, renderer="solid", **PLAIN)
+    before = _image(microscope, BeamType.ELECTRON, hfw=60e-6)
+    _mill(microscope, (20e-6, 6e-6, 0.0))
+    after, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 60e-6)
+    rim = sim_solid._rim(hit, 60.0 / 512)
+    flip = slice(None, None, -1) if hit["flip"] else slice(None)
+    near = (rim[flip] > 0.8) & (hit["kind"][flip] == 1)
+    far = (rim[flip] == 0) & (hit["kind"][flip] == 1)
+    assert near.sum() > 100 and far.sum() > 1000
+    assert (after - before)[near].mean() > 40
+    assert abs((after - before)[far].mean()) < 3
+
+
+def test_curtaining_streaks_a_cut_face_unless_turned_off(microscope, monkeypatch):
+    """A cut face carries streaks along the milling beam (a tone that varies
+    from column to column); with curtaining off the face is even."""
+    spread = {}
+    for curtaining in (1.0, 0.0):
+        _use(microscope, renderer="solid", curtaining=curtaining, **PLAIN)
+        _mill(microscope, (20e-6, 8e-6, 0.0))
+        image, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 40e-6)
+        flip = slice(None, None, -1) if hit["flip"] else slice(None)
+        face = hit["kind"][flip] == 2
+        row = np.argmax(face.sum(axis=1))
+        spread[curtaining] = image[row][face[row]].std()
+    assert spread[1.0] > 1.8 * max(spread[0.0], 0.5)
+
+
+def test_a_gis_coat_is_a_layer_on_top_and_a_bright_band_on_a_cut(
+    microscope, monkeypatch
+):
+    scene = _use(microscope, renderer="solid", **PLAIN)
+    bare = _stack(scene, 0.0, 0.0)
+    assert bare["coat"][1] == sim_solid.NONE
+    scene.deposit(25)  # 1 um
+    coated = _stack(scene, 0.0, 0.0)
+    assert coated["coat"][0] == pytest.approx(bare["ice"][1])
+    assert coated["coat"][1] - coated["coat"][0] == pytest.approx(1.0, abs=0.05)
+    _mill(microscope, (20e-6, 8e-6, 0.0))
+    image, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 40e-6)
+    flip = slice(None, None, -1) if hit["flip"] else slice(None)
+    face = hit["kind"][flip] == 2
+    material = hit["material"][flip]
+    coat = face & (material == sim_solid.COAT)
+    ice = face & (material == sim_solid.ICE)
+    assert coat.sum() > 50 and ice.sum() > 50
+    assert image[coat].mean() > 1.5 * image[ice].mean()
+
+
+def test_a_spot_burn_is_a_small_pit_with_a_bright_ring(microscope, monkeypatch):
+    from fibsem.geometry.projection import BeamStageProjection
+
+    scene = _use(microscope, renderer="solid", **PLAIN)
+    before = _image(microscope, BeamType.ELECTRON, hfw=20e-6)
+    scene.burn(
+        [(0.0, 0.0)],
+        BeamType.ION,
+        microscope._connection.scene_stage_position(),
+        BeamStageProjection.from_microscope(microscope, beam_type=BeamType.ION),
+    )
+    after, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 20e-6)
+    assert (hit["kind"] == 2).sum() > 20  # the pit's floor
+    change = after - before
+    assert change.max() > 40  # the ring
+    rows, cols = np.nonzero(change > 40)
+    assert np.ptp(rows) < 100 and np.ptp(cols) < 100  # under 4 um across
+
+
+def test_damage_is_shapes_on_the_lamella_face(microscope):
+    """A damaged lamella is one region of irregular pieces, cut through the
+    lamella where they lie and nowhere else."""
+    scene = _use(
+        microscope,
+        renderer="solid",
+        damage_chance=1.0,
+        damage_below=(0.5e-6, 0.5e-6),
+        **PLAIN,
+    )
+    _mill(microscope, (12e-6, 4e-6, 2.4e-6), (12e-6, 4e-6, -2.4e-6))
+    assert scene.damage_started is None
+    _mill(microscope, (12e-6, 4e-6, 2.15e-6), (12e-6, 4e-6, -2.15e-6))
+    assert scene.damage_started is not None
+    region = scene.milled[-1]
+    assert region.face and all(len(piece) >= 3 for piece in region.face)
+    xa = np.arange(-8.0, 8.0, 0.1)
+    ya = np.arange(-30.0, 30.0, 0.1)
+    col = sim_solid.columns(scene, xa, ya, (0.1, 0.1))
+    cut = sim_solid._removed(scene, *np.meshgrid(xa, ya), col)[-1]
+    gone = cut["to"] > cut["from"]
+    assert 0 < gone.sum() < 0.5 * gone.size
