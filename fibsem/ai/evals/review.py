@@ -12,6 +12,7 @@ asked again.
 
 import json
 import math
+import re
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -59,8 +60,29 @@ def read_log(case: Case) -> List[Dict[str, Any]]:
     return entries
 
 
+def _undone(entries: List[Dict[str, Any]]) -> set:
+    return {e.get("undoes") for e in entries if e.get("action") == "undo"}
+
+
 def _kept(case: Case) -> List[Dict[str, Any]]:
-    return [e for e in read_log(case) if e.get("action") == "keep"]
+    entries = read_log(case)
+    undone = _undone(entries)
+    return [
+        e
+        for n, e in enumerate(entries)
+        if e.get("action") == "keep" and n not in undone
+    ]
+
+
+def last_settled(case: Case) -> Optional[Dict[str, Any]]:
+    """The newest settle that hasn't been undone, with its place in the log."""
+    entries = read_log(case)
+    undone = _undone(entries)
+    for n in range(len(entries) - 1, -1, -1):
+        entry = entries[n]
+        if entry.get("action") != "undo" and n not in undone:
+            return dict(entry, n=n)
+    return None
 
 
 # --- disagreements -------------------------------------------------------------
@@ -329,16 +351,72 @@ def settle(
     if item["kind"] == "site":
         entry.update(x_px=item["x_px"], y_px=item["y_px"])
     if action != "keep":
-        key = _changed_key(case, item, action)
-        path = case.path / "case.yaml"
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        data["key"] = key
-        path.write_text(
-            yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=100),
-            encoding="utf-8",
-        )
+        _write_key(case, _changed_key(case, item, action))
+    _log(case, entry)
+    return load_case(case.path)
+
+
+def undo(case: Case, run: str = "") -> Case:
+    """Undo the newest settle: put the key back as it was before it (a kept
+    one is asked again). The undo goes on the log too."""
+    last = last_settled(case)
+    if last is None:
+        raise SettleError("nothing to undo")
+    if last.get("action") != "keep" and "key_before" in last:
+        _write_key(case, last["key_before"])
+    _log(
+        case,
+        {
+            "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "run": run,
+            "id": last.get("id"),
+            "action": "undo",
+            "undoes": last["n"],
+            "key_before": case.key,
+        },
+    )
+    return load_case(case.path)
+
+
+def _log(case: Case, entry: Dict[str, Any]) -> None:
     log = case.path / LOG
     log.parent.mkdir(parents=True, exist_ok=True)
     with open(log, "a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
-    return load_case(case.path)
+
+
+def _write_key(case: Case, key: Dict[str, Any]) -> None:
+    """Rewrite only the top-level ``key:`` block of case.yaml, so comments
+    elsewhere in the file are kept (ones inside the key block are not)."""
+    path = case.path / "case.yaml"
+    text = path.read_text(encoding="utf-8")
+    block = yaml.safe_dump(
+        {"key": key},
+        sort_keys=False,
+        allow_unicode=True,
+        width=4096,  # long lines stay on one line, as written
+        default_flow_style=None,
+    )
+    lines = text.splitlines(keepends=True)
+    start = next(
+        (n for n, line in enumerate(lines) if re.match(r"key\s*:", line)), None
+    )
+    if start is None:
+        if text and not text.endswith("\n"):
+            text += "\n"
+        path.write_text(text + block, encoding="utf-8")
+        return
+    end = start + 1
+    while end < len(lines):
+        line = lines[end]
+        if line.strip() and not line[0].isspace() and not line.startswith("#"):
+            break
+        end += 1
+    # Comments and blank lines just above the next key belong to it.
+    while end - 1 > start and (
+        not lines[end - 1].strip() or lines[end - 1].startswith("#")
+    ):
+        end -= 1
+    path.write_text(
+        "".join(lines[:start]) + block + "".join(lines[end:]), encoding="utf-8"
+    )

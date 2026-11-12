@@ -72,7 +72,9 @@ class Reviewer:
         if case is None:
             raise HTTPException(
                 status_code=404,
-                detail=f"case {case_id!r} not found: start serve with --cases",
+                detail=f"case {case_id!r} is not in {self.cases_root}"
+                if self.cases_root
+                else f"case {case_id!r} not found: start serve with --cases",
             )
         return case, items
 
@@ -115,6 +117,7 @@ class Reviewer:
         return {
             "name": folder.name,
             "ran_with": visual.ran_with(all_results),
+            "cases_root": str(self.cases_root or ""),
             "cases": rows,
         }
 
@@ -159,6 +162,7 @@ class Reviewer:
                 {k: e.get(k) for k in ("at", "run", "id", "action")}
                 for e in review.read_log(case)
             ],
+            "last": _last(case),
             "can_settle": case.task in review.SETTLED_TASKS and not case.parts,
         }
 
@@ -193,6 +197,19 @@ class Reviewer:
         except review.SettleError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return self.case_detail(run, case_id)
+
+    def undo(self, run: str, case_id: str) -> Dict[str, Any]:
+        case, _ = self.case_runs(run, case_id)
+        try:
+            review.undo(case, run=run)
+        except review.SettleError as e:
+            raise HTTPException(status_code=409, detail=str(e)) from e
+        return self.case_detail(run, case_id)
+
+
+def _last(case: Case) -> Optional[Dict[str, Any]]:
+    last = review.last_settled(case)
+    return {k: last.get(k) for k in ("id", "action")} if last else None
 
 
 TASK_TEXT = {
@@ -363,6 +380,10 @@ def build_app(runs: Path, cases: Optional[Path] = None) -> FastAPI:
     @api.post("/runs/{run}/cases/{case_id}/settle")
     def settle(run: str, case_id: str, body: Settle):
         return reviewer.settle(run, case_id, body)
+
+    @api.post("/runs/{run}/cases/{case_id}/undo")
+    def undo(run: str, case_id: str):
+        return reviewer.undo(run, case_id)
 
     app.include_router(api)
 

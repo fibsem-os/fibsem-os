@@ -26,6 +26,7 @@ interface CaseRow {
 interface RunSummary {
   name: string;
   ran_with: string;
+  cases_root: string;
   cases: CaseRow[];
 }
 
@@ -67,6 +68,7 @@ interface CaseDetail {
   live: { part: string | null; live: string; same: number; eval: string[] }[];
   items: Item[];
   settled: { at: string; run: string; id: string; action: string }[];
+  last: { id: string; action: string } | null;
   can_settle: boolean;
 }
 
@@ -212,6 +214,11 @@ function CaseList({ run, picked, pick }: { run: string; picked: string | null; p
             )}
           </span>
           <span className="truncate text-[13px]">{c.id}</span>
+          {!c.found && (
+            <span className="text-[11px] break-all text-muted-foreground">
+              {summary.data.cases_root ? `Not in ${summary.data.cases_root}` : "Start serve with --cases"}
+            </span>
+          )}
           <Score now={c.now} />
         </button>
       ))}
@@ -225,22 +232,13 @@ function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
   const [index, setIndex] = useState(0);
   const at = Math.min(index, Math.max(count - 1, 0));
   const item = detail.items[at];
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
-      if (e.key === "ArrowLeft") setIndex((i) => Math.max(Math.min(i, count - 1) - 1, 0));
-      if (e.key === "ArrowRight") setIndex((i) => Math.min(i + 1, count - 1));
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [count]);
   const settle = useMutation({
     mutationFn: async (action: string) => {
-      const response = await fetch(`${casePath(run, detail.id)}/settle`, {
+      const undo = action === "undo";
+      const response = await fetch(`${casePath(run, detail.id)}/${undo ? "undo" : "settle"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ item: item.id, action }),
+        body: undo ? undefined : JSON.stringify({ item: item.id, action }),
       });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail ?? response.statusText);
       return response.json();
@@ -250,11 +248,40 @@ function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
       client.invalidateQueries({ queryKey: ["evals-run", run] });
     },
   });
+  // Keys: arrows step, 1-9 take an action, K keeps the key, U undoes.
+  const keys = { item, last: detail.last, can: detail.can_settle, busy: settle.isPending, mutate: settle.mutate };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "ArrowLeft") setIndex((i) => Math.max(Math.min(i, count - 1) - 1, 0));
+      if (e.key === "ArrowRight") setIndex((i) => Math.min(i + 1, count - 1));
+      if (!keys.can || keys.busy) return;
+      const key = e.key.toLowerCase();
+      if (key === "u" && keys.last) keys.mutate("undo");
+      if (!keys.item) return;
+      if (key === "k") keys.mutate("keep");
+      const n = Number(e.key);
+      if (n >= 1 && n <= keys.item.actions.length) keys.mutate(keys.item.actions[n - 1].action);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+  const undo = detail.last && (
+    <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+      Last: {detail.last.action === "keep" ? "kept the key" : detail.last.action} for {detail.last.id}
+      <Button disabled={settle.isPending} onClick={() => settle.mutate("undo")}>
+        Undo <Kbd>U</Kbd>
+      </Button>
+    </div>
+  );
   if (!detail.can_settle) return null;
   if (!item)
     return (
-      <section className="rounded-md border border-border bg-card px-4 py-3 text-[13px] text-[#3fb950]">
-        Nothing to settle: every answer is one the key accepts.
+      <section className="flex flex-col gap-2 rounded-md border border-border bg-card px-4 py-3">
+        <span className="text-[13px] text-[#3fb950]">Nothing to settle: every answer is one the key accepts.</span>
+        {undo}
       </section>
     );
   return (
@@ -311,16 +338,23 @@ function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
               disabled={settle.isPending}
               onClick={() => settle.mutate(a.action)}
             >
-              {a.label}
+              {a.label} <Kbd>{i + 1}</Kbd>
             </Button>
           ))}
           <Button disabled={settle.isPending} onClick={() => settle.mutate("keep")}>
-            Keep the key
+            Keep the key <Kbd>K</Kbd>
           </Button>
         </div>
         {settle.isError && <p className="m-0 text-[13px] text-destructive">{String(settle.error)}</p>}
+        {undo}
       </div>
     </section>
+  );
+}
+
+function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="ml-1.5 rounded border border-current/30 px-1 font-sans text-[11px] opacity-70">{children}</kbd>
   );
 }
 

@@ -141,5 +141,44 @@ def test_the_routes(run):  # noqa: F811
         "/evals/runs/out/cases/site/settle", json={"item": item["id"], "action": "bad"}
     )
     assert again.status_code == 409
+    undone = client.post("/evals/runs/out/cases/site/undo")
+    assert undone.status_code == 200 and len(undone.json()["items"]) == 1
+    assert client.post("/evals/runs/out/cases/site/undo").status_code == 409
     assert client.get("/evals/runs/out/cases/nope").status_code == 404
     assert client.get("/ui/evals").status_code == 200
+
+
+def test_settling_keeps_the_comments_outside_the_key(run):  # noqa: F811
+    cases_root, out = run
+    _with_extra_pick(out)
+    path = cases_root / "site" / "case.yaml"
+    path.write_text("# a note on the case\n" + path.read_text())
+    case = load_case(cases_root / "site")
+    runs = _runs(out, "site")
+    (item,) = review.disagreements(case, runs)
+    review.settle(case, runs, item["id"], "good")
+    text = path.read_text()
+    assert text.startswith("# a note on the case\n")
+    data = yaml.safe_load(text)
+    assert data["brief"] == "site brief" and len(data["key"]["good"]) == 2
+
+
+def test_undo_puts_the_key_back_and_asks_again(run):  # noqa: F811
+    cases_root, out = run
+    _with_extra_pick(out)
+    case = load_case(cases_root / "site")
+    runs = _runs(out, "site")
+    (item,) = review.disagreements(case, runs)
+    before = case.key
+    after = review.undo(review.settle(case, runs, item["id"], "bad"))
+    assert after.key == before
+    assert [i["id"] for i in review.disagreements(after, runs)] == [item["id"]]
+    # A kept one is asked again after an undo too.
+    kept = review.settle(after, runs, item["id"], "keep")
+    assert review.disagreements(kept, runs) == []
+    assert review.disagreements(review.undo(kept), runs)
+    try:
+        review.undo(review.undo(load_case(cases_root / "site")))
+    except review.SettleError:
+        return
+    raise AssertionError("undid more than was settled")
