@@ -24,7 +24,7 @@ import fibsem.config as fconfig
 from fibsem import utils
 from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.sim_cases import TIER
-from fibsem.drivers.demo import sim_relief
+from fibsem.drivers.demo import sim_solid
 from fibsem.drivers.demo.sim_scene import (
     MIN_FORESHORTENING,
     SampleScene,
@@ -96,11 +96,9 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
         "fm_cilium_fraction": 1.0,
         "fm_no_target_chance": 0.0,
         "coincidence_offset": 0.0,
-        "renderer": "relief",
+        "renderer": "solid",
         "rip_fraction": 0.0,
-        "rpe_island_radius": [12e-6, 35e-6],
-        "rpe_island_density": 3.0,
-        "rpe_occupancy": 0.6,
+        "rpe_density": 3.0,
     }
     options.update(overrides or {})
     options["seed"] = int(seed)
@@ -207,14 +205,11 @@ def _fm_px(microscope, scene, x: float, y: float) -> Tuple[float, float]:
 
 
 def _surface_height(scene, x: float, y: float) -> float:
-    """The sample's top (m above the film) at a world point, as the relief
-    renderer builds it."""
-    um = sim_relief.UM  # um per m
-    step = 0.25
-    offsets = np.arange(-20, 21) * step
-    gx, gy = np.meshgrid(x * um + offsets, y * um + offsets)
-    h = sim_relief.surface(scene, gx, gy, (step, step))[0]
-    return float(h[20, 20]) / um
+    """The sample's top (m) at a world point, in the focal frame: z = 0 is the
+    plane the stage brings into focus, the ice top."""
+    um = 1e6  # um per m
+    h = sim_solid.surface(scene, np.array([x * um]), np.array([y * um]))[0]
+    return float(h[0, 0]) / um
 
 
 def _pick_target(rng, scene, nearest: int = 20):
@@ -271,7 +266,10 @@ def write_case(
         if target is None:
             logging.warning("seed %s: no cilium in the scene, no case", seed)
             return None
-        tx, ty, tz = target["midpoint"]
+        tx, ty, above_film = target["midpoint"]
+        # targets are given above the film; the views and the FM focus work
+        # from the ice top
+        tz = above_film + scene._fm_film()
         # bring the target under the beam: the scene's y runs against the stage's
         microscope.move_stage_relative(FibsemStagePosition(x=tx, y=-ty, z=0))
         fib = _FibMap(microscope, scene, fib_resolution, FIB_HFW)
@@ -372,7 +370,7 @@ def write_case(
                 "y_px": round(target_fm[1], 1),
                 "z_slice": round(slice_of(tz), 2),
             },
-            "target_height_um": round(tz * 1e6, 3),
+            "target_height_um": round(above_film * 1e6, 3),
             "fiducials_fm_px": [
                 [round(x, 1), round(y, 1), round(z, 2)]
                 for (x, y), z in zip(burns_fm, burn_slices)

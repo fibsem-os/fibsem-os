@@ -15,6 +15,7 @@ from fibsem.drivers.demo.sim_scene import (
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.utils import setup_session
+from tests.fixtures.sim_scenes import flat_scene
 
 RESOLUTION = (768, 512)
 
@@ -30,7 +31,7 @@ def microscope():
 def _scene(**kwargs) -> SampleScene:
     """A quiet scene - no cells, no bars - with one blob, so a test can
     find it as the brightest thing."""
-    scene = SampleScene(
+    scene = flat_scene(
         cell_type="none",
         fiducial=False,
         contamination_density=0.0,

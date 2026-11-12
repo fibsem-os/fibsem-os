@@ -21,6 +21,7 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.alignment.coincidence import measure_coincidence_from_images
 from fibsem.structures.settings import BeamType, ImageSettings
+from tests.fixtures.sim_scenes import flat_scene
 
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default
@@ -41,9 +42,8 @@ def microscope():
     microscope.system.sim["coincidence_projection"] = True
     microscope.system.sim["coincidence_offset"] = 0.0
     microscope._connection.setup_sample_scene()
-    from fibsem.drivers.demo.sim_scene import SampleScene
 
-    microscope._connection.sample_scene = SampleScene(
+    microscope._connection.sample_scene = flat_scene(
         coincidence_offset=0.0,
         fiducial=True,
         cell_type="none",

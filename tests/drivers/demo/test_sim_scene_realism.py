@@ -23,6 +23,7 @@ from fibsem.alignment.coincidence import (
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, ImageSettings
+from tests.fixtures.sim_scenes import flat_scene
 
 TFS_SHUTTLE_CONFIG = os.path.join(
     cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
@@ -63,7 +64,7 @@ def _scene(microscope, **kwargs) -> SampleScene:
         "extent": 800e-6,
         **kwargs,
     }
-    scene = SampleScene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)
+    scene = flat_scene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)
     scene.anchor(microscope.get_stage_position())
     microscope._connection.sample_scene = scene
     return scene
@@ -264,21 +265,21 @@ def test_scan_rotation_turns_the_content(microscope):
     ],
 )
 def test_cell_types_generate_their_parts(cell_type, parts):
-    scene = SampleScene(cell_type=cell_type, contamination_density=0.0)
+    scene = flat_scene(cell_type=cell_type, contamination_density=0.0)
     cells = [f for f in scene.features if f.kind == "cell"]
     assert {f.part for f in cells} == parts
     assert all(f.cell_id >= 0 for f in cells)
 
 
 def test_mammalian_is_the_default_and_unknown_types_are_rejected():
-    assert SampleScene().cell_type == "mammalian"
+    assert SampleScene().cell_type == "rpe"
     with pytest.raises(ValueError):
-        SampleScene(cell_type="tardigrade")
+        flat_scene(cell_type="tardigrade")
     assert SampleScene.from_config({"cell_type": "bacteria"}).cell_type == "bacteria"
 
 
 def test_mammalian_cells_are_spread_out_with_the_nucleus_inside_the_body():
-    scene = SampleScene(cell_type="mammalian", contamination_density=0.0)
+    scene = flat_scene(cell_type="mammalian", contamination_density=0.0)
     cells = [f for f in scene.features if f.kind == "cell"]
     bodies = {f.cell_id: f for f in cells if f.part == "body"}
     nuclei = {f.cell_id: f for f in cells if f.part == "nucleus"}
@@ -341,7 +342,7 @@ def _world_grid(hfw=300e-6, shape=(1024, 1024)):
 
 
 def test_the_film_is_continuous_by_default():
-    assert SampleScene().film == "continuous"
+    assert flat_scene().film == "continuous"
 
 
 @pytest.mark.slow
@@ -361,7 +362,7 @@ def test_the_fine_pass_measures_on_holey_film(microscope):
 
 
 def test_holey_film_is_a_lattice_of_holes_on_the_film_only():
-    scene = SampleScene(film="holey", hole_diameter=2e-6, hole_pitch=4e-6, seed=1)
+    scene = flat_scene(film="holey", hole_diameter=2e-6, hole_pitch=4e-6, seed=1)
     xs, ys, px = _world_grid()
     bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
     assert not (holes & bars).any()
@@ -372,11 +373,11 @@ def test_holey_film_is_a_lattice_of_holes_on_the_film_only():
     n_holes = ndi.label(holes)[1]
     film_area = (~bars & ~rips).sum() * px**2
     assert n_holes == pytest.approx(film_area / scene.hole_pitch**2, rel=0.15)
-    assert not SampleScene(film="continuous").film_masks(xs, ys)[1].any()
+    assert not flat_scene(film="continuous").film_masks(xs, ys)[1].any()
 
 
 def test_some_squares_are_ripped_and_rips_are_square_sized():
-    scene = SampleScene(rip_fraction=0.1, seed=2)
+    scene = flat_scene(rip_fraction=0.1, seed=2)
     xs, ys, px = _world_grid(hfw=1200e-6, shape=(1024, 1024))
     bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
     n, areas = ndi.label(rips)[1], None
@@ -386,13 +387,13 @@ def test_some_squares_are_ripped_and_rips_are_square_sized():
     areas = ndi.sum(rips, labels, range(1, n + 1)) * px**2
     # a rip is a good part of its square, not a speck
     assert np.median(areas) > 0.1 * scene.grid_pitch**2
-    assert not SampleScene(rip_fraction=0.0).film_masks(xs, ys)[2].any()
+    assert not flat_scene(rip_fraction=0.0).film_masks(xs, ys)[2].any()
 
 
 def test_rips_differ_in_size_orientation_and_position():
     """Every square torn, and no two tears alike: areas spread widely, the
     long axes point every way, and the tears sit off their squares' centres."""
-    scene = SampleScene(rip_fraction=1.0, seed=3, grid_rotation=0.0)
+    scene = flat_scene(rip_fraction=1.0, seed=3, grid_rotation=0.0)
     xs, ys, px = _world_grid(hfw=1200e-6, shape=(1024, 1024))
     bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
     labels, n = ndi.label(rips)
@@ -467,7 +468,7 @@ def test_ice_plates_are_generated_and_render_bright(microscope):
 
 
 def test_beyond_the_grid_is_rim_then_holder():
-    scene = SampleScene(grid_radius=1.4e-3, grid_rim_width=150e-6)
+    scene = flat_scene(grid_radius=1.4e-3, grid_rim_width=150e-6)
     xs = np.array([[0.0, 1.45e-3, 1.7e-3]])
     ys = np.array([[0.0]])
     bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
@@ -544,8 +545,8 @@ def test_milled_patterns_persist_in_the_world(microscope):
 
 def test_the_fiducial_can_be_switched_off():
     # off by default - no real grid has one - and on when asked
-    assert not any(f.kind == "fiducial" for f in SampleScene().features)
-    scene = SampleScene(fiducial=True)
+    assert not any(f.kind == "fiducial" for f in flat_scene().features)
+    scene = flat_scene(fiducial=True)
     assert any(f.kind == "fiducial" for f in scene.features)
     assert SampleScene.from_config({"fiducial": True}).fiducial is True
 

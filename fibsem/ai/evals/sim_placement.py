@@ -23,7 +23,7 @@ from PIL import Image
 from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.sim_cases import TIER
 from fibsem.ai.evals.sim_correlation import _arctis, _FibMap
-from fibsem.drivers.demo import sim_relief
+from fibsem.drivers.demo import sim_solid
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 
@@ -61,12 +61,10 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
     options: Dict[str, Any] = {
         "cell_type": "rpe",
         "coincidence_offset": 0.0,
-        "renderer": "relief",
+        "renderer": "solid",
         "rip_fraction": 0.0,
         "gis_thickness": 0.5e-6,
-        "rpe_island_radius": [12e-6, 35e-6],
-        "rpe_island_density": 3.0,
-        "rpe_occupancy": 0.6,
+        "rpe_density": 3.0,
     }
     options.update(overrides or {})
     options["seed"] = int(seed)
@@ -110,7 +108,7 @@ def _maps(scene: SampleScene, fib: _FibMap, step: int = STEP):
         return x, y
 
     x0, y0 = world(vx, vy)
-    um = sim_relief.UM
+    um = 1e6  # um per m
     bars = scene.film_masks(x0, y0)[0]
 
     # the surface, without the coat and on an untouched scene, for its material
@@ -120,8 +118,8 @@ def _maps(scene: SampleScene, fib: _FibMap, step: int = STEP):
     s = 0.25
     gx = np.arange(np.floor(x0.min() * um) - 5, np.ceil(x0.max() * um) + 5, s)
     gy = np.arange(np.floor(y0.min() * um) - 5, np.ceil(y0.max() * um) + 5, s)
-    GX, GY = np.meshgrid(gx, gy)
-    height, mat = sim_relief.surface(plain, GX, GY, (s, s))[:2]
+    # um, z = 0 at the ice top: the frame the view's lift is in
+    height, mat = sim_solid.surface(plain, gx, gy)
 
     def sample(grid, x, y):
         i = np.clip(np.round((y * um - gy[0]) / s).astype(int), 0, len(gy) - 1)
@@ -133,7 +131,7 @@ def _maps(scene: SampleScene, fib: _FibMap, step: int = STEP):
     for _ in range(4):
         z = np.clip(sample(height, x, y), 0, None)
         x, y = world(vx - lift[0] * z, vy - lift[1] * z)
-    cell = sample(mat, x, y) == sim_relief.CELL
+    cell = sample(mat, x, y) == sim_solid.CELL
     return cell, bars
 
 

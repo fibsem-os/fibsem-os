@@ -14,6 +14,7 @@ from fibsem.structures.settings import (
     FibsemRectangleSettings,
     ImageSettings,
 )
+from tests.fixtures.sim_scenes import flat_scene
 
 TFS_SHUTTLE_CONFIG = os.path.join(
     cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml"
@@ -46,7 +47,7 @@ def microscope():
 
 def _use(microscope, **kwargs) -> SampleScene:
     kwargs = {"coincidence_offset": 0.0, **kwargs}
-    scene = SampleScene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)
+    scene = flat_scene(noise_sigma=0.0, noise_fraction=0.0, **kwargs)
     scene.anchor(microscope.get_stage_position())
     microscope._connection.sample_scene = scene
     return scene
@@ -70,7 +71,7 @@ def _shift(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 def test_the_renderer_comes_from_the_config():
     assert SampleScene.from_config({"renderer": "relief"}).renderer == "relief"
-    assert SampleScene().renderer == "flat"
+    assert flat_scene().renderer == "flat"
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
@@ -138,7 +139,7 @@ def test_rpe_and_neuron_cells_grow_and_stand_up(cell_type):
     stand above the film in the relief renderer."""
     from fibsem.drivers.demo import sim_relief
 
-    scene = SampleScene(cell_type=cell_type, renderer="relief")
+    scene = flat_scene(cell_type=cell_type, renderer="relief")
     parts = {f.part for f in scene.features if f.kind == "cell"}
     assert "body" in parts
     if cell_type == "neuron":
@@ -156,7 +157,7 @@ def test_ice_plates_frost_and_spheres():
     dark round balls standing on the film."""
     from fibsem.drivers.demo import sim_relief
 
-    scene = SampleScene(cell_type="none", renderer="relief", sphere_density=2.0)
+    scene = flat_scene(cell_type="none", renderer="relief", sphere_density=2.0)
     parts = {f.part for f in scene.features if f.kind == "contamination"}
     assert {"frost", "sphere"} <= parts
     ball = max((f for f in scene.features if f.part == "sphere"), key=lambda f: f.sigma)
@@ -171,14 +172,14 @@ def test_ice_plates_frost_and_spheres():
 
 def test_a_crack_is_a_dark_line_in_the_film():
     """A hairline crack darkens a thin line of the film without opening it."""
-    scene = SampleScene(cell_type="none", film="continuous", crack_density=1.0)
+    scene = flat_scene(cell_type="none", film="continuous", crack_density=1.0)
     arm = max(scene.cracks, key=len)
     x, y = arm[len(arm) // 2, :2]
     along = scene.crack_depth(np.array([x]), np.array([y]))
     away = scene.crack_depth(np.array([x + 5e-6]), np.array([y + 5e-6]))
     assert along[0] > 0.5 and away[0] == 0.0
     assert (
-        not SampleScene(crack_density=0.0)
+        not flat_scene(crack_density=0.0)
         .crack_depth(np.array([x]), np.array([y]))
         .any()
     )
@@ -187,13 +188,13 @@ def test_a_crack_is_a_dark_line_in_the_film():
 def test_a_coat_takes_the_charging_away():
     """An uncoated grid charges in the SEM, more with a longer dwell; a
     sputter coat takes most of it away, and a GIS coat some."""
-    scene = SampleScene()
+    scene = flat_scene()
     assert scene.charge_strength(None) == 0.0
     short, long = scene.charge_strength(0.2e-6), scene.charge_strength(3e-6)
     assert 0 < short < long
     scene.sputter(15)
     assert scene.charge_strength(3e-6) < 0.5 * long
-    gis = SampleScene()
+    gis = flat_scene()
     gis.deposit(25)
     assert gis.gis_thickness == pytest.approx(1e-6)
     assert gis.charge_strength(3e-6) < long
@@ -284,9 +285,9 @@ def test_centriole_pairs_are_sharp_at_their_height():
     from fibsem.drivers.demo.sim_scene import fm_channel_weights
     from fibsem.geometry.projection import FMStageProjection
 
-    with_none = SampleScene(cell_type="rpe", fm_no_target_chance=1.0, seed=5)
+    with_none = flat_scene(cell_type="rpe", fm_no_target_chance=1.0, seed=5)
     assert with_none.fm_targets() == []
-    scene = SampleScene(cell_type="rpe", fm_no_target_chance=0.0, seed=5)
+    scene = flat_scene(cell_type="rpe", fm_no_target_chance=0.0, seed=5)
     target = min(scene.fm_targets(), key=lambda t: np.hypot(*t["midpoint"][:2]))
     (x0, y0, z0), (x1, y1, z1) = target["pair"]
     assert 0.7e-6 < np.hypot(x1 - x0, y1 - y0) < 1.3e-6
@@ -340,7 +341,7 @@ def test_milling_cuts_away_a_centriole_outside_the_lamella():
     from fibsem.drivers.demo.sim_relief import BeamCut
     from fibsem.drivers.demo.sim_scene import MilledRegion
 
-    scene = SampleScene(cell_type="rpe", fm_no_target_chance=1.0, seed=5)
+    scene = flat_scene(cell_type="rpe", fm_no_target_chance=1.0, seed=5)
 
     def trench(w0, w1):
         # in the milling view a point (x, y, h) um sits at (x, y + h)
@@ -389,7 +390,7 @@ def test_each_channel_can_carry_a_label(setting, channel):
 
         def frame(**kw):
             base = dict(cell_type="rpe", fm_no_target_chance=0.0, seed=5)
-            scene = SampleScene(**{**base, **kw})
+            scene = flat_scene(**{**base, **kw})
             # a target cell, with a cilium, under the view
             spot = next(t for t in scene.fm_spots if t["cilium"])
             mx, my, _ = spot["midpoint"]
@@ -427,7 +428,7 @@ def test_reflection_shows_bars_bright_ice_grey_and_cells_dark():
     from fibsem.drivers.demo.sim_relief import BeamCut
     from fibsem.drivers.demo.sim_scene import MilledRegion
 
-    scene = SampleScene(renderer="relief", cell_type="rpe", seed=5)
+    scene = flat_scene(renderer="relief", cell_type="rpe", seed=5)
     body = min(
         (f for f in scene.features if f.kind == "cell" and f.part == "body"),
         key=lambda f: np.hypot(f.x, f.y),
@@ -466,7 +467,7 @@ def test_a_burn_aimed_on_a_cell_lands_where_the_beam_meets_it():
     from fibsem.drivers.demo import sim_relief
     from fibsem.drivers.demo.sim_relief import ViewFrame
 
-    scene = SampleScene(renderer="relief", cell_type="mammalian", seed=5)
+    scene = flat_scene(renderer="relief", cell_type="mammalian", seed=5)
     body = min(
         (f for f in scene.features if f.kind == "cell" and f.part == "body"),
         key=lambda f: np.hypot(f.x, f.y),

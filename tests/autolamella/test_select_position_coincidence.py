@@ -21,11 +21,11 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTask,
     SelectMillingPositionTaskConfig,
 )
-from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType
 from tests.answering import answering
 from tests.autolamella._on_the_record import manager_for
+from tests.fixtures.sim_scenes import flat_scene
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -50,7 +50,7 @@ def microscope():
 
 
 def _anchor_scene(microscope, coincidence_offset: float) -> None:
-    scene = SampleScene(
+    scene = flat_scene(
         coincidence_offset=coincidence_offset,
         tilt_axis_offset=NON_EUCENTRIC,
         fiducial=True,

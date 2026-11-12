@@ -58,11 +58,9 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
         "fm_cilium_fraction": 0.0 if has_none(seed) else 0.6,
         "fm_no_target_chance": 0.0,
         "coincidence_offset": 0.0,
-        "renderer": "relief",
+        "renderer": "solid",
         "rip_fraction": 0.0,
-        "rpe_island_radius": [12e-6, 35e-6],
-        "rpe_island_density": 3.0,
-        "rpe_occupancy": 0.6,
+        "rpe_density": 3.0,
     }
     options.update(overrides or {})
     options["seed"] = int(seed)
@@ -143,6 +141,7 @@ def write_case(
         stack_name = "fm-zstack.ome.tiff"
         stack.save(str(experiment / stack_name))
         fm_pixel = float(fm.camera.pixel_size[0])
+        film = scene._fm_film()  # targets are above the film, focus is on the ice
         width, height = fm.camera.resolution
         site_fm = _fm_px(microscope, scene, sx, sy)
         others = [
@@ -167,7 +166,7 @@ def write_case(
         if 0 <= x < width and 0 <= y < height
     ]
     if target is not None:
-        tz = float(target["midpoint"][2])
+        tz = float(target["midpoint"][2]) + film
         key: Dict[str, Any] = {
             "usable": "yes",
             "target": {

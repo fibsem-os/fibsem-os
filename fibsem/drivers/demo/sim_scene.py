@@ -43,7 +43,7 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import map_coordinates as ndi_map_coordinates
 from scipy.ndimage import zoom as ndi_zoom
 
-from fibsem.drivers.demo import sim_relief
+from fibsem.drivers.demo import sim_relief, sim_solid
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -101,6 +101,8 @@ REFLECTION_WEIGHTS = (1.0, 0.25, 0.0, 0.6, 0.0)
 # the FM's fluorescence intensity for a fully-dyed part, on the beam
 # intensity scale the stamper uses
 FM_INTENSITY = 90.0
+FM_CELL_DEPTH = 9.0  # um; the cell thickness that glows at FM_INTENSITY
+FM_GLOW_HAZE = 2.5e-6  # m; how far out-of-focus light from a cell spreads
 FM_PSF_SIGMA = 0.13e-6  # m; an in-focus point source
 CILIUM_SIGMA = 0.09e-6  # m; a ~250 nm wide cilium, under the PSF
 # a source spread dimmer than this (canvas scale; the camera's noise is ~0.3)
@@ -260,7 +262,11 @@ TEXTURE_BUDGET = 4.0  # texture pixels per view pixel, at most
 TEXTURE_CACHE_BYTES = 384e6
 
 FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
+FIDUCIAL_CLEARING = 34e-6  # m, no cell body centre nearer the cross than this
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
+# a cell's and a nucleus's radius, in the size of the feature that draws it
+RPE_RADIUS = sim_solid.RPE_RADIUS
+NUCLEUS_RADIUS = sim_solid.NUCLEUS_RADIUS
 
 
 @dataclass
@@ -359,6 +365,9 @@ class MilledRegion:
     # how the milling beam saw it, for the relief renderer's cut along the
     # beam (a sim_relief.BeamCut); None cuts straight down
     beam_cut: Optional[object] = None
+    # the solid renderer's damage: convex pieces on the sample plane (um);
+    # when given, only what lies under one of them is removed
+    face: Optional[list] = None
 
 
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
@@ -632,10 +641,10 @@ class SampleScene:
     # what grows on the film: "mammalian" (adherent, fried-egg: a wide flat
     # body with an off-centre nuclear mound and organelle speckle, sparse),
     # "yeast" (compact bright ovoids in clusters, some budding), "bacteria"
-    # (dense small rods), "rpe" (islands of a packed epithelial sheet),
+    # (dense small rods), "rpe" (big smooth domes standing apart, each with a nucleus),
     # "neuron" (a round soma with long branching processes), "mixed", or
     # "none" for bare film
-    cell_type: str = "mammalian"
+    cell_type: str = "rpe"
     # yeast: clusters over the extent
     n_clusters: int = 120  # yeast clumps per 800 x 800 um
     cells_per_cluster: Tuple[int, int] = (8, 40)  # inclusive range
@@ -648,11 +657,9 @@ class SampleScene:
     # bacteria: count per 150 x 150 um, rod length
     bacteria_density: float = 160.0
     bacteria_length: Tuple[float, float] = (2.0e-6, 3.5e-6)  # m
-    # rpe: islands per 150 x 150 um, their radius, and the cell spacing
-    rpe_island_density: float = 0.5
-    rpe_island_radius: Tuple[float, float] = (40e-6, 110e-6)  # m
-    rpe_cell_spacing: float = 28e-6  # m
-    rpe_occupancy: float = 0.75  # fraction of the lattice a patch fills
+    # rpe: count per 150 x 150 um, and the cell radius
+    rpe_density: float = 3.0
+    rpe_radius: Tuple[float, float] = (11e-6, 21e-6)  # m
     # neuron: somas per 150 x 150 um, soma radius, process length
     neuron_density: float = 1.2
     soma_radius: Tuple[float, float] = (5e-6, 9e-6)  # m
@@ -670,10 +677,10 @@ class SampleScene:
     # fine-pass correlator aliases on (false refusals at the fiducial, and a
     # false convergence at 80 um on the simulator), which the measurement
     # does not handle yet - see the xfail in test_sim_scene_realism.py
-    film: str = "continuous"
+    film: str = "holey"
     hole_diameter: float = 2.0e-6  # m  (R2/2: 2 um holes, 2 um apart)
     hole_pitch: float = 4.0e-6  # m
-    broken_hole_fraction: float = 0.02
+    broken_hole_fraction: float = 0.006
     # a seeded fraction of squares with the film torn away (a rip)
     rip_fraction: float = 0.03
     # ice crystals: flat bright plates with a bright rim, per 100 x 100 um
@@ -695,8 +702,12 @@ class SampleScene:
     centre_mark: bool = True
     # how the beams see the scene: "flat" paints it onto the sample plane;
     # "relief" gives everything a height and looks along the beam (shading,
-    # occlusion, trenches cut along the milling beam) - see sim_relief
-    renderer: str = "flat"
+    # occlusion, trenches cut along the milling beam) - see sim_relief;
+    # "solid" builds the sample from objects that can lie under one another
+    # (cells under the ice, particles on it), so a cut face shows what it
+    # was cut from - see sim_solid. It draws the SEM and FIB images; the FM
+    # still comes from the relief
+    renderer: str = "solid"
     # how strongly the SEM charges an uncoated grid (cells, ice): bright
     # patches and streaks along the scan, worse with a longer dwell; 0 = never
     charging: float = 1.0
@@ -911,7 +922,11 @@ class SampleScene:
             for f in mine
             if f.kind == "cell"
             and f.part == "body"
-            and np.hypot(f.x, f.y) > grid.radius
+            and (
+                np.hypot(f.x, f.y) > grid.radius
+                # the fiducial is cut into clear ice, not into a cell
+                or (self.fiducial and np.hypot(f.x, f.y) < FIDUCIAL_CLEARING)
+            )
         }
         self.features[start:] = [
             f
@@ -1363,7 +1378,7 @@ class SampleScene:
             )
 
         frame = None
-        if self.renderer == "relief":
+        if self.renderer in ("relief", "solid"):
             frame = self.view_frame(
                 beam_type, stage_position, projection, beam_shift, beam_current
             )
@@ -1453,6 +1468,9 @@ class SampleScene:
             lean = np.tan(np.deg2rad(self.mill_taper))
             record["gap_at_depth"] = record["gap"] + 2 * lean * depth
         damage = self._damage(record, rng)
+        if damage and self.renderer == "solid" and abs(frame.k) > 1e-6:
+            regions.append(self._solid_damage(record, frame, world, cut, rng))
+            damage = []
         for corners in damage:
             points = np.array([world(x, y) for x, y in corners])
             regions.append(MilledRegion(points=points, beam_cut=cut(corners)))
@@ -1465,6 +1483,34 @@ class SampleScene:
             }
         )
         return regions
+
+    def _solid_damage(self, record, frame, world, cut, rng) -> MilledRegion:
+        """A damaged lamella for the solid renderer: irregular shapes on the
+        lamella's face (see sim_solid.damage), cut through its thickness."""
+        um = sim_relief.UM
+        x0, x1, lo, hi = record["band"]
+        mid = 0.5 * (lo + hi)
+        ends = [tuple(v * um for v in world(x, mid)) for x in (x0, x1)]
+        pieces = sim_solid.damage(
+            self,
+            record["damage"]["kind"],
+            record["damage"]["severity"],
+            ends,
+            -frame.turn * frame.fs / frame.k,
+            rng,
+        )
+        slack = 0.6e-6  # past the faces: a lamella is thicker further down
+        band = [(x0, lo - slack), (x1, lo - slack), (x1, hi + slack), (x0, hi + slack)]
+
+        def area(p):
+            return abs(
+                np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+            )
+
+        # seen from above (the FM, the flat view) it is the biggest piece
+        return MilledRegion(
+            points=max(pieces, key=area) / um, beam_cut=cut(band), face=pieces
+        )
 
     def _record_pass(self, planned, actual, drift) -> dict:
         """Note a milling pass: what was drawn, what was cut, and the gap the
@@ -1574,7 +1620,7 @@ class SampleScene:
             )
 
         frame = None
-        if self.renderer == "relief":
+        if self.renderer in ("relief", "solid"):
             frame = self.view_frame(
                 beam_type, stage_position, projection, beam_shift, beam_current
             )
@@ -1612,7 +1658,10 @@ class SampleScene:
         ts = np.arange(-reach, reach + dy, dy)
         xs = x0 + np.arange(-24, 25) * 0.25
         gx, gy = np.meshgrid(xs, y0 + ts)
-        h = sim_relief.surface(self, gx, gy, (0.25, dy))[0][:, 24].astype(float)
+        if self.renderer == "solid":
+            h = sim_solid.top(self, xs, y0 + ts, (0.25, dy))[:, 24].astype(float)
+        else:
+            h = sim_relief.surface(self, gx, gy, (0.25, dy))[0][:, 24].astype(float)
         f = frame.turn * frame.fs * ts + frame.k * h
         solid = h > sim_relief.VOID / 2
         cross = np.nonzero(
@@ -1798,9 +1847,6 @@ class SampleScene:
         # orientation, where it starts (usually at a bar, running inward)
         # and how ragged its outline is. Rips cluster: a square beside a
         # ripped one rips more readily
-        def draw(k):
-            return _lattice_draw(sq_i, sq_j, grid.seed + k)
-
         torn = square_draw < self.rip_fraction
         beside_torn = np.zeros_like(torn)
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -1808,23 +1854,33 @@ class SampleScene:
                 _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < self.rip_fraction
             )
         torn |= beside_torn & (square_draw < 3 * self.rip_fraction)
-        size = self.grid_pitch * (0.15 + 0.35 * draw(11))  # semi-major axis
-        aspect = 0.4 + 0.6 * draw(12)
-        phi = np.pi * draw(13)
-        # the tear starts somewhere between the square's centre and a bar
-        psi = 2 * np.pi * draw(14)
-        start = (half_pitch - 0.7 * size) * (0.3 + 0.7 * draw(15))
-        ux, uy = lx - start * np.cos(psi), ly - start * np.sin(psi)
-        cos_p, sin_p = np.cos(phi), np.sin(phi)
-        ex = (ux * cos_p + uy * sin_p) / size
-        ey = (-ux * sin_p + uy * cos_p) / (size * aspect)
-        angle = np.arctan2(ey, ex)
-        ragged = 0.1 + 0.35 * draw(16)
-        phase = 2 * np.pi * draw(17)
-        wob = 1 + ragged * (
-            np.sin(3 * angle + phase) + 0.6 * np.sin(5 * angle + 2 * phase)
-        )
-        rips = torn & (np.hypot(ex, ey) < wob) & ~bars
+        torn &= ~bars
+        rips = np.zeros_like(bars)
+        if torn.any():
+            # few squares are torn: work the tears out only in those
+            ti, tj = sq_i[torn], sq_j[torn]
+
+            def draw(k):
+                return _lattice_draw(ti, tj, grid.seed + k)
+
+            size = self.grid_pitch * (0.15 + 0.35 * draw(11))  # semi-major axis
+            aspect = 0.4 + 0.6 * draw(12)
+            phi = np.pi * draw(13)
+            # the tear starts somewhere between the square's centre and a bar
+            psi = 2 * np.pi * draw(14)
+            start = (half_pitch - 0.7 * size) * (0.3 + 0.7 * draw(15))
+            ux = lx[torn] - start * np.cos(psi)
+            uy = ly[torn] - start * np.sin(psi)
+            cos_p, sin_p = np.cos(phi), np.sin(phi)
+            ex = (ux * cos_p + uy * sin_p) / size
+            ey = (-ux * sin_p + uy * cos_p) / (size * aspect)
+            angle = np.arctan2(ey, ex)
+            ragged = 0.1 + 0.35 * draw(16)
+            phase = 2 * np.pi * draw(17)
+            wob = 1 + ragged * (
+                np.sin(3 * angle + phase) + 0.6 * np.sin(5 * angle + 2 * phase)
+            )
+            rips[torn] = np.hypot(ex, ey) < wob
 
         holes = np.zeros_like(bars)
         if self.film == "holey":
@@ -1837,9 +1893,20 @@ class SampleScene:
     def _broken_holes(self, x_rot: np.ndarray, y_rot: np.ndarray, seed: int):
         """Where the film is broken round a seeded few holes, in a grid's
         frame: each a torn patch of its own size, stretch and ragged outline
-        about its hole, big enough sometimes to run into the next hole."""
+        about its hole, a little bigger than the hole was."""
         if self.broken_hole_fraction <= 0:
             return np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
+        # a frame asks twice for the same points (the film, then the ice)
+        x_rot, y_rot = np.asarray(x_rot), np.asarray(y_rot)
+        key = (
+            seed, x_rot.shape, y_rot.shape, self.broken_hole_fraction,
+            self.hole_pitch, self.hole_diameter,
+            float(x_rot.flat[0]), float(x_rot.flat[-1]),
+            float(y_rot.flat[0]), float(y_rot.flat[-1]),
+        )  # fmt: skip
+        last = getattr(self, "_broken_last", None)
+        if last is not None and last[0] == key:
+            return last[1].copy()
         pitch = self.hole_pitch
         out = np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
         hi0 = np.floor(x_rot / pitch).astype(np.int64)
@@ -1847,17 +1914,21 @@ class SampleScene:
         # a tear can reach past its own cell: look at the neighbours' holes too
         for di in (-1, 0, 1):
             for dj in (-1, 0, 1):
-                hi, hj = hi0 + di, hj0 + dj
-                broken = _lattice_draw(hi, hj, seed + 7) < self.broken_hole_fraction
+                broken = (
+                    _lattice_draw(hi0 + di, hj0 + dj, seed + 7)
+                    < self.broken_hole_fraction
+                )
                 if not broken.any():
                     continue
-                hx = x_rot - (hi + 0.5) * pitch
-                hy = y_rot - (hj + 0.5) * pitch
+                # few holes are broken: work out the tears only round those
+                hi, hj = (hi0 + di)[broken], (hj0 + dj)[broken]
+                hx = np.broadcast_to(x_rot, broken.shape)[broken] - (hi + 0.5) * pitch
+                hy = np.broadcast_to(y_rot, broken.shape)[broken] - (hj + 0.5) * pitch
                 size = self.hole_diameter * (
-                    0.6 + 0.9 * _lattice_draw(hi, hj, seed + 8)
+                    0.55 + 0.5 * _lattice_draw(hi, hj, seed + 8)
                 )
                 phi = np.pi * _lattice_draw(hi, hj, seed + 9)
-                stretch = 1.0 + 0.8 * _lattice_draw(hi, hj, seed + 10)
+                stretch = 1.0 + 0.5 * _lattice_draw(hi, hj, seed + 10)
                 phase = 2 * np.pi * _lattice_draw(hi, hj, seed + 11)
                 c, s_ = np.cos(phi), np.sin(phi)
                 u = (hx * c + hy * s_) / stretch
@@ -1869,7 +1940,8 @@ class SampleScene:
                     + 0.1 * np.sin(3 * t + 2 * phase)
                     + 0.04 * np.sin(5 * t + 3 * phase)
                 )
-                out |= broken & (np.hypot(u, v) < size * ragged)
+                out[broken] |= np.hypot(u, v) < size * ragged
+        self._broken_last = (key, out.copy())
         return out
 
     def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
@@ -1895,7 +1967,7 @@ class SampleScene:
                 n = int(round(self.mammalian_density * fields * fraction))
                 next_id = self._generate_mammalian(rng, half, n, next_id)
             elif kind == "rpe":
-                n = int(round(self.rpe_island_density * fields * fraction))
+                n = int(round(self.rpe_density * fields * fraction))
                 next_id = self._generate_rpe(rng, half, n, next_id)
             elif kind == "neuron":
                 n = int(round(self.neuron_density * fields * fraction))
@@ -2080,74 +2152,59 @@ class SampleScene:
         return next_id
 
     def _generate_rpe(self, rng, half, n, next_id) -> int:
-        """Patches of an epithelium: big flat cells on a jittered hexagonal
-        lattice, most sites filled, each a flat-topped dome with its own edge,
-        a central nucleus and bright pigment granules."""
-        spacing = self.rpe_cell_spacing
-        for _ in range(n):
-            cx, cy = rng.uniform(-half, half, size=2)
-            radius = float(rng.uniform(*self.rpe_island_radius))
-            phase = float(rng.uniform(0, 2 * np.pi))
-            rows = int(np.ceil(radius / (spacing * 0.866)))
-            cols = int(np.ceil(radius / spacing))
-            for j in range(-rows, rows + 1):
-                for i in range(-cols, cols + 1):
-                    x = (i + 0.5 * (j % 2)) * spacing
-                    y = j * spacing * 0.866
-                    # a ragged island edge
-                    edge = radius * (1 + 0.15 * np.sin(3 * np.arctan2(y, x) + phase))
-                    if np.hypot(x, y) > edge or rng.random() > self.rpe_occupancy:
-                        continue
-                    x = float(cx + x + rng.normal(0, 0.12 * spacing))
-                    y = float(cy + y + rng.normal(0, 0.12 * spacing))
-                    angle = float(rng.uniform(0, np.pi))
-                    self.features.append(
-                        SceneFeature(
-                            x=x,
-                            y=y,
-                            sigma=0.44 * spacing,
-                            intensity=45.0,
-                            sharpness=2.5,
-                            eccentricity=float(rng.uniform(0.8, 1.0)),
-                            angle=angle,
-                            wobble=0.05,
-                            wobble_phase=float(rng.uniform(0, 2 * np.pi)),
-                            cell_id=next_id,
-                            opacity=1.0,
-                            height=2.5e-6,
-                        )
-                    )
-                    self.features.append(
-                        SceneFeature(
-                            x=x,
-                            y=y,
-                            sigma=0.2 * spacing,
-                            intensity=20.0,
-                            sharpness=2.0,
-                            part="nucleus",
-                            cell_id=next_id,
-                            height=0.6e-6,
-                        )
-                    )
-                    # pigment granules: many and small, spread evenly over
-                    # the cell round the nucleus (a few read as pairs, a
-                    # ring of them is too sparse)
-                    for _ in range(int(rng.integers(18, 36))):
-                        t = rng.uniform(0, 2 * np.pi)
-                        r = np.sqrt(rng.uniform(0.22**2, 0.45**2)) * spacing
-                        self.features.append(
-                            SceneFeature(
-                                x=x + r * float(np.cos(t)),
-                                y=y + r * float(np.sin(t)),
-                                sigma=float(rng.uniform(0.15e-6, 0.25e-6)),
-                                intensity=45.0,
-                                sharpness=2.0,
-                                part="organelle",
-                                cell_id=next_id,
-                                height=0.3e-6,
-                            )
-                        )
-                    next_id += 1
+        """Epithelial cells standing apart: each a big smooth dome a few
+        micrometres tall, with a nucleus a little off its centre."""
+        placed = np.zeros((0, 3))
+        tries = 0
+        while len(placed) < n and tries < 40 * n:
+            # in batches: a cell is kept if it stands clear of those before it
+            tries += 256
+            batch = np.column_stack(
+                [
+                    rng.uniform(-half, half, 256),
+                    rng.uniform(-half, half, 256),
+                    rng.uniform(*self.rpe_radius, 256),
+                ]
+            )
+            for x, y, radius in batch:
+                gap = np.hypot(placed[:, 0] - x, placed[:, 1] - y)
+                if np.any(gap < 1.8 * (placed[:, 2] + radius)):
+                    continue
+                placed = np.vstack([placed, (x, y, radius)])
+                if len(placed) >= n:
+                    break
+        for x, y, radius in placed:
+            self.features.append(
+                SceneFeature(
+                    x=float(x),
+                    y=float(y),
+                    sigma=float(radius) / RPE_RADIUS,
+                    intensity=45.0,
+                    sharpness=2.5,
+                    cell_id=next_id,
+                    opacity=1.0,
+                    height=float(rng.uniform(3.0e-6, 5.5e-6)),
+                    # no cell is a circle: each is stretched its own way,
+                    # with an uneven outline
+                    eccentricity=float(rng.uniform(0.62, 1.0)),
+                    angle=float(rng.uniform(0, np.pi)),
+                    wobble=float(rng.uniform(0.06, 0.22)),
+                    wobble_phase=float(rng.uniform(0, 2 * np.pi)),
+                )
+            )
+            self.features.append(
+                SceneFeature(
+                    x=float(x + rng.uniform(-3e-6, 3e-6)),
+                    y=float(y + rng.uniform(-3e-6, 3e-6)),
+                    sigma=0.4 * float(radius) / NUCLEUS_RADIUS,
+                    intensity=20.0,
+                    sharpness=2.0,
+                    part="nucleus",
+                    cell_id=next_id,
+                    height=0.6e-6,
+                )
+            )
+            next_id += 1
         return next_id
 
     def _generate_neurons(self, rng, half, n, next_id) -> int:
@@ -2267,10 +2324,8 @@ class SampleScene:
         "nucleus_radius",  # [min, max] m
         "bacteria_density",  # per 150 x 150 um
         "bacteria_length",  # [min, max] m
-        "rpe_island_density",  # per 150 x 150 um
-        "rpe_island_radius",  # [min, max] m
-        "rpe_cell_spacing",  # m
-        "rpe_occupancy",
+        "rpe_density",  # per 150 x 150 um
+        "rpe_radius",  # [min, max] m
         "neuron_density",  # per 150 x 150 um
         "soma_radius",  # [min, max] m
         "neurite_length",  # [min, max] m
@@ -2300,7 +2355,7 @@ class SampleScene:
         "crack_density",  # hairline cracks per 100 x 100 um
         "grid_radius",  # m
         "grid_rim_width",  # m
-        "renderer",  # flat | relief
+        "renderer",  # flat | relief | solid
         "mill_drift",  # m, sigma of each milling pass's drift
         "mill_overcut",  # m, how far past its edges a pattern may cut
         "mill_kerf",  # a higher current cuts wider
@@ -2340,7 +2395,7 @@ class SampleScene:
             "ice_size",
             "sphere_size",
             "damage_below",
-            "rpe_island_radius",
+            "rpe_radius",
             "soma_radius",
             "neurite_length",
         ):
@@ -2423,7 +2478,7 @@ class SampleScene:
         if self.reference_position is None:
             self.anchor(stage_position)
         self.place_grids(projection)
-        if self.renderer == "relief":
+        if self.renderer in ("relief", "solid"):
             frame = self.view_frame(
                 beam_type, stage_position, projection, beam_shift, beam_current
             )
@@ -2432,7 +2487,14 @@ class SampleScene:
             if beam_type is BeamType.ELECTRON:
                 charge = self.charge_strength(dwell_time)
             return sim_relief.render(
-                self, beam, frame, pixel_size, (width, height), rng, charge
+                self,
+                beam,
+                frame,
+                pixel_size,
+                (width, height),
+                rng,
+                charge,
+                sim_solid.canvas if self.renderer == "solid" else None,
             )
 
         # where the world anchor appears in the CURRENT view. Asked this way
@@ -2632,9 +2694,23 @@ class SampleScene:
             / fs
         )
         bar_mask, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
-        if bars >= 1.0 and self.renderer == "relief":
+        # the solid sample seen from above: what was milled, at what height
+        self._plan = None
+        if self.renderer == "solid":
+            self._plan = self._fm_plan(xs_world, ys_world)
+        if bars >= 1.0 and self.renderer in ("relief", "solid"):
             return self._fm_reflection(xs_world, ys_world, defocus, rng)
-        if bars > 0:
+        if bars > 0 and self._plan is not None:
+            # a little reflected light leaks into a fluorescence channel
+            plan, step = self._plan
+            leak = sim_solid.reflectance(self, plan)
+            canvas += (
+                0.3
+                * bars
+                * self.grid_intensity
+                * self._fm_full(leak, step, height, width)
+            )
+        elif bars > 0:
             canvas[bar_mask] += bars * self.grid_intensity
             # in reflection the holes and rips read dark, the rim bright
             canvas[holes] -= bars * HOLE_DEPTH
@@ -2651,6 +2727,7 @@ class SampleScene:
             float(ys_world.min()),
             float(ys_world.max()),
         )
+        dyed: dict = {}  # per cell, how strongly its whole body is dyed
         for idx in in_view:
             f = self.features[idx]
             if f.kind == "fiducial":
@@ -2676,6 +2753,14 @@ class SampleScene:
                     weight = FM_INTENSITY * body_dye * 0.6
                 else:
                     weight = FM_INTENSITY * body_dye
+                if self._plan is not None and f.part in ("body", "nucleus", "bud"):
+                    # the solid sample: a dye through the cell glows by how
+                    # much cell there is (see _fm_glow), not as a flat shape
+                    if f.part != "nucleus":
+                        dyed[int(f.cell_id)] = max(
+                            dyed.get(int(f.cell_id), 0.0), FM_INTENSITY * body_dye
+                        )
+                    weight = FM_INTENSITY * fiducial if f.part == "nucleus" else 0.0
             if weight <= 0:
                 continue
             if f.part == "organelle" and f.sigma < 1e-6:
@@ -2695,6 +2780,8 @@ class SampleScene:
             # milling beam takes away the part of each column it passes
             # through, so from above a trench reaches as far as the SEM sees
             canvas *= 1.0 - self.milled_fraction(xs_world, ys_world)
+        if dyed:
+            canvas += self._fm_glow(dyed, xs_world, ys_world, pixel_size)
         if bars > 0 and self.milled:
             canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
@@ -2751,6 +2838,9 @@ class SampleScene:
         step = max(1, int(np.ceil(max(height, width) / 512)))
         xs = xs_world[0, ::step].astype(np.float64) * um
         ys = ys_world[::step, 0].astype(np.float64) * um
+        if self.renderer == "solid":
+            r = sim_solid.reflectance(self, self._fm_plan(xs_world, ys_world)[0])
+            return self._fm_reflected(r, step, xs_world, ys_world, defocus, rng)
         key = (
             "fm-reflection",
             self.seed,
@@ -2773,6 +2863,21 @@ class SampleScene:
             cache[key] = r
             while len(cache) > sim_relief.CACHE_SIZE:
                 cache.popitem(last=False)
+        return self._fm_reflected(r, step, xs_world, ys_world, defocus, rng)
+
+    def _fm_plan(self, xs_world, ys_world):
+        """The solid sample from above on the FM's pixels (at most ~512 a
+        side: the optics blur finer detail), and that decimation."""
+        um = sim_relief.UM
+        height, width = ys_world.shape[0], xs_world.shape[1]
+        step = max(1, int(np.ceil(max(height, width) / 512)))
+        xs = xs_world[0, ::step].astype(np.float64) * um
+        ys = ys_world[::step, 0].astype(np.float64) * um
+        return sim_solid.plan(self, xs, ys), step
+
+    @staticmethod
+    def _fm_full(r: np.ndarray, step: int, height: int, width: int) -> np.ndarray:
+        """A decimated frame back at the camera's pixels."""
         if step > 1:
             r = ndi_zoom(r, step, order=1)[:height, :width]
             if r.shape != (height, width):
@@ -2781,7 +2886,32 @@ class SampleScene:
                     ((0, height - r.shape[0]), (0, width - r.shape[1])),
                     mode="edge",
                 )
-        canvas = r * self.grid_intensity
+        return r
+
+    def _fm_glow(self, dyed: dict, xs_world, ys_world, pixel_size) -> np.ndarray:
+        """The glow of cells dyed through: brightest where the cell is
+        thickest, gone where it was milled away, with the haze a widefield
+        FM adds from above and below the focal plane."""
+        plan, step = self._plan
+        depth, cell_id = sim_solid.cell_depth(plan)
+        ids = np.array(sorted(dyed), dtype=np.int64)
+        level = np.array([dyed[i] for i in ids], dtype=np.float32)
+        at = np.clip(np.searchsorted(ids, cell_id), 0, len(ids) - 1)
+        glow = np.where(ids[at] == cell_id, level[at], 0.0) * depth / FM_CELL_DEPTH
+        height, width = ys_world.shape[0], xs_world.shape[1]
+        glow = self._fm_full(glow.astype(np.float32), step, height, width)
+        sharp = _blur(glow, max(FM_PSF_SIGMA / pixel_size, 0.6))
+        haze = _blur(glow, min(FM_GLOW_HAZE / pixel_size, 60.0))
+        # a real cell is not evenly dyed: brighter and dimmer patches
+        um = sim_relief.UM
+        wx, wy = np.broadcast_arrays(xs_world * um, ys_world * um)
+        patchy = 1 + 0.3 * sim_relief.value_noise(wx, wy, 6.0, int(self.seed) + 71)
+        return (0.3 * sharp + 0.7 * haze) * np.clip(patchy, 0.5, 1.5)
+
+    def _fm_reflected(self, r, step, xs_world, ys_world, defocus, rng):
+        """The reflection frame from the sample's reflectance."""
+        height, width = ys_world.shape[0], xs_world.shape[1]
+        canvas = self._fm_full(r, step, height, width) * self.grid_intensity
         if self.milled:
             # a spot burn's rim reflects brightly round its pit: a fiducial
             pixel = abs(float(xs_world[0, -1] - xs_world[0, 0])) / max(width - 1, 1)
@@ -2824,7 +2954,7 @@ class SampleScene:
                 int(f.y * 1e8) & 0x7FFFFFFF,
             ]
         )
-        z = float(rng.uniform(0.3e-6, 2.0e-6))
+        z = float(rng.uniform(0.3e-6, 2.0e-6)) + self._fm_film()
         spread = ((float(defocus or 0.0) - z) / max(self.fm_axial_range, 1e-9)) ** 2
         sigma = float(np.hypot(f.sigma, FM_PSF_SIGMA * np.sqrt(spread)))
         return replace(f, sigma=sigma, sharpness=1.0), weight * (f.sigma / sigma) ** 2
@@ -2841,7 +2971,7 @@ class SampleScene:
         def stamp(x, y, z, sigma0, peak):
             # the point spread widens away from focus; a wide source (the
             # pool) barely changes, a point (a centriole) spreads and dims
-            dz = (z_plane - z) / z_r
+            dz = (z_plane - z - self._fm_film()) / z_r
             sigma_m = float(np.hypot(sigma0, FM_PSF_SIGMA * abs(dz)))
             amp = weight * peak * (sigma0 / sigma_m) ** 2
             if amp < FM_FAINT:
@@ -3036,15 +3166,22 @@ class SampleScene:
         height, width = canvas.shape
         u = cx + (turn * pts[:, 0] + ax) / pix
         v = cy + (turn * pts[:, 1] * fs + ay) / pix
-        dz = (float(defocus or 0.0) - pts[:, 2]) / max(self.fm_axial_range, 1e-9)
+        dz = float(defocus or 0.0) - pts[:, 2] - self._fm_film()
+        dz = dz / max(self.fm_axial_range, 1e-9)
         sigma_m = np.hypot(sigma0, FM_PSF_SIGMA * np.abs(dz))
         amp = peak * (sigma0 / sigma_m) ** 2
         sigma_px = np.maximum(sigma_m / pix, 0.6)
         keep = amp >= FM_FAINT
         keep &= (u > -4 * sigma_px) & (u < width + 4 * sigma_px)
         keep &= (v > -4 * sigma_px) & (v < height + 4 * sigma_px)
-        if self.milled:
+        plan = getattr(self, "_plan", None)
+        if self.milled and plan is not None:
             # what a pattern cut away is gone
+            um = sim_relief.UM
+            keep &= ~plan[0].gone_at(
+                pts[:, 0] * um, pts[:, 1] * um, (pts[:, 2] + self._fm_film()) * um
+            )
+        elif self.milled:
             for i in np.flatnonzero(keep):
                 keep[i] = not self.milled_through(*pts[i, :3])
         if not np.any(keep):
@@ -3077,6 +3214,15 @@ class SampleScene:
         patterns cut away at each world point (0..1), each cut along the
         beam that milled it."""
         um = sim_relief.UM
+        plan = getattr(self, "_plan", None)
+        if plan is not None and plan[0].col["surface"].shape == (
+            len(ys_world[:: plan[1], 0]),
+            len(xs_world[0, :: plan[1]]),
+        ):
+            # the solid sample: its cells stand taller, from the film up
+            film = sim_solid.FILM_TOP
+            gone = plan[0].fraction(film + 0.05, film + 2 * top * um)
+            return self._fm_full(gone, plan[1], ys_world.shape[0], xs_world.shape[1])
         xs, ys = np.broadcast_arrays(xs_world * um, ys_world * um)
         heights = np.linspace(0.05, top * um, 24)
         gone = np.zeros((len(heights),) + xs.shape, dtype=bool)
@@ -3091,12 +3237,21 @@ class SampleScene:
         m, `z` m above the film: each pattern is cut along the beam that
         milled it, so a lamella keeps only what lies inside its slab."""
         um = sim_relief.UM
+        plan = getattr(self, "_plan", None)
+        if plan is not None:
+            return bool(plan[0].gone_at(x * um, y * um, (z + self._fm_film()) * um)[0])
         xs, ys = np.array([[x * um]]), np.array([[y * um]])
         for region in self.milled:
             lo, hi = sim_relief._cut_range(self, region, xs, ys)
             if lo[0, 0] <= z * um <= hi[0, 0]:
                 return True
         return False
+
+    def _fm_film(self) -> float:
+        """The height (m) of the film in the focal frame: heights in the FM
+        are given above the film, and the solid sample's film lies under its
+        ice, below the plane the stage brings into focus."""
+        return sim_solid.FILM_TOP / sim_relief.UM if self.renderer == "solid" else 0.0
 
     def _in_red_subset(self, cell_id: int) -> bool:
         """Whether a cell carries the subset dye: drawn from the seed and

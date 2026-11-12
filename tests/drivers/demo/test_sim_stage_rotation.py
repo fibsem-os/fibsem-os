@@ -14,10 +14,11 @@ carry random noise and the periodic mesh fools correlation.
 import numpy as np
 import pytest
 
-from fibsem.drivers.demo.sim_scene import SampleScene, fm_channel_weights
+from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures.settings import BeamType, FibsemRectangleSettings
 from tests.fixtures.microscopes import demo_microscope
+from tests.fixtures.sim_scenes import flat_scene
 
 microscope = demo_microscope("sim-iflm-configuration.yaml", scope="function")
 
@@ -28,7 +29,7 @@ SITE = (200e-6, 150e-6)
 
 @pytest.fixture
 def scene(microscope):
-    scene = SampleScene(cell_type="none")
+    scene = flat_scene(cell_type="none")
     scene.anchor(microscope._connection.scene_stage_position())
     microscope._connection.sample_scene = scene
     return scene

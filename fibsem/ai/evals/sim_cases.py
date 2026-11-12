@@ -71,14 +71,10 @@ VARIED = {
     "ice_density": (0.2, 0.8),
     "frost_density": (0.1, 0.6),
     "crack_density": (0.2, 1.0),
-    "rpe_island_density": (2.0, 4.0),
+    "rpe_density": (2.0, 4.0),
 }
-# Set for every seed: RPE as single cells and small groups of a few, not
-# the simulator's wide sheets.
-FIXED = {
-    "rpe_island_radius": [12e-6, 35e-6],
-    "rpe_occupancy": 0.6,
-}
+# Set for every seed.
+FIXED: Dict[str, Any] = {}
 
 BRIEFS = {
     "square_finding": (
@@ -203,7 +199,7 @@ def render_overview(
             _face_on(microscope)
         else:
             microscope.move_to_milling_angle(milling_angle)
-        scene = SampleScene(renderer="relief", **scene_options(seed, overrides, hfw))
+        scene = SampleScene(renderer="solid", **scene_options(seed, overrides, hfw))
         position = microscope.get_stage_position()
         scene.anchor(position)
         microscope._connection.sample_scene = scene
@@ -318,7 +314,10 @@ def measure_square(scene, grid, index: Tuple[int, int], step: float = 1e-6) -> D
     if getattr(scene, "film", "continuous") == "holey":
         broken = scene.broken_hole_mask(xs, ys)
     out: Dict[str, Any] = {
-        "rip_fraction": float(((rips | broken) & film).sum()) / area,
+        "rip_fraction": float((rips & film).sum()) / area,
+        # a few broken holes in a holey film: measured, not counted, as an
+        # overview doesn't show them
+        "broken_hole_fraction": float((broken & film).sum()) / area,
         "crack_length": _crack_length(scene, grid, centre, half),
         "beyond": bool(beyond.any()),
     }
@@ -518,7 +517,7 @@ def write_cases(
                     k: (list(v) if isinstance(v, tuple) else v)
                     for k, v in options.items()
                 },
-                "renderer": "relief",
+                "renderer": "solid",
                 "resolution": [w, h],
                 "hfw_m": hfw,
                 "dwell_s": DWELL,
