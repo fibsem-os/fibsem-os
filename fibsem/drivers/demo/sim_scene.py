@@ -1847,9 +1847,6 @@ class SampleScene:
         # orientation, where it starts (usually at a bar, running inward)
         # and how ragged its outline is. Rips cluster: a square beside a
         # ripped one rips more readily
-        def draw(k):
-            return _lattice_draw(sq_i, sq_j, grid.seed + k)
-
         torn = square_draw < self.rip_fraction
         beside_torn = np.zeros_like(torn)
         for di, dj in ((1, 0), (-1, 0), (0, 1), (0, -1)):
@@ -1857,23 +1854,33 @@ class SampleScene:
                 _lattice_draw(sq_i + di, sq_j + dj, grid.seed) < self.rip_fraction
             )
         torn |= beside_torn & (square_draw < 3 * self.rip_fraction)
-        size = self.grid_pitch * (0.15 + 0.35 * draw(11))  # semi-major axis
-        aspect = 0.4 + 0.6 * draw(12)
-        phi = np.pi * draw(13)
-        # the tear starts somewhere between the square's centre and a bar
-        psi = 2 * np.pi * draw(14)
-        start = (half_pitch - 0.7 * size) * (0.3 + 0.7 * draw(15))
-        ux, uy = lx - start * np.cos(psi), ly - start * np.sin(psi)
-        cos_p, sin_p = np.cos(phi), np.sin(phi)
-        ex = (ux * cos_p + uy * sin_p) / size
-        ey = (-ux * sin_p + uy * cos_p) / (size * aspect)
-        angle = np.arctan2(ey, ex)
-        ragged = 0.1 + 0.35 * draw(16)
-        phase = 2 * np.pi * draw(17)
-        wob = 1 + ragged * (
-            np.sin(3 * angle + phase) + 0.6 * np.sin(5 * angle + 2 * phase)
-        )
-        rips = torn & (np.hypot(ex, ey) < wob) & ~bars
+        torn &= ~bars
+        rips = np.zeros_like(bars)
+        if torn.any():
+            # few squares are torn: work the tears out only in those
+            ti, tj = sq_i[torn], sq_j[torn]
+
+            def draw(k):
+                return _lattice_draw(ti, tj, grid.seed + k)
+
+            size = self.grid_pitch * (0.15 + 0.35 * draw(11))  # semi-major axis
+            aspect = 0.4 + 0.6 * draw(12)
+            phi = np.pi * draw(13)
+            # the tear starts somewhere between the square's centre and a bar
+            psi = 2 * np.pi * draw(14)
+            start = (half_pitch - 0.7 * size) * (0.3 + 0.7 * draw(15))
+            ux = lx[torn] - start * np.cos(psi)
+            uy = ly[torn] - start * np.sin(psi)
+            cos_p, sin_p = np.cos(phi), np.sin(phi)
+            ex = (ux * cos_p + uy * sin_p) / size
+            ey = (-ux * sin_p + uy * cos_p) / (size * aspect)
+            angle = np.arctan2(ey, ex)
+            ragged = 0.1 + 0.35 * draw(16)
+            phase = 2 * np.pi * draw(17)
+            wob = 1 + ragged * (
+                np.sin(3 * angle + phase) + 0.6 * np.sin(5 * angle + 2 * phase)
+            )
+            rips[torn] = np.hypot(ex, ey) < wob
 
         holes = np.zeros_like(bars)
         if self.film == "holey":
@@ -1889,6 +1896,17 @@ class SampleScene:
         about its hole, a little bigger than the hole was."""
         if self.broken_hole_fraction <= 0:
             return np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
+        # a frame asks twice for the same points (the film, then the ice)
+        x_rot, y_rot = np.asarray(x_rot), np.asarray(y_rot)
+        key = (
+            seed, x_rot.shape, y_rot.shape, self.broken_hole_fraction,
+            self.hole_pitch, self.hole_diameter,
+            float(x_rot.flat[0]), float(x_rot.flat[-1]),
+            float(y_rot.flat[0]), float(y_rot.flat[-1]),
+        )  # fmt: skip
+        last = getattr(self, "_broken_last", None)
+        if last is not None and last[0] == key:
+            return last[1].copy()
         pitch = self.hole_pitch
         out = np.zeros(np.broadcast(x_rot, y_rot).shape, dtype=bool)
         hi0 = np.floor(x_rot / pitch).astype(np.int64)
@@ -1896,12 +1914,16 @@ class SampleScene:
         # a tear can reach past its own cell: look at the neighbours' holes too
         for di in (-1, 0, 1):
             for dj in (-1, 0, 1):
-                hi, hj = hi0 + di, hj0 + dj
-                broken = _lattice_draw(hi, hj, seed + 7) < self.broken_hole_fraction
+                broken = (
+                    _lattice_draw(hi0 + di, hj0 + dj, seed + 7)
+                    < self.broken_hole_fraction
+                )
                 if not broken.any():
                     continue
-                hx = x_rot - (hi + 0.5) * pitch
-                hy = y_rot - (hj + 0.5) * pitch
+                # few holes are broken: work out the tears only round those
+                hi, hj = (hi0 + di)[broken], (hj0 + dj)[broken]
+                hx = np.broadcast_to(x_rot, broken.shape)[broken] - (hi + 0.5) * pitch
+                hy = np.broadcast_to(y_rot, broken.shape)[broken] - (hj + 0.5) * pitch
                 size = self.hole_diameter * (
                     0.55 + 0.5 * _lattice_draw(hi, hj, seed + 8)
                 )
@@ -1918,7 +1940,8 @@ class SampleScene:
                     + 0.1 * np.sin(3 * t + 2 * phase)
                     + 0.04 * np.sin(5 * t + 3 * phase)
                 )
-                out |= broken & (np.hypot(u, v) < size * ragged)
+                out[broken] |= np.hypot(u, v) < size * ragged
+        self._broken_last = (key, out.copy())
         return out
 
     def _generate_cells(self, rng: np.random.Generator, half: float) -> None:
