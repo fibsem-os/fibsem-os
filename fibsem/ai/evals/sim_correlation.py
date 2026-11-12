@@ -64,7 +64,7 @@ CHANNELS = [
     ),
     ChannelSettings(
         name="red",
-        excitation_wavelength=561,
+        excitation_wavelength=550,
         emission_filter=EmissionFilter.band("610 nm", 610),
         color="red",
     ),

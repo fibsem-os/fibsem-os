@@ -137,12 +137,13 @@ def _parser() -> argparse.ArgumentParser:
     make_sim.add_argument(
         "--task",
         nargs="+",
-        choices=("grid", "polishing", "correlation", "placement"),
+        choices=("grid", "polishing", "correlation", "placement", "fm-target"),
         default=["grid"],
         help="grid: squares, labels and sites from an overview; polishing: a "
         "lamella milled pass by pass; correlation: spot burns round an FM "
         "target, with the FIB image and FM stack; placement: where the lamella "
-        "goes on a FIB image at the milling angle (default grid)",
+        "goes on a FIB image at the milling angle; fm-target: whether an FM "
+        "stack has a target at the site, and where (default grid)",
     )
     make_sim.add_argument(
         "--set",
@@ -206,6 +207,7 @@ def main(argv=None) -> int:
         from fibsem.ai.evals import (
             sim_cases,
             sim_correlation,
+            sim_fm_target,
             sim_placement,
             sim_polishing,
         )
@@ -223,6 +225,9 @@ def main(argv=None) -> int:
                 print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
             if "placement" in args.task:
                 folder = sim_placement.write_case(seed, args.out, overrides)
+                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            if "fm-target" in args.task:
+                folder = sim_fm_target.write_case(seed, args.out, overrides)
                 print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
             for beam in args.beam if "grid" in args.task else []:
                 for folder in sim_cases.write_cases(

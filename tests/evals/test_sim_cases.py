@@ -11,6 +11,7 @@ from fibsem.ai.evals import (
     report,
     sim_cases,
     sim_correlation,
+    sim_fm_target,
     sim_placement,
     sim_polishing,
 )
@@ -310,3 +311,24 @@ def test_a_setup_placement_case_from_the_sim(tmp_path):
         y, x = np.argwhere(bad)[0]
         [miss] = score_case(case, {"x_px": float(x), "y_px": float(y)})
         assert miss.result == "miss" and miss.details["costly"] == 1
+
+
+@pytest.mark.parametrize("seed, usable", [(1, "yes"), (4, "no")])
+def test_an_fm_target_case_from_the_sim(tmp_path, seed, usable):
+    folder = sim_fm_target.write_case(
+        seed, tmp_path, z_range=(0.0, 1e-6), channels=sim_fm_target.CHANNELS[1:2]
+    )
+    case = load_case(folder)
+    assert check_case(case).ok, check_case(case).problems
+    assert case.tier == "sim" and case.key["usable"] == usable
+    if usable == "no":
+        [score] = score_case(case, {"usable": "no"})
+        assert score.result == "hit"
+        return
+    target = case.key["target"]
+    # the site is near the target, not on it: the stack's centre misses
+    size = case.data["stack"]["pixel_size_um"]
+    w = case.data["stack"]["shape"][-1]
+    assert np.hypot(target["x_px"] - w / 2, target["y_px"] - w / 2) * size > 1.0
+    [hit] = score_case(case, {"usable": "yes", **target})
+    assert hit.result == "hit"
