@@ -182,3 +182,20 @@ def test_undo_puts_the_key_back_and_asks_again(run):  # noqa: F811
     except review.SettleError:
         return
     raise AssertionError("undid more than was settled")
+
+
+def test_what_each_repeat_did(run):  # noqa: F811
+    cases_root, out = run
+    (out / "site" / "r1" / "agent.log").write_text(
+        "10:00:00 Read the screen-grids skill\n"
+        "10:00:01 Called mcp__fibsem__experiment_read_file "
+        '{"path": "overview.png"}\n'
+        "10:00:02 agent: Two clear cells\n"
+    )
+    client = TestClient(build_app(out, cases_root))
+    one, _ = client.get("/evals/runs/out/cases/site/traces").json()
+    assert one["skills"] == ["screen-grids"] and one["looked_at"] == ["overview.png"]
+    assert one["tools"] == [["experiment_read_file", 1]] and one["said"] == [
+        "Two clear cells"
+    ]
+    assert one["has_log"]

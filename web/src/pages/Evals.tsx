@@ -125,8 +125,24 @@ function Score({ now }: { now: string[][] }) {
   );
 }
 
-function CaseList({ run, picked, pick }: { run: string; picked: string | null; pick: (id: string) => void }) {
+function CaseList({
+  run,
+  against,
+  picked,
+  pick,
+}: {
+  run: string;
+  against: string | null;
+  picked: string | null;
+  pick: (id: string) => void;
+}) {
   const summary = useQuery({ queryKey: ["evals-run", run], queryFn: () => get<RunSummary>(runPath(run)) });
+  const other = useQuery({
+    queryKey: ["evals-run", against],
+    queryFn: () => get<RunSummary>(runPath(against!)),
+    enabled: !!against,
+  });
+  const otherCase = (id: string) => other.data?.cases.find((c) => c.id === id);
   const [task, setTask] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   if (summary.isError) return <p className="text-[13px] text-destructive">{String(summary.error)}</p>;
@@ -219,7 +235,20 @@ function CaseList({ run, picked, pick }: { run: string; picked: string | null; p
               {summary.data.cases_root ? `Not in ${summary.data.cases_root}` : "Start serve with --cases"}
             </span>
           )}
-          <Score now={c.now} />
+          {!c.found ? null : against ? (
+            <span className="flex items-center gap-2 text-[12px]">
+              <Score now={c.now} />
+              <span className="text-muted-foreground">vs</span>
+              {otherCase(c.id)?.found ? (
+                <Score now={otherCase(c.id)!.now} />
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              )}
+              <span className="truncate text-muted-foreground">in {against}</span>
+            </span>
+          ) : (
+            <Score now={c.now} />
+          )}
         </button>
       ))}
     </div>
@@ -367,6 +396,75 @@ function Fold({ title, open, children }: { title: string; open?: boolean; childr
   );
 }
 
+interface Trace {
+  repeat: number;
+  skills: string[];
+  looked_at: string[];
+  tools: [string, number][];
+  said: string[];
+  failed: string[];
+  has_log: boolean;
+}
+
+/** What each repeat did, from its agent log; read only when opened. */
+function Traces({ run, id }: { run: string; id: string }) {
+  const [open, setOpen] = useState(false);
+  const traces = useQuery({
+    queryKey: ["evals-traces", run, id],
+    queryFn: () => get<Trace[]>(`${casePath(run, id)}/traces`),
+    enabled: open,
+  });
+  return (
+    <details
+      className="rounded-md border border-border bg-card px-4 py-2"
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="cursor-pointer text-[13px] font-semibold text-muted-foreground">
+        What each repeat did (agent log)
+      </summary>
+      <div className="mt-2 flex flex-col gap-4">
+        {traces.isError && <p className="m-0 text-[13px] text-destructive">{String(traces.error)}</p>}
+        {open && !traces.data && !traces.isError && (
+          <p className="m-0 text-[13px] text-muted-foreground">Reading the logs…</p>
+        )}
+        {traces.data?.map((t) => (
+          <div key={t.repeat} className="flex flex-col gap-1.5 text-[13px]">
+            <div className="font-medium">r{t.repeat}</div>
+            {!t.has_log && <div className="text-muted-foreground">No agent log kept for this repeat.</div>}
+            <Row label="Skills read">{t.skills.join(", ") || "none"}</Row>
+            {t.tools.length > 0 && (
+              <Row label="Tools">{t.tools.map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(", ")}</Row>
+            )}
+            {t.looked_at.length > 0 && <Row label="Looked at">{t.looked_at.join(", ")}</Row>}
+            {t.failed.map((f, i) => (
+              <Row key={i} label="Refused">
+                <span className="text-destructive">{f}</span>
+              </Row>
+            ))}
+            {t.said.map((words, i) => (
+              <blockquote
+                key={i}
+                className="m-0 border-l-2 border-border pl-3 whitespace-pre-wrap text-muted-foreground"
+              >
+                {words}
+              </blockquote>
+            ))}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-2">
+      <span className="w-24 shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-words">{children}</span>
+    </div>
+  );
+}
+
 function CaseView({ run, id }: { run: string; id: string }) {
   const detail = useQuery({ queryKey: ["evals-case", run, id], queryFn: () => get<CaseDetail>(casePath(run, id)) });
   if (detail.isError) return <p className="p-4 text-[13px] text-destructive">{String(detail.error)}</p>;
@@ -412,6 +510,7 @@ function CaseView({ run, id }: { run: string; id: string }) {
       <Fold title="What the agent was asked">
         <p className="m-0 text-[13px]">{d.brief}</p>
       </Fold>
+      <Traces run={run} id={d.id} />
       <Fold title="Each repeat's reasons">
         {d.repeats.map((r) => (
           <div key={r.repeat} className="text-[13px]">
@@ -437,6 +536,7 @@ export function EvalsPage() {
   });
   const [run, setRun] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
+  const [against, setAgainst] = useState<string | null>(null);
   useEffect(() => {
     if (!run && runs.data?.length) setRun(runs.data[0].name);
   }, [run, runs.data]);
@@ -451,6 +551,7 @@ export function EvalsPage() {
             onChange={(e) => {
               setRun(e.target.value);
               setPicked(null);
+              if (e.target.value === against) setAgainst(null);
             }}
             className="rounded border border-input bg-accent px-2 py-1 text-[13px] text-foreground"
           >
@@ -460,6 +561,26 @@ export function EvalsPage() {
               </option>
             ))}
           </select>
+        )}
+        {runs.data && runs.data.length > 1 && (
+          <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
+            Compare with
+            <select
+              aria-label="Compare with"
+              value={against ?? ""}
+              onChange={(e) => setAgainst(e.target.value || null)}
+              className="rounded border border-input bg-accent px-2 py-1 text-[13px] text-foreground"
+            >
+              <option value="">nothing</option>
+              {runs.data
+                .filter((r) => r.name !== run)
+                .map((r) => (
+                  <option key={r.name} value={r.name}>
+                    {r.name}
+                  </option>
+                ))}
+            </select>
+          </label>
         )}
       </header>
       {runs.isError && (
@@ -471,7 +592,7 @@ export function EvalsPage() {
       {run && (
         <div className="flex min-h-0 flex-1 flex-wrap items-stretch overflow-auto">
           <aside className="flex max-w-[300px] min-w-[240px] flex-[1_1_260px] flex-col gap-2 border-r border-border p-4">
-            <CaseList run={run} picked={picked} pick={setPicked} />
+            <CaseList run={run} against={against} picked={picked} pick={setPicked} />
           </aside>
           <div className="min-w-0 flex-[999_1_640px]">
             {picked ? (

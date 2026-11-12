@@ -15,7 +15,7 @@ from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, Response
 from pydantic import BaseModel
 
-from fibsem.ai.evals import review, visual
+from fibsem.ai.evals import review, trace, visual
 from fibsem.ai.evals.cases import Case, find_cases, stop_passes
 from fibsem.ai.evals.runner import RESULT
 from fibsem.ai.evals.scoring import score_case
@@ -197,6 +197,26 @@ class Reviewer:
         except review.SettleError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return self.case_detail(run, case_id)
+
+    def traces(self, run: str, case_id: str) -> List[Dict[str, Any]]:
+        """What each repeat did, from its agent log: skills read, what it
+        looked at, tool calls, what it said and what was refused."""
+        _, items = self.case_runs(run, case_id)
+        out = []
+        for folder, (result, _) in items:
+            got = trace.read_run(folder)
+            out.append(
+                {
+                    "repeat": result.get("repeat"),
+                    "skills": got.skills,
+                    "looked_at": got.looked_at,
+                    "tools": got.tools.most_common(),
+                    "said": got.said,
+                    "failed": got.failed,
+                    "has_log": (folder / trace.AGENT_LOG).is_file(),
+                }
+            )
+        return out
 
     def undo(self, run: str, case_id: str) -> Dict[str, Any]:
         case, _ = self.case_runs(run, case_id)
@@ -380,6 +400,10 @@ def build_app(runs: Path, cases: Optional[Path] = None) -> FastAPI:
     @api.post("/runs/{run}/cases/{case_id}/settle")
     def settle(run: str, case_id: str, body: Settle):
         return reviewer.settle(run, case_id, body)
+
+    @api.get("/runs/{run}/cases/{case_id}/traces")
+    def traces(run: str, case_id: str):
+        return reviewer.traces(run, case_id)
 
     @api.post("/runs/{run}/cases/{case_id}/undo")
     def undo(run: str, case_id: str):
