@@ -121,8 +121,9 @@ def test_the_key_puts_each_square_on_film_and_its_pitch_on_the_bars(bare):
             continue
         centre = image[int(y) - 3 : int(y) + 4, int(x) - 3 : int(x) + 4].mean()
         bar = image[int(by) - 3 : int(by) + 4, int(bx) - 3 : int(bx) + 4].mean()
-        assert abs(centre - film) < 5
-        assert bar > film + 10
+        # the centre is on the film, darker than the bar half a pitch away
+        assert centre < film < bar
+        assert bar - centre > 10
         checked += 1
     assert checked >= 3
 

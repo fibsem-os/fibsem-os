@@ -123,7 +123,7 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
     options: Dict[str, Any] = {
         "cell_type": str(rng.choice(["mammalian", "rpe", "neuron"])),
         "coincidence_offset": 0.0,
-        "renderer": "relief",
+        "renderer": "solid",
         # the grid is GIS-coated before milling, as on the instrument
         "gis_thickness": GIS,
     }
