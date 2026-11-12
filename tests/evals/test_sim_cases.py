@@ -332,3 +332,8 @@ def test_an_fm_target_case_from_the_sim(tmp_path, seed, usable):
     assert np.hypot(target["x_px"] - w / 2, target["y_px"] - w / 2) * size > 1.0
     [hit] = score_case(case, {"usable": "yes", **target})
     assert hit.result == "hit"
+    # the target is not listed among the other cilia
+    assert all(
+        np.hypot(o["x_px"] - target["x_px"], o["y_px"] - target["y_px"]) * size > 5
+        for o in case.key["other_candidates"]
+    )

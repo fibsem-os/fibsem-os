@@ -148,7 +148,7 @@ def write_case(
         others = [
             (_fm_px(microscope, scene, *t["midpoint"][:2]), t["midpoint"][2])
             for t in scene.fm_targets()
-            if t is not target
+            if target is None or not np.allclose(t["midpoint"], target["midpoint"])
         ]
     finally:
         microscope.disconnect()
