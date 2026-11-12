@@ -7,16 +7,19 @@ disagreement writes the case's key (``fibsem.ai.evals.review``).
 """
 
 import base64
+import io
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.responses import RedirectResponse, Response
+from PIL import Image
 from pydantic import BaseModel
 
 from fibsem.ai.evals import review, trace, visual
-from fibsem.ai.evals.cases import Case, find_cases, stop_passes
+from fibsem.ai.evals.cases import Case, find_cases, pixel_size_um, stop_passes
 from fibsem.ai.evals.runner import RESULT
 from fibsem.ai.evals.scoring import score_case
 from fibsem.server.web_app import web_app_router
@@ -30,6 +33,9 @@ PORT = 8765
 class Settle(BaseModel):
     item: str
     action: str
+    # For "place": the point clicked, in the image's px.
+    x_px: Optional[float] = None
+    y_px: Optional[float] = None
 
 
 class Reviewer:
@@ -157,7 +163,10 @@ class Reviewer:
             "figures": captions,
             "repeats": repeats,
             "live": visual.live_rows(case, pairs),
-            "items": review.disagreements(case, pairs),
+            "items": [
+                dict(i, view=_view(case, i, pairs))
+                for i in review.disagreements(case, pairs)
+            ],
             "settled": [
                 {k: e.get(k) for k in ("at", "run", "id", "action")}
                 for e in review.read_log(case)
@@ -193,7 +202,10 @@ class Reviewer:
     def settle(self, run: str, case_id: str, body: Settle) -> Dict[str, Any]:
         case, items = self.case_runs(run, case_id)
         try:
-            review.settle(case, [r for _, r in items], body.item, body.action, run=run)
+            at = None if body.x_px is None else (body.x_px, body.y_px)
+            review.settle(
+                case, [r for _, r in items], body.item, body.action, run=run, at=at
+            )
         except review.SettleError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         return self.case_detail(run, case_id)
@@ -296,11 +308,101 @@ def _key_text(case: Case) -> str:
     return ""
 
 
+# Disagreements drawn in the page: a plain crop, the marks laid over it in
+# the browser, and a click on it places the key.
+POINT_KINDS = ("point", "usable", "extra", "missed")
+
+
+def _view(
+    case: Case, item: Dict[str, Any], runs: List[visual.Run]
+) -> Optional[Dict[str, Any]]:
+    """The crop (image px) the item's picture shows and the marks on it."""
+    if item["kind"] not in POINT_KINDS:
+        return None
+    marks: List[Dict[str, Any]] = []
+    if case.task == "square_finding":
+        pitch = float(case.key.get("pitch_px") or 100)
+        half, radius = pitch * 1.5, pitch / 3
+        for sq in case.key.get("squares") or []:
+            marks.append(
+                {
+                    "x": sq["x_px"],
+                    "y": sq["y_px"],
+                    "kind": "optional" if sq.get("optional") else "key",
+                    "r": radius,
+                }
+            )
+        for result, answer in runs:
+            for x, y in review._squares_found(answer):
+                marks.append({"x": x, "y": y, "kind": "agent"})
+    else:
+        size = float(pixel_size_um(case) or 1)
+        tol = float(
+            case.scoring.get("xy_tolerance_um")
+            or case.scoring.get("across_tolerance_um")
+            or 1.0
+        )
+        radius = max(tol / size, 5)
+        half = max(radius * 6, 80 if case.task == "fm_target" else 150)
+        key_xy = review.key_point(case)
+        if key_xy:
+            marks.append({"x": key_xy[0], "y": key_xy[1], "kind": "key", "r": radius})
+        for result, answer in runs:
+            xy = review._xy(answer or {})
+            if xy:
+                marks.append(
+                    {
+                        "x": xy[0],
+                        "y": xy[1],
+                        "kind": "agent",
+                        "repeat": result.get("repeat"),
+                    }
+                )
+    centre = (item.get("x_px"), item.get("y_px"))
+    if centre[0] is None:
+        centre = review.key_point(case) or next(((m["x"], m["y"]) for m in marks), None)
+    if centre is None:
+        return None
+    x0, y0 = int(centre[0] - half), int(centre[1] - half)
+    side = int(2 * half)
+    return {"x0": x0, "y0": y0, "x1": x0 + side, "y1": y0 + side, "marks": marks}
+
+
+def _crop_png(case: Case, view: Dict[str, Any]) -> Optional[bytes]:
+    """The view's crop as a grey PNG, padded where it runs off the image."""
+    x0, y0, x1, y1 = view["x0"], view["y0"], view["x1"], view["y1"]
+    if case.task == "fm_target":
+        mid = ((x0 + x1) / 2, (y0 + y1) / 2)
+        crop, extent = visual._stack_crop(case, mid[0], mid[1], (x1 - x0) // 2)
+        cx0, cy0 = extent[0], extent[3]
+    else:
+        name = "fib_image" if case.task == "correlation" else "overview"
+        image = visual._read_image(visual._input(case, name))
+        h, w = image.shape
+        cx0, cy0 = max(0, x0), max(0, y0)
+        crop = image[cy0 : min(h, y1), cx0 : min(w, x1)]
+    out = np.zeros((y1 - y0, x1 - x0), dtype=np.float32)
+    if crop.size:
+        out[
+            cy0 - y0 : cy0 - y0 + crop.shape[0], cx0 - x0 : cx0 - x0 + crop.shape[1]
+        ] = visual._stretch(crop)
+    picture = Image.fromarray((out * 255).astype(np.uint8))
+    if picture.width > 800:
+        picture = picture.resize((800, 800))
+    buffer = io.BytesIO()
+    picture.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
 def _item_png(
     case: Case, item: Dict[str, Any], runs: List[visual.Run]
 ) -> Optional[bytes]:
     """A close look at one disagreement: the site or square with the key and
-    the agent's picks drawn, or the pass the agent stopped after."""
+    the agent's picks drawn, the pass the agent stopped after, or the plain
+    crop of a point the page draws on."""
+    if item["kind"] in POINT_KINDS:
+        view = _view(case, item, runs)
+        return _crop_png(case, view) if view else None
     if item["kind"] in ("site", "square"):
         image = visual._read_image(visual._input(case, "overview"))
         if item["kind"] == "site":

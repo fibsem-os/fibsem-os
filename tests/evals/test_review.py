@@ -199,3 +199,79 @@ def test_what_each_repeat_did(run):  # noqa: F811
         "Two clear cells"
     ]
     assert one["has_log"]
+
+
+def test_a_target_placed_elsewhere_can_move_the_key(run):  # noqa: F811
+    cases_root, out = run
+    case = load_case(cases_root / "corr")
+    runs = _runs(out, "corr")
+    (item,) = review.disagreements(case, runs)
+    assert item["kind"] == "point" and (item["x_px"], item["y_px"]) == (301, 230)
+    after = review.settle(case, runs, item["id"], "move")
+    assert after.key["target_fib_px"] == {"x": 301.0, "y": 230.0}
+    assert review.disagreements(after, runs) == []
+
+
+def test_a_click_places_the_key(run):  # noqa: F811
+    cases_root, out = run
+    case = load_case(cases_root / "corr")
+    runs = _runs(out, "corr")
+    (item,) = review.disagreements(case, runs)
+    after = review.settle(case, runs, item["id"], "place", at=(299.4, 228.6))
+    assert after.key["target_fib_px"] == {"x": 299.4, "y": 228.6}
+    (entry,) = review.read_log(after)
+    assert entry["at_px"] == [299.4, 228.6]
+
+
+def test_squares_found_and_missed_against_the_key(run):  # noqa: F811
+    cases_root, out = run
+    case = load_case(cases_root / "find")
+    _with_squares(out, extra=(500, 300))
+    runs = _runs(out, "find")
+    items = review.disagreements(case, runs)
+    kinds = sorted(i["kind"] for i in items)
+    assert kinds.count("extra") == 1 and kinds.count("missed") >= 1
+    extra = next(i for i in items if i["kind"] == "extra")
+    after = review.settle(case, runs, extra["id"], "add")
+    assert after.key["squares"][-1] == {"x_px": 502, "y_px": 300, "from": "review"}
+    missed = next(i for i in review.disagreements(after, runs) if i["kind"] == "missed")
+    after = review.settle(after, runs, missed["id"], "optional")
+    assert missed["id"] not in [i["id"] for i in review.disagreements(after, runs)]
+
+
+def test_an_fm_target_called_not_usable(run):  # noqa: F811
+    cases_root, out = run
+    path = out / "fm" / "r1" / "work" / "answer.json"
+    path.write_text(json.dumps({"usable": "no", "reason": "too dim"}))
+    case = load_case(cases_root / "fm")
+    runs = _runs(out, "fm")
+    (item,) = review.disagreements(case, runs)
+    assert item["id"] == "usable:no" and item["repeats"] == [1]
+    after = review.settle(case, runs, item["id"], "accept")
+    assert after.key["usable"] is False
+
+
+def test_a_point_picture_is_a_plain_crop_with_its_view(run):  # noqa: F811
+    cases_root, out = run
+    client = TestClient(build_app(out, cases_root))
+    (item,) = client.get("/evals/runs/out/cases/corr").json()["items"]
+    view = item["view"]
+    assert view["x0"] < 301 < view["x1"] and {m["kind"] for m in view["marks"]} == {
+        "key",
+        "agent",
+    }
+    png = client.get(f"/evals/runs/out/cases/corr/items/{item['id']}.png")
+    assert png.status_code == 200 and png.content[:4] == b"\x89PNG"
+    placed = client.post(
+        "/evals/runs/out/cases/corr/settle",
+        json={"item": item["id"], "action": "place", "x_px": 300, "y_px": 229},
+    )
+    assert placed.status_code == 200 and placed.json()["items"] == []
+
+
+def _with_squares(out, extra):
+    for repeat in (1, 2):
+        path = out / "find" / f"r{repeat}" / "work" / "answer.json"
+        answer = json.loads(path.read_text())
+        answer["squares"].append({"x_px": extra[0] + repeat, "y_px": extra[1]})
+        path.write_text(json.dumps(answer))

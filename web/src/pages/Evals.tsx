@@ -44,6 +44,16 @@ interface Item {
   repeats: number[];
   answers: Answer[];
   actions: { action: string; label: string }[];
+  can_place?: boolean;
+  view?: View | null;
+}
+
+interface View {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  marks: { x: number; y: number; kind: string; r?: number; repeat?: number }[];
 }
 
 interface Repeat {
@@ -255,6 +265,86 @@ function CaseList({
   );
 }
 
+const MARK: Record<string, string> = { key: "#3fb950", optional: "#8b949e", agent: "#bc8cff" };
+
+/** A plain crop with the key and the agent's answers drawn over it; a click
+ * marks a point, and "Put the key here" settles the item there. */
+function Placer({
+  src,
+  view,
+  canPlace,
+  busy,
+  place,
+}: {
+  src: string;
+  view: View;
+  canPlace: boolean;
+  busy: boolean;
+  place: (x: number, y: number) => void;
+}) {
+  const [at, setAt] = useState<[number, number] | null>(null);
+  const w = view.x1 - view.x0;
+  const tick = w / 60;
+  const pick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!canPlace) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const x = view.x0 + ((e.clientX - box.left) / box.width) * w;
+    const y = view.y0 + ((e.clientY - box.top) / box.height) * (view.y1 - view.y0);
+    setAt([Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
+  };
+  return (
+    <div className="flex w-full max-w-[460px] flex-[1_1_320px] flex-col gap-2 self-start">
+      <div className="relative aspect-square w-full overflow-hidden rounded border border-border bg-black">
+        <img src={src} alt="" className="absolute inset-0 h-full w-full" />
+        <svg
+          viewBox={`${view.x0} ${view.y0} ${w} ${view.y1 - view.y0}`}
+          className={cn("absolute inset-0 h-full w-full", canPlace && "cursor-crosshair")}
+          onClick={pick}
+        >
+          {view.marks.map((m, i) =>
+            m.kind === "agent" ? (
+              <path
+                key={i}
+                d={`M${m.x - tick} ${m.y - tick}L${m.x + tick} ${m.y + tick}M${m.x - tick} ${m.y + tick}L${m.x + tick} ${m.y - tick}`}
+                stroke={MARK.agent}
+                strokeWidth={tick / 3}
+              />
+            ) : (
+              <circle
+                key={i}
+                cx={m.x}
+                cy={m.y}
+                r={m.r ?? tick * 2}
+                fill="none"
+                stroke={MARK[m.kind] ?? MARK.key}
+                strokeWidth={tick / 3}
+              />
+            ),
+          )}
+          {at && (
+            <g stroke="#f0883e" strokeWidth={tick / 3}>
+              <path
+                d={`M${at[0] - tick * 2} ${at[1]}H${at[0] + tick * 2}M${at[0]} ${at[1] - tick * 2}V${at[1] + tick * 2}`}
+              />
+            </g>
+          )}
+        </svg>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+        <span>
+          <span style={{ color: MARK.key }}>○</span> key <span style={{ color: MARK.agent }}>×</span> agent
+          {canPlace && " · click to mark where it really is"}
+        </span>
+        {at && (
+          <Button disabled={busy} onClick={() => place(at[0], at[1])}>
+            Put the key here ({Math.round(at[0])}, {Math.round(at[1])})
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
   const client = useQueryClient();
   const count = detail.items.length;
@@ -262,12 +352,14 @@ function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
   const at = Math.min(index, Math.max(count - 1, 0));
   const item = detail.items[at];
   const settle = useMutation({
-    mutationFn: async (action: string) => {
+    mutationFn: async (choice: string | { action: string; x_px: number; y_px: number }) => {
+      const action = typeof choice === "string" ? choice : choice.action;
+      const point = typeof choice === "string" ? {} : { x_px: choice.x_px, y_px: choice.y_px };
       const undo = action === "undo";
       const response = await fetch(`${casePath(run, detail.id)}/${undo ? "undo" : "settle"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: undo ? undefined : JSON.stringify({ item: item.id, action }),
+        body: undo ? undefined : JSON.stringify({ item: item.id, action, ...point }),
       });
       if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail ?? response.statusText);
       return response.json();
@@ -315,13 +407,24 @@ function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
     );
   return (
     <section className="flex flex-wrap gap-4 rounded-md border border-border bg-card p-4">
-      <img
-        key={item.id}
-        src={`${casePath(run, detail.id)}/items/${enc(item.id)}.png`}
-        alt={item.title}
-        className="w-full max-w-[460px] flex-[1_1_320px] self-start rounded border border-border bg-white"
-        onError={(e) => (e.currentTarget.style.display = "none")}
-      />
+      {item.view ? (
+        <Placer
+          key={item.id}
+          src={`${casePath(run, detail.id)}/items/${enc(item.id)}.png`}
+          view={item.view}
+          canPlace={!!item.can_place}
+          busy={settle.isPending}
+          place={(x, y) => settle.mutate({ action: "place", x_px: x, y_px: y })}
+        />
+      ) : (
+        <img
+          key={item.id}
+          src={`${casePath(run, detail.id)}/items/${enc(item.id)}.png`}
+          alt={item.title}
+          className="w-full max-w-[460px] flex-[1_1_320px] self-start rounded border border-border bg-white"
+          onError={(e) => (e.currentTarget.style.display = "none")}
+        />
+      )}
       <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-3">
         <div className="flex items-center gap-1 text-[12px] text-muted-foreground">
           <span className="mr-1">
