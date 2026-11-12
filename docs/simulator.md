@@ -214,7 +214,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | -- | -- | -- |
 | `grid_pitch` | 0.000125 | mesh pitch (m); 125 um is a 200 mesh |
 | `grid_bar_width` | 3.5e-05 | bar width (m) |
-| `bar_height` | 1e-05 | relief: how far the bars stand above the middle of a square (m); 0 is flat |
+| `bar_height` | 3e-06 | relief: how far the bars stand above the middle of a square (m); 0 is flat |
 | `bar_meniscus` | 1.5e-05 | relief: how wide the ice climbing each bar is (m) |
 | `grid_intensity` | 90 | how bright the bars read in the SEM (0-255 scale) |
 | `grid_radius` | 0.0014 | usable film radius (m); past it the rim, then the holder |

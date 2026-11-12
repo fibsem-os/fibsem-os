@@ -664,7 +664,7 @@ class SampleScene:
     grid_bar_width: float = 35e-6  # m
     # the bars stand this much above the middle of a square (m), the ice
     # climbing to them over about bar_meniscus (m), so a square is a well
-    bar_height: float = 10e-6
+    bar_height: float = 3e-6
     bar_meniscus: float = 15e-6
     grid_intensity: float = 90.0
     # the support film in each square: "continuous", or "holey" - a
