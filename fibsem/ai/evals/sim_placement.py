@@ -5,10 +5,10 @@ Setup task sees it. The agent places the lamella: its centre on the FIB image,
 with the trenches above and below it as the protocol sets them.
 
 The key is two masks the size of the image, from the scene: where the centre
-puts the whole lamella on a cell with both trenches and the fiducial clear of
-the grid bars and inside the image (ok), and where a trench or the lamella would
-cut a bar (bad, a costly miss). Anything else, such as a lamella in bare ice,
-is a plain miss.
+runs the lamella's middle line across a cell for most of its width, with the
+lamella off the grid bars, the trenches at most a little onto them, and all of
+it inside the image (ok); and where the lamella itself would sit on a bar (bad,
+a costly miss). Anything else, such as a lamella in bare ice, is a plain miss.
 """
 
 import logging
@@ -41,8 +41,9 @@ LAMELLA = {
     "fiducial_offset_x": 25e-6,
     "fiducial_height": 10e-6,
 }
-ON_CELL = 0.95  # of the lamella on a cell, to be ok
-ON_BAR = 0.02  # of a trench or the lamella on a bar: bad
+ON_CELL = 0.7  # of the lamella's middle line on a cell, to be ok
+TRENCH_ON_BAR = 0.3  # of the trenches that may run onto a bar and still be ok
+ON_BAR = 0.02  # of the lamella itself on a bar: bad
 STEP = 2  # px between the centres the key tests
 
 BRIEF = (
@@ -51,8 +52,8 @@ BRIEF = (
     "The lamella is {w:.1f} um wide and {s:.1f} um high between the trenches; "
     "the upper and lower trenches are {u:.1f} um and {lo:.1f} um high, above "
     "and below it. The fiducial goes {f:.0f} um to the right of the centre. "
-    "Trenches must not cut a grid bar, and everything must stay inside the "
-    "image."
+    "The lamella must not sit on a grid bar (the trenches may run a little "
+    "onto one), and everything must stay inside the image."
 )
 
 
@@ -173,16 +174,20 @@ def _masks(cell: np.ndarray, bars: np.ndarray, pixel: float, step: int = STEP):
     c0, c1 = clip(c - half_w, cols), clip(c + half_w, cols)
     area = np.maximum((c1 - c0), 1)
     lam_r0, lam_r1 = clip(r - half_s, rows), clip(r + half_s, rows)
-    on_cell = _box_sum(tc, lam_r0, lam_r1, c0, c1) / np.maximum(
-        area * (lam_r1 - lam_r0), 1
-    )
+    mid = clip(r, rows - 1)
+    on_cell = _box_sum(tc, mid, mid + 1, c0, c1) / area
     upper = _box_sum(tb, clip(r - half_s - up, rows), lam_r0, c0, c1)
     lower = _box_sum(tb, lam_r1, clip(r + half_s + lo, rows), c0, c1)
     middle = _box_sum(tb, lam_r0, lam_r1, c0, c1)
-    span = np.maximum(area * (up + lo + 2 * half_s), 1)
-    on_bar = (upper + lower + middle) / span
-    ok = inside & (on_cell >= ON_CELL) & (upper + lower == 0)
-    bad = on_bar > ON_BAR
+    trench_on_bar = (upper + lower) / np.maximum(area * (up + lo), 1)
+    lamella_on_bar = middle / np.maximum(area * (lam_r1 - lam_r0), 1)
+    ok = (
+        inside
+        & (on_cell >= ON_CELL)
+        & (lamella_on_bar == 0)
+        & (trench_on_bar <= TRENCH_ON_BAR)
+    )
+    bad = lamella_on_bar > ON_BAR
     return ok, bad & ~ok
 
 
@@ -281,8 +286,8 @@ def write_case(
             "ok_fraction": round(float(ok.mean()), 4),
         },
         "traps": [
-            "A bar under a cell: the cell looks fine but a trench over the bar "
-            "cuts metal."
+            "A cell over a bar: the cell looks fine but the lamella would be cut "
+            "into metal."
         ],
     }
     with open(folder / "case.yaml", "w") as f:
