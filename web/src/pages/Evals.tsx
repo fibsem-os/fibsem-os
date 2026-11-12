@@ -86,7 +86,6 @@ const COLOURS: Record<string, string> = {
   miss: "text-[#f85149]",
   early: "text-[#f0883e]",
   late: "text-[#f0883e]",
-  unsafe: "text-[#bc8cff]",
   invalid: "text-muted-foreground",
 };
 

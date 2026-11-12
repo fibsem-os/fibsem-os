@@ -212,13 +212,13 @@ def did(score: Dict[str, Any]) -> str:
     if task == "site_selection" and "picks" in d:
         on_good = sum(1 for p in d.get("per_pick", []) if "good" in p)
         text = f"{on_good} of {d['picks']} picks on good squares"
-        if d.get("unsafe_picks"):
-            text += f", {d['unsafe_picks']} on bad"
+        if d.get("bad_picks"):
+            text += f", {d['bad_picks']} on bad"
         return text
     if task == "square_quality" and "total" in d:
         text = f"{d['correct']} of {d['total']} labels right"
-        if d.get("unsafe"):
-            text += f", damaged called good: {', '.join(d['unsafe'])}"
+        if d.get("bad_called_good"):
+            text += f", bad called good: {', '.join(d['bad_called_good'])}"
         return text
     if task == "polishing_stop" and "key" in d:
         stop = d.get("stopped_after")
