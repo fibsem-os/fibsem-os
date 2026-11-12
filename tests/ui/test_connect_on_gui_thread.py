@@ -8,11 +8,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal import Signal
-from PyQt5.QtCore import QThread
-from PyQt5.QtWidgets import QWidget
+from qtpy.QtCore import QThread
+from qtpy.QtWidgets import QWidget
 
 from fibsem.ui.qt.connections import connect_on_gui_thread
 

@@ -30,10 +30,9 @@ import os
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Set, Union
 
-from PyQt5 import sip
-from PyQt5.QtCore import QSize, Qt, QThread, pyqtSignal
-from PyQt5.QtGui import QIcon, QKeySequence, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, QThread, Signal
+from qtpy.QtGui import QIcon, QKeySequence, QPixmap
+from qtpy.QtWidgets import (
     QApplication,
     QDialog,
     QHBoxLayout,
@@ -64,6 +63,7 @@ from fibsem.theme.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.qt import sip
 from fibsem.ui.stylesheets import NAPARI_STYLE, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
@@ -160,7 +160,7 @@ def _start(loader: "_Loader") -> None:
 class _Loader(QThread):
     """Reads one file off the GUI thread; emits the image, or the error."""
 
-    loaded = pyqtSignal(str, object)  # path, image or Exception
+    loaded = Signal(str, object)  # path, image or Exception
 
     def __init__(self, path: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -178,7 +178,7 @@ class ImageViewer(QWidget):
     """Saved images on the real canvas, one at a time, with the bar, a title, the
     position among them, a filmstrip and Export."""
 
-    title_changed = pyqtSignal(str)
+    title_changed = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -213,7 +213,7 @@ class ImageViewer(QWidget):
         header.addWidget(self.export_button)
         self._header = header
 
-        self.loading_label = QLabel(alignment=Qt.AlignCenter)
+        self.loading_label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
         self.loading_label.setStyleSheet(_LOADING_STYLE)
 
         # A beam image: the canvas, then the bar of its kind. The field picker's
@@ -256,8 +256,8 @@ class ImageViewer(QWidget):
         self.filmstrip = QScrollArea()
         self.filmstrip.setWidget(film_content)
         self.filmstrip.setWidgetResizable(True)
-        self.filmstrip.setFrameShape(QScrollArea.NoFrame)
-        self.filmstrip.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.filmstrip.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.filmstrip.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.filmstrip.setFixedHeight(_FILM_TILE.height() + 44)
         self.hint_label = QLabel("← → to step · Esc to close")
         self.hint_label.setStyleSheet(_HINT_STYLE)
@@ -277,18 +277,20 @@ class ImageViewer(QWidget):
         # Shortcuts, not a key handler: the canvases are matplotlib widgets, which
         # take the arrow keys for themselves before a parent hears of them. They
         # follow the focus, so the viewer takes it when nothing inside has it.
-        self.setFocusPolicy(Qt.StrongFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         for key, slot in (
-            (Qt.Key_Left, lambda: self.step(-1)),
-            (Qt.Key_Right, lambda: self.step(1)),
-            (Qt.Key_Up, lambda: self._step_z(1)),
-            (Qt.Key_Down, lambda: self._step_z(-1)),
+            (Qt.Key.Key_Left, lambda: self.step(-1)),
+            (Qt.Key.Key_Right, lambda: self.step(1)),
+            (Qt.Key.Key_Up, lambda: self._step_z(1)),
+            (Qt.Key.Key_Down, lambda: self._step_z(-1)),
         ):
             shortcut = QShortcut(QKeySequence(key), self)
-            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(slot)
         # Shown over the image while files are dragged over a viewer that takes them.
-        self.drop_hint = QLabel("Drop images to open", self, alignment=Qt.AlignCenter)
+        self.drop_hint = QLabel(
+            "Drop images to open", self, alignment=Qt.AlignmentFlag.AlignCenter
+        )
         self.drop_hint.setStyleSheet(_DROP_HINT_STYLE)
         self.drop_hint.hide()
         self._update_navigation()
@@ -470,7 +472,7 @@ class ImageViewer(QWidget):
             button = QToolButton()
             button.setCheckable(True)
             button.setAutoRaise(True)
-            button.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
             button.setIconSize(_FILM_TILE)
             button.setStyleSheet(_FILM_STYLE)
             button.setText(item.label or str(i + 1))
@@ -479,7 +481,9 @@ class ImageViewer(QWidget):
                 button.setIcon(
                     QIcon(
                         item.thumbnail.scaled(
-                            _FILM_TILE, Qt.KeepAspectRatio, Qt.SmoothTransformation
+                            _FILM_TILE,
+                            Qt.AspectRatioMode.KeepAspectRatio,
+                            Qt.TransformationMode.SmoothTransformation,
                         )
                     )
                 )
@@ -517,7 +521,9 @@ class ImageViewer(QWidget):
             return
         self.loading_label.setPixmap(
             self._placeholder.scaled(
-                self.stack.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+                self.stack.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
         )
 
@@ -588,7 +594,7 @@ class ImageViewer(QWidget):
             export_image = from_fluorescence_image(image, self._path)
         else:
             export_image = from_fibsem_image(image, self._path)
-        ImageExportDialog(export_image, self).exec_()
+        ImageExportDialog(export_image, self).exec()
 
 
 class ImageViewerDialog(QDialog):

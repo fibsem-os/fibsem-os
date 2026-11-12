@@ -12,7 +12,7 @@ defect that only shows in the tab.
 
 import sys
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem import utils
 from fibsem.imaging.overview_session import OverviewSession
@@ -28,7 +28,7 @@ def main() -> int:
     widget.setStyleSheet(stylesheets.NAPARI_STYLE)
     widget.resize(1400, 900)
     widget.show()
-    return app.exec_()
+    return app.exec()
 
 
 if __name__ == "__main__":

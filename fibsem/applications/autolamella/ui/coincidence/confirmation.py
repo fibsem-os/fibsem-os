@@ -15,7 +15,7 @@ takes a deliberate click.
 
 from typing import List, Optional, Tuple
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QPushButton,

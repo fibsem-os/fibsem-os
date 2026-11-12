@@ -16,8 +16,8 @@ from __future__ import annotations
 import logging
 from typing import Optional, Tuple
 
-from PyQt5.QtCore import QEventLoop, Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEventLoop, Qt
+from qtpy.QtWidgets import (
     QApplication,
     QComboBox,
     QDialog,
@@ -137,7 +137,7 @@ class ConnectionDialog(QDialog):
         icon.setStyleSheet("background: transparent; border: none;")
         icon.setFixedSize(20, 20)
         icon.setPixmap(fibsem_icon("mdi:auto-fix", color=PRIMARY_COLOR).pixmap(20, 20))
-        frame_layout.addWidget(icon, 0, Qt.AlignTop)
+        frame_layout.addWidget(icon, 0, Qt.AlignmentFlag.AlignTop)
 
         text = QVBoxLayout()
         text.setSpacing(2)
@@ -173,7 +173,9 @@ class ConnectionDialog(QDialog):
             QPushButton:hover {{ background-color: rgba(0, 122, 204, 0.20); }}
         """)
         self.guided_setup_button.clicked.connect(self.run_guided_setup)
-        frame_layout.addWidget(self.guided_setup_button, 0, Qt.AlignVCenter)
+        frame_layout.addWidget(
+            self.guided_setup_button, 0, Qt.AlignmentFlag.AlignVCenter
+        )
 
         self.dismiss_first_run_button = QToolButton()
         self.dismiss_first_run_button.setIcon(
@@ -185,7 +187,9 @@ class ConnectionDialog(QDialog):
             "border: none; background: transparent;"
         )
         self.dismiss_first_run_button.clicked.connect(self._dismiss_first_run)
-        frame_layout.addWidget(self.dismiss_first_run_button, 0, Qt.AlignTop)
+        frame_layout.addWidget(
+            self.dismiss_first_run_button, 0, Qt.AlignmentFlag.AlignTop
+        )
 
         self.first_run_frame = frame
         frame.setVisible(False)
@@ -571,7 +575,9 @@ class ConnectionDialog(QDialog):
             widget.setEnabled(not busy)
         if busy:
             self._show_message(message, is_error=False)
-            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+            QApplication.processEvents(
+                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+            )
 
     def _show_message(self, message: str, is_error: bool) -> None:
         colour = ERROR_COLOR if is_error else TEXT_MUTED_COLOR
@@ -589,7 +595,7 @@ def connect_to_microscope_dialog(
     """Offer the connection, starting from whatever the session is connected
     to. Whether the dialog connected or disconnected anything."""
     dialog = ConnectionDialog(parent=parent, session=session)
-    dialog.exec_()
+    dialog.exec()
     return dialog.changed
 
 

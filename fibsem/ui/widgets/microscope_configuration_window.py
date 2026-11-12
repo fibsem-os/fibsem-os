@@ -32,8 +32,8 @@ import math
 import os
 from typing import Callable, Iterable, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QFormLayout,
@@ -91,15 +91,15 @@ def _status(text: str, colour: str) -> QLabel:
 def _value(text: str) -> QLabel:
     label = QLabel(text)
     label.setStyleSheet(f"color: {TEXT_COLOR}; background: transparent;")
-    label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+    label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
     return label
 
 
 def _form(rows: Iterable[Tuple[str, str]]) -> QWidget:
     widget = QWidget()
     form = QFormLayout(widget)
-    form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-    form.setRowWrapPolicy(QFormLayout.DontWrapRows)
+    form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+    form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.DontWrapRows)
     form.setContentsMargins(8, 6, 8, 6)
     form.setHorizontalSpacing(18)
     for name, text in rows:
@@ -116,11 +116,11 @@ def _table(headers: Sequence[str], rows: List[Sequence], stretch: int) -> QTable
     table.verticalHeader().setVisible(False)
     table.setShowGrid(False)
     table.setAlternatingRowColors(True)
-    table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-    table.setSelectionMode(QAbstractItemView.NoSelection)
-    table.setFocusPolicy(Qt.NoFocus)
-    table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-    table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+    table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+    table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     table.setStyleSheet(
         f"QTableWidget {{ background: {SURFACE_COLOR}; alternate-background-color: "
         f"{ROW_ALT_COLOR}; color: {TEXT_COLOR}; border: none; }}"
@@ -139,10 +139,15 @@ def _table(headers: Sequence[str], rows: List[Sequence], stretch: int) -> QTable
             else:
                 table.setItem(r, c, QTableWidgetItem(str(cell)))
     header = table.horizontalHeader()
-    header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+    header.setDefaultAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    )
     for c in range(len(headers)):
         header.setSectionResizeMode(
-            c, QHeaderView.Stretch if c == stretch else QHeaderView.ResizeToContents
+            c,
+            QHeaderView.ResizeMode.Stretch
+            if c == stretch
+            else QHeaderView.ResizeMode.ResizeToContents,
         )
     table.verticalHeader().setDefaultSectionSize(26)
     table.setFixedHeight(26 * len(rows) + 30)
@@ -525,7 +530,7 @@ def calibration_tab(
         button.setObjectName("calibrate_slots")
         button.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         button.clicked.connect(calibrate_slots)
-        left.addWidget(button, alignment=Qt.AlignRight)
+        left.addWidget(button, alignment=Qt.AlignmentFlag.AlignRight)
     left.addStretch()
 
     right = QVBoxLayout()
@@ -536,7 +541,7 @@ def calibration_tab(
         button.setObjectName("calibrate_sem_to_fm")
         button.setStyleSheet(stylesheets.SECONDARY_BUTTON_STYLESHEET)
         button.clicked.connect(calibrate_sem_to_fm)
-        right.addWidget(button, alignment=Qt.AlignRight)
+        right.addWidget(button, alignment=Qt.AlignmentFlag.AlignRight)
     fm = microscope.system.fm
     if microscope.fm is not None:
         right.addWidget(
@@ -674,8 +679,8 @@ def session_sections(sections: dict) -> List[Tuple[str, Sequence[str], List[tupl
 
 
 def _show_in_folder(path) -> None:
-    from PyQt5.QtCore import QUrl
-    from PyQt5.QtGui import QDesktopServices
+    from qtpy.QtCore import QUrl
+    from qtpy.QtGui import QDesktopServices
 
     QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
 
@@ -787,7 +792,9 @@ class MicroscopeConfigurationWindow(QDialog):
         )
         head = QHBoxLayout()
         head.addLayout(texts, 1)
-        head.addWidget(_status("Connected", OK_COLOR), alignment=Qt.AlignTop)
+        head.addWidget(
+            _status("Connected", OK_COLOR), alignment=Qt.AlignmentFlag.AlignTop
+        )
 
         self.defaults = MicroscopeDefaultsWidget()
         self.defaults.set_microscope(microscope, image_settings=image_settings)
@@ -894,12 +901,14 @@ class MicroscopeConfigurationWindow(QDialog):
             self,
             "Unsaved changes",
             "The window has changes that are not saved to the configuration.",
-            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel,
-            QMessageBox.Save,
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
         )
-        if answer == QMessageBox.Cancel:
+        if answer == QMessageBox.StandardButton.Cancel:
             return
-        if answer == QMessageBox.Save and not self.save():
+        if answer == QMessageBox.StandardButton.Save and not self.save():
             return  # the save said why; stay open
         super().reject()
 

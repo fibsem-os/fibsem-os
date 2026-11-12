@@ -15,10 +15,10 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fastapi.testclient import TestClient
-from PyQt5.QtCore import QCoreApplication, QEvent
+from qtpy.QtCore import QCoreApplication, QEvent
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.structures import Experiment
@@ -48,7 +48,7 @@ def window(qapp, tmp_path, request):
     ui.session.disconnect()
     close_window(win)
     win.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qapp.processEvents()
 
 

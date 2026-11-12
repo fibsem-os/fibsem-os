@@ -12,7 +12,7 @@ pick points on it" is what produced two 600–1000 line widgets in the first pla
 This needs a canvas to hang overlays on and nothing else.
 
 Composition rather than a mixin. A mixin would work — PyQt5 does pick up
-`pyqtSignal` from a plain-object mixin — but its dependency on ``self.canvas``
+`Signal` from a plain-object mixin — but its dependency on ``self.canvas``
 would be implicit and unenforced: the attribute must exist, be a
 `FibsemImageCanvas`, and be constructed *before* the mixin's own init runs. Here
 all three are one constructor argument. It also matches the package, where
@@ -28,9 +28,9 @@ from __future__ import annotations
 
 from typing import List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QAction, QMenu, QWidget
+from qtpy.QtCore import QObject, Signal
+from qtpy.QtGui import QCursor
+from qtpy.QtWidgets import QAction, QMenu, QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType
 from fibsem.ui.widgets.canvas.overlays.coordinate_overlay import (
@@ -47,10 +47,10 @@ class PointPicking(QObject):
     widget's four handlers connect unchanged, via whichever host forwards them.
     """
 
-    point_selected = pyqtSignal(object)  # Coordinate
-    point_moved = pyqtSignal(object)  # Coordinate
-    point_removed = pyqtSignal(object)  # Coordinate
-    point_add_requested = pyqtSignal(float, float, object)  # x, y, PointType
+    point_selected = Signal(object)  # Coordinate
+    point_moved = Signal(object)  # Coordinate
+    point_removed = Signal(object)  # Coordinate
+    point_add_requested = Signal(float, float, object)  # x, y, PointType
 
     def __init__(
         self,
@@ -117,7 +117,7 @@ class PointPicking(QObject):
         """Unregister both overlays from the canvas.
 
         Not needed for teardown — the canvas and this object die together, and
-        the overlay signals are ``pyqtSignal``, which Qt disconnects itself. It
+        the overlay signals are ``Signal``, which Qt disconnects itself. It
         exists because the canvas, not this object, owns the overlay registry:
         dropping a `PointPicking` leaves its overlays registered, so
         attaching a second one to the same canvas would silently stack a
@@ -218,7 +218,7 @@ class PointPicking(QObject):
             action.setData((x, y, pt))
             menu.addAction(action)
 
-        chosen = menu.exec_(QCursor.pos())
+        chosen = menu.exec(QCursor.pos())
         if chosen is not None:
             cx, cy, pt = chosen.data()
             self.point_add_requested.emit(cx, cy, pt)

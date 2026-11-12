@@ -9,7 +9,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ai.agent.levels import AgentLevel  # noqa: E402
 from fibsem.codec import encode  # noqa: E402
@@ -18,7 +18,7 @@ from fibsem.ui.agent.level_chip import AgentLevelChip, last_heard_text  # noqa: 
 
 
 def _labels(widget):
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     return [
         label.text()
@@ -129,7 +129,7 @@ def test_the_card_links_to_the_agent_page_and_the_event_log(qapp):
 
 
 def test_the_card_has_no_way_to_answer_or_message_the_agent(qapp):
-    from PyQt5.QtWidgets import QLineEdit, QPlainTextEdit, QPushButton
+    from qtpy.QtWidgets import QLineEdit, QPlainTextEdit, QPushButton
 
     card = AgentCard()
     card.set_request(_request())
@@ -530,7 +530,7 @@ def test_how_a_request_ended_is_no_toast(main_ui, host, monkeypatch):
 
 
 def test_the_level_is_drawn_as_the_chip_and_opens_a_menu_of_the_four(qapp):
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     from fibsem.ui.agent.style import LEVEL_STYLES
 
@@ -594,7 +594,7 @@ def test_a_new_request_asks_for_attention_and_opens_nothing(qapp, monkeypatch):
     """FIB-1501: the card opening itself brought the window forward and took
     focus from the operator's browser. A new request or suggestion asks the
     system for attention instead, once per new one."""
-    from PyQt5.QtWidgets import QApplication, QMainWindow
+    from qtpy.QtWidgets import QApplication, QMainWindow
 
     alerts = []
     monkeypatch.setattr(
@@ -620,7 +620,7 @@ def test_a_new_request_asks_for_attention_and_opens_nothing(qapp, monkeypatch):
 
 
 def test_a_hidden_chip_asks_for_nothing(qapp, monkeypatch):
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
 
     alerts = []
     monkeypatch.setattr(

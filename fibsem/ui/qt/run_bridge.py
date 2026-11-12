@@ -17,7 +17,7 @@ import logging
 from concurrent.futures import Future
 from typing import TYPE_CHECKING, Callable, Optional
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 
 from fibsem.acting import carried
 
@@ -32,17 +32,17 @@ class RunRelay(QObject):
     # Everything the workflow says without needing an answer, as a
     # WorkflowStatusEvent. Instructions are typed requests to the QtResponder
     # (fibsem/workflows/interaction.py); proposals are on the record.
-    status = pyqtSignal(object)
+    status = Signal(object)
     # Its own signal: a queue edit is not a step in the task lifecycle and must
     # not disturb the interaction UI.
-    queue_changed = pyqtSignal(dict)
-    step = pyqtSignal(str)  # a human-readable step label
-    finished = pyqtSignal(bool)  # cancelled
+    queue_changed = Signal(dict)
+    step = Signal(str)  # a human-readable step label
+    finished = Signal(bool)  # cancelled
     # A stop was asked of the running workflow, by anyone: the operator's Stop,
     # the agent's workflow_stop (from the App Server's thread), closing the
     # window. The window shows "stopping" until the run has unwound.
-    stopping = pyqtSignal()
-    notice = pyqtSignal(str, str)  # (message, notification_type), from a hook
+    stopping = Signal()
+    notice = Signal(str, str)  # (message, notification_type), from a hook
 
     def __init__(self, runner: "WorkflowRunner", parent=None) -> None:
         super().__init__(parent)
@@ -104,7 +104,7 @@ def _complete(call, outcome) -> None:
 class GuiExecutor(QObject):
     # The work, bound to its arguments and its Future, and marked as whoever
     # asked -- the mark stays on the requesting thread.
-    _call = pyqtSignal(object)
+    _call = Signal(object)
 
     def __init__(self, before: Callable[[], None], parent=None) -> None:
         """*before* runs ahead of every call: what the GUI holds unwritten

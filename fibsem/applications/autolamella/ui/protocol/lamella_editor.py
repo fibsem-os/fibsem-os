@@ -6,9 +6,9 @@ import os
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QColor
+from qtpy.QtWidgets import (
     QComboBox,
     QDialog,
     QGridLayout,
@@ -144,7 +144,7 @@ def _fill_picker(combo: QComboBox, filenames: List[str], labels: List[str]) -> N
     combo.clear()
     for filename, label in zip(filenames, labels):
         combo.addItem(label, filename)
-        combo.setItemData(combo.count() - 1, filename, Qt.ToolTipRole)
+        combo.setItemData(combo.count() - 1, filename, Qt.ItemDataRole.ToolTipRole)
 
 
 def _select_filename(combo: QComboBox, filename: str) -> None:
@@ -165,12 +165,12 @@ class _PositionNotice(QWidget):
     only when there is one.
     """
 
-    switch_clicked = pyqtSignal()
+    switch_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("positionNotice")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 4, 6, 4)
         layout.setSpacing(8)
@@ -1235,7 +1235,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             )
 
         try:
-            if dialog.exec_() != QDialog.Accepted:
+            if dialog.exec() != QDialog.DialogCode.Accepted:
                 return
 
             # Persist the edited config to the protocol so every lamella inherits it.
@@ -1367,7 +1367,7 @@ class AutoLamellaProtocolEditorWidget(QWidget):
             parent=self,
         )
 
-        if dialog.exec_() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
         selected_lamella_names = dialog.get_selected_lamella_names()

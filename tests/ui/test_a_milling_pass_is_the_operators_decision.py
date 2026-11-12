@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager

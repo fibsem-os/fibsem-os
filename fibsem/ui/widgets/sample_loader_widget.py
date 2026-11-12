@@ -16,9 +16,9 @@ import logging
 from datetime import datetime
 from typing import Callable, List, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtGui import QIcon
+from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -97,15 +97,15 @@ class _MagazineRow(QWidget):
     """One magazine slot: number, the grid's name (editable when there is one),
     its state, and Load."""
 
-    load_clicked = pyqtSignal(object)  # GridSlot
-    unload_clicked = pyqtSignal(object)  # GridSlot
-    grid_named = pyqtSignal(object, str)  # GridSlot, new name
+    load_clicked = Signal(object)  # GridSlot
+    unload_clicked = Signal(object)  # GridSlot
+    grid_named = Signal(object, str)  # GridSlot, new name
 
     def __init__(self, slot: GridSlot, state: str, parent=None) -> None:
         super().__init__(parent)
         self.slot = slot
         self.state = state
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setFixedHeight(_ROW_HEIGHT)
 
         layout = QHBoxLayout(self)
@@ -231,9 +231,9 @@ class SampleLoaderWidget(QWidget):
     ``synchronous`` runs the hardware calls on the calling thread, for tests.
     """
 
-    loader_changed = pyqtSignal()
-    busy_changed = pyqtSignal(bool)
-    grid_renamed = pyqtSignal(str, str)  # old name, new name
+    loader_changed = Signal()
+    busy_changed = Signal(bool)
+    grid_renamed = Signal(str, str)  # old name, new name
 
     def __init__(self, microscope=None, parent=None, synchronous: bool = False):
         super().__init__(parent)
@@ -301,10 +301,10 @@ class SampleLoaderWidget(QWidget):
 
         self._list = QListWidget()
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
-        self._list.setSelectionMode(QListWidget.NoSelection)
+        self._list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         # Fixed (the default) lays item widgets out once, at whatever width the
         # list had then; a later resize or restyle leaves them clipped.
-        self._list.setResizeMode(QListWidget.Adjust)
+        self._list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         inner_layout.addWidget(self._list)
@@ -482,9 +482,13 @@ class SampleLoaderWidget(QWidget):
             return True
         return (
             QMessageBox.question(
-                self, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                self,
+                title,
+                text,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            == QMessageBox.Yes
+            == QMessageBox.StandardButton.Yes
         )
 
     def _start(

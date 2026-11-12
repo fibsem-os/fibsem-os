@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from typing import Dict, Optional, Tuple
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QDoubleSpinBox, QGridLayout, QLabel, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QDoubleSpinBox, QGridLayout, QLabel, QWidget
 from superqt import ensure_main_thread
 
 from fibsem import constants
@@ -53,7 +53,7 @@ class StagePositionWidget(QWidget):
 
     #: The refresh button was pressed. The host owns what happens next -- reading the
     #: stage is a device call, and this widget does not make those.
-    refresh_requested = pyqtSignal()
+    refresh_requested = Signal()
 
     def __init__(
         self, microscope: FibsemMicroscope, parent: Optional[QWidget] = None

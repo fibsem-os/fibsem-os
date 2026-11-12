@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.widgets.script_manager_dialog import ScriptManagerDialog  # noqa: E402
 from fibsem.ui.widgets.script_runner import ScriptRunner  # noqa: E402
@@ -66,7 +66,7 @@ def _cell_text(dialog, row: int, col: int) -> str:
     Name and type cells are widgets, because a QTableWidgetItem cannot carry a
     two-line layout or a pill background.
     """
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     widget = dialog.table.cellWidget(row, col)
     if widget is not None:
@@ -151,7 +151,7 @@ def test_a_plain_data_script_gets_no_type_chip(qapp, tmp_path):
     _write(tmp_path, "plain.py", '"""Read some numbers."""\ndef run(ctx):\n    pass\n')
     dialog = _dialog(tmp_path, context=FakeContext())
 
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     cell = dialog.table.cellWidget(0, 1)
 
@@ -211,7 +211,7 @@ def test_an_empty_folder_says_how_to_start_where_you_are_looking(qapp, tmp_path)
     with the one useful sentence stranded in the detail panel at the bottom."""
     dialog = _dialog(tmp_path, context=FakeContext())
 
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     shown = dialog.stack.currentWidget()
     text = " ".join(label.text() for label in shown.findChildren(QLabel))
@@ -229,7 +229,7 @@ def test_the_empty_state_points_at_the_worked_examples(qapp, tmp_path):
 
     dialog = _dialog(tmp_path, context=FakeContext())
 
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     text = " ".join(
         label.text() for label in dialog.stack.currentWidget().findChildren(QLabel)
@@ -433,7 +433,7 @@ def test_cancelling_a_writes_confirmation_leaves_no_last_run(qapp, tmp_path):
 def test_rebuilding_does_not_stack_cell_widgets(qapp, tmp_path):
     """setRowCount alone leaves the previous build's widgets parented to the
     viewport, so rows drew on top of each other."""
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     _write(tmp_path, "a.py", '"""One."""\ndef run(ctx):\n    pass\n')
     dialog = _dialog(tmp_path, context=FakeContext())
@@ -458,7 +458,7 @@ def test_change_folder_switches_the_listing(qapp, tmp_path):
 
 
 def test_new_script_creates_a_runnable_stub(qapp, tmp_path, monkeypatch):
-    from PyQt5.QtWidgets import QInputDialog
+    from qtpy.QtWidgets import QInputDialog
 
     monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("fresh", True))
     monkeypatch.setattr(
@@ -476,7 +476,7 @@ def test_new_script_creates_a_runnable_stub(qapp, tmp_path, monkeypatch):
 
 
 def test_new_script_refuses_to_overwrite(qapp, tmp_path, monkeypatch):
-    from PyQt5.QtWidgets import QInputDialog
+    from qtpy.QtWidgets import QInputDialog
 
     _write(tmp_path, "taken.py", "def run(ctx):\n    return 'original'\n")
     monkeypatch.setattr(QInputDialog, "getText", lambda *a, **k: ("taken", True))
@@ -520,7 +520,7 @@ def test_a_long_description_elides_instead_of_clipping(qapp, tmp_path):
     dialog.resize(520, 400)  # narrow enough that this description cannot fit
     dialog.grab()  # forces the paint pass that does the eliding
 
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     label = dialog.table.cellWidget(0, 0).findChildren(QLabel)[1]
     # `QLabel.text`, not `ElidedLabel.text`: the latter returns what was set, so that a
@@ -544,7 +544,7 @@ def test_the_auto_flag_gets_no_chip_but_is_still_explained(qapp, tmp_path):
     dialog = _dialog(tmp_path, context=FakeContext())
     dialog.table.selectRow(0)
 
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     assert dialog.table.cellWidget(0, 1).findChildren(QLabel) == []
     assert "not run automatically yet" in dialog.table.cellWidget(0, 1).toolTip()
@@ -561,7 +561,7 @@ def test_chips_are_text_only(qapp, tmp_path):
     )
     dialog = _dialog(tmp_path, context=FakeContext())
 
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     chips = dialog.table.cellWidget(0, 1).findChildren(QLabel)
 
@@ -603,7 +603,7 @@ def test_no_widget_swallows_its_own_tooltip(qapp, tmp_path):
     Not verifiable by rendering -- the offscreen platform never realises a
     tooltip window, so QTipLabel is absent from topLevelWidgets().
     """
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtWidgets import QWidget
 
     _write(
         tmp_path,

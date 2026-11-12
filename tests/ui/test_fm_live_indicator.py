@@ -24,9 +24,9 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 import fibsem.config as _fibsem_config
 from fibsem import utils
@@ -118,7 +118,7 @@ class TestTheStreamDrivesIt:
 
     @pytest.fixture
     def widget(self, controller):
-        from PyQt5.QtWidgets import QWidget
+        from qtpy.QtWidgets import QWidget
 
         from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 

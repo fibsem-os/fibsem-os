@@ -13,9 +13,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QCheckBox
+from qtpy.QtWidgets import QCheckBox
 
 from fibsem.structures.params import Display, Parameter, RangeLimit
 from fibsem.structures.settings import Point

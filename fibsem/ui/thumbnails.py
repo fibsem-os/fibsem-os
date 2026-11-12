@@ -7,9 +7,9 @@ from collections import OrderedDict
 from typing import Callable, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QImage
-from PyQt5.QtWidgets import QLabel
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QImage
+from qtpy.QtWidgets import QLabel
 from skimage.transform import resize
 
 from fibsem.fm.preview import composite_projection, is_fluorescence_image
@@ -145,7 +145,7 @@ def cached_thumbnail(
 class ClickableLabel(QLabel):
     """QLabel that emits clicked(filepath) when left-clicked."""
 
-    clicked = pyqtSignal(str)
+    clicked = Signal(str)
 
     def __init__(self, filepath: str, parent=None) -> None:
         super().__init__(parent)

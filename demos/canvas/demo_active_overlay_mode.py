@@ -13,7 +13,7 @@ drop to Move (the two signals fire again, logged below) and back.
 import sys
 
 import numpy as np
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -66,7 +66,7 @@ def main() -> None:
     lay.addLayout(bar)
     lay.addWidget(log)
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

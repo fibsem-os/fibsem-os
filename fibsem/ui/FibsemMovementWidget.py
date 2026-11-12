@@ -21,7 +21,7 @@ reaches back through the same attribute. Those names stay here.
 
 from typing import Any, Callable, Optional
 
-from PyQt5 import QtWidgets
+from qtpy import QtWidgets
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures.settings import FibsemStagePosition
@@ -109,7 +109,10 @@ class FibsemMovementWidget(QtWidgets.QWidget):
         # Bottom spacer (row 4 — row 3 reserved for optional sample holder widget)
         self.gridLayout_2.addItem(
             QtWidgets.QSpacerItem(
-                20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+                20,
+                40,
+                QtWidgets.QSizePolicy.Policy.Minimum,
+                QtWidgets.QSizePolicy.Policy.Expanding,
             ),
             4,
             0,

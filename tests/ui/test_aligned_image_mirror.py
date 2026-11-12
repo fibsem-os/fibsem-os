@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.imaging.overview_session import OverviewSession
 from fibsem.structures.image import FibsemImage
@@ -210,7 +210,7 @@ class TestTheFitDialogNoticesAMirror:
     def test_says_so_keeps_the_points_and_goes_quiet_once_mirrored(
         self, microscope, monkeypatch
     ):
-        from PyQt5.QtWidgets import QDialog
+        from qtpy.QtWidgets import QDialog
 
         from fibsem.ui.widgets.image_fit_dialog import ImageFitDialog
 
@@ -223,14 +223,14 @@ class TestTheFitDialogNoticesAMirror:
 
         seen = []
 
-        def exec_(dialog):
+        def exec(dialog):
             if not seen:  # the first time only: the user clicks the pairs
                 for (px, py), (rx, ry) in zip(PIXELS, targets):
                     dialog.add_pair((px, py), (rx, ry))
             seen.append((len(dialog.pairs()), dialog.label_hint.text()))
-            return QDialog.Rejected
+            return QDialog.DialogCode.Rejected
 
-        monkeypatch.setattr(ImageFitDialog, "exec_", exec_)
+        monkeypatch.setattr(ImageFitDialog, "exec", exec)
 
         w._fit_aligned_image(key)
         assert "mirrored" in seen[0][1]
@@ -241,17 +241,17 @@ class TestTheFitDialogNoticesAMirror:
         w.close()
 
     def test_the_points_are_forgotten_with_the_image(self, microscope, monkeypatch):
-        from PyQt5.QtWidgets import QDialog
+        from qtpy.QtWidgets import QDialog
 
         from fibsem.ui.widgets.image_fit_dialog import ImageFitDialog
 
         w, key = _widget(microscope)
 
-        def exec_(dialog):
+        def exec(dialog):
             dialog.add_pair((1.0, 1.0), (2.0, 2.0))
-            return QDialog.Rejected
+            return QDialog.DialogCode.Rejected
 
-        monkeypatch.setattr(ImageFitDialog, "exec_", exec_)
+        monkeypatch.setattr(ImageFitDialog, "exec", exec)
         w._fit_aligned_image(key)
         assert key in w._fit_pairs
         w.remove_aligned_image(key)

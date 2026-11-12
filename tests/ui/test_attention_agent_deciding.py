@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.run.attention import (
     AttentionRouter,  # noqa: E402  # noqa: E402

@@ -39,8 +39,8 @@ from functools import partial
 from typing import Callable, Dict, List, NamedTuple, Optional, Set, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal, pyqtSlot
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QPoint, Qt, QTimer, Signal, Slot
+from qtpy.QtWidgets import (
     QDialog,
     QFormLayout,
     QFrame,
@@ -512,25 +512,25 @@ class OverviewRecord:
 class FibsemOverviewWidget(OverviewWidgetBase):
     """Configure, run and view a tiled FIB/SEM overview on a real-space canvas."""
 
-    overview_acquired = pyqtSignal(object)  # FibsemImage (the stitched mosaic)
+    overview_acquired = Signal(object)  # FibsemImage (the stitched mosaic)
     # A user right-clicked the canvas and asked for a position there:
     # (FibsemStagePosition, record id or None), the record the click landed on, so
     # the listener can mark the lamella against what that overview is of.
-    position_add_requested = pyqtSignal(object, object)
+    position_add_requested = Signal(object, object)
     # The user placed the grid bars: a drag ended, Reset was pressed, or the pitch
     # was edited. Not emitted when a host restores a placement, so a host that
     # persists on this cannot be made to write back what it just read.
-    gridbar_placement_changed = pyqtSignal()
+    gridbar_placement_changed = Signal()
     # The user placed an aligned image (a drag ended, or Reset): its key. Same
     # rule as the bars -- never emitted by the setters a host restores through.
-    image_placement_changed = pyqtSignal(str)
+    image_placement_changed = Signal(str)
     # An aligned image was taken off the canvas by the user: its key, and the id of
     # the record it was kept under (empty if it had none).
-    image_removed = pyqtSignal(str, str)
+    image_removed = Signal(str, str)
     # The user changed how an aligned image is shown -- opacity, signal only, a
     # channel's colour or contrast: its key. Once the edit settles, not per slider
     # step, and never from `set_aligned_image_display`.
-    image_display_changed = pyqtSignal(str)
+    image_display_changed = Signal(str)
 
     # Internal hops from a worker thread to the GUI thread. `imaging.tiled_progress`
     # is a psygnal, which call their callbacks
@@ -539,8 +539,8 @@ class FibsemOverviewWidget(OverviewWidgetBase):
     # a Qt signal gets it queued onto the GUI thread, because this widget lives there.
     # `object`, not `TiledProgress`: psygnal hands a slot whatever was emitted, and a
     # plugin-loaded producer is not obliged to emit the typed record.
-    _progress_received = pyqtSignal(object)
-    _acquisition_finished = pyqtSignal(dict)
+    _progress_received = Signal(object)
+    _acquisition_finished = Signal(dict)
 
     ADD_POSITION_LABEL = "Add New Position Here"
 
@@ -860,10 +860,16 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         self.view_strip.setStyleSheet(VIEW_STRIP_STYLE)
         self.view_strip.setWidget(chips)
         self.view_strip.setWidgetResizable(True)
-        self.view_strip.setFrameShape(QFrame.NoFrame)
-        self.view_strip.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view_strip.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.view_strip.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        self.view_strip.setFrameShape(QFrame.Shape.NoFrame)
+        self.view_strip.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.view_strip.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self.view_strip.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
         # Nothing to choose between until a view exists, and an empty bar over the canvas
         # is chrome that has not earned its place.
         self.view_strip.hide()
@@ -1041,7 +1047,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         # canvas gives way instead. Which means each control's own minimum is what
         # decides how narrow this can get: the tile-count spinboxes carry one, because
         # below it they stop drawing their digits (see the settings widget).
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(controls)
 
         # The actions sit *below* the scroll area, not inside it, so Acquire, Cancel and
@@ -1070,7 +1076,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
 
         # A splitter rather than a fixed column, so a user can give the canvas the whole
         # window on a small screen. The canvas takes the extra room as the window grows.
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(canvas_pane)
         splitter.addWidget(column)
         splitter.setStretchFactor(0, 1)
@@ -1155,7 +1161,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
     def _toggle_tile_grid_panel(self) -> None:
         """Show or hide the tile grid panel, in the canvas's top-right corner.
 
-        A `Qt.Tool` window rather than a child of the canvas, as on the fluorescence
+        A `Qt.WindowType.Tool` window rather than a child of the canvas, as on the fluorescence
         tab, so it is placed in global coordinates rather than by `CanvasPopover`.
         Re-fitted on every open because its summary is word-wrapped and grows: dragging
         the grid adds a line saying how far it now sits from the stage.
@@ -1223,7 +1229,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
             chip = QPushButton(view.label)
             chip.setCheckable(True)
             chip.setChecked(view == self._current_view)
-            chip.setCursor(Qt.PointingHandCursor)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
             # The one the next run would land in is marked, not just the one being
             # shown: that is the difference between "what am I looking at" and "where
             # will the next overview appear", and on this tab they come apart.
@@ -1550,7 +1556,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
             )
             return None
         dialog = ImportImageDialog(source, parent=self)
-        if dialog.exec_() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return None
         return self._place_imported(dialog)
 
@@ -1884,7 +1890,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         if kept is not None and kept[0] == canvas_key:
             for px, py, rx, ry in kept[1]:
                 dialog.add_pair((px, py), (rx, ry))
-        accepted = dialog.exec_() == QDialog.Accepted
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
         self._fit_pairs[key] = (canvas_key, dialog.pairs())
         if not accepted:
             return
@@ -3611,7 +3617,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
             unreachable=self._unreachable(settings),
             parent=self,
         )
-        return dialog.exec_() == QDialog.Accepted
+        return dialog.exec() == QDialog.DialogCode.Accepted
 
     def _unreachable(
         self,
@@ -3734,7 +3740,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
             self.label_status.clear()
             self.progress.reset()
 
-    @pyqtSlot(dict)
+    @Slot(dict)
     def _on_finished(self, result: dict) -> None:
         self._worker = None
         self._cancelling = False
@@ -3801,7 +3807,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         TiledStatus.FAILED: "Acquisition Failed",
     }
 
-    @pyqtSlot(object)
+    @Slot(object)
     def _apply_progress(self, event: TiledProgress) -> None:
         """Runs on the GUI thread, queued via `_progress_received`."""
         if event.modality != MODALITY_BEAM:

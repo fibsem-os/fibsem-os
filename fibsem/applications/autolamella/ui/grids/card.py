@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QImage, QPixmap
+from qtpy.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QInputDialog,
@@ -128,13 +128,13 @@ def grid_thumbnail_path(experiment: Experiment, grid: GridRecord) -> Optional[st
 class GridCardWidget(RecordCard):
     """One grid record: thumbnail | name over status, chips | quality | actions."""
 
-    quality_changed = pyqtSignal(object)  # GridRecord
-    load_requested = pyqtSignal(object)  # GridRecord
-    unload_requested = pyqtSignal(object)  # GridRecord
-    rename_requested = pyqtSignal(object, str)  # GridRecord, new name
+    quality_changed = Signal(object)  # GridRecord
+    load_requested = Signal(object)  # GridRecord
+    unload_requested = Signal(object)  # GridRecord
+    rename_requested = Signal(object, str)  # GridRecord, new name
     # The operator's note on the grid: what the report prints beside the verdict.
-    note_requested = pyqtSignal(object, str)  # GridRecord, the note
-    remove_requested = pyqtSignal(object)  # GridRecord
+    note_requested = Signal(object, str)  # GridRecord, the note
+    remove_requested = Signal(object)  # GridRecord
 
     def __init__(
         self,
@@ -152,7 +152,7 @@ class GridCardWidget(RecordCard):
         self._edits_enabled = True
 
         self._thumb_label = QLabel()
-        self._thumb_label.setAlignment(Qt.AlignCenter)
+        self._thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._thumb_label.setStyleSheet(
             f"background: {NEUTRAL_900}; border-radius: 4px;"
         )
@@ -174,7 +174,7 @@ class GridCardWidget(RecordCard):
             fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self._btn_actions.setToolTip("Actions")
-        self._btn_actions.setPopupMode(QToolButton.InstantPopup)
+        self._btn_actions.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self)
         # Rename says why when it is greyed out (a grid that has run).
         menu.setToolTipsVisible(True)
@@ -242,7 +242,7 @@ class GridCardWidget(RecordCard):
             layout.setSpacing(0)
             layout.addWidget(self._thumb_label)
             sep = QFrame()
-            sep.setFrameShape(QFrame.HLine)
+            sep.setFrameShape(QFrame.Shape.HLine)
             sep.setStyleSheet("color: #3a3d42;")
             layout.addWidget(sep)
             info = QWidget()
@@ -273,8 +273,8 @@ class GridCardWidget(RecordCard):
             row.setSpacing(6)
             row.addWidget(self._thumb_label)
             row.addWidget(self._info_block(), 1)
-            row.addWidget(self._btn_quality, 0, Qt.AlignVCenter)
-            row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
+            row.addWidget(self._btn_quality, 0, Qt.AlignmentFlag.AlignVCenter)
+            row.addWidget(self._btn_actions, 0, Qt.AlignmentFlag.AlignVCenter)
         self._thumb_label.setVisible(self._mode != MODE_COMPACT)
         content.setStyleSheet("background: transparent;")
         self._content = content
@@ -393,7 +393,7 @@ class GridCardWidget(RecordCard):
         menu = QMenu(self)
         actions = add_verdict_actions(menu)
         mark_current_verdict(actions, self.grid.quality.verdict)
-        chosen = menu.exec_(
+        chosen = menu.exec(
             self._btn_quality.mapToGlobal(self._btn_quality.rect().bottomLeft())
         )
         for verdict, action in actions.items():
@@ -434,24 +434,24 @@ class GridCardWidget(RecordCard):
             "Remove grid",
             f"Remove '{self.grid.name}' from the experiment? Its files are kept; "
             "its lamellae lose their grid.",
-            QMessageBox.Yes,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes,
+            QMessageBox.StandardButton.No,
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.remove_requested.emit(self.grid)
 
 
 class GridCardContainer(CardContainer):
     """A one-column strip of grid cards, in the order the records were added."""
 
-    grid_selected = pyqtSignal(object)  # GridRecord | None
-    quality_changed = pyqtSignal(object)  # GridRecord
-    load_requested = pyqtSignal(object)  # GridRecord
-    unload_requested = pyqtSignal(object)  # GridRecord
-    rename_requested = pyqtSignal(object, str)  # GridRecord, new name
+    grid_selected = Signal(object)  # GridRecord | None
+    quality_changed = Signal(object)  # GridRecord
+    load_requested = Signal(object)  # GridRecord
+    unload_requested = Signal(object)  # GridRecord
+    rename_requested = Signal(object, str)  # GridRecord, new name
     # The operator's note on the grid: what the report prints beside the verdict.
-    note_requested = pyqtSignal(object, str)  # GridRecord, the note
-    remove_requested = pyqtSignal(object)  # GridRecord
+    note_requested = Signal(object, str)  # GridRecord, the note
+    remove_requested = Signal(object)  # GridRecord
 
     def __init__(self, parent: Optional[QWidget] = None, mode: str = MODE_COZY) -> None:
         super().__init__(parent, mode)

@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 
 from fibsem.fm.composite import FMLayer, composite_fm_layers, to_rgba
 from fibsem.fm.preview import projection_layers
@@ -160,7 +160,7 @@ class AlignedImages(QObject):
     # The user changed an image's placement: a drag ended, or a reset. Not emitted
     # by `set_placement`, so a host restoring a record cannot be made to write it
     # back.
-    placement_changed = pyqtSignal(str)  # key
+    placement_changed = Signal(str)  # key
 
     def __init__(self, canvas: "FibsemRealSpaceCanvas", parent=None) -> None:
         super().__init__(parent)

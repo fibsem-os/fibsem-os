@@ -18,10 +18,10 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
 from fibsem.ui.correlation.widgets.coordinate_list_widget import (

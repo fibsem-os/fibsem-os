@@ -3,8 +3,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional, Sequence
 
-from PyQt5.QtCore import QObject, QSize, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QObject, QSize, Qt, Signal
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QFrame,
     QGridLayout,
@@ -67,12 +67,12 @@ class SelectedLamellaWidget(QWidget):
     acts on them.
     """
 
-    objective_position_changed = pyqtSignal(float)  # value in µm
-    use_current_objective_requested = pyqtSignal()
-    apply_objective_to_all_requested = pyqtSignal()
-    move_objective_requested = pyqtSignal()  # move objective to stored position
-    pose_update_requested = pyqtSignal(str)  # pose name
-    pose_move_to_requested = pyqtSignal(str)  # pose name
+    objective_position_changed = Signal(float)  # value in µm
+    use_current_objective_requested = Signal()
+    apply_objective_to_all_requested = Signal()
+    move_objective_requested = Signal()  # move objective to stored position
+    pose_update_requested = Signal(str)  # pose name
+    pose_move_to_requested = Signal(str)  # pose name
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -277,9 +277,12 @@ class SelectedLamellaController(QObject):
 
     def _ask(self, title: str, text: str) -> bool:
         ret = QMessageBox.question(
-            self.widget, title, text, QMessageBox.Yes | QMessageBox.No
+            self.widget,
+            title,
+            text,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        return ret == QMessageBox.Yes
+        return ret == QMessageBox.StandardButton.Yes
 
     def _fm_lamella(self) -> Optional[Lamella]:
         """The selected lamella with a fluorescence pose, on a microscope with
@@ -464,8 +467,8 @@ class LamellaPoseRowWidget(QWidget):
     keyboard while Move To and Update stayed reachable.
     """
 
-    update_clicked = pyqtSignal(str)  # pose name
-    move_to_clicked = pyqtSignal(str)  # pose name
+    update_clicked = Signal(str)  # pose name
+    move_to_clicked = Signal(str)  # pose name
 
     def __init__(
         self,
@@ -490,7 +493,7 @@ class LamellaPoseRowWidget(QWidget):
 
         self.position_button = QPushButton()
         self.position_button.setFlat(True)
-        self.position_button.setCursor(Qt.PointingHandCursor)
+        self.position_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.position_button.setStyleSheet(_POSITION_BUTTON_STYLE)
         self.position_button.clicked.connect(self._show_details)
         layout.addWidget(self.position_button, 1)
@@ -547,7 +550,7 @@ class LamellaPoseRowWidget(QWidget):
 class _PoseDetailPopup(QFrame):
     """The full state, in a popup that closes when you click away.
 
-    ``Qt.Popup`` rather than a dialog: it is non-modal and self-dismissing, so a pose
+    ``Qt.WindowType.Popup`` rather than a dialog: it is non-modal and self-dismissing, so a pose
     can be read without losing the canvas behind it, and comparing two poses is two
     clicks rather than four.
 
@@ -557,7 +560,7 @@ class _PoseDetailPopup(QFrame):
     """
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent, Qt.Popup)
+        super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("PoseDetailPopup")
         self.setStyleSheet(
             f"QFrame#PoseDetailPopup {{ background: {SURFACE_COLOR};"
@@ -629,8 +632,8 @@ class LamellaPoseListWidget(QWidget):
     with the pose name when the row buttons are clicked.
     """
 
-    update_requested = pyqtSignal(str)  # pose name
-    move_to_requested = pyqtSignal(str)  # pose name
+    update_requested = Signal(str)  # pose name
+    move_to_requested = Signal(str)  # pose name
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -643,7 +646,7 @@ class LamellaPoseListWidget(QWidget):
         layout.addWidget(self._header)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
@@ -651,9 +654,9 @@ class LamellaPoseListWidget(QWidget):
         self._list.setSpacing(0)
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setAlternatingRowColors(False)
-        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self._list)
         self._stage_actions = True
 

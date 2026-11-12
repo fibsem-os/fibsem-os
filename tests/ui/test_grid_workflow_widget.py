@@ -6,12 +6,14 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFontMetrics
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QDialog, QLabel
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QFontMetrics
+from qtpy.QtTest import QTest
+from qtpy.QtWidgets import QDialog, QLabel
 
 import fibsem.config as cfg
 from fibsem import utils
@@ -261,7 +263,7 @@ class TestRequiresOnTheTaskList:
             dialog.checks["overview_fm"].setChecked(True)
             return module.QDialog.Accepted
 
-        monkeypatch.setattr(module.GridTaskEditDialog, "exec_", accept_with_fm)
+        monkeypatch.setattr(module.GridTaskEditDialog, "exec", accept_with_fm)
         changed = []
         view.protocol_changed.connect(lambda: changed.append(True))
         row = view._task_rows["overview_sem"]
@@ -283,7 +285,7 @@ class TestRequiresOnTheTaskList:
             dialog.checks["overview_fm"].setChecked(True)
             return module.QDialog.Rejected
 
-        monkeypatch.setattr(module.GridTaskEditDialog, "exec_", tick_then_cancel)
+        monkeypatch.setattr(module.GridTaskEditDialog, "exec", tick_then_cancel)
         view._task_rows["overview_sem"].btn_edit.click()
         assert experiment.grid_protocol.requirements("overview_sem") == []
         assert view._task_rows["overview_sem"].detail_label.text() == "Beam overview"
@@ -550,7 +552,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
         def __init__(self, *args, **kwargs):
             pass
 
-        def exec_(self):
+        def exec(self):
             return 0
 
     monkeypatch.setattr(run_view_module, "WorkflowSummaryDialog", _NoDialog)
@@ -654,7 +656,9 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     main_ui.workflow_tab.left_tabs.setCurrentWidget(
         main_ui.workflow_tab.grid_workflow_widget
     )
-    monkeypatch.setattr(GridRunPreflightDialog, "exec_", lambda self: QDialog.Accepted)
+    monkeypatch.setattr(
+        GridRunPreflightDialog, "exec", lambda self: QDialog.DialogCode.Accepted
+    )
 
     # a grid run under way on grid-aspen, with the manager where the window looks
     manager = GridTaskManager(microscope, exp)
@@ -744,8 +748,8 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
             shown.append(kwargs.get("first_run"))
             offered.append(kwargs.get("unload_at_end"))
 
-        def exec_(self):
-            return QDialog.Rejected  # look, do not run
+        def exec(self):
+            return QDialog.DialogCode.Rejected  # look, do not run
 
     monkeypatch.setattr(workflow_tab, "GridRunPreflightDialog", _Capture)
     view = main_ui.workflow_tab.grid_workflow_widget
@@ -765,8 +769,8 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
             self.grid_names = ["grid-birch"]
             told.append((kwargs["unload_at_end"], kwargs["report_at_end"]))
 
-        def exec_(self):
-            return QDialog.Accepted
+        def exec(self):
+            return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(workflow_tab, "ScreenGridsDialog", _Screen)
     monkeypatch.setattr(
@@ -894,8 +898,8 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
         def __init__(self, *args, **kwargs):
             shown.append(kwargs.get("estimate"))
 
-        def exec_(self):
-            return QDialog.Rejected  # look, do not run
+        def exec(self):
+            return QDialog.DialogCode.Rejected  # look, do not run
 
     monkeypatch.setattr(workflow_tab, "GridRunPreflightDialog", _Capture)
     main_ui.workflow_tab.grid_workflow_widget.grid_header.checkbox_all.setChecked(True)

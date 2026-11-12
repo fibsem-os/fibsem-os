@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import sys
 
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QTransform
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, QTimer
+from qtpy.QtGui import QTransform
+from qtpy.QtWidgets import (
     QApplication,
     QGridLayout,
     QHBoxLayout,
@@ -39,7 +39,7 @@ class SpinnerLabel(QLabel):
         self._timer.setInterval(interval_ms)
         self._timer.timeout.connect(self._tick)
         self.setFixedSize(size, size)
-        self.setAlignment(Qt.AlignCenter)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._render()
 
     def _tick(self):
@@ -48,7 +48,9 @@ class SpinnerLabel(QLabel):
 
     def _render(self):
         t = QTransform().rotate(self._angle)
-        self.setPixmap(self._pixmap.transformed(t, Qt.SmoothTransformation))
+        self.setPixmap(
+            self._pixmap.transformed(t, Qt.TransformationMode.SmoothTransformation)
+        )
 
     def start(self):
         self._timer.start()
@@ -103,10 +105,10 @@ class SpinnerDemo(QWidget):
                 icon, color=color, size=size, step_deg=step, interval_ms=interval
             )
             self._spinners.append(spinner)
-            grid.addWidget(spinner, row, 0, Qt.AlignCenter)
+            grid.addWidget(spinner, row, 0, Qt.AlignmentFlag.AlignCenter)
             lbl = QLabel(label_text)
             lbl.setStyleSheet("color: #888; font-size: 11px;")
-            grid.addWidget(lbl, row, 1, Qt.AlignVCenter)
+            grid.addWidget(lbl, row, 1, Qt.AlignmentFlag.AlignVCenter)
 
         root.addLayout(grid)
 
@@ -133,4 +135,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = SpinnerDemo()
     w.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

@@ -12,7 +12,7 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 import fibsem.config as cfg
 from fibsem import utils

@@ -7,9 +7,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt  # noqa: E402
+from qtpy.QtCore import Qt  # noqa: E402
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope  # noqa: E402
 from fibsem.fm.structures import (  # noqa: E402

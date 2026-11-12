@@ -18,8 +18,8 @@ from __future__ import annotations
 import logging
 from typing import List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.fm.planning import SparseOverviewPlan, plan_sparse_fm_overview, to_fm_pose
 from fibsem.geometry.projection import FMStageProjection, StageProjection
@@ -60,7 +60,7 @@ class FMTilePreviewWidget(QWidget):
             host showing a count cannot usefully tell them apart.
     """
 
-    selection_changed = pyqtSignal()
+    selection_changed = Signal()
 
     def __init__(
         self, microscope: FibsemMicroscope, parent: Optional[QWidget] = None

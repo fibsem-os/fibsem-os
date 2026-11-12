@@ -12,10 +12,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtTest import QTest  # noqa: E402
+from qtpy.QtCore import Qt  # noqa: E402
+from qtpy.QtTest import QTest  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -62,7 +62,9 @@ def experiment(main_ui, tmp_path):
 
 
 def _click(main_ui, lamella):
-    QTest.mouseClick(main_ui.lamella_tab.cards._cards[lamella.id], Qt.LeftButton)
+    QTest.mouseClick(
+        main_ui.lamella_tab.cards._cards[lamella.id], Qt.MouseButton.LeftButton
+    )
 
 
 def _shown(main_ui):

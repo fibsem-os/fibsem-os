@@ -1,6 +1,6 @@
 import numpy as np
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
@@ -36,7 +36,7 @@ POINT_PARAMETERS = ("shift", "stigmation")
 
 
 class FibsemBeamSettingsWidget(QWidget):
-    settings_changed = pyqtSignal(BeamSettings)
+    settings_changed = Signal(BeamSettings)
 
     def __init__(
         self,

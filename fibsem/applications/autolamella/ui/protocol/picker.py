@@ -6,7 +6,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Tuple
 
-from PyQt5 import QtWidgets
+from qtpy import QtWidgets
 
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
 from fibsem.ui import utils as fui

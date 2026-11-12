@@ -8,7 +8,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.tools import desktop_shortcut
 from fibsem.tools.apps import GATEWAY
@@ -23,7 +23,7 @@ def test_the_gateway_shortcut_comes_after_the_apps(window):
 
 
 def test_it_writes_the_gateway_shortcut_where_chosen(window, tmp_path, monkeypatch):
-    from PyQt5.QtWidgets import QFileDialog
+    from qtpy.QtWidgets import QFileDialog
 
     monkeypatch.setattr(
         QFileDialog, "getExistingDirectory", lambda *a, **k: str(tmp_path)

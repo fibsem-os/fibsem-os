@@ -13,8 +13,8 @@ import os
 from pathlib import Path
 from typing import List, Optional, Union
 
-from PyQt5.QtCore import pyqtSignal, pyqtSlot
-from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget
+from qtpy.QtCore import Signal, Slot
+from qtpy.QtWidgets import QPushButton, QVBoxLayout, QWidget
 from superqt import ensure_main_thread
 
 from fibsem.fm.structures import FluorescenceImage
@@ -33,7 +33,7 @@ class FMImageViewerWidget(QWidget):
     workflow, so stepping beats stacking them onto one canvas.
     """
 
-    image_loaded_signal = pyqtSignal(FluorescenceImage)
+    image_loaded_signal = Signal(FluorescenceImage)
 
     def __init__(
         self,
@@ -84,13 +84,13 @@ class FMImageViewerWidget(QWidget):
         dialog = LoadImageDialog(self, start_directory=self.start_directory)
         dialog.image_loaded_signal.connect(self.image_loaded_signal.emit)
 
-        if dialog.exec_():
+        if dialog.exec():
             logging.info("Image loaded successfully")
         else:
             logging.info("Image loading canceled")
 
     @ensure_main_thread
-    @pyqtSlot(FluorescenceImage)
+    @Slot(FluorescenceImage)
     def add_image(self, image: FluorescenceImage) -> None:
         """Append *image* to the filmstrip and show it.
 
@@ -125,7 +125,7 @@ class FMImageViewerWidget(QWidget):
 def main() -> None:
     import sys
 
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
 
     from fibsem.config import LOG_PATH
 
@@ -136,7 +136,7 @@ def main() -> None:
     widget.resize(1180, 700)
     widget.show()
 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

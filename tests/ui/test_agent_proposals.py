@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from psygnal.containers import EventedDict
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fastapi.testclient import TestClient  # noqa: E402
 

@@ -26,9 +26,9 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from qtpy.QtWidgets import QApplication, QMessageBox
 
 import fibsem.applications.autolamella.ui.panel.experiment  # noqa: F401  (for sys.modules)
 from fibsem.applications.autolamella.poses import (
@@ -150,7 +150,9 @@ def test_saving_a_new_position_from_the_lamella_list_moves_it_too(
         _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
     )
     monkeypatch.setattr(
-        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+        module.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
     )
 
     class _UI:
@@ -191,7 +193,9 @@ def test_saving_a_new_position_keeps_the_objective_position(tmp_path, monkeypatc
     lamella = _lamella(microscope, tmp_path)
     lamella.milling_pose.objective_position = 0.0123
     monkeypatch.setattr(
-        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+        module.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
     )
 
     class _UI:
@@ -231,7 +235,9 @@ def test_declining_the_confirmation_moves_neither_pose(tmp_path, monkeypatch):
         _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
     )
     monkeypatch.setattr(
-        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
+        module.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
     )
 
     class _UI:
@@ -298,7 +304,9 @@ def test_setting_the_milling_pose_from_the_pose_rows_moves_the_fluorescence_pose
         _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
     )
     monkeypatch.setattr(
-        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+        module.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
     )
 
     lamella.milling_angle = None
@@ -333,7 +341,9 @@ def test_setting_the_fluorescence_pose_from_the_pose_rows_is_not_undone(
     target = _at(microscope, FLUORESCENCE_ORIENTATION, 400e-6, -200e-6)
     microscope.move_stage_absolute(target)
     monkeypatch.setattr(
-        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+        module.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
     )
 
     _pose_rows(microscope, lamella).set_pose("FLUORESCENCE")
@@ -356,7 +366,9 @@ def test_declining_the_pose_row_confirmation_moves_neither_pose(tmp_path, monkey
         _at(microscope, MILLING_ORIENTATION, 400e-6, -200e-6)
     )
     monkeypatch.setattr(
-        module.QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
+        module.QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
     )
 
     _pose_rows(microscope, lamella).set_pose("MILLING")

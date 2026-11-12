@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fastapi.testclient import TestClient
 from psygnal.containers import EventedDict

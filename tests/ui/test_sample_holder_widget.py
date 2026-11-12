@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
 from fibsem.services.sample_handling import bind_sample_handling

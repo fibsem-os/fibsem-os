@@ -21,8 +21,8 @@ panel puts the grid below the fold on a laptop-height window.
 
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QLabel,
@@ -77,7 +77,7 @@ class FibsemOverviewSettingsWidget(QWidget):
     tab swaps by changing one constructor call.
     """
 
-    settings_changed = pyqtSignal()
+    settings_changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -139,9 +139,11 @@ class FibsemOverviewSettingsWidget(QWidget):
     @staticmethod
     def _form() -> QFormLayout:
         form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         form.setContentsMargins(6, 6, 6, 6)
         form.setSpacing(6)
         return form
@@ -149,7 +151,7 @@ class FibsemOverviewSettingsWidget(QWidget):
     @staticmethod
     def _field(widget: QWidget) -> QWidget:
         widget.setMinimumWidth(_FIELD_MIN_WIDTH)
-        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         install_wheel_blocker(widget)
         return widget
 

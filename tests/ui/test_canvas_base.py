@@ -18,11 +18,13 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QSize
-from PyQt5.QtGui import QResizeEvent
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QSize
+from qtpy.QtGui import QResizeEvent
+from qtpy.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.canvas_base import FibsemCanvasBase
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas

@@ -30,9 +30,9 @@ import logging
 import math
 from typing import List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QPointF, QRectF, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QPainter, QPen, QPolygonF
-from PyQt5.QtWidgets import QWidget
+from qtpy.QtCore import QPointF, QRectF, Qt, Signal
+from qtpy.QtGui import QColor, QPainter, QPen, QPolygonF
+from qtpy.QtWidgets import QWidget
 
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.geometry.stage_places import (
@@ -117,7 +117,7 @@ class _Viewport:
 class StageMap(QWidget):
     """The stage from above, at one of three zoom steps, following the stage."""
 
-    zoom_changed = pyqtSignal(int)
+    zoom_changed = Signal(int)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -291,7 +291,7 @@ class StageMap(QWidget):
         and lamella crosshairs, which a thumbnail is too small to carry -- it shows the
         lamellae, at grid zoom, as dots."""
         painter.save()
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setClipRect(rect)
         painter.fillRect(rect, QColor(CANVAS_BG))
         view = self._view(rect, zoom)
@@ -327,8 +327,8 @@ class StageMap(QWidget):
         for shape in limit_shapes(self._microscope, frame):
             colour = QColor(STAGE_LIMITS_COLOUR)
             colour.setAlphaF(0.5)
-            painter.setPen(QPen(colour, 1, Qt.DashLine))
-            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(colour, 1, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(
                 QRectF(
                     shape.cx - shape.width / 2,
@@ -348,7 +348,7 @@ class StageMap(QWidget):
     ) -> None:
         """Device stations as diamonds, named on the large map."""
         size = _STATION_PX[0] if detailed else _STATION_PX[1]
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         font = painter.font()
         font.setPointSize(8)
         painter.setFont(font)
@@ -442,7 +442,7 @@ class StageMap(QWidget):
         for names, tip, ux, uy in arrows:
             back = QPointF(tip.x() - ux * 9, tip.y() - uy * 9)
             side = QPointF(-uy * 5, ux * 5)
-            painter.setPen(Qt.NoPen)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(SLOT_COLOUR))
             painter.drawPolygon(QPolygonF([tip, back + side, back - side]))
 
@@ -453,12 +453,12 @@ class StageMap(QWidget):
             gap = 14 + abs(ux) * width / 2 + abs(uy) * height / 2
             label = QPointF(tip.x() - ux * gap, tip.y() - uy * gap)
             painter.setPen(QColor(NEUTRAL_550))
-            painter.setBrush(Qt.NoBrush)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawText(
                 QRectF(
                     label.x() - width / 2 - 2, label.y() - height / 2, width + 4, height
                 ),
-                Qt.AlignCenter,
+                Qt.AlignmentFlag.AlignCenter,
                 text,
             )
 
@@ -515,8 +515,8 @@ class StageMap(QWidget):
         boundary = QColor(GRID_BOUNDARY_COLOUR)
         boundary.setAlphaF(0.55)
         for shape in boundary_shapes(self._microscope, frame):
-            painter.setPen(QPen(boundary, 1, Qt.DashLine))
-            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(boundary, 1, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(
                 QPointF(shape.cx, shape.cy),
                 max(shape.width / 2, 1.5),
@@ -580,7 +580,7 @@ class StageMap(QWidget):
         colour = QColor(SELECTED_POSITION_COLOUR)
         colour.setAlphaF(0.9)
         painter.setPen(QPen(colour, 1.2 if detailed else 1.0))
-        painter.setBrush(Qt.NoBrush)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
         radius = _HERE_RING_PX if detailed else _HERE_RING_PX / 2
         for position in self.lamellae_here():
             x, y = frame.to_canvas(position)

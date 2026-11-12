@@ -15,7 +15,7 @@ Usage
 import sys
 from pprint import pprint
 
-from PyQt5.QtWidgets import QApplication, QMainWindow
+from qtpy.QtWidgets import QApplication, QMainWindow
 
 from fibsem.correlation.structures import CorrelationResult
 from fibsem.ui.correlation.widgets.correlation_tab_widget import (
@@ -54,7 +54,7 @@ def main() -> None:
 
     win = _LauncherWindow(directory)
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

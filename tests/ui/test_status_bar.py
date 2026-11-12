@@ -13,7 +13,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 
@@ -29,11 +29,11 @@ def quick_outcomes(monkeypatch):
 
 
 def _outlast_the_outcome():
-    from PyQt5.QtCore import QEventLoop, QTimer
+    from qtpy.QtCore import QEventLoop, QTimer
 
     loop = QEventLoop()
     QTimer.singleShot(80, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 @pytest.fixture
@@ -85,7 +85,7 @@ def test_a_step_before_the_first_task_is_the_workflows(slot):
 
 
 def test_the_host_places_its_actions_on_the_right(slot):
-    from PyQt5.QtWidgets import QPushButton
+    from qtpy.QtWidgets import QPushButton
 
     button = QPushButton("Run Workflow")
     slot.add_action(button)
@@ -682,7 +682,7 @@ def test_a_short_line_still_gets_its_whole_text(slot):
     slot.resize(1000, 30)
     slot.show()
     slot.set_run("01-fancy-mite › Rough Milling", None, "3 of 5")
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
 
     QApplication.processEvents()
     assert slot._what.width() >= slot._what.sizeHint().width() - 1, "not elided"

@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from typing import Dict, Iterable, Optional, Tuple
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -48,7 +48,7 @@ class CanvasOverlayControls(QWidget):
     have to reconstruct visibility from whatever artists happen to exist.
     """
 
-    toggled = pyqtSignal(str, bool)
+    toggled = Signal(str, bool)
 
     def __init__(
         self, entries: Iterable[OverlayEntry], parent: Optional[QWidget] = None
@@ -124,7 +124,7 @@ class CanvasPopover(QFrame):
         # bare `QWidget` took none of it -- which drew the switches as unbacked text
         # directly over the picture they were meant to control.
         self.setObjectName("canvasPanel")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(CANVAS_PANEL_STYLE)
         self._anchor: Optional[QWidget] = None
         layout = QVBoxLayout(self)
@@ -190,5 +190,5 @@ def panel_hint(text: str = "") -> QLabel:
 def panel_separator() -> QFrame:
     line = QFrame()
     line.setObjectName("panelSeparator")
-    line.setFrameShape(QFrame.NoFrame)
+    line.setFrameShape(QFrame.Shape.NoFrame)
     return line

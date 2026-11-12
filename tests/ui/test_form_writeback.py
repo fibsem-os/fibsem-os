@@ -20,9 +20,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QCheckBox  # noqa: E402
+from qtpy.QtWidgets import QCheckBox  # noqa: E402
 
 import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
@@ -219,7 +219,7 @@ def test_enum_members_read_as_words():
 def test_a_form_grid_folds_its_hidden_rows_away(qapp):
     """QFormLayout keeps the spacing of a hidden row, so a form with its advanced
     rows hidden ended in a band of nothing. FormGrid drops the row and its gap."""
-    from PyQt5.QtWidgets import QLabel, QLineEdit, QWidget
+    from qtpy.QtWidgets import QLabel, QLineEdit, QWidget
 
     from fibsem.ui.widgets.custom_widgets import FormGrid
 
@@ -242,7 +242,7 @@ def test_a_form_grid_folds_its_hidden_rows_away(qapp):
 
 
 def test_a_form_grid_can_be_emptied_and_refilled(qapp):
-    from PyQt5.QtWidgets import QLineEdit, QWidget
+    from qtpy.QtWidgets import QLineEdit, QWidget
 
     from fibsem.ui.widgets.custom_widgets import FormGrid
 

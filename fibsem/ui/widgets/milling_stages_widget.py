@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import QTimer, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QTimer, Signal
+from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
@@ -31,8 +31,8 @@ class FibsemMillingStagesWidget(QWidget):
     Selecting a stage in the list shows its milling and pattern settings below.
     """
 
-    stages_changed = pyqtSignal(list)  # List[FibsemMillingStage]
-    eye_toggled = pyqtSignal(bool)  # True = patterns visible
+    stages_changed = Signal(list)  # List[FibsemMillingStage]
+    eye_toggled = Signal(bool)  # True = patterns visible
 
     def __init__(
         self,

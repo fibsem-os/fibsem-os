@@ -1,8 +1,8 @@
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import QItemSelectionModel, Qt, pyqtSignal
-from PyQt5.QtGui import QKeySequence
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QItemSelectionModel, Qt, Signal
+from qtpy.QtGui import QKeySequence
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QLabel,
@@ -31,12 +31,12 @@ _MUTED = TEXT_MUTED_COLOR
 class _SpotBurnRow(QWidget):
     """A single read-only coordinate row: index + X + Y + a remove button."""
 
-    remove_clicked = pyqtSignal(int)
+    remove_clicked = Signal(int)
 
     def __init__(self, index: int, point: Point, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self.index = index
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 3, 6, 3)
@@ -44,7 +44,7 @@ class _SpotBurnRow(QWidget):
 
         idx_lbl = QLabel(str(index + 1))
         idx_lbl.setFixedWidth(20)
-        idx_lbl.setAlignment(Qt.AlignCenter)
+        idx_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         idx_lbl.setStyleSheet(f"color: {_MUTED}; background: transparent;")
         layout.addWidget(idx_lbl)
 
@@ -81,7 +81,7 @@ class SpotBurnCoordinatesWidget(QWidget):
     ``MicroscopeViewController`` — the protocol editor and the live spot-burn widget.
     """
 
-    settings_changed = pyqtSignal(SpotBurnSettings)
+    settings_changed = Signal(SpotBurnSettings)
     OVERLAY_ID = "spot_burn"
 
     def __init__(
@@ -145,7 +145,7 @@ class SpotBurnCoordinatesWidget(QWidget):
         cl.setSpacing(8)
         lbl_idx = QLabel("#")
         lbl_idx.setFixedWidth(20)
-        lbl_idx.setAlignment(Qt.AlignCenter)
+        lbl_idx.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_x = QLabel("X (0-1)")
         lbl_y = QLabel("Y (0-1)")
         for lbl in (lbl_idx, lbl_x, lbl_y):
@@ -161,14 +161,14 @@ class SpotBurnCoordinatesWidget(QWidget):
         # rows — the only part that should absorb spare height, uncapped: a fiducial
         # pattern is a dozen-plus points.
         self._list = QListWidget()
-        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.setMinimumHeight(120)  # still readable in a short host
-        self._list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.itemSelectionChanged.connect(self._on_row_selection_changed)
         # Delete is Backspace on a Mac keyboard
-        for key in (Qt.Key_Delete, Qt.Key_Backspace):
+        for key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             shortcut = QShortcut(QKeySequence(key), self._list)
-            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
             shortcut.activated.connect(self._remove_selected)
         outer.addWidget(self._list, 1)
 
@@ -346,7 +346,9 @@ class SpotBurnCoordinatesWidget(QWidget):
             if self._selection:
                 # the anchor for the next Shift-click, and into view for a long list
                 last = self._list.item(self._selection[-1])
-                self._list.setCurrentItem(last, QItemSelectionModel.NoUpdate)
+                self._list.setCurrentItem(
+                    last, QItemSelectionModel.SelectionFlag.NoUpdate
+                )
                 self._list.scrollToItem(last)
         finally:
             self._updating = False

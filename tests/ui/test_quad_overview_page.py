@@ -8,9 +8,11 @@ import pytest
 
 from tests.fixtures.main_window import close_window
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtWidgets import QApplication, QPushButton
+from qtpy.QtWidgets import QApplication, QPushButton
 
 from fibsem import utils
 from fibsem.applications.autolamella.config import TASK_PROTOCOL_PATH

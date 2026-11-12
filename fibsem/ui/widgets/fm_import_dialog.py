@@ -16,8 +16,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
@@ -104,7 +104,7 @@ class ImportImageDialog(QDialog):
             combo.currentIndexChanged.connect(self._on_roles_changed)
             self.combo_roles.append(combo)
             size_label = QLabel(str(size))
-            size_label.setAlignment(Qt.AlignCenter)
+            size_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             column.addWidget(combo)
             column.addWidget(size_label)
             axes_row.addLayout(column)
@@ -152,7 +152,7 @@ class ImportImageDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidget(channels)
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setStyleSheet("QScrollArea { background: transparent; }")
         scroll.setMinimumHeight(90)
         form.addWidget(scroll, 1)

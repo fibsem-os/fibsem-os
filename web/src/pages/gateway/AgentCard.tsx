@@ -17,6 +17,8 @@ interface Session {
   resumed?: boolean;
   // Why the session can't be resumed here; null when it can.
   cannot_resume?: string | null;
+  // What the agent last printed, when it ended before its log said why.
+  output?: string | null;
 }
 
 interface Running extends Session {
@@ -719,6 +721,11 @@ export function AgentSessions({
                 </button>
               )}
             </span>
+            {ended && s.output && (
+              <span className="break-words font-mono text-xs text-muted-foreground sm:col-start-2 sm:col-span-2">
+                Last said: {s.output}
+              </span>
+            )}
             {ended && s.cannot_resume && (
               <span className="text-xs text-muted-foreground sm:col-start-2 sm:col-span-2">
                 Can't resume:{" "}

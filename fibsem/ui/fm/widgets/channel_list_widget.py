@@ -8,9 +8,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import List, Mapping, Optional, Tuple, Union
 
-from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from qtpy.QtGui import QColor, QIcon, QPixmap
+from qtpy.QtWidgets import (
     QAction,
     QCheckBox,
     QFrame,
@@ -130,13 +130,11 @@ class _ChannelList(ReorderableListWidget):
 
 
 class ChannelRowWidget(QWidget):
-    enabled_changed = pyqtSignal(object, bool)  # ChannelSettings, enabled
-    remove_clicked = pyqtSignal(object)  # ChannelSettings
-    row_clicked = pyqtSignal(object)  # ChannelSettings
-    channel_changed = pyqtSignal(object)  # ChannelSettings after inline mutation
-    channel_field_changed = pyqtSignal(
-        object, str, object
-    )  # ChannelSettings, field, value
+    enabled_changed = Signal(object, bool)  # ChannelSettings, enabled
+    remove_clicked = Signal(object)  # ChannelSettings
+    row_clicked = Signal(object)  # ChannelSettings
+    channel_changed = Signal(object)  # ChannelSettings after inline mutation
+    channel_field_changed = Signal(object, str, object)  # ChannelSettings, field, value
 
     def __init__(
         self,
@@ -395,7 +393,7 @@ class ChannelRowWidget(QWidget):
                 action.setCheckable(True)
                 action.setChecked(True)
             menu.addAction(action)
-        chosen = menu.exec_(
+        chosen = menu.exec(
             self.btn_color.mapToGlobal(self.btn_color.rect().bottomLeft())
         )
         if chosen is None:
@@ -425,7 +423,7 @@ class _MenuRow(QWidget):
     """Base row for the add-channel menu: fixed swatch slot + label, hover
     highlight, and a left-click that emits ``selected``."""
 
-    selected = pyqtSignal(object)
+    selected = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -441,7 +439,7 @@ class _MenuRow(QWidget):
         raise NotImplementedError
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
             self._emit_selected()
         super().mousePressEvent(event)
 
@@ -472,7 +470,7 @@ class _RecentChannelRow(_MenuRow):
     set) are greyed out and cannot be selected, but can still be removed.
     """
 
-    removed = pyqtSignal(object)  # ChannelSettings
+    removed = Signal(object)  # ChannelSettings
 
     def __init__(
         self,
@@ -515,7 +513,7 @@ class _RecentChannelRow(_MenuRow):
 
 
 class _ChannelListHeader(QWidget):
-    add_clicked = pyqtSignal()
+    add_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -565,16 +563,14 @@ class _ChannelListHeader(QWidget):
 class ChannelListWidget(QWidget):
     """Compact list-style channel settings widget, one inline row per channel."""
 
-    settings_changed = pyqtSignal(list)  # List[ChannelSettings]
-    channel_selected = pyqtSignal(object)  # ChannelSettings (selection changed)
-    channel_added = pyqtSignal(object)  # ChannelSettings
-    channel_removed = pyqtSignal(object)  # ChannelSettings
-    channel_changed = pyqtSignal(object)  # ChannelSettings (inline field edit)
-    channel_field_changed = pyqtSignal(
-        object, str, object
-    )  # ChannelSettings, field, value
-    enabled_changed = pyqtSignal(list)  # List[ChannelSettings] (enabled only)
-    order_changed = pyqtSignal(list)  # List[ChannelSettings] in new order
+    settings_changed = Signal(list)  # List[ChannelSettings]
+    channel_selected = Signal(object)  # ChannelSettings (selection changed)
+    channel_added = Signal(object)  # ChannelSettings
+    channel_removed = Signal(object)  # ChannelSettings
+    channel_changed = Signal(object)  # ChannelSettings (inline field edit)
+    channel_field_changed = Signal(object, str, object)  # ChannelSettings, field, value
+    enabled_changed = Signal(list)  # List[ChannelSettings] (enabled only)
+    order_changed = Signal(list)  # List[ChannelSettings] in new order
 
     MAX_CHANNELS = 6
 
@@ -615,7 +611,7 @@ class ChannelListWidget(QWidget):
         layout.addWidget(self._header)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
@@ -624,7 +620,7 @@ class ChannelListWidget(QWidget):
         self._list.setMinimumHeight(3 * _ROW_HEIGHT)
         self._list.setStyleSheet(stylesheets.LIST_WIDGET_STYLESHEET)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self._list)
 
         self._empty_label = QLabel("No channels. Click + to add one.")
@@ -790,7 +786,7 @@ class ChannelListWidget(QWidget):
         row.remove_clicked.connect(self._on_remove_clicked)
         row.row_clicked.connect(self._on_row_clicked)
         row.channel_changed.connect(
-            self._on_row_channel_changed, type=Qt.QueuedConnection
+            self._on_row_channel_changed, type=Qt.ConnectionType.QueuedConnection
         )
         row.channel_field_changed.connect(self.channel_field_changed)
 
@@ -874,7 +870,7 @@ class ChannelListWidget(QWidget):
             self._add_recent_menu_row(menu, recent)
 
         btn = self._header.btn_add
-        menu.exec_(btn.mapToGlobal(btn.rect().bottomLeft()))
+        menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
 
     def _on_new_channel_selected(self, menu: QMenu) -> None:
         menu.close()

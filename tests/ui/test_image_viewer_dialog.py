@@ -14,12 +14,12 @@ import time
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication, QWidget
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QPixmap
+from qtpy.QtTest import QTest
+from qtpy.QtWidgets import QApplication, QWidget
 
 sys.path.insert(0, os.path.dirname(__file__))  # not str.rsplit: Windows paths
 from test_view_info_bar import (  # noqa: E402
@@ -109,11 +109,11 @@ def test_a_stack_opens_in_the_fm_viewer_and_up_and_down_step_its_planes(fm_path)
     def press(key):
         QTest.keyClick(fm.canvas, key)  # through the canvas, as a user's key goes
 
-    press(Qt.Key_Up)
+    press(Qt.Key.Key_Up)
     assert fm.current_z == start + 1
     shown = {f.key: f.value for f in visible_fields(viewer.fm_bar)}
     assert shown["z"].startswith(f"{start + 2} of 5"), "the bar's Z follows the plane"
-    press(Qt.Key_Down)
+    press(Qt.Key.Key_Down)
     assert fm.current_z == start
 
 
@@ -124,7 +124,7 @@ def test_the_clicked_tile_shows_until_the_file_arrives(beam_path, monkeypatch):
     )
     viewer = ImageViewer()
     tile = QPixmap(64, 40)
-    tile.fill(Qt.red)
+    tile.fill(Qt.GlobalColor.red)
     viewer.show_path(beam_path, placeholder=tile)
     assert viewer.stack.currentWidget() is viewer.loading_label
     assert not viewer.loading_label.pixmap().isNull()
@@ -171,7 +171,7 @@ def test_export_opens_the_export_dialog_for_the_image_shown(beam_path, monkeypat
     opened = []
     monkeypatch.setattr(
         image_export_dialog.ImageExportDialog,
-        "exec_",
+        "exec",
         lambda self: opened.append(self.image),
     )
     viewer = ImageViewer()
@@ -227,11 +227,11 @@ def test_left_and_right_step_through_and_swap_to_the_fm_viewer(items):
     _loaded(viewer, items[1].path)
     viewer.canvas.setFocus()
     # Through the matplotlib canvas, which takes key presses for itself.
-    QTest.keyClick(viewer.canvas, Qt.Key_Right)
+    QTest.keyClick(viewer.canvas, Qt.Key.Key_Right)
     _loaded(viewer, items[2].path)
     assert viewer.stack.currentWidget() is viewer.fm_widget.parentWidget()
     assert viewer.title_label.text() == "01-fancy-mite › Acquire Fluorescence"
-    QTest.keyClick(viewer.fm_widget, Qt.Key_Left)
+    QTest.keyClick(viewer.fm_widget, Qt.Key.Key_Left)
     _loaded(viewer, items[1].path)
     assert viewer.stack.currentWidget() is viewer.canvas.parentWidget()
     viewer.close()
@@ -331,15 +331,25 @@ def test_the_fm_stack_count_is_shared_with_the_export():
 def _drag(paths):
     """(mime, enter, drop) for dragging *paths*. Keep the mime data: the events hold
     only a pointer to it, and Qt reads freed memory if Python collects it."""
-    from PyQt5.QtCore import QMimeData, QPoint, QUrl
-    from PyQt5.QtGui import QDragEnterEvent, QDropEvent
+    from qtpy.QtCore import QMimeData, QPoint, QUrl
+    from qtpy.QtGui import QDragEnterEvent, QDropEvent
 
     mime = QMimeData()
     mime.setUrls([QUrl.fromLocalFile(str(p)) for p in paths])
     enter = QDragEnterEvent(
-        QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier
+        QPoint(10, 10),
+        Qt.DropAction.CopyAction,
+        mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
     )
-    drop = QDropEvent(QPoint(10, 10), Qt.CopyAction, mime, Qt.LeftButton, Qt.NoModifier)
+    drop = QDropEvent(
+        QPoint(10, 10),
+        Qt.DropAction.CopyAction,
+        mime,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
     return mime, enter, drop
 
 
@@ -419,7 +429,7 @@ def test_a_viewer_closed_while_it_reads_does_not_take_the_app_down(
     import gc
     import threading
 
-    from PyQt5 import sip
+    from fibsem.ui.qt import sip
 
     release = threading.Event()
     real_load = image_viewer_dialog.load_viewer_image

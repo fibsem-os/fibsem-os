@@ -6,8 +6,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
@@ -170,9 +170,15 @@ class BugReportDialog(QDialog):
         self.pushButton_cancel = QPushButton("Cancel")
         self.pushButton_cancel.setAutoDefault(False)
 
-        self.button_box.addButton(self.pushButton_github, QDialogButtonBox.ActionRole)
-        self.button_box.addButton(self.pushButton_bundle, QDialogButtonBox.AcceptRole)
-        self.button_box.addButton(self.pushButton_cancel, QDialogButtonBox.RejectRole)
+        self.button_box.addButton(
+            self.pushButton_github, QDialogButtonBox.ButtonRole.ActionRole
+        )
+        self.button_box.addButton(
+            self.pushButton_bundle, QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        self.button_box.addButton(
+            self.pushButton_cancel, QDialogButtonBox.ButtonRole.RejectRole
+        )
         self.pushButton_github.clicked.connect(self._on_report_github)
         self.pushButton_bundle.clicked.connect(self._on_create_bundle)
         self.pushButton_cancel.clicked.connect(self.reject)
@@ -195,7 +201,7 @@ class BugReportDialog(QDialog):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidget(body)
         self.scroll_area.setWidgetResizable(True)
-        self.scroll_area.setFrameShape(QFrame.NoFrame)
+        self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.viewport().setAutoFillBackground(False)
         body.setAutoFillBackground(False)
 
@@ -317,11 +323,11 @@ class BugReportDialog(QDialog):
             )
             return
 
-        BundleCreatedDialog(zip_path, parent=self).exec_()
+        BundleCreatedDialog(zip_path, parent=self).exec()
         self.accept()
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):  # type: ignore
             event.ignore()
         else:
             super().keyPressEvent(event)
@@ -364,7 +370,7 @@ class BundleCreatedDialog(QDialog):
         )
         self.label_instructions.setWordWrap(True)
         self.label_instructions.setTextInteractionFlags(
-            Qt.TextSelectableByMouse  # type: ignore
+            Qt.TextInteractionFlag.TextSelectableByMouse  # type: ignore
         )
         self.label_instructions.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
 
@@ -456,4 +462,4 @@ def open_bug_report_dialog(
         traceback_text=traceback_text,
         parent=parent,
     )
-    dialog.exec_()
+    dialog.exec()

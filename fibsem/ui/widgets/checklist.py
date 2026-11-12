@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QDialogButtonBox,
@@ -21,7 +21,7 @@ class TaskChecklist(TitledPanel):
     """A titled list of names to tick, every one ticked to start, with buttons
     that tick or untick them all."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(
         self,
@@ -36,8 +36,12 @@ class TaskChecklist(TitledPanel):
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.list_widget = QListWidget()
-        self.list_widget.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.list_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore
+        self.list_widget.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection
+        )
+        self.list_widget.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )  # type: ignore
         self.list_widget.itemChanged.connect(lambda _: self.changed.emit())
         layout.addWidget(self.list_widget)
 
@@ -59,19 +63,25 @@ class TaskChecklist(TitledPanel):
         self.list_widget.clear()
         for name in names:
             item = QListWidgetItem(name)
-            item.setFlags(item.flags() | Qt.ItemIsUserCheckable | Qt.ItemIsSelectable)  # type: ignore
-            item.setCheckState(Qt.Checked)  # type: ignore
+            item.setFlags(
+                item.flags()
+                | Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsSelectable
+            )  # type: ignore
+            item.setCheckState(Qt.CheckState.Checked)  # type: ignore
             self.list_widget.addItem(item)
 
     def set_all_checked(self, checked: bool) -> None:
-        state = Qt.Checked if checked else Qt.Unchecked  # type: ignore
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked  # type: ignore
         for i in range(self.list_widget.count()):
             self.list_widget.item(i).setCheckState(state)
 
     def checked(self) -> list[str]:
         """The ticked names, in list order."""
         items = (self.list_widget.item(i) for i in range(self.list_widget.count()))
-        return [item.text() for item in items if item.checkState() == Qt.Checked]  # type: ignore
+        return [
+            item.text() for item in items if item.checkState() == Qt.CheckState.Checked
+        ]  # type: ignore
 
 
 class ApplyDialog(QDialog):
@@ -87,14 +97,14 @@ class ApplyDialog(QDialog):
         for button in (self.pushButton_apply, self.pushButton_cancel):
             button.setAutoDefault(False)
             button.setDefault(False)
-        box.addButton(self.pushButton_apply, QDialogButtonBox.AcceptRole)
-        box.addButton(self.pushButton_cancel, QDialogButtonBox.RejectRole)
+        box.addButton(self.pushButton_apply, QDialogButtonBox.ButtonRole.AcceptRole)
+        box.addButton(self.pushButton_cancel, QDialogButtonBox.ButtonRole.RejectRole)
         self.pushButton_apply.clicked.connect(self.accept)
         self.pushButton_cancel.clicked.connect(self.reject)
         return box
 
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):  # type: ignore
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):  # type: ignore
             event.ignore()
         else:
             super().keyPressEvent(event)

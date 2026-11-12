@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -54,7 +54,7 @@ def _scale(name: str) -> float:
 
 
 class ImageSettingsWidget(QWidget):
-    settings_changed = pyqtSignal(ImageSettings)
+    settings_changed = Signal(ImageSettings)
 
     def __init__(
         self,

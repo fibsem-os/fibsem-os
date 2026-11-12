@@ -17,14 +17,13 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
-
-from PyQt5 import sip
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.fm.progress import (  # noqa: E402
     FluorescenceAcquisitionProgress,
     FluorescenceAcquisitionStatus,
 )
+from fibsem.ui.qt import sip
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from tests.fixtures.fm_host import FMHost  # noqa: E402
 

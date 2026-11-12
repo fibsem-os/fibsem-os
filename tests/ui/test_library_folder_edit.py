@@ -5,7 +5,7 @@ import os
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem import vendor_libraries as vl  # noqa: E402
 from fibsem.drivers.setup import SetupLibrary  # noqa: E402

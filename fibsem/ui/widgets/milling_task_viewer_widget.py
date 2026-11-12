@@ -4,8 +4,8 @@ import copy
 import logging
 from typing import TYPE_CHECKING, Callable, List, Optional
 
-from PyQt5.QtCore import QTimer, pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from qtpy.QtCore import QTimer, Signal
+from qtpy.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem import conversions
 from fibsem.microscope import FibsemMicroscope
@@ -56,7 +56,7 @@ class MillingTaskViewerWidget(QWidget):
     actions injected by the parent widget.
     """
 
-    settings_changed = pyqtSignal(FibsemMillingTaskConfig)
+    settings_changed = Signal(FibsemMillingTaskConfig)
 
     def __init__(
         self,

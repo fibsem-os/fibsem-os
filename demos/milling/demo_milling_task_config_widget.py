@@ -6,7 +6,7 @@ Run directly:
 
 import sys
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -137,7 +137,7 @@ def main() -> None:
         task_list.setCurrentRow(0)
 
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 import copy
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
@@ -215,7 +215,9 @@ class PreferencesDialog(QDialog):
         self._btn_restore.clicked.connect(self._on_restore_defaults)
         btn_layout.addWidget(self._btn_restore)
         btn_layout.addStretch()
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         btn_layout.addWidget(buttons)
@@ -259,10 +261,10 @@ class PreferencesDialog(QDialog):
             self,
             "Restore Defaults",
             "Reset all preferences to their default values?",
-            QMessageBox.Yes | QMessageBox.Cancel,
-            QMessageBox.Cancel,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self._load_from_preferences(UserPreferences())
 
     def get_preferences(self) -> UserPreferences:

@@ -18,8 +18,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, List, Optional, Tuple
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import pyqtSignal
+from qtpy import QtWidgets
+from qtpy.QtCore import Signal
 
 from fibsem import conversions
 from fibsem.fm.sem_to_fm import SITES, CalibrationRefused, SemToFmCalibration
@@ -59,7 +59,7 @@ FM_VIEW = None
 class SemToFmDialog(QtWidgets.QDialog):
     """``calibration_saved`` carries the saved `DeviceCalibration`."""
 
-    calibration_saved = pyqtSignal(object)
+    calibration_saved = Signal(object)
 
     def __init__(
         self, microscope, parent=None, configuration_path: Optional[str] = None
@@ -113,7 +113,7 @@ class SemToFmDialog(QtWidgets.QDialog):
         outer.addWidget(rail)
 
         divider = QtWidgets.QFrame()
-        divider.setFrameShape(QtWidgets.QFrame.VLine)
+        divider.setFrameShape(QtWidgets.QFrame.Shape.VLine)
         divider.setStyleSheet(f"color: {BORDER_COLOR};")
         outer.addWidget(divider)
 

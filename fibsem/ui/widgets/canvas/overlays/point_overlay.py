@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 
 from fibsem.theme.plots import DARK
 from fibsem.theme.tokens import (
@@ -388,19 +388,19 @@ class PointOverlay(QObject):
         above). If False (default), at most one point is selected, as before.
     """
 
-    point_added = pyqtSignal(int, float, float)  # index, x, y
-    point_selected = pyqtSignal(int, float, float)  # index, x, y
-    point_dragging = pyqtSignal(int, float, float)  # index, x, y  (each motion step)
-    point_moved = pyqtSignal(int, float, float)  # index, x, y  (on release)
-    point_removed = pyqtSignal(int)  # index the point held (emitted after removal)
+    point_added = Signal(int, float, float)  # index, x, y
+    point_selected = Signal(int, float, float)  # index, x, y
+    point_dragging = Signal(int, float, float)  # index, x, y  (each motion step)
+    point_moved = Signal(int, float, float)  # index, x, y  (on release)
+    point_removed = Signal(int)  # index the point held (emitted after removal)
     # Group counterparts, for one action on two or more points (multi_select only). A
     # single point still reports through point_moved / point_removed, so every action
     # is exactly one signal.
-    points_moved = pyqtSignal(list)  # indices (on release)
-    points_removed = pyqtSignal(list)  # indices the points held, ascending
+    points_moved = Signal(list)  # indices (on release)
+    points_removed = Signal(list)  # indices the points held, ascending
     # Any selection change the user made on the canvas, with the indices now selected.
     # Programmatic changes (set_selected / set_selection) are silent, like point_selected.
-    selection_changed = pyqtSignal(list)
+    selection_changed = Signal(list)
 
     def __init__(
         self,
