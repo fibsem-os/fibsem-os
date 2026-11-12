@@ -190,6 +190,29 @@ def test_a_lamella_between_two_trenches_stays(microscope):
     assert profile[171 + int(3.5e-6 / pixel)] < 40
 
 
+def test_a_face_polished_in_many_passes_is_as_open_as_one_cut_at_once(
+    microscope, monkeypatch
+):
+    """Thin strips milled one after another make one trench: the face under
+    the last is no darker than under a single trench of the same reach."""
+    opening = []
+    for cuts in (
+        [(12e-6, 11.5e-6, 6.75e-6)],
+        [(12e-6, 4e-6, 10.5e-6)]
+        + [(12e-6, 2e-6, y * 1e-6) for y in (8.0, 6.5, 5.0, 3.5, 2.0)],
+    ):
+        _use(microscope, renderer="solid", **PLAIN)
+        for cut in cuts:
+            _mill(microscope, cut)
+        _, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 40e-6)
+        face = hit["kind"][:, 236:276] == 2
+        assert face.sum() > 500
+        opening.append(float(np.percentile(hit["opening"][:, 236:276][face], 10)))
+    print("OPEN", opening)
+    assert opening[0] > 0.3
+    assert opening[1] > 0.8 * opening[0], opening
+
+
 def test_a_cut_face_shows_the_cell_and_its_nucleus(microscope, monkeypatch):
     """A trench through a cell leaves a face made of ice, the cell and the
     nucleus inside it, each its own tone."""

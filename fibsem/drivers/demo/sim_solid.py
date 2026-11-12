@@ -770,15 +770,21 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
             across[where] = abs(cut["view"][2])
         lean[where] = abs(np.sin(np.arcsin(min(fs, 1.0)) - mill))
     # patterns milled side by side make one trench: how open a face is to
-    # the detector goes by all that was removed over it
-    for cut in removed + removed:
-        m, a, b = over(cut)
-        if not m.any() or not cut["rim"]:
-            continue
-        more = (a <= open_to[m] + dz) & (b > open_to[m])
-        where = np.zeros((height, width), dtype=bool)
-        where[m] = more
-        open_to[where] = b[more]
+    # the detector goes by all that was removed over it. A lamella polished in
+    # many passes has a chain of them, followed to its end.
+    reach = [over(cut) for cut in removed[::-1] if cut["rim"]]
+    reach = [r for r in reach if r[0].any()]
+    for _ in range(len(reach)):
+        grew = False
+        for m, a, b in reach:
+            more = (a <= open_to[m] + dz) & (b > open_to[m])
+            if more.any():
+                where = np.zeros((height, width), dtype=bool)
+                where[m] = more
+                open_to[where] = b[more]
+                grew = True
+        if not grew:
+            break
     wide = across > 0
     opening[wide] = np.clip(((open_to - z_face) * across)[wide] / 9.0, 0.15, 1.0)
     kind = np.zeros((height, width), dtype=np.uint8)
