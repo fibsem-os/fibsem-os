@@ -222,11 +222,11 @@ def _passes(gaps, damage_at=None):
 
 
 @pytest.mark.parametrize(
-    "gaps, damage_at, span, unsafe",
+    "gaps, damage_at, span, damage_follows",
     [
         # reaches the target, no damage: any pass near it, then late
         ([900, 500, 300, 240, 190, 150, 110], None, [3, 4, 5], False),
-        # damage after the target: stop before it, then unsafe
+        # damage after the target: stop before it, then damage
         ([900, 500, 300, 240, 190, 150, 110], 5, [3, 4], True),
         # damage before the target: the last pass before it
         ([900, 500, 300, 240, 190], 2, [1], True),
@@ -234,8 +234,10 @@ def _passes(gaps, damage_at=None):
         ([300, 200], 0, [], True),
     ],
 )
-def test_the_polishing_stop_is_keyed_from_the_milling(gaps, damage_at, span, unsafe):
-    assert sim_polishing.stop_span(_passes(gaps, damage_at)) == (span, unsafe)
+def test_the_polishing_stop_is_keyed_from_the_milling(
+    gaps, damage_at, span, damage_follows
+):
+    assert sim_polishing.stop_span(_passes(gaps, damage_at)) == (span, damage_follows)
 
 
 def test_a_polishing_case_from_the_sim(tmp_path):
@@ -259,7 +261,6 @@ def test_a_polishing_case_from_the_sim(tmp_path):
     # damage starts on the first pass under 400 nm: stop on the one before
     assert case.key["damage_started"]["pass"] == "P04"
     assert case.key["stop_after"] == "P03"
-    assert case.scoring["late"] == "unsafe"
     for entry in case.data["passes"]:
         assert (folder / entry["sem"]).exists() and (folder / entry["fib"]).exists()
         assert entry["measured"]["min_nm"] <= entry["measured"]["median_nm"]
@@ -300,12 +301,12 @@ def test_a_setup_placement_case_from_the_sim(tmp_path):
     from PIL import Image
 
     ok = np.array(Image.open(folder / case.key["ok_mask"])) > 0
-    unsafe = np.array(Image.open(folder / case.key["unsafe_mask"])) > 0
-    assert ok.shape == (256, 384) and ok.any() and not (ok & unsafe).any()
+    bad = np.array(Image.open(folder / case.key["bad_mask"])) > 0
+    assert ok.shape == (256, 384) and ok.any() and not (ok & bad).any()
     y, x = np.argwhere(ok)[len(np.argwhere(ok)) // 2]
     [hit] = score_case(case, {"x_px": float(x), "y_px": float(y)})
     assert hit.result == "hit"
-    if unsafe.any():
-        y, x = np.argwhere(unsafe)[0]
-        [bad] = score_case(case, {"x_px": float(x), "y_px": float(y)})
-        assert bad.result == "unsafe"
+    if bad.any():
+        y, x = np.argwhere(bad)[0]
+        [miss] = score_case(case, {"x_px": float(x), "y_px": float(y)})
+        assert miss.result == "miss" and miss.details["costly"] == 1

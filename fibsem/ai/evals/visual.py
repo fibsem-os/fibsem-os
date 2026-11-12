@@ -20,10 +20,10 @@ import numpy as np
 from fibsem.ai.evals import report
 from fibsem.ai.evals.cases import (
     Case,
-    accepted_labels,
     find_cases,
     load_case,
     pass_names,
+    square_call,
     stop_passes,
 )
 from fibsem.ai.evals.runner import ANSWER, RESULT
@@ -44,7 +44,6 @@ RESULT_COLOURS = {
     "miss": "#d62728",
     "early": "#ff7f0e",
     "late": "#ff7f0e",
-    "unsafe": "#9400d3",
     "invalid": "#7f7f7f",
 }
 
@@ -247,16 +246,18 @@ def draw_square_quality(case: Case, runs: List[Run]):
         crop = image[max(0, y - half) : y + half, max(0, x - half) : x + half]
         _show(ax, crop)
         name = str(sq["square"])
-        want = accepted_labels(labels.get(name, "?"))
+        want = square_call(labels.get(name, "?"))
         said = []
         for result, answer in runs:
             value = ((answer or {}).get("labels") or {}).get(name)
-            value = value.get("label") if isinstance(value, dict) else value
-            value = str(value or "-").replace(" ", "_")
-            said.append(value)
-        wrong = any(s not in want for s in said)
+            said.append(square_call(value)["sites"][0] if value else "-")
+        wrong = any(s not in want["sites"] for s in said)
+        why = ", ".join(r.replace("_", " ") for r in want["reasons"])
         ax.set_title(
-            f"{name}: {' | '.join(want)}\n" + " ".join(said),
+            f"{name}: {' | '.join(want['sites'])}"
+            + (f" ({why})" if why else "")
+            + "\n"
+            + " ".join(said),
             fontsize=7,
             color="red" if wrong else "black",
         )
@@ -522,7 +523,7 @@ def draw_target_present(case: Case, runs: List[Run], key=None, part=None):
 
 
 def draw_setup_placement(case: Case, runs: List[Run]):
-    """The FIB image with the key's masks tinted (green: ok, red: unsafe) and
+    """The FIB image with the key's masks tinted (green: ok, red: bad) and
     each repeat's lamella centre as an x."""
     from PIL import Image
 
@@ -530,11 +531,11 @@ def draw_setup_placement(case: Case, runs: List[Run]):
     fig, ax = _figure(10, 7)
     h, w = image.shape
     _show(ax, image, extent=(0, w, h, 0))
-    for name, colour in (
-        ("ok_mask", (0.17, 0.63, 0.17)),
-        ("unsafe_mask", (0.84, 0.15, 0.16)),
+    for names, colour in (
+        (("ok_mask",), (0.17, 0.63, 0.17)),
+        (("bad_mask", "unsafe_mask"), (0.84, 0.15, 0.16)),
     ):
-        path = case.key.get(name)
+        path = next((case.key[n] for n in names if case.key.get(n)), None)
         if not path or not (case.path / path).is_file():
             continue
         mask = np.array(Image.open(case.path / path)) > 0
@@ -671,7 +672,7 @@ def _table_html(rows: List[Dict[str, Any]]) -> str:
         "Headline",
         "Runs",
         "Hits",
-        "Unsafe",
+        "Costly",
         "Invalid",
         "Cases right every repeat",
         "Mean cost",
@@ -686,7 +687,7 @@ def _table_html(rows: List[Dict[str, Any]]) -> str:
             "yes" if row["headline"] else "no",
             row["runs"],
             row["hit"],
-            row["unsafe"],
+            row["costly"],
             row["invalid"],
             f"{row['all_repeats_right']} of {row['cases']}",
             f"${row['mean_cost_usd']:.2f}",

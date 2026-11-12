@@ -163,8 +163,8 @@ def test_repeats_and_skips_unkeyed(home, case, tmp_path, monkeypatch):
     cfg.repeats = 2
     results = run_cases([case], cfg)
     assert [(r["repeat"], r["scores"][0]["result"]) for r in results] == [
-        (1, "unsafe"),
-        (2, "unsafe"),
+        (1, "late"),
+        (2, "late"),
     ]
 
 

@@ -593,7 +593,7 @@ def write_cases(
         "brief": BRIEFS["square_quality"].format(w=w, h=h, view=view),
         "squares": [q.point() for q in shown],
         "key": {**keyed, "labels": {str(q.number): q.label for q in shown}},
-        "scoring": {"min_accuracy": 0.8, "unsafe_if_called_good": ["damaged"]},
+        "scoring": {"min_accuracy": 0.8, "costly_if_called_good": ["damaged"]},
     }
 
     written = []

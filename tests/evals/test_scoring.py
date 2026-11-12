@@ -1,4 +1,4 @@
-"""The eval scorers on made-up answers: right, early, late, unsafe, off and missing."""
+"""The eval scorers on made-up answers: right, early, late, costly, off and missing."""
 
 import json
 
@@ -66,7 +66,8 @@ def test_fm_target(fm_case):
 def test_fm_target_none_there(fm_case):
     fm_case.data["key"] = {"usable": "no"}
     assert result(fm_case, {"usable": "no"}).result == "hit"
-    assert result(fm_case, {"usable": "yes", "x_px": 1, "y_px": 1}).result == "unsafe"
+    called = result(fm_case, {"usable": "yes", "x_px": 1, "y_px": 1})
+    assert called.result == "miss" and called.costly == 1
 
 
 def test_correlation(tmp_path):
@@ -127,8 +128,10 @@ def test_polishing_stop(polish_case):
     assert result(polish_case, walk("p2")).result == "hit"
     early = result(polish_case, walk("p1"))
     assert early.result == "early" and early.details["passes_early"] == 1
-    assert result(polish_case, walk("p3")).result == "unsafe"
-    assert result(polish_case, walk(None)).result == "unsafe"  # never stops
+    late = result(polish_case, walk("p3"))
+    assert late.result == "late" and late.costly == 1
+    assert result(polish_case, walk(None)).result == "late"  # never stops
+    assert early.costly == 0
     assert (
         result(polish_case, {"passes": [{"name": "p9", "decision": "stop"}]}).result
         == "invalid"
@@ -137,8 +140,6 @@ def test_polishing_stop(polish_case):
         result(polish_case, {"passes": [{"name": "p1", "decision": "perhaps"}]}).result
         == "invalid"
     )
-    polish_case.data["scoring"] = {"late": "late"}
-    assert result(polish_case, walk("p4")).result == "late"
 
 
 def test_parts(tmp_path):
@@ -184,7 +185,8 @@ def test_parts(tmp_path):
     answer["parts"]["a"]["present"]["bot1"] = True  # missed the loss
     answer["parts"].pop("b")
     a, b = score_case(case, answer)
-    assert a.result == "unsafe" and a.details["missed_loss"] == ["bot1"]
+    assert a.result == "miss" and a.details["missed_loss"] == ["bot1"]
+    assert a.costly == 1
     assert b.result == "invalid"
 
     answer["parts"]["a"]["present"] = {"base": False}
@@ -217,21 +219,24 @@ def site_case(tmp_path):
 
 
 def test_site_selection(site_case):
-    s = result(
-        site_case,
-        {
-            "picks": [
-                {"x_px": 1050, "y_px": 1000},
-                {"x_px": 1000, "y_px": 950},  # same square again
-                {"x_px": 5000, "y_px": 5000},
-            ]
-        },
-    )
-    assert s.result == "hit"
+    s_picks = [
+        {"x_px": 1050, "y_px": 1000},
+        {"x_px": 1000, "y_px": 950},  # same square again
+        {"x_px": 5000, "y_px": 5000},
+    ]
+    s = result(site_case, {"picks": s_picks})
+    # One distinct good site in three picks is under half.
+    assert s.result == "miss" and s.details["good_fraction"] == 0.333
     assert (s.details["good_found"], s.details["unkeyed_picks"]) == (1, 1)
-    assert (
-        result(site_case, {"picks": [{"x_px": 3010, "y_px": 990}]}).result == "unsafe"
-    )
+    site_case.data["scoring"] = {"min_good_fraction": 0.3}
+    assert result(site_case, {"picks": s_picks}).result == "hit"
+    site_case.data["scoring"] = {}
+    bad = result(site_case, {"picks": [{"x_px": 3010, "y_px": 990}]})
+    assert bad.result == "miss" and bad.details["bad_picks"] == 1 and bad.costly == 1
+    # One bad pick in two with a good one is half: still a hit.
+    mixed = [{"x_px": 1000, "y_px": 1000}, {"x_px": 3010, "y_px": 990}]
+    both = result(site_case, {"picks": mixed})
+    assert both.result == "hit" and both.costly == 1
     assert result(site_case, {"picks": [{"x_px": 0, "y_px": 0}]}).result == "miss"
     assert result(site_case, {"picks": "1000, 1000"}).result == "invalid"
     many = [{"x_px": 0, "y_px": 0}] * 10 + [{"x_px": 1000, "y_px": 1000}]
@@ -353,37 +358,63 @@ def quality_case(tmp_path):
 
 def test_square_quality(quality_case):
     right = {
+        "1": {"site": "good", "reasons": []},
+        "2": {"site": "bad", "reasons": ["damaged"]},
+        "3": {"site": "bad", "reasons": ["no cells"]},
+        "4": {"site": "bad", "reasons": ["thick"]},
+        "5": {"site": "bad", "reasons": ["cell_near_bar"]},
+    }
+    hit = result(quality_case, {"labels": right})
+    assert hit.result == "hit" and hit.details["accuracy"] == 1.0
+    assert hit.details["reasons_recall"] == hit.details["reasons_precision"] == 1.0
+    # A wrong reason costs the reasons score, never the headline.
+    wrong_why = {**right, "4": {"site": "bad", "reasons": ["no_cells"]}}
+    scored = result(quality_case, {"labels": wrong_why})
+    assert (
+        scored.details["accuracy"] == 1.0 and scored.details["reasons_recall"] == 0.75
+    )
+    # One of five sites wrong is 80 %, still a hit; two is a miss.
+    one = {**right, "5": {"site": "good", "reasons": ["cell_near_bar"]}}
+    assert result(quality_case, {"labels": one}).result == "hit"
+    two = {**one, "3": {"site": "good"}}
+    assert result(quality_case, {"labels": two}).result == "miss"
+    # A torn or thick square called a good site is counted as costly; one
+    # wrong of five is still a hit.
+    costly = result(quality_case, {"labels": {**right, "4": {"site": "good"}}})
+    assert costly.result == "hit" and costly.details["bad_called_good"] == ["4"]
+    assert costly.costly == 1
+    missing = result(quality_case, {"labels": {"1": {"site": "good"}}})
+    assert missing.result == "miss" and len(missing.details["unanswered"]) == 4
+    assert result(quality_case, {"labels": {"1": {"site": "fine"}}}).result == "invalid"
+    assert check_case(quality_case).ok
+
+
+def test_square_quality_still_reads_one_label_per_square(quality_case):
+    old = {
         "1": "good",
         "2": {"label": "damaged", "reason": "torn"},
         "3": "no cells",
         "4": "thick",
         "5": "cell_near_bar",
     }
-    hit = result(quality_case, {"labels": right})
-    assert hit.result == "hit" and hit.details["accuracy"] == 1.0
-    # One of five wrong is 80 %, still a hit; two is a miss.
-    assert result(quality_case, {"labels": {**right, "4": "no_cells"}}).result == "hit"
-    assert (
-        result(quality_case, {"labels": {**right, "4": "good", "5": "good"}}).result
-        == "miss"
-    )
-    # A torn square called good is unsafe.
-    unsafe = result(quality_case, {"labels": {**right, "2": "good"}})
-    assert unsafe.result == "unsafe" and unsafe.details["unsafe"] == ["2"]
-    missing = result(quality_case, {"labels": {"1": "good"}})
-    assert missing.result == "miss" and len(missing.details["unanswered"]) == 4
+    assert result(quality_case, {"labels": old}).details["accuracy"] == 1.0
     assert result(quality_case, {"labels": {"1": "fine"}}).result == "invalid"
-    assert check_case(quality_case).ok
 
 
-def test_square_quality_with_more_than_one_right_label(quality_case):
-    quality_case.data["key"]["labels"]["5"] = ["cell_near_bar", "cell_too_big"]
-    base = {"1": "good", "2": "damaged", "3": "no_cells", "4": "thick"}
-    for label in ("cell_near_bar", "cell_too_big"):
-        answer = {"labels": {**base, "5": label}}
+def test_a_square_with_either_site_right(quality_case):
+    # A cell perhaps too big: a good site or a bad one are both right.
+    quality_case.data["key"]["labels"]["5"] = {
+        "site": ["good", "bad"],
+        "reasons": ["cell_too_big"],
+    }
+    base = {n: {"site": "bad"} for n in ("2", "3", "4")} | {"1": {"site": "good"}}
+    for site in ("good", "bad"):
+        answer = {"labels": {**base, "5": {"site": site}}}
         assert result(quality_case, answer).details["accuracy"] == 1.0
-    wrong = result(quality_case, {"labels": {**base, "5": "good"}})
-    assert wrong.details["wrong"]["5"]["key"] == "cell_near_bar | cell_too_big"
+    # An old key list reads the same way.
+    quality_case.data["key"]["labels"]["5"] = ["cell_too_big", "good"]
+    answer = {"labels": {**base, "5": {"site": "good"}}}
+    assert result(quality_case, answer).details["accuracy"] == 1.0
     assert check_case(quality_case).ok
 
 
@@ -396,11 +427,17 @@ def test_square_quality_key_problems(tmp_path):
             "id": "bad",
             "task": "square_quality",
             "squares": [{"square": 1, "x_px": 0, "y_px": 0}],
-            "key": {"labels": {"1": "great", "2": "good"}},
+            "key": {
+                "labels": {
+                    "1": {"site": "great", "reasons": ["sparkly"]},
+                    "2": "good",
+                }
+            },
         },
     )
     problems = check_case(case).problems
-    assert "square 1: unknown label 'great'" in problems
+    assert "square 1: site 'great' is not good or bad" in problems
+    assert "square 1: unknown reason 'sparkly'" in problems
     assert "square 2 is keyed but not in squares" in problems
 
 
@@ -424,7 +461,7 @@ def test_polishing_stop_with_a_span_of_right_passes(tmp_path):
 
     assert stop_at("p1") == "early"
     assert stop_at("p2") == "hit" and stop_at("p3") == "hit"
-    assert stop_at("p4") == "unsafe"
+    assert stop_at("p4") == "late"
 
 
 def test_the_placed_spacing_is_measured_on_neighbours_in_the_key():
@@ -443,10 +480,10 @@ def placement_case(tmp_path):
     (folder / "reference").mkdir(parents=True)
     ok = np.zeros((100, 200), np.uint8)
     ok[40:60, 90:110] = 255  # on the cell, trenches clear
-    unsafe = np.zeros((100, 200), np.uint8)
-    unsafe[:, :20] = 255  # a trench would cut the bar
+    bad = np.zeros((100, 200), np.uint8)
+    bad[:, :20] = 255  # a trench would cut the bar
     Image.fromarray(ok).save(folder / "reference" / "ok.png")
-    Image.fromarray(unsafe).save(folder / "reference" / "unsafe.png")
+    Image.fromarray(bad).save(folder / "reference" / "bad.png")
     data = {
         **BASE,
         "id": "place",
@@ -454,7 +491,7 @@ def placement_case(tmp_path):
         "inputs": {"fib_pixel_size_um": 0.05},
         "key": {
             "ok_mask": "reference/ok.png",
-            "unsafe_mask": "reference/unsafe.png",
+            "bad_mask": "reference/bad.png",
             "target_px": {"x": 100, "y": 50},
         },
     }
@@ -469,7 +506,15 @@ def test_setup_placement(placement_case):
     assert hit.details["to_ok_um"] == 0.0
     miss = result(placement_case, {"x_px": 150, "y_px": 50})
     assert miss.result == "miss" and miss.details["to_ok_um"] == 2.05
-    assert result(placement_case, {"x_px": 5, "y_px": 50}).result == "unsafe"
+    assert miss.costly == 0
+    on_bar = result(placement_case, {"x_px": 5, "y_px": 50})
+    assert on_bar.result == "miss" and on_bar.costly == 1
+    # Keys written before the rename name the mask unsafe_mask.
+    placement_case.data["key"]["unsafe_mask"] = placement_case.data["key"].pop(
+        "bad_mask"
+    )
+    assert check_case(placement_case).ok
+    assert result(placement_case, {"x_px": 5, "y_px": 50}).costly == 1
     assert result(placement_case, {"x_px": 500, "y_px": 50}).result == "miss"
     assert result(placement_case, {"y_px": 50}).result == "invalid"
 

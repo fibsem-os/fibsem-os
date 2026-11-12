@@ -15,8 +15,8 @@ The key comes from the scene's record of each pass:
   more than ``OVER``
 - if damage starts before the target is reached, the right stop is the last
   pass before it
-- stopping earlier is early; later is unsafe when damage followed, late when
-  it didn't
+- stopping earlier is early; later is late, a costly miss (the key notes
+  whether damage followed)
 """
 
 import logging
@@ -208,7 +208,7 @@ def stop_span(
     records: List[Dict[str, Any]], target: float = TARGET
 ) -> Tuple[List[int], bool]:
     """The passes (0-based) where stopping is right, and whether damage
-    follows them (carrying on is unsafe) or not (late)."""
+    follows them or not."""
     damaged = [i for i, r in enumerate(records) if r.get("damage")]
     first_damage = damaged[0] if damaged else len(records)
     gaps = [r["gap_nm"] for r in records]
@@ -246,7 +246,7 @@ def write_case(
     passes, records, started = mill_series(
         seed, folder / "experiment", overrides, milling_angle, schedule, **render
     )
-    span, damage_follows = stop_span(records, target)
+    span, _ = stop_span(records, target)
     if not span:
         logging.warning("seed %s: damaged on the first pass, no case", seed)
         return None
@@ -282,7 +282,6 @@ def write_case(
                 "over_nm": round(OVER * 1e9),
             },
         },
-        "scoring": {"late": "unsafe" if damage_follows else "late"},
     }
     reference = folder / "reference"
     reference.mkdir(parents=True, exist_ok=True)

@@ -7,7 +7,8 @@ with the trenches above and below it as the protocol sets them.
 The key is two masks the size of the image, from the scene: where the centre
 puts the whole lamella on a cell with both trenches and the fiducial clear of
 the grid bars and inside the image (ok), and where a trench or the lamella would
-cut a bar (unsafe). Anything else, such as a lamella in bare ice, is a miss.
+cut a bar (bad, a costly miss). Anything else, such as a lamella in bare ice,
+is a plain miss.
 """
 
 import logging
@@ -41,7 +42,7 @@ LAMELLA = {
     "fiducial_height": 10e-6,
 }
 ON_CELL = 0.95  # of the lamella on a cell, to be ok
-ON_BAR = 0.02  # of a trench or the lamella on a bar: unsafe
+ON_BAR = 0.02  # of a trench or the lamella on a bar: bad
 STEP = 2  # px between the centres the key tests
 
 BRIEF = (
@@ -140,7 +141,7 @@ def _box_sum(table: np.ndarray, r0, r1, c0, c1) -> np.ndarray:
 
 
 def _masks(cell: np.ndarray, bars: np.ndarray, pixel: float, step: int = STEP):
-    """Ok and unsafe masks over the lamella centres, on the `step` grid."""
+    """Ok and bad masks over the lamella centres, on the `step` grid."""
     rows, cols = cell.shape
     p = pixel * step
 
@@ -181,8 +182,8 @@ def _masks(cell: np.ndarray, bars: np.ndarray, pixel: float, step: int = STEP):
     span = np.maximum(area * (up + lo + 2 * half_s), 1)
     on_bar = (upper + lower + middle) / span
     ok = inside & (on_cell >= ON_CELL) & (upper + lower == 0)
-    unsafe = on_bar > ON_BAR
-    return ok, unsafe & ~ok
+    bad = on_bar > ON_BAR
+    return ok, bad & ~ok
 
 
 def _save_mask(mask: np.ndarray, size: Tuple[int, int], path: Path, step: int = STEP):
@@ -217,7 +218,7 @@ def write_case(
         microscope.move_stage_relative(FibsemStagePosition(x=tx, y=-ty, z=0))
         fib = _FibMap(microscope, scene, resolution, HFW)
         cell, bars = _maps(scene, fib)
-        ok, unsafe = _masks(cell, bars, fib.pixel)
+        ok, bad = _masks(cell, bars, fib.pixel)
         if not ok.any():
             logging.warning("seed %s: no safe placement, no case", seed)
             return None
@@ -240,7 +241,7 @@ def write_case(
     reference.mkdir(parents=True, exist_ok=True)
     image.save(str(experiment / "setup_ib.tif"))
     _save_mask(ok, resolution, reference / "ok-mask.png")
-    _save_mask(unsafe, resolution, reference / "unsafe-mask.png")
+    _save_mask(bad, resolution, reference / "bad-mask.png")
     pixel_um = HFW / resolution[0] * 1e6
     case = {
         "id": f"sim-{int(seed):04d}-setup-placement",
@@ -275,7 +276,7 @@ def write_case(
             "status": "keyed",
             "keyed_by": "simulator",
             "ok_mask": "reference/ok-mask.png",
-            "unsafe_mask": "reference/unsafe-mask.png",
+            "bad_mask": "reference/bad-mask.png",
             "target_px": {"x": round(target_px[0], 1), "y": round(target_px[1], 1)},
             "ok_fraction": round(float(ok.mean()), 4),
         },
