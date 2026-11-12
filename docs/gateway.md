@@ -16,12 +16,14 @@ fibsem-gateway install
 ```
 
 On Windows this puts a "Agent Gateway" shortcut in your Startup folder, so the gateway
-starts when you log on, with a tray icon and no console. It needs no admin rights.
-`fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run` (add
-`--no-tray` with no desktop).
+starts when you log on, with no console. It needs no admin rights.
+`fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run`.
 
-To stop the gateway, choose **Quit gateway** in the tray, or run `fibsem-gateway stop`.
-**Restart gateway** in the tray, or `fibsem-gateway restart`, stops it and starts it again with
+The tray icon is off for now, because it slowed the gateway on a microscope PC. `--tray` turns
+it back on.
+
+To stop the gateway, run `fibsem-gateway stop` (or **Quit gateway** in the tray).
+`fibsem-gateway restart` (or **Restart gateway** in the tray) stops it and starts it again with
 the same flags. A gateway that doesn't answer is ended by its process id.
 
 The app starts with no microscope. Connect one in the window, or on the gateway's page once
@@ -34,7 +36,7 @@ over an SSH tunnel, as it reaches the App Server.
 
 ## The tray and the page
 
-The tray icon's dot shows the app: grey for off, blue with its window, purple without one.
+With `--tray`, the tray icon's dot shows the app: grey for off, blue with its window, purple without one.
 Its menu does the following:
 
 - starts an app with its window;

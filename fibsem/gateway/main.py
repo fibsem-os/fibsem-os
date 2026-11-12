@@ -1,4 +1,4 @@
-"""``fibsem-gateway``: run the gateway (with its tray icon when Qt is there),
+"""``fibsem-gateway``: run the gateway (with a tray icon given ``--tray``),
 install it to start at logon, stop or restart it, open pairing, show whether the app runs, open
 its page (`fibsem.gateway.launch`), and put a desktop shortcut for that on the
 Desktop.
@@ -69,7 +69,9 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run the gateway (the default).")
     run.add_argument("--port", type=int, default=GATEWAY_PORT)
-    run.add_argument("--no-tray", action="store_true", help="No tray icon.")
+    # The tray is off for now: it slowed the gateway on a microscope PC.
+    run.add_argument("--tray", action="store_true", help="Show the tray icon.")
+    run.add_argument("--no-tray", action="store_true", help=argparse.SUPPRESS)
     install = commands.add_parser(
         "install", help="Start the gateway at logon (Windows: a Startup shortcut)."
     )
@@ -158,7 +160,7 @@ def run(port: int, tray: bool, connection: List[str]) -> int:
         # the port is free for the next gateway once the server has stopped
         thread.join(10)
     if again.is_set():
-        flags = [] if tray else ["--no-tray"]
+        flags = ["--tray"] if tray else []
         if port != GATEWAY_PORT:
             flags += ["--port", str(port)]
         start_gateway([*flags, *connection])
@@ -203,7 +205,7 @@ def pythonw() -> Path:
 
 
 def start_gateway(args: Sequence[str] = ()) -> None:
-    """Run the gateway apart from this process: with its tray and no
+    """Run the gateway apart from this process: with no tray and no
     connection flags (as the logon shortcut does) unless *args* say."""
     if sys.platform == "win32":
         python = pythonw()
@@ -336,7 +338,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         argv = ["run", *argv]
     args, extra = _parser().parse_known_args(argv)
     if args.command == "run":
-        return run(args.port, not args.no_tray, _connection(extra))
+        return run(args.port, args.tray and not args.no_tray, _connection(extra))
     if extra:
         _parser().error(f"unrecognized arguments: {' '.join(extra)}")
     if args.command == "install":
