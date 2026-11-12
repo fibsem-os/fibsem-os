@@ -143,13 +143,17 @@ def test_end_ends_the_agent_after_asking(made, monkeypatch):
 
 def test_the_pairing_code_shows_and_goes_after_five_minutes(made):
     window = made.window
+    assert window.pair_button.text() == "Pair"
     window.pair_button.click()
     code = window.code_box.line.text()
-    assert not window.code_box.isHidden() and len(code) == 4
+    assert window.pair_button.text() == "Hide" and len(code) == 4
     assert made.auth.pairing.state()["code"] == code
     made.clock.now = module.CODE_TTL_S + 1
     window.refresh()
-    assert window.code_box.isHidden()
+    assert window.pair_button.text() == "Pair" and window.code_box.detail.isHidden()
+    window.pair_button.click()
+    window.pair_button.click()
+    assert window.pair_button.text() == "Pair", "Hide hides the code"
 
 
 def test_closing_asks_and_no_keeps_the_gateway(made, monkeypatch):

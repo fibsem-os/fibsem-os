@@ -58,7 +58,6 @@ from fibsem.theme.tokens import (
 from fibsem.tools.app_identity import bring_to_front, set_app_identity
 from fibsem.tools.apps import GATEWAY, ICONS_DIR
 from fibsem.ui.stylesheets import (
-    GHOST_BUTTON_STYLESHEET,
     MESSAGE_BOX_STYLESHEET,
     NAPARI_STYLE,
     PRIMARY_BUTTON_STYLESHEET,
@@ -269,19 +268,13 @@ class GatewayWindow(QWidget):
         self.agent.button.setText("End")
         self.agent.button.clicked.connect(self._end_agent)
 
-        self.pair_button = QPushButton("Pair a computer")
-        self.pair_button.setStyleSheet(GHOST_BUTTON_STYLESHEET)
-        self.pair_button.clicked.connect(self.show_pairing_code)
-        self.code_box = _Section("Pairing code")
-        self.code_box.line.setStyleSheet(
-            f"font-family: {NUMBER_FONT}; font-size: 22px; letter-spacing: 6px;"
-            f" color: {TEXT_STRONG_COLOR};"
-        )
+        # Pair shows a code here; the button then hides it again.
+        self.code_box = _Section("Pair a computer")
         self.code_box.line.setTextFormat(Qt.TextFormat.PlainText)
-        self.code_box.button.setText("Hide")
-        self.code_box.button.show()
-        self.code_box.button.clicked.connect(self._hide_code)
-        self.code_box.hide()
+        self.pair_button = self.code_box.button
+        self.pair_button.show()
+        self.pair_button.clicked.connect(self._pair_button)
+        self._hide_code()
 
         self.open_button = QPushButton("Open page")
         self.open_button.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
@@ -290,8 +283,7 @@ class GatewayWindow(QWidget):
         # Stopping and restarting the gateway, in one menu.
         self.gateway_button = QPushButton("Gateway")
         self.gateway_button.setStyleSheet(
-            SECONDARY_BUTTON_STYLESHEET
-            + "QPushButton { padding-right: 22px; }"
+            SECONDARY_BUTTON_STYLESHEET + "QPushButton { padding-right: 22px; }"
             " QPushButton::menu-indicator { subcontrol-position: right center;"
             " right: 7px; }"
         )
@@ -301,7 +293,6 @@ class GatewayWindow(QWidget):
         self.stop_action = menu.addAction("Stop gateway", self.close)
         self.gateway_button.setMenu(menu)
         buttons = QHBoxLayout()
-        buttons.addWidget(self.pair_button)
         buttons.addStretch()
         buttons.addWidget(self.gateway_button)
         buttons.addWidget(self.open_button)
@@ -354,10 +345,18 @@ class GatewayWindow(QWidget):
         if self._code_until and self._clock() >= self._code_until:
             self._hide_code()
 
+    def _pair_button(self) -> None:
+        if self._code_until:
+            self._hide_code()
+        else:
+            self.show_pairing_code()
+
     def _hide_code(self) -> None:
         self._code_until = 0.0
-        self.code_box.hide()
-        self.adjustSize()
+        self.code_box.line.setStyleSheet(BODY_MUTED_STYLE)
+        self.code_box.line.setText("A browser on another computer")
+        self.code_box.detail.hide()
+        self.pair_button.setText("Pair")
 
     def bring_to_front(self) -> None:
         self.showNormal()
@@ -469,12 +468,16 @@ class GatewayWindow(QWidget):
     def show_pairing_code(self) -> None:
         """A code another computer's browser types to pair as the operator."""
         code = self._auth.pairing.open(OPERATOR, ())
+        self.code_box.line.setStyleSheet(
+            f"font-family: {NUMBER_FONT}; font-size: 22px; letter-spacing: 6px;"
+            f" color: {TEXT_STRONG_COLOR};"
+        )
         self.code_box.line.setText(code)
         self.code_box.detail.setText(
             f"Type it on the other computer within {int(CODE_TTL_S // 60)} minutes."
         )
         self.code_box.detail.show()
-        self.code_box.show()
+        self.pair_button.setText("Hide")
         self._code_until = self._clock() + CODE_TTL_S
 
     def open_page(self) -> None:
