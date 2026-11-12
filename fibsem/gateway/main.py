@@ -125,6 +125,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     gateway = Gateway(connection)
     auth = GatewayAuth.from_disk()
     agent = GatewayAgent(gateway, auth.pairing.tokens)
+    microscope = HostMicroscope()
     # Set by the quit route; *again* starts a new one.
     stopping = threading.Event()
     again = threading.Event()
@@ -136,7 +137,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
 
     server = Server(
         uvicorn.Config(
-            build_gateway_app(gateway, auth, agent, HostMicroscope(), on_quit),
+            build_gateway_app(gateway, auth, agent, microscope, on_quit),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -153,7 +154,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     print(f"Gateway at http://127.0.0.1:{port}/ui/gateway")
     try:
         if not (
-            window and _run_window(gateway, auth, port, agent, stopping, minimised)
+            window
+            and _run_window(gateway, auth, port, agent, stopping, minimised, microscope)
         ):
             # in short waits: Ctrl-C does not break a bare wait on Windows
             while not stopping.wait(0.5):
@@ -185,14 +187,16 @@ def quit_gateway(gateway: Gateway) -> None:
         logging.warning("Gateway quit: %s", refusal)
 
 
-def _run_window(gateway: Gateway, auth, port: int, agent, stopping, minimised) -> bool:
+def _run_window(
+    gateway: Gateway, auth, port: int, agent, stopping, minimised, microscope
+) -> bool:
     """The window until it closes (or *stopping*); False when Qt or a display
     isn't there."""
     try:
         from fibsem.gateway.ui.window import run_window
     except ImportError:
         return False
-    return run_window(gateway, auth, port, agent, stopping, minimised)
+    return run_window(gateway, auth, port, agent, stopping, minimised, microscope)
 
 
 def _startup_folder() -> Path:

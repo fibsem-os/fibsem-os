@@ -1,6 +1,8 @@
-"""The gateway's window: what it says, and that closing it asks first."""
+"""The gateway's window: what it says, its buttons, and that closing it asks
+first."""
 
 import threading
+import types
 
 import pytest
 
@@ -8,7 +10,13 @@ pytest.importorskip("qtpy.QtWidgets")
 
 from qtpy.QtWidgets import QMessageBox  # noqa: E402
 
-from fibsem.gateway.gateway import OFF, RUNNING, STARTING, Gateway  # noqa: E402
+from fibsem.gateway.gateway import (  # noqa: E402
+    OFF,
+    RUNNING,
+    STARTING,
+    Gateway,
+    GatewayState,
+)
 from fibsem.gateway.server import GatewayAuth  # noqa: E402
 from fibsem.gateway.ui import window as module  # noqa: E402
 from fibsem.gateway.ui.window import GatewayWindow, mode_colour  # noqa: E402
@@ -17,10 +25,30 @@ from fibsem.theme.tokens import PRIMARY_COLOR, SEMANTIC_WARNING_COLOR  # noqa: E
 
 class Agent:
     def __init__(self):
-        self.state = None
+        self.run = None
+        self.ended = []
 
-    def running(self):
-        return self.state
+    def state(self):
+        return types.SimpleNamespace(running=self.run)
+
+    def end(self, who, via):
+        self.ended.append((who, via))
+
+
+class Clock:
+    now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def _answer(monkeypatch, answer, asked=None):
+    def question(parent, title, text):
+        if asked is not None:
+            asked.append(text)
+        return answer
+
+    monkeypatch.setattr(QMessageBox, "question", question)
 
 
 @pytest.fixture
@@ -30,84 +58,130 @@ def made(qapp, tmp_path, monkeypatch):
     agent = Agent()
     stopping = threading.Event()
     quits = []
+    clock = Clock()
     monkeypatch.setattr(module, "quit_gateway", lambda g: quits.append(g))
     monkeypatch.setattr(qapp, "quit", lambda: None)
-    window = GatewayWindow(gateway, auth, 8010, agent, stopping)
-    yield window, gateway, agent, stopping, quits
+    # acts run at once, on this thread
+    monkeypatch.setattr(
+        module.threading,
+        "Thread",
+        lambda target, name, daemon: (
+            types.SimpleNamespace(start=lambda: None)
+            if name == "gateway-window"
+            else types.SimpleNamespace(start=target)
+        ),
+    )
+    window = GatewayWindow(gateway, auth, 8010, agent, stopping, None, clock)
+    yield types.SimpleNamespace(
+        window=window,
+        gateway=gateway,
+        agent=agent,
+        stopping=stopping,
+        quits=quits,
+        clock=clock,
+        auth=auth,
+    )
     window._timer.stop()
     window._quitting = True
     window.close()
 
 
 def test_it_says_what_runs(made):
-    window, gateway, agent, _, _ = made
-    assert window.app_label.text() == "The app is off."
-    assert window.agent_label.text() == "No agent."
-    assert window.experiment_label.isHidden()
+    window, gateway = made.window, made.gateway
+    assert "Off" in window.app.line.text()
+    assert window.app.button.text() == "Start"
+    assert "Connects once the app runs" in window.microscope.line.text()
+    assert "No agent" in window.agent.line.text()
+    assert window.agent.button.isHidden()
     gateway._state.mode, gateway._state.window = RUNNING, True
     gateway._state.app, gateway._state.experiment = "AutoLamella", "/data/grid-03"
-    agent.state = "running"
     window.refresh()
-    assert window.app_label.text() == "AutoLamella is running with its window."
-    assert window.experiment_label.text() == "grid-03"
-    assert window.agent_label.text() == "The agent is running."
-    gateway._state.window = False
-    agent.state = "waiting"
+    window._show_read(
+        {"state": "running", "level": "assist", "goal": "Mill 01 to 04"},
+        {"connected": True, "configuration": {"name": "arctis"}},
+    )
+    assert "AutoLamella, with its window" in window.app.line.text()
+    assert window.app.detail.text() == "grid-03"
+    assert window.app.button.text() == "Stop"
+    assert "Connected · arctis" in window.microscope.line.text()
+    assert "Running at Assist" in window.agent.line.text()
+    assert window.agent.detail.text() == "Mill 01 to 04"
+    assert not window.agent.button.isHidden()
+
+
+def test_start_starts_the_only_app_and_stop_asks_first(made, monkeypatch):
+    window, gateway = made.window, made.gateway
+    started, stopped = [], []
+    monkeypatch.setattr(
+        gateway,
+        "state",
+        lambda: types.SimpleNamespace(
+            apps=[types.SimpleNamespace(key="autolamella", name="AutoLamella")]
+        ),
+    )
+    monkeypatch.setattr(gateway, "start_app", lambda who, via, app: started.append(app))
+    monkeypatch.setattr(
+        gateway, "stop", lambda who, via, force, window: stopped.append(force)
+    )
+    window.app.button.click()
+    assert started == ["autolamella"]
+    gateway._state.mode, gateway._state.window = RUNNING, True
     window.refresh()
-    assert window.app_label.text() == "AutoLamella is running without a window."
-    assert window.agent_label.text() == "The agent is waiting for the app."
+    _answer(monkeypatch, QMessageBox.StandardButton.No)
+    window.app.button.click()
+    assert stopped == []
+    _answer(monkeypatch, QMessageBox.StandardButton.Yes)
+    window.app.button.click()
+    assert stopped == [False]
+
+
+def test_end_ends_the_agent_after_asking(made, monkeypatch):
+    _answer(monkeypatch, QMessageBox.StandardButton.Yes)
+    made.window._end_agent()
+    assert made.agent.ended == [("operator", "window")]
+
+
+def test_the_pairing_code_shows_and_goes_after_five_minutes(made):
+    window = made.window
+    window.pair_button.click()
+    code = window.code_box.line.text()
+    assert not window.code_box.isHidden() and len(code) == 4
+    assert made.auth.pairing.state()["code"] == code
+    made.clock.now = module.CODE_TTL_S + 1
+    window.refresh()
+    assert window.code_box.isHidden()
 
 
 def test_closing_asks_and_no_keeps_the_gateway(made, monkeypatch):
-    window, _, _, _, quits = made
+    window = made.window
     asked = []
-    monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        lambda parent, title, text: asked.append(text) or QMessageBox.StandardButton.No,
-    )
+    _answer(monkeypatch, QMessageBox.StandardButton.No, asked)
     window.show()
     window.stop_button.click()
-    assert window.isVisible() and quits == []
+    assert window.isVisible() and made.quits == []
     assert "Stop the gateway?" in asked[0]
-    monkeypatch.setattr(
-        QMessageBox,
-        "question",
-        lambda parent, title, text: QMessageBox.StandardButton.Yes,
-    )
+    _answer(monkeypatch, QMessageBox.StandardButton.Yes)
     window.close()
-    assert not window.isVisible() and len(quits) == 1
+    assert not window.isVisible() and len(made.quits) == 1
 
 
 def test_a_stop_from_elsewhere_closes_it_without_asking(made, monkeypatch):
-    window, _, _, stopping, quits = made
     monkeypatch.setattr(
         QMessageBox, "question", lambda *a: pytest.fail("asked on a stop")
     )
-    window.show()
-    stopping.set()
-    window.refresh()
-    assert not window.isVisible() and len(quits) == 1
+    made.window.show()
+    made.stopping.set()
+    made.window.refresh()
+    assert not made.window.isVisible() and len(made.quits) == 1
 
 
-def test_the_question_says_what_happens_to_the_app(made):
-    from fibsem.gateway.gateway import GatewayState
+def test_the_question_says_what_happens_to_the_app():
+    def state(**kw):
+        return GatewayState(version="0", **kw)
 
-    assert "keeps running" in module.stop_question(
-        GatewayState(version="0", mode=RUNNING, window=True)
-    )
-    assert "stops too" in module.stop_question(
-        GatewayState(version="0", mode=RUNNING, window=False)
-    )
-    assert "page stops" in module.stop_question(GatewayState(version="0", mode=OFF))
-
-
-def test_the_badge_follows_the_app():
-    from fibsem.gateway.gateway import GatewayState
-
-    assert (
-        mode_colour(GatewayState(version="0", mode=RUNNING, window=True))
-        == PRIMARY_COLOR
-    )
-    starting = GatewayState(version="0", mode=OFF, switch=STARTING, switching=True)
+    assert "keeps running" in module.stop_question(state(mode=RUNNING, window=True))
+    assert "stops too" in module.stop_question(state(mode=RUNNING, window=False))
+    assert "page stops" in module.stop_question(state(mode=OFF))
+    assert mode_colour(state(mode=RUNNING, window=True)) == PRIMARY_COLOR
+    starting = state(mode=OFF, switch=STARTING, switching=True)
     assert mode_colour(starting) == SEMANTIC_WARNING_COLOR

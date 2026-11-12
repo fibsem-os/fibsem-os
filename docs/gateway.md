@@ -32,9 +32,10 @@ over an SSH tunnel, as it reaches the App Server.
 
 ## The window and the page
 
-The gateway runs in a small window, on the taskbar (the Dock on a Mac). It says whether the app
-and the agent run, and has two buttons: **Open page** and **Stop gateway**. Its icon's badge
-shows the app: grey for off, blue with its window, purple without one. Closing the window asks,
+The gateway runs in a small window, on the taskbar (the Dock on a Mac). It shows the app, with
+**Start** and **Stop**; the microscope's connection; and the agent, with **End**. **Pair a
+computer** shows a code for another computer's browser. **Open page** opens the gateway's page.
+Its icon's badge shows the app: grey for off, blue with its window, purple without one. Closing the window asks,
 then stops the gateway. Stopping it also stops an app without its window that isn't running a
 workflow; an app with its window keeps running. `--no-window` runs the gateway without it.
 
@@ -130,8 +131,8 @@ same from a terminal.
 
 ## Pairing a hub
 
-Pair a hub as you pair a browser, with a 4-digit code: `fibsem-gateway pair --hub
---may-switch`. With it a
+Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`. The
+window's **Pair a computer** pairs a browser, not a hub. With it a
 hub can also connect and disconnect the microscope. Without that grant a hub can only read
 the gateway. Untick **May start and stop apps** on the page to take it back, or unpair the
 hub. A hub can never force a stop past a running workflow; only the operator at the PC
