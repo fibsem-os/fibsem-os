@@ -16,6 +16,8 @@ from typing import Callable, Optional
 
 from qtpy.QtCore import QCoreApplication, QObject, Qt, QThread, Signal, Slot
 
+from fibsem.ui.qt.sip import isdeleted
+
 __all__ = ["ensure_main_thread"]
 
 
@@ -65,12 +67,18 @@ def _max_args(func: Callable) -> Optional[int]:
     return count
 
 
+def _deleted_owner(args: tuple) -> bool:
+    """Whether this is a method of a widget Qt has already deleted. Such a widget
+    can still be subscribed to a microscope signal; it has nothing left to update."""
+    return bool(args) and isinstance(args[0], QObject) and isdeleted(args[0])
+
+
 def ensure_main_thread(
     func: Optional[Callable] = None, await_return: bool = False, timeout: int = 1000
 ):
     """Run the decorated function on the GUI thread.
 
-    From the GUI thread it runs at once. From any other thread it is queued, and the
+    From the GUI thread it runs at once. A method of a deleted widget does not run. From any other thread it is queued, and the
     call returns a `Future` for its result, or with *await_return* waits up to
     *timeout* milliseconds and returns the result itself.
     """
@@ -84,6 +92,9 @@ def ensure_main_thread(
             future: Future = Future()
 
             def run() -> None:
+                if _deleted_owner(args):
+                    future.set_result(None)
+                    return
                 # An error is raised on the GUI thread, as superqt does, so it is not
                 # lost in a future nobody reads.
                 try:
@@ -95,7 +106,7 @@ def ensure_main_thread(
 
             app = QCoreApplication.instance()
             if app is None or QThread.currentThread() == app.thread():
-                result = func_(*args, **kwargs)
+                result = None if _deleted_owner(args) else func_(*args, **kwargs)
                 if await_return:
                     return result
                 future.set_result(result)

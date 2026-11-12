@@ -11,6 +11,9 @@ import pytest
 
 pytest.importorskip("qtpy.QtWidgets")
 
+from qtpy.QtWidgets import QWidget
+
+from fibsem.ui.qt import sip
 from fibsem.ui.qt.main_thread import ensure_main_thread
 
 
@@ -62,3 +65,19 @@ def test_extra_signal_arguments_are_dropped(qapp):
         return x
 
     assert one(1, 2, 3).result() == 1
+
+
+def test_a_deleted_widget_is_not_updated(qapp):
+    """A widget Qt deleted can still be subscribed to a microscope signal."""
+    calls = []
+
+    class Panel(QWidget):
+        @ensure_main_thread
+        def refresh(self):
+            calls.append(self)
+
+    panel = Panel()
+    sip.delete(panel)
+
+    assert panel.refresh().result() is None
+    assert calls == []

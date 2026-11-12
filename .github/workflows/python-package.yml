@@ -188,12 +188,22 @@ jobs:
         files=$( (find tests/ui -name 'test_*.py'; echo "$qt_files") | grep . | sort)
         echo "Qt test files in all: $(echo "$files" | grep -c .)"
         shards=4
+        chunk=${{ matrix.qt == 'pyside6' && 20 || 1000 }}
         logs=$(mktemp -d)
         pids=()
         for i in $(seq 0 $((shards - 1))); do
           shard=$(echo "$files" | awk -v n=$shards -v i=$i 'NR % n == i')
           echo "$shard" > "$logs/files-$i"
-          pytest $shard -q --timeout=300 -p no:cacheprovider > "$logs/log-$i" 2>&1 &
+          # PySide frees far less of what the tests leave behind: one process per
+          # shard grew to 6 GB and four of them ran the runner out of memory. So on
+          # PySide a shard runs as consecutive chunks of $chunk files, one process each.
+          (
+            status=0
+            echo "$shard" | xargs -n "$chunk" sh -c \
+              'pytest "$@" -q --timeout=300 -p no:cacheprovider' _ \
+              > "$logs/log-$i" 2>&1 || status=$?
+            exit $status
+          ) &
           pids+=($!)
         done
         failed=0
