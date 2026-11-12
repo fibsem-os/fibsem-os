@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ListFilter } from "lucide-react";
+import { ChevronLeft, ChevronRight, ListFilter } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Popup } from "@/components/ui/popup";
@@ -222,7 +222,20 @@ function CaseList({ run, picked, pick }: { run: string; picked: string | null; p
 
 function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
   const client = useQueryClient();
-  const item = detail.items[0];
+  const count = detail.items.length;
+  const [index, setIndex] = useState(0);
+  const at = Math.min(index, Math.max(count - 1, 0));
+  const item = detail.items[at];
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
+      if (e.key === "ArrowLeft") setIndex((i) => Math.max(Math.min(i, count - 1) - 1, 0));
+      if (e.key === "ArrowRight") setIndex((i) => Math.min(i + 1, count - 1));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [count]);
   const settle = useMutation({
     mutationFn: async (action: string) => {
       const response = await fetch(`${casePath(run, detail.id)}/settle`, {
@@ -255,7 +268,29 @@ function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
         onError={(e) => (e.currentTarget.style.display = "none")}
       />
       <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-3">
-        <div className="text-[12px] text-muted-foreground">To settle: 1 of {detail.items.length}</div>
+        <div className="flex items-center gap-1 text-[12px] text-muted-foreground">
+          <span className="mr-1">
+            To settle: {at + 1} of {count}
+          </span>
+          <button
+            aria-label="Previous"
+            title="Previous (←)"
+            disabled={at === 0}
+            onClick={() => setIndex(at - 1)}
+            className="cursor-pointer rounded border border-border bg-transparent p-0.5 text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-40"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            aria-label="Next"
+            title="Next (→)"
+            disabled={at >= count - 1}
+            onClick={() => setIndex(at + 1)}
+            className="cursor-pointer rounded border border-border bg-transparent p-0.5 text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-40"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
         <div className="text-[15px] font-semibold">{item.title}</div>
         <div className="text-[13px]">{item.key_text}</div>
         <table className="w-full border-collapse text-[13px]">
@@ -328,7 +363,7 @@ function CaseView({ run, id }: { run: string; id: string }) {
           </div>
         ))}
       </header>
-      <Settle run={run} detail={d} />
+      <Settle key={d.id} run={run} detail={d} />
       <Fold title="Whole case: the key and every repeat" open={!d.items.length}>
         {d.figures.map((caption, n) => (
           <figure key={`${n}-${version}`} className="m-0 flex flex-col gap-1">
