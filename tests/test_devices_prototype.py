@@ -460,3 +460,20 @@ def test_a_relative_shift_is_clamped_to_the_shift_limits(beams):
     after = sem.shift_by(1e-3, 1e-6)
     assert after.x == pytest.approx(5e-6)
     assert after.y == pytest.approx(start.y + 1e-6)
+
+
+def test_live_view_is_over_when_its_end_is_signalled(microscope, beams):
+    sem = beams[BeamType.ELECTRON]
+    seen = []
+    ended = threading.Event()
+
+    def on_changed(name, value):
+        if name == "live" and value is False:
+            seen.append(sem.is_live)
+            ended.set()
+
+    sem.changed.connect(on_changed)
+    sem.start_live()
+    threading.Thread(target=sem.stop_live).start()
+    assert ended.wait(10)
+    assert seen == [False], "a listener told live view ended reads it as not live"

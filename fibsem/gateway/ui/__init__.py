@@ -1,1 +1,1 @@
-"""The gateway's tray icon (needs the ui extra)."""
+"""The gateway's window (needs the ui extra)."""
