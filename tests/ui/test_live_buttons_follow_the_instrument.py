@@ -117,8 +117,9 @@ def test_a_beam_signals_live_view_starting_and_ending():
     beam.changed.connect(lambda name, value: name == "live" and seen.append(value))
 
     beam.start_live()
+    thread = beam._live_thread
     beam.stop_live()
-    beam._live_thread.join(timeout=30)
+    thread.join(timeout=30)
 
     assert seen == [True, False]
 
