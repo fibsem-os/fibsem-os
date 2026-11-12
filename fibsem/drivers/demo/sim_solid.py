@@ -38,13 +38,15 @@ if TYPE_CHECKING:
     from fibsem.drivers.demo.sim_scene import SampleScene, SceneFeature
 
 VOID, ICE, CELL, NUCLEUS, FILM, BAR, PARTICLE, COAT = 0, 1, 2, 3, 4, 5, 6, 7
+DROPLET, VESICLE = 8, 9  # what lies in a cell's cytoplasm
 # the pieces of a stack, in the order a point is tested: the first that holds
 # it is what the point is made of
-SLOTS = ("coat", "particle", "nucleus", "cell", "ice", "film", "bar")
+SLOTS = ("coat", "particle", "nucleus", "organelle", "cell", "ice", "film", "bar")
 MATERIAL = {
     "coat": COAT,
     "particle": PARTICLE,
     "nucleus": NUCLEUS,
+    "organelle": DROPLET,  # or a vesicle: see the stack's "organelle_is"
     "cell": CELL,
     "ice": ICE,
     "film": FILM,
@@ -59,6 +61,7 @@ FILM_TOP = -ICE_THICKNESS
 BAR_RISE = 1.9  # how far the ice stands up over a bar
 ICE_OVER_CELL = 0.8  # the ice left over the top of a cell
 ICE_BLANKET = 3.0  # the ice lies over a cell as a dome this smooth
+ICE_CLOSE = 0.35  # and follows each cell's own shape this closely
 PLATE = 0.4  # an ice plate's thickness
 CELL_MAX = 5.5  # the tallest a cell stands
 CLUMP_REACH = 12.0  # how far a clump of grains can reach from its speck
@@ -77,6 +80,8 @@ YIELD = {
     BAR: (1.45, 1.4),
     PARTICLE: (0.5, 0.2),
     COAT: (1.08, 1.3),
+    DROPLET: (1.0, 1.0),
+    VESICLE: (1.0, 1.0),
 }
 INSIDE = {
     ICE: (0.62, 0.6),
@@ -86,11 +91,16 @@ INSIDE = {
     BAR: (1.3, 1.2),
     PARTICLE: (0.4, 0.2),
     COAT: (1.9, 2.0),  # edge-on, the metal in it is the brightest band on a face
+    DROPLET: (0.34, 0.4),  # lipid: the darkest thing on a face
+    VESICLE: (1.08, 0.95),
 }
 NOTHING = (0.1, 0.04)
 TILT = (0.5, 0.42)  # how strongly a slope changes the yield
 BAR_UNDER = (0.22, 0.12)  # how much a bar under thin ice adds
 BAR_DEPTH = 5.0  # the ice over which a bar fades
+HOLE_UNDER = (0.2, 0.1)  # how much darker thin ice is with no film under it
+CRACK = 0.9  # um; how deep a crack in the film grooves the ice over it
+ORGANELLE_STEP = 0.5  # um; a view coarser than this shows no organelles
 BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
 RIM = (1.5, 1.2)  # how bright the rim round a milled edge is
 RIM_WIDTH = 1.1  # um
@@ -170,6 +180,54 @@ def _clump(f: "SceneFeature", seed: int) -> list:
     return grains
 
 
+def _lobes(f: "SceneFeature", seed: int) -> list:
+    """A nucleus as one to three overlapping ellipsoids, each (x offset, y
+    offset um, size, height of its underside above the film um): seeded by
+    the cell, so no two nuclei are alike and each stays the same."""
+    rng = np.random.default_rng([seed & 0x7FFFFFFF, 131, int(f.cell_id) & 0x7FFFFFFF])
+    sigma = f.sigma * UM
+    size, rise = rng.uniform(0.8, 1.1), rng.uniform(0.2, 0.9)
+    lobes = [(0.0, 0.0, size, rise)]
+    if rng.random() < 0.35:
+        for _ in range(int(rng.integers(1, 3))):
+            t, d = rng.uniform(0, 2 * np.pi), rng.uniform(0.6, 0.9) * sigma
+            lobes.append(
+                (
+                    d * np.cos(t),
+                    d * np.sin(t),
+                    size * rng.uniform(0.5, 0.75),
+                    rise + rng.uniform(0.0, 0.5),
+                )
+            )
+    return lobes
+
+
+def _inclusions(scene: "SampleScene", f: "SceneFeature") -> list:
+    """What lies in a cell's cytoplasm, as balls (x, y, z of the centre,
+    radius um, material): its lipid droplets, the ones the FM labels, and a
+    scatter of vesicles. Seeded by the cell: some have many, some almost none."""
+    out = [
+        (px * UM, py * UM, FILM_TOP + h * UM, r * UM, DROPLET)
+        for px, py, h, r in scene._fm_cell_points(f, "droplets")
+    ]
+    rng = np.random.default_rng(
+        [int(scene.seed) & 0x7FFFFFFF, 137, int(f.cell_id) & 0x7FFFFFFF]
+    )
+    n = int(rng.integers(300, 5000) * rng.random() ** 1.5)
+    tall = max(float(f.height or 0.0) * UM, 1.5)
+    reach = 0.9 * f.sigma * UM
+    r = reach * np.sqrt(rng.uniform(0, 1, n))
+    t = rng.uniform(0, 2 * np.pi, n)
+    z = FILM_TOP + rng.uniform(0.3, 0.8 * tall, n)
+    size = rng.uniform(0.12, 0.4, n)
+    fx, fy = f.x * UM, f.y * UM
+    out.extend(
+        (fx + r[k] * np.cos(t[k]), fy + r[k] * np.sin(t[k]), z[k], size[k], VESICLE)
+        for k in range(n)
+    )
+    return out
+
+
 def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     """The stack of pieces at every point of a grid of world points, x (W,)
     and y (P,) in um; `step` is the sampling along (columns, rows). Each
@@ -178,9 +236,12 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     sx, sy = step
     f32 = np.float32
     seed = int(scene.seed)
-    bars, _, rips, rim, beyond = scene.film_masks(X / UM, Y / UM)
+    bars, holes, rips, rim, beyond = scene.film_masks(X / UM, Y / UM)
     metal = bars | rim
-    gone = rips | beyond
+    # a broken hole has no ice across it; a whole one does
+    gone = rips | beyond | (scene.broken_hole_mask(X / UM, Y / UM) & ~metal)
+    holes = holes & ~gone
+    crack = scene.crack_depth(X / UM, Y / UM) * ~metal
     # the ice is one sheet: slow waves, and a broad uneven ridge over each bar
     weight = _gauss(metal.astype(f32), (2.5 / sy, 2.5 / sx))
     swell = np.clip(1 + fbm(X, Y, (90.0, 37.0), (0.35, 0.2), seed + 23), 0.3, 1.8)
@@ -196,6 +257,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     plate = np.zeros(shape, dtype=f32)
     lift = np.zeros(shape, dtype=f32)  # the ice over the smooth-domed cells
     grains = []
+    inclusions = []
+    fine = max(sx, sy) <= ORGANELLE_STEP
     x_lo, x_hi, y_lo, y_hi = x.min(), x.max(), y.min(), y.max()
     for f in scene.features:
         sigma = f.sigma * UM
@@ -216,6 +279,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         if f.kind == "contamination":
             grains.extend(_clump(f, seed))
             continue
+        if f.part in ("body", "bud") and f.kind == "cell" and fine:
+            inclusions.extend(_inclusions(scene, f))
         r2 = _radius2(f, X[box] - fx, Y[box] - fy)
         if f.kind == "ice":
             plate[box] = np.maximum(plate[box], np.exp(-0.5 * r2**f.sharpness))
@@ -238,20 +303,56 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
             dome[box] = np.maximum(dome[box], top)
         elif f.part == "nucleus":
             # an ellipsoid inside the cell, a little off the film
-            r2 = r2 / NUCLEUS_RADIUS**2
-            half = min(0.8 * sigma * min(f.eccentricity, 1.0), 2.0)
-            t = half * np.sqrt(np.clip(1 - r2, 0, None))
-            inside = r2 < 1
-            n_lo[box] = np.where(inside, FILM_TOP + 0.3 + half - t, n_lo[box])
-            n_hi[box] = np.where(inside, FILM_TOP + 0.3 + half + t, n_hi[box])
+            # no two alike: its size, how high it sits, and sometimes lobes
+            for ox, oy, size, rise in _lobes(f, seed):
+                r2 = _radius2(f, X[box] - fx - ox, Y[box] - fy - oy)
+                r2 = r2 / (NUCLEUS_RADIUS * size) ** 2
+                half = min(0.8 * sigma * min(f.eccentricity, 1.0), 2.0) * size
+                t = half * np.sqrt(np.clip(1 - r2, 0, None))
+                inside = r2 < 1
+                mid = FILM_TOP + rise + half
+                first = inside & (n_hi[box] < NONE / 2)
+                n_lo[box] = np.where(
+                    inside,
+                    np.where(first, mid - t, np.minimum(n_lo[box], mid - t)),
+                    n_lo[box],
+                )
+                n_hi[box] = np.where(inside, np.maximum(n_hi[box], mid + t), n_hi[box])
     in_cell = dome > 0.05
     blanket = _gauss(dome, (ICE_BLANKET / sy, ICE_BLANKET / sx))
-    ice = ice + np.where(lift > 0, lift, blanket) + PLATE * plate
+    # the ice lies close over each cell, and in a broad swell over a group
+    close = _gauss(dome, (ICE_CLOSE / sy, ICE_CLOSE / sx)) + ICE_OVER_CELL * (
+        _gauss(in_cell.astype(f32), (2 * ICE_CLOSE / sy, 2 * ICE_CLOSE / sx))
+    )
+    ice = ice + np.where(lift > 0, lift, np.maximum(blanket, close)) + PLATE * plate
+    # a crack in the film is a groove in thin ice, open along its middle
+    thin = np.exp(-np.clip(ice, 0, None) / 1.5)
+    ice = ice - CRACK * crack * thin
+    gone = gone | ((crack * thin > 0.8) & ~in_cell)
     ice = np.minimum(ice, Z_MAX - 3.0).astype(f32)
     cell = np.where(in_cell, np.minimum(dome - ICE_OVER_CELL, ice - 0.3), NONE).astype(
         f32
     )
     n_hi = np.minimum(n_hi, cell - 0.15)
+
+    # droplets and vesicles in the cytoplasm: each a ball, kept inside its cell
+    o_lo = np.full(shape, -NONE, dtype=f32)
+    o_hi = np.full(shape, NONE, dtype=f32)
+    o_is = np.full(shape, DROPLET, dtype=np.uint8)
+    for fx, fy, zc, r, what in inclusions:
+        if fx + r < x_lo or fx - r > x_hi or fy + r < y_lo or fy - r > y_hi:
+            continue
+        cols = np.nonzero(np.abs(x - fx) < r)[0]
+        rows = np.nonzero(np.abs(y - fy) < r)[0]
+        if not len(cols) or not len(rows):
+            continue
+        box = (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
+        d2 = r * r - (X[box] - fx) ** 2 - (Y[box] - fy) ** 2
+        t = np.sqrt(np.clip(d2, 0, None)).astype(f32)
+        inside = (d2 > 0) & (zc + t < cell[box] - 0.1) & (o_hi[box] < NONE / 2)
+        o_lo[box] = np.where(inside, np.maximum(zc - t, FILM_TOP + 0.02), o_lo[box])
+        o_hi[box] = np.where(inside, zc + t, o_hi[box])
+        o_is[box] = np.where(inside, what, o_is[box])
 
     # particles rest on the ice: each grain a ball
     p_lo = np.full(shape, -NONE, dtype=f32)
@@ -273,7 +374,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     p_hi = np.minimum(p_hi, Z_MAX - 0.5)
 
     # where the film is torn, or past the grid, there is nothing
-    for a in (ice, cell, n_hi, p_hi):
+    for a in (ice, cell, n_hi, o_hi, p_hi):
         a[gone] = NONE
     surface = np.maximum(ice, p_hi)
     level = sim_relief._smooth_top(
@@ -294,11 +395,13 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         "coat": (surface, coat),
         "particle": (p_lo, p_hi),
         "nucleus": (n_lo, n_hi),
+        "organelle": (o_lo, o_hi),
+        "organelle_is": o_is,
         "cell": (FILM_TOP, cell),
         "ice": (FILM_TOP, ice),
         "film": (
             FILM_TOP - FILM_THICKNESS,
-            np.where(gone, NONE, FILM_TOP).astype(f32),
+            np.where(gone | holes, NONE, FILM_TOP).astype(f32),
         ),
         "bar": (
             FILM_TOP - FILM_THICKNESS - BAR_THICKNESS,
@@ -310,6 +413,8 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         "cell_id": cell_id,
         "particle_id": p_id,
         "bar_weight": weight,
+        # thin ice across a hole in the film, with no cell on it
+        "hole": (holes & ~in_cell) * np.exp(-np.clip(ice, 0, None) / 2.0).astype(f32),
     }
 
 
@@ -428,7 +533,8 @@ def _walk(col: dict, removed: list, z: np.ndarray, shift: np.ndarray, height: in
             if zq < reach[k][0] or zq >= reach[k][1]:
                 continue
             lo, hi = col[k]
-            level[(_part(lo, sl) <= zq) & (zq < hi[sl])] = MATERIAL[k]
+            m = (_part(lo, sl) <= zq) & (zq < hi[sl])
+            level[m] = col["organelle_is"][sl][m] if k == "organelle" else MATERIAL[k]
         if not level.any():
             continue
         if removed:
@@ -594,7 +700,8 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         exact = np.zeros((height, width), dtype=np.uint8)
         for k in SLOTS[::-1]:
             lo, hi = col[k]
-            exact[(at(lo) <= zf) & (zf < at(hi))] = MATERIAL[k]
+            m = (at(lo) <= zf) & (zf < at(hi))
+            exact[m] = at(col["organelle_is"])[m] if k == "organelle" else MATERIAL[k]
         swap = on_face & (exact > 0)
         hit_m = np.where(swap, exact, hit_m)
         z_hit = np.where(swap, zf, z_hit)
@@ -606,6 +713,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         "slope": (gx, gy),
         "surface": surface,
         "bar": at(col["bar_weight"]),
+        "hole": at(col["hole"]),
         "opening": opening,
         "lean": lean,
         "view": (fs, kabs),
@@ -645,6 +753,7 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     under = top & np.isin(hit_m, (ICE, COAT))
     over_bar = bar * np.exp(-np.clip(z_hit, 0, None) / BAR_DEPTH)
     shade[under] *= (1 + BAR_UNDER[which] * over_bar)[under]
+    shade[under] *= (1 - HOLE_UNDER[which] * hit["hole"])[under]
     # a cut face or a wall shows what it was cut from, darker further down
     depth = np.clip(hit["surface"] - z_hit, 0, None)
     inside = mat_in * (0.75 + 0.35 * hit["lean"]) * np.exp(-depth / 7.0)
@@ -986,6 +1095,8 @@ def reflectance(scene: "SampleScene", view: Plan) -> np.ndarray:
     # a bar shows through the ice over it
     bar = view.col["bar_weight"] * np.isin(mat, (ICE, COAT))
     out = out + bar * np.exp(-np.clip(z, 0, None) / BAR_DEPTH) * (scatter - out)
+    # ice across a hole has no film behind it to reflect
+    out = out * (1 - 0.5 * view.col["hole"] * (mat == ICE))
     out[~solid] = 0.0
     return out.astype(np.float32)
 

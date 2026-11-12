@@ -328,3 +328,68 @@ def test_damage_is_shapes_on_the_lamella_face(microscope):
     cut = sim_solid._removed(scene, *np.meshgrid(xa, ya), col)[-1]
     gone = cut["to"] > cut["from"]
     assert 0 < gone.sum() < 0.5 * gone.size
+
+
+def _columns(scene, x, y, half=20.0, step=0.1) -> dict:
+    xa = x + np.arange(-half, half, step)
+    ya = y + np.arange(-half, half, step)
+    return sim_solid.columns(scene, xa, ya, (step, step))
+
+
+def _body(scene):
+    bodies = [f for f in scene.features if f.kind == "cell" and f.part == "body"]
+    return min(bodies, key=lambda f: np.hypot(f.x, f.y))
+
+
+def test_a_holey_film_has_ice_across_its_holes_and_none_where_one_broke():
+    scene = SampleScene(
+        renderer="solid", film="holey", **{**PLAIN, "broken_hole_fraction": 0.05}
+    )
+    col = _columns(scene, 60.0, 60.0, half=40.0, step=0.2)
+    film = col["film"][1] > sim_solid.NONE / 2
+    ice = col["ice"][1] > sim_solid.NONE / 2
+    bar = col["bar"][1] > sim_solid.NONE / 2
+    hole = ice & ~film & ~bar
+    assert 0.01 < hole.mean() < 0.5  # a lattice of holes, iced over
+    assert (~ice & ~film).any()  # and a few broken through
+    assert col["hole"][hole].mean() > 5 * col["hole"][film].mean()
+
+
+def test_every_cell_type_stands_up_under_its_own_ice():
+    for kind in ("yeast", "mammalian", "bacteria", "neuron", "rpe"):
+        scene = SampleScene(renderer="solid", **{**PLAIN, "cell_type": kind})
+        f = _body(scene)
+        col = _columns(scene, f.x * 1e6, f.y * 1e6, half=3.0)
+        ice, cell = col["ice"][1], col["cell"][1]
+        inside = cell > sim_solid.NONE / 2
+        assert inside[30, 30], kind
+        # the cell is under the ice, and the ice stands higher for it
+        assert np.all(cell[inside] < ice[inside]), kind
+        assert ice[30, 30] > 0.4, kind
+
+
+def test_no_two_cells_are_alike_inside():
+    scene = SampleScene(renderer="solid", **{**PLAIN, "cell_type": "rpe"})
+    bodies = [f for f in scene.features if f.kind == "cell" and f.part == "body"]
+    nuclei = [f for f in scene.features if f.part == "nucleus"]
+    lobes = [sim_solid._lobes(f, scene.seed) for f in nuclei[:40]]
+    assert len({len(n) for n in lobes}) > 1  # some lobed, some not
+    assert len({round(n[0][2], 3) for n in lobes}) > 30  # each its own size
+    counts = [len(sim_solid._inclusions(scene, f)) for f in bodies[:40]]
+    assert max(counts) > 10 * max(min(counts), 1)  # packed, or almost empty
+
+    # what is in a cell lies inside it, clear of its top
+    f = _body(scene)
+    col = _columns(scene, f.x * 1e6, f.y * 1e6, half=8.0)
+    lo, hi = col["organelle"]
+    there = hi > sim_solid.NONE / 2
+    assert there.any()
+    assert np.all(hi[there] < col["cell"][1][there])
+    assert np.all(lo[there] > sim_solid.FILM_TOP)
+    assert set(np.unique(col["organelle_is"][there])) <= {
+        sim_solid.DROPLET,
+        sim_solid.VESICLE,
+    }
+    # and a view too coarse to show it does without
+    coarse = _columns(scene, f.x * 1e6, f.y * 1e6, half=8.0, step=1.0)
+    assert not (coarse["organelle"][1] > sim_solid.NONE / 2).any()

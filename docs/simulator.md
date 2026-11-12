@@ -56,8 +56,11 @@ brightens at grazing incidence.
   coat is a real layer that shows as a bright band along the top of a cut, and a damaged
   lamella has jagged bites, wandering cracks or a torn hole in its face. The FM looks at
   the same sample from above: the reflection comes from whatever is on top at each point,
-  and fluorescence is lost exactly where a cut removed it. It is being built up and is off
-  by default: holes and cracks in the film are not in it yet.
+  and fluorescence is lost exactly where a cut removed it. Every cell type stands under
+  its own ice, a holey film has ice across its holes (none where one broke), and a crack
+  is a groove. No two cells are alike inside: nuclei differ in size and height and some are
+  lobed, and the cytoplasm holds the cell's lipid droplets (the ones the FM labels) and
+  anything from a few vesicles to a face full of them. It is off by default for now.
 
 ## Cell types
 
