@@ -262,6 +262,7 @@ TEXTURE_BUDGET = 4.0  # texture pixels per view pixel, at most
 TEXTURE_CACHE_BYTES = 384e6
 
 FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
+FIDUCIAL_CLEARING = 34e-6  # m, no cell body centre nearer the cross than this
 FIDUCIAL_POINT_SPACING = 0.5e-6  # m
 # a cell's and a nucleus's radius, in the size of the feature that draws it
 RPE_RADIUS = sim_solid.RPE_RADIUS
@@ -643,7 +644,7 @@ class SampleScene:
     # (dense small rods), "rpe" (big smooth domes standing apart, each with a nucleus),
     # "neuron" (a round soma with long branching processes), "mixed", or
     # "none" for bare film
-    cell_type: str = "mammalian"
+    cell_type: str = "rpe"
     # yeast: clusters over the extent
     n_clusters: int = 120  # yeast clumps per 800 x 800 um
     cells_per_cluster: Tuple[int, int] = (8, 40)  # inclusive range
@@ -676,7 +677,7 @@ class SampleScene:
     # fine-pass correlator aliases on (false refusals at the fiducial, and a
     # false convergence at 80 um on the simulator), which the measurement
     # does not handle yet - see the xfail in test_sim_scene_realism.py
-    film: str = "continuous"
+    film: str = "holey"
     hole_diameter: float = 2.0e-6  # m  (R2/2: 2 um holes, 2 um apart)
     hole_pitch: float = 4.0e-6  # m
     broken_hole_fraction: float = 0.006
@@ -706,7 +707,7 @@ class SampleScene:
     # (cells under the ice, particles on it), so a cut face shows what it
     # was cut from - see sim_solid. It draws the SEM and FIB images; the FM
     # still comes from the relief
-    renderer: str = "flat"
+    renderer: str = "solid"
     # how strongly the SEM charges an uncoated grid (cells, ice): bright
     # patches and streaks along the scan, worse with a longer dwell; 0 = never
     charging: float = 1.0
@@ -921,7 +922,11 @@ class SampleScene:
             for f in mine
             if f.kind == "cell"
             and f.part == "body"
-            and np.hypot(f.x, f.y) > grid.radius
+            and (
+                np.hypot(f.x, f.y) > grid.radius
+                # the fiducial is cut into clear ice, not into a cell
+                or (self.fiducial and np.hypot(f.x, f.y) < FIDUCIAL_CLEARING)
+            )
         }
         self.features[start:] = [
             f

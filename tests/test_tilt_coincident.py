@@ -18,7 +18,7 @@ from fibsem.alignment.coincidence import (
     check_coincidence,
     tilt_coincident,
 )
-from fibsem.drivers.demo.sim_scene import SampleScene
+from tests.fixtures.sim_scenes import flat_scene
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -50,7 +50,7 @@ def microscope():
 
 def _anchor_scene(microscope, tilt_axis_offset: float) -> None:
     """A noise-free scene, coincident at the current (SEM) pose."""
-    scene = SampleScene(
+    scene = flat_scene(
         coincidence_offset=0.0,
         tilt_axis_offset=tilt_axis_offset,
         fiducial=True,

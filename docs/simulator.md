@@ -46,10 +46,10 @@ brightens at grazing incidence.
 
 `renderer` picks how the beams see the scene:
 
-- `flat` (default) paints the scene onto the sample plane.
+- `flat` paints the scene onto the sample plane.
 - `relief` gives everything a height and looks along the beam: tall things hide what is
   behind them, and a pattern is cut along the milling beam.
-- `solid` builds the sample from objects that can lie under one another: grid bars, the
+- `solid` (default) builds the sample from objects that can lie under one another: grid bars, the
   film, cells with a nucleus, one sheet of ice over them (standing up in a broad ridge over
   each bar), and clumps of particles resting on the ice. A cut face shows what it was cut
   from (ice, cell, nucleus). Milled edges have a bright rim, cut faces are curtained, a GIS
@@ -63,14 +63,15 @@ brightens at grazing incidence.
   its own ice, a holey film has ice across its holes (none where one broke), and a crack
   is a groove. No two cells are alike inside: nuclei differ in size and height and some are
   lobed, and the cytoplasm holds the cell's lipid droplets (the ones the FM labels) and
-  anything from a few vesicles to a face full of them. It is off by default for now.
+  anything from a few vesicles to a face full of them.
 
 ## Cell types
 
 ![Cell types](img/simulator/cell_types.png)
 
 `cell_type` picks what grows on the film: `mammalian` (adherent, spread bodies with an
-off-centre nucleus and organelle speckle; the default), `yeast` (compact ovoids in
+off-centre nucleus and organelle speckle), `rpe` (single domed cells standing apart;
+the default), `yeast` (compact ovoids in
 clusters, some budding), `bacteria` (dense small rods), `mixed`, or `none` for bare film.
 Cell bodies are opaque: they hide the film, holes and bars under them.
 
@@ -78,8 +79,8 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 
 ![Film and defects](img/simulator/film.png)
 
-- **Film**: `continuous` by default, or `holey` for a Quantifoil-style lattice of round
-  holes (`hole_diameter`, `hole_pitch`, a seeded few broken). The holey lattice is a 4 um
+- **Film**: `holey` by default, a Quantifoil-style lattice of round holes
+  (`hole_diameter`, `hole_pitch`, a seeded few broken), or `continuous`. The holey lattice is a 4 um
   periodic pattern the fine-pass coincidence correlator can alias on; see the note below.
 - **Rips**: a seeded fraction of squares (`rip_fraction`) has the film torn away. Each rip
   is its own tear (size, orientation, where it starts, how ragged), a square beside a
@@ -242,17 +243,17 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `grid_rim_width` | 0.00015 | the metal rim's width (m) |
 | `grid_rotation` | unset | the grid's rotation (deg); random within the range when unset |
 | `grid_rotation_range` | 45 | the random rotation's range (deg) |
-| `film` | continuous | `continuous` (default) or `holey` (a Quantifoil-style lattice) |
+| `film` | holey | `holey` (default, a Quantifoil-style lattice) or `continuous` |
 | `hole_diameter` | 2e-06 | holey film: hole diameter (m) |
 | `hole_pitch` | 4e-06 | holey film: hole pitch (m) |
-| `broken_hole_fraction` | 0.02 | holey film: fraction of holes broken into larger openings |
+| `broken_hole_fraction` | 0.006 | holey film: fraction of holes broken into larger openings |
 | `fiducial` | False | a cross at each grid centre, a navigation landmark; absent on a real grid, so off by default |
 
 ### Cells
 
 | key | default | what it does |
 | -- | -- | -- |
-| `cell_type` | mammalian | `mammalian` (default), `yeast`, `bacteria`, `mixed`, `none` |
+| `cell_type` | rpe | `rpe` (default), `mammalian`, `yeast`, `bacteria`, `mixed`, `none` |
 | `extent` | None | content is grown over +/- extent/2 about the grid centre, on the grid's disc (m); None fills the whole grid |
 | `mammalian_density` | 7 | mammalian: cells per 150 x 150 um |
 | `mammalian_radius` | [1.8e-05, 3e-05] | mammalian: body radius range (m) |
@@ -328,9 +329,10 @@ are in degrees, ranges are two-element lists, lengths in metres.
 - A frame renders in about 0.3 s at 1536 x 1024 once a place has been imaged; the first
   frame somewhere new costs 0.4-2 s (the world is stamped into cached tiles, then sampled
   per view). The fluorescence view is stamped per frame, about 0.4 s.
-- The holey film's 4 um lattice defeats the fine-pass coincidence correlator (band
-  refusals, a false convergence at large errors); keep the film continuous for alignment
-  work until the measurement handles it.
+- The SEM to FIB coincidence measurement (an option, off in the workflow by default) was
+  calibrated on the `flat` renderer with a continuous film. On the 3D sample its gates
+  refuse many correct measurements, and the holey film's 4 um lattice can alias it; its
+  tests ask for the flat scene by name until the gates are recalibrated on real image pairs.
 - The scene is generated fresh from its seed on every connect. The same seed gives the
   same grid; milled trenches do not survive a reconnect.
 
