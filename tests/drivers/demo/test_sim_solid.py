@@ -393,3 +393,30 @@ def test_no_two_cells_are_alike_inside():
     # and a view too coarse to show it does without
     coarse = _columns(scene, f.x * 1e6, f.y * 1e6, half=8.0, step=1.0)
     assert not (coarse["organelle"][1] > sim_solid.NONE / 2).any()
+
+
+def test_a_milled_frame_walked_in_part_matches_one_walked_whole(
+    microscope, monkeypatch
+):
+    _use(microscope, renderer="solid", **{**PLAIN, "cell_type": "rpe"})
+    _mill(microscope, (14e-6, 6e-6, 5e-6), (14e-6, 6e-6, -5e-6), (3e-6, 3e-6, 20e-6))
+    calls = []
+    seen = sim_solid._seen
+
+    def record(col, removed, z, shift, height):
+        out = seen(col, removed, z, shift, height)
+        calls.append((col, removed, z, shift, height, out))
+        return out
+
+    monkeypatch.setattr(sim_solid, "_seen", record)
+    for beam_type in (BeamType.ION, BeamType.ELECTRON):
+        _image(microscope, beam_type, hfw=80e-6)
+        col, removed, z, shift, height, (hit_q, hit_m) = calls[-1]
+        assert removed and "walk" in col
+        width = col["surface"].shape[1]
+        whole = sim_solid._walk(
+            col, removed, z, shift, slice(0, height), slice(0, width)
+        )
+        assert np.array_equal(hit_q, whole[0]) and np.array_equal(hit_m, whole[1])
+        # and the milling did change what is seen
+        assert not np.array_equal(hit_q, col["walk"][1][0])

@@ -516,46 +516,102 @@ def _part(a, sl):
     return a if np.ndim(a) == 0 else a[sl]
 
 
-def _walk(col: dict, removed: list, z: np.ndarray, shift: np.ndarray, height: int):
-    """What each pixel's beam meets first: the level and the material, on
-    (height, W). Row r of the image at level q shows sample row r + shift[q];
-    the highest level with something solid there is the first the beam meets."""
-    surface = col["surface"]
-    width = surface.shape[1]
+def _walk(col: dict, removed: list, z, shift, rows: slice, cols: slice):
+    """What each pixel's beam meets first: the level and the material, over
+    image rows `rows` and columns `cols`. Row r of the image at level q shows
+    sample row r + shift[q]; the highest level with something solid there is
+    the first the beam meets."""
+    height, width = rows.stop - rows.start, cols.stop - cols.start
     hit_q = np.full((height, width), -1, dtype=np.int16)
     hit_m = np.zeros((height, width), dtype=np.uint8)
     dz = z[1] - z[0]
-    reach = {k: (float(np.min(col[k][0])), float(np.max(col[k][1]))) for k in SLOTS}
+    surface = col["surface"]
+    pieces = []
+    for k in SLOTS[::-1]:
+        lo, hi = col[k]
+        lo = lo if np.ndim(lo) == 0 else lo[:, cols]
+        hi = hi[:, cols]
+        what = col["organelle_is"][:, cols] if k == "organelle" else MATERIAL[k]
+        pieces.append((float(np.min(lo)), float(np.max(hi)), lo, hi, what))
+    level = np.zeros((height, width), dtype=np.uint8)
     for q, zq in enumerate(z):
-        sl = slice(shift[q], shift[q] + height)
-        level = np.zeros((height, width), dtype=np.uint8)
-        for k in SLOTS[::-1]:
-            if zq < reach[k][0] or zq >= reach[k][1]:
+        sl = slice(shift[q] + rows.start, shift[q] + rows.stop)
+        level[:] = VOID
+        any_piece = False
+        for low, high, lo, hi, what in pieces:
+            if zq < low or zq >= high:
                 continue
-            lo, hi = col[k]
             m = (_part(lo, sl) <= zq) & (zq < hi[sl])
-            level[m] = col["organelle_is"][sl][m] if k == "organelle" else MATERIAL[k]
-        if not level.any():
+            np.copyto(level, what if np.ndim(what) == 0 else what[sl], where=m)
+            any_piece = True
+        if not any_piece:
             continue
         if removed:
             # the top of a column is tested at its true height, so a cut
             # meets the surface along a smooth line
-            top = surface[sl]
-            zt = np.where((top > zq) & (top - zq < dz), top, zq)
             for cut in removed:
-                rows, cols = cut["box"]
-                r0, r1 = max(rows.start, sl.start), min(rows.stop, sl.stop)
-                if r1 <= r0:
+                r, c = cut["box"]
+                r0, r1 = max(r.start, sl.start), min(r.stop, sl.stop)
+                c0, c1 = max(c.start, cols.start), min(c.stop, cols.stop)
+                if r1 <= r0 or c1 <= c0:
                     continue
-                mine = (slice(r0 - sl.start, r1 - sl.start), cols)
-                theirs = slice(r0 - rows.start, r1 - rows.start)
-                zz = zt[mine]
-                level[mine][(cut["from"][theirs] <= zz) & (zz <= cut["to"][theirs])] = (
-                    VOID
+                mine = (
+                    slice(r0 - sl.start, r1 - sl.start),
+                    slice(c0 - cols.start, c1 - cols.start),
                 )
+                theirs = (
+                    slice(r0 - r.start, r1 - r.start),
+                    slice(c0 - c.start, c1 - c.start),
+                )
+                top = surface[r0:r1, c0:c1]
+                zz = np.where((top > zq) & (top - zq < dz), top, zq)
+                gone = (cut["from"][theirs] <= zz) & (zz <= cut["to"][theirs])
+                level[mine][gone] = VOID
         solid = level > 0
-        hit_q[solid] = q
-        hit_m[solid] = level[solid]
+        np.putmask(hit_q, solid, q)
+        np.copyto(hit_m, level, where=solid)
+    return hit_q, hit_m
+
+
+def _seen(col: dict, removed: list, z, shift, height: int):
+    """The walk over a whole view. The sample as it was before any milling is
+    walked once and kept with its columns; a milled frame walks again only
+    the part of the image the cuts can show in."""
+    width = col["surface"].shape[1]
+    kept = col.get("walk")
+    if kept is None or kept[0] != (height, len(z)):
+        whole = _walk(col, [], z, shift, slice(0, height), slice(0, width))
+        kept = col["walk"] = ((height, len(z)), whole)
+    hit_q, hit_m = kept[1]
+    if not removed:
+        return hit_q, hit_m
+    hit_q, hit_m = hit_q.copy(), hit_m.copy()
+    for cut in removed:
+        r, c = cut["box"]
+        # sample row s shows in image row s - shift[q], for every level q
+        rows = slice(
+            max(0, r.start - int(shift.max())), min(height, r.stop - int(shift.min()))
+        )
+        if rows.stop <= rows.start:
+            continue
+        cut["window"] = (rows, c)
+    # cuts that share columns are walked together, as one window
+    todo = sorted(
+        (cut["window"] for cut in removed if "window" in cut), key=lambda w: w[1].start
+    )
+    merged = []
+    for rows, c in todo:
+        if merged and c.start <= merged[-1][1].stop:
+            last = merged[-1]
+            merged[-1] = (
+                slice(min(last[0].start, rows.start), max(last[0].stop, rows.stop)),
+                slice(last[1].start, max(last[1].stop, c.stop)),
+            )
+        else:
+            merged.append((rows, c))
+    for rows, c in merged:
+        q, m = _walk(col, removed, z, shift, rows, c)
+        hit_q[rows, c], hit_m[rows, c] = q, m
     return hit_q, hit_m
 
 
@@ -606,7 +662,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
     removed = []
     if scene.milled:
         removed = _removed(scene, *np.meshgrid(xw, yw), col)
-    hit_q, hit_m = _walk(col, removed, z, shift, height)
+    hit_q, hit_m = _seen(col, removed, z, shift, height)
 
     seen = hit_q >= 0
     q = np.clip(hit_q, 0, len(z) - 1).astype(np.int64)
