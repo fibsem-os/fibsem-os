@@ -201,7 +201,7 @@ def test_a_face_polished_in_many_passes_is_as_open_as_one_cut_at_once(
         [(12e-6, 4e-6, 10.5e-6)]
         + [(12e-6, 2e-6, y * 1e-6) for y in (8.0, 6.5, 5.0, 3.5, 2.0)],
     ):
-        _use(microscope, renderer="solid", **PLAIN)
+        _use(microscope, **PLAIN)
         for cut in cuts:
             _mill(microscope, cut)
         _, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 40e-6)
