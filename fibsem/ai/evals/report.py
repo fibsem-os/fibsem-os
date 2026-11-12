@@ -1,4 +1,4 @@
-"""A run's results as one table per task: hits, unsafe answers, how often
+"""A run's results as one table per task: hits, costly mistakes, how often
 every repeat of a case was right, and what it cost."""
 
 import json
@@ -14,7 +14,7 @@ def load_results(out: Path) -> List[Dict[str, Any]]:
 
 
 def summarise(results: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """One row per task (and part): runs, hits, unsafe, invalid or missing
+    """One row per task (and part): runs, hits, costly mistakes, invalid or missing
     answers, cases right in every repeat, mean cost and time."""
     rows: Dict[tuple, Dict[str, Any]] = {}
     per_case: Dict[tuple, Dict[str, List[bool]]] = defaultdict(
@@ -31,7 +31,7 @@ def summarise(results: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     "headline": score.get("headline", True),
                     "runs": 0,
                     "hit": 0,
-                    "unsafe": 0,
+                    "costly": 0,
                     "invalid": 0,
                     "cost_usd": 0.0,
                     "seconds": 0.0,
@@ -39,7 +39,7 @@ def summarise(results: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             )
             row["runs"] += 1
             row["hit"] += score["result"] == "hit"
-            row["unsafe"] += score["result"] == "unsafe"
+            row["costly"] += bool((score.get("details") or {}).get("costly"))
             row["invalid"] += score["result"] == "invalid"
             row["cost_usd"] += float(result.get("spent_usd") or 0.0)
             row["seconds"] += float(result.get("seconds") or 0.0)
@@ -55,13 +55,13 @@ def summarise(results: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 def table(rows: List[Dict[str, Any]]) -> str:
     """The rows as a Markdown table."""
-    head = "| Task | Headline | Runs | Hits | Unsafe | Invalid | Cases right every repeat | Mean cost | Mean time |"
+    head = "| Task | Headline | Runs | Hits | Costly | Invalid | Cases right every repeat | Mean cost | Mean time |"
     lines = [head, "|---|---|---|---|---|---|---|---|---|"]
     for row in rows:
         name = row["task"] + (f" ({row['part']})" if row["part"] else "")
         lines.append(
             f"| {name} | {'yes' if row['headline'] else 'no'} | {row['runs']} "
-            f"| {row['hit']} | {row['unsafe']} | {row['invalid']} "
+            f"| {row['hit']} | {row['costly']} | {row['invalid']} "
             f"| {row['all_repeats_right']} of {row['cases']} "
             f"| ${row['mean_cost_usd']:.2f} | {row['mean_seconds']:.0f} s |"
         )

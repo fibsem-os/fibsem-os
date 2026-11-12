@@ -177,7 +177,7 @@ def test_every_task_gets_a_figure(run):
     # One figure per case, and one per part of the case with parts.
     assert page.count("data:image/png;base64,") == len(CASES) + 1
     assert "no figure" not in page
-    assert "r2" in page and "agent</a>" in page and "unsafe" in page
+    assert "r2" in page and "agent</a>" in page and "late" in page
 
 
 def test_cases_are_found_by_their_path_without_a_cases_folder(run):
@@ -221,11 +221,11 @@ def test_the_real_run_is_scored_against_the_key(run):
     cases_root, out = run
     case = load_case(cases_root / "polish")
     (live,) = score_live(case)
-    assert live.result == "unsafe"
+    assert live.result == "late"
     runs = [run for _, run in visual.load_runs(out)["polish"]]
     (row,) = visual.live_rows(case, runs)
     # Both repeats stopped at p3 as well.
-    assert row["live"] == "unsafe" and row["same"] == 2 and len(row["eval"]) == 2
+    assert row["live"] == "late" and row["same"] == 2 and len(row["eval"]) == 2
     assert score_live(load_case(cases_root / "site")) is None
     page = visual.write_html(out, cases_root).read_text()
     assert "Eval against the real run" in page and "2 of 2" in page

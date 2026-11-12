@@ -203,8 +203,8 @@ def _key_problems(case: Case) -> List[str]:
             if name not in key:
                 problems.append(f"key has no {name}")
     elif case.task == "setup_placement":
-        for name in ("ok_mask", "unsafe_mask"):
-            rel = key.get(name)
+        for name in ("ok_mask", "bad_mask"):
+            rel = key.get(name) if name == "ok_mask" else bad_mask(key)
             if not rel:
                 problems.append(f"key has no {name}")
             elif not str(rel).startswith("reference/"):
@@ -238,6 +238,12 @@ def _key_problems(case: Case) -> List[str]:
                     f"part {name}: key names unknown passes {sorted(unknown)}"
                 )
     return problems
+
+
+def bad_mask(key: Dict[str, Any]) -> Optional[str]:
+    """A setup placement key's mask of costly placements (``unsafe_mask`` in
+    keys written before the rename)."""
+    return key.get("bad_mask") or key.get("unsafe_mask")
 
 
 def stop_passes(key: Dict[str, Any]) -> List[str]:
