@@ -10,10 +10,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication, QGridLayout
+from qtpy.QtWidgets import QApplication, QGridLayout
 
 from fibsem.applications.autolamella.ui.lamella.history import (
     _IMAGES_PER_LINE,

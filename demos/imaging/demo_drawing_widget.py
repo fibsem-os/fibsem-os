@@ -3,9 +3,9 @@
 import sys
 
 import numpy as np
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QImage, QPixmap
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from qtpy.QtCore import Qt
+from qtpy.QtGui import QImage, QPixmap
+from qtpy.QtWidgets import QApplication, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from fibsem.imaging.drawing import draw_image_overlays
 
@@ -15,7 +15,7 @@ def _arr_to_pixmap(arr: np.ndarray) -> QPixmap:
         arr = np.stack([arr, arr, arr], axis=2)
     arr = np.ascontiguousarray(arr, dtype=np.uint8)
     h, w, c = arr.shape
-    qimg = QImage(arr.data, w, h, w * c, QImage.Format_RGB888)
+    qimg = QImage(arr.data, w, h, w * c, QImage.Format.Format_RGB888)
     return QPixmap.fromImage(qimg)
 
 
@@ -70,13 +70,13 @@ def main():
             title_label.setStyleSheet(
                 "color: #e0e0e0; font-size: 11px; font-weight: bold;"
             )
-            title_label.setAlignment(Qt.AlignCenter)
+            title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             col_layout.addWidget(title_label)
 
             img_label = QLabel()
             img_label.setPixmap(_arr_to_pixmap(img))
             img_label.setStyleSheet("background: #1a1b1e; border-radius: 4px;")
-            img_label.setAlignment(Qt.AlignCenter)
+            img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
             col_layout.addWidget(img_label)
 
             row_layout.addWidget(col)
@@ -84,7 +84,7 @@ def main():
         layout.addWidget(row_widget)
 
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

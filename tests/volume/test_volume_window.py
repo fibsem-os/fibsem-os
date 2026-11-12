@@ -16,7 +16,7 @@ from fibsem.workflows.status import TaskState, TaskStatus
 from fibsem.workflows.task_config import TaskPlan
 from tests.fixtures.toasts import toasts_fixture
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 
 toasts = toasts_fixture()
@@ -60,14 +60,14 @@ def test_add_position_here_takes_the_microscope_state(window):
 
 
 def row_text(panel, row: int) -> list:
-    from PyQt5.QtWidgets import QLabel
+    from qtpy.QtWidgets import QLabel
 
     widget = panel.list.itemWidget(panel.list.item(row))
     return [label.text() for label in widget.findChildren(QLabel)]
 
 
 def row_button(panel, row: int, text: str):
-    from PyQt5.QtWidgets import QPushButton
+    from qtpy.QtWidgets import QPushButton
 
     widget = panel.list.itemWidget(panel.list.item(row))
     return next(b for b in widget.findChildren(QPushButton) if b.text() == text)

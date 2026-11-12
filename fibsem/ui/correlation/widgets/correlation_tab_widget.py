@@ -39,9 +39,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QObject, QSize, Qt, QThread, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QKeySequence
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QObject, QSize, Qt, QThread, QTimer, Signal
+from qtpy.QtGui import QColor, QKeySequence
+from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QAction,
     QApplication,
@@ -322,8 +322,8 @@ def _ro_item(text: str) -> QTableWidgetItem:
 class _CorrelationWorker(QThread):
     """Computes a session's run off the GUI thread."""
 
-    result_ready = pyqtSignal(object)  # CorrelationResult
-    errored = pyqtSignal(str)
+    result_ready = Signal(object)  # CorrelationResult
+    errored = Signal(str)
 
     def __init__(self, pending: PendingRun, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -365,7 +365,7 @@ class _ProgressRelay(QObject):
     there delivers it through the GUI event loop, so slots may touch widgets.
     """
 
-    progress = pyqtSignal(int, int)  # (channels_done, channels_total)
+    progress = Signal(int, int)  # (channels_done, channels_total)
 
     def emit_progress(self, done: int, total: int) -> None:
         self.progress.emit(done, total)
@@ -422,7 +422,7 @@ class _ImagePicker(QWidget):
     — so a programmatic :meth:`show_path` can't loop back into a reload.
     """
 
-    path_selected = pyqtSignal(str)
+    path_selected = Signal(str)
 
     def __init__(self, file_filter: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -436,7 +436,9 @@ class _ImagePicker(QWidget):
         install_wheel_blocker(self.combo)
         # Changing the image discards the coordinates, so a wheel scroll passing
         # over this combo must never be able to trigger it.
-        self.combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.combo.setMinimumContentsLength(12)
         self.combo.activated.connect(self._on_activated)
         layout.addWidget(self.combo, stretch=1)
@@ -534,10 +536,10 @@ class _ImagePicker(QWidget):
 class _ImagesTab(QWidget):
     """Browse / load FIB and FM image files."""
 
-    fib_image_changed = pyqtSignal(object)  # FibsemImage
-    fm_image_changed = pyqtSignal(object)  # FluorescenceImage
-    project_dir_changed = pyqtSignal(str)  # directory path
-    interpolate_requested = pyqtSignal()  # interpolate the loaded FM z-stack
+    fib_image_changed = Signal(object)  # FibsemImage
+    fm_image_changed = Signal(object)  # FluorescenceImage
+    project_dir_changed = Signal(str)  # directory path
+    interpolate_requested = Signal()  # interpolate the loaded FM z-stack
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -560,7 +562,7 @@ class _ImagesTab(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         content = QWidget()
         outer.addWidget(scroll)
 
@@ -871,9 +873,9 @@ class _CoordinatesTab(QWidget):
     """Coordinate list widgets + fit settings + load/save."""
 
     # Predicted fiducials: the parent projects and accepts
-    project_requested = pyqtSignal()
-    accept_predictions_requested = pyqtSignal()
-    projection_link_activated = pyqtSignal(str)  # "ignore" | "use"
+    project_requested = Signal()
+    accept_predictions_requested = Signal()
+    projection_link_activated = Signal(str)  # "ignore" | "use"
 
     # Forwarded from list widgets — parent connects these
     fib_list: CoordinateListWidget
@@ -1022,15 +1024,17 @@ class _CoordinatesTab(QWidget):
         # The choices are one or two words; a combo stretched to the panel's
         # width reads as a text field. Only the projection line, which wraps,
         # takes the width.
-        fit_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
+        fit_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         # Where the projection comes from, one line; the numbers live in the
         # tooltip. The link ignores (or restores) a previous run's placement
         # offset for this lamella.
         self._lbl_projection = QLabel("")
         self._lbl_projection.setWordWrap(True)
-        self._lbl_projection.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self._lbl_projection.setTextFormat(Qt.RichText)
+        self._lbl_projection.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+        )
+        self._lbl_projection.setTextFormat(Qt.TextFormat.RichText)
         self._lbl_projection.setStyleSheet(BODY_STYLE)
         self._lbl_projection.linkActivated.connect(self.projection_link_activated)
         fit_form.addRow(form_label("Projection"), self._lbl_projection)
@@ -1106,7 +1110,7 @@ class _CoordinatesTab(QWidget):
             self._fm_poi_ch_combo,
             self._delete_fiducial_combo,
         ):
-            _combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+            _combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
             _combo.setMinimumContentsLength(10)
             _combo.setMinimumWidth(_CHOICE_COMBO_WIDTH)
         self._auto_accept_check.setToolTip(
@@ -1580,8 +1584,8 @@ class _RITab(QWidget):
            applying it triggers (or requires) a correlation run.
     """
 
-    post_correction_requested = pyqtSignal(float)  # factor (post)
-    pre_correction_requested = pyqtSignal(float, bool)  # factor, rerun (pre)
+    post_correction_requested = Signal(float)  # factor (post)
+    pre_correction_requested = Signal(float, bool)  # factor, rerun (pre)
 
     # Abbreviated because the full words don't fit four columns at this panel
     # width — a header elided to "original (p" says less than "Y orig".
@@ -2151,9 +2155,9 @@ class CorrelationTabWidget(QWidget):
     result_changed : CorrelationResult
     """
 
-    data_changed = pyqtSignal(object)  # CorrelationInputData
-    result_changed = pyqtSignal(object)  # CorrelationResult
-    continue_pressed_signal = pyqtSignal(object)  # CorrelationResult
+    data_changed = Signal(object)  # CorrelationInputData
+    result_changed = Signal(object)  # CorrelationResult
+    continue_pressed_signal = Signal(object)  # CorrelationResult
 
     def __init__(
         self,
@@ -2841,10 +2845,10 @@ class CorrelationTabWidget(QWidget):
             "Loading a different image will clear the current coordinates — they "
             "mark positions in the image they were placed on.\n\n"
             "Any correlation result is discarded with them.",
-            QMessageBox.Ok | QMessageBox.Cancel,
-            QMessageBox.Cancel,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
         )
-        if reply != QMessageBox.Ok:
+        if reply != QMessageBox.StandardButton.Ok:
             return False
         self.set_data(
             CorrelationInputData(
@@ -3204,10 +3208,10 @@ class CorrelationTabWidget(QWidget):
             self,
             "Replace coordinates?",
             "Seeding will replace the coordinates currently on the canvas.",
-            QMessageBox.Ok | QMessageBox.Cancel,
-            QMessageBox.Cancel,
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
         )
-        return reply == QMessageBox.Ok
+        return reply == QMessageBox.StandardButton.Ok
 
     def load_data(self, path: str) -> None:
         """Load a legacy coordinates file, preserving current images.
@@ -3992,7 +3996,7 @@ class CorrelationTabWidget(QWidget):
         name = self._fiducial_name(coord, self._point_store)
         other = self._fiducial_name(partner, self._point_store)
         box = QMessageBox(self)
-        box.setIcon(QMessageBox.Question)
+        box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle("Delete fiducial")
         box.setText(f"{name} is paired with {other}.")
         box.setInformativeText(
@@ -4000,13 +4004,15 @@ class CorrelationTabWidget(QWidget):
             f"{name} pairs every later {coord.point_type.value} fiducial with the "
             "next one on the other side."
         )
-        both = box.addButton("Remove both", QMessageBox.AcceptRole)
-        only = box.addButton(f"Remove only {name}", QMessageBox.DestructiveRole)
-        box.addButton(QMessageBox.Cancel)
+        both = box.addButton("Remove both", QMessageBox.ButtonRole.AcceptRole)
+        only = box.addButton(
+            f"Remove only {name}", QMessageBox.ButtonRole.DestructiveRole
+        )
+        box.addButton(QMessageBox.StandardButton.Cancel)
         box.setDefaultButton(both)
         remember = QCheckBox("Don't ask again")
         box.setCheckBox(remember)
-        box.exec_()
+        box.exec()
         clicked = box.clickedButton()
         choice = (
             DELETE_FIDUCIAL_PAIR
@@ -4245,7 +4251,7 @@ class CorrelationTabWidget(QWidget):
 
         # No point count: the points no longer move when the view is resampled.
         dlg = InterpolateZDialog(self._session.fm_image, parent=self)
-        if dlg.exec_() != QDialog.Accepted:
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         target_m, method = dlg.result_params()
         self._start_fm_interpolation(target_m, method)
@@ -4379,7 +4385,7 @@ class CorrelationTabWidget(QWidget):
         dialog = FitConfirmationDialog(result, show_figure=show_fig, parent=self)
         # The dialog renders its own figure (OO API, no pyplot) and frees it with
         # its canvas, so there's nothing to plt.close here anymore.
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self._apply_fit_result(result)
 
     def _should_auto_accept(self, result: PointFitResult) -> bool:
@@ -4462,7 +4468,7 @@ class CorrelationTabDialog(QDialog):
     A self-contained correlation dialog. The Continue button inside the widget
     handles confirmation and
     calls ``self.window().close()``; connecting ``continue_pressed_signal``
-    to ``accept()`` ensures ``exec_()`` returns ``QDialog.Accepted``.
+    to ``accept()`` ensures ``exec()`` returns ``QDialog.DialogCode.Accepted``.
     """
 
     def __init__(
@@ -4478,8 +4484,8 @@ class CorrelationTabDialog(QDialog):
         # Allow the whole correlation window to be minimised / maximised.
         self.setWindowFlags(
             self.windowFlags()
-            | Qt.WindowMinimizeButtonHint
-            | Qt.WindowMaximizeButtonHint
+            | Qt.WindowType.WindowMinimizeButtonHint
+            | Qt.WindowType.WindowMaximizeButtonHint
         )
         self._min_shortcut = QShortcut(QKeySequence("Ctrl+M"), self)
         self._min_shortcut.activated.connect(self.showMinimized)
@@ -4600,7 +4606,7 @@ def main() -> None:
     import argparse
     import sys
 
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
 
     logging.basicConfig(level=logging.INFO)
 
@@ -4645,7 +4651,7 @@ def main() -> None:
             widget.set_prior_runs(experiment_runs(experiment_dir, lamella_dir))
     widget.show()
 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

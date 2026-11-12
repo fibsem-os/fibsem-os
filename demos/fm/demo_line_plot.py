@@ -3,8 +3,8 @@
 import sys
 
 import numpy as np
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QTimer
+from qtpy.QtWidgets import QApplication
 
 from fibsem.ui.fm.widgets.line_plot_widget import LinePlotWidget
 
@@ -32,7 +32,7 @@ def main():
     timer.timeout.connect(add_point)
     timer.start(50)
 
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -123,7 +123,7 @@ def test_a_result_at_another_fib_pixel_size_is_not_current():
 
 @pytest.fixture
 def widget(qapp, monkeypatch):
-    pytest.importorskip("PyQt5")
+    pytest.importorskip("qtpy.QtWidgets")
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CorrelationTabWidget,
     )
@@ -222,7 +222,7 @@ def test_continue_records_a_loaded_result_in_the_run_folder(
 ):
     """Loading writes nothing, so a result committed straight after a load
     would otherwise leave this run's folder without a record of it."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     from fibsem.ui.correlation.widgets.correlation_tab_widget import (
         CORRELATION_FILENAME,

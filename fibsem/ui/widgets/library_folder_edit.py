@@ -1,8 +1,8 @@
 """A folder field for a driver's vendor library, with a Find button that asks the
 other Pythons on PATH where they have it (``fibsem.vendor_libraries.search``)."""
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QInputDialog, QMessageBox, QToolButton
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QApplication, QInputDialog, QMessageBox, QToolButton
 
 from fibsem import vendor_libraries
 from fibsem.ui.widgets.custom_widgets import QDirectoryLineEdit
@@ -29,7 +29,7 @@ class LibraryFolderEdit(QDirectoryLineEdit):
         """Fill the field with a folder found, choosing where there are several."""
         if self.library is None:
             return
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             found = vendor_libraries.search(self.library)
         finally:

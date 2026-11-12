@@ -18,10 +18,10 @@ import tempfile
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict  # noqa: E402
-from PyQt5.QtWidgets import QSplitter, QWidget  # noqa: E402
+from qtpy.QtWidgets import QSplitter, QWidget  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402

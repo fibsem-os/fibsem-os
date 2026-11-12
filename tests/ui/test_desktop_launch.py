@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtGui import QColor
+from qtpy.QtGui import QColor
 
 import fibsem
 from fibsem.tools import desktop_launch as launcher
@@ -118,8 +120,8 @@ def test_every_load_step_names_a_real_module(key):
 
 
 def test_the_splash_polishes_then_closes_once_the_window_is_up(qapp):
-    from PyQt5.QtTest import QTest
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtTest import QTest
+    from qtpy.QtWidgets import QWidget
 
     from fibsem.tools.apps import AUTOLAMELLA
 
@@ -136,9 +138,9 @@ def test_the_splash_polishes_then_closes_once_the_window_is_up(qapp):
 
 
 def test_a_click_closes_the_splash_while_it_mills(qapp):
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtTest import QTest
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtCore import Qt
+    from qtpy.QtTest import QTest
+    from qtpy.QtWidgets import QWidget
 
     from fibsem.tools.apps import AUTOLAMELLA
 
@@ -157,9 +159,9 @@ def test_a_click_closes_the_splash_while_it_mills(qapp):
 
 
 def test_clicks_are_ignored_until_the_window_is_up(qapp):
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtTest import QTest
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtCore import Qt
+    from qtpy.QtTest import QTest
+    from qtpy.QtWidgets import QWidget
 
     from fibsem.tools.apps import AUTOLAMELLA
 
@@ -180,8 +182,8 @@ def test_clicks_are_ignored_until_the_window_is_up(qapp):
 
 
 def test_the_window_closes_when_the_gateway_asks(qapp, tmp_path, monkeypatch):
-    from PyQt5.QtTest import QTest
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtTest import QTest
+    from qtpy.QtWidgets import QWidget
 
     monkeypatch.setattr(
         "fibsem.gateway.gateway.close_file", lambda pid: tmp_path / f"close-{pid}"

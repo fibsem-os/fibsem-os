@@ -8,7 +8,9 @@ in a slot into ``qFatal``, which aborts the whole application (FIB-329).
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget

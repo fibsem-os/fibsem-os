@@ -11,7 +11,7 @@ Run directly:
 import sys
 from datetime import datetime, timedelta
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -112,7 +112,7 @@ def main() -> None:
     btn_print.clicked.connect(lambda: print(_describe(task, requires)))
 
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

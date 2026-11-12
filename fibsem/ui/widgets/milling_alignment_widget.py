@@ -1,5 +1,5 @@
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import QCheckBox, QGridLayout, QLabel, QWidget
 
 from fibsem.structures.settings import MillingAlignment
 from fibsem.ui.widgets.custom_widgets import (
@@ -24,7 +24,7 @@ def _check_row(layout: QGridLayout, row: int, name: str) -> QCheckBox:
     label = QLabel(spec.label)
     label.setToolTip(spec.doc)
     layout.addWidget(label, row, 0)
-    layout.addWidget(checkbox, row, 1, alignment=Qt.AlignLeft)
+    layout.addWidget(checkbox, row, 1, alignment=Qt.AlignmentFlag.AlignLeft)
     return checkbox
 
 
@@ -35,7 +35,7 @@ class FibsemMillingAlignmentWidget(QWidget):
     and alignment imaging settings (resolution and dwell time).
     """
 
-    settings_changed = pyqtSignal(MillingAlignment)
+    settings_changed = Signal(MillingAlignment)
 
     def __init__(self, parent=None, show_advanced=False):
         """Initialize the MillingAlignment widget.

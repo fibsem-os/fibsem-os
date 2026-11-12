@@ -18,7 +18,7 @@ import dataclasses
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.ui.dialogs.preferences import PreferencesDialog
 from fibsem.config import MODE_COMPACT, QtPreferences, UserPreferences

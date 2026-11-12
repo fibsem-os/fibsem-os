@@ -43,8 +43,8 @@ from fibsem.tools.app_identity import bring_to_front, set_app_identity
 from fibsem.tools.apps import App, apps
 
 if TYPE_CHECKING:
-    from PyQt5.QtGui import QPainter, QPixmap
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtGui import QPainter, QPixmap
+    from qtpy.QtWidgets import QWidget
 
 SPLASH_WIDTH = 440
 SPLASH_HEIGHT = 240
@@ -99,9 +99,9 @@ def splash_pixmap(
     With ``milling``, AutoLamella's icon is drawn milled that far instead of
     ``icon``.
     """
-    from PyQt5.QtCore import QRectF, Qt
-    from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QPixmap
-    from PyQt5.QtSvg import QSvgRenderer
+    from qtpy.QtCore import QRectF, Qt
+    from qtpy.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+    from qtpy.QtSvg import QSvgRenderer
 
     pixmap = QPixmap(
         round(SPLASH_WIDTH * device_pixel_ratio),
@@ -157,8 +157,8 @@ def splash_pixmap(
 
 def _draw_milling(painter: QPainter, milling: Milling) -> None:
     """Paint AutoLamella's icon milled as far as ``milling`` says, in grid units."""
-    from PyQt5.QtCore import QRectF, Qt
-    from PyQt5.QtGui import QColor
+    from qtpy.QtCore import QRectF, Qt
+    from qtpy.QtGui import QColor
 
     def lerp(a: float, b: float, t: float) -> float:
         return a + (b - a) * t
@@ -211,8 +211,8 @@ class Splash:
     """
 
     def __init__(self, app: App):
-        from PyQt5.QtCore import QEvent, QObject
-        from PyQt5.QtWidgets import QApplication, QSplashScreen
+        from qtpy.QtCore import QEvent, QObject
+        from qtpy.QtWidgets import QApplication, QSplashScreen
 
         class IgnoreClicks(QObject):
             """Qt closes a splash on any click; while loading there is nothing
@@ -268,7 +268,7 @@ class Splash:
         if not self._milling:
             self._screen.finish(window)
             return
-        from PyQt5.QtCore import QElapsedTimer, QTimer
+        from qtpy.QtCore import QElapsedTimer, QTimer
 
         clock = QElapsedTimer()  # started on the first frame, not here: the
         self._timer = QTimer()  # window's first paint comes between the two
@@ -380,8 +380,8 @@ def watch_for_close(pid: Optional[int] = None, every_ms: int = 1000):
     asks (`fibsem.gateway.gateway.close_file`). A window that asks a question
     as it closes waits for the answer at the PC."""
     global _CLOSE_WATCH
-    from PyQt5.QtCore import QTimer
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtCore import QTimer
+    from qtpy.QtWidgets import QApplication
 
     from fibsem.gateway.gateway import close_file
 
@@ -401,7 +401,7 @@ def watch_for_close(pid: Optional[int] = None, every_ms: int = 1000):
 def _take_over(app: App, state: dict) -> bool:
     """Ask the operator whether to stop the remote run and open the window."""
     box, take = take_over_box(app, state)
-    box.exec_()
+    box.exec()
     return box.clickedButton() is take
 
 
@@ -412,7 +412,7 @@ def _qt_app():
     """The QApplication, kept: one made and dropped at once is deleted, and a
     dialog after it aborts ("Must construct a QApplication before a QWidget")."""
     global _QAPP
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
 
     _QAPP = QApplication.instance() or QApplication(sys.argv)
     return _QAPP
@@ -420,25 +420,25 @@ def _qt_app():
 
 def take_over_box(app: App, state: dict):
     """The Take over / Cancel question, and its Take over button."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     _qt_app()
     experiment = state.get("experiment") or "no experiment"
     who = state.get("who") or "remotely"
     box = QMessageBox()
     box.setWindowTitle(app.name)
-    box.setIcon(QMessageBox.Question)
+    box.setIcon(QMessageBox.Icon.Question)
     box.setText(f"{app.name} is running remotely ({experiment}, started by {who}).")
     box.setInformativeText(
         "Take over stops it, and any workflow it is running, then opens the window."
     )
-    take = box.addButton("Take over", QMessageBox.AcceptRole)
-    box.addButton(QMessageBox.Cancel)
+    take = box.addButton("Take over", QMessageBox.ButtonRole.AcceptRole)
+    box.addButton(QMessageBox.StandardButton.Cancel)
     return box, take
 
 
 def _say(app: App, text: str) -> None:
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     _qt_app()
     QMessageBox.warning(None, app.name, text)

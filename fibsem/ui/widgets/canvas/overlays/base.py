@@ -23,8 +23,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Tuple
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QApplication
 
 if TYPE_CHECKING:
     from fibsem.ui.widgets.canvas.canvas_base import ContentRect, FibsemCanvasBase
@@ -33,10 +33,10 @@ if TYPE_CHECKING:
 # Keyboard modifiers mapped to strings, so handler bodies branch on
 # ``"Alt" in modifiers``.
 _QT_MODIFIER_MAP = (
-    (Qt.AltModifier, "Alt"),
-    (Qt.ShiftModifier, "Shift"),
-    (Qt.ControlModifier, "Control"),
-    (Qt.MetaModifier, "Meta"),
+    (Qt.KeyboardModifier.AltModifier, "Alt"),
+    (Qt.KeyboardModifier.ShiftModifier, "Shift"),
+    (Qt.KeyboardModifier.ControlModifier, "Control"),
+    (Qt.KeyboardModifier.MetaModifier, "Meta"),
 )
 
 

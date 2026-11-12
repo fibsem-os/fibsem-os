@@ -27,7 +27,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.imaging.spot import SpotBurnProgress, SpotBurnStatus
 from fibsem.workflows.status import (
@@ -204,7 +204,7 @@ def test_the_lamella_sub_tab_is_called_history_not_review(main_ui):
     """The lamella's per-task record is History, beside Protocol; the window
     has no Review tab."""
     container = main_ui.lamella_tab
-    from PyQt5.QtWidgets import QTabWidget
+    from qtpy.QtWidgets import QTabWidget
 
     tabs = container.findChild(QTabWidget)
     labels = [tabs.tabText(i) for i in range(tabs.count())]

@@ -18,9 +18,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
-
-from PyQt5 import sip
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.correlation.session import CorrelationSession
 from fibsem.correlation.structures import (
@@ -30,6 +28,7 @@ from fibsem.correlation.structures import (
     PointXYZ,
 )
 from fibsem.structures.image import FibsemImage
+from fibsem.ui.qt import sip
 
 
 @pytest.fixture

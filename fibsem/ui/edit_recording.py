@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Tuple
 
-from PyQt5.QtCore import QObject, QTimer
+from qtpy.QtCore import QObject, QTimer
 
 from fibsem.workflows import edit_recording
 from fibsem.workflows.task_configs import save_edits

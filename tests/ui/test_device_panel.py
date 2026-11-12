@@ -5,9 +5,9 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.devices import Device, DeviceFault, DeviceParameter, command  # noqa: E402
 from fibsem.structures.params import RangeLimit  # noqa: E402

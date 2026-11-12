@@ -1,6 +1,6 @@
 """A host for the FM control widget outside AutoLamella."""
 
-from PyQt5.QtWidgets import QWidget
+from qtpy.QtWidgets import QWidget
 
 
 class FMHost(QWidget):

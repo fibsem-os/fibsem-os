@@ -12,8 +12,8 @@ from __future__ import annotations
 import logging
 from typing import Callable, Optional
 
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, QTimer
+from qtpy.QtWidgets import (
     QDialog,
     QMessageBox,
     QSplitter,
@@ -146,7 +146,7 @@ class WorkflowTab(QWidget):
         right_layout.setSpacing(0)
         right_layout.addWidget(self.timeline)
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(False)
         splitter.addWidget(self.left_tabs)
         splitter.addWidget(right)
@@ -260,7 +260,7 @@ class WorkflowTab(QWidget):
             **ending,
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         self._start_grid_run(
             task_names,
@@ -302,7 +302,7 @@ class WorkflowTab(QWidget):
             **ending,
             parent=self,
         )
-        accepted = dialog.exec_() == QDialog.Accepted
+        accepted = dialog.exec() == QDialog.DialogCode.Accepted
         # A scan or a Screen changes what the slots hold and which grids the
         # experiment records, whether or not a run follows.
         self._after_naming()
@@ -666,7 +666,7 @@ class WorkflowTab(QWidget):
             attendance=self._grid_run_attendance(task_names),
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted:
+        if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         edit = runner.add(request, actor=OPERATOR)
         if not edit.applied:
@@ -756,16 +756,18 @@ class WorkflowTab(QWidget):
             # is the point of asking at all, and everything in the text slot renders
             # at question weight. The explanation belongs in the informative slot.
             box = QMessageBox(self)
-            box.setIcon(QMessageBox.Question)
+            box.setIcon(QMessageBox.Icon.Question)
             box.setWindowTitle("Stop Task")
             box.setText(f"Stop <b>{label}</b>?")
             box.setInformativeText(
                 "It will be marked cancelled and the workflow will carry on with "
                 "the next queued task. Use Stop to end the whole run instead."
             )
-            box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            box.setDefaultButton(QMessageBox.No)
-            if box.exec_() != QMessageBox.Yes:
+            box.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            box.setDefaultButton(QMessageBox.StandardButton.No)
+            if box.exec() != QMessageBox.StandardButton.Yes:
                 return
             self._stop_task(actor=OPERATOR, via="Stop Task", task=label)
             # No queue mutation here: the task unwinds on the worker thread and the

@@ -3,7 +3,7 @@ card, until it is decided on the Agent page (the session's approve)."""
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.workflows.tasks.select_position import (  # noqa: E402
     SelectMillingPositionTaskConfig,

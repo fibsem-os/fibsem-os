@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable, List, Optional
 
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
 from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
@@ -64,7 +64,7 @@ class DrawnStage:
 class AgentActivity(QObject):
     """Follows who is in control of the microscope and says what the agent does."""
 
-    now_changed = pyqtSignal(object)  # the `now` text, or None
+    now_changed = Signal(object)  # the `now` text, or None
 
     def __init__(
         self,

@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtGui import QPixmap
+from qtpy.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -61,10 +61,10 @@ from fibsem.ui.widgets.custom_widgets import ElidedLabel
 class LamellaCardWidget(RecordCard):
     """Modern card-style widget for a single Lamella."""
 
-    defect_changed = pyqtSignal(object)  # Lamella
-    move_to_requested = pyqtSignal(object)  # Lamella
-    update_position_requested = pyqtSignal(object)  # Lamella
-    remove_requested = pyqtSignal(object)  # Lamella
+    defect_changed = Signal(object)  # Lamella
+    move_to_requested = Signal(object)  # Lamella
+    update_position_requested = Signal(object)  # Lamella
+    remove_requested = Signal(object)  # Lamella
 
     def __init__(
         self,
@@ -78,7 +78,7 @@ class LamellaCardWidget(RecordCard):
 
         # ── thumbnail ───────────────────────────────────────────────────
         self._thumb_label = QLabel()
-        self._thumb_label.setAlignment(Qt.AlignCenter)
+        self._thumb_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._thumb_label.setStyleSheet(
             f"background: {NEUTRAL_900}; border-radius: 4px;"
         )
@@ -100,7 +100,7 @@ class LamellaCardWidget(RecordCard):
             fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self._btn_actions.setToolTip("Actions")
-        self._btn_actions.setPopupMode(QToolButton.InstantPopup)
+        self._btn_actions.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         _actions_menu = QMenu(self)
         self._action_move = _actions_menu.addAction(
             fibsem_icon(ICON_MOVE_TO_POSITION, color=tokens.GRAY_ICON_COLOR),
@@ -245,8 +245,8 @@ class LamellaCardWidget(RecordCard):
         info_layout.addStretch(1)
 
         row.addWidget(info, 1)
-        row.addWidget(self._btn_defect, 0, Qt.AlignVCenter)
-        row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
+        row.addWidget(self._btn_defect, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self._btn_actions, 0, Qt.AlignmentFlag.AlignVCenter)
         return content
 
     def _build_compact(self) -> QWidget:
@@ -263,8 +263,8 @@ class LamellaCardWidget(RecordCard):
         row.setSpacing(8)
         row.addWidget(self._name_label)
         row.addLayout(self._status_row(), 1)
-        row.addWidget(self._btn_defect, 0, Qt.AlignVCenter)
-        row.addWidget(self._btn_actions, 0, Qt.AlignVCenter)
+        row.addWidget(self._btn_defect, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self._btn_actions, 0, Qt.AlignmentFlag.AlignVCenter)
         return content
 
     def _build_cozy(self) -> QWidget:
@@ -278,7 +278,7 @@ class LamellaCardWidget(RecordCard):
         column.addWidget(self._thumb_label)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         column.addWidget(sep)
 
@@ -374,10 +374,10 @@ class LamellaCardWidget(RecordCard):
             self,
             "Remove Lamella",
             f"Remove '{self.lamella.name}'?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.remove_requested.emit(self.lamella)
 
     def _on_defect_written(self) -> None:
@@ -391,11 +391,11 @@ _N_COLS = 4
 class LamellaCardContainer(CardContainer):
     """Grid container that displays LamellaCardWidget in 4 columns."""
 
-    lamella_selected = pyqtSignal(object)  # Lamella | None
-    defect_changed = pyqtSignal(object)  # Lamella
-    move_to_requested = pyqtSignal(object)  # Lamella
-    update_position_requested = pyqtSignal(object)  # Lamella
-    remove_requested = pyqtSignal(object)  # Lamella
+    lamella_selected = Signal(object)  # Lamella | None
+    defect_changed = Signal(object)  # Lamella
+    move_to_requested = Signal(object)  # Lamella
+    update_position_requested = Signal(object)  # Lamella
+    remove_requested = Signal(object)  # Lamella
 
     def __init__(
         self,

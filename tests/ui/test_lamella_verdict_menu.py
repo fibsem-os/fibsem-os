@@ -20,9 +20,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 # CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there.
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication, QMenu  # noqa: E402
+from qtpy.QtWidgets import QApplication, QMenu  # noqa: E402
 
 from fibsem.applications.autolamella.structures import Lamella  # noqa: E402
 from fibsem.applications.autolamella.ui.common.lamella_display import (  # noqa: E402
@@ -167,7 +167,7 @@ def test_a_grid_s_verdict_menu_is_a_lamella_s(lamella, monkeypatch):
         shown["bold"] = [a.text() for a in menu.actions() if a.font().bold()]
         return None  # dismissed
 
-    monkeypatch.setattr(QMenu, "exec_", _exec)
+    monkeypatch.setattr(QMenu, "exec", _exec)
     grid = GridRecord(name="grid-a")
     grid.quality.set_defect(state=Verdict.REWORK)
     GridCardWidget(grid)._on_quality_clicked()

@@ -32,7 +32,7 @@ import logging
 from functools import partial
 from typing import Any, Callable, Optional
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
@@ -691,11 +691,13 @@ class StageControlWidget(QWidget):
                 + "\n".join(f"{i}. {step}" for i, step in enumerate(steps, 1))
             )
         )
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
         layout.addWidget(buttons)
-        return dialog.exec_() == QDialog.Accepted
+        return dialog.exec() == QDialog.DialogCode.Accepted
 
     def _move_to_device(self, device: str, orientation: str) -> None:
         """Move by `move_to_device`, asking first when the stage travels."""

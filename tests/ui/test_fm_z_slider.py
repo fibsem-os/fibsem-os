@@ -19,9 +19,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5 import QtWidgets
+from qtpy import QtWidgets
 
 _QAPP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 

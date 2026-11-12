@@ -14,8 +14,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -78,7 +78,7 @@ class PositionsPanel(QWidget):
     """The panel's Positions tab (a ``MicroscopePanel`` item tab)."""
 
     # the positions were drawn again
-    items_changed = pyqtSignal()
+    items_changed = Signal()
 
     title = "Positions"
     # No item selection for the Image and Fluorescence tabs to follow.
@@ -167,7 +167,7 @@ class PositionsPanel(QWidget):
         experiment = self.experiment
         if item is None or experiment is None:
             return None
-        return experiment.get_position_by_name(item.data(Qt.UserRole))
+        return experiment.get_position_by_name(item.data(Qt.ItemDataRole.UserRole))
 
     def refresh(self) -> None:
         self.update_items()
@@ -208,7 +208,7 @@ class PositionsPanel(QWidget):
         positions = experiment.positions if experiment is not None else []
         for position in positions:
             item = QListWidgetItem()
-            item.setData(Qt.UserRole, position.name)
+            item.setData(Qt.ItemDataRole.UserRole, position.name)
             row = self._row(experiment, position)
             item.setSizeHint(row.sizeHint())
             self.list.addItem(item)
@@ -284,10 +284,10 @@ class PositionsPanel(QWidget):
             self,
             "Move to Pose",
             f"Move to {position.name}'s {pose_name} pose?\n{stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             movement.move_to_position(stage_position)
 
     def _on_remove(self) -> None:
@@ -298,10 +298,10 @@ class PositionsPanel(QWidget):
             self,
             "Remove Position",
             f"Remove {position.name}? Its folder stays on disk.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             return
         if self._not_busy(position.name, "remove it"):
             refused(self.experiment.remove_position(position.name))

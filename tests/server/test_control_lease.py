@@ -222,9 +222,9 @@ def test_a_remote_run_lends_during_its_question(remote, microscope):
 def test_a_click_on_a_remote_microscope_holds_its_lease_in_the_worker_only(
     remote, microscope
 ):
-    pytest.importorskip("PyQt5")
+    pytest.importorskip("qtpy.QtWidgets")
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtWidgets import QApplication
 
     from fibsem.client import transport
     from fibsem.ui.qt.threading import FunctionWorker

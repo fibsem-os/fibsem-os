@@ -15,8 +15,8 @@ import time
 import pytest
 from psygnal.containers import EventedDict
 
-pytest.importorskip("PyQt5")
-from PyQt5.QtCore import QThread  # noqa: E402
+pytest.importorskip("qtpy.QtWidgets")
+from qtpy.QtCore import QThread  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,

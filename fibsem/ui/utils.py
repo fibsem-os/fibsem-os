@@ -5,10 +5,10 @@ import sys
 from typing import Optional
 
 import numpy as np
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import QEvent, QObject, Qt
-from PyQt5.QtGui import QImage, QWheelEvent
-from PyQt5.QtWidgets import (
+from qtpy import QtWidgets
+from qtpy.QtCore import QEvent, QObject, Qt
+from qtpy.QtGui import QImage, QWheelEvent
+from qtpy.QtWidgets import (
     QAbstractScrollArea,
     QAbstractSpinBox,
     QApplication,
@@ -105,7 +105,7 @@ class WheelBlocker(QObject):
         self._forwarding = False
 
     def eventFilter(self, watched, event):
-        if event.type() != QEvent.Wheel:
+        if event.type() != QEvent.Type.Wheel:
             return super().eventFilter(watched, event)
         self._forward_to_scroll_area(watched, event)
         return True
@@ -142,7 +142,7 @@ def _clone_wheel_event(event: QWheelEvent) -> QWheelEvent:
         event.pixelDelta(),
         event.angleDelta(),
         event.angleDelta().y(),
-        Qt.Vertical,
+        Qt.Orientation.Vertical,
         event.buttons(),
         event.modifiers(),
         event.phase(),
@@ -154,13 +154,13 @@ def _clone_wheel_event(event: QWheelEvent) -> QWheelEvent:
 def install_wheel_blocker(widget: QWidget) -> None:
     """Guard *widget* against accidental scroll-to-change. Idempotent.
 
-    Also sets ``Qt.StrongFocus``: spinboxes and comboboxes default to
-    ``Qt.WheelFocus``, so a passing scroll would otherwise move keyboard focus into
+    Also sets ``Qt.FocusPolicy.StrongFocus``: spinboxes and comboboxes default to
+    ``Qt.FocusPolicy.WheelFocus``, so a passing scroll would otherwise move keyboard focus into
     the widget as well.
     """
     if widget.property(_WHEEL_GUARD_PROPERTY):
         return  # already guarded; a second filter would double-forward the event
-    widget.setFocusPolicy(Qt.StrongFocus)
+    widget.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
     widget.installEventFilter(WheelBlocker(parent=widget))
     widget.setProperty(_WHEEL_GUARD_PROPERTY, True)
 
@@ -179,19 +179,19 @@ def install_wheel_blocker_recursive(root: QWidget) -> None:
 def message_box_ui(
     title: str,
     text: str,
-    buttons=QMessageBox.Yes | QMessageBox.No,
+    buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
     parent: Optional[QWidget] = None,
 ) -> bool:
     msg = QMessageBox(parent=parent)
     msg.setWindowTitle(title)
     msg.setText(text)
     msg.setStandardButtons(buttons)
-    msg.exec_()
+    msg.exec()
 
     response = (
         True
-        if (msg.clickedButton() == msg.button(QMessageBox.Yes))
-        or (msg.clickedButton() == msg.button(QMessageBox.Ok))
+        if (msg.clickedButton() == msg.button(QMessageBox.StandardButton.Yes))
+        or (msg.clickedButton() == msg.button(QMessageBox.StandardButton.Ok))
         else False
     )
 
@@ -262,4 +262,4 @@ def arr_to_qimage(arr: np.ndarray) -> QImage:
         arr = np.stack([arr, arr, arr], axis=2)
     arr = np.ascontiguousarray(arr, dtype=np.uint8)
     ih, iw, c = arr.shape
-    return QImage(arr.data, iw, ih, iw * c, QImage.Format_RGB888)
+    return QImage(arr.data, iw, ih, iw * c, QImage.Format.Format_RGB888)

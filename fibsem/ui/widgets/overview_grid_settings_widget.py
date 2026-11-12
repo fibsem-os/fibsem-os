@@ -18,8 +18,8 @@ carries the count instead.
 
 from typing import List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -69,7 +69,7 @@ _GRID = OverviewParameters.params
 class OverviewGridSettingsWidget(QWidget):
     """Grid shape, overlap, order and the per-tile mask, as one titled panel."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -104,7 +104,9 @@ class OverviewGridSettingsWidget(QWidget):
         for index in range(self.combo_tile_order.count()):
             strategy = self.combo_tile_order.itemData(index)
             self.combo_tile_order.setItemData(
-                index, TILE_ORDER_TOOLTIPS.get(strategy, ""), Qt.ToolTipRole
+                index,
+                TILE_ORDER_TOOLTIPS.get(strategy, ""),
+                Qt.ItemDataRole.ToolTipRole,
             )
 
         self.label_total_fov = QLabel("—")
@@ -121,9 +123,11 @@ class OverviewGridSettingsWidget(QWidget):
         size_row.addWidget(self.spin_cols)
 
         form = QFormLayout()
-        form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        form.setFormAlignment(Qt.AlignLeft | Qt.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        form.setFormAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(6)
         form.addRow("Rows × Columns", size_row)
@@ -159,7 +163,7 @@ class OverviewGridSettingsWidget(QWidget):
     @staticmethod
     def _field(widget: QWidget) -> QWidget:
         widget.setMinimumWidth(_FIELD_MIN_WIDTH)
-        widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         install_wheel_blocker(widget)
         return widget
 

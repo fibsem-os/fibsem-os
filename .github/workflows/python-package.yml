@@ -110,14 +110,14 @@ jobs:
   ui-tests:
     # The one job that installs the [ui] extra, and the only place the Qt tests
     # are ever run: everything under tests/ui/, plus the files in tests/correlation/
-    # and tests/fm/ that guard on PyQt5.
+    # and tests/fm/ that use Qt.
     #
-    # Every file under tests/ui/ opens with `pytest.importorskip("PyQt5")`. The
+    # Every file under tests/ui/ opens with `pytest.importorskip("qtpy.QtWidgets")`. The
     # matrix job above installs `.[test]` without it, so those files skip there and
     # its green says nothing about that directory; two pull requests each green alone
-    # can break it together, and only a run with PyQt5 installed catches that.
+    # can break it together, and only a run with Qt installed catches that.
     #
-    # In tests/correlation/ and tests/fm/, only the files that name PyQt5 run here,
+    # In tests/correlation/ and tests/fm/, only the files that name qtpy or PyQt5 run here,
     # found at run time rather than listed, so a Qt test added there later is still
     # picked up. Their other tests run in the matrix. No other file there imports
     # fibsem.ui, qtpy, superqt or qtawesome.
@@ -154,7 +154,7 @@ jobs:
       # exists to end. Because every file guards on importorskip, a broken install
       # does not turn the run red -- it empties it, and empty reads as passing.
       # So check the imports directly, where absence is an error.
-      run: python -c "import PyQt5, qtawesome, superqt"
+      run: python -c "import PyQt5, qtpy.QtWidgets, qtawesome, superqt"
     - name: Test with pytest
       env:
         QT_QPA_PLATFORM: offscreen
@@ -166,7 +166,7 @@ jobs:
       # failure reproduces with `pytest <that shard's files>`, which the log prints.
       run: |
         set -euo pipefail
-        qt_files=$(grep -rlE --include='test_*.py' 'PyQt5' tests/correlation tests/fm | sort)
+        qt_files=$(grep -rlE --include='test_*.py' 'qtpy|PyQt5' tests/correlation tests/fm | sort)
         # Echoed so an empty or shrunken list is visible rather than silently green.
         echo "Qt test files in tests/correlation and tests/fm: $(echo "$qt_files" | grep -c .)"
         files=$( (find tests/ui -name 'test_*.py'; echo "$qt_files") | grep . | sort)

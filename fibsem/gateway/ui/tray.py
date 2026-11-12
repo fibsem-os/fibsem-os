@@ -9,10 +9,10 @@ import sys
 import threading
 from typing import Callable, Optional
 
-from PyQt5.QtCore import QByteArray, QObject, Qt, QTimer, QUrl, pyqtSignal
-from PyQt5.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
-from PyQt5.QtSvg import QSvgRenderer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QByteArray, QObject, Qt, QTimer, QUrl, Signal
+from qtpy.QtGui import QDesktopServices, QIcon, QPainter, QPixmap
+from qtpy.QtSvg import QSvgRenderer
+from qtpy.QtWidgets import (
     QAction,
     QApplication,
     QFileDialog,
@@ -68,16 +68,16 @@ def tray_icon(colour: str) -> QIcon:
     svg = (ICONS_DIR / "gateway.svg").read_text().replace("#007ACC", colour)
     size = 64
     pixmap = QPixmap(size, size)
-    pixmap.fill(Qt.transparent)
+    pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
-    painter.setRenderHint(QPainter.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     QSvgRenderer(QByteArray(svg.encode())).render(painter)
     painter.end()
     return QIcon(pixmap)
 
 
 class _Report(QObject):
-    done = pyqtSignal(str, str)  # title, message ("" when it worked)
+    done = Signal(str, str)  # title, message ("" when it worked)
 
 
 class GatewayTray(QSystemTrayIcon):
@@ -193,11 +193,11 @@ class GatewayTray(QSystemTrayIcon):
                 "Stop the app",
                 f"{message}\n\nStop it anyway? The workflow stops too.",
             )
-            if answer == QMessageBox.Yes:
+            if answer == QMessageBox.StandardButton.Yes:
                 self._stop(force=True)
             return
         if message:
-            self.showMessage(title, message, QSystemTrayIcon.Warning)
+            self.showMessage(title, message, QSystemTrayIcon.MessageIcon.Warning)
 
     def _window(self, key: str) -> None:
         self._in_background(
@@ -276,5 +276,5 @@ def run_tray(
     app.setQuitOnLastWindowClosed(False)
     tray = GatewayTray(gateway, auth, port, agent, stopping, on_quit)
     tray.show()
-    app.exec_()
+    app.exec()
     return True

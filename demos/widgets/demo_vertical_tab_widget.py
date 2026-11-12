@@ -12,7 +12,7 @@ the back half of the animation. The icons never move: they are painted at a
 fixed x derived from the collapsed width, so expanding only ever reveals text
 alongside them.
 
-A rail can sit on either edge (``side=Qt.LeftEdge`` / ``Qt.RightEdge``). A right
+A rail can sit on either edge (``side=Qt.Edge.LeftEdge`` / ``Qt.Edge.RightEdge``). A right
 rail is a true mirror, not a rail shoved rightwards: it grows leftwards, keeps
 its icon column pinned to the window edge, right-aligns its labels and puts the
 selection bar on the far right.
@@ -110,11 +110,13 @@ def _label_rect(width: int, height: int, mirrored: bool) -> Tuple[QRect, int]:
     """
     if mirrored:
         right = width - COLLAPSED_WIDTH + 4
-        return QRect(10, 0, max(0, right - 10), height), Qt.AlignRight | Qt.AlignVCenter
+        return QRect(
+            10, 0, max(0, right - 10), height
+        ), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
     left = COLLAPSED_WIDTH - 4
     return QRect(
         left, 0, max(0, width - left - 10), height
-    ), Qt.AlignLeft | Qt.AlignVCenter
+    ), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
 
 
 def _icon_x(width: int, mirrored: bool) -> int:
@@ -130,17 +132,17 @@ class _TabButton(QAbstractButton):
         self,
         icon_key: str,
         text: str,
-        side: int = Qt.LeftEdge,
+        side: int = Qt.Edge.LeftEdge,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.setText(text)
         self.setCheckable(True)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedHeight(ITEM_HEIGHT)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
-        self.setFocusPolicy(Qt.TabFocus)
-        self._mirrored = side == Qt.RightEdge
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self._mirrored = side == Qt.Edge.RightEdge
         self._icon_idle = fibsem_icon(icon_key, color=COLOR_TEXT_MUTED)
         self._icon_active = fibsem_icon(icon_key, color=COLOR_ACCENT)
         self._hover = False
@@ -169,12 +171,12 @@ class _TabButton(QAbstractButton):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         width, height = self.width(), self.height()
         checked = self.isChecked()
 
         chip = QRect(6, 4, max(0, width - 12), height - 8)
-        painter.setPen(Qt.NoPen)
+        painter.setPen(Qt.PenStyle.NoPen)
         if checked:
             fill = QColor(COLOR_ACCENT)
             fill.setAlpha(48)
@@ -200,7 +202,7 @@ class _TabButton(QAbstractButton):
             painter.setOpacity(opacity)
             painter.setPen(QColor(COLOR_TEXT if checked else COLOR_TEXT_MUTED))
             font = painter.font()
-            font.setWeight(QFont.DemiBold if checked else QFont.Normal)
+            font.setWeight(QFont.Weight.DemiBold if checked else QFont.Weight.Normal)
             painter.setFont(font)
             rect, align = _label_rect(width, height, self._mirrored)
             painter.drawText(rect, align, self.text())
@@ -217,14 +219,14 @@ class _RailHeader(QWidget):
     def __init__(
         self,
         title: str,
-        side: int = Qt.LeftEdge,
+        side: int = Qt.Edge.LeftEdge,
         badge: bool = True,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self._title = title
         self._badge = badge
-        self._mirrored = side == Qt.RightEdge
+        self._mirrored = side == Qt.Edge.RightEdge
         self.setFixedHeight(52)
 
     def setTitle(self, title: str) -> None:
@@ -233,20 +235,22 @@ class _RailHeader(QWidget):
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         width, height = self.width(), self.height()
 
         if self._badge:
             badge_x = _icon_x(width, self._mirrored) - 2
             badge = QRect(badge_x, (height - 26) // 2, 26, 26)
-            painter.setPen(Qt.NoPen)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(COLOR_ACCENT))
             painter.drawRoundedRect(badge, 7, 7)
             painter.setPen(QColor("#12141a"))
             font = painter.font()
-            font.setWeight(QFont.Bold)
+            font.setWeight(QFont.Weight.Bold)
             painter.setFont(font)
-            painter.drawText(badge, Qt.AlignCenter, self._title[:1].upper())
+            painter.drawText(
+                badge, Qt.AlignmentFlag.AlignCenter, self._title[:1].upper()
+            )
 
         opacity = _label_opacity(width)
         if opacity > 0.01:
@@ -254,7 +258,7 @@ class _RailHeader(QWidget):
             font = painter.font()
             if self._badge:
                 painter.setPen(QColor(COLOR_TEXT))
-                font.setWeight(QFont.DemiBold)
+                font.setWeight(QFont.Weight.DemiBold)
             else:
                 painter.setPen(QColor(COLOR_TEXT_MUTED))
                 font.setPointSize(max(1, font.pointSize() - 1))
@@ -272,14 +276,14 @@ class VerticalTabBar(QWidget):
     def __init__(
         self,
         title: str = "fibsem",
-        side: int = Qt.LeftEdge,
+        side: int = Qt.Edge.LeftEdge,
         badge: bool = True,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
         self.side = side
-        self._mirrored = side == Qt.RightEdge
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self._mirrored = side == Qt.Edge.RightEdge
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(
             "VerticalTabBar {{ background-color: {}; {}: 1px solid {}; }}".format(
                 COLOR_RAIL_BG,
@@ -312,7 +316,7 @@ class VerticalTabBar(QWidget):
 
         self._anim = QPropertyAnimation(self, b"railWidth", self)
         self._anim.setDuration(ANIM_DURATION)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
         self._expand_timer = QTimer(self)
         self._expand_timer.setSingleShot(True)
@@ -414,7 +418,7 @@ def _float_rail(host: QWidget, bar: VerticalTabBar) -> QWidget:
     bar.setParent(host)
     shadow = QGraphicsDropShadowEffect(bar)
     shadow.setBlurRadius(24)
-    shadow.setXOffset(-6 if bar.side == Qt.RightEdge else 6)
+    shadow.setXOffset(-6 if bar.side == Qt.Edge.RightEdge else 6)
     shadow.setYOffset(0)
     shadow.setColor(QColor(0, 0, 0, 140))
     bar.setGraphicsEffect(shadow)
@@ -422,7 +426,7 @@ def _float_rail(host: QWidget, bar: VerticalTabBar) -> QWidget:
 
 
 def _place_rail(host: QWidget, bar: VerticalTabBar) -> None:
-    x = host.width() - bar.width() if bar.side == Qt.RightEdge else 0
+    x = host.width() - bar.width() if bar.side == Qt.Edge.RightEdge else 0
     bar.setGeometry(x, 0, bar.width(), host.height())
     bar.raise_()
 
@@ -440,7 +444,7 @@ class VerticalTabWidget(QWidget):
         self,
         title: str = "fibsem",
         overlay: bool = False,
-        side: int = Qt.LeftEdge,
+        side: int = Qt.Edge.LeftEdge,
         parent: Optional[QWidget] = None,
     ):
         super().__init__(parent)
@@ -456,7 +460,7 @@ class VerticalTabWidget(QWidget):
         rail_widget = _float_rail(self, self._bar) if overlay else self._bar
         if overlay:
             self._bar.railWidthChanged.connect(lambda _w: _place_rail(self, self._bar))
-        if side == Qt.RightEdge:
+        if side == Qt.Edge.RightEdge:
             layout.addWidget(self._stack)
             layout.addWidget(rail_widget)
         else:
@@ -576,7 +580,7 @@ class _SectionPage(QWidget):
 
     def __init__(self, title: str, subtitle: str, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"background-color: {COLOR_CONTENT_BG};")
         layout = QVBoxLayout(self)
         layout.setContentsMargins(32, 28, 32, 28)
@@ -592,7 +596,7 @@ class _SectionPage(QWidget):
         layout.addWidget(caption)
 
         rule = QFrame()
-        rule.setFrameShape(QFrame.HLine)
+        rule.setFrameShape(QFrame.Shape.HLine)
         rule.setStyleSheet(f"color: {COLOR_BORDER};")
         layout.addWidget(rule)
 
@@ -644,8 +648,8 @@ class DualRailDemo(QWidget):
     def __init__(self, overlay: bool = False, parent: Optional[QWidget] = None):
         super().__init__(parent)
         self._overlay = overlay
-        self._left = VerticalTabBar("fibsem", side=Qt.LeftEdge)
-        self._right = VerticalTabBar("", side=Qt.RightEdge, badge=False)
+        self._left = VerticalTabBar("fibsem", side=Qt.Edge.LeftEdge)
+        self._right = VerticalTabBar("", side=Qt.Edge.RightEdge, badge=False)
         self._stack = QStackedWidget()
 
         for icon_key, name, blurb, _tools in TABS:
@@ -737,7 +741,7 @@ def main() -> int:
     app = QApplication(sys.argv)
     window = build_window(overlay=args.overlay, dual=args.dual)
     window.show()
-    return app.exec_()
+    return app.exec()
 
 
 if __name__ == "__main__":

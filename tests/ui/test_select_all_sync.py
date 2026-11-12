@@ -6,7 +6,7 @@ The same shape as FIB-577, in a list widget the AutoLamella fix did not cover:
 `MillingStageListWidget` is the one that shows it. `_sync_select_all` turns the header
 tristate the first time a row is unticked and never turns it back off, and a click on a
 tristate box cycles through PartiallyChecked, which the header reports as
-`bool(Qt.PartiallyChecked)` -- True. So the click that ticks every row can leave the
+`bool(Qt.CheckState.PartiallyChecked)` -- True. So the click that ticks every row can leave the
 header showing a dash, with no external caller involved at all.
 """
 
@@ -16,9 +16,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt
+from qtpy.QtCore import Qt
 
 from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.patterning import get_pattern
@@ -49,10 +49,10 @@ def _header_matches_rows(widget) -> bool:
     rows = [widget._row(i).checkbox.isChecked() for i in range(widget._list.count())]
     state = widget._header.checkbox_all.checkState()
     if all(rows):
-        return state == Qt.Checked
+        return state == Qt.CheckState.Checked
     if not any(rows):
-        return state == Qt.Unchecked
-    return state == Qt.PartiallyChecked
+        return state == Qt.CheckState.Unchecked
+    return state == Qt.CheckState.PartiallyChecked
 
 
 # ── MillingStageListWidget ───────────────────────────────────────────────────
@@ -68,7 +68,7 @@ def test_tristate_header_clicks_never_disagree_with_the_rows(qapp):
     header = widget._header.checkbox_all
 
     widget._row(0).checkbox.setChecked(False)
-    assert header.checkState() == Qt.PartiallyChecked
+    assert header.checkState() == Qt.CheckState.PartiallyChecked
     assert header.isTristate(), "the premise: the header stays tristate from here on"
 
     for click in range(4):
@@ -80,12 +80,12 @@ def test_tristate_header_clicks_never_disagree_with_the_rows(qapp):
 
 def test_clearing_the_stage_selection_unticks_the_header(qapp):
     widget = _milling_list()
-    assert widget._header.checkbox_all.checkState() == Qt.Checked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Checked
 
     widget.set_all_selected(False)
 
     assert widget.get_enabled_stages() == []
-    assert widget._header.checkbox_all.checkState() == Qt.Unchecked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Unchecked
 
 
 def test_selecting_all_stages_ticks_every_row(qapp):
@@ -94,7 +94,7 @@ def test_selecting_all_stages_ticks_every_row(qapp):
     widget.set_all_selected(True)
 
     assert len(widget.get_enabled_stages()) == 3
-    assert widget._header.checkbox_all.checkState() == Qt.Checked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Checked
 
 
 @pytest.mark.parametrize("checked", [True, False])
@@ -117,7 +117,7 @@ def test_reorder_after_clearing_the_stages_keeps_them_cleared(qapp):
     widget._on_reordered(list(reversed(widget.get_stages())))
 
     assert widget.get_enabled_stages() == []
-    assert widget._header.checkbox_all.checkState() == Qt.Unchecked
+    assert widget._header.checkbox_all.checkState() == Qt.CheckState.Unchecked
 
 
 @pytest.mark.parametrize("checked", [True, False])

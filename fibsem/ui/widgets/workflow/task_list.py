@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QFont, QFontMetrics
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtGui import QFont, QFontMetrics
+from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -141,7 +141,7 @@ def _requires_text(task: TaskPlan, requires: List[str], font: QFont) -> str:
     if not parts:
         return ""
     return QFontMetrics(font).elidedText(
-        " · ".join(parts), Qt.ElideRight, REQUIRES_MAX_WIDTH
+        " · ".join(parts), Qt.TextElideMode.ElideRight, REQUIRES_MAX_WIDTH
     )
 
 
@@ -159,9 +159,9 @@ class WorkflowTaskRowWidget(QWidget):
     apply.
     """
 
-    attention_toggled = pyqtSignal(object)  # TaskPlan
-    edit_clicked = pyqtSignal(object)  # TaskPlan
-    selection_changed = pyqtSignal(object, bool)  # TaskPlan, checked
+    attention_toggled = Signal(object)  # TaskPlan
+    edit_clicked = Signal(object)  # TaskPlan
+    selection_changed = Signal(object, bool)  # TaskPlan, checked
 
     def __init__(
         self,
@@ -190,7 +190,7 @@ class WorkflowTaskRowWidget(QWidget):
         self.name_label = ElidedLabel()
         # Task names come from the protocol, and a QLabel left on AutoText renders
         # anything that looks like markup as markup.
-        self.name_label.setTextFormat(Qt.PlainText)
+        self.name_label.setTextFormat(Qt.TextFormat.PlainText)
         self.name_label.setStyleSheet(
             f"background: transparent; font-size: {NAME_PX}px;"
         )
@@ -201,8 +201,10 @@ class WorkflowTaskRowWidget(QWidget):
         # whatever point each name happens to end.
         self.requires_label = QLabel()
         self.requires_label.setFixedWidth(REQUIRES_MAX_WIDTH)
-        self.requires_label.setTextFormat(Qt.PlainText)
-        self.requires_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.requires_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.requires_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         self.requires_label.setStyleSheet(
             f"background: transparent; color: {REQUIRES_COLOUR}; "
             f"font-size: {REQUIRES_FONT_PX}px;"
@@ -213,11 +215,13 @@ class WorkflowTaskRowWidget(QWidget):
         # word on it is the state, the colour is the run mode's (automated
         # green, supervised blue, review teal, agent the agent border).
         self.btn_attention = QToolButton()
-        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_attention.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
         self.btn_attention.setIconSize(QSize(14, 14))
         self.btn_attention.setFixedSize(CHIP_WIDTH, CHIP_HEIGHT)
-        self.btn_attention.setCursor(Qt.PointingHandCursor)
-        self.btn_attention.setFocusPolicy(Qt.NoFocus)
+        self.btn_attention.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_attention.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self.btn_attention)
         self._attendance: Optional[Attendance] = None
 
@@ -297,7 +301,7 @@ class _WorkflowTaskListHeader(ListHeader):
     """The list's header: the shared one (`list_chrome.ListHeader`), with Add over
     the rows' trailing column."""
 
-    add_task_clicked = pyqtSignal()
+    add_task_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Tasks", parent=parent)
@@ -313,13 +317,13 @@ class WorkflowTaskList(QWidget):
     """The tasks of a run plan, each with its name, what it requires, its
     attention chip, and edit."""
 
-    attention_toggled = pyqtSignal(object)  # TaskPlan
-    edit_requested = pyqtSignal(object)  # TaskPlan
-    remove_requested = pyqtSignal(object)  # TaskPlan
-    selection_changed = pyqtSignal(list)  # List[TaskPlan]
-    order_changed = pyqtSignal(list)  # List[TaskPlan]
-    current_changed = pyqtSignal(object)  # Optional[TaskPlan], the row clicked
-    add_task_clicked = pyqtSignal()
+    attention_toggled = Signal(object)  # TaskPlan
+    edit_requested = Signal(object)  # TaskPlan
+    remove_requested = Signal(object)  # TaskPlan
+    selection_changed = Signal(list)  # List[TaskPlan]
+    order_changed = Signal(list)  # List[TaskPlan]
+    current_changed = Signal(object)  # Optional[TaskPlan], the row clicked
+    add_task_clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -337,7 +341,7 @@ class WorkflowTaskList(QWidget):
         layout.addWidget(self._header)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
@@ -350,7 +354,7 @@ class WorkflowTaskList(QWidget):
         )
         self._list.setAlternatingRowColors(False)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self._list)
 
         self._header.select_all_changed.connect(self.set_all_selected)

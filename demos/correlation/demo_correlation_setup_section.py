@@ -32,7 +32,7 @@ import tempfile
 from datetime import datetime
 
 import numpy as np
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
@@ -182,7 +182,7 @@ def main() -> None:
 
     widget.resize(1360, 900)
     widget.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

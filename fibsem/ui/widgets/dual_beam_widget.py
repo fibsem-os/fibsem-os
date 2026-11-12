@@ -1,7 +1,7 @@
 import logging
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QButtonGroup,
     QRadioButton,
     QToolButton,
@@ -36,8 +36,8 @@ class FibsemDualBeamWidget(QWidget):
         detector_settings_changed(FibsemDetectorSettings)
     """
 
-    beam_settings_changed = pyqtSignal(BeamSettings)
-    detector_settings_changed = pyqtSignal(FibsemDetectorSettings)
+    beam_settings_changed = Signal(BeamSettings)
+    detector_settings_changed = Signal(FibsemDetectorSettings)
 
     def __init__(
         self,

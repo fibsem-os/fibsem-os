@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
@@ -127,7 +127,7 @@ class LamellaDefaultConfigWidget(QWidget):
     values, either updates the other.
     """
 
-    template_changed = pyqtSignal(object)  # LamellaDefaultConfig
+    template_changed = Signal(object)  # LamellaDefaultConfig
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

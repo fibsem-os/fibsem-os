@@ -19,7 +19,7 @@ import urllib.error  # noqa: E402
 
 import pytest  # noqa: E402
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem import update_check  # noqa: E402
 from fibsem.applications.autolamella.ui.launch import (

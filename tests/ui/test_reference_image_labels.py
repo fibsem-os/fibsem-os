@@ -7,7 +7,7 @@ not, and the filename is still one hover away in the tooltip.
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.reference_images import (  # noqa: E402
     fm_stack_label,

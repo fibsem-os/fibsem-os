@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -127,23 +127,23 @@ class LamellaWorkflowWidget(QWidget):
     """
 
     # ── lamella signals ──────────────────────────────────────────────────
-    lamella_edit_requested = pyqtSignal(object)  # Lamella
-    lamella_remove_requested = pyqtSignal(object)  # Lamella
-    lamella_defect_changed = pyqtSignal(object)  # Lamella
-    lamella_selection_changed = pyqtSignal(list)  # List[Lamella]
+    lamella_edit_requested = Signal(object)  # Lamella
+    lamella_remove_requested = Signal(object)  # Lamella
+    lamella_defect_changed = Signal(object)  # Lamella
+    lamella_selection_changed = Signal(list)  # List[Lamella]
 
     # ── workflow signals ─────────────────────────────────────────────────
-    task_attention_toggled = pyqtSignal(object)  # TaskPlan
-    task_edited = pyqtSignal(object, list)  # TaskPlan: the edited copy, requires
-    task_remove_requested = pyqtSignal(object)  # TaskPlan
-    task_added = pyqtSignal(object)  # TaskPlan
-    task_selection_changed = pyqtSignal(list)  # List[TaskPlan]
-    task_order_changed = pyqtSignal(list)  # List[TaskPlan]
+    task_attention_toggled = Signal(object)  # TaskPlan
+    task_edited = Signal(object, list)  # TaskPlan: the edited copy, requires
+    task_remove_requested = Signal(object)  # TaskPlan
+    task_added = Signal(object)  # TaskPlan
+    task_selection_changed = Signal(list)  # List[TaskPlan]
+    task_order_changed = Signal(list)  # List[TaskPlan]
 
     # ── workflow info signals ────────────────────────────────────────────
-    workflow_name_changed = pyqtSignal(str)
-    workflow_description_changed = pyqtSignal(str)
-    workflow_options_changed = pyqtSignal(str, object)  # option, value
+    workflow_name_changed = Signal(str)
+    workflow_description_changed = Signal(str)
+    workflow_options_changed = Signal(str, object)  # option, value
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -162,12 +162,16 @@ class LamellaWorkflowWidget(QWidget):
         # No section label over either list: each list's own header names it
         # (`list_chrome.ListHeader`).
         self.lamella_list = LamellaListWidget()
-        self.lamella_list.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.lamella_list.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         root.addWidget(self.lamella_list, 1)
 
         # ── workflow section ─────────────────────────────────────────────
         self.workflow = WorkflowTaskList()
-        self.workflow.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.workflow.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
         root.addWidget(self.workflow, 1)
 
         # The workflow's name, description and options, behind ⚙ on the task
@@ -303,7 +307,7 @@ class LamellaWorkflowWidget(QWidget):
             experiment=self.experiment,
             parent=self,
         )
-        if dialog.exec_() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             task_name = dialog.get_selected_task()
             if task_name is None:
                 return
@@ -333,9 +337,9 @@ QLineEdit:focus {{ border-color: {PRIMARY_COLOR}; }}
 class WorkflowInfoWidget(QWidget):
     """Compact editor for workflow name, description, and run options."""
 
-    name_changed = pyqtSignal(str)
-    description_changed = pyqtSignal(str)
-    options_changed = pyqtSignal(str, object)  # option, value
+    name_changed = Signal(str)
+    description_changed = Signal(str)
+    options_changed = Signal(str, object)  # option, value
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

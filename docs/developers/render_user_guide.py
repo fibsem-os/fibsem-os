@@ -38,9 +38,9 @@ sys.path.insert(0, str(ROOT))
 # before Qt is imported: the platform is read when the QApplication is built
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QEventLoop, QPoint, QRect, Qt, QTimer
-from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QPixmap
-from PyQt5.QtWidgets import QApplication, QWidget
+from qtpy.QtCore import QEventLoop, QPoint, QRect, Qt, QTimer
+from qtpy.QtGui import QColor, QFont, QPainter, QPen, QPixmap
+from qtpy.QtWidgets import QApplication, QWidget
 
 import fibsem.config as cfg
 from fibsem import guided_setup
@@ -189,7 +189,7 @@ class Harness:
         """Run the event loop for a while: paints, timers, queued signals."""
         loop = QEventLoop()
         QTimer.singleShot(ms, loop.quit)
-        loop.exec_()
+        loop.exec()
 
     @property
     def ui(self):
@@ -457,8 +457,8 @@ class Harness:
             image = pixmap.toImage().scaled(
                 region.width(),
                 region.height(),
-                Qt.IgnoreAspectRatio,
-                Qt.SmoothTransformation,
+                Qt.AspectRatioMode.IgnoreAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
             )
             image.setDevicePixelRatio(1)
             pixmap = QPixmap.fromImage(image)
@@ -509,7 +509,7 @@ class Harness:
         """Badge each mark at its top-left corner, and box the ones flagged."""
         # QPainter paints a high-DPI pixmap in logical coordinates already
         painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pen = QPen(CALLOUT_LINE, CALLOUT_WIDTH)
         painter.setPen(pen)
         font = QFont()
@@ -534,12 +534,12 @@ class Harness:
                 badge.moveLeft(max(badge.left(), bounds.left()))
                 badge.moveTop(max(badge.top(), bounds.top()))
                 painter.setBrush(CALLOUT_COLOUR)
-                painter.setPen(Qt.NoPen)
+                painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawEllipse(badge)
                 painter.setPen(QColor("white"))
-                painter.drawText(badge, Qt.AlignCenter, str(i))
+                painter.drawText(badge, Qt.AlignmentFlag.AlignCenter, str(i))
                 painter.setPen(pen)
-                painter.setBrush(Qt.NoBrush)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.end()
 
     @staticmethod
@@ -547,7 +547,7 @@ class Harness:
         """Mark where the mouse went: a box, a crosshair at the click itself,
         and the gesture written beneath ("Double click", "Alt + Double click")."""
         painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         font = QFont()
         font.setBold(True)
         font.setPixelSize(13)
@@ -555,7 +555,7 @@ class Harness:
         metrics = painter.fontMetrics()
         for box, text in clicks:
             painter.setPen(QPen(CALLOUT_LINE, CALLOUT_WIDTH))
-            painter.setBrush(Qt.NoBrush)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRoundedRect(box, 3, 3)
             c = box.center()
             arm = box.width() // 4
@@ -569,11 +569,11 @@ class Harness:
             if top + height > int(pixmap.height() / pixmap.devicePixelRatio()) - 4:
                 top = box.top() - 8 - height
             pill = QRect(c.x() - width // 2, top, width, height)
-            painter.setPen(Qt.NoPen)
+            painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(CALLOUT_COLOUR)
             painter.drawRoundedRect(pill, height // 2, height // 2)
             painter.setPen(QColor("white"))
-            painter.drawText(pill, Qt.AlignCenter, text)
+            painter.drawText(pill, Qt.AlignmentFlag.AlignCenter, text)
         painter.end()
 
     # -- lifecycle ----------------------------------------------------------
@@ -2058,8 +2058,8 @@ def render_grid_workflow(h: Harness) -> None:
     on the Sample tab, the shipped grid tasks on the Protocol tab, the
     inventory and naming on the Grids tab, a run over two grids from the
     Workflow tab's Grids view, then the verdict, note and report."""
-    from PyQt5.QtGui import QTextCursor
-    from PyQt5.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
+    from qtpy.QtGui import QTextCursor
+    from qtpy.QtWidgets import QDialog, QInputDialog, QMenu, QPlainTextEdit
 
     from fibsem.applications.autolamella.tools import grid_report_html
     from fibsem.applications.autolamella.ui.common.lamella_display import (
@@ -2224,7 +2224,7 @@ def render_grid_workflow(h: Harness) -> None:
     def preflight(dialog):
         # the output line names the scratch directory; the worked example's
         # experiment lives on the support PC
-        from PyQt5.QtWidgets import QLabel
+        from qtpy.QtWidgets import QLabel
 
         for label in dialog.findChildren(QLabel):
             if label.text().startswith("Output:"):
@@ -2238,9 +2238,11 @@ def render_grid_workflow(h: Harness) -> None:
         name = "screen-all-preflight" if screen_all else "run-preflight"
         h.shot(name, target=dialog)
         dialog.hide()
-        return QDialog.Rejected if screen_all else QDialog.Accepted
+        return (
+            QDialog.DialogCode.Rejected if screen_all else QDialog.DialogCode.Accepted
+        )
 
-    preflight_module.GridRunPreflightDialog.exec_ = preflight
+    preflight_module.GridRunPreflightDialog.exec = preflight
     h.ui.run_view.show_summary = lambda: None
     h.window.workflow_controls.run_btn.click()
     h.pump(1500)
@@ -2288,9 +2290,9 @@ def render_grid_workflow(h: Harness) -> None:
             h.pump(100)
             waited += 100
         preflight(dialog)
-        return QDialog.Rejected
+        return QDialog.DialogCode.Rejected
 
-    main_module.ScreenGridsDialog.exec_ = screen_all
+    main_module.ScreenGridsDialog.exec = screen_all
     gw.btn_screen_all.click()
     h.pump(500)
 
@@ -2322,12 +2324,12 @@ def render_grid_workflow(h: Harness) -> None:
         dialog = QInputDialog(parent)
         dialog.setWindowTitle(title)
         dialog.setLabelText(label)
-        dialog.setOption(QInputDialog.UsePlainTextEditForTextInput)
+        dialog.setOption(QInputDialog.InputDialogOption.UsePlainTextEditForTextInput)
         dialog.setTextValue(note)
         dialog.show()
         h.pump(300)
         # shown as typed: the dialog selects all of it as it opens
-        dialog.findChild(QPlainTextEdit).moveCursor(QTextCursor.End)
+        dialog.findChild(QPlainTextEdit).moveCursor(QTextCursor.MoveOperation.End)
         h.pump(100)
         h.shot("grid-note", target=dialog)
         dialog.close()
@@ -2951,9 +2953,9 @@ def render_correlation(h: Harness) -> None:
         h.pump(500)
         return dialog.Accepted
 
-    original_exec = ctw.CorrelationTabDialog.exec_
+    original_exec = ctw.CorrelationTabDialog.exec
     original_question = ctw.QMessageBox.question
-    ctw.CorrelationTabDialog.exec_ = drive
+    ctw.CorrelationTabDialog.exec = drive
     # Continue confirms with a modal Yes/No ("Continue with correlation result
     # and close?"); answered Yes here
     ctw.QMessageBox.question = staticmethod(
@@ -2963,7 +2965,7 @@ def render_correlation(h: Harness) -> None:
         led.pushButton_open_correlation.click()
         h.pump(1000)
     finally:
-        ctw.CorrelationTabDialog.exec_ = original_exec
+        ctw.CorrelationTabDialog.exec = original_exec
         ctw.QMessageBox.question = original_question
 
     # the accepted point of interest on the Lamella tab, on the reference at

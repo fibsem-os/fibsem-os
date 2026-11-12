@@ -8,10 +8,10 @@ stretched it, so a 14px chip filled the header and touched both edges.
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QPoint  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
+from qtpy.QtCore import QPoint  # noqa: E402
+from qtpy.QtWidgets import QApplication, QLabel, QPushButton  # noqa: E402
 
 from fibsem.ui.widgets.custom_widgets import TitledPanel, header_chip  # noqa: E402
 

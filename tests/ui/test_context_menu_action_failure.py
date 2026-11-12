@@ -17,9 +17,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5", reason="UI dependencies not installed")
+pytest.importorskip("qtpy.QtWidgets", reason="UI dependencies not installed")
 
-from PyQt5.QtWidgets import QApplication  # noqa: E402
+from qtpy.QtWidgets import QApplication  # noqa: E402
 
 from fibsem.ui import notification_service  # noqa: E402
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402

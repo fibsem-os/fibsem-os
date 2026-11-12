@@ -35,7 +35,7 @@ from __future__ import annotations
 import sys
 
 import numpy as np
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -233,7 +233,7 @@ def main() -> None:
     app = QApplication(sys.argv)
     window = DemoWindow()
     window.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

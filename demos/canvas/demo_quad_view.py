@@ -11,7 +11,7 @@ contrast) and supports zoom / pan.
 
 import sys
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType
@@ -39,7 +39,7 @@ def main() -> None:
     win.setStyleSheet(NAPARI_STYLE + "QWidget { background: #262930; color: #d1d2d4; }")
     win.resize(1200, 800)
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

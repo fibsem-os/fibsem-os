@@ -14,7 +14,7 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.correlation.structures import (  # noqa: E402
     Coordinate,

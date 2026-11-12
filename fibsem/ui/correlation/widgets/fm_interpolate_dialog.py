@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QDialogButtonBox,
@@ -47,7 +47,7 @@ def _estimate_slices(nz: int, z_step_m: float, target_m: float) -> int:
 
 
 class InterpolateZDialog(QDialog):
-    """Ask for a target z pixel size + method; expose them after ``exec_()``."""
+    """Ask for a target z pixel size + method; expose them after ``exec()``."""
 
     def __init__(
         self,
@@ -185,7 +185,7 @@ class InterpolateZDialog(QDialog):
         self._preview.setText(f"{self._nz} → {new_nz} slices{iso} · ~{gb:.1f} GB")
 
     # ------------------------------------------------------------------
-    # Results (valid after exec_)
+    # Results (valid after exec)
 
     def target_z_size_m(self) -> float:
         """Chosen target z pixel size in metres."""

@@ -13,7 +13,7 @@ import pytest
 
 from tests.protocols import add_planned, planned
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 
 def _refuse_to_disconnect():
@@ -103,8 +103,8 @@ def running(no_quit, qapp, monkeypatch, tmp_path):
 
 def _answer(button):
     """Click *button* on the dialog the close is about to put up."""
-    from PyQt5.QtCore import QTimer
-    from PyQt5.QtWidgets import QApplication
+    from qtpy.QtCore import QTimer
+    from qtpy.QtWidgets import QApplication
 
     def click():
         box = QApplication.activeModalWidget()
@@ -115,10 +115,10 @@ def _answer(button):
 
 
 def test_closing_during_a_workflow_can_be_cancelled(running):
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     ui = running
-    _answer(QMessageBox.No)
+    _answer(QMessageBox.StandardButton.No)
 
     running.close()
 
@@ -130,11 +130,11 @@ def test_closing_during_a_workflow_can_be_cancelled(running):
 
 
 def test_confirming_the_close_stops_the_workflow_and_disconnects(running):
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     ui = running
     microscope = ui.microscope
-    _answer(QMessageBox.Yes)
+    _answer(QMessageBox.StandardButton.Yes)
 
     running.close()
 

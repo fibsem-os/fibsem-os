@@ -45,7 +45,7 @@ from typing import (
     get_origin,
 )
 
-from PyQt5.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QLabel, QWidget
+from qtpy.QtWidgets import QCheckBox, QDoubleSpinBox, QHBoxLayout, QLabel, QWidget
 
 from fibsem.devices.core import BoundParameter
 from fibsem.structures.params import (

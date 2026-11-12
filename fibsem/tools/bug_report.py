@@ -125,16 +125,19 @@ def collect_system_context(
         "python_version": platform.python_version(),
     }
 
-    for mod in ("napari", "PyQt5.QtCore"):
-        try:
-            imported = __import__(mod, fromlist=["__version__"])
-            version = getattr(
-                imported, "__version__", getattr(imported, "QT_VERSION_STR", None)
-            )
-            if version:
-                ctx[mod.split(".")[0]] = str(version)
-        except Exception:
-            pass
+    try:
+        import napari
+
+        ctx["napari"] = str(napari.__version__)
+    except Exception:
+        pass
+    try:
+        import qtpy
+        from qtpy.QtCore import __version__ as qt_version
+
+        ctx["Qt"] = f"{qt_version} ({qtpy.API_NAME})"
+    except Exception:
+        pass
 
     if microscope is not None:
         try:

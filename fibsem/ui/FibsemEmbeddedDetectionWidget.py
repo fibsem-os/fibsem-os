@@ -3,9 +3,9 @@ import os
 from copy import deepcopy
 from typing import Any, Callable, Optional
 
-from PyQt5 import QtWidgets
-from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
+from qtpy import QtWidgets
+from qtpy.QtGui import QFont
+from qtpy.QtWidgets import QGridLayout, QLabel, QSizePolicy, QSpacerItem
 
 from fibsem import conversions
 from fibsem.detection.detection import DetectedFeatures
@@ -164,7 +164,9 @@ class FibsemEmbeddedDetectionUI(QtWidgets.QWidget):
 
         # vertical spacer
         self.gridLayout.addItem(
-            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding),
+            QSpacerItem(
+                20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding
+            ),
             4,
             0,
             1,

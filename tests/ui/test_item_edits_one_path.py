@@ -17,10 +17,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict  # noqa: E402
-from PyQt5.QtWidgets import QMenu  # noqa: E402
+from qtpy.QtWidgets import QMenu  # noqa: E402
 
 from fibsem.applications.autolamella import config_edits  # noqa: E402
 from fibsem.applications.autolamella.server import AutoLamellaAppContext  # noqa: E402

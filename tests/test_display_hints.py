@@ -41,7 +41,7 @@ def test_a_backend_cannot_show_a_parameter_differently():
 
 
 def test_an_explicit_display_unit_wins_over_the_scale_prefix():
-    pytest.importorskip("PyQt5")
+    pytest.importorskip("qtpy.QtWidgets")
     from fibsem.ui.widgets.form_builder import parameter_spec
 
     assert parameter_spec(Beam.scan_rotation).suffix == "°"  # not "mrad"

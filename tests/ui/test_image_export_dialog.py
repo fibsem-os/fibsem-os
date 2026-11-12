@@ -7,7 +7,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.imaging import export as ex
 from fibsem.structures.image import FibsemImage
@@ -117,7 +117,7 @@ def test_open_image_export_starts_in_the_given_directory(qapp, tmp_path, monkeyp
     shown = []
     monkeypatch.setattr(module.QFileDialog, "getOpenFileName", pick)
     monkeypatch.setattr(
-        module.ImageExportDialog, "exec_", lambda self: shown.append(self) or 0
+        module.ImageExportDialog, "exec", lambda self: shown.append(self) or 0
     )
 
     module.open_image_export(None, str(tmp_path))
@@ -134,7 +134,7 @@ def test_open_image_export_cancelled(qapp, monkeypatch):
     monkeypatch.setattr(module.QFileDialog, "getOpenFileName", lambda *a, **k: ("", ""))
     monkeypatch.setattr(
         module.ImageExportDialog,
-        "exec_",
+        "exec",
         lambda self: pytest.fail("no dialog without a file"),
     )
     module.open_image_export(None, "")

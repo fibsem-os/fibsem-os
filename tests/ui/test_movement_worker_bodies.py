@@ -25,9 +25,11 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QEventLoop, QTimer
+from qtpy.QtCore import QEventLoop, QTimer
 
 # Same construction seam the rest of tests/ui uses: a host with a view controller, a
 # real image widget and a Demo microscope. A hand-injected stand-in would let a worker
@@ -51,7 +53,7 @@ TARGET = FibsemStagePosition(x=1e-6, y=1e-6, z=1e-6, r=0.0, t=0.0)
 def _pump(ms: int = 200) -> None:
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 def _run(condition, tries: int = 15) -> None:

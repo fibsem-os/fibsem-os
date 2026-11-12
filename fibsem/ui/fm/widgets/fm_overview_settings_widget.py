@@ -10,8 +10,8 @@ Two properties this widget is built around:
 
 from typing import List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QLabel,
@@ -87,7 +87,7 @@ SPINBOX_MIN_WIDTH = 92
 class FMOverviewSettingsWidget(QWidget):
     """Grid, sampling and autofocus settings for a tileset acquisition."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(
         self,
@@ -144,7 +144,9 @@ class FMOverviewSettingsWidget(QWidget):
         )
         for index, start in enumerate(ObjectiveStartPosition):
             self.combo_objective_start.setItemData(
-                index, OBJECTIVE_START_TOOLTIPS.get(start, ""), Qt.ToolTipRole
+                index,
+                OBJECTIVE_START_TOOLTIPS.get(start, ""),
+                Qt.ItemDataRole.ToolTipRole,
             )
 
         # The app's spinboxes carry -/+ buttons, which eat most of a narrow field and
@@ -152,13 +154,17 @@ class FMOverviewSettingsWidget(QWidget):
         # rule to its own fields, for the same reason.
         for widget in (self.combo_autofocus_mode, self.combo_objective_start):
             widget.setMinimumWidth(SPINBOX_MIN_WIDTH)
-            widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # "When to focus" is the overview's own setting; everything below it -- method,
         # channel, and the sweep passes -- belongs to the sweep and is delegated.
         focus_form = QFormLayout()
-        focus_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        focus_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        focus_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+        focus_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         focus_form.addRow("Start from", self.combo_objective_start)
         focus_form.addRow("Auto-focus", self.combo_autofocus_mode)
 
@@ -189,9 +195,13 @@ class FMOverviewSettingsWidget(QWidget):
         # two runs cannot land on each other. `OverviewDestination` steps a taken name
         # besides, which covers two runs inside the same second.
         self.path_edit = QDirectoryLineEdit()
-        self.path_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.path_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.filename_edit = QLineEdit(DEFAULT_OVERVIEW_FILENAME)
-        self.filename_edit.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.filename_edit.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
         self.label_destination = QLabel("")
         self.label_destination.setStyleSheet(MUTED)
         # How the saved mosaic is put together, so it sits with where it is saved.
@@ -203,8 +213,12 @@ class FMOverviewSettingsWidget(QWidget):
         )
 
         output_form = QFormLayout()
-        output_form.setFieldGrowthPolicy(QFormLayout.ExpandingFieldsGrow)
-        output_form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        output_form.setFieldGrowthPolicy(
+            QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow
+        )
+        output_form.setLabelAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         output_form.setContentsMargins(6, 6, 6, 6)
         output_form.setSpacing(6)
         output_form.addRow("Folder", self.path_edit)

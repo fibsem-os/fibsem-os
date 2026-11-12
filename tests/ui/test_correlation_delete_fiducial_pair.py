@@ -19,10 +19,10 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import QApplication, QMessageBox
+from qtpy.QtCore import QTimer
+from qtpy.QtWidgets import QApplication, QMessageBox
 
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.correlation.structures import (

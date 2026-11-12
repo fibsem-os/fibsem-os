@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QCursor, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from qtpy.QtGui import QCursor, QPixmap
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QAction,
     QCheckBox,
@@ -65,7 +65,9 @@ class _LamellaTooltip(QWidget):
     """Frameless popup showing a thumbnail image when hovering a lamella name."""
 
     def __init__(self) -> None:
-        super().__init__(None, Qt.ToolTip | Qt.FramelessWindowHint)  # type: ignore[call-overload]
+        super().__init__(
+            None, Qt.WindowType.ToolTip | Qt.WindowType.FramelessWindowHint
+        )  # type: ignore[call-overload]
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setStyleSheet(f"background: {CANVAS_BG}; border: 1px solid #3a3d42;")
 
@@ -87,7 +89,7 @@ class _LamellaTooltip(QWidget):
         )
 
     def show_near_cursor(self) -> None:
-        from PyQt5.QtWidgets import QApplication
+        from qtpy.QtWidgets import QApplication
 
         cursor = QCursor.pos()
         self.adjustSize()
@@ -113,12 +115,12 @@ class LamellaRow(QWidget):
     Move to and Update Position, withheld while the lamella's grid is off the
     stage; *thumbnail* shows the lamella's thumbnail on hovering its name."""
 
-    move_to_clicked = pyqtSignal(object)  # Lamella
-    edit_clicked = pyqtSignal(object)  # Lamella
-    update_clicked = pyqtSignal(object)  # Lamella
-    remove_clicked = pyqtSignal(object)  # Lamella
-    defect_changed = pyqtSignal(object)  # Lamella
-    selection_changed = pyqtSignal(object, bool)  # Lamella, checked
+    move_to_clicked = Signal(object)  # Lamella
+    edit_clicked = Signal(object)  # Lamella
+    update_clicked = Signal(object)  # Lamella
+    remove_clicked = Signal(object)  # Lamella
+    defect_changed = Signal(object)  # Lamella
+    selection_changed = Signal(object, bool)  # Lamella, checked
 
     def __init__(
         self,
@@ -188,7 +190,7 @@ class LamellaRow(QWidget):
             fibsem_icon("mdi:dots-horizontal", color=tokens.GRAY_ICON_COLOR)
         )
         self.btn_actions.setToolTip("Actions")
-        self.btn_actions.setPopupMode(QToolButton.InstantPopup)
+        self.btn_actions.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         menu = QMenu(self)
         self.action_move_to: Optional[QAction] = None
         self.action_update: Optional[QAction] = None
@@ -251,17 +253,17 @@ class LamellaRow(QWidget):
             self,
             "Remove Lamella",
             f"Remove <b>{self.lamella.name}</b>?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             self.remove_clicked.emit(self.lamella)
 
     def eventFilter(self, obj, event) -> bool:
         if obj is self.btn_defect or obj is self.name_label:
-            if event.type() == QEvent.Enter:
+            if event.type() == QEvent.Type.Enter:
                 self._hover_timer.start(400)
-            elif event.type() == QEvent.Leave:
+            elif event.type() == QEvent.Type.Leave:
                 self._hover_timer.stop()
                 if self._popup:
                     self._popup.hide()
@@ -333,7 +335,7 @@ class _GridFilterButton(QToolButton):
     while a filter is on, so a narrowed list is never mistaken for the whole.
     """
 
-    filter_changed = pyqtSignal(str)  # FILTER_ALL, FILTER_NO_GRID or a grid id
+    filter_changed = Signal(str)  # FILTER_ALL, FILTER_NO_GRID or a grid id
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -342,7 +344,7 @@ class _GridFilterButton(QToolButton):
             stylesheets.TOOLBUTTON_ICON_STYLESHEET
             + " QToolButton::menu-indicator { image: none; }"
         )
-        self.setPopupMode(QToolButton.InstantPopup)
+        self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self._menu = QMenu(self)
         self.setMenu(self._menu)
         self._actions: Dict[str, QAction] = {}
@@ -422,10 +424,10 @@ class _LamellaListHeader(ListHeader):
 class LamellaListWidget(QWidget):
     """List widget displaying Lamella objects with name, defect, status and actions."""
 
-    edit_requested = pyqtSignal(object)  # Lamella
-    remove_requested = pyqtSignal(object)  # Lamella
-    defect_changed = pyqtSignal(object)  # Lamella
-    selection_changed = pyqtSignal(list)  # List[Lamella]
+    edit_requested = Signal(object)  # Lamella
+    remove_requested = Signal(object)  # Lamella
+    defect_changed = Signal(object)  # Lamella
+    selection_changed = Signal(list)  # List[Lamella]
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -440,7 +442,7 @@ class LamellaListWidget(QWidget):
         self.grid_filter.filter_changed.connect(self._apply_grid_filter)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
@@ -452,9 +454,9 @@ class LamellaListWidget(QWidget):
             stylesheets.LIST_WIDGET_STYLESHEET + "QListWidget::item { padding: 0; }"
         )
         self._list.setAlternatingRowColors(False)
-        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self._list)
 
         self._header.select_all_changed.connect(self.set_all_selected)
@@ -624,7 +626,7 @@ class LamellaNameListWidget(QWidget):
     """Single-selection list widget for lamella names with smart restore logic.
 
     Shows two columns: lamella name and last completed task status.
-    Stores the associated object as ``Qt.UserRole`` data on each item so callers
+    Stores the associated object as ``Qt.ItemDataRole.UserRole`` data on each item so callers
     can retrieve it via ``selected_lamella``.
 
     Emits ``lamella_selected(object)`` when the selection changes.
@@ -632,15 +634,15 @@ class LamellaNameListWidget(QWidget):
     name if still present, otherwise falls back to the first row.
     """
 
-    lamella_selected = pyqtSignal(object)
+    lamella_selected = Signal(object)
     # the list as the ItemSelection the Image and Fluorescence tabs follow
     item_selected = lamella_selected
     item_noun = "Lamella"
-    add_requested = pyqtSignal()
-    move_to_requested = pyqtSignal(object)
-    update_requested = pyqtSignal(object)
-    remove_requested = pyqtSignal(object)
-    defect_changed = pyqtSignal(object)
+    add_requested = Signal()
+    move_to_requested = Signal(object)
+    update_requested = Signal(object)
+    remove_requested = Signal(object)
+    defect_changed = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -683,8 +685,8 @@ class LamellaNameListWidget(QWidget):
 
         # List
         self._list = QListWidget()
-        self._list.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         outer.addWidget(self._list)
 
         # Wire signals
@@ -694,9 +696,9 @@ class LamellaNameListWidget(QWidget):
 
     @property
     def selected_lamella(self) -> Any:
-        """Return the ``Qt.UserRole`` data of the current item, or ``None``."""
+        """Return the ``Qt.ItemDataRole.UserRole`` data of the current item, or ``None``."""
         item = self._list.currentItem()
-        return item.data(Qt.UserRole) if item is not None else None  # type: ignore
+        return item.data(Qt.ItemDataRole.UserRole) if item is not None else None  # type: ignore
 
     @property
     def selected_item(self) -> Any:
@@ -739,7 +741,7 @@ class LamellaNameListWidget(QWidget):
             row.defect_changed.connect(self.defect_changed)
             self._apply_btn_visibility(row)
             item = QListWidgetItem()
-            item.setData(Qt.UserRole, pos)  # type: ignore
+            item.setData(Qt.ItemDataRole.UserRole, pos)  # type: ignore
             item.setSizeHint(QSize(0, ROW_HEIGHT))
             self._list.addItem(item)
             self._list.setItemWidget(item, row)
@@ -819,7 +821,7 @@ class LamellaNameListWidget(QWidget):
         """Select the item with the given name (exact match)."""
         for i in range(self._list.count()):
             item = self._list.item(i)
-            obj = item.data(Qt.UserRole)
+            obj = item.data(Qt.ItemDataRole.UserRole)
             if obj is not None and obj.name == name:
                 self._list.setCurrentItem(item)
                 return
@@ -828,7 +830,7 @@ class LamellaNameListWidget(QWidget):
         if preferred:
             for i in range(self._list.count()):
                 item = self._list.item(i)
-                obj = item.data(Qt.UserRole)
+                obj = item.data(Qt.ItemDataRole.UserRole)
                 if obj is not None and obj.name == preferred:
                     self._list.setCurrentItem(item)
                     return

@@ -28,13 +28,13 @@ import pytest
 
 # CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there. Without this the
 # module-level imports below turn a skip into a collection error.
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from copy import deepcopy  # noqa: E402
 from dataclasses import replace  # noqa: E402
 
-from PyQt5.QtCore import QPoint  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
+from qtpy.QtCore import QPoint  # noqa: E402
+from qtpy.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.imaging import tiled  # noqa: E402
@@ -77,10 +77,10 @@ def confirmations(monkeypatch):
 
     def _exec(dialog):
         shown.append(dialog)
-        return QDialog.Accepted
+        return QDialog.DialogCode.Accepted
 
     monkeypatch.setattr(
-        overview_confirmation_dialog.OverviewConfirmationDialog, "exec_", _exec
+        overview_confirmation_dialog.OverviewConfirmationDialog, "exec", _exec
     )
     return shown
 
@@ -749,7 +749,7 @@ class TestThingsOnlyRunningItFound:
         is the thing a user sees, rather than any one of the two mechanisms that keep it
         wide enough.
         """
-        from PyQt5.QtWidgets import QScrollArea
+        from qtpy.QtWidgets import QScrollArea
 
         widget.show()
         # As narrow as the layout permits -- Qt clamps this to the minimum.
@@ -2852,7 +2852,7 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
 
         def moves_the_stage(dialog):
             widget.session.stage_position = _at(confirmed_at, dx=900e-6, dy=-400e-6)
-            return QDialog.Accepted
+            return QDialog.DialogCode.Accepted
 
         widget.set_save_directory(str(tmp_path))
         monkeypatch.setattr(
@@ -2860,7 +2860,7 @@ class TestThePlanHoldsStillWhileTheRunWalksTheGrid:
         )
         monkeypatch.setattr(
             overview_confirmation_dialog.OverviewConfirmationDialog,
-            "exec_",
+            "exec",
             moves_the_stage,
         )
 
@@ -3602,8 +3602,8 @@ class TestARunIsConfirmedFirst:
         )
         monkeypatch.setattr(
             overview_confirmation_dialog.OverviewConfirmationDialog,
-            "exec_",
-            lambda self: QDialog.Rejected,
+            "exec",
+            lambda self: QDialog.DialogCode.Rejected,
         )
         before = len(widget._records)
 
@@ -3702,10 +3702,10 @@ class TestARunIsConfirmedFirst:
         def _exec(dialog):
             at_the_dialog.append(len(reads))
             shown.append(dialog)
-            return QDialog.Accepted
+            return QDialog.DialogCode.Accepted
 
         monkeypatch.setattr(
-            overview_confirmation_dialog.OverviewConfirmationDialog, "exec_", _exec
+            overview_confirmation_dialog.OverviewConfirmationDialog, "exec", _exec
         )
 
         captured = {}
@@ -4009,7 +4009,7 @@ class TestTheAcquisitionButtons:
         below the fold. A run then reports its progress somewhere nobody is looking, and
         stopping it means scrolling first.
         """
-        from PyQt5.QtWidgets import QScrollArea
+        from qtpy.QtWidgets import QScrollArea
 
         scroll = widget.findChild(QScrollArea)
         assert scroll is not None, "the settings column is no longer scrolled"
@@ -4026,7 +4026,7 @@ class TestTheAcquisitionButtons:
         """The case that motivated it: a host section on top, and a window shorter than
         the controls need. Shown for real -- geometry on an unshown widget is whatever
         the last layout pass left, which is how this passes for the wrong reason."""
-        from PyQt5.QtWidgets import QListWidget
+        from qtpy.QtWidgets import QListWidget
 
         widget = FibsemOverviewWidget(OverviewSession(microscope))
         try:
@@ -4882,7 +4882,7 @@ class TestTheOverlaySwitchesAreOnTheCanvas:
     def test_it_is_styled_so_it_is_readable_over_the_picture(self, widget):
         """A bare `QWidget` took none of the shared style, whose selectors key off
         `QFrame` -- which drew the switches as unbacked text straight over the data."""
-        from PyQt5.QtWidgets import QFrame
+        from qtpy.QtWidgets import QFrame
 
         from fibsem.ui.stylesheets import CANVAS_PANEL_STYLE
 
