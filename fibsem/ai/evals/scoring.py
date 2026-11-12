@@ -1,8 +1,9 @@
 """Scoring an agent's answer against a case's key, in code.
 
-One scorer per task. Each returns a Score: a result (hit, miss, early, late,
-unsafe or invalid) and the numbers behind it. Unsafe answers are flagged on
-their own so they never hide inside a hit rate.
+One scorer per task. Each returns a Score: a result (hit, miss, early, late
+or invalid) and the numbers behind it. A mistake that would cost a lamella or
+a site (a bad site picked, a target milled away) is a miss like any other;
+``details["costly"]`` counts them so a report can call them out.
 
 Answer shapes (``answer.json``):
 
@@ -11,17 +12,88 @@ Answer shapes (``answer.json``):
 - correlation: ``{"x_px", "y_px", "fiducials": [...], "fit_rms_um", "reason"}``
 - polishing_stop: ``{"passes": [{"name", "decision": "carry_on"|"stop", "reason"}, ...]}``
 - target_present: ``{"present": {"<pass>": true|false, ...}}``
+- square_finding: ``{"squares": [{"x_px", "y_px"}, ...], "pitch_px", "angle_deg"}``
+- square_quality: ``{"labels": {"<square>": {"site": "good|bad", "reasons":
+  [...]}, ...}}`` (an old ``"<label>"`` per square is still read)
 
 A case with parts is answered as ``{"parts": {"a": {...}, "b": {...}}}``.
 """
 
+import itertools
 import math
+import statistics
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.evals.cases import Case, pass_names, pixel_size_um
+import numpy as np
+from PIL import Image
 
-RESULTS = ("hit", "miss", "early", "late", "unsafe", "invalid")
+from fibsem.ai.evals.cases import (
+    SITES,
+    SQUARE_REASONS,
+    Case,
+    bad_mask,
+    pass_names,
+    pixel_size_um,
+    square_call,
+    stop_passes,
+)
+
+RESULTS = ("hit", "miss", "early", "late", "invalid")
+
+# What the agent is shown as the answer's shape, per task.
+ANSWER_SHAPES: Dict[str, Any] = {
+    "site_selection": {"picks": [{"x_px": 0, "y_px": 0, "reason": "..."}]},
+    "fm_target": {
+        "usable": "yes | no | unsure",
+        "x_px": 0,
+        "y_px": 0,
+        "z_slice": 0,
+        "reason": "...",
+    },
+    "correlation": {
+        "x_px": 0,
+        "y_px": 0,
+        "fiducials": [{"fm_px": [0, 0, 0], "fib_px": [0, 0]}],
+        "fit_rms_um": 0.0,
+        "reason": "...",
+    },
+    "polishing_stop": {
+        "passes": [{"name": "<pass>", "decision": "carry_on | stop", "reason": "..."}]
+    },
+    "target_present": {"present": {"<pass>": "yes | no"}, "reason": "..."},
+    "square_finding": {
+        "squares": [{"x_px": 0, "y_px": 0}],
+        "pitch_px": 0,
+        "angle_deg": 0,
+        "reason": "...",
+    },
+    "setup_placement": {"x_px": 0, "y_px": 0, "reason": "..."},
+    "square_quality": {
+        "labels": {
+            "<square>": {"site": " | ".join(SITES), "reasons": list(SQUARE_REASONS)}
+        },
+        "reason": "...",
+    },
+}
+# What an answer's fields mean, where the shape alone leaves it open.
+ANSWER_NOTES = {
+    "square_quality": (
+        "site is whether you would put a lamella in the square: good or bad. "
+        "reasons lists what you see that matters, from those shown (any that "
+        "apply, or none); a good site can have reasons too, such as cells "
+        "near a bar with room left for a lamella."
+    ),
+    "setup_placement": (
+        "x_px, y_px is the lamella's centre on the FIB image; the trenches sit "
+        "above and below it as the protocol sets."
+    ),
+    "square_finding": (
+        "pitch_px is the centre-to-centre distance between neighbouring "
+        "squares along a grid bar (not along the image's x or y); angle_deg "
+        "is a bar's direction in the image."
+    ),
+}
 
 
 @dataclass
@@ -34,8 +106,8 @@ class Score:
     details: Dict[str, Any] = field(default_factory=dict)
 
     @property
-    def unsafe(self) -> bool:
-        return self.result == "unsafe"
+    def costly(self) -> int:
+        return int(self.details.get("costly") or 0)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -52,7 +124,7 @@ class InvalidAnswer(ValueError):
     pass
 
 
-def _yes(value: Any) -> Optional[bool]:
+def yes_no(value: Any) -> Optional[bool]:
     """yes/no answers as True/False; unsure as None."""
     if isinstance(value, bool):
         return value
@@ -91,11 +163,11 @@ def score_site_selection(
                 best = (i, d)
         return best
 
-    found, unsafe, unkeyed, per_pick = set(), [], 0, []
+    found, bad_picks, unkeyed, per_pick = set(), [], 0, []
     for n, pick in enumerate(picks):
         x, y = _point(pick)
         if (hit := nearest(x, y, bad)) is not None:
-            unsafe.append(n)
+            bad_picks.append(n)
             per_pick.append({"pick": n, "bad": bad[hit[0]].get("square", hit[0])})
         elif (hit := nearest(x, y, good)) is not None:
             found.add(hit[0])
@@ -103,25 +175,32 @@ def score_site_selection(
         else:
             unkeyed += 1
             per_pick.append({"pick": n})
+    # The share of picks that are distinct good sites: a square picked twice
+    # is one site, and an unkeyed pick counts against.
+    fraction = len(found) / len(picks) if picks else 0.0
+    wanted = float(case.scoring.get("min_good_fraction", 0.5))
     details = {
+        "good_fraction": round(fraction, 3),
+        "min_good_fraction": wanted,
         "picks": len(picks),
         "good_found": len(found),
         "good_total": len(good),
-        "unsafe_picks": len(unsafe),
+        "bad_picks": len(bad_picks),
         "unkeyed_picks": unkeyed,
+        "costly": len(bad_picks),
         "per_pick": per_pick,
     }
-    result = "unsafe" if unsafe else "hit" if found else "miss"
-    return result, details
+    return ("hit" if found and fraction >= wanted else "miss"), details
 
 
 def score_fm_target(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> tuple:
-    usable_key = _yes(key.get("usable"))
-    usable = _yes(answer.get("usable"))
+    usable_key = yes_no(key.get("usable"))
+    usable = yes_no(answer.get("usable"))
     details: Dict[str, Any] = {"usable": usable, "usable_key": usable_key}
     if usable_key is False:
         # Calling a target where there is none sends the milling to nothing.
-        return ("unsafe" if usable else "hit"), details
+        details["costly"] = int(bool(usable))
+        return ("miss" if usable else "hit"), details
     if usable is not True:
         return "miss", details
     x, y = _point(answer)
@@ -142,12 +221,28 @@ def score_fm_target(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> 
 def score_correlation(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> tuple:
     x, y = _point(answer)
     target = key["target_fib_px"]
-    error_um = math.hypot(x - target["x"], y - target["y"]) * float(pixel_size_um(case))
-    tol = float(case.scoring.get("xy_tolerance_um", 0.5))
-    details = {"error_um": round(error_um, 3), "tolerance_um": tol}
+    size = float(pixel_size_um(case))
+    dx_um, dy_um = (x - target["x"]) * size, (y - target["y"]) * size
+    error_um = math.hypot(dx_um, dy_um)
+    details = {"error_um": round(error_um, 3)}
     if "fit_rms_um" in answer:
         details["reported_rms_um"] = answer["fit_rms_um"]
-    return ("hit" if error_um <= tol else "miss"), details
+    across_tol = case.scoring.get("across_tolerance_um")
+    if across_tol is None:
+        tol = float(case.scoring.get("xy_tolerance_um", 0.5))
+        details["tolerance_um"] = tol
+        return ("hit" if error_um <= tol else "miss"), details
+    # The lamella runs along the FIB image's x: an error across it (y) loses
+    # the target, one along it costs little.
+    along_tol = float(case.scoring.get("along_tolerance_um", 2 * float(across_tol)))
+    details.update(
+        across_um=round(abs(dy_um), 3),
+        along_um=round(abs(dx_um), 3),
+        across_tolerance_um=float(across_tol),
+        along_tolerance_um=along_tol,
+    )
+    hit = abs(dy_um) <= float(across_tol) and abs(dx_um) <= along_tol
+    return ("hit" if hit else "miss"), details
 
 
 def score_polishing_stop(
@@ -169,19 +264,20 @@ def score_polishing_stop(
         if decision == "stop":
             index = names.index(entry["name"])
             stop = index if stop is None else min(stop, index)
-    want = names.index(key["stop_after"])
+    wanted = [names.index(name) for name in stop_passes(key)]
+    first, last = min(wanted), max(wanted)
     details = {
         "stopped_after": names[stop] if stop is not None else None,
         "key": key["stop_after"],
     }
-    if stop == want:
+    if stop is not None and first <= stop <= last:
         return "hit", details
-    if stop is not None and stop < want:
-        details["passes_early"] = want - stop
+    if stop is not None and stop < first:
+        details["passes_early"] = first - stop
         return "early", details
     # Carrying on past the stop: thickness lost, or the target milled away.
-    late = case.scoring.get("late", "unsafe")
-    return ("late" if late == "late" else "unsafe"), details
+    details["costly"] = 1
+    return "late", details
 
 
 def score_target_present(
@@ -195,10 +291,10 @@ def score_target_present(
         if name not in present:
             unanswered.append(name)
             continue
-        said = _yes(present[name])
-        if said != _yes(expected):
+        said = yes_no(present[name])
+        if said != yes_no(expected):
             wrong.append(name)
-            if said is True and _yes(expected) is False:
+            if said is True and yes_no(expected) is False:
                 missed_loss.append(name)
     details = {
         "correct": len(key) - len(wrong) - len(unanswered),
@@ -206,10 +302,209 @@ def score_target_present(
         "wrong": wrong,
         "unanswered": unanswered,
         "missed_loss": missed_loss,
+        "costly": len(missed_loss),
     }
-    if missed_loss:
-        return "unsafe", details
     return ("hit" if not wrong and not unanswered else "miss"), details
+
+
+def match_squares(points: List[tuple], squares: List[Dict[str, Any]], radius: float):
+    """Each point paired with at most one square and each square with at most
+    one point, nearest pairs first, within *radius*."""
+    pairs = sorted(
+        (math.hypot(x - sq["x_px"], y - sq["y_px"]), i, j)
+        for i, (x, y) in enumerate(points)
+        for j, sq in enumerate(squares)
+    )
+    used_points, used_squares, matched = set(), set(), {}
+    for d, i, j in pairs:
+        if d > radius:
+            break
+        if i in used_points or j in used_squares:
+            continue
+        used_points.add(i)
+        used_squares.add(j)
+        matched[i] = j
+    return matched
+
+
+def placed_scale(
+    points: List[Tuple[float, float]],
+    squares: List[Dict[str, Any]],
+    matched: Dict[int, int],
+    pitch: float,
+) -> Optional[float]:
+    """How far apart the agent put neighbouring squares, as a fraction of the
+    key's spacing: the median, over pairs of neighbours in the key both
+    matched, of their distance in the answer over their distance in the key.
+    None when no such pair was matched."""
+    at = {j: points[i] for i, j in matched.items()}
+    ratios = []
+    for j, k in itertools.combinations(sorted(at), 2):
+        a, b = squares[j], squares[k]
+        apart = math.hypot(a["x_px"] - b["x_px"], a["y_px"] - b["y_px"])
+        if 0 < apart <= 1.2 * pitch:
+            (x1, y1), (x2, y2) = at[j], at[k]
+            ratios.append(math.hypot(x1 - x2, y1 - y2) / apart)
+    return statistics.median(ratios) if ratios else None
+
+
+def score_square_finding(
+    case: Case, answer: Dict[str, Any], key: Dict[str, Any]
+) -> tuple:
+    found = answer.get("squares")
+    if not isinstance(found, list):
+        raise InvalidAnswer("no squares list")
+    points = [_point(p) for p in found]
+    squares = key["squares"]
+    sc = case.scoring
+    pitch = float(key["pitch_px"])
+    radius = float(sc.get("match_radius_px", pitch / 3))
+    matched = match_squares(points, squares, radius)
+    # Optional squares (cut by a tile edge, or hidden) count when found and
+    # are not missed when not.
+    required = [j for j, sq in enumerate(squares) if not sq.get("optional")]
+    found_required = len(set(matched.values()) & set(required))
+    recall = found_required / len(required) if required else 1.0
+    precision = len(matched) / len(points) if points else 0.0
+    details: Dict[str, Any] = {
+        "found": len(points),
+        "matched": len(matched),
+        "required_found": found_required,
+        "required_total": len(required),
+        "extra": len(points) - len(matched),
+        "recall": round(recall, 3),
+        "precision": round(precision, 3),
+    }
+    ok = recall >= float(sc.get("min_recall", 0.8)) and precision >= float(
+        sc.get("min_precision", 0.9)
+    )
+    try:
+        # The pitch of the squares placed, not the number written: an agent
+        # can place every square right and still write the pitch measured
+        # along the image axis.
+        written_error = abs(float(answer["pitch_px"]) - pitch) / pitch
+        scale = placed_scale(points, squares, matched, pitch)
+        pitch_error = written_error if scale is None else abs(scale - 1)
+        # Lattice directions repeat every 90 degrees.
+        turn = (float(answer["angle_deg"]) - float(key["angle_deg"])) % 90
+        angle_error = min(turn, 90 - turn)
+    except (KeyError, TypeError, ValueError):
+        details["lattice"] = "no pitch_px or angle_deg"
+        return "miss", details
+    details.update(
+        pitch_error=round(pitch_error, 3),
+        written_pitch_error=round(written_error, 3),
+        angle_error_deg=round(angle_error, 1),
+    )
+    ok = (
+        ok
+        and pitch_error <= float(sc.get("pitch_tolerance", 0.1))
+        and angle_error <= float(sc.get("angle_tolerance_deg", 5))
+    )
+    return ("hit" if ok else "miss"), details
+
+
+def score_square_quality(
+    case: Case, answer: Dict[str, Any], key: Dict[str, Any]
+) -> tuple:
+    """The headline is the site call, good or bad, against the key; the
+    reasons are scored apart (recall and precision over every square) and
+    never decide the headline."""
+    labels = answer.get("labels")
+    if not isinstance(labels, dict):
+        raise InvalidAnswer("no labels map")
+    said = {}
+    for name, value in labels.items():
+        call = square_call(value)
+        old = not (isinstance(value, dict) and "site" in value)
+        if old and not set(call["reasons"]) <= set(SQUARE_REASONS):
+            raise InvalidAnswer(f"square {name}: {value!r} is not a label")
+        if len(call["sites"]) != 1 or call["sites"][0] not in SITES:
+            raise InvalidAnswer(
+                f"square {name}: site {call['sites']} is not good or bad"
+            )
+        said[str(name)] = call
+    # Calling these good sends a lamella to a square that can't hold one.
+    never_good = set(
+        case.scoring.get(
+            "costly_if_called_good",
+            case.scoring.get("unsafe_if_called_good", ["damaged", "thick"]),
+        )
+    )
+    right, wrong, unanswered, bad_called_good = 0, {}, [], []
+    found = expected_reasons = given_reasons = 0
+    for name, entry in key["labels"].items():
+        name, want = str(name), square_call(entry)
+        if name not in said:
+            unanswered.append(name)
+            expected_reasons += len(want["reasons"])
+            continue
+        got = said[name]
+        site = got["sites"][0]
+        if site in want["sites"]:
+            right += 1
+        else:
+            wrong[name] = {
+                "said": site,
+                "key": " | ".join(want["sites"]),
+                "key_reasons": want["reasons"],
+            }
+            if site == "good" and set(want["reasons"]) & never_good:
+                bad_called_good.append(name)
+        found += len(set(got["reasons"]) & set(want["reasons"]))
+        expected_reasons += len(set(want["reasons"]))
+        given_reasons += len(set(got["reasons"]))
+    total = len(key["labels"])
+    accuracy = right / total if total else 0.0
+    details = {
+        "correct": right,
+        "total": total,
+        "accuracy": round(accuracy, 3),
+        "wrong": wrong,
+        "unanswered": unanswered,
+        "bad_called_good": bad_called_good,
+        "costly": len(bad_called_good),
+        "reasons_recall": round(found / expected_reasons, 3)
+        if expected_reasons
+        else None,
+        "reasons_precision": round(found / given_reasons, 3) if given_reasons else None,
+    }
+    hit = accuracy >= float(case.scoring.get("min_accuracy", 0.8))
+    return ("hit" if hit else "miss"), details
+
+
+def _mask(case: Case, rel: str) -> np.ndarray:
+    with Image.open(case.path / rel) as image:
+        return np.asarray(image.convert("L")) > 0
+
+
+def score_setup_placement(
+    case: Case, answer: Dict[str, Any], key: Dict[str, Any]
+) -> tuple:
+    """Hit when the lamella's centre is where the whole lamella sits on the
+    target with both trenches clear (``ok_mask``); else a miss, counted as
+    costly where a trench cuts a bar or the lamella misses every cell
+    (``bad_mask``)."""
+    x, y = _point(answer)
+    ok, bad = _mask(case, key["ok_mask"]), _mask(case, bad_mask(key))
+    size = float(pixel_size_um(case))
+    target = key["target_px"]
+    details: Dict[str, Any] = {
+        "to_target_um": round(math.hypot(x - target["x"], y - target["y"]) * size, 3)
+    }
+    col, row = int(round(x)), int(round(y))
+    inside = 0 <= row < ok.shape[0] and 0 <= col < ok.shape[1]
+    if not inside:
+        details["outside_image"] = True
+        return "miss", details
+    rows, cols = np.nonzero(ok)
+    if rows.size:
+        nearest = np.hypot(cols - x, rows - y).min()
+        details["to_ok_um"] = round(float(nearest) * size, 3)
+    if ok[row, col]:
+        return "hit", details
+    details["costly"] = int(bool(bad[row, col]))
+    return "miss", details
 
 
 SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
@@ -218,6 +513,9 @@ SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
     "correlation": score_correlation,
     "polishing_stop": score_polishing_stop,
     "target_present": score_target_present,
+    "square_finding": score_square_finding,
+    "square_quality": score_square_quality,
+    "setup_placement": score_setup_placement,
 }
 
 
@@ -254,4 +552,17 @@ def score_case(case: Case, answer: Dict[str, Any]) -> List[Score]:
                 headline=bool(part.get("headline", True)),
             )
         )
+    return scores
+
+
+def score_live(case: Case) -> Optional[List[Score]]:
+    """The scores of what the real run decided (the case's ``live`` block),
+    for the parts it decided; None when the case records no live decision."""
+    live = case.data.get("live")
+    if not isinstance(live, dict) or not isinstance(live.get("answer"), dict):
+        return None
+    scores = score_case(case, live["answer"])
+    decided = live.get("parts")
+    if decided:
+        scores = [s for s in scores if s.part in decided]
     return scores

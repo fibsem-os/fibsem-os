@@ -26,11 +26,17 @@ if TYPE_CHECKING:
     from fibsem.server.auth import AuthConfig
 
 DISCOVERY_DIR = paths.user_dir()
-DISCOVERY_FILE = DISCOVERY_DIR / "app-server.json"
+# Another App Server's file, for a client started beside a second host on
+# this PC (an eval run starts one per run).
+DISCOVERY_FILE_ENV = "FIBSEM_DISCOVERY_FILE"
+_OVERRIDE = os.environ.get(DISCOVERY_FILE_ENV)
+DISCOVERY_FILE = Path(_OVERRIDE) if _OVERRIDE else DISCOVERY_DIR / "app-server.json"
 # The file's name before the App Server rename. Read, never written,
 # for one release, so a sidecar finds an App Server that predates the rename;
 # delete after v0.6.x.
-LEGACY_DISCOVERY_FILE = DISCOVERY_DIR / "agent-server.json"
+LEGACY_DISCOVERY_FILE = (
+    DISCOVERY_FILE if _OVERRIDE else DISCOVERY_DIR / "agent-server.json"
+)
 
 
 def fibsem_folder() -> str:

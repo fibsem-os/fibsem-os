@@ -128,6 +128,10 @@ class AppSession:
         # the microscope, None until the client first says.
         self.agent_auth: Optional[Any] = None
         self.serve_microscope: Optional[bool] = None
+        # The App Server's port and discovery file, when not the defaults:
+        # for another host beside this PC's own (an eval run).
+        self.app_server_port: Optional[int] = None
+        self.app_server_discovery: Optional[str] = None
         # The window hosts it whatever the preference, until the operator
         # turns it off in Tools → Host (``--host``: the gateway's starts).
         self.host_app_server = False
@@ -490,8 +494,16 @@ class AppSession:
         from fibsem.server import hosting
 
         if self.app_server is None:
+            where = {}
+            if self.app_server_port is not None:
+                where["port"] = self.app_server_port
+            if self.app_server_discovery is not None:
+                where["discovery_path"] = self.app_server_discovery
             self.app_server = hosting.AppServerHost(
-                self, app_context, serve_microscope=self.serve_microscope is not False
+                self,
+                app_context,
+                serve_microscope=self.serve_microscope is not False,
+                **where,
             )
         started = self.app_server.start()
         if started:

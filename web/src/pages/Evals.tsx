@@ -1,0 +1,711 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, ListFilter } from "lucide-react";
+import { type ReactNode, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Popup } from "@/components/ui/popup";
+import { cn } from "@/lib/utils";
+
+// The eval review page, served by `python -m fibsem.ai.evals serve` on this
+// computer: a run's results against the keys, and settling the disagreements.
+
+interface RunListed {
+  name: string;
+  results: number;
+  cases: number;
+}
+
+interface CaseRow {
+  id: string;
+  task: string;
+  found: boolean;
+  repeats: number;
+  now: string[][];
+  open: number;
+}
+
+interface RunSummary {
+  name: string;
+  ran_with: string;
+  cases_root: string;
+  cases: CaseRow[];
+}
+
+interface Answer {
+  repeat: number;
+  said: string;
+  reason: string;
+}
+
+interface Item {
+  id: string;
+  kind: string;
+  title: string;
+  key_text: string;
+  repeats: number[];
+  answers: Answer[];
+  actions: { action: string; label: string }[];
+  can_place?: boolean;
+  view?: View | null;
+}
+
+interface View {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  marks: { x: number; y: number; kind: string; r?: number; repeat?: number }[];
+}
+
+interface Repeat {
+  repeat: number;
+  then: string[];
+  now: string[];
+  did: string;
+  status: string;
+  cost_usd: number;
+  seconds: number;
+  reason: string;
+}
+
+interface CaseDetail {
+  id: string;
+  task: string;
+  task_text: string;
+  key_text: string;
+  brief: string;
+  figures: string[];
+  repeats: Repeat[];
+  live: { part: string | null; live: string; same: number; eval: string[] }[];
+  items: Item[];
+  settled: { at: string; run: string; id: string; action: string }[];
+  last: { id: string; action: string } | null;
+  can_settle: boolean;
+}
+
+const TASKS: Record<string, string> = {
+  site_selection: "Sites",
+  square_quality: "Square labels",
+  square_finding: "Squares",
+  polishing_stop: "Polishing",
+  fm_target: "FM target",
+  correlation: "Correlation",
+  target_present: "Target present",
+};
+const taskName = (task: string) => TASKS[task] ?? "Case not found";
+
+const COLOURS: Record<string, string> = {
+  hit: "text-[#3fb950]",
+  miss: "text-[#f85149]",
+  early: "text-[#f0883e]",
+  late: "text-[#f0883e]",
+  invalid: "text-muted-foreground",
+};
+
+async function get<T>(path: string): Promise<T> {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail ?? response.statusText);
+  return response.json();
+}
+
+const enc = encodeURIComponent;
+const runPath = (run: string) => `/evals/runs/${enc(run)}`;
+const casePath = (run: string, id: string) => `${runPath(run)}/cases/${enc(id)}`;
+
+function Results({ results }: { results: string[] }) {
+  return (
+    <span className="inline-flex flex-wrap gap-1.5">
+      {results.map((r, i) => (
+        <span key={i} className={cn("text-[12px] font-semibold", COLOURS[r])}>
+          {r}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Repeats where every result (each part) is a hit, out of all repeats. */
+function Score({ now }: { now: string[][] }) {
+  if (!now.length) return null;
+  const hits = now.filter((r) => r.length > 0 && r.every((x) => x === "hit")).length;
+  const colour = hits === now.length ? "text-[#3fb950]" : hits === 0 ? "text-[#f85149]" : "text-[#d29922]";
+  return (
+    <span className={cn("text-[12px] font-semibold", colour)}>
+      {hits}/{now.length}
+    </span>
+  );
+}
+
+function CaseList({
+  run,
+  against,
+  picked,
+  pick,
+}: {
+  run: string;
+  against: string | null;
+  picked: string | null;
+  pick: (id: string) => void;
+}) {
+  const summary = useQuery({ queryKey: ["evals-run", run], queryFn: () => get<RunSummary>(runPath(run)) });
+  const other = useQuery({
+    queryKey: ["evals-run", against],
+    queryFn: () => get<RunSummary>(runPath(against!)),
+    enabled: !!against,
+  });
+  const otherCase = (id: string) => other.data?.cases.find((c) => c.id === id);
+  const [task, setTask] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  if (summary.isError) return <p className="text-[13px] text-destructive">{String(summary.error)}</p>;
+  if (!summary.data) return <p className="text-[13px] text-muted-foreground">Reading the run…</p>;
+  const cases = summary.data.cases;
+  const tasks = [...new Set(cases.map((c) => c.task))];
+  const shown = cases.filter((c) => (task === null || c.task === task) && (!open || c.open > 0));
+  const item = (on: boolean) =>
+    cn(
+      "flex cursor-pointer items-center gap-2 rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent",
+      on && "bg-accent",
+    );
+  const filtered = task !== null || open;
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-[12px] text-muted-foreground">
+          {filtered ? `${shown.length} of ${cases.length} cases` : `${cases.length} cases`}
+        </span>
+        <div className="ml-auto">
+          <Popup
+            label="Filter"
+            align="right"
+            className="top-[calc(100%+4px)] bottom-auto w-52"
+            trigger={(isOpen, toggle) => (
+              <button
+                className={cn(
+                  "flex shrink-0 cursor-pointer items-center gap-1.5 rounded border-0 bg-transparent px-2 py-1 text-[12px] hover:bg-accent hover:text-foreground",
+                  filtered ? "text-primary" : "text-muted-foreground",
+                )}
+                aria-label="Filter"
+                aria-haspopup="menu"
+                aria-expanded={isOpen}
+                onClick={toggle}
+              >
+                <ListFilter size={14} />
+                {task !== null ? taskName(task) : "All"}
+              </button>
+            )}
+          >
+            {(close) => (
+              <div role="menu" className="flex flex-col">
+                {[null, ...tasks].map((t) => (
+                  <button
+                    key={t ?? "all"}
+                    role="menuitemradio"
+                    aria-checked={task === t}
+                    className={item(task === t)}
+                    onClick={() => {
+                      setTask(t);
+                      close();
+                    }}
+                  >
+                    {t === null ? "All tasks" : taskName(t)}
+                    <span className="ml-auto text-[12px] text-muted-foreground">
+                      {t === null ? cases.length : cases.filter((c) => c.task === t).length}
+                    </span>
+                  </button>
+                ))}
+                <div className="my-1 border-t border-border" />
+                <label className={item(false)}>
+                  <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />
+                  Only cases to settle
+                </label>
+              </div>
+            )}
+          </Popup>
+        </div>
+      </div>
+      {shown.map((c) => (
+        <button
+          key={c.id}
+          onClick={() => pick(c.id)}
+          className={cn(
+            "flex cursor-pointer flex-col gap-1 rounded border px-3 py-2 text-left",
+            c.id === picked ? "border-primary bg-accent" : "border-border bg-transparent hover:bg-accent",
+          )}
+        >
+          <span className="flex items-center gap-2">
+            <span className="text-[12px] text-muted-foreground">{taskName(c.task)}</span>
+            {c.open > 0 && (
+              <span className="ml-auto rounded-full bg-[#f0883e33] px-2 text-[11px] font-semibold text-[#f0883e]">
+                {c.open} to settle
+              </span>
+            )}
+          </span>
+          <span className="truncate text-[13px]">{c.id}</span>
+          {!c.found && (
+            <span className="text-[11px] break-all text-muted-foreground">
+              {summary.data.cases_root ? `Not in ${summary.data.cases_root}` : "Start serve with --cases"}
+            </span>
+          )}
+          {!c.found ? null : against ? (
+            <span className="flex items-center gap-2 text-[12px]">
+              <Score now={c.now} />
+              <span className="text-muted-foreground">vs</span>
+              {otherCase(c.id)?.found ? (
+                <Score now={otherCase(c.id)!.now} />
+              ) : (
+                <span className="text-muted-foreground">-</span>
+              )}
+              <span className="truncate text-muted-foreground">in {against}</span>
+            </span>
+          ) : (
+            <Score now={c.now} />
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const MARK: Record<string, string> = { key: "#3fb950", optional: "#8b949e", agent: "#bc8cff" };
+
+/** A plain crop with the key and the agent's answers drawn over it; a click
+ * marks a point, and "Put the key here" settles the item there. */
+function Placer({
+  src,
+  view,
+  canPlace,
+  busy,
+  place,
+}: {
+  src: string;
+  view: View;
+  canPlace: boolean;
+  busy: boolean;
+  place: (x: number, y: number) => void;
+}) {
+  const [at, setAt] = useState<[number, number] | null>(null);
+  const w = view.x1 - view.x0;
+  const tick = w / 60;
+  const pick = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (!canPlace) return;
+    const box = e.currentTarget.getBoundingClientRect();
+    const x = view.x0 + ((e.clientX - box.left) / box.width) * w;
+    const y = view.y0 + ((e.clientY - box.top) / box.height) * (view.y1 - view.y0);
+    setAt([Math.round(x * 10) / 10, Math.round(y * 10) / 10]);
+  };
+  return (
+    <div className="flex w-full max-w-[460px] flex-[1_1_320px] flex-col gap-2 self-start">
+      <div className="relative aspect-square w-full overflow-hidden rounded border border-border bg-black">
+        <img src={src} alt="" className="absolute inset-0 h-full w-full" />
+        <svg
+          viewBox={`${view.x0} ${view.y0} ${w} ${view.y1 - view.y0}`}
+          className={cn("absolute inset-0 h-full w-full", canPlace && "cursor-crosshair")}
+          onClick={pick}
+        >
+          {view.marks.map((m, i) =>
+            m.kind === "agent" ? (
+              <path
+                key={i}
+                d={`M${m.x - tick} ${m.y - tick}L${m.x + tick} ${m.y + tick}M${m.x - tick} ${m.y + tick}L${m.x + tick} ${m.y - tick}`}
+                stroke={MARK.agent}
+                strokeWidth={tick / 3}
+              />
+            ) : (
+              <circle
+                key={i}
+                cx={m.x}
+                cy={m.y}
+                r={m.r ?? tick * 2}
+                fill="none"
+                stroke={MARK[m.kind] ?? MARK.key}
+                strokeWidth={tick / 3}
+              />
+            ),
+          )}
+          {at && (
+            <g stroke="#f0883e" strokeWidth={tick / 3}>
+              <path
+                d={`M${at[0] - tick * 2} ${at[1]}H${at[0] + tick * 2}M${at[0]} ${at[1] - tick * 2}V${at[1] + tick * 2}`}
+              />
+            </g>
+          )}
+        </svg>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 text-[12px] text-muted-foreground">
+        <span>
+          <span style={{ color: MARK.key }}>○</span> key <span style={{ color: MARK.agent }}>×</span> agent
+          {canPlace && " · click to mark where it really is"}
+        </span>
+        {at && (
+          <Button disabled={busy} onClick={() => place(at[0], at[1])}>
+            Put the key here ({Math.round(at[0])}, {Math.round(at[1])})
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Settle({ run, detail }: { run: string; detail: CaseDetail }) {
+  const client = useQueryClient();
+  const count = detail.items.length;
+  const [index, setIndex] = useState(0);
+  const at = Math.min(index, Math.max(count - 1, 0));
+  const item = detail.items[at];
+  const settle = useMutation({
+    mutationFn: async (choice: string | { action: string; x_px: number; y_px: number }) => {
+      const action = typeof choice === "string" ? choice : choice.action;
+      const point = typeof choice === "string" ? {} : { x_px: choice.x_px, y_px: choice.y_px };
+      const undo = action === "undo";
+      const response = await fetch(`${casePath(run, detail.id)}/${undo ? "undo" : "settle"}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: undo ? undefined : JSON.stringify({ item: item.id, action, ...point }),
+      });
+      if (!response.ok) throw new Error((await response.json().catch(() => null))?.detail ?? response.statusText);
+      return response.json();
+    },
+    onSuccess: (next: CaseDetail) => {
+      client.setQueryData(["evals-case", run, detail.id], next);
+      client.invalidateQueries({ queryKey: ["evals-run", run] });
+    },
+  });
+  // Keys: arrows step, 1-9 take an action, K keeps the key, U undoes.
+  const keys = { item, last: detail.last, can: detail.can_settle, busy: settle.isPending, mutate: settle.mutate };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "ArrowLeft") setIndex((i) => Math.max(Math.min(i, count - 1) - 1, 0));
+      if (e.key === "ArrowRight") setIndex((i) => Math.min(i + 1, count - 1));
+      if (!keys.can || keys.busy) return;
+      const key = e.key.toLowerCase();
+      if (key === "u" && keys.last) keys.mutate("undo");
+      if (!keys.item) return;
+      if (key === "k") keys.mutate("keep");
+      const n = Number(e.key);
+      if (n >= 1 && n <= keys.item.actions.length) keys.mutate(keys.item.actions[n - 1].action);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+  const undo = detail.last && (
+    <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
+      Last: {detail.last.action === "keep" ? "kept the key" : detail.last.action} for {detail.last.id}
+      <Button disabled={settle.isPending} onClick={() => settle.mutate("undo")}>
+        Undo <Kbd>U</Kbd>
+      </Button>
+    </div>
+  );
+  if (!detail.can_settle) return null;
+  if (!item)
+    return (
+      <section className="flex flex-col gap-2 rounded-md border border-border bg-card px-4 py-3">
+        <span className="text-[13px] text-[#3fb950]">Nothing to settle: every answer is one the key accepts.</span>
+        {undo}
+      </section>
+    );
+  return (
+    <section className="flex flex-wrap gap-4 rounded-md border border-border bg-card p-4">
+      {item.view ? (
+        <Placer
+          key={item.id}
+          src={`${casePath(run, detail.id)}/items/${enc(item.id)}.png`}
+          view={item.view}
+          canPlace={!!item.can_place}
+          busy={settle.isPending}
+          place={(x, y) => settle.mutate({ action: "place", x_px: x, y_px: y })}
+        />
+      ) : (
+        <img
+          key={item.id}
+          src={`${casePath(run, detail.id)}/items/${enc(item.id)}.png`}
+          alt={item.title}
+          className="w-full max-w-[460px] flex-[1_1_320px] self-start rounded border border-border bg-white"
+          onError={(e) => (e.currentTarget.style.display = "none")}
+        />
+      )}
+      <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-3">
+        <div className="flex items-center gap-1 text-[12px] text-muted-foreground">
+          <span className="mr-1">
+            To settle: {at + 1} of {count}
+          </span>
+          <button
+            aria-label="Previous"
+            title="Previous (←)"
+            disabled={at === 0}
+            onClick={() => setIndex(at - 1)}
+            className="cursor-pointer rounded border border-border bg-transparent p-0.5 text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-40"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            aria-label="Next"
+            title="Next (→)"
+            disabled={at >= count - 1}
+            onClick={() => setIndex(at + 1)}
+            className="cursor-pointer rounded border border-border bg-transparent p-0.5 text-foreground hover:bg-accent disabled:cursor-default disabled:opacity-40"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
+        <div className="text-[15px] font-semibold">{item.title}</div>
+        <div className="text-[13px]">{item.key_text}</div>
+        <table className="w-full border-collapse text-[13px]">
+          <tbody>
+            {item.answers.map((a) => (
+              <tr key={a.repeat} className="border-t border-border align-top">
+                <td className="py-1.5 pr-3 text-muted-foreground">r{a.repeat}</td>
+                <td className="py-1.5 pr-3 font-medium whitespace-nowrap">{a.said}</td>
+                <td className="py-1.5 text-muted-foreground">{a.reason}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="flex flex-wrap gap-2">
+          {item.actions.map((a, i) => (
+            <Button
+              key={a.action}
+              variant={i === 0 ? "primary" : "default"}
+              disabled={settle.isPending}
+              onClick={() => settle.mutate(a.action)}
+            >
+              {a.label} <Kbd>{i + 1}</Kbd>
+            </Button>
+          ))}
+          <Button disabled={settle.isPending} onClick={() => settle.mutate("keep")}>
+            Keep the key <Kbd>K</Kbd>
+          </Button>
+        </div>
+        {settle.isError && <p className="m-0 text-[13px] text-destructive">{String(settle.error)}</p>}
+        {undo}
+      </div>
+    </section>
+  );
+}
+
+function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="ml-1.5 rounded border border-current/30 px-1 font-sans text-[11px] opacity-70">{children}</kbd>
+  );
+}
+
+function Fold({ title, open, children }: { title: string; open?: boolean; children: ReactNode }) {
+  return (
+    <details open={open} className="rounded-md border border-border bg-card px-4 py-2">
+      <summary className="cursor-pointer text-[13px] font-semibold text-muted-foreground">{title}</summary>
+      <div className="mt-2 flex flex-col gap-2">{children}</div>
+    </details>
+  );
+}
+
+interface Trace {
+  repeat: number;
+  skills: string[];
+  looked_at: string[];
+  tools: [string, number][];
+  said: string[];
+  failed: string[];
+  has_log: boolean;
+}
+
+/** What each repeat did, from its agent log; read only when opened. */
+function Traces({ run, id }: { run: string; id: string }) {
+  const [open, setOpen] = useState(false);
+  const traces = useQuery({
+    queryKey: ["evals-traces", run, id],
+    queryFn: () => get<Trace[]>(`${casePath(run, id)}/traces`),
+    enabled: open,
+  });
+  return (
+    <details
+      className="rounded-md border border-border bg-card px-4 py-2"
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="cursor-pointer text-[13px] font-semibold text-muted-foreground">
+        What each repeat did (agent log)
+      </summary>
+      <div className="mt-2 flex flex-col gap-4">
+        {traces.isError && <p className="m-0 text-[13px] text-destructive">{String(traces.error)}</p>}
+        {open && !traces.data && !traces.isError && (
+          <p className="m-0 text-[13px] text-muted-foreground">Reading the logs…</p>
+        )}
+        {traces.data?.map((t) => (
+          <div key={t.repeat} className="flex flex-col gap-1.5 text-[13px]">
+            <div className="font-medium">r{t.repeat}</div>
+            {!t.has_log && <div className="text-muted-foreground">No agent log kept for this repeat.</div>}
+            <Row label="Skills read">{t.skills.join(", ") || "none"}</Row>
+            {t.tools.length > 0 && (
+              <Row label="Tools">{t.tools.map(([name, n]) => (n > 1 ? `${name} ×${n}` : name)).join(", ")}</Row>
+            )}
+            {t.looked_at.length > 0 && <Row label="Looked at">{t.looked_at.join(", ")}</Row>}
+            {t.failed.map((f, i) => (
+              <Row key={i} label="Refused">
+                <span className="text-destructive">{f}</span>
+              </Row>
+            ))}
+            {t.said.map((words, i) => (
+              <blockquote
+                key={i}
+                className="m-0 border-l-2 border-border pl-3 whitespace-pre-wrap text-muted-foreground"
+              >
+                {words}
+              </blockquote>
+            ))}
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex gap-2">
+      <span className="w-24 shrink-0 text-muted-foreground">{label}</span>
+      <span className="min-w-0 break-words">{children}</span>
+    </div>
+  );
+}
+
+function CaseView({ run, id }: { run: string; id: string }) {
+  const detail = useQuery({ queryKey: ["evals-case", run, id], queryFn: () => get<CaseDetail>(casePath(run, id)) });
+  if (detail.isError) return <p className="p-4 text-[13px] text-destructive">{String(detail.error)}</p>;
+  if (!detail.data) return <p className="p-4 text-[13px] text-muted-foreground">Drawing the case…</p>;
+  const d = detail.data;
+  // The figures are redrawn with the key as it is after each choice.
+  const version = d.settled.length;
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      <header className="flex flex-col gap-1">
+        <h2 className="m-0 text-[16px] font-semibold">{d.task_text}</h2>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px] text-muted-foreground">
+          <span>{d.id}</span>
+          {d.key_text && <span>Key: {d.key_text}</span>}
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+          {d.repeats.map((r) => (
+            <span key={r.repeat}>
+              r{r.repeat} <Results results={r.now} /> <span className="text-muted-foreground">{r.did}</span>
+            </span>
+          ))}
+        </div>
+        {d.live.map((row) => (
+          <div key={row.part ?? ""} className="text-[13px] text-muted-foreground">
+            {row.part ? `Part ${row.part}: ` : ""}The real run scored <Results results={[row.live]} />; {row.same} of{" "}
+            {row.eval.length} repeats did the same.
+          </div>
+        ))}
+      </header>
+      <Settle key={d.id} run={run} detail={d} />
+      <Fold title="Whole case: the key and every repeat" open={!d.items.length}>
+        {d.figures.map((caption, n) => (
+          <figure key={`${n}-${version}`} className="m-0 flex flex-col gap-1">
+            <img
+              src={`${casePath(run, id)}/figures/${n}.png?v=${version}`}
+              alt={caption}
+              className="max-w-full rounded border border-border bg-white"
+            />
+            {d.figures.length > 1 && <figcaption className="text-[12px] text-muted-foreground">{caption}</figcaption>}
+          </figure>
+        ))}
+      </Fold>
+      <Fold title="What the agent was asked">
+        <p className="m-0 text-[13px]">{d.brief}</p>
+      </Fold>
+      <Traces run={run} id={d.id} />
+      <Fold title="Each repeat's reasons">
+        {d.repeats.map((r) => (
+          <div key={r.repeat} className="text-[13px]">
+            <div className="font-medium">
+              r{r.repeat} · ${r.cost_usd.toFixed(2)} · {Math.round(r.seconds)} s · when run <Results results={r.then} />
+            </div>
+            <ul className="m-0 pl-5 text-muted-foreground">
+              {r.reason.split(" / ").map((line, i) => (
+                <li key={i}>{line.replace(/^\d+\. /, "")}</li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </Fold>
+    </div>
+  );
+}
+
+export function EvalsPage() {
+  const runs = useQuery({
+    queryKey: ["evals-runs"],
+    queryFn: () => get<RunListed[]>("/evals/runs"),
+  });
+  const [run, setRun] = useState<string | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [against, setAgainst] = useState<string | null>(null);
+  useEffect(() => {
+    if (!run && runs.data?.length) setRun(runs.data[0].name);
+  }, [run, runs.data]);
+  return (
+    <div className="flex h-full flex-col bg-background text-foreground">
+      <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
+        <h1 className="m-0 text-[15px] font-semibold">Eval results</h1>
+        {runs.data && runs.data.length > 0 && (
+          <select
+            aria-label="Run"
+            value={run ?? ""}
+            onChange={(e) => {
+              setRun(e.target.value);
+              setPicked(null);
+              if (e.target.value === against) setAgainst(null);
+            }}
+            className="rounded border border-input bg-accent px-2 py-1 text-[13px] text-foreground"
+          >
+            {runs.data.map((r) => (
+              <option key={r.name} value={r.name}>
+                {r.name} · {r.cases} cases · {r.results} runs
+              </option>
+            ))}
+          </select>
+        )}
+        {runs.data && runs.data.length > 1 && (
+          <label className="flex items-center gap-2 text-[13px] text-muted-foreground">
+            Compare with
+            <select
+              aria-label="Compare with"
+              value={against ?? ""}
+              onChange={(e) => setAgainst(e.target.value || null)}
+              className="rounded border border-input bg-accent px-2 py-1 text-[13px] text-foreground"
+            >
+              <option value="">nothing</option>
+              {runs.data
+                .filter((r) => r.name !== run)
+                .map((r) => (
+                  <option key={r.name} value={r.name}>
+                    {r.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
+      </header>
+      {runs.isError && (
+        <p className="p-4 text-[13px] text-destructive">
+          No eval server here. Start it with: python -m fibsem.ai.evals serve RUNS --cases CASES
+        </p>
+      )}
+      {runs.data?.length === 0 && <p className="p-4 text-[13px] text-muted-foreground">No runs in this folder yet.</p>}
+      {run && (
+        <div className="flex min-h-0 flex-1 flex-wrap items-stretch overflow-auto">
+          <aside className="flex max-w-[300px] min-w-[240px] flex-[1_1_260px] flex-col gap-2 border-r border-border p-4">
+            <CaseList run={run} against={against} picked={picked} pick={setPicked} />
+          </aside>
+          <div className="min-w-0 flex-[999_1_640px]">
+            {picked ? (
+              <CaseView key={`${run}/${picked}`} run={run} id={picked} />
+            ) : (
+              <p className="p-4 text-[13px] text-muted-foreground">Pick a case.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
