@@ -314,7 +314,10 @@ def measure_square(scene, grid, index: Tuple[int, int], step: float = 1e-6) -> D
     if getattr(scene, "film", "continuous") == "holey":
         broken = scene.broken_hole_mask(xs, ys)
     out: Dict[str, Any] = {
-        "rip_fraction": float(((rips | broken) & film).sum()) / area,
+        "rip_fraction": float((rips & film).sum()) / area,
+        # a few broken holes in a holey film: measured, not counted, as an
+        # overview doesn't show them
+        "broken_hole_fraction": float((broken & film).sum()) / area,
         "crack_length": _crack_length(scene, grid, centre, half),
         "beyond": bool(beyond.any()),
     }
