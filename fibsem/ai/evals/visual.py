@@ -44,7 +44,6 @@ RESULT_COLOURS = {
     "miss": "#d62728",
     "early": "#ff7f0e",
     "late": "#ff7f0e",
-    "unsafe": "#9400d3",
     "invalid": "#7f7f7f",
 }
 
@@ -623,7 +622,7 @@ def _table_html(rows: List[Dict[str, Any]]) -> str:
         "Headline",
         "Runs",
         "Hits",
-        "Unsafe",
+        "Costly",
         "Invalid",
         "Cases right every repeat",
         "Mean cost",
@@ -637,7 +636,7 @@ def _table_html(rows: List[Dict[str, Any]]) -> str:
             "yes" if row["headline"] else "no",
             row["runs"],
             row["hit"],
-            row["unsafe"],
+            row["costly"],
             row["invalid"],
             f"{row['all_repeats_right']} of {row['cases']}",
             f"${row['mean_cost_usd']:.2f}",

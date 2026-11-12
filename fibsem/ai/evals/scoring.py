@@ -1,8 +1,9 @@
 """Scoring an agent's answer against a case's key, in code.
 
-One scorer per task. Each returns a Score: a result (hit, miss, early, late,
-unsafe or invalid) and the numbers behind it. Unsafe answers are flagged on
-their own so they never hide inside a hit rate.
+One scorer per task. Each returns a Score: a result (hit, miss, early, late
+or invalid) and the numbers behind it. A mistake that would cost a lamella or
+a site (a bad site picked, a target milled away) is a miss like any other;
+``details["costly"]`` counts them so a report can call them out.
 
 Answer shapes (``answer.json``):
 
@@ -31,13 +32,14 @@ from fibsem.ai.evals.cases import (
     SITES,
     SQUARE_REASONS,
     Case,
+    bad_mask,
     pass_names,
     pixel_size_um,
     square_call,
     stop_passes,
 )
 
-RESULTS = ("hit", "miss", "early", "late", "unsafe", "invalid")
+RESULTS = ("hit", "miss", "early", "late", "invalid")
 
 # What the agent is shown as the answer's shape, per task.
 ANSWER_SHAPES: Dict[str, Any] = {
@@ -104,8 +106,8 @@ class Score:
     details: Dict[str, Any] = field(default_factory=dict)
 
     @property
-    def unsafe(self) -> bool:
-        return self.result == "unsafe"
+    def costly(self) -> int:
+        return int(self.details.get("costly") or 0)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -161,11 +163,11 @@ def score_site_selection(
                 best = (i, d)
         return best
 
-    found, unsafe, unkeyed, per_pick = set(), [], 0, []
+    found, bad_picks, unkeyed, per_pick = set(), [], 0, []
     for n, pick in enumerate(picks):
         x, y = _point(pick)
         if (hit := nearest(x, y, bad)) is not None:
-            unsafe.append(n)
+            bad_picks.append(n)
             per_pick.append({"pick": n, "bad": bad[hit[0]].get("square", hit[0])})
         elif (hit := nearest(x, y, good)) is not None:
             found.add(hit[0])
@@ -173,16 +175,22 @@ def score_site_selection(
         else:
             unkeyed += 1
             per_pick.append({"pick": n})
+    # The share of picks that are distinct good sites: a square picked twice
+    # is one site, and an unkeyed pick counts against.
+    fraction = len(found) / len(picks) if picks else 0.0
+    wanted = float(case.scoring.get("min_good_fraction", 0.5))
     details = {
+        "good_fraction": round(fraction, 3),
+        "min_good_fraction": wanted,
         "picks": len(picks),
         "good_found": len(found),
         "good_total": len(good),
-        "unsafe_picks": len(unsafe),
+        "bad_picks": len(bad_picks),
         "unkeyed_picks": unkeyed,
+        "costly": len(bad_picks),
         "per_pick": per_pick,
     }
-    result = "unsafe" if unsafe else "hit" if found else "miss"
-    return result, details
+    return ("hit" if found and fraction >= wanted else "miss"), details
 
 
 def score_fm_target(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> tuple:
@@ -191,7 +199,8 @@ def score_fm_target(case: Case, answer: Dict[str, Any], key: Dict[str, Any]) -> 
     details: Dict[str, Any] = {"usable": usable, "usable_key": usable_key}
     if usable_key is False:
         # Calling a target where there is none sends the milling to nothing.
-        return ("unsafe" if usable else "hit"), details
+        details["costly"] = int(bool(usable))
+        return ("miss" if usable else "hit"), details
     if usable is not True:
         return "miss", details
     x, y = _point(answer)
@@ -267,8 +276,8 @@ def score_polishing_stop(
         details["passes_early"] = first - stop
         return "early", details
     # Carrying on past the stop: thickness lost, or the target milled away.
-    late = case.scoring.get("late", "unsafe")
-    return ("late" if late == "late" else "unsafe"), details
+    details["costly"] = 1
+    return "late", details
 
 
 def score_target_present(
@@ -293,9 +302,8 @@ def score_target_present(
         "wrong": wrong,
         "unanswered": unanswered,
         "missed_loss": missed_loss,
+        "costly": len(missed_loss),
     }
-    if missed_loss:
-        return "unsafe", details
     return ("hit" if not wrong and not unanswered else "miss"), details
 
 
@@ -417,8 +425,13 @@ def score_square_quality(
             )
         said[str(name)] = call
     # Calling these good sends a lamella to a square that can't hold one.
-    never_good = set(case.scoring.get("unsafe_if_called_good", ["damaged", "thick"]))
-    right, wrong, unanswered, unsafe = 0, {}, [], []
+    never_good = set(
+        case.scoring.get(
+            "costly_if_called_good",
+            case.scoring.get("unsafe_if_called_good", ["damaged", "thick"]),
+        )
+    )
+    right, wrong, unanswered, bad_called_good = 0, {}, [], []
     found = expected_reasons = given_reasons = 0
     for name, entry in key["labels"].items():
         name, want = str(name), square_call(entry)
@@ -437,7 +450,7 @@ def score_square_quality(
                 "key_reasons": want["reasons"],
             }
             if site == "good" and set(want["reasons"]) & never_good:
-                unsafe.append(name)
+                bad_called_good.append(name)
         found += len(set(got["reasons"]) & set(want["reasons"]))
         expected_reasons += len(set(want["reasons"]))
         given_reasons += len(set(got["reasons"]))
@@ -449,14 +462,13 @@ def score_square_quality(
         "accuracy": round(accuracy, 3),
         "wrong": wrong,
         "unanswered": unanswered,
-        "unsafe": unsafe,
+        "bad_called_good": bad_called_good,
+        "costly": len(bad_called_good),
         "reasons_recall": round(found / expected_reasons, 3)
         if expected_reasons
         else None,
         "reasons_precision": round(found / given_reasons, 3) if given_reasons else None,
     }
-    if unsafe:
-        return "unsafe", details
     hit = accuracy >= float(case.scoring.get("min_accuracy", 0.8))
     return ("hit" if hit else "miss"), details
 
@@ -470,10 +482,11 @@ def score_setup_placement(
     case: Case, answer: Dict[str, Any], key: Dict[str, Any]
 ) -> tuple:
     """Hit when the lamella's centre is where the whole lamella sits on the
-    target with both trenches clear (``ok_mask``); unsafe where a trench cuts
-    a bar or the lamella misses every cell (``unsafe_mask``); else a miss."""
+    target with both trenches clear (``ok_mask``); else a miss, counted as
+    costly where a trench cuts a bar or the lamella misses every cell
+    (``bad_mask``)."""
     x, y = _point(answer)
-    ok, unsafe = _mask(case, key["ok_mask"]), _mask(case, key["unsafe_mask"])
+    ok, bad = _mask(case, key["ok_mask"]), _mask(case, bad_mask(key))
     size = float(pixel_size_um(case))
     target = key["target_px"]
     details: Dict[str, Any] = {
@@ -490,7 +503,8 @@ def score_setup_placement(
         details["to_ok_um"] = round(float(nearest) * size, 3)
     if ok[row, col]:
         return "hit", details
-    return ("unsafe" if unsafe[row, col] else "miss"), details
+    details["costly"] = int(bool(bad[row, col]))
+    return "miss", details
 
 
 SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
