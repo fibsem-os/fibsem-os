@@ -76,10 +76,11 @@ def test_the_renderer_comes_from_the_config():
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
 def test_the_grid_lands_where_the_flat_renderer_puts_it(microscope, beam_type):
     """Positions come from the same projection: the bars (at the film's height)
-    are on the same pixels whichever renderer draws them."""
+    are on the same pixels whichever renderer draws them. The flat renderer
+    has no heights, so the bars are kept level with the squares here."""
     _use(microscope, **PLAIN)
     flat = _image(microscope, beam_type, hfw=400e-6)
-    _use(microscope, renderer="relief", **PLAIN)
+    _use(microscope, renderer="relief", bar_height=0.0, **PLAIN)
     relief = _image(microscope, beam_type, hfw=400e-6)
     assert np.abs(_shift(flat, relief)).max() <= 1
 
@@ -420,7 +421,7 @@ def test_each_channel_can_carry_a_label(setting, channel):
 
 
 def test_reflection_shows_bars_bright_ice_grey_and_cells_dark():
-    """In reflected light the bars are brightest, the ice a mid grey in
+    """In reflected light the bar tops are brightest, the ice a mid grey in
     fringes, a cell darker than the ice round it, and a cut-through trench
     nothing."""
     from fibsem.drivers.demo import sim_relief
@@ -438,7 +439,9 @@ def test_reflection_shows_bars_bright_ice_grey_and_cells_dark():
     x, y = np.meshgrid(xs, ys)
     r = sim_relief.reflectance(scene, x, y, (0.5, 0.5))
     _, mat, *_ = sim_relief.surface(scene, x, y, (0.5, 0.5))
-    assert np.median(r[mat == sim_relief.METAL]) > 0.95
+    # the bar tops; their rounded edges tilt the light away
+    top = scene.bar_ridge(x / 1e6, y / 1e6) > 0.9 * scene.bar_height
+    assert np.median(r[(mat == sim_relief.METAL) & top]) > 0.9
     ice = r[mat == sim_relief.ICE]
     cell = r[mat == sim_relief.CELL]
     assert 0.2 < np.median(ice) < 0.8 and ice.std() > 0.02
@@ -480,3 +483,27 @@ def test_a_burn_aimed_on_a_cell_lands_where_the_beam_meets_it():
     h = float(sim_relief.surface(scene, gx, gy, (0.25, 0.25))[0][24, 24])
     assert h > 0.5  # on the cell, not the film
     assert abs(fs * shift * um + k * h) < 0.1
+
+
+def test_the_bars_stand_above_the_squares():
+    """A bar is a ridge and a square a shallow well: the surface over a bar
+    stands about bar_height above the middle of the square beside it, and
+    with bar_height 0 the two are level."""
+    from fibsem.drivers.demo import sim_relief
+
+    def rise(**kwargs):
+        scene = SampleScene(
+            renderer="relief", grid_rotation=0.0, centre_mark=False, **PLAIN, **kwargs
+        )
+        grid = scene.grids[0]
+        pitch = scene.grid_pitch * 1e6
+        # the grid's centre is a square's centre; the next bar is half a pitch over
+        ys = grid.y * 1e6 + np.arange(-2, 2, 0.5)
+        xs = grid.x * 1e6 + np.array([0.0, pitch / 2])
+        x, y = np.meshgrid(xs, ys)
+        h = sim_relief.surface(scene, x, y, (0.5, 0.5))[0]
+        return float(np.mean(h[:, 1] - h[:, 0])), scene.bar_height * 1e6
+
+    rise_um, height_um = rise()
+    assert rise_um == pytest.approx(height_um, abs=1.5)
+    assert abs(rise(bar_height=0.0)[0]) < 1.5

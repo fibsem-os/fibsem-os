@@ -31,7 +31,6 @@ VOID = -60.0  # um; the height of nothing (through the grid, or milled away)
 FLOOR_SMOOTH = 3.0  # um; a milled floor is flat over this scale
 FILM_THICKNESS = 0.25  # um; what is under the bare ice before nothing
 BAR_THICKNESS = 18.0  # um
-BAR_TOP = 0.0  # um; the film lies on top of the bars, flush with the squares
 CRACK_DEPTH = 0.6  # um; a hairline crack's groove at its line
 ICE_BLANKET = 3.0  # um; cells sit in the ice, the surface over them this smooth
 
@@ -298,9 +297,10 @@ def _unmilled(scene, x, y, step):
     shape = x.shape
     mat = np.zeros(shape, dtype=np.uint8)
     sx, sy = step
-    # the film lies over the bars: their tops stand a little proud, rounded
+    # the bars stand above the squares as rounded ridges, the ice climbing
+    # to them in a meniscus, so each square is a shallow well
     metal = (bars | rim).astype(np.float32)
-    h = BAR_TOP * _gauss(metal, (2.0 / sy, 2.0 / sx))
+    h = (scene.bar_ridge(x / UM, y / UM) * UM).astype(np.float32)
     mat[bars | rim] = METAL
     # the ring pressed into the grid's orientation mark
     h -= scene.centre_mark_groove(x / UM, y / UM) * UM * bars

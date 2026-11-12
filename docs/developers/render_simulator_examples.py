@@ -58,6 +58,8 @@ DESCRIPTIONS = {
     "extent": "content is grown over +/- extent/2 about the grid centre (m)",
     "grid_pitch": "mesh pitch (m); 125 um is a 200 mesh",
     "grid_bar_width": "bar width (m)",
+    "bar_height": "relief: how far the bars stand above the middle of a square (m); 0 is flat",
+    "bar_meniscus": "relief: how wide the ice climbing each bar is (m)",
     "grid_intensity": "how bright the bars read in the SEM (0-255 scale)",
     "film": "`continuous` (default) or `holey` (a Quantifoil-style lattice)",
     "hole_diameter": "holey film: hole diameter (m)",
@@ -106,6 +108,8 @@ GROUPS = (
         (
             "grid_pitch",
             "grid_bar_width",
+            "bar_height",
+            "bar_meniscus",
             "grid_intensity",
             "grid_radius",
             "grid_rim_width",

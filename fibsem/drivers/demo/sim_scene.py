@@ -662,6 +662,10 @@ class SampleScene:
     extent: Optional[float] = None
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
+    # the bars stand this much above the middle of a square (m), the ice
+    # climbing to them over about bar_meniscus (m), so a square is a well
+    bar_height: float = 10e-6
+    bar_meniscus: float = 15e-6
     grid_intensity: float = 90.0
     # the support film in each square: "continuous", or "holey" - a
     # Quantifoil-style lattice of round holes (diameter, centre-to-centre
@@ -1761,6 +1765,39 @@ class SampleScene:
                 depth, CENTRE_MARK_GROOVE * np.sqrt(np.clip(1 - t * t, 0, None))
             )
         return depth
+
+    def bar_ridge(self, xs_world: np.ndarray, ys_world: np.ndarray) -> np.ndarray:
+        """How high (m) the bars and the rim stand above the squares, at
+        world points: rounded ridges, the ice climbing each bar edge in a
+        meniscus, so a square is a shallow well."""
+        shape = np.broadcast(xs_world, ys_world).shape
+        ridge = np.zeros(shape, dtype=np.float32)
+        if self.bar_height <= 0:
+            return ridge
+        half_pitch = self.grid_pitch / 2
+        inner = half_pitch - self.grid_bar_width / 2
+        width = max(self.bar_meniscus, 1e-9)
+
+        def low(d):  # 0 on the metal, 1 well into the square; the ice
+            # climbs the bar, so its top stays nearly flat
+            return 0.5 * (1 + np.tanh(d / width - 0.4))
+
+        for grid in self.grids:
+            reach = grid.radius + self.grid_rim_width
+            xs, ys = xs_world - grid.x, ys_world - grid.y
+            if np.min(np.abs(xs)) > reach or np.min(np.abs(ys)) > reach:
+                continue
+            cos_r, sin_r = np.cos(grid.rotation), np.sin(grid.rotation)
+            x_rot = xs * cos_r + ys * sin_r
+            y_rot = -xs * sin_r + ys * cos_r
+            lx = np.abs(((x_rot + half_pitch) % self.grid_pitch) - half_pitch)
+            ly = np.abs(((y_rot + half_pitch) % self.grid_pitch) - half_pitch)
+            # a product, not the nearest edge: no creases along the diagonals
+            well = (
+                low(inner - lx) * low(inner - ly) * low(grid.radius - np.hypot(xs, ys))
+            )
+            ridge = np.maximum(ridge, self.bar_height * (1 - well))
+        return ridge
 
     def _grid_masks(self, grid: SceneGrid, xs: np.ndarray, ys: np.ndarray):
         """One grid's (bars, holes, rips, inside, rim) from coordinates
