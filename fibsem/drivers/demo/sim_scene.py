@@ -2154,6 +2154,12 @@ class SampleScene:
                     cell_id=next_id,
                     opacity=1.0,
                     height=float(rng.uniform(3.0e-6, 5.5e-6)),
+                    # no cell is a circle: each is stretched its own way,
+                    # with an uneven outline
+                    eccentricity=float(rng.uniform(0.62, 1.0)),
+                    angle=float(rng.uniform(0, np.pi)),
+                    wobble=float(rng.uniform(0.06, 0.22)),
+                    wobble_phase=float(rng.uniform(0, 2 * np.pi)),
                 )
             )
             self.features.append(
