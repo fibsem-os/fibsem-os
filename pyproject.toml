@@ -289,6 +289,7 @@ ignore = [
 "PyQt5".msg = "Import Qt from qtpy."
 "PyQt6".msg = "Import Qt from qtpy."
 "PySide6".msg = "Import Qt from qtpy."
+"superqt.ensure_main_thread".msg = "Use fibsem.ui.qt.main_thread.ensure_main_thread: superqt's crashes PySide6 when called off the GUI thread."
 
 [tool.ruff.lint.per-file-ignores]
 # The AutoScript SDK names this driver imports in its availability check are its

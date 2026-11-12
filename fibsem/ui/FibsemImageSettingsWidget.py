@@ -3,7 +3,6 @@ from typing import Any, Callable, List, Optional
 
 from qtpy import QtCore, QtWidgets
 from qtpy.QtCore import QEvent, Signal
-from superqt import ensure_main_thread
 
 from fibsem import acquire, utils
 from fibsem.constants import TIME_FILE
@@ -23,6 +22,7 @@ from fibsem.ui import stylesheets as stylesheets
 from fibsem.ui.control import control_of
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.item_selection import ItemSelection
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel, _SpinnerLabel
 from fibsem.ui.widgets.dual_beam_widget import FibsemDualBeamWidget

@@ -22,7 +22,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.common.lamella_display import (
@@ -45,6 +44,7 @@ from fibsem.theme.tokens import (
 from fibsem.ui import stylesheets
 from fibsem.ui.icon import ICON_MOVE_TO_POSITION, ICON_UPDATE_POSITION, fibsem_icon
 from fibsem.ui.qt.connections import connect_for_lifetime
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.utils import arr_to_qimage
 from fibsem.ui.widgets.custom_widgets import ElidedLabel, IconToolButton
 from fibsem.ui.widgets.lists import (

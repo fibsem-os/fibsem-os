@@ -52,7 +52,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem import conversions
 from fibsem.applications.autolamella.ui.coincidence.confirmation import (
@@ -113,6 +112,7 @@ from fibsem.ui.fm.widgets import (
 )
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.coalesce import Coalescer
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas

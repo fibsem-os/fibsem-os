@@ -23,7 +23,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures.settings import FibsemStagePosition
@@ -37,6 +36,7 @@ from fibsem.ui.FibsemSpotBurnWidget import FibsemSpotBurnWidget
 from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.item_selection import ItemSelection
 from fibsem.ui.qt.connections import connect_on_gui_thread
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.widgets.custom_widgets import scrollable
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget

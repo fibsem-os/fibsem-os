@@ -17,7 +17,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem import conversions
 from fibsem.fm.config import record_recent_channels, save_fm_configuration
@@ -43,6 +42,7 @@ from fibsem.ui.fm.widgets import (
 from fibsem.ui.fm.widgets.acquisition_settings import FMAcquisitionSettingsWidget
 from fibsem.ui.item_selection import ItemSelection
 from fibsem.ui.qt.coalesce import Coalescer
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,

@@ -26,11 +26,11 @@ from typing import Dict, Optional, Tuple
 
 from qtpy.QtCore import Signal
 from qtpy.QtWidgets import QDoubleSpinBox, QGridLayout, QLabel, QWidget
-from superqt import ensure_main_thread
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
 from fibsem.structures.settings import FibsemStagePosition
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.utils import install_wheel_blocker
 from fibsem.ui.widgets.custom_widgets import IconToolButton
 from fibsem.ui.widgets.form_builder import configure_spinbox

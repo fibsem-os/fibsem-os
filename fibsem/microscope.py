@@ -115,7 +115,7 @@ class FibsemMicroscope(Instrument):
     # THREADING CONTRACT: these are psygnal Signals — subscribers run synchronously
     # on whatever thread emits (workflow/movement/acquisition workers, not the GUI
     # thread). Any handler that touches Qt or a canvas MUST marshal, e.g. with
-    # @superqt.ensure_main_thread; a bare .connect() of a GUI handler is a
+    # @ensure_main_thread (fibsem.ui.qt.main_thread); a bare .connect() of a GUI handler is a
     # crash-on-hardware bug that won't reproduce on a dev machine.
     #
     # Milling and spot burn progress is on their services: ``milling.progress`` and

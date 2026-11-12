@@ -13,7 +13,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem.imaging.spot import (
     SpotBurnProgress,
@@ -27,6 +26,7 @@ from fibsem.services.spot_burn import in_frame
 from fibsem.structures.settings import BeamType
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.control import control_of
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import beam_choices
 from fibsem.ui.widgets.custom_widgets import ValueComboBox, ValueSpinBox

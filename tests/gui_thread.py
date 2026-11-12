@@ -4,7 +4,8 @@ tests of an experiment with no window, whose edits must still land there."""
 from concurrent.futures import Future
 
 from qtpy.QtCore import QCoreApplication, QThread
-from superqt import ensure_main_thread
+
+from fibsem.ui.qt.main_thread import ensure_main_thread
 
 
 def on_the_gui_thread(call) -> Future:
