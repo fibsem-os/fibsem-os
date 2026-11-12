@@ -30,6 +30,7 @@ SampleScene for the fields and `SampleScene.from_config`.
 from __future__ import annotations
 
 import logging
+import math
 import zlib
 from collections import OrderedDict
 from copy import deepcopy
@@ -636,7 +637,7 @@ class SampleScene:
     # "none" for bare film
     cell_type: str = "mammalian"
     # yeast: clusters over the extent
-    n_clusters: int = 120  # yeast clumps scattered over the extent
+    n_clusters: int = 120  # yeast clumps per 800 x 800 um
     cells_per_cluster: Tuple[int, int] = (8, 40)  # inclusive range
     cell_size: Tuple[float, float] = (1.8e-6, 2.8e-6)  # m, radius range per cell
     cluster_spread: float = 20e-6  # m, how far a clump reaches from its centre
@@ -656,7 +657,9 @@ class SampleScene:
     neuron_density: float = 1.2
     soma_radius: Tuple[float, float] = (5e-6, 9e-6)  # m
     neurite_length: Tuple[float, float] = (60e-6, 220e-6)  # m
-    extent: float = 800e-6  # m, features are scattered over +/- extent/2
+    # m, features are scattered over +/- extent/2 (on the grid's disc); None
+    # fills the whole grid
+    extent: Optional[float] = None
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
     grid_intensity: float = 90.0
@@ -825,7 +828,7 @@ class SampleScene:
             rotation=float(self.grid_rotation or 0.0),
             radius=self.grid_radius,
             seed=self.seed,
-            extent=self.extent,
+            extent=self.extent or 2 * self.grid_radius,
         )
 
     def _populate(self, rng: Optional[np.random.Generator] = None) -> None:
@@ -900,6 +903,25 @@ class SampleScene:
         self._generate_frost(extra, grid, half)
         self._generate_spheres(extra, grid, half)
         self._generate_cracks(extra, grid, half)
+        # grown over a square; only what lies on the grid's disc is kept, a
+        # cell whole or not at all (by where its body is)
+        mine = self.features[start:]
+        off = {
+            f.cell_id
+            for f in mine
+            if f.kind == "cell"
+            and f.part == "body"
+            and np.hypot(f.x, f.y) > grid.radius
+        }
+        self.features[start:] = [
+            f
+            for f in mine
+            if (f.kind == "cell" and f.cell_id >= 0 and f.cell_id not in off)
+            or (
+                (f.kind != "cell" or f.cell_id < 0)
+                and np.hypot(f.x, f.y) <= grid.radius
+            )
+        ]
         # grown about the origin; carried to where the grid sits
         for f in self.features[start:]:
             f.x += grid.x
@@ -1551,12 +1573,21 @@ class SampleScene:
                 beam_type, stage_position, projection, cx, -cy, beam_shift, beam_current
             )
 
+        frame = None
+        if self.renderer == "relief":
+            frame = self.view_frame(
+                beam_type, stage_position, projection, beam_shift, beam_current
+            )
         t = np.linspace(0, 2 * np.pi, 16, endpoint=False)
         r = diameter / 2
         regions: List[MilledRegion] = []
         for x, y in points:
             corners = [(x + r * np.cos(a), y + r * np.sin(a)) for a in t]
             pts = np.array([world(cx, cy) for cx, cy in corners])
+            if frame is not None and abs(frame.k) > 1e-6:
+                # the beam meets the surface, not the film plane: on a cell
+                # standing h up, it lands back along the beam by h k / fs
+                pts = pts + (0.0, self._along_beam_to_surface(pts.mean(axis=0), frame))
             regions.append(MilledRegion(points=pts, depth=diameter, halo=halo))
         self.milled.extend(regions)
         logging.debug(
@@ -1567,6 +1598,32 @@ class SampleScene:
             }
         )
         return regions
+
+    def _along_beam_to_surface(self, point, frame) -> float:
+        """How far (m, world y) the point a beam aims at on the film plane
+        moves to where the beam ray meets the relief surface: a point at
+        height h shows where the plane point k h / (turn fs) further on
+        does, so the hit is where turn fs (y - y0) + k h(y) = 0, the highest
+        such point when the ray crosses the surface more than once."""
+        um = sim_relief.UM
+        x0, y0 = float(point[0]) * um, float(point[1]) * um
+        reach = min(abs(frame.k / frame.fs) * 10.0 + 2.0, 60.0)  # um, for 10 um tall
+        dy = 0.1
+        ts = np.arange(-reach, reach + dy, dy)
+        xs = x0 + np.arange(-24, 25) * 0.25
+        gx, gy = np.meshgrid(xs, y0 + ts)
+        h = sim_relief.surface(self, gx, gy, (0.25, dy))[0][:, 24].astype(float)
+        f = frame.turn * frame.fs * ts + frame.k * h
+        solid = h > sim_relief.VOID / 2
+        cross = np.nonzero(
+            solid[:-1] & solid[1:] & (np.sign(f[:-1]) != np.sign(f[1:]))
+        )[0]
+        if not len(cross):
+            return 0.0
+        best = cross[np.argmax(h[cross])]
+        # the crossing between the two samples
+        t = ts[best] + dy * f[best] / (f[best] - f[best + 1])
+        return float(t) / um
 
     @staticmethod
     def _polygon_mask(pts: np.ndarray, xs_world: np.ndarray, ys_world: np.ndarray):
@@ -1850,7 +1907,9 @@ class SampleScene:
     def _generate_yeast(self, rng, half, fraction, next_id) -> int:
         """Clumps of small round cells packed against each other: each new
         cell touches one already placed, some with a budding daughter."""
-        for _ in range(int(round(self.n_clusters * fraction))):
+        # n_clusters is per 800 x 800 um, so a bigger extent is as dense
+        per = (2 * half / 800e-6) ** 2
+        for _ in range(int(round(self.n_clusters * fraction * per))):
             cx, cy = (float(v) for v in rng.uniform(-half, half, size=2))
             lo, hi = self.cells_per_cluster
             want = int(rng.integers(lo, hi + 1))
@@ -1921,20 +1980,45 @@ class SampleScene:
     def _generate_mammalian(self, rng, half, n, next_id) -> int:
         # adherent cells tile the film rather than cluster: keep them apart
         min_distance = 1.6 * self.mammalian_radius[1]
-        # one distance check per try, over every cell placed so far
-        px = np.empty(n, dtype=np.float64)
-        py = np.empty(n, dtype=np.float64)
-        count = 0
-        for _ in range(60 * max(n, 1)):
-            if count >= n:
+        # one distance check per try, against the cells placed in the
+        # neighbouring buckets (a bucket is min_distance across). The tries
+        # are drawn in one go and the generator then advanced by exactly the
+        # draws used, so the layout is what one draw per try gives
+        tries = 60 * max(n, 1)
+        state = rng.bit_generator.state
+        drawn = rng.uniform(-half, half, size=(tries, 2)).tolist()
+        rng.bit_generator.state = state
+        placed_x: List[float] = []
+        placed_y: List[float] = []
+        buckets: Dict[Tuple[int, int], List[int]] = {}
+        limit2 = min_distance * min_distance
+        used = 0
+        for x, y in drawn:
+            if len(placed_x) >= n:
                 break
-            x, y = rng.uniform(-half, half, size=2)
-            if (
-                count == 0
-                or (np.hypot(x - px[:count], y - py[:count]) > min_distance).all()
-            ):
-                px[count], py[count] = x, y
-                count += 1
+            used += 1
+            bx, by = math.floor(x / min_distance), math.floor(y / min_distance)
+            clear = True
+            for key in (
+                (bx - 1, by - 1), (bx - 1, by), (bx - 1, by + 1),
+                (bx, by - 1), (bx, by), (bx, by + 1),
+                (bx + 1, by - 1), (bx + 1, by), (bx + 1, by + 1),
+            ):  # fmt: skip
+                for k in buckets.get(key, ()):
+                    ddx, ddy = x - placed_x[k], y - placed_y[k]
+                    if ddx * ddx + ddy * ddy <= limit2:
+                        clear = False
+                        break
+                if not clear:
+                    break
+            if clear:
+                buckets.setdefault((bx, by), []).append(len(placed_x))
+                placed_x.append(x)
+                placed_y.append(y)
+        if used:
+            rng.uniform(-half, half, size=(used, 2))
+        count = len(placed_x)
+        px, py = np.array(placed_x), np.array(placed_y)
         for x, y in zip(px[:count].tolist(), py[:count].tolist()):
             radius = float(rng.uniform(*self.mammalian_radius))
             angle = float(rng.uniform(0, np.pi))

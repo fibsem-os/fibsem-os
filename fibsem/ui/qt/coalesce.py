@@ -8,6 +8,7 @@ one onto the GUI thread let a slow redraw build a backlog that froze the window
 
 import logging
 import threading
+import time
 from typing import Any, Callable, List
 
 from PyQt5.QtCore import QObject, QTimer
@@ -22,7 +23,10 @@ class Coalescer(QObject):
     """``put`` from any thread; ``deliver`` runs on the GUI thread at most once per
     interval with the newest value, or with every value since the last delivery when
     ``keep_all`` (a list, for a plot that must not lose points). Create it on the GUI
-    thread."""
+    thread.
+
+    A delivery slower than the interval stretches the wait before the next one to as
+    long as it took, so the window always has at least half its time for clicks."""
 
     def __init__(
         self,
@@ -34,6 +38,7 @@ class Coalescer(QObject):
         super().__init__(parent)
         self._deliver = deliver
         self._keep_all = keep_all
+        self._interval_ms = interval_ms
         self._lock = threading.Lock()
         self._pending: Any = [] if keep_all else _EMPTY
         self._timer = QTimer(self)
@@ -60,10 +65,15 @@ class Coalescer(QObject):
                 value, self._pending = self._pending, _EMPTY
                 if value is _EMPTY:
                     return
+        started = time.monotonic()
         try:
             self._deliver(value)
         except Exception:  # noqa: BLE001 - PyQt aborts the process on a slot's raise
             logging.exception("Could not show a live update")
+        took_ms = int((time.monotonic() - started) * 1000)
+        interval = max(self._interval_ms, took_ms)
+        if self._timer.isActive() and self._timer.interval() != interval:
+            self._timer.start(interval)
 
     def stop(self) -> None:
         self._timer.stop()
