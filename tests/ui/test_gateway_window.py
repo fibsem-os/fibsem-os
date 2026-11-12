@@ -59,8 +59,7 @@ def made(qapp, tmp_path, monkeypatch):
     stopping = threading.Event()
     quits = []
     clock = Clock()
-    monkeypatch.setattr(module, "quit_gateway", lambda g: quits.append(g))
-    monkeypatch.setattr(qapp, "quit", lambda: None)
+    monkeypatch.setattr(qapp, "quit", lambda: quits.append(1))
     # acts run at once, on this thread
     monkeypatch.setattr(
         module.threading,
@@ -186,6 +185,8 @@ def test_the_question_says_what_happens_to_the_app():
     assert "keeps running" in module.stop_question(state(mode=RUNNING, window=True))
     assert "stops too" in module.stop_question(state(mode=RUNNING, window=False))
     assert "page stops" in module.stop_question(state(mode=OFF))
+    running = state(mode=RUNNING, window=False)
+    assert "takes it back" in module.stop_question(running, restart=True)
     assert mode_colour(state(mode=RUNNING, window=True)) == PRIMARY_COLOR
     starting = state(mode=OFF, switch=STARTING, switching=True)
     assert mode_colour(starting) == SEMANTIC_WARNING_COLOR

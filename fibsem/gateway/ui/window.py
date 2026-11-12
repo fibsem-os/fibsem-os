@@ -38,7 +38,6 @@ from fibsem.gateway.gateway import (
     GatewayRefused,
     GatewayState,
 )
-from fibsem.gateway.main import quit_gateway
 from fibsem.server.pairing import CODE_TTL_S, OPERATOR
 from fibsem.theme.tokens import (
     BODY_MUTED_STYLE,
@@ -138,6 +137,8 @@ def stop_question(state: GatewayState, restart: bool = False) -> str:
         if restart:
             return "It starts again in a few seconds."
         return "The gateway's page stops working until the gateway starts again."
+    if restart:
+        return "The app keeps running, and the gateway takes it back as it starts."
     if state.window:
         return "The app keeps running."
     return "The app without a window stops too, unless it is running a workflow."
@@ -513,7 +514,7 @@ class GatewayWindow(QWidget):
         self._closed.set()
         self._timer.stop()
         self.hide()
-        quit_gateway(self._gateway)
+        # The gateway stops the app as it quits, unless it is restarting.
         QApplication.instance().quit()
 
 

@@ -39,7 +39,9 @@ and **Restart** and **Stop** at the bottom restart or stop the gateway. The desk
 the front, starting the gateway first if none runs.
 Its icon's badge shows the app: grey for off, blue with its window, purple without one. Closing the window asks,
 then stops the gateway. Stopping it also stops an app without its window that isn't running a
-workflow; an app with its window keeps running. `--no-window` runs the gateway without it.
+workflow; an app with its window keeps running. A restart leaves the app running, and the
+new gateway takes it back as it starts, so Stop and the app's state work again.
+`--no-window` runs the gateway without it.
 
 The page (`/ui/gateway`) shows:
 
