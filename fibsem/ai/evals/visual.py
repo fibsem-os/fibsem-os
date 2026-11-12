@@ -20,10 +20,10 @@ import numpy as np
 from fibsem.ai.evals import report
 from fibsem.ai.evals.cases import (
     Case,
-    accepted_labels,
     find_cases,
     load_case,
     pass_names,
+    square_call,
     stop_passes,
 )
 from fibsem.ai.evals.runner import ANSWER, RESULT
@@ -247,16 +247,18 @@ def draw_square_quality(case: Case, runs: List[Run]):
         crop = image[max(0, y - half) : y + half, max(0, x - half) : x + half]
         _show(ax, crop)
         name = str(sq["square"])
-        want = accepted_labels(labels.get(name, "?"))
+        want = square_call(labels.get(name, "?"))
         said = []
         for result, answer in runs:
             value = ((answer or {}).get("labels") or {}).get(name)
-            value = value.get("label") if isinstance(value, dict) else value
-            value = str(value or "-").replace(" ", "_")
-            said.append(value)
-        wrong = any(s not in want for s in said)
+            said.append(square_call(value)["sites"][0] if value else "-")
+        wrong = any(s not in want["sites"] for s in said)
+        why = ", ".join(r.replace("_", " ") for r in want["reasons"])
         ax.set_title(
-            f"{name}: {' | '.join(want)}\n" + " ".join(said),
+            f"{name}: {' | '.join(want['sites'])}"
+            + (f" ({why})" if why else "")
+            + "\n"
+            + " ".join(said),
             fontsize=7,
             color="red" if wrong else "black",
         )

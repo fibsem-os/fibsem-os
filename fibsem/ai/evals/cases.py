@@ -29,9 +29,35 @@ SQUARE_LABELS = (
 )
 
 
-def accepted_labels(value: Any) -> List[str]:
-    """A square's key label, or its list of labels that are all right."""
-    return [str(v) for v in value] if isinstance(value, list) else [str(value)]
+# A square_quality square is a good or bad site, with reasons beside it (a
+# good site can have some): the old single label is still read.
+SITES = ("good", "bad")
+SQUARE_REASONS = tuple(label for label in SQUARE_LABELS if label != "good")
+
+
+def _word(value: Any) -> str:
+    return str(value).strip().lower().replace(" ", "_")
+
+
+def square_call(value: Any) -> Dict[str, Any]:
+    """A square's key entry or answer as ``{"sites": [...], "reasons": [...]}``:
+    ``sites`` holds every site call that is right (a key may accept both).
+    ``{"site", "reasons"}`` is read as it is; an old label, or list of
+    labels, maps good to a good site and anything else to a bad site with
+    that label as its reason."""
+    if isinstance(value, dict) and "site" in value:
+        site = value["site"]
+        sites = [_word(s) for s in (site if isinstance(site, list) else [site])]
+        reasons = value.get("reasons") or []
+        reasons = [
+            _word(r) for r in (reasons if isinstance(reasons, list) else [reasons])
+        ]
+        return {"sites": sites, "reasons": reasons}
+    if isinstance(value, dict):
+        value = value.get("label")
+    labels = [_word(v) for v in (value if isinstance(value, list) else [value])]
+    sites = sorted({"good" if label == "good" else "bad" for label in labels})
+    return {"sites": sites, "reasons": [label for label in labels if label != "good"]}
 
 
 @dataclass
@@ -195,9 +221,13 @@ def _key_problems(case: Case) -> List[str]:
         if not labels:
             problems.append("key has no labels")
         for name, label in labels.items():
-            for one in accepted_labels(label):
-                if one not in SQUARE_LABELS:
-                    problems.append(f"square {name}: unknown label {one!r}")
+            call = square_call(label)
+            for site in call["sites"]:
+                if site not in SITES:
+                    problems.append(f"square {name}: site {site!r} is not good or bad")
+            for reason in call["reasons"]:
+                if reason not in SQUARE_REASONS:
+                    problems.append(f"square {name}: unknown reason {reason!r}")
             if str(name) not in shown:
                 problems.append(f"square {name} is keyed but not in squares")
     for name, part in case.parts.items():
