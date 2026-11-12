@@ -43,7 +43,7 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import map_coordinates as ndi_map_coordinates
 from scipy.ndimage import zoom as ndi_zoom
 
-from fibsem.drivers.demo import sim_relief
+from fibsem.drivers.demo import sim_relief, sim_solid
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -695,7 +695,11 @@ class SampleScene:
     centre_mark: bool = True
     # how the beams see the scene: "flat" paints it onto the sample plane;
     # "relief" gives everything a height and looks along the beam (shading,
-    # occlusion, trenches cut along the milling beam) - see sim_relief
+    # occlusion, trenches cut along the milling beam) - see sim_relief;
+    # "solid" builds the sample from objects that can lie under one another
+    # (cells under the ice, particles on it), so a cut face shows what it
+    # was cut from - see sim_solid. It draws the SEM and FIB images; the FM
+    # still comes from the relief
     renderer: str = "flat"
     # how strongly the SEM charges an uncoated grid (cells, ice): bright
     # patches and streaks along the scan, worse with a longer dwell; 0 = never
@@ -1363,7 +1367,7 @@ class SampleScene:
             )
 
         frame = None
-        if self.renderer == "relief":
+        if self.renderer in ("relief", "solid"):
             frame = self.view_frame(
                 beam_type, stage_position, projection, beam_shift, beam_current
             )
@@ -1574,7 +1578,7 @@ class SampleScene:
             )
 
         frame = None
-        if self.renderer == "relief":
+        if self.renderer in ("relief", "solid"):
             frame = self.view_frame(
                 beam_type, stage_position, projection, beam_shift, beam_current
             )
@@ -2300,7 +2304,7 @@ class SampleScene:
         "crack_density",  # hairline cracks per 100 x 100 um
         "grid_radius",  # m
         "grid_rim_width",  # m
-        "renderer",  # flat | relief
+        "renderer",  # flat | relief | solid
         "mill_drift",  # m, sigma of each milling pass's drift
         "mill_overcut",  # m, how far past its edges a pattern may cut
         "mill_kerf",  # a higher current cuts wider
@@ -2423,7 +2427,7 @@ class SampleScene:
         if self.reference_position is None:
             self.anchor(stage_position)
         self.place_grids(projection)
-        if self.renderer == "relief":
+        if self.renderer in ("relief", "solid"):
             frame = self.view_frame(
                 beam_type, stage_position, projection, beam_shift, beam_current
             )
@@ -2432,7 +2436,14 @@ class SampleScene:
             if beam_type is BeamType.ELECTRON:
                 charge = self.charge_strength(dwell_time)
             return sim_relief.render(
-                self, beam, frame, pixel_size, (width, height), rng, charge
+                self,
+                beam,
+                frame,
+                pixel_size,
+                (width, height),
+                rng,
+                charge,
+                sim_solid.canvas if self.renderer == "solid" else None,
             )
 
         # where the world anchor appears in the CURRENT view. Asked this way
@@ -2632,7 +2643,7 @@ class SampleScene:
             / fs
         )
         bar_mask, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
-        if bars >= 1.0 and self.renderer == "relief":
+        if bars >= 1.0 and self.renderer in ("relief", "solid"):
             return self._fm_reflection(xs_world, ys_world, defocus, rng)
         if bars > 0:
             canvas[bar_mask] += bars * self.grid_intensity

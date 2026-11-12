@@ -42,6 +42,20 @@ dark in both (no material, no signal); cell bodies are bright mounds in the SEM 
 slightly darker than the film in the FIB with a bright outline (the edge effect); the film
 brightens at grazing incidence.
 
+### Renderers
+
+`renderer` picks how the beams see the scene:
+
+- `flat` (default) paints the scene onto the sample plane.
+- `relief` gives everything a height and looks along the beam: tall things hide what is
+  behind them, and a pattern is cut along the milling beam.
+- `solid` builds the sample from objects that can lie under one another: grid bars, the
+  film, cells with a nucleus, one sheet of ice over them, and particles resting on the ice.
+  A cut face shows what it was cut from (ice, cell, nucleus). It is being built up and is
+  off by default. So far it draws the SEM and FIB images and the milled patterns; the
+  milling effects (bright rims, curtaining, damage, coats), holes and cracks in the film,
+  and the FM view are not in it yet, and the FM still comes from the relief.
+
 ## Cell types
 
 ![Cell types](img/simulator/cell_types.png)
