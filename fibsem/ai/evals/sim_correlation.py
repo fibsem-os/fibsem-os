@@ -98,9 +98,7 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
         "coincidence_offset": 0.0,
         "renderer": "relief",
         "rip_fraction": 0.0,
-        "rpe_island_radius": [12e-6, 35e-6],
-        "rpe_island_density": 3.0,
-        "rpe_occupancy": 0.6,
+        "rpe_density": 3.0,
     }
     options.update(overrides or {})
     options["seed"] = int(seed)

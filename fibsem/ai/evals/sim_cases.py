@@ -71,14 +71,10 @@ VARIED = {
     "ice_density": (0.2, 0.8),
     "frost_density": (0.1, 0.6),
     "crack_density": (0.2, 1.0),
-    "rpe_island_density": (2.0, 4.0),
+    "rpe_density": (2.0, 4.0),
 }
-# Set for every seed: RPE as single cells and small groups of a few, not
-# the simulator's wide sheets.
-FIXED = {
-    "rpe_island_radius": [12e-6, 35e-6],
-    "rpe_occupancy": 0.6,
-}
+# Set for every seed.
+FIXED: Dict[str, Any] = {}
 
 BRIEFS = {
     "square_finding": (
