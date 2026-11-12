@@ -351,7 +351,7 @@ def build_gateway_app(
         def quit_gateway(
             body: Optional[Dict[str, Any]] = None, found: Caller = Depends(caller)
         ) -> dict:
-            """``{restart}``: stop the gateway as the tray's Quit does; with
+            """``{restart}``: stop the gateway as closing its window does; with
             ``restart``, it then starts again. The operator only."""
             if not found.operator:
                 raise _refused(

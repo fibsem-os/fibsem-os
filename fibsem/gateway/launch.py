@@ -2,7 +2,7 @@
 and ``fibsem-gateway open`` run it.
 
 It starts the gateway when none runs, then opens its page in the browser signed
-in as the operator, as the tray's Open does. Nothing else starts: the operator
+in as the operator, as the window's Open page does. Nothing else starts: the operator
 picks the microscope, the app and the agent on the page.
 """
 

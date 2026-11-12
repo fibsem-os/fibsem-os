@@ -1,5 +1,5 @@
 """The gateway's agent: one ``fibsem-agent`` for this PC's microscope, started
-and ended from the gateway's page or tray, kept by an `AgentSessionManager`.
+and ended from the gateway's page or window, kept by an `AgentSessionManager`.
 
 Start needs the app running, with or without a microscope connected. It pairs the agent's
 token straight into the shared ``paired.json`` (the operator starting it is
@@ -244,6 +244,12 @@ class GatewayAgent:
         gateway.watchers.append(self._manager.poll)
 
     # -- reading -----------------------------------------------------------
+
+    def running(self) -> Optional[str]:
+        """The agent's state ("running", "waiting"), None when there is none:
+        cheap, read every second by the gateway's window."""
+        agent = self._manager.agent(self.microscope)
+        return agent.state if agent is not None and agent.state != "ended" else None
 
     def state(self) -> AgentState:
         agent = self._manager.agent(self.microscope)

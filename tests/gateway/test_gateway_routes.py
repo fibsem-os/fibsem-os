@@ -406,14 +406,14 @@ def test_the_operator_opens_the_apps_agent_page_signed_in(host_setup):
     assert (r.status_code, r.json()["detail"]["error_type"]) == (409, "no_app")
 
 
-def test_install_writes_a_startup_shortcut_running_pythonw(tmp_path):
+def test_install_writes_a_startup_shortcut_running_pythonw_minimised(tmp_path):
     command = gateway_main.shortcut_command(
         tmp_path / "Agent Gateway.lnk", ["--manufacturer", "Thermo"]
     )
     assert command[:2] == ["powershell", "-NoProfile"]
     script = command[-1]
     assert "pythonw" in script
-    assert "-m fibsem.gateway run --manufacturer Thermo" in script
+    assert "-m fibsem.gateway run --minimised --manufacturer Thermo" in script
     assert str(tmp_path / "Agent Gateway.lnk") in script
 
 
