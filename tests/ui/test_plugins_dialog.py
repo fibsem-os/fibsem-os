@@ -8,9 +8,11 @@ nothing produces until FIB-339 lands.
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtWidgets import QLabel  # noqa: E402
+from qtpy.QtWidgets import QLabel  # noqa: E402
 
 from fibsem.plugins.report import (  # noqa: E402
     Extension,
@@ -335,7 +337,7 @@ def test_no_widget_stylesheet_swallows_its_own_tooltip(dialog):
     Checked as an invariant rather than by rendering, because the offscreen
     platform never realises a tooltip window to look at.
     """
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtWidgets import QWidget
 
     offenders = []
     for widget in [dialog] + dialog.findChildren(QWidget):

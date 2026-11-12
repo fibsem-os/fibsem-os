@@ -12,7 +12,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 
 from fibsem.imaging.tiling.geometry import compute_tile_grid_from_fov
@@ -900,7 +900,7 @@ def _corners(overlay):
 def test_opposite_corners_share_a_diagonal_cursor(qapp, corner, expected):
     """Top-left and bottom-right lie along one diagonal, the other two along the other.
     Getting this backwards points the cursor across the edge it would drag."""
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     overlay, _ = build(3, 3)
     left, right, top, bottom = _corners(overlay)
@@ -913,16 +913,28 @@ def test_opposite_corners_share_a_diagonal_cursor(qapp, corner, expected):
 
 
 def test_the_edges_get_axis_cursors_and_the_interior_none(qapp):
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     overlay, _ = build(3, 3)
     left, right, top, bottom = _corners(overlay)
     cx, cy = overlay._rect.cx, overlay._rect.cy
 
-    assert overlay._cursor_for(*overlay._edge_sides(right, cy)) == Qt.SizeHorCursor
-    assert overlay._cursor_for(*overlay._edge_sides(left, cy)) == Qt.SizeHorCursor
-    assert overlay._cursor_for(*overlay._edge_sides(cx, top)) == Qt.SizeVerCursor
-    assert overlay._cursor_for(*overlay._edge_sides(cx, bottom)) == Qt.SizeVerCursor
+    assert (
+        overlay._cursor_for(*overlay._edge_sides(right, cy))
+        == Qt.CursorShape.SizeHorCursor
+    )
+    assert (
+        overlay._cursor_for(*overlay._edge_sides(left, cy))
+        == Qt.CursorShape.SizeHorCursor
+    )
+    assert (
+        overlay._cursor_for(*overlay._edge_sides(cx, top))
+        == Qt.CursorShape.SizeVerCursor
+    )
+    assert (
+        overlay._cursor_for(*overlay._edge_sides(cx, bottom))
+        == Qt.CursorShape.SizeVerCursor
+    )
     assert overlay._cursor_for(*overlay._edge_sides(cx, cy)) is None
 
 
@@ -1053,13 +1065,13 @@ def test_a_hidden_grid_cannot_be_moved(qapp):
 def test_the_interior_offers_a_move_cursor(qapp):
     """The drag is undiscoverable without it -- nothing about a grid of rectangles
     suggests the whole thing can be pushed around."""
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     overlay, _ = build(3, 3)
 
     overlay._update_cursor(_event(overlay, *_centre(overlay)))
 
-    assert overlay._canvas.cursor == Qt.SizeAllCursor
+    assert overlay._canvas.cursor == Qt.CursorShape.SizeAllCursor
 
 
 def test_a_move_drag_survives_the_grid_being_cleared_underneath_it(qapp):
@@ -1210,9 +1222,11 @@ def _shift(event):
     """
     from types import SimpleNamespace
 
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
-    event.guiEvent = SimpleNamespace(modifiers=lambda: Qt.ShiftModifier)
+    event.guiEvent = SimpleNamespace(
+        modifiers=lambda: Qt.KeyboardModifier.ShiftModifier
+    )
     return event
 
 
@@ -1362,16 +1376,16 @@ def test_a_modified_edge_press_still_resizes(qapp):
 
 def test_the_modifier_turns_the_interior_cursor_into_a_cross(qapp):
     """The only sign the gesture exists, for anyone who has not been told."""
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     overlay, tiles = build(3, 3)
     point = _tile_centre(overlay, tiles, 1, 1)
 
     overlay._update_cursor(_event(overlay, *point))
-    assert overlay._canvas.cursor == Qt.SizeAllCursor
+    assert overlay._canvas.cursor == Qt.CursorShape.SizeAllCursor
 
     overlay._update_cursor(_shift(_event(overlay, *point)))
-    assert overlay._canvas.cursor == Qt.CrossCursor
+    assert overlay._canvas.cursor == Qt.CursorShape.CrossCursor
 
 
 def test_a_paint_survives_the_grid_being_cleared_underneath_it(qapp):

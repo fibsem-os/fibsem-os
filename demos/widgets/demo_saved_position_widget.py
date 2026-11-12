@@ -2,7 +2,7 @@
 
 import sys
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -106,4 +106,4 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
     w = TestWindow()
     w.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

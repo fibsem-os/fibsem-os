@@ -20,7 +20,7 @@ import threading
 import pytest
 from psygnal.containers import EventedDict
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,

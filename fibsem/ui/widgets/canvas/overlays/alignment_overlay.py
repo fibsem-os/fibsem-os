@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import pyqtSignal
+from qtpy.QtCore import Signal
 
 from fibsem.structures.settings import FibsemRectangle
 from fibsem.ui.widgets.canvas.overlays.rect_overlay import RectOverlay
@@ -33,7 +33,7 @@ class AlignmentAreaOverlay(RectOverlay):
     Pass ``editable=False`` for a read-only display (no handles, no mouse capture).
     """
 
-    alignment_area_changed = pyqtSignal(object)  # FibsemRectangle
+    alignment_area_changed = Signal(object)  # FibsemRectangle
 
     def __init__(
         self,

@@ -2,8 +2,8 @@
 
 from typing import List, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import AutoFocusSettings, ChannelSettings, ZParameters
@@ -19,8 +19,8 @@ class FMAcquisitionSettingsWidget(QWidget):
     """Channel, Z and autofocus panels, with the autofocus channels following the
     channel list. The channel panel starts expanded, the other two collapsed."""
 
-    channel_settings_changed = pyqtSignal(list)  # List[ChannelSettings]
-    settings_changed = pyqtSignal()
+    channel_settings_changed = Signal(list)  # List[ChannelSettings]
+    settings_changed = Signal()
 
     def __init__(
         self,

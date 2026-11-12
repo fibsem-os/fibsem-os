@@ -14,8 +14,8 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol, Tuple
 
 from psygnal import EmissionInfo
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QGridLayout,
     QLabel,
     QSplitter,
@@ -546,7 +546,7 @@ def add_microscope_tab(
     container = QWidget()
     layout = QVBoxLayout(container)
     layout.setContentsMargins(0, 0, 0, 0)
-    splitter = QSplitter(Qt.Horizontal)
+    splitter = QSplitter(Qt.Orientation.Horizontal)
     splitter.setChildrenCollapsible(False)
     splitter.addWidget(view_controller.widget)
     splitter.addWidget(controls)

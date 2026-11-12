@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.cancellation import OperationCancelledError  # noqa: E402
 from fibsem.ui.widgets.script_runner import ScriptRunner  # noqa: E402
@@ -119,9 +119,9 @@ def test_declining_the_confirmation_does_not_run_or_save(qapp, tmp_path):
 def test_the_real_confirmation_box_builds(qapp, tmp_path, monkeypatch):
     """Every other test injects a stub for it, so the box itself is otherwise
     never constructed and a mistake in it would only show up in the app."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
-    monkeypatch.setattr(QMessageBox, "exec_", lambda self: 0)
+    monkeypatch.setattr(QMessageBox, "exec", lambda self: 0)
     runner = _runner(tmp_path, context=FakeContext())
 
     # no button clicked -> not confirmed, which is the safe direction

@@ -21,9 +21,11 @@ import threading
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QEventLoop, QTimer
+from qtpy.QtCore import QEventLoop, QTimer
 
 # The real construction seam: a host with a view controller, a real image widget and a
 # Demo microscope. The guards read `image_widget.eb_image` and the host's milling widget,
@@ -48,7 +50,7 @@ from fibsem.ui.widgets.stage_control_widget import (  # noqa: E402
 def _pump(ms: int = 150) -> None:
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 def _run(condition, tries: int = 20) -> None:

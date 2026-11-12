@@ -79,6 +79,8 @@ ml = [
 # that draw with it.
 ui = [
     "pyqt5>=5.15.9",
+    # Code imports Qt from qtpy, never from a binding directly (FIB-1565).
+    "qtpy>=2.4",
     # `ensure_main_thread`, used across the widgets.
     "superqt>=0.6.0",
     "pyqt5-qt5 == 5.15.2 ; platform_system == 'Windows'",
@@ -215,7 +217,7 @@ extend-exclude = [
 exclude = ["**/*.md"]
 
 [tool.ruff.lint]
-select = ["E4", "E7", "E9", "F", "I", "UP"]
+select = ["E4", "E7", "E9", "F", "I", "UP", "TID251"]
 # E501 (line-length) is deliberately absent. A formatter is what wraps code, and
 # most hits are long strings and comments nothing can wrap.
 #
@@ -278,6 +280,12 @@ ignore = [
 # its dotted path, looks unused to it. A package's re-exports go in its
 # `__all__` (or `import X as X`). Check the whole repo before deleting one, and
 # run the suite.
+
+# Qt comes from qtpy so the binding can change (FIB-1565).
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"PyQt5".msg = "Import Qt from qtpy."
+"PyQt6".msg = "Import Qt from qtpy."
+"PySide6".msg = "Import Qt from qtpy."
 
 [tool.ruff.lint.per-file-ignores]
 # The AutoScript SDK names this driver imports in its availability check are its

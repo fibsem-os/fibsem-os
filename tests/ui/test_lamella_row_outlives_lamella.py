@@ -15,11 +15,10 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5 import sip
-from PyQt5.QtCore import QEvent
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QEvent
+from qtpy.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella.cards import LamellaCardWidget
@@ -27,6 +26,7 @@ from fibsem.applications.autolamella.ui.lamella.rows import (
     LamellaListWidget,
     LamellaNameListWidget,
 )
+from fibsem.ui.qt import sip
 from fibsem.workflows.config_patch import apply_patch
 
 _app = QApplication.instance() or QApplication(sys.argv)
@@ -37,7 +37,7 @@ def lamella(tmp_path) -> Lamella:
 
 
 def _drain_deletes() -> None:
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
 
 @pytest.mark.parametrize("list_type", [LamellaNameListWidget, LamellaListWidget])

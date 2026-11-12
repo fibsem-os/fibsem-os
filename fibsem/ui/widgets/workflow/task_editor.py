@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import List, Optional
 
-from PyQt5.QtCore import QDateTime, QSize, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QDateTime, QSize, Qt, Signal
+from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
     QDateTimeEdit,
@@ -48,7 +48,7 @@ class _BoundedDateTimeEdit(QDateTimeEdit):
     pinned at a bound — i.e. they tried to schedule beyond the allowed window.
     """
 
-    bound_exceeded = pyqtSignal(str)  # "min" or "max"
+    bound_exceeded = Signal(str)  # "min" or "max"
 
     def stepBy(self, steps: int) -> None:
         before = self.dateTime()
@@ -95,12 +95,12 @@ class WorkflowTaskEditorWidget(QWidget):
     cancel_clicked : emits when the user clicks Cancel.
     """
 
-    apply_clicked = pyqtSignal(object, list)  # TaskPlan, requires
-    cancel_clicked = pyqtSignal()
+    apply_clicked = Signal(object, list)  # TaskPlan, requires
+    cancel_clicked = Signal()
     # The user wants this task out of the workflow. The editor only asks; the
     # dialog that owns the task confirms and removes, so the editor can be
     # embedded anywhere without a removal path of its own.
-    remove_clicked = pyqtSignal()
+    remove_clicked = Signal()
 
     def __init__(
         self,
@@ -159,7 +159,7 @@ class WorkflowTaskEditorWidget(QWidget):
         # click a field (date / hour / minute / AM-PM) and step it with the
         # arrows, the mouse wheel, or the keyboard.
         self._dt_edit.setCalendarPopup(False)
-        self._dt_edit.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
+        self._dt_edit.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.UpDownArrows)
         self._dt_edit.setStyleSheet(stylesheets.DATETIME_EDIT_STYLESHEET)
         # enough room for "yyyy-MM-dd  hh:mm AP" plus the two step buttons
         self._dt_edit.setMinimumWidth(250)
@@ -210,11 +210,11 @@ class WorkflowTaskEditorWidget(QWidget):
         self._req_list.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        self._req_list.setFocusPolicy(Qt.NoFocus)
+        self._req_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         # height is sized to the row count (capped, then scrolls) by
         # _resize_req_list so the panel hugs its content.
         self._req_list.setSizePolicy(
-            self._req_list.sizePolicy().horizontalPolicy(), QSizePolicy.Fixed
+            self._req_list.sizePolicy().horizontalPolicy(), QSizePolicy.Policy.Fixed
         )
 
         req_content = QWidget()
@@ -373,7 +373,7 @@ class WorkflowTaskEditorWidget(QWidget):
         else:
             empty = QLabel("No other tasks available")
             empty.setStyleSheet(f"color: {NEUTRAL_700}; font-size: 11px; padding: 6px;")
-            empty.setAlignment(Qt.AlignCenter)
+            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             item = QListWidgetItem()
             item.setSizeHint(QSize(0, _ROW_HEIGHT))
             self._req_list.addItem(item)

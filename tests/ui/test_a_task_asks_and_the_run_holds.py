@@ -17,10 +17,10 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict
-from PyQt5.QtCore import QCoreApplication, QEvent
+from qtpy.QtCore import QCoreApplication, QEvent
 
 from fibsem.acting import ActorKind
 from fibsem.applications.autolamella.structures import (
@@ -82,7 +82,7 @@ def window(qapp, tmp_path):
     ui.session.disconnect()
     close_window(win)
     win.deleteLater()
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qapp.processEvents()
 
 

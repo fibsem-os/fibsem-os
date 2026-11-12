@@ -19,9 +19,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.imaging.spot import SpotBurnSettings
 from fibsem.structures.image import FibsemImage
@@ -239,8 +239,8 @@ def test_list_multi_selection_reaches_the_canvas():
 def test_canvas_box_select_selects_the_rows():
     """End to end: a Shift-drag on the real canvas, through the controller, to the list."""
     from matplotlib.backend_bases import MouseEvent
-    from PyQt5.QtCore import QEvent, QPointF, Qt
-    from PyQt5.QtGui import QMouseEvent
+    from qtpy.QtCore import QEvent, QPointF, Qt
+    from qtpy.QtGui import QMouseEvent
 
     w, controller, view, image, ov = _active_host()
     canvas = controller.fib_canvas
@@ -253,12 +253,16 @@ def test_canvas_box_select_selects_the_rows():
     def send(name, fx, fy):
         sx, sy = ov._ax.transData.transform((fx * width, fy * h))
         qtype = {
-            "button_press_event": QEvent.MouseButtonPress,
-            "motion_notify_event": QEvent.MouseMove,
-            "button_release_event": QEvent.MouseButtonRelease,
+            "button_press_event": QEvent.Type.MouseButtonPress,
+            "motion_notify_event": QEvent.Type.MouseMove,
+            "button_release_event": QEvent.Type.MouseButtonRelease,
         }[name]
         gui = QMouseEvent(
-            qtype, QPointF(0, 0), Qt.LeftButton, Qt.LeftButton, Qt.ShiftModifier
+            qtype,
+            QPointF(0, 0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.ShiftModifier,
         )
         button = None if name == "motion_notify_event" else 1
         canvas.callbacks.process(
@@ -296,8 +300,8 @@ def test_list_selection_survives_a_canvas_edit():
 
 
 def test_delete_key_in_the_list_removes_the_selection_in_one_edit():
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtTest import QTest
+    from qtpy.QtCore import Qt
+    from qtpy.QtTest import QTest
 
     w, controller, _, _, ov = _active_host()
     w.show()
@@ -307,7 +311,7 @@ def test_delete_key_in_the_list_removes_the_selection_in_one_edit():
     seen = []
     w.settings_changed.connect(seen.append)
     _select_rows(w, [0, 3])
-    QTest.keyClick(w._list, Qt.Key_Delete)
+    QTest.keyClick(w._list, Qt.Key.Key_Delete)
     _app.processEvents()
     _app.processEvents()
     kept = [(p.x, p.y) for p in w.get_settings().coordinates]
@@ -381,7 +385,7 @@ def test_select_all_toggles_and_shows_the_selection():
 def test_list_takes_the_spare_height():
     """The list used to be capped at 180px with no stretch, so a dozen-point pattern
     scrolled a six-row window while the panel below it sat empty."""
-    from PyQt5.QtWidgets import QVBoxLayout, QWidget
+    from qtpy.QtWidgets import QVBoxLayout, QWidget
 
     w, _, _, _ = _host(
         settings=SpotBurnSettings(
@@ -407,7 +411,7 @@ def test_list_takes_the_spare_height():
 
 def test_cramped_host_keeps_the_summary_and_a_usable_list():
     """The live spot-burn tab is short — the list must not eat the footer."""
-    from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget
+    from qtpy.QtWidgets import QPushButton, QVBoxLayout, QWidget
 
     w, _, _, _ = _host(
         settings=SpotBurnSettings(
@@ -435,7 +439,7 @@ def _editor_stub(config):
     """The minimum of AutoLamellaProtocolTaskConfigEditor the dialog method touches."""
     import types
 
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtWidgets import QWidget
 
     from fibsem.applications.autolamella.structures import LamellaDefaultConfig
 
@@ -452,25 +456,25 @@ def _editor_stub(config):
 
 
 def _open_dialog(host, on_exec=None):
-    from PyQt5.QtWidgets import QDialog
+    from qtpy.QtWidgets import QDialog
 
     from fibsem.applications.autolamella.ui.protocol.protocol_tab import (
         AutoLamellaProtocolTaskConfigEditor,
     )
 
-    original = QDialog.exec_
-    QDialog.exec_ = on_exec or (lambda self: QDialog.Rejected)
+    original = QDialog.exec
+    QDialog.exec = on_exec or (lambda self: QDialog.DialogCode.Rejected)
     try:
         AutoLamellaProtocolTaskConfigEditor._on_spot_burn_coordinates_clicked(host)
     finally:
-        QDialog.exec_ = original
+        QDialog.exec = original
 
 
 def test_dialog_does_not_leak_a_canvas_per_open():
     """QDialog(parent) is owned by the parent, so without an explicit delete every open
     strands another controller + matplotlib canvas for the rest of the session."""
-    from PyQt5.QtCore import QCoreApplication, QEvent
-    from PyQt5.QtWidgets import QDialog
+    from qtpy.QtCore import QCoreApplication, QEvent
+    from qtpy.QtWidgets import QDialog
 
     host = _editor_stub(
         SpotBurnFiducialTaskConfig(task_name="T", coordinates=[Point(0.2, 0.2)])
@@ -478,7 +482,7 @@ def test_dialog_does_not_leak_a_canvas_per_open():
     for _ in range(5):
         _open_dialog(host)
     # deleteLater posts a DeferredDelete event; processEvents alone will not deliver it
-    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     for _ in range(4):
         _app.processEvents()
     assert host.findChildren(QDialog) == []
@@ -492,13 +496,13 @@ def test_cancel_leaves_the_config_untouched():
     before = [(p.x, p.y) for p in cfg.coordinates]
     host = _editor_stub(cfg)
 
-    from PyQt5.QtWidgets import QDialog
+    from qtpy.QtWidgets import QDialog
 
     def edit_then_cancel(dialog):
         w = dialog.findChild(SpotBurnCoordinatesWidget)
         w._coordinates = [Point(0.9, 0.9)]
         w._rebuild_rows()
-        return QDialog.Rejected
+        return QDialog.DialogCode.Rejected
 
     _open_dialog(host, on_exec=edit_then_cancel)
     assert [(p.x, p.y) for p in cfg.coordinates] == before
@@ -527,7 +531,7 @@ def test_button_wiring_on_the_real_editor():
     import pathlib
     import tempfile
 
-    from PyQt5.QtWidgets import QDialog
+    from qtpy.QtWidgets import QDialog
 
     from fibsem import utils
     from fibsem.applications.autolamella.structures import (
@@ -572,21 +576,21 @@ def test_button_wiring_on_the_real_editor():
 
         # and the click reaches the dialog with this task's coordinates
         seen = {}
-        original = QDialog.exec_
+        original = QDialog.exec
 
         def fake_exec(dialog):
             w = dialog.findChild(SpotBurnCoordinatesWidget)
             seen["coords"] = len(w.get_settings().coordinates)
             seen["title"] = dialog.windowTitle()
-            return QDialog.Rejected
+            return QDialog.DialogCode.Rejected
 
-        QDialog.exec_ = fake_exec
+        QDialog.exec = fake_exec
         try:
             btn.click()
             for _ in range(4):
                 _app.processEvents()
         finally:
-            QDialog.exec_ = original
+            QDialog.exec = original
         assert seen["coords"] == 1
         assert "Spot Burn Fiducial" in seen["title"]
     finally:

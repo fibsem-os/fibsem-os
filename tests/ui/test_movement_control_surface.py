@@ -36,7 +36,9 @@ import time
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 # Same construction seam the rest of tests/ui uses: a host with a view controller, a
 # real image widget and a Demo microscope.

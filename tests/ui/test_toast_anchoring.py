@@ -19,12 +19,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5 import sip
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import QWidget
 
+from fibsem.ui.qt import sip
 from fibsem.ui.widgets.notifications import ToastManager
 
 
@@ -129,7 +129,12 @@ def test_transient_windows_never_become_the_anchor(host, viewer):
     manager = ToastManager(host)
     manager._on_focus_changed(None, viewer)
 
-    for flags in (Qt.Tool, Qt.Popup, Qt.ToolTip, Qt.Dialog):
+    for flags in (
+        Qt.WindowType.Tool,
+        Qt.WindowType.Popup,
+        Qt.WindowType.ToolTip,
+        Qt.WindowType.Dialog,
+    ):
         transient = QWidget(None, flags)
         manager._on_focus_changed(None, transient)
         assert manager._anchor() is viewer, f"{flags} was taken as the anchor"

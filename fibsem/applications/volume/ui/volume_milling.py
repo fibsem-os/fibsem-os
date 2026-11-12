@@ -12,8 +12,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QFormLayout,
     QLabel,
     QPushButton,
@@ -151,8 +151,8 @@ class VolumeMillingForm(QWidget):
     slice and the slices."""
 
     # the config's new values, by the path the task editor writes
-    values_changed = pyqtSignal(dict)
-    all_settings_clicked = pyqtSignal()
+    values_changed = Signal(dict)
+    all_settings_clicked = Signal()
 
     def __init__(
         self,

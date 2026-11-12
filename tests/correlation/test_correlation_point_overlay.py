@@ -16,9 +16,9 @@ import pytest
 
 from tests.fixtures.correlation import press_release
 
-pytest.importorskip("PyQt5")  # CI installs .[test] without the UI extra
+pytest.importorskip("qtpy.QtWidgets")  # CI installs .[test] without the UI extra
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas

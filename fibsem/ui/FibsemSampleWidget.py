@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import QScrollArea, QVBoxLayout, QWidget
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import QScrollArea, QVBoxLayout, QWidget
 
 from fibsem.ui.widgets.coating_widget import CoatingWidget
 from fibsem.ui.widgets.sample_holder_widget import SampleHolderWidget
@@ -22,7 +22,7 @@ from fibsem.ui.widgets.sample_loader_widget import SampleLoaderWidget
 class FibsemSampleWidget(QWidget):
     # A request to drive to a calibrated holder slot, routed by the host through
     # the Movement widget so the readout and post-move images follow.
-    move_to_requested = pyqtSignal(object)  # FibsemStagePosition
+    move_to_requested = Signal(object)  # FibsemStagePosition
 
     def __init__(self, microscope, parent=None):
         super().__init__(parent)
@@ -31,7 +31,7 @@ class FibsemSampleWidget(QWidget):
 
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         # Never wider than the tab: a long facts line wraps rather than pushing
         # the rows' right-hand column out of view.
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

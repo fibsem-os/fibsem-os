@@ -19,9 +19,9 @@ from datetime import datetime, timedelta
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QDateTime
+from qtpy.QtCore import QDateTime
 
 from fibsem.ui.widgets.workflow.task_editor import (
     WorkflowTaskEditorWidget,

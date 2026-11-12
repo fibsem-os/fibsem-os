@@ -6,7 +6,7 @@ Run directly:
 
 import sys
 
-from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
+from qtpy.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.fm.structures import REFLECTION, ChannelSettings, EmissionFilter
@@ -87,7 +87,7 @@ def main() -> None:
     widget.order_changed.connect(on_order)
 
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ import pytest
 # package and so pulls both in. Both live in the `ui` extra, and CI installs only
 # `.[test]`, so the guard every other module in this directory carries is what keeps
 # collection from failing there rather than skipping.
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.fm.structures import CameraImageTransform, FibsemHardwareGeometry
 from fibsem.structures.settings import FibsemStagePosition

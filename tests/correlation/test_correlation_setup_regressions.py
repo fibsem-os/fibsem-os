@@ -24,7 +24,7 @@ import types
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.correlation.config import CorrelationConfig
 from fibsem.correlation.history import CorrelationRun, LamellaCorrelation
@@ -117,7 +117,7 @@ def _seed_burns(w, **kwargs):
 def test_a_surface_point_is_something_to_lose(qapp, monkeypatch):
     """Surface points live in their own single-value fields, not the three
     coordinate lists — so the guard walked straight past them."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     w = _widget()
     w.set_fib_image(_fib_image())
@@ -130,7 +130,7 @@ def test_a_surface_point_is_something_to_lose(qapp, monkeypatch):
     )
     assert w.session.has_manual_edits()
 
-    asked = _asked(monkeypatch, QMessageBox.Cancel)
+    asked = _asked(monkeypatch, QMessageBox.StandardButton.Cancel)
     section.rb_none.setChecked(True)  # would wipe the surface point
 
     assert asked, "no confirmation before discarding a surface point"
@@ -140,7 +140,7 @@ def test_a_surface_point_is_something_to_lose(qapp, monkeypatch):
 def test_interpolating_does_not_look_like_an_edit(qapp, monkeypatch):
     """Interpolation rescales every FM-side z. The baseline has to move with it,
     or the next re-seed reports edits the user never made."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     from tests.correlation.test_correlation_setup_section import _fm_image
 
@@ -165,7 +165,7 @@ def test_interpolating_does_not_look_like_an_edit(qapp, monkeypatch):
     assert w.data.fm_coordinates[0].point.z == pytest.approx(4.0)
     assert not w.session.has_manual_edits()
 
-    asked = _asked(monkeypatch, QMessageBox.Ok)
+    asked = _asked(monkeypatch, QMessageBox.StandardButton.Ok)
     section.rb_burns.setChecked(True)
     assert not asked, "warned about edits after nothing was edited"
 
@@ -179,14 +179,14 @@ def test_declining_restores_the_radio(qapp, monkeypatch):
     """Qt flips the radio before emitting `toggled`, so an unapplied source stays
     on screen — and re-clicking the same radio emits nothing, so the obvious
     recovery does nothing either."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     w = _widget()
     w.set_fib_image(_fib_image())
     section = _seed_burns(w)
     w.data.fib_coordinates[0].point.x = 111.0  # hand-moved
 
-    _asked(monkeypatch, QMessageBox.Cancel)
+    _asked(monkeypatch, QMessageBox.StandardButton.Cancel)
     section.rb_none.setChecked(True)
 
     assert section.seed_source() == SEED_SPOT_BURNS
@@ -196,7 +196,7 @@ def test_declining_restores_the_radio(qapp, monkeypatch):
 
 def test_declining_restores_the_run_selection(qapp, monkeypatch):
     """Same for the run dropdown, which re-seeds on every index change."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     w = _widget()
     w.set_fib_image(_fib_image())
@@ -211,7 +211,7 @@ def test_declining_restores_the_run_selection(qapp, monkeypatch):
     assert section.seed_source() == SEED_PREVIOUS
     w.data.fib_coordinates[0].point.x = 222.0
 
-    _asked(monkeypatch, QMessageBox.Cancel)
+    _asked(monkeypatch, QMessageBox.StandardButton.Cancel)
     section.run_combo.setCurrentIndex(1)
 
     assert section.run_combo.currentIndex() == 0
@@ -276,7 +276,7 @@ def _editor_stub(lamella_path, fib_filename, image):
     The picker is filled by the editor's own helper: the filename rides as item
     data under a "Task · stage" label, and the editor reads the data.
     """
-    from PyQt5.QtWidgets import QComboBox, QWidget
+    from qtpy.QtWidgets import QComboBox, QWidget
 
     from fibsem.applications.autolamella.reference_images import reference_image_label
     from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
@@ -322,7 +322,7 @@ def _fake_dialog_class(record):
         def add_lamella_setup(self, **kwargs):
             return types.SimpleNamespace(emit_current_seed=lambda: None)
 
-        def exec_(self):
+        def exec(self):
             return 0  # rejected — stop before the result handling
 
         def deleteLater(self):

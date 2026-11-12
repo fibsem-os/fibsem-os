@@ -6,7 +6,9 @@ from datetime import timedelta
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -203,7 +205,7 @@ def _viewer_of(window):
 def test_a_tile_opens_the_viewer_with_every_run_s_image_in_order(
     qapp, experiment, grid_with_two_overviews
 ):
-    from PyQt5.QtWidgets import QVBoxLayout, QWidget
+    from qtpy.QtWidgets import QVBoxLayout, QWidget
 
     grid, root = grid_with_two_overviews, experiment.grid_path(grid_with_two_overviews)
     window = QWidget()
@@ -230,7 +232,7 @@ def test_a_tile_opens_the_viewer_with_every_run_s_image_in_order(
 def test_mark_positions_in_the_viewer_marks_the_image_shown(
     qapp, experiment, grid_with_two_overviews
 ):
-    from PyQt5.QtWidgets import QPushButton, QVBoxLayout, QWidget
+    from qtpy.QtWidgets import QPushButton, QVBoxLayout, QWidget
 
     grid, root = grid_with_two_overviews, experiment.grid_path(grid_with_two_overviews)
     window = QWidget()
@@ -258,7 +260,7 @@ def test_another_caller_s_open_takes_mark_positions_away(
 ):
     """The viewer is shared per window: the History tab's images have no positions to
     mark, so its open must not keep the grid's button."""
-    from PyQt5.QtWidgets import QVBoxLayout, QWidget
+    from qtpy.QtWidgets import QVBoxLayout, QWidget
 
     from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 

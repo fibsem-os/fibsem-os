@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFontMetrics
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, QSize, Qt, Signal
+from qtpy.QtGui import QColor, QFontMetrics
+from qtpy.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
@@ -135,12 +135,12 @@ class CoordinateRowWidget(QWidget):
     reset to prediction, reject from fit, remove) is on the right-click menu.
     """
 
-    row_clicked = pyqtSignal(object)  # Coordinate
-    coordinate_changed = pyqtSignal(object, str, float)  # Coordinate, field, value
-    remove_clicked = pyqtSignal(object)  # Coordinate
-    fit_clicked = pyqtSignal(object)  # Coordinate
-    reset_clicked = pyqtSignal(object)  # Coordinate: back to its prediction
-    reject_toggled = pyqtSignal(object)  # Coordinate: in / out of the fit
+    row_clicked = Signal(object)  # Coordinate
+    coordinate_changed = Signal(object, str, float)  # Coordinate, field, value
+    remove_clicked = Signal(object)  # Coordinate
+    fit_clicked = Signal(object)  # Coordinate
+    reset_clicked = Signal(object)  # Coordinate: back to its prediction
+    reject_toggled = Signal(object)  # Coordinate: in / out of the fit
 
     def __init__(
         self,
@@ -276,7 +276,7 @@ class CoordinateRowWidget(QWidget):
         )
         menu.addSeparator()
         menu.addAction("Remove\tDel", lambda: self.remove_clicked.emit(self.coord))
-        menu.exec_(event.globalPos())
+        menu.exec(event.globalPos())
 
     # ------------------------------------------------------------------
     # Public API
@@ -461,13 +461,13 @@ class CoordinateListWidget(QWidget):
     reject_toggled       : Coordinate -- in / out of the fit
     """
 
-    coordinate_selected = pyqtSignal(object)  # Coordinate
-    coordinate_changed = pyqtSignal(object, str, float)  # Coordinate, field, value
-    coordinate_removed = pyqtSignal(object)  # Coordinate
-    order_changed = pyqtSignal(list)  # List[Coordinate]
-    refit_requested = pyqtSignal(object)  # Coordinate
-    reset_requested = pyqtSignal(object)  # Coordinate
-    reject_toggled = pyqtSignal(object)  # Coordinate
+    coordinate_selected = Signal(object)  # Coordinate
+    coordinate_changed = Signal(object, str, float)  # Coordinate, field, value
+    coordinate_removed = Signal(object)  # Coordinate
+    order_changed = Signal(list)  # List[Coordinate]
+    refit_requested = Signal(object)  # Coordinate
+    reset_requested = Signal(object)  # Coordinate
+    reject_toggled = Signal(object)  # Coordinate
 
     def __init__(
         self,

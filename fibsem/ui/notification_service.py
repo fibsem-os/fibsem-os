@@ -2,16 +2,17 @@ from __future__ import annotations
 
 from typing import Callable, Optional, Tuple
 
-from PyQt5 import sip
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
+
+from fibsem.ui.qt import sip
 
 
 class _NotificationService(QObject):
     """App-wide toast signal bus. Thread-safe: cross-thread emits are queued to main thread."""
 
-    toast = pyqtSignal(str, str, bool, bool)  # (message, type, temporary, always)
+    toast = Signal(str, str, bool, bool)  # (message, type, temporary, always)
     # The same, with a link on the toast: (..., action_text, callback).
-    toast_action = pyqtSignal(str, str, bool, bool, str, object)
+    toast_action = Signal(str, str, bool, bool, str, object)
 
 
 _service: Optional[_NotificationService] = None

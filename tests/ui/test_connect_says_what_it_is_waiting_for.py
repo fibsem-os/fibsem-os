@@ -12,10 +12,10 @@ is a real Demo session.
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QEventLoop  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QDialog  # noqa: E402
+from qtpy.QtCore import QEventLoop  # noqa: E402
+from qtpy.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.ui import notification_service  # noqa: E402
@@ -84,7 +84,9 @@ def test_the_tab_shows_each_step_while_it_connects(tab, monkeypatch, paints):
     assert midway.seen == ("Connecting", "Turning the beams on…", False)
     assert tab.microscope is not None
     assert tab._label_status_title.text() == "Microscope Connected"
-    assert paints and all(f == QEventLoop.ExcludeUserInputEvents for f in paints)
+    assert paints and all(
+        f == QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents for f in paints
+    )
 
 
 def test_a_failed_connect_gives_the_button_back(tab, monkeypatch, paints):
@@ -119,8 +121,10 @@ def test_the_dialog_shows_each_step_while_it_connects(dialog, monkeypatch, paint
     dialog.connect_to_microscope()
 
     assert midway.seen == ("Turning the beams on…", False)
-    assert dialog.result() == QDialog.Accepted
-    assert paints and all(f == QEventLoop.ExcludeUserInputEvents for f in paints)
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    assert paints and all(
+        f == QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents for f in paints
+    )
 
 
 def test_the_steps_are_reported_in_order():

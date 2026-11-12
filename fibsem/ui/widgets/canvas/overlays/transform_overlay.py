@@ -30,7 +30,7 @@ import logging
 import math
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
+from qtpy.QtCore import QObject, Qt, QTimer, Signal
 
 from fibsem.geometry.angles import wrap_degrees
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay
@@ -61,17 +61,17 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
     Everything about the gesture, the handle and the blitting is here.
     """
 
-    moved = pyqtSignal(float, float)  # the body's new centre, canvas coordinates
-    rotated = pyqtSignal(float)  # the body's new rotation, degrees, clockwise on screen
+    moved = Signal(float, float)  # the body's new centre, canvas coordinates
+    rotated = Signal(float)  # the body's new rotation, degrees, clockwise on screen
     # How many times its present size the body should be, about its centre. Measured
     # against the corner where it is drawn now, so a host that re-places on each
     # emission (as the move and turn already need) keeps the corner under the pointer.
-    scaled = pyqtSignal(float)
+    scaled = Signal(float)
     # A move or rotate gesture has ended. For work a host wants to do once, at the end,
     # rather than on every motion event -- anything that repaints the whole canvas
     # belongs here, because during the drag the body is blitted over a held background
     # and a repaint throws that away.
-    drag_finished = pyqtSignal()
+    drag_finished = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         QObject.__init__(self, parent)
@@ -635,11 +635,11 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
         ):
             corner = self._corner_at(event.xdata, event.ydata)
             if self._near_handle(event.xdata, event.ydata):
-                cursor = Qt.CrossCursor
+                cursor = Qt.CursorShape.CrossCursor
             elif corner is not None:
                 cursor = self._corner_cursor(corner)
             elif self._body_contains(event.xdata, event.ydata):
-                cursor = Qt.SizeAllCursor
+                cursor = Qt.CursorShape.SizeAllCursor
         if cursor is not None:
             self._canvas.setCursor(cursor)
             self._cursor_set = True
@@ -656,7 +656,11 @@ class TransformGestureOverlay(QObject, CanvasOverlay):
             )
         except Exception as e:
             logger.debug(f"Could not orient the cursor: {e}")
-            return Qt.SizeFDiagCursor
+            return Qt.CursorShape.SizeFDiagCursor
         # Display y runs up: a corner up and to the left of the centre, or down and
         # to the right, lies on the diagonal Qt's forward cursor points along.
-        return Qt.SizeFDiagCursor if (x1 - x0) * (y1 - y0) < 0 else Qt.SizeBDiagCursor
+        return (
+            Qt.CursorShape.SizeFDiagCursor
+            if (x1 - x0) * (y1 - y0) < 0
+            else Qt.CursorShape.SizeBDiagCursor
+        )

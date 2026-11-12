@@ -17,8 +17,8 @@ import logging
 import math
 from typing import Callable, Optional, Tuple
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -327,7 +327,7 @@ class MicroscopeDefaultsWidget(QWidget):
 
     # Any value in the form changed; `is_modified` says whether it now differs
     # from what was last loaded or saved.
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -384,7 +384,7 @@ class MicroscopeDefaultsWidget(QWidget):
 
         sections = QHBoxLayout()
         for panel in (self.electron_panel, self.ion_panel, self.imaging_panel):
-            sections.addWidget(panel, alignment=Qt.AlignTop)
+            sections.addWidget(panel, alignment=Qt.AlignmentFlag.AlignTop)
         layout = QVBoxLayout()
         layout.addLayout(sections)
         layout.addWidget(self.beams_on_at_connect)

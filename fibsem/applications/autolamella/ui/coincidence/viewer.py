@@ -32,8 +32,8 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
@@ -216,8 +216,8 @@ class _FibImageCanvas(QWidget):
 class _FmImageCanvas(QWidget):
     """FluorescenceImage viewer with z-slice navigation and a resizable rectangle."""
 
-    scrub_requested = pyqtSignal(int)
-    reset_live_requested = pyqtSignal()
+    scrub_requested = Signal(int)
+    reset_live_requested = Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -248,14 +248,16 @@ class _FmImageCanvas(QWidget):
         # Timelapse scrubber row (hidden until frames accumulate)
         scrubber_row = QHBoxLayout()
         scrubber_row.setContentsMargins(4, 0, 4, 0)
-        self.time_slider = QSlider(Qt.Horizontal)  # type: ignore[attr-defined]
+        self.time_slider = QSlider(Qt.Orientation.Horizontal)  # type: ignore[attr-defined]
         self.time_slider.setMinimum(0)
         self.time_slider.setMaximum(0)
         self.time_slider.setSingleStep(1)
         self.time_slider.setEnabled(False)
         self.frame_label = QLabel("00:00:00 (0/0)")
         self.frame_label.setFixedWidth(110)
-        self.frame_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)  # type: ignore[attr-defined]
+        self.frame_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )  # type: ignore[attr-defined]
         self.frame_label.setStyleSheet("color: #d1d2d4; font-size: 10px;")
         self.btn_live = QPushButton("Live")
         self.btn_live.setFixedWidth(44)
@@ -393,7 +395,7 @@ class _InfoWidget(QWidget):
             header = QLabel(title)
             header.setStyleSheet(self._HEADER_STYLE)
             sep = QFrame()
-            sep.setFrameShape(QFrame.HLine)
+            sep.setFrameShape(QFrame.Shape.HLine)
             sep.setStyleSheet("color: #3a3d42;")
             lbl = QLabel("—")
             lbl.setStyleSheet(self._LABEL_STYLE)
@@ -418,7 +420,7 @@ class _InfoWidget(QWidget):
         rm_header = QLabel("Run Metrics")
         rm_header.setStyleSheet(self._HEADER_STYLE)
         rm_sep = QFrame()
-        rm_sep.setFrameShape(QFrame.HLine)
+        rm_sep.setFrameShape(QFrame.Shape.HLine)
         rm_sep.setStyleSheet("color: #3a3d42;")
         self._run_metrics_label = QLabel("—")
         self._run_metrics_label.setStyleSheet(self._LABEL_STYLE)
@@ -572,16 +574,16 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         milling_finished_signal()
     """
 
-    lamella_selected_signal = pyqtSignal(object)
-    milling_started_signal = pyqtSignal()
-    milling_finished_signal = pyqtSignal()
+    lamella_selected_signal = Signal(object)
+    milling_started_signal = Signal()
+    milling_finished_signal = Signal()
 
     # internal signals for thread-safe canvas updates
-    _fib_image_ready = pyqtSignal(object)
-    _fm_image_ready = pyqtSignal(object)
-    _fib_acquire_done = pyqtSignal()
-    _fm_acquire_done = pyqtSignal()
-    _intensity_ready = pyqtSignal(float)
+    _fib_image_ready = Signal(object)
+    _fm_image_ready = Signal(object)
+    _fib_acquire_done = Signal()
+    _fm_acquire_done = Signal()
+    _intensity_ready = Signal(float)
 
     def __init__(
         self,
@@ -637,7 +639,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         outer.addWidget(self.run_border, 1)
 
         # ── Splitter: left (4-quadrant grid) | right (tab widget) ─────────
-        self.splitter = QSplitter(Qt.Horizontal)  # type: ignore[attr-defined]
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)  # type: ignore[attr-defined]
         self.splitter.setChildrenCollapsible(False)
         self.run_border.set_content(self.splitter)
 
@@ -650,7 +652,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._fm_frame = self._make_canvas_frame(self.fm_canvas, "fm_canvas_frame")
         self._fib_frame = self._make_canvas_frame(self.fib_canvas, "fib_canvas_frame")
 
-        top_splitter = QSplitter(Qt.Horizontal)  # type: ignore[attr-defined]
+        top_splitter = QSplitter(Qt.Orientation.Horizontal)  # type: ignore[attr-defined]
         top_splitter.setChildrenCollapsible(False)
         top_splitter.addWidget(self._fm_frame)
         top_splitter.addWidget(self._fib_frame)
@@ -664,14 +666,14 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self._info_widget = _InfoWidget()
         info_panel = TitledPanel("Info", content=self._info_widget, collapsible=False)
 
-        bottom_splitter = QSplitter(Qt.Horizontal)  # type: ignore[attr-defined]
+        bottom_splitter = QSplitter(Qt.Orientation.Horizontal)  # type: ignore[attr-defined]
         bottom_splitter.setChildrenCollapsible(False)
         bottom_splitter.addWidget(line_panel)
         bottom_splitter.addWidget(info_panel)
         bottom_splitter.setStretchFactor(0, 1)
         bottom_splitter.setStretchFactor(1, 1)
 
-        left = QSplitter(Qt.Vertical)  # type: ignore[attr-defined]
+        left = QSplitter(Qt.Orientation.Vertical)  # type: ignore[attr-defined]
         left.setChildrenCollapsible(False)
         left.addWidget(top_splitter)
         left.addWidget(bottom_splitter)
@@ -695,7 +697,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
 
         # ── Bottom bar ────────────────────────────────────────────────────
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         outer.addWidget(sep)
 
@@ -779,7 +781,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidget(scroll_content)
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore[attr-defined]
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # type: ignore[attr-defined]
         return scroll
 
     def _build_milling_tab(self) -> QWidget:
@@ -885,13 +887,13 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         scroll = QScrollArea()
         scroll.setWidget(scroll_content)
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)  # type: ignore[attr-defined]
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)  # type: ignore[attr-defined]
         return scroll
 
     @staticmethod
     def _placeholder(text: str) -> QLabel:
         lbl = QLabel(text)
-        lbl.setAlignment(Qt.AlignCenter)  # type: ignore[attr-defined]
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)  # type: ignore[attr-defined]
         lbl.setStyleSheet("color: #888; font-style: italic; padding: 16px;")
         return lbl
 
@@ -995,8 +997,8 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.btn_pause = QToolButton()
         self.btn_pause.setText("Pause")
         self.btn_pause.setIcon(fibsem_icon("mdi:pause", color=tokens.GRAY_ICON_COLOR))
-        self.btn_pause.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)  # type: ignore[attr-defined]
-        self.btn_pause.setPopupMode(QToolButton.InstantPopup)
+        self.btn_pause.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)  # type: ignore[attr-defined]
+        self.btn_pause.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         # SECONDARY_BUTTON_STYLESHEET targets QPushButton; a QToolButton needs its
         # own selector or it falls back to the unstyled default (mismatched size/font)
         self.btn_pause.setStyleSheet(
@@ -1025,7 +1027,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         # supervision toggle, styled like the main-UI supervised status button
         self._supervised: bool = True
         self.btn_supervised = QPushButton("Supervised")
-        self.btn_supervised.setCursor(Qt.PointingHandCursor)  # type: ignore[attr-defined]
+        self.btn_supervised.setCursor(Qt.CursorShape.PointingHandCursor)  # type: ignore[attr-defined]
         self.btn_supervised.clicked.connect(self._on_supervised_clicked)
         self.btn_supervised.setVisible(False)
         self._update_supervised_button()
@@ -1035,7 +1037,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.spin_drop_threshold.setValue(40)  # % drop (40% == retained fraction 0.6)
         self.spin_drop_threshold.setPrefix("Stop at ")
         self.spin_drop_threshold.setSuffix("% drop")
-        self.spin_drop_threshold.setButtonSymbols(QSpinBox.NoButtons)  # no -/+ arrows
+        self.spin_drop_threshold.setButtonSymbols(
+            QSpinBox.ButtonSymbols.NoButtons
+        )  # no -/+ arrows
         self.spin_drop_threshold.setMinimumWidth(140)  # fit the prefix + suffix text
         self.spin_drop_threshold.setToolTip(
             "Unsupervised auto-stop fires when the rolling mean drops by this "
@@ -1097,7 +1101,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
         self.fm_canvas.rect_overlay.rect_changed.connect(self._info_widget.update_fm)
         self.fm_canvas.rect_overlay.rect_changed.connect(self._on_fm_rect_changed)
 
-        # Strategy intensity → line plot (thread-safe: psygnal → pyqtSignal → main thread)
+        # Strategy intensity → line plot (thread-safe: psygnal → Signal → main thread)
         self._intensity_ready.connect(self.line_plot_widget.append_value)
 
         # Timelapse scrubber
@@ -1214,9 +1218,9 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             self,
             "Move to Lamella Position",
             f"Move to position of Lamella {lamella.name}?\n{lamella.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,  # type: ignore[attr-defined]
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,  # type: ignore[attr-defined]
         )
-        if ret != QMessageBox.Yes:  # type: ignore[attr-defined]
+        if ret != QMessageBox.StandardButton.Yes:  # type: ignore[attr-defined]
             return
 
         def _move():
@@ -1834,7 +1838,7 @@ class FluorescenceCoincidenceViewerWidget(QWidget):
             parent=self,
         )
         try:
-            if dlg.exec_() != QDialog.Accepted:
+            if dlg.exec() != QDialog.DialogCode.Accepted:
                 return
         finally:
             dlg.deleteLater()

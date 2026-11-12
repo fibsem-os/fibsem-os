@@ -2,8 +2,8 @@ import logging
 from typing import Optional
 
 import numpy as np
-from PyQt5.QtCore import pyqtSlot
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Slot
+from qtpy.QtWidgets import (
     QDialog,
     QGridLayout,
     QHBoxLayout,
@@ -389,7 +389,7 @@ class ObjectiveControlWidget(QWidget):
         message_box_ui(
             title="Objective Error",
             text=f"The objective operation failed:\n\n{exc}",
-            buttons=QMessageBox.Ok,
+            buttons=QMessageBox.StandardButton.Ok,
             parent=self,
         )
 
@@ -401,7 +401,7 @@ class ObjectiveControlWidget(QWidget):
             message_box_ui(
                 title="Objective Already Inserted",
                 text="The objective is already inserted.",
-                buttons=QMessageBox.Ok,
+                buttons=QMessageBox.StandardButton.Ok,
                 parent=self,
             )
             return
@@ -410,7 +410,7 @@ class ObjectiveControlWidget(QWidget):
             message_box_ui(
                 title="Objective Error",
                 text="Cannot insert objective: no microscope connection available.",
-                buttons=QMessageBox.Ok,
+                buttons=QMessageBox.StandardButton.Ok,
                 parent=self,
             )
             return
@@ -419,7 +419,7 @@ class ObjectiveControlWidget(QWidget):
         if self.microscope._fm_is_a_pose():
             # A compustage images the FM at one of two tilts, so the operator picks.
             dlg = _InsertObjectiveDialog(tilt_deg=tilt_deg, parent=self)
-            if dlg.exec_() != QDialog.Accepted or dlg.selected_tilt is None:
+            if dlg.exec() != QDialog.DialogCode.Accepted or dlg.selected_tilt is None:
                 logging.info("Objective insertion cancelled by user.")
                 return
             tilt: Optional[float] = np.radians(dlg.selected_tilt)
@@ -430,7 +430,8 @@ class ObjectiveControlWidget(QWidget):
             ret = message_box_ui(
                 title="Insert Objective",
                 text=f"Insert the objective at the current stage tilt ({tilt_deg:.1f}°)?",
-                buttons=QMessageBox.Ok | QMessageBox.Cancel,
+                buttons=QMessageBox.StandardButton.Ok
+                | QMessageBox.StandardButton.Cancel,
                 parent=self,
             )
             if ret is False:
@@ -458,7 +459,7 @@ class ObjectiveControlWidget(QWidget):
             message_box_ui(
                 title="Objective Already Retracted",
                 text="The objective is already retracted.",
-                buttons=QMessageBox.Ok,
+                buttons=QMessageBox.StandardButton.Ok,
                 parent=self,
             )
             return
@@ -574,7 +575,7 @@ class ObjectiveControlWidget(QWidget):
         )
         self.doubleSpinBox_focus_position.blockSignals(False)
 
-    @pyqtSlot(float)
+    @Slot(float)
     def on_objective_position_changed(self, position: float):
         """Handle changes to the objective position."""
         # The last unguarded way in, and the awkward one: refusing a `valueChanged` means
@@ -621,14 +622,14 @@ class ObjectiveControlWidget(QWidget):
             message_box_ui(
                 title="Objective Error",
                 text=f"Failed to move the objective:\n\n{e}",
-                buttons=QMessageBox.Ok,
+                buttons=QMessageBox.StandardButton.Ok,
                 parent=self,
             )
 
         # Update the objective position label (re-syncs to the actual position)
         self.update_objective_position_labels()
 
-    @pyqtSlot(float)
+    @Slot(float)
     def on_objective_limit_changed(self, limit_um: float):
         """Handle changes to the user-defined objective limit."""
         limit_m = limit_um * MICRON_TO_METRE
@@ -639,7 +640,7 @@ class ObjectiveControlWidget(QWidget):
         self.doubleSpinBox_objective_position.setRange(min_limit_um, max_limit_um)
         self.doubleSpinBox_focus_position.setRange(min_limit_um, max_limit_um)
 
-    @pyqtSlot(float)
+    @Slot(float)
     def on_focus_position_changed(self, position: float):
         """Handle changes to the focus position setting."""
         logging.info(f"Focus position updated to: {position:.1f} µm")
@@ -689,7 +690,7 @@ class ObjectiveControlWidget(QWidget):
             message_box_ui(
                 title="Objective Error",
                 text=f"Failed to move the objective:\n\n{e}",
-                buttons=QMessageBox.Ok,
+                buttons=QMessageBox.StandardButton.Ok,
                 parent=self,
             )
 

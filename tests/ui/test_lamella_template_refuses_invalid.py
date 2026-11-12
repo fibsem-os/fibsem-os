@@ -9,10 +9,10 @@ import tempfile
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from psygnal.containers import EventedDict  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QPushButton, QWidget  # noqa: E402
+from qtpy.QtWidgets import QApplication, QPushButton, QWidget  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.applications.autolamella.structures import (  # noqa: E402
@@ -73,7 +73,7 @@ def test_ok_keeps_the_dialog_open_on_an_invalid_template(
 
     warnings = []
     monkeypatch.setattr(editor_module, "LamellaDefaultConfigWidget", _Entered)
-    monkeypatch.setattr(editor_module.QDialog, "exec_", press_ok)
+    monkeypatch.setattr(editor_module.QDialog, "exec", press_ok)
     monkeypatch.setattr(
         editor_module.QMessageBox, "warning", lambda *a: warnings.append(a[2])
     )

@@ -16,9 +16,9 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] without the UI extra
+pytest.importorskip("qtpy.QtWidgets")  # CI installs .[test] without the UI extra
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
 from fibsem.ui.widgets.canvas.point_canvas import (
@@ -151,7 +151,7 @@ def test_adding_is_off_when_no_types_are_allowed(monkeypatch):
         def addAction(self, action):
             pass
 
-        def exec_(self, pos):
+        def exec(self, pos):
             return None
 
     monkeypatch.setattr(
@@ -180,7 +180,7 @@ def test_a_dismissed_menu_adds_nothing():
         def addAction(self, action):
             pass
 
-        def exec_(self, pos):
+        def exec(self, pos):
             return None
 
     import fibsem.ui.widgets.canvas.point_picking as mod
@@ -205,7 +205,7 @@ def test_a_chosen_type_is_reported_with_the_click_position():
         def addAction(self, action):
             self._actions.append(action)
 
-        def exec_(self, pos):
+        def exec(self, pos):
             return self._actions[1]
 
     import fibsem.ui.widgets.canvas.point_picking as mod
@@ -231,7 +231,7 @@ def test_the_widget_adds_no_point_itself():
         def addAction(self, action):
             self._actions.append(action)
 
-        def exec_(self, pos):
+        def exec(self, pos):
             return self._actions[0]
 
     import fibsem.ui.widgets.canvas.point_picking as mod

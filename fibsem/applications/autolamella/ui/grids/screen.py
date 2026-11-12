@@ -21,8 +21,8 @@ import time
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Sequence
 
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, QTimer
+from qtpy.QtWidgets import (
     QDialog,
     QGridLayout,
     QHBoxLayout,
@@ -355,7 +355,7 @@ class ScreenGridsDialog(QDialog):
             state.setStyleSheet(_NOTE_STYLE)
             note = QLabel("")
             note.setStyleSheet(_NOTE_STYLE)
-            note.setTextFormat(Qt.RichText)
+            note.setTextFormat(Qt.TextFormat.RichText)
             note.linkActivated.connect(
                 lambda href, s=entry.slot_name: self._on_link(s, href)
             )

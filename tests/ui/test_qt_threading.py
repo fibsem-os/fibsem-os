@@ -25,10 +25,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import QEventLoop, QObject, QTimer
+from qtpy import QtWidgets
+from qtpy.QtCore import QEventLoop, QObject, QTimer
 
 _QAPP = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
@@ -45,7 +45,7 @@ def _spin(signal, timeout_ms: int = 5000) -> None:
     loop = QEventLoop()
     signal.connect(loop.quit)
     QTimer.singleShot(timeout_ms, loop.quit)
-    loop.exec_()
+    loop.exec()
     _QAPP.processEvents()
 
 

@@ -19,12 +19,12 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from matplotlib.backend_bases import KeyEvent, MouseEvent
-from PyQt5.QtCore import QEvent, QPointF, Qt
-from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QEvent, QPointF, Qt
+from qtpy.QtGui import QMouseEvent
+from qtpy.QtWidgets import QApplication
 
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays.point_overlay import PointOverlay
@@ -65,20 +65,29 @@ class _Recorder:
         return [payload for k, payload in self.events if k == kind]
 
 
-_QT_MODS = {"Shift": Qt.ShiftModifier, "Control": Qt.ControlModifier}
+_QT_MODS = {
+    "Shift": Qt.KeyboardModifier.ShiftModifier,
+    "Control": Qt.KeyboardModifier.ControlModifier,
+}
 
 
 def _send(canvas, overlay, name, x, y, mods=(), button=1):
     sx, sy = overlay._ax.transData.transform((x, y))
-    flags = Qt.NoModifier
+    flags = Qt.KeyboardModifier.NoModifier
     for m in mods:
         flags |= _QT_MODS[m]
     qtype = {
-        "button_press_event": QEvent.MouseButtonPress,
-        "button_release_event": QEvent.MouseButtonRelease,
-        "motion_notify_event": QEvent.MouseMove,
+        "button_press_event": QEvent.Type.MouseButtonPress,
+        "button_release_event": QEvent.Type.MouseButtonRelease,
+        "motion_notify_event": QEvent.Type.MouseMove,
     }[name]
-    gui = QMouseEvent(qtype, QPointF(0, 0), Qt.LeftButton, Qt.LeftButton, flags)
+    gui = QMouseEvent(
+        qtype,
+        QPointF(0, 0),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        flags,
+    )
     btn = None if name == "motion_notify_event" else button
     event = MouseEvent(name, canvas, sx, sy, button=btn, guiEvent=gui)
     canvas.callbacks.process(name, event)

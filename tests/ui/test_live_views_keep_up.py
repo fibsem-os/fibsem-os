@@ -19,7 +19,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.qt.coalesce import Coalescer
 
@@ -248,7 +248,7 @@ class TestLiveFramesAreBinnedForDisplay:
 
 
 def test_the_fm_panel_draws_the_binned_frame_and_clicks_by_it(qapp, monkeypatch):
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtWidgets import QWidget
 
     import fibsem.config as _fibsem_config
     from fibsem import utils

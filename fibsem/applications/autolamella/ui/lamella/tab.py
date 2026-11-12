@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QLabel,
     QScrollArea,
     QSplitter,
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 class LamellaTab(QWidget):
     # A card chosen by the operator, or None.
-    lamella_selected = pyqtSignal(object)
+    lamella_selected = Signal(object)
 
     def __init__(
         self, session: "AppSession", *, card_mode: str, parent: Optional[QWidget] = None
@@ -47,7 +47,7 @@ class LamellaTab(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        outer_splitter = QSplitter(Qt.Horizontal)
+        outer_splitter = QSplitter(Qt.Orientation.Horizontal)
         outer_splitter.setChildrenCollapsible(True)
 
         # ── Left: 1-column card strip ──────────────────────────────────────
@@ -78,7 +78,7 @@ class LamellaTab(QWidget):
         self.editor = AutoLamellaProtocolEditorWidget(session=session)
         self.editor.setMinimumWidth(550)
 
-        protocol_splitter = QSplitter(Qt.Horizontal)
+        protocol_splitter = QSplitter(Qt.Orientation.Horizontal)
         protocol_splitter.setChildrenCollapsible(False)
         protocol_splitter.addWidget(self.editor.view_controller.widget)
         scroll_area = QScrollArea()

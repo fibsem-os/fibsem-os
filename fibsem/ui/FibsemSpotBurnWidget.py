@@ -4,8 +4,8 @@ import logging
 import threading
 from typing import Any, Callable, Optional
 
-from PyQt5.QtCore import QTimer, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QTimer, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QFormLayout,
     QLabel,
@@ -85,7 +85,7 @@ class FibsemSpotBurnWidget(QWidget):
 
     # emitted when a burn ends, success and failure alike (mirrors milling's
     # finished_milling_signal); listeners take it to mean the widget is idle again
-    finished_spot_burn_signal = pyqtSignal()
+    finished_spot_burn_signal = Signal()
 
     def __init__(
         self,

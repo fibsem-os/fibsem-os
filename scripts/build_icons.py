@@ -28,9 +28,9 @@ import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QRectF, Qt
-from PyQt5.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
-from PyQt5.QtSvg import QSvgRenderer
+from qtpy.QtCore import QBuffer, QByteArray, QIODevice, QRectF, Qt
+from qtpy.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
+from qtpy.QtSvg import QSvgRenderer
 
 REPO = Path(__file__).resolve().parent.parent
 APP_ICONS = REPO / "fibsem" / "ui" / "icons"

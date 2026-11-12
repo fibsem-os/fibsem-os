@@ -35,9 +35,9 @@ import pytest
 
 from fibsem.structures.system import InsertableDeviceState
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.constants import METRE_TO_MICRON
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope

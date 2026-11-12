@@ -12,9 +12,9 @@ same thing as the dialog support is reading over their shoulder.
 
 from typing import Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QColor, QFontMetrics
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, QTimer
+from qtpy.QtGui import QColor, QFontMetrics
+from qtpy.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
@@ -232,13 +232,15 @@ class PluginsDialog(QDialog):
         table.verticalHeader().setDefaultSectionSize(56)
         table.setShowGrid(False)
         table.setAlternatingRowColors(True)
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SingleSelection)
-        table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         table.itemSelectionChanged.connect(self._on_selection_changed)
 
         header = table.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header.setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         header.setStretchLastSection(False)
         header.setSectionResizeMode(0, header.Stretch)
         table.setColumnWidth(2, _group_column_width())
@@ -478,10 +480,10 @@ def _group_column_width() -> int:
 
 
 def _group_font():
-    from PyQt5.QtGui import QFont
+    from qtpy.QtGui import QFont
 
     font = QFont("Menlo")
-    font.setStyleHint(QFont.Monospace)
+    font.setStyleHint(QFont.StyleHint.Monospace)
     font.setPointSize(11)
     return font
 

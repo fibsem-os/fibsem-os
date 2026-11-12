@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.widgets.workflow import task_list as module
 from fibsem.workflows.attention import Attention
@@ -98,7 +98,7 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
     """A trash can on every row was the one thing there nobody pressed. The
     edit dialog offers Remove task…, confirms, closes, and the list drops the
     row and announces it on the same signal the hosts already listen to."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     from fibsem.applications.autolamella.ui.workflow.lamella_run import (
         LamellaWorkflowWidget,
@@ -115,7 +115,9 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
 
     # No is no
     monkeypatch.setattr(
-        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No)
+        QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.No),
     )
     widget._on_task_edit_requested(setup)
     dialog = widget._editor_dialog
@@ -129,7 +131,9 @@ def test_remove_lives_in_the_edit_dialog_not_on_the_row(qapp, monkeypatch):
 
     # Yes removes, closes the dialog, and announces the task
     monkeypatch.setattr(
-        QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes)
+        QMessageBox,
+        "question",
+        staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes),
     )
     widget._on_task_edit_requested(setup)
     dialog.editor._remove_btn.click()

@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, List, Optional
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QTimer
+from qtpy.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QPushButton,
@@ -222,7 +222,7 @@ class ProtocolTab(QWidget):
             protocol.task_config,
             parent=self,
         )
-        if dialog.exec_() != QDialog.Accepted or dialog.chosen is None:
+        if dialog.exec() != QDialog.DialogCode.Accepted or dialog.chosen is None:
             return
         task_type, task_name = dialog.chosen
         self._done(

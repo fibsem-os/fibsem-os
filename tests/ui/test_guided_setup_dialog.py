@@ -15,7 +15,9 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import config as cfg
 from fibsem import guided_setup as wizard
@@ -284,8 +286,8 @@ def test_return_while_editing_does_not_leave_the_step(dialog, qapp):
     confirming a value the way people confirm values used to skip a step, and on the
     review step it saved outright.
     """
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtTest import QTest
+    from qtpy.QtCore import Qt
+    from qtpy.QtTest import QTest
 
     # QTest.keyClick rather than calling keyPressEvent directly. Calling the handler
     # on the spin box skips the propagation to the dialog that *is* the bug, so the
@@ -296,7 +298,7 @@ def test_return_while_editing_does_not_leave_the_step(dialog, qapp):
     dialog.show()
     dialog._show_step(STEP_STAGE)
     dialog._rotation_spin.setFocus()
-    QTest.keyClick(dialog._rotation_spin, Qt.Key_Return)
+    QTest.keyClick(dialog._rotation_spin, Qt.Key.Key_Return)
     qapp.processEvents()
     assert dialog._index == STEP_STAGE
 
@@ -323,17 +325,17 @@ def test_the_rail_will_not_jump_forwards(dialog):
 def test_only_visited_rail_rows_offer_to_be_clicked(dialog):
     """The guard and the affordance are set in different places; they have to agree,
     or the rail invites a click it will refuse."""
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     dialog._show_step(STEP_STAGE)
     for index, row in enumerate(dialog._rail_rows):
-        navigable = row.cursor().shape() == Qt.PointingHandCursor
+        navigable = row.cursor().shape() == Qt.CursorShape.PointingHandCursor
         assert navigable == (index < STEP_STAGE), index
 
 
 def test_no_button_claims_the_return_key(dialog):
     """Clearing ``default`` on Next alone would hand Return to the next button along."""
-    from PyQt5 import QtWidgets
+    from qtpy import QtWidgets
 
     for button in dialog.findChildren(QtWidgets.QPushButton):
         assert not button.isDefault(), button.text()
@@ -342,12 +344,16 @@ def test_no_button_claims_the_return_key(dialog):
 
 def test_a_card_can_be_chosen_from_the_keyboard(dialog, qapp):
     """An instrument PC is often driven without a mouse worth using."""
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtGui import QKeyEvent
+    from qtpy.QtCore import Qt
+    from qtpy.QtGui import QKeyEvent
 
     card = dialog._model_cards["tescan"]
     assert isinstance(card, ChoiceCard)
-    card.keyPressEvent(QKeyEvent(QKeyEvent.KeyPress, Qt.Key_Space, Qt.NoModifier))
+    card.keyPressEvent(
+        QKeyEvent(
+            QKeyEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier
+        )
+    )
     assert dialog.choices.model_key == "tescan"
 
 
@@ -628,7 +634,7 @@ def test_the_diagram_opens_on_the_flat_reference(qapp):
 )
 def test_the_diagram_paints_at_the_extremes(qapp, pre_tilt, stage_tilt):
     """The spin boxes allow the whole range, and a paintEvent that raises is fatal."""
-    from PyQt5.QtGui import QPixmap
+    from qtpy.QtGui import QPixmap
 
     from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
 
@@ -750,7 +756,7 @@ def test_the_review_names_the_path_the_file_will_be_written_to(dialog, tmp_path)
 
 
 def test_saving_without_a_name_asks_for_one(dialog, monkeypatch):
-    from PyQt5 import QtWidgets
+    from qtpy import QtWidgets
 
     warnings = []
     monkeypatch.setattr(
@@ -768,7 +774,7 @@ def test_saving_without_a_name_asks_for_one(dialog, monkeypatch):
 def test_saving_registers_the_configuration_and_reports_its_name(
     dialog, monkeypatch, isolated_state
 ):
-    from PyQt5 import QtWidgets
+    from qtpy import QtWidgets
 
     monkeypatch.setattr(QtWidgets.QMessageBox, "information", lambda *a, **k: None)
 
@@ -787,7 +793,7 @@ def test_saving_registers_the_configuration_and_reports_its_name(
 
 
 def test_a_save_that_fails_leaves_the_dialog_open(dialog, monkeypatch):
-    from PyQt5 import QtWidgets
+    from qtpy import QtWidgets
 
     from fibsem.ui.widgets import guided_setup_dialog as module
 
@@ -815,7 +821,7 @@ def test_a_save_that_fails_leaves_the_dialog_open(dialog, monkeypatch):
 @pytest.fixture
 def connection_tab(qapp, isolated_state, monkeypatch):
     """The connection tab on a fresh install, since that is what most of these test."""
-    pytest.importorskip("PyQt5")
+    pytest.importorskip("qtpy.QtWidgets")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
@@ -839,7 +845,7 @@ def test_writing_preferences_does_not_suppress_the_offer(
     that file -- for any preference -- also ended the first run, and the callout could
     not be reached at all.
     """
-    pytest.importorskip("PyQt5")
+    pytest.importorskip("qtpy.QtWidgets")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
@@ -859,7 +865,7 @@ def test_writing_preferences_does_not_suppress_the_offer(
 
 def test_a_dismissed_offer_stays_dismissed(qapp, isolated_state, monkeypatch):
     """Dismissal is its own answer, not a side effect of anything else."""
-    pytest.importorskip("PyQt5")
+    pytest.importorskip("qtpy.QtWidgets")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     monkeypatch.setattr(
@@ -896,7 +902,7 @@ def test_the_offer_is_absent_once_a_configuration_is_registered(
     monkeypatch.setattr(
         "fibsem.ui.notification_service.show_toast", lambda *a, **k: None
     )
-    pytest.importorskip("PyQt5")
+    pytest.importorskip("qtpy.QtWidgets")
     from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget
 
     cfg.register_configuration(

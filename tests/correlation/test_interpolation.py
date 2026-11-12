@@ -298,7 +298,7 @@ from fibsem.fm.structures import EmissionFilter
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 
 def _meteor_like_fm():
@@ -377,25 +377,25 @@ def test_dialog_unchecking_isotropic_frees_the_spinbox(qapp):
 def test_enter_does_not_run_the_interpolation(qapp):
     """Pressing Enter while editing must not fire the (tens-of-seconds) run — only
     a real click on Interpolate accepts. Escape still cancels."""
-    from PyQt5.QtCore import Qt
-    from PyQt5.QtTest import QTest
-    from PyQt5.QtWidgets import QDialog
+    from qtpy.QtCore import Qt
+    from qtpy.QtTest import QTest
+    from qtpy.QtWidgets import QDialog
 
     from fibsem.ui.correlation.widgets.fm_interpolate_dialog import InterpolateZDialog
 
     dlg = InterpolateZDialog(_meteor_like_fm())
     dlg.show()
-    QTest.keyClick(dlg, Qt.Key_Return)
-    QTest.keyClick(dlg, Qt.Key_Enter)
-    assert dlg.result() != QDialog.Accepted  # Enter did not accept
+    QTest.keyClick(dlg, Qt.Key.Key_Return)
+    QTest.keyClick(dlg, Qt.Key.Key_Enter)
+    assert dlg.result() != QDialog.DialogCode.Accepted  # Enter did not accept
     assert not dlg.isHidden()  # still open
 
-    QTest.keyClick(dlg, Qt.Key_Escape)
+    QTest.keyClick(dlg, Qt.Key.Key_Escape)
     assert dlg.isHidden()  # Escape still cancels
 
     dlg2 = InterpolateZDialog(_meteor_like_fm())
     dlg2.accept()  # the click path still accepts
-    assert dlg2.result() == QDialog.Accepted
+    assert dlg2.result() == QDialog.DialogCode.Accepted
 
 
 # ---------------------------------------------------------------------------

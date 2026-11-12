@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QSize, Qt, QThread, QTimer, QUrl, pyqtSignal
-from PyQt5.QtGui import QDesktopServices, QImageReader, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, QThread, QTimer, QUrl, Signal
+from qtpy.QtGui import QDesktopServices, QImageReader, QPixmap
+from qtpy.QtWidgets import (
     QAction,
     QFrame,
     QGridLayout,
@@ -97,7 +97,7 @@ _CAPTION_STYLE = (
 class _ClickableRow(QWidget):
     """A line that emits clicked() when left-clicked: an operation, to expand it."""
 
-    clicked = pyqtSignal()
+    clicked = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -152,7 +152,7 @@ class _ImageLoaderWorker(QThread):
     """Background worker that loads images one at a time."""
 
     # filepath, array, pixel_size_x, ImageFields
-    image_loaded = pyqtSignal(str, np.ndarray, float, object)
+    image_loaded = Signal(str, np.ndarray, float, object)
 
     def __init__(self, filepaths: List[str], target_width: int):
         # No parent, and kept in _WORKERS until it has finished: a cancelled
@@ -260,7 +260,7 @@ class _HistoryFilterButton(QToolButton):
     several, so its items read as radio buttons -- the mark is the action's icon.
     """
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -269,8 +269,8 @@ class _HistoryFilterButton(QToolButton):
             stylesheets.TOOLBUTTON_ICON_STYLESHEET
             + " QToolButton::menu-indicator { image: none; }"
         )
-        self.setPopupMode(QToolButton.InstantPopup)
-        self.setFocusPolicy(Qt.NoFocus)
+        self.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         # No parent: a child of this button inherits the stylesheets above it, and
         # the header row's unscoped `background: transparent` made the menu
         # see-through. Unparented, it is styled as every other menu in the app,
@@ -469,8 +469,8 @@ class LamellaTaskImageWidget(QWidget):
             stylesheets.TOOLBUTTON_ICON_STYLESHEET
             + " QToolButton::menu-indicator { image: none; }"
         )
-        self._actions_button.setPopupMode(QToolButton.InstantPopup)
-        self._actions_button.setFocusPolicy(Qt.NoFocus)
+        self._actions_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self._actions_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._actions_button.setIcon(
             fibsem_icon("mdi:dots-horizontal", color=GRAY_ICON_COLOR)
         )
@@ -747,7 +747,7 @@ class LamellaTaskImageWidget(QWidget):
 
         Needs no microscope: it reads the files the task history recorded.
         """
-        from PyQt5.QtWidgets import QApplication
+        from qtpy.QtWidgets import QApplication
 
         from fibsem.applications.autolamella.task_outputs import images_by_task
         from fibsem.imaging.animation import AnimationStep, load_frames
@@ -773,7 +773,7 @@ class LamellaTaskImageWidget(QWidget):
             return
         AnimationExportDialog(
             frames, lamella.name, os.fspath(lamella.path), self
-        ).exec_()
+        ).exec()
 
     def _nothing_matches(self, flt: HistoryFilter) -> QWidget:
         box = QWidget()
@@ -811,7 +811,7 @@ class LamellaTaskImageWidget(QWidget):
         layout.setSpacing(6)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
@@ -1088,7 +1088,8 @@ class LamellaTaskImageWidget(QWidget):
             links.addWidget(_link("Open folder", operation.path))
         elif operation.path:
             gone = ElidedLabel(
-                f"Saved to {operation.path}, no longer there", mode=Qt.ElideLeft
+                f"Saved to {operation.path}, no longer there",
+                mode=Qt.TextElideMode.ElideLeft,
             )
             gone.setStyleSheet(f"font-size: 11px; color: {NEUTRAL_550};")
             links.addWidget(gone, 1)

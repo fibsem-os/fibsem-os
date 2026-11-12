@@ -34,7 +34,7 @@ import os
 import shutil
 from typing import TYPE_CHECKING, Callable, Optional
 
-from PyQt5.QtWidgets import QWidget
+from qtpy.QtWidgets import QWidget
 
 from fibsem.applications.autolamella.poses import move_lamella
 from fibsem.applications.autolamella.ui.overview.base import AutoLamellaOverviewTabBase

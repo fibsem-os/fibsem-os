@@ -5,8 +5,8 @@ the operator's computers; agents pair from the web app's Settings."""
 import time
 from typing import Callable, Optional
 
-from PyQt5.QtGui import QFontDatabase
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from qtpy.QtGui import QFontDatabase
+from qtpy.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from fibsem.server.pairing import OPERATOR
 from fibsem.theme.tokens import TEXT_MUTED_COLOR, TEXT_STRONG_COLOR
@@ -46,7 +46,7 @@ class PairingCode:
         self.button.clicked.connect(self._on_clicked)
         self.code_row = QHBoxLayout()
         self.code = QLabel("")
-        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         font.setPointSize(18)
         font.setBold(True)
         font.setLetterSpacing(font.AbsoluteSpacing, 6)

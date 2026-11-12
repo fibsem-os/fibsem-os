@@ -2,10 +2,12 @@
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QSize
-from PyQt5.QtGui import QColor
+from qtpy.QtCore import QSize
+from qtpy.QtGui import QColor
 
 from fibsem.ui.icon import APP_ICON_SIZES, autolamella_icon
 

@@ -3,9 +3,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import List, Optional
 
-from PyQt5.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, QSize, Qt, QTimer, Signal
+from qtpy.QtGui import QColor, QIcon, QPixmap
+from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -62,7 +62,7 @@ def _add_flex_column(layout: QHBoxLayout, widget: QWidget, spec: tuple) -> None:
     min_w, stretch = spec
     widget.setMinimumWidth(min_w)
     sp = widget.sizePolicy()
-    sp.setHorizontalPolicy(QSizePolicy.Expanding)
+    sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
     widget.setSizePolicy(sp)
     layout.addWidget(widget, stretch)
 
@@ -90,10 +90,10 @@ def _make_color_icon(color_name: str, size: int = 16) -> QIcon:
 
 
 class MillingStageRowWidget(QWidget):
-    enabled_changed = pyqtSignal(object, bool)  # FibsemMillingStage, enabled
-    remove_clicked = pyqtSignal(object)  # FibsemMillingStage
-    row_clicked = pyqtSignal(object)  # FibsemMillingStage
-    stage_changed = pyqtSignal(object)  # FibsemMillingStage after inline mutation
+    enabled_changed = Signal(object, bool)  # FibsemMillingStage, enabled
+    remove_clicked = Signal(object)  # FibsemMillingStage
+    row_clicked = Signal(object)  # FibsemMillingStage
+    stage_changed = Signal(object)  # FibsemMillingStage after inline mutation
 
     def __init__(
         self,
@@ -366,9 +366,9 @@ class MillingStageRowWidget(QWidget):
 
 
 class _MillingStageListHeader(QWidget):
-    select_all_changed = pyqtSignal(bool)
-    add_clicked = pyqtSignal()
-    eye_toggled = pyqtSignal(bool)  # True = patterns visible
+    select_all_changed = Signal(bool)
+    add_clicked = Signal()
+    eye_toggled = Signal(bool)  # True = patterns visible
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -451,15 +451,15 @@ class _MillingStageListHeader(QWidget):
 class MillingStageListWidget(QWidget):
     """Multi-column list widget for FibsemMillingStage objects."""
 
-    stage_selected = pyqtSignal(object)  # FibsemMillingStage
-    stage_added = pyqtSignal(
+    stage_selected = Signal(object)  # FibsemMillingStage
+    stage_added = Signal(
         object
     )  # FibsemMillingStage (new stage, distinct from selection)
-    stage_removed = pyqtSignal(object)  # FibsemMillingStage
-    stage_changed = pyqtSignal(object)  # FibsemMillingStage (inline field edit)
-    enabled_changed = pyqtSignal(list)  # List[FibsemMillingStage] (enabled only)
-    order_changed = pyqtSignal(list)  # List[FibsemMillingStage] in new order
-    eye_toggled = pyqtSignal(bool)  # True = patterns visible
+    stage_removed = Signal(object)  # FibsemMillingStage
+    stage_changed = Signal(object)  # FibsemMillingStage (inline field edit)
+    enabled_changed = Signal(list)  # List[FibsemMillingStage] (enabled only)
+    order_changed = Signal(list)  # List[FibsemMillingStage] in new order
+    eye_toggled = Signal(bool)  # True = patterns visible
 
     def __init__(
         self,
@@ -492,7 +492,7 @@ class MillingStageListWidget(QWidget):
         layout.addWidget(self._header)
 
         sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
+        sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #3a3d42;")
         layout.addWidget(sep)
 
@@ -506,8 +506,8 @@ class MillingStageListWidget(QWidget):
         # was given when inserted, which comes from its ~680px size hint, so in any
         # panel narrower than that the row ran off the right edge and the Strategy
         # column read as "St". Adjust relays the rows out to the viewport on resize.
-        self._list.setResizeMode(QListView.Adjust)
-        self._list.setFocusPolicy(Qt.NoFocus)
+        self._list.setResizeMode(QListView.ResizeMode.Adjust)
+        self._list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self._list)
 
         self._empty_label = QLabel("No milling stages. Click + to add one.")
@@ -624,7 +624,7 @@ class MillingStageListWidget(QWidget):
         caller today. Unticking one row leaves the header tristate for good --
         `_sync_select_all` never turns it back off -- and a user click on a tristate
         box cycles through PartiallyChecked, which the header reports as
-        `bool(Qt.PartiallyChecked)`, i.e. True. So the third click ticks every row
+        `bool(Qt.CheckState.PartiallyChecked)`, i.e. True. So the third click ticks every row
         while the header itself stays showing a dash. Syncing after the loop settles
         it back onto the rows it just changed.
 
@@ -681,7 +681,9 @@ class MillingStageListWidget(QWidget):
         row.enabled_changed.connect(self._on_enabled_changed)
         row.remove_clicked.connect(self._on_remove_clicked)
         row.row_clicked.connect(self._on_row_clicked)
-        row.stage_changed.connect(self._on_row_stage_changed, type=Qt.QueuedConnection)
+        row.stage_changed.connect(
+            self._on_row_stage_changed, type=Qt.ConnectionType.QueuedConnection
+        )
 
     def _is_name_available(self, name: str, row: MillingStageRowWidget) -> bool:
         existing = {

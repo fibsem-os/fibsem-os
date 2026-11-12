@@ -8,7 +8,9 @@ import pytest
 
 from fibsem.structures.system import InsertableDeviceState
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 from fibsem import utils
 from fibsem.drivers.demo.simulator import STAGE_LIMITS_COMPUSTAGE
@@ -228,7 +230,7 @@ def test_the_objective_is_drawn_in_once_it_is_inserted(controller, arctis):
 def test_inserting_through_the_objective_widget_reaches_the_drawing(controller, arctis):
     """The path in the app: the objective announces the move, the objective control
     passes its state on, and the chamber redraws."""
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtWidgets import QWidget
 
     from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
 

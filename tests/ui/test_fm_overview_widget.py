@@ -20,10 +20,10 @@ from psygnal.containers import EventedList
 from fibsem.imaging.overview_session import FLUORESCENCE, OverviewSession
 from fibsem.structures.system import InsertableDeviceState
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QLabel
+from qtpy.QtCore import QObject, Signal
+from qtpy.QtWidgets import QLabel
 
 from fibsem.fm.progress import (
     FluorescenceAcquisitionProgress,
@@ -587,7 +587,7 @@ def test_a_phase_label_is_cleared_by_the_next_tile(qapp):
 def test_the_bar_text_is_smaller_than_the_default(qapp):
     """Pinned because `setFont` on the holder silently does not reach the bar, so the
     obvious way to do this looks right and changes nothing."""
-    from PyQt5.QtGui import QFontMetrics
+    from qtpy.QtGui import QFontMetrics
 
     plain, shrunk = FibsemProgressWidget(), FibsemProgressWidget()
     shrink_progress_text(shrunk)
@@ -618,7 +618,7 @@ def test_channel_detail_fields_fill_the_panel(qapp):
     and easy to set uselessly: this form previously called `setLabelAlignment` with
     its own current value, and `ExpandingFieldsGrow` does nothing here because none
     of these controls carry an Expanding policy."""
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
     from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
@@ -642,8 +642,8 @@ def test_channel_detail_fields_fill_the_panel(qapp):
     assert all(f.width() > f.sizeHint().width() for f in fields)
 
     form = widget.excitation_combo.parent().layout()
-    assert form.labelAlignment() & Qt.AlignLeft
-    assert form.formAlignment() & Qt.AlignLeft
+    assert form.labelAlignment() & Qt.AlignmentFlag.AlignLeft
+    assert form.formAlignment() & Qt.AlignmentFlag.AlignLeft
 
 
 def test_channel_rows_do_not_overflow_a_narrow_panel(qapp):
@@ -1384,10 +1384,10 @@ class _SynchronousWorker(QObject):
     `move_to`'s failure path unreachable from a test at all (FIB-765).
     """
 
-    started = pyqtSignal()
-    returned = pyqtSignal(object)
-    errored = pyqtSignal(object)
-    finished = pyqtSignal()
+    started = Signal()
+    returned = Signal(object)
+    errored = Signal(object)
+    finished = Signal()
 
     def __init__(self, fn, *args, **kwargs):
         super().__init__()
@@ -1663,7 +1663,7 @@ def test_the_target_reaches_the_acquisition(
     )
     monkeypatch.setattr(
         module.FMOverviewConfirmationDialog,
-        "exec_",
+        "exec",
         lambda self: module.QDialog.Accepted,
     )
     anchor = widget.tile_grid_overlay._anchor()
@@ -1969,7 +1969,7 @@ def _accept_and_run(widget, monkeypatch):
     )
     monkeypatch.setattr(
         module.FMOverviewConfirmationDialog,
-        "exec_",
+        "exec",
         lambda self: module.QDialog.Accepted,
     )
     widget.fm.objective.insert()
@@ -2178,7 +2178,7 @@ class _StubHost(OverviewHost):
     _refresh_grid_context = _Real._refresh_grid_context
 
     def __init__(self, microscope=None, experiment=None):
-        from PyQt5.QtWidgets import QTabWidget
+        from qtpy.QtWidgets import QTabWidget
 
         super().__init__(microscope, experiment)
         self.tab_widget = QTabWidget()
@@ -3955,10 +3955,10 @@ def test_the_list_shows_every_lamella_including_the_unplaceable(qapp, tmp_path):
 
     tab.refresh_positions()
 
-    from PyQt5.QtCore import Qt
+    from qtpy.QtCore import Qt
 
     names = [
-        tab.lamella_list._list.item(i).data(Qt.UserRole).name
+        tab.lamella_list._list.item(i).data(Qt.ItemDataRole.UserRole).name
         for i in range(tab.lamella_list._list.count())
     ]
     assert names == ["Lamella-01", "Lamella-02"]
@@ -4118,7 +4118,7 @@ def test_the_list_survives_the_overview_being_rebuilt(qapp, tmp_path):
     tab.refresh_positions()
     first = tab.lamella_list
 
-    from PyQt5.QtCore import QEvent
+    from qtpy.QtCore import QEvent
 
     from tests.fixtures.fm_microscope import build_microscope
 
@@ -4127,7 +4127,7 @@ def test_the_list_survives_the_overview_being_rebuilt(qapp, tmp_path):
     # `deleteLater` is deferred, so without this the old overview is still alive at
     # assert time and a list left inside it would look fine. A running event loop does
     # this for you; a test has to ask.
-    qapp.sendPostedEvents(None, QEvent.DeferredDelete)
+    qapp.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     qapp.processEvents()
 
     assert tab.lamella_list is first, "the list was replaced"
@@ -5742,7 +5742,7 @@ def dialogs(monkeypatch):
         shown.append(dialog)
         return module.QDialog.Rejected
 
-    monkeypatch.setattr(module.FMOverviewConfirmationDialog, "exec_", _exec)
+    monkeypatch.setattr(module.FMOverviewConfirmationDialog, "exec", _exec)
     return shown
 
 

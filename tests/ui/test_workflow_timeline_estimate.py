@@ -19,11 +19,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from datetime import datetime, timedelta
 
-from PyQt5.QtWidgets import QLabel
+from qtpy.QtWidgets import QLabel
 
 from fibsem.ui.stylesheets import NAPARI_STYLE
 from fibsem.ui.widgets.workflow.timeline import WorkflowProgressWidget
@@ -371,7 +371,7 @@ def test_the_column_does_not_move_when_the_hover_button_appears(widget, app):
 # the number on the row is one the shipped path actually produces, not one the test
 # chose. A stand-in config returning 100.0 would prove none of that.
 
-from PyQt5.QtCore import QObject, pyqtSignal  # noqa: E402
+from qtpy.QtCore import QObject, Signal  # noqa: E402
 
 from fibsem.applications.autolamella.structures import Experiment, Lamella  # noqa: E402
 from fibsem.applications.autolamella.workflows.tasks.fiducial import (  # noqa: E402
@@ -393,8 +393,8 @@ TASKS = {
 class _ParentUI(QObject):
     """The two signals TaskManager emits on, as real Qt signals."""
 
-    workflow_status_signal = pyqtSignal(object)
-    queue_changed_signal = pyqtSignal(dict)
+    workflow_status_signal = Signal(object)
+    queue_changed_signal = Signal(dict)
 
 
 class _NoMicroscope:

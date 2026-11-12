@@ -27,7 +27,7 @@ from fibsem.ui.widgets.canvas.overlays.transform_overlay import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - annotation only
-    from PyQt5.QtCore import QObject
+    from qtpy.QtCore import QObject
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ Pan/zoom, the scalebar and the ruler all work as on any canvas.
 import sys
 
 import numpy as np
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -235,7 +235,7 @@ def main() -> None:
     win = RealSpaceCanvasDemo()
     win.setStyleSheet(NAPARI_STYLE + "QWidget { background: #262930; color: #d1d2d4; }")
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

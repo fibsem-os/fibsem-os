@@ -9,8 +9,8 @@ import matplotlib.ticker as mticker
 import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PyQt5.QtCore import QEvent, QObject, QSize
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, QObject, QSize
+from qtpy.QtWidgets import (
     QLabel,
     QPushButton,
     QVBoxLayout,

@@ -37,11 +37,11 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 
 import numpy as np
 from matplotlib.backend_bases import MouseEvent
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
-from PyQt5.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QFontMetrics
-from PyQt5.QtWidgets import QLabel, QPushButton, QSizePolicy
+from qtpy.QtCore import QSize, Qt, QTimer, Signal
+from qtpy.QtGui import QFontMetrics
+from qtpy.QtWidgets import QLabel, QPushButton, QSizePolicy
 
 from fibsem.theme.plots import DARK
 from fibsem.theme.tokens import (
@@ -201,7 +201,7 @@ def _pass_clicks_through(widget) -> None:
     was avoiding, drawn as an artist. Anything here that is read rather than operated
     gets this; the toolbar buttons deliberately do not.
     """
-    widget.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+    widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
 
 # ---------------------------------------------------------------------------
@@ -221,22 +221,18 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
     """
 
     # Trailing ``object`` is a tuple of modifier strings, e.g. ("Alt",).
-    canvas_clicked = pyqtSignal(
-        float, float, object
-    )  # left single-click (x, y) px, mods
-    canvas_double_clicked = pyqtSignal(
+    canvas_clicked = Signal(float, float, object)  # left single-click (x, y) px, mods
+    canvas_double_clicked = Signal(
         float, float, object
     )  # left double-click (x, y) px, mods
-    canvas_right_clicked = pyqtSignal(
+    canvas_right_clicked = Signal(
         float, float, object
     )  # right single-click (x, y) px, mods
-    canvas_scrolled = pyqtSignal(
-        float, float, int, object
-    )  # (x, y) px, dir +1/-1, mods
+    canvas_scrolled = Signal(float, float, int, object)  # (x, y) px, dir +1/-1, mods
     # Where the cursor is, in canvas coordinates, or (None, None) once it leaves the
     # axes -- so a readout can blank rather than freeze on the last point it saw.
-    # Typed `object` for exactly that: pyqtSignal(float, float) cannot carry None.
-    cursor_moved = pyqtSignal(object, object)
+    # Typed `object` for exactly that: Signal(float, float) cannot carry None.
+    cursor_moved = Signal(object, object)
 
     def __init__(self, parent=None):
         self._fig = Figure(facecolor=_BG)
@@ -609,7 +605,7 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         room = max(available - padding, 0)
         label.setText(
             "\n".join(
-                metrics.elidedText(line, Qt.ElideRight, room)
+                metrics.elidedText(line, Qt.TextElideMode.ElideRight, room)
                 for line in self._info_text.split("\n")
             )
         )
@@ -928,7 +924,9 @@ class FibsemCanvasBase(FigureCanvasQTAgg):
         )
         label.setText(
             metrics.elidedText(
-                self._status_full_text, Qt.ElideRight, max(available - padding, 0)
+                self._status_full_text,
+                Qt.TextElideMode.ElideRight,
+                max(available - padding, 0),
             )
         )
         label.adjustSize()

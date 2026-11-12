@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QTimer
+from qtpy.QtCore import QTimer
 
 from fibsem.imaging.reduce import downsample
 from fibsem.theme.tokens import GRAY_CANVAS_COLOR

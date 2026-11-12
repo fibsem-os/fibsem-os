@@ -5,7 +5,7 @@ The run-end toast counts the run's tasks by status."""
 import pandas as pd
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.widgets.workflow_summary_dialog import (
     WorkflowSummaryDialog,

@@ -13,8 +13,8 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QFormLayout,
     QLabel,
     QVBoxLayout,
@@ -122,8 +122,8 @@ class RefractiveIndexWidget(QWidget):
         no longer what has been applied.
     """
 
-    zeta_computed = pyqtSignal(float)
-    factor_changed = pyqtSignal(float)
+    zeta_computed = Signal(float)
+    factor_changed = Signal(float)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

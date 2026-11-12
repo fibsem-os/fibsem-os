@@ -19,9 +19,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt  # noqa: E402
+from qtpy.QtCore import Qt  # noqa: E402
 
 from fibsem.ui.widgets.workflow.task_list import (  # noqa: E402
     REQUIRES_MAX_WIDTH,
@@ -75,7 +75,7 @@ def test_the_column_is_the_same_width_and_edge_on_every_row(qapp):
     ]
 
     assert {r.requires_label.width() for r in rows} == {REQUIRES_MAX_WIDTH}
-    assert all(r.requires_label.alignment() & Qt.AlignRight for r in rows)
+    assert all(r.requires_label.alignment() & Qt.AlignmentFlag.AlignRight for r in rows)
     # And no row is taller than another for having something in the column.
     assert len({r.sizeHint().height() for r in rows}) == 1
 
@@ -106,7 +106,7 @@ def test_a_task_name_cannot_render_as_markup(qapp):
     """Names come from the protocol, and QLabel on AutoText would interpret them."""
     row = _row("Mill <b>Fiducial</b> & Co", [])
 
-    assert row.name_label.textFormat() == Qt.PlainText
+    assert row.name_label.textFormat() == Qt.TextFormat.PlainText
     assert row.name_label.text() == "Mill <b>Fiducial</b> & Co"
 
     row.deleteLater()

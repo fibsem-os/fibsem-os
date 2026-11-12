@@ -4,7 +4,7 @@ import logging
 import os
 from typing import Optional
 
-from PyQt5 import QtWidgets
+from qtpy import QtWidgets
 
 from fibsem.applications.autolamella import config as cfg
 from fibsem.applications.autolamella.structures import (
@@ -154,8 +154,12 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
         self.btn_cancel = QtWidgets.QPushButton("Cancel")
         self.btn_cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
 
-        button_box.addButton(self.btn_ok, QtWidgets.QDialogButtonBox.AcceptRole)
-        button_box.addButton(self.btn_cancel, QtWidgets.QDialogButtonBox.RejectRole)
+        button_box.addButton(
+            self.btn_ok, QtWidgets.QDialogButtonBox.ButtonRole.AcceptRole
+        )
+        button_box.addButton(
+            self.btn_cancel, QtWidgets.QDialogButtonBox.ButtonRole.RejectRole
+        )
 
         main_layout.addWidget(button_box)
 
@@ -270,10 +274,10 @@ def load_task_protocol_dialog(
     """
     # Create and show the dialog
     dialog = AutoLamellaLoadTaskProtocolWidget(experiment=experiment, parent=parent)
-    result = dialog.exec_()
+    result = dialog.exec()
 
     # Handle the result
-    if result == QtWidgets.QDialog.Accepted:
+    if result == QtWidgets.QDialog.DialogCode.Accepted:
         protocol = dialog.get_protocol()
         if protocol:
             logging.info(f"Protocol loaded: {protocol.name}")

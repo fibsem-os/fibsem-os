@@ -6,9 +6,9 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Dict, List, Optional, Tuple
 
-from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QColor, QPainter
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QPoint, Qt, QTimer, Signal
+from qtpy.QtGui import QColor, QPainter
+from qtpy.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -191,7 +191,7 @@ class _DotWidget(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setBrush(self._color)
-        p.setPen(Qt.NoPen)
+        p.setPen(Qt.PenStyle.NoPen)
         p.drawEllipse(0, 0, self._size, self._size)
 
 
@@ -211,7 +211,7 @@ class _InnerStepRow(QWidget):
         root.setSpacing(6)
 
         self._dot = _DotWidget(_status_color(status), size=_INNER_DOT_SIZE)
-        root.addWidget(self._dot, 0, Qt.AlignVCenter)
+        root.addWidget(self._dot, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self._label = QLabel(label)
         self._update_label_style(status)
@@ -234,8 +234,8 @@ class _InnerStepRow(QWidget):
 class _OuterRow(QWidget):
     """One outer (lamella, task) row with an embedded collapsible inner step list."""
 
-    clicked = pyqtSignal(int)
-    menu_requested = pyqtSignal(int, QPoint)  # index, global position
+    clicked = Signal(int)
+    menu_requested = Signal(int, QPoint)  # index, global position
 
     def __init__(self, step: TimelineStep, index: int, is_last: bool, parent=None):
         super().__init__(parent)
@@ -264,21 +264,21 @@ class _OuterRow(QWidget):
         left_layout = QVBoxLayout(left)
         left_layout.setContentsMargins((_LEFT_COL - _DOT_SIZE) // 2, 4, 0, 0)
         left_layout.setSpacing(0)
-        left_layout.setAlignment(Qt.AlignTop)
+        left_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._dot = _DotWidget(_status_color(step.status))
-        left_layout.addWidget(self._dot, 0, Qt.AlignHCenter)
+        left_layout.addWidget(self._dot, 0, Qt.AlignmentFlag.AlignHCenter)
 
         # Always built, shown or hidden by position: a row can become (or stop
         # being) the last one when the queue is reordered. A hidden widget is
         # empty to the layout, so this matches never creating it.
         self._line = QFrame()
-        self._line.setFrameShape(QFrame.VLine)
+        self._line.setFrameShape(QFrame.Shape.VLine)
         self._line.setFixedWidth(_LINE_W)
         self._line.setStyleSheet(f"background: {_LINE_COLOR}; border: none;")
-        self._line.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
+        self._line.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
         self._line.setVisible(not is_last)
-        left_layout.addWidget(self._line, 1, Qt.AlignHCenter)
+        left_layout.addWidget(self._line, 1, Qt.AlignmentFlag.AlignHCenter)
 
         root.addWidget(left)
 
@@ -335,12 +335,14 @@ class _OuterRow(QWidget):
         trailing_box.setSpacing(0)
         self._trailing = QLabel(step.trailing)
         self._trailing.setFixedWidth(_TRAILING_W)
-        self._trailing.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self._trailing.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         self._trailing_status = step.status
         self._trailing.setStyleSheet(_trailing_style(step.status))
         trailing_box.addWidget(self._trailing)
         trailing_box.addStretch(1)
-        root.addWidget(trailing_holder, 0, Qt.AlignTop)
+        root.addWidget(trailing_holder, 0, Qt.AlignmentFlag.AlignTop)
 
         # Hover-revealed actions button. The timeline is dense enough that a
         # permanent button on every row would be noise, but right-click alone is
@@ -361,7 +363,7 @@ class _OuterRow(QWidget):
         self._btn_actions.setToolTip("Queue actions")
         self._btn_actions.setVisible(False)
         self._btn_actions.clicked.connect(self._on_actions_clicked)
-        root.addWidget(self._btn_actions, 0, Qt.AlignTop)
+        root.addWidget(self._btn_actions, 0, Qt.AlignmentFlag.AlignTop)
 
     def set_trailing(self, text: str) -> None:
         """Write the estimate column alone.
@@ -442,7 +444,7 @@ class _OuterRow(QWidget):
         if not self._selected:
             return
         p = QPainter(self)
-        p.setPen(Qt.NoPen)
+        p.setPen(Qt.PenStyle.NoPen)
         # One contiguous rect across the whole row, including the inner steps when
         # the active row is the selected one — they belong to it.
         p.fillRect(self.rect(), _SELECTED_BG)
@@ -478,8 +480,8 @@ class _OuterRow(QWidget):
 class WorkflowTimelineWidget(QWidget):
     """Scrollable vertical list of outer workflow rows."""
 
-    step_selected = pyqtSignal(int)
-    row_menu_requested = pyqtSignal(int, QPoint)
+    step_selected = Signal(int)
+    row_menu_requested = Signal(int, QPoint)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -504,8 +506,8 @@ class WorkflowTimelineWidget(QWidget):
 
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
-        self._scroll.setFrameShape(QFrame.NoFrame)
-        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # Transparent rather than a hardcoded colour: this widget is embedded in
         # panels that set their own background (workflow_right_panel is #2b2d31),
         # and painting GRAY_BACKGROUND_COLOR here left the rows as a visibly
@@ -661,10 +663,10 @@ class WorkflowProgressWidget(QWidget):
     # (action, WorkItem.id). The widget never mutates the queue itself — it has
     # no business knowing what a queue is — so the owner performs the action and
     # feeds the result back through refresh_queue().
-    queue_action_requested = pyqtSignal(str, str)
+    queue_action_requested = Signal(str, str)
     # run_next: True to add at the front of the pending region, False for the end.
     # What to add comes from the owner's own selection UI, not from here.
-    add_to_queue_requested = pyqtSignal(bool)
+    add_to_queue_requested = Signal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -721,7 +723,7 @@ class WorkflowProgressWidget(QWidget):
         self._btn_add.setStyleSheet(_ADD_BTN_STYLE)
         self._btn_add.setText("Add to Queue")
         self._btn_add.setIcon(fibsem_icon("mdi:plus", color=tokens.GRAY_ICON_COLOR))
-        self._btn_add.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._btn_add.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self._btn_add.setVisible(False)
         # Nothing is selected until the owner says otherwise.
         self._btn_add.setEnabled(False)
@@ -730,7 +732,7 @@ class WorkflowProgressWidget(QWidget):
         # is a tiny target and draws its own raised section against a flat header.
         # Both destinations are then equally visible instead of one being hidden
         # behind an arrow most people never press.
-        self._btn_add.setPopupMode(QToolButton.InstantPopup)
+        self._btn_add.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
 
         add_menu = QMenu(self._btn_add)
         # A disabled action, not addSection(): the styled QMenu does not draw a
@@ -1098,8 +1100,8 @@ class WorkflowProgressWidget(QWidget):
         menu = self.build_row_menu(index)
         if menu is None:
             return
-        menu.exec_(pos)
-        # exec_ returns only after the chosen action has already fired, so the
+        menu.exec(pos)
+        # exec returns only after the chosen action has already fired, so the
         # menu can go. Otherwise every right-click leaves one parented to us.
         menu.deleteLater()
 

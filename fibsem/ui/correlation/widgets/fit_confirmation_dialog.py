@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -84,7 +84,7 @@ def _kv(key: str, value: str, value_color: str = TEXT_COLOR) -> QWidget:
 class FitConfirmationDialog(QDialog):
     """Modal accept/reject for a single :class:`PointFitResult`.
 
-    ``exec_()`` returns ``QDialog.Accepted`` when the user accepts the fitted
+    ``exec()`` returns ``QDialog.DialogCode.Accepted`` when the user accepts the fitted
     position. An ERROR result has nothing to apply — only a Close button.
     """
 
@@ -135,7 +135,7 @@ class FitConfirmationDialog(QDialog):
         self._canvas = None
         self._diag_shown = False
         if result.diagnostic is not None:
-            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+            from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 
             from fibsem.correlation.point_fit import plot_fit_diagnostic
 
