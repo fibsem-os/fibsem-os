@@ -13,8 +13,8 @@ same way. The agent's level is not: it resets to Watch at every launch.
 
 from typing import Callable, Optional
 
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, QTimer
+from qtpy.QtWidgets import (
     QApplication,
     QCheckBox,
     QDialog,
@@ -91,8 +91,8 @@ def note(text: str) -> QLabel:
 
 def open_in_browser(url: str) -> None:
     """Open *url* in the system browser."""
-    from PyQt5.QtCore import QUrl
-    from PyQt5.QtGui import QDesktopServices
+    from qtpy.QtCore import QUrl
+    from qtpy.QtGui import QDesktopServices
 
     QDesktopServices.openUrl(QUrl(url))
 
@@ -131,7 +131,7 @@ class AppServerDialog(QDialog):
         self._status_label.setWordWrap(True)
         self._btn_event_log = QPushButton("Event log")
         self._btn_event_log.setStyleSheet(_LINK_STYLE)
-        self._btn_event_log.setCursor(Qt.PointingHandCursor)
+        self._btn_event_log.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_event_log.setToolTip(
             "Open the event log in your browser: what was done in the session, "
             "and by whom. It reads the session and can't act on it."

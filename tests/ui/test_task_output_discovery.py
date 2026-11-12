@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt5")
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.task_outputs import final_reference_images

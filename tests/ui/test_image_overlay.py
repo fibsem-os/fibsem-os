@@ -16,7 +16,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 
 from fibsem.ui.widgets.canvas.canvas_base import ContentRect
@@ -332,7 +332,7 @@ class TestTheCornersScaleTheImage:
     def test_the_cursor_points_the_way_the_corner_lies(
         self, qapp, rotation, corner, cursor
     ):
-        from PyQt5.QtCore import Qt
+        from qtpy.QtCore import Qt
 
         overlay = build(rotation=rotation)
         assert overlay._corner_cursor(corner) == getattr(Qt, cursor)

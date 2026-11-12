@@ -24,8 +24,8 @@ from __future__ import annotations
 from typing import List, Optional
 
 import numpy as np
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.correlation.structures import PointType
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
@@ -43,10 +43,10 @@ class PointCanvasWidget(PickingCanvasMixin, QWidget):
     here and on ``CorrelationFMCanvasWidget`` have to stay identically named.
     """
 
-    point_selected = pyqtSignal(object)  # Coordinate
-    point_moved = pyqtSignal(object)  # Coordinate
-    point_removed = pyqtSignal(object)  # Coordinate
-    point_add_requested = pyqtSignal(float, float, object)  # x, y, PointType
+    point_selected = Signal(object)  # Coordinate
+    point_moved = Signal(object)  # Coordinate
+    point_removed = Signal(object)  # Coordinate
+    point_add_requested = Signal(float, float, object)  # x, y, PointType
 
     def __init__(
         self,

@@ -14,8 +14,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
-from PyQt5.QtCore import QEvent, QObject, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QEvent, QObject, Qt, Signal
+from qtpy.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -110,7 +110,7 @@ def _panel(inner: QWidget, bar: Optional[ViewInfoBar] = None) -> QFrame:
     """
     frame = QFrame()
     frame.setObjectName("viewPanel")
-    frame.setAttribute(Qt.WA_StyledBackground, True)
+    frame.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
     frame.setStyleSheet(_PANEL_QSS.format(bg=_BG, border="transparent"))
     lay = QVBoxLayout(frame)
     lay.setContentsMargins(0, 0, 0, 0)
@@ -156,7 +156,7 @@ class PageCell(QWidget):
         self.btn_previous = self._cycle_button("‹", "Previous page", -1)
         self.btn_next = self._cycle_button("›", "Next page", 1)
         self.label = QLabel()
-        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.label.setStyleSheet(_CYCLE_LABEL_STYLE)
         self._stack = QStackedWidget()
         self._keys: List[str] = []
@@ -190,7 +190,7 @@ class PageCell(QWidget):
         button.setText(text)
         button.setToolTip(tooltip)
         button.setAutoRaise(True)
-        button.setCursor(Qt.PointingHandCursor)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
         button.setStyleSheet(_CYCLE_BUTTON_STYLE)
         button.clicked.connect(lambda: self.step(step))
         return button
@@ -258,7 +258,7 @@ class QuadViewWidget(QWidget):
 
     # Emitted when the selected view changes; payload is the view key
     # (BeamType.ELECTRON / BeamType.ION for SEM / FIB, or the string "fm").
-    view_selected = pyqtSignal(object)
+    view_selected = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -287,9 +287,9 @@ class QuadViewWidget(QWidget):
         # A page's own controls, when it has any, in a row above it.
         page_panel.layout().insertWidget(0, self.page_cell.header)
 
-        left = _splitter(Qt.Vertical, sem_panel, fm_panel)
-        right = _splitter(Qt.Vertical, fib_panel, page_panel)
-        root = _splitter(Qt.Horizontal, left, right)
+        left = _splitter(Qt.Orientation.Vertical, sem_panel, fm_panel)
+        right = _splitter(Qt.Orientation.Vertical, fib_panel, page_panel)
+        root = _splitter(Qt.Orientation.Horizontal, left, right)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -388,7 +388,7 @@ class QuadViewWidget(QWidget):
     def eventFilter(self, obj, event):
         """Select the view whose canvas was pressed (any mouse button). The event is not
         consumed, so clicks still pan / move the stage / open menus exactly as before."""
-        if event.type() == QEvent.MouseButtonPress:
+        if event.type() == QEvent.Type.MouseButtonPress:
             key = self._canvas_keys.get(obj)
             if key is not None:
                 self.set_selected(key)
@@ -480,7 +480,9 @@ class ItemEditorView(QWidget):
         # SEM on the left, FIB on the right: the same order as the Microscope
         # tab's quad view, so a side-by-side pair reads the same everywhere.
         self._fib_panel = _panel(self.fib_canvas, self.fib_bar)
-        self._beams_page = _splitter(Qt.Horizontal, self._sem_panel, self._fib_panel)
+        self._beams_page = _splitter(
+            Qt.Orientation.Horizontal, self._sem_panel, self._fib_panel
+        )
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._beams_page)  # index 0: beams
@@ -518,33 +520,33 @@ class MicroscopeViewController(QObject):
     # Emitted (queued) when a canvas needs re-rendering; the queued connection
     # marshals the render onto the GUI thread, so the reducer API is safe to call
     # from worker threads.
-    _render_requested = pyqtSignal()
+    _render_requested = Signal()
 
     # Emitted when the user commits an edit on an interactive overlay:
     # (beam, overlay_id, value). Producers subscribe and filter by overlay_id.
-    overlay_edited = pyqtSignal(object, str, object)
+    overlay_edited = Signal(object, str, object)
 
     # Emitted when the user selects a point on a PointsSpec overlay:
     # (beam, overlay_id, index). Producers subscribe to mirror selection (e.g. a table).
-    overlay_point_selected = pyqtSignal(object, str, int)
+    overlay_point_selected = Signal(object, str, int)
 
     # Emitted on any selection change the user makes on a PointsSpec overlay, including
     # clearing it: (beam, overlay_id, indices). The multi-select counterpart of
     # overlay_point_selected; producers mirroring a multi-selection subscribe to this.
-    overlay_selection_changed = pyqtSignal(object, str, object)
+    overlay_selection_changed = Signal(object, str, object)
 
     # Emitted with the stage position each time the info bar is given one, so a page of
     # the fourth cell can follow the stage on the same updates, reading nothing itself.
-    stage_updated = pyqtSignal(object)
+    stage_updated = Signal(object)
 
     # What the instrument is doing, in words ("Moving to the SEM orientation…"), or
     # None once it is over. For the host's status-bar slot: the views say
     # what a move did to them with their chips; the words go where there is room.
-    activity_changed = pyqtSignal(object)
+    activity_changed = Signal(object)
 
     # Forwarded from the view when the selected view changes (BeamType or "fm"). Only the
     # quad view emits this; the lamella editor view has no selection concept.
-    view_selected = pyqtSignal(object)
+    view_selected = Signal(object)
 
     def __init__(
         self, parent: Optional[QObject] = None, view: Optional[QWidget] = None
@@ -588,7 +590,9 @@ class MicroscopeViewController(QObject):
         self._moved: Set[FibsemImageCanvas] = set()
         self._activity: Optional[str] = None
         self._render_scheduled = False
-        self._render_requested.connect(self._do_render, Qt.QueuedConnection)
+        self._render_requested.connect(
+            self._do_render, Qt.ConnectionType.QueuedConnection
+        )
         # Last objective position anyone told us about, in metres. Remembered so
         # `update_info` can label the FM canvas without asking the device -- see there.
         self._objective_position: Optional[float] = None

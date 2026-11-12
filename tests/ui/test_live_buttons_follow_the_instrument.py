@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 import fibsem.config as _fibsem_config
 from fibsem import utils
@@ -55,7 +55,7 @@ def image_widget(qapp):
 
 @pytest.fixture
 def fm_widget(qapp):
-    from PyQt5.QtWidgets import QWidget
+    from qtpy.QtWidgets import QWidget
 
     from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget
 

@@ -17,8 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QHBoxLayout,
@@ -125,14 +125,14 @@ def task_unavailable_reason(config: GridTaskConfig, microscope) -> Optional[str]
 
 
 class _GridRow(QWidget):
-    selection_changed = pyqtSignal(object, bool)  # GridRecord, checked
+    selection_changed = Signal(object, bool)  # GridRecord, checked
 
     def __init__(self, grid: GridRecord, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.grid = grid
         self._entry: Optional[GridInventoryEntry] = None
         self._chip_widgets: List[QLabel] = []
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(8)
@@ -144,7 +144,7 @@ class _GridRow(QWidget):
         layout.addWidget(self.checkbox)
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
-        self.name_label.setTextFormat(Qt.PlainText)
+        self.name_label.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.name_label)
         self.status_label = ElidedLabel()
         layout.addWidget(self.status_label, 1)
@@ -155,7 +155,9 @@ class _GridRow(QWidget):
         # dependencies: read down the list, not hunted for after each name.
         self.slot_label = QLabel()
         self.slot_label.setFixedWidth(_SLOT_COLUMN_WIDTH)
-        self.slot_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.slot_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         self.slot_label.setStyleSheet(
             f"background: transparent; color: {NEUTRAL_700}; "
             f"font-size: {_SIDE_FONT_PX}px;"
@@ -242,7 +244,7 @@ class GridTaskEditDialog(QDialog):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.setSpacing(8)
         title = QLabel(config.task_name)
-        title.setTextFormat(Qt.PlainText)
+        title.setTextFormat(Qt.TextFormat.PlainText)
         title.setStyleSheet(
             f"font-size: 13px; font-weight: bold; color: {TEXT_STRONG};"
         )
@@ -286,9 +288,9 @@ class GridTaskEditDialog(QDialog):
 
 
 class _TaskRow(QWidget):
-    selection_changed = pyqtSignal(str, bool)  # task name, checked
-    attention_changed = pyqtSignal(str)  # task name; the protocol is already changed
-    edit_clicked = pyqtSignal(str)  # task name
+    selection_changed = Signal(str, bool)  # task name, checked
+    attention_changed = Signal(str)  # task name; the protocol is already changed
+    edit_clicked = Signal(str)  # task name
 
     def __init__(
         self,
@@ -300,7 +302,7 @@ class _TaskRow(QWidget):
         self.config = config
         self.protocol = protocol
         self._reason: Optional[str] = None
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(8)
@@ -312,7 +314,7 @@ class _TaskRow(QWidget):
         layout.addWidget(self.checkbox)
         self.name_label = QLabel()
         self.name_label.setMinimumWidth(_NAME_MIN_WIDTH)
-        self.name_label.setTextFormat(Qt.PlainText)
+        self.name_label.setTextFormat(Qt.TextFormat.PlainText)
         layout.addWidget(self.name_label)
         layout.addStretch(1)
         # What it waits for, or its kind, or why this system cannot run it: the
@@ -325,17 +327,23 @@ class _TaskRow(QWidget):
         # driven wide by its text. This column is fixed, and left Ignored the
         # layout placed it as if it had no width and let the stretch push it
         # past the row's edge; Fixed makes it a proper 170 px column.
-        self.detail_label.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-        self.detail_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.detail_label.setSizePolicy(
+            QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred
+        )
+        self.detail_label.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         layout.addWidget(self.detail_label)
         # Who decides the record, as on the lamella task list, with the two
         # states a grid task has: Automated or Supervised. A click toggles.
         self.btn_attention = QToolButton()
-        self.btn_attention.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.btn_attention.setToolButtonStyle(
+            Qt.ToolButtonStyle.ToolButtonTextBesideIcon
+        )
         self.btn_attention.setIconSize(QSize(14, 14))
         self.btn_attention.setFixedSize(CHIP_WIDTH, CHIP_HEIGHT)
-        self.btn_attention.setCursor(Qt.PointingHandCursor)
-        self.btn_attention.setFocusPolicy(Qt.NoFocus)
+        self.btn_attention.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_attention.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_attention.clicked.connect(self._toggle_attention)
         layout.addWidget(self.btn_attention)
         # What it requires is edited here, as on the lamella task list; its
@@ -447,9 +455,9 @@ _LIST_STYLESHEET = (
 def _list() -> QListWidget:
     widget = QListWidget()
     widget.setStyleSheet(_LIST_STYLESHEET)
-    widget.setSelectionMode(QListWidget.NoSelection)
+    widget.setSelectionMode(QListWidget.SelectionMode.NoSelection)
     widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-    widget.setResizeMode(QListWidget.Adjust)
+    widget.setResizeMode(QListWidget.ResizeMode.Adjust)
     widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
     return widget
 
@@ -470,11 +478,11 @@ def _screen_all_button() -> QToolButton:
     since Run on the shared footer is the tab's primary action."""
     button = QToolButton()
     button.setText("Screen all")
-    button.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
     button.setIcon(fibsem_icon("mdi:play-circle-outline", color=TEXT_COLOR))
     button.setIconSize(QSize(14, 14))
     button.setFixedHeight(CHIP_HEIGHT)
-    button.setCursor(Qt.PointingHandCursor)
+    button.setCursor(Qt.CursorShape.PointingHandCursor)
     button.setStyleSheet(
         f"QToolButton {{ border: 1px solid {BORDER_COLOR}; border-radius: 3px; "
         f"padding: 0 6px 0 4px; background: transparent; color: {TEXT_COLOR}; "
@@ -511,7 +519,7 @@ class GridRunOptionsPopup(OptionsPopup):
     report. Set once if at all, and kept for the session: every run started from
     this page ends the way they say."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__("Grid workflow options", parent)
@@ -557,12 +565,12 @@ class GridRunOptionsPopup(OptionsPopup):
 
 
 class GridWorkflowWidget(QWidget):
-    selection_changed = pyqtSignal()
+    selection_changed = Signal()
     # The one-click path. The host runs it: inventory, then the ticked tasks on
     # every present grid.
-    screen_all_requested = pyqtSignal()
+    screen_all_requested = Signal()
     # The task order was changed here and saved to the protocol.
-    protocol_changed = pyqtSignal()
+    protocol_changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -615,9 +623,9 @@ class GridWorkflowWidget(QWidget):
         root.addWidget(self.task_header)
         self.task_list = ReorderableListWidget()
         self.task_list.setStyleSheet(_LIST_STYLESHEET)
-        self.task_list.setSelectionMode(QListWidget.SingleSelection)
+        self.task_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.task_list.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.task_list.setResizeMode(QListWidget.Adjust)
+        self.task_list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.task_list.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
@@ -847,7 +855,7 @@ class GridWorkflowWidget(QWidget):
 
     def _on_edit_requested(self, task_name: str) -> None:
         dialog = self.edit_dialog(task_name)
-        if dialog is not None and dialog.exec_() == QDialog.Accepted:
+        if dialog is not None and dialog.exec() == QDialog.DialogCode.Accepted:
             self.set_requires(task_name, dialog.requires)
 
     def set_requires(self, task_name: str, names: List[str]) -> None:

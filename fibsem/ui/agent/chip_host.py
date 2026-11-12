@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from PyQt5.QtCore import QObject, QTimer, pyqtSignal
+from qtpy.QtCore import QObject, QTimer, Signal
 
 from fibsem import unreleased
 from fibsem.ai.agent.levels import AgentLevel
@@ -25,7 +25,7 @@ class AgentChipHost(QObject):
 
     # The agent's request changed: emitted from the request's
     # worker thread, delivered on the GUI thread.
-    request_changed = pyqtSignal()
+    request_changed = Signal()
 
     def __init__(
         self,

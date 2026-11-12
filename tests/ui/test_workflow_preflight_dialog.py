@@ -23,9 +23,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 import pytest
 
 # CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there.
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
+from qtpy.QtWidgets import QApplication, QLabel, QToolButton  # noqa: E402
 
 from fibsem.applications.autolamella.ui.workflow.preflight import (
     WorkflowPreflightDialog,  # noqa: E402
@@ -335,7 +335,7 @@ def test_the_panels_do_not_restyle_the_chips_inside_them(dialog):
     Only visible on a real style; offscreen rendering hid it. Pinned by the selector
     rather than by pixels for that reason.
     """
-    from PyQt5.QtWidgets import QFrame
+    from qtpy.QtWidgets import QFrame
 
     tasks = [TaskEstimate("Polishing", 2, 785.0)]
     d = dialog(_estimate(tasks=tasks), RunAttendance(supervised=("Polishing",)))
@@ -369,7 +369,7 @@ def test_everything_on_a_panel_declares_itself_transparent(dialog):
     their children, which makes each child's own declaration the only thing standing
     between the design and a lighter block around every word.
     """
-    from PyQt5.QtWidgets import QFrame
+    from qtpy.QtWidgets import QFrame
 
     tasks = [TaskEstimate("Polishing", 2, 785.0)]
     d = dialog(_estimate(tasks=tasks), RunAttendance(supervised=("Polishing",)))

@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QGridLayout,
     QLabel,
     QWidget,
@@ -41,7 +41,7 @@ TRANSFORM_DISPLAY_NAMES = {
 class CameraWidget(QWidget):
     """Widget for camera control settings (gain, binning, transform)."""
 
-    settings_changed = pyqtSignal(CameraSettings)
+    settings_changed = Signal(CameraSettings)
 
     def __init__(self, fm: "FluorescenceMicroscope", parent: Optional[QWidget] = None):
         super().__init__(parent)

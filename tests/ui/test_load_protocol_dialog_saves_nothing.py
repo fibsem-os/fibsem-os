@@ -9,9 +9,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QDialog
+from qtpy.QtWidgets import QDialog
 
 from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskProtocol,
@@ -41,7 +41,7 @@ def test_ok_returns_the_new_protocol_and_writes_nothing(qapp, tmp_path, monkeypa
     dialog._protocol_changed = True
     dialog._on_ok_clicked()
 
-    assert dialog.result() == QDialog.Accepted
+    assert dialog.result() == QDialog.DialogCode.Accepted
     assert dialog.get_protocol() is chosen
     assert writes == []
     assert saved.read_text(encoding="utf-8") == before

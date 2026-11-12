@@ -11,8 +11,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
-from PyQt5.QtCore import QObject, Qt
-from PyQt5.QtWidgets import QMessageBox, QWidget
+from qtpy.QtCore import QObject, Qt
+from qtpy.QtWidgets import QMessageBox, QWidget
 
 from fibsem.acting import AGENT, OPERATOR
 from fibsem.ui import notification_service
@@ -100,10 +100,10 @@ class RunView(QObject):
             self._host,
             "Stop Workflow",
             "Are you sure you want to stop the workflow?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
-        if reply == QMessageBox.Yes:
+        if reply == QMessageBox.StandardButton.Yes:
             # The border goes red on the run relay's stopping, as for any stop.
             self._session.runner.stop(actor=OPERATOR, via="Stop")
 
@@ -119,15 +119,17 @@ class RunView(QObject):
         if not self._session.runner.is_running:
             return True
         box = QMessageBox(self._host)
-        box.setIcon(QMessageBox.Warning)
+        box.setIcon(QMessageBox.Icon.Warning)
         box.setWindowTitle("Workflow Running")
         box.setText("A workflow is running. Close anyway?")
         box.setInformativeText(
             "Closing stops the workflow and disconnects from the microscope."
         )
-        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-        box.setDefaultButton(QMessageBox.No)
-        if box.exec_() != QMessageBox.Yes:
+        box.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        box.setDefaultButton(QMessageBox.StandardButton.No)
+        if box.exec() != QMessageBox.StandardButton.Yes:
             return False
         self._session.runner.stop(actor=OPERATOR, via="closing the window")
         return True
@@ -371,7 +373,7 @@ class RunView(QObject):
         """Open a run's summary dialog, without blocking the window."""
         try:
             dialog = WorkflowSummaryDialog(summary, note=note, parent=self._host)
-            dialog.setAttribute(Qt.WA_DeleteOnClose)
+            dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             dialog.show()
         except Exception as e:
             logging.warning(f"Failed to show workflow summary dialog: {e}")

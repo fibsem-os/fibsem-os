@@ -30,11 +30,11 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtTest import QTest
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import Qt
+from qtpy.QtTest import QTest
+from qtpy.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella.cards import (
@@ -112,7 +112,7 @@ def test_clicking_the_thumbnail_selects_the_card():
 
     seen = []
     container.lamella_selected.connect(seen.append)
-    QTest.mouseClick(card._thumb_label, Qt.LeftButton)
+    QTest.mouseClick(card._thumb_label, Qt.MouseButton.LeftButton)
 
     assert seen == [lamella]
     assert container._selected_id == lamella.id
@@ -128,7 +128,7 @@ def test_clicking_the_defect_button_does_not_select_the_card():
 
     seen = []
     container.lamella_selected.connect(seen.append)
-    QTest.mousePress(card._btn_defect, Qt.LeftButton)
+    QTest.mousePress(card._btn_defect, Qt.MouseButton.LeftButton)
 
     assert seen == []
 
@@ -329,18 +329,23 @@ def test_a_mode_this_build_does_not_know_falls_back_the_same_way_everywhere():
 def test_remove_asks_with_yes_and_no_and_no_is_the_default(monkeypatch):
     """`QMessageBox.question(parent, title, text, buttons, default)`: the
     buttons argument once carried only Yes, so the dialog had no No button."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     asked = []
 
     def question(parent, title, text, buttons, default):
         asked.append((buttons, default))
-        return QMessageBox.No
+        return QMessageBox.StandardButton.No
 
     monkeypatch.setattr(QMessageBox, "question", staticmethod(question))
     card = LamellaCardWidget(_lamella("short"), mode=MODE_STANDARD)
     removed = []
     card.remove_requested.connect(removed.append)
     card._on_remove_clicked()
-    assert asked == [(QMessageBox.Yes | QMessageBox.No, QMessageBox.No)]
+    assert asked == [
+        (
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+    ]
     assert removed == []

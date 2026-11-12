@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple
 
 import pandas as pd
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QApplication,
     QDialog,
     QMessageBox,
@@ -135,10 +135,10 @@ class ScriptRunner:
         box.setWindowTitle("Run script")
         box.setText(question)
         box.setInformativeText(detail)
-        box.setIcon(QMessageBox.Warning)
+        box.setIcon(QMessageBox.Icon.Warning)
         box.setStyleSheet(MESSAGE_BOX_STYLESHEET)
-        run = box.addButton("Run script", QMessageBox.AcceptRole)
-        cancel = box.addButton("Cancel", QMessageBox.RejectRole)
+        run = box.addButton("Run script", QMessageBox.ButtonRole.AcceptRole)
+        cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
         # same weighting as the dialog's own footer: Run primary, Cancel secondary
         run.setStyleSheet(PRIMARY_BUTTON_STYLESHEET)
         cancel.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
@@ -149,14 +149,14 @@ class ScriptRunner:
         # comes up at ~280px and wraps two short sentences over three lines.
         layout = box.layout()
         layout.addItem(
-            QSpacerItem(400, 0, QSizePolicy.Minimum, QSizePolicy.Fixed),
+            QSpacerItem(400, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed),
             layout.rowCount(),
             0,
             1,
             layout.columnCount(),
         )
 
-        box.exec_()
+        box.exec()
         return box.clickedButton() is run
 
     def _consequence(self, script: DiscoveredScript) -> str:
@@ -249,7 +249,7 @@ class ScriptRunner:
         # Inline, on the GUI thread, so a slow one freezes the window -- the cursor is
         # the only sign it is working. Set after the confirmation, or the modal box
         # above would come up under a wait cursor.
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         try:
             result = run_script(script, context)
         finally:
@@ -351,4 +351,4 @@ class ScriptRunner:
         dialog.resize(720, 420)
         layout = QVBoxLayout(dialog)
         layout.addWidget(DataFrameTableWidget(dataframe=dataframe, parent=dialog))
-        dialog.exec_()
+        dialog.exec()

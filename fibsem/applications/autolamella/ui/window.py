@@ -11,7 +11,7 @@ try:
 except Exception:
     pass
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
@@ -1226,7 +1226,7 @@ class AutoLamellaWindow(AppWindow):
             return
 
         dialog = create_overview_image_widget(experiment=self.experiment, parent=self)
-        dialog.exec_()
+        dialog.exec()
 
         return
 

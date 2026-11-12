@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QMenu  # noqa: E402
+from qtpy.QtWidgets import QMenu  # noqa: E402
 
 from fibsem.ui.widgets.script_menu import (  # noqa: E402
     MANAGE_LABEL,

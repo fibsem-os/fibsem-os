@@ -9,7 +9,7 @@ experiment's record.
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.acting import TASK, acting, current_actor  # noqa: E402
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker  # noqa: E402

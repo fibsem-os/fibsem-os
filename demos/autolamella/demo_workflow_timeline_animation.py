@@ -11,8 +11,8 @@ import random
 import sys
 from typing import Dict, List
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QTimer
+from qtpy.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
@@ -226,4 +226,4 @@ if __name__ == "__main__":
     app.setStyle("Fusion")
     win = AnimatedDemo()
     win.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

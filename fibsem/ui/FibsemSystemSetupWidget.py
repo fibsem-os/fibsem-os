@@ -2,8 +2,8 @@ import logging
 import os
 from typing import Callable, Optional
 
-from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import pyqtSignal
+from qtpy import QtCore, QtWidgets
+from qtpy.QtCore import Signal
 
 from fibsem import config as cfg
 from fibsem import guided_setup, utils
@@ -45,10 +45,10 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
     for it and follows ``session.changed``, whoever connected, the window or
     the App Server."""
 
-    connected_signal = pyqtSignal()
-    disconnected_signal = pyqtSignal()
+    connected_signal = Signal()
+    disconnected_signal = Signal()
     # The session's `changed`, carried to the GUI thread.
-    _session_changed = pyqtSignal(str)
+    _session_changed = Signal(str)
 
     def __init__(
         self,
@@ -84,7 +84,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # Adding a configuration, and opening the one in use.
         self.toolButton_configuration = QtWidgets.QToolButton()
         self.toolButton_configuration.setToolTip("Configurations")
-        self.toolButton_configuration.setPopupMode(QtWidgets.QToolButton.InstantPopup)
+        self.toolButton_configuration.setPopupMode(
+            QtWidgets.QToolButton.ToolButtonPopupMode.InstantPopup
+        )
         self.toolButton_configuration.setStyleSheet(
             "QToolButton::menu-indicator { image: none; width: 0px; }"
         )
@@ -176,7 +178,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         icon.setStyleSheet("background: transparent; border: none;")
         icon.setFixedSize(20, 20)
         icon.setPixmap(fibsem_icon("mdi:auto-fix", color=PRIMARY_COLOR).pixmap(20, 20))
-        layout.addWidget(icon, 0, QtCore.Qt.AlignTop)
+        layout.addWidget(icon, 0, QtCore.Qt.AlignmentFlag.AlignTop)
 
         text = QtWidgets.QVBoxLayout()
         text.setSpacing(2)
@@ -210,7 +212,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             QPushButton:hover {{ background-color: rgba(0, 122, 204, 0.20); }}
         """)
         self._button_run_wizard.clicked.connect(self.run_guided_setup)
-        layout.addWidget(self._button_run_wizard, 0, QtCore.Qt.AlignVCenter)
+        layout.addWidget(
+            self._button_run_wizard, 0, QtCore.Qt.AlignmentFlag.AlignVCenter
+        )
 
         self._button_dismiss_first_run = QtWidgets.QToolButton()
         self._button_dismiss_first_run.setIcon(
@@ -222,7 +226,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
             "border: none; background: transparent;"
         )
         self._button_dismiss_first_run.clicked.connect(self._dismiss_first_run)
-        layout.addWidget(self._button_dismiss_first_run, 0, QtCore.Qt.AlignTop)
+        layout.addWidget(
+            self._button_dismiss_first_run, 0, QtCore.Qt.AlignmentFlag.AlignTop
+        )
 
         # Hidden until refresh_first_run_offer decides otherwise, which cannot happen
         # here -- it reads self._frame_first_run, and that is what this returns.
@@ -565,7 +571,9 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         )
         self._label_status_title.setText("Connecting")
         self._label_status_subtitle.setText(step)
-        QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+        QtWidgets.QApplication.processEvents(
+            QtCore.QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
+        )
 
     def set_current_imaging(
         self, provider: Optional[Callable[[], ImageSettings]]

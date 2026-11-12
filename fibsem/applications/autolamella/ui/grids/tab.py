@@ -21,9 +21,9 @@ import logging
 import os
 from typing import TYPE_CHECKING, Callable, Dict, Optional
 
-from PyQt5.QtCore import QSize, Qt, QUrl, pyqtSignal
-from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, Qt, QUrl, Signal
+from qtpy.QtGui import QDesktopServices
+from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -66,10 +66,10 @@ VIEW_POSITIONS = "Positions"
 class GridsTabWidget(QWidget):
     """Cards for the experiment's grids, with Protocol and Results beside them."""
 
-    grid_selected = pyqtSignal(object)  # GridRecord | None
+    grid_selected = Signal(object)  # GridRecord | None
     # The experiment's grid records changed here (inventory, a rename, a quality),
     # and were saved; hosts drawing them elsewhere should refresh.
-    experiment_changed = pyqtSignal()
+    experiment_changed = Signal()
 
     def __init__(
         self,
@@ -100,7 +100,7 @@ class GridsTabWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setChildrenCollapsible(True)
 
         # -- left: the strip -----------------------------------------------------
@@ -179,7 +179,7 @@ class GridsTabWidget(QWidget):
         for name in (VIEW_RESULTS, VIEW_POSITIONS):
             chip = QPushButton(name)
             chip.setCheckable(True)
-            chip.setCursor(Qt.PointingHandCursor)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
             # Accent when selected, as the Overview tab's modality chips: which
             # of the two the panel is showing should read at a glance.
             chip.setStyleSheet(MODALITY_CHIP_STYLE)
@@ -532,9 +532,13 @@ class GridsTabWidget(QWidget):
             return True
         return (
             QMessageBox.question(
-                self, title, text, QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+                self,
+                title,
+                text,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
             )
-            == QMessageBox.Yes
+            == QMessageBox.StandardButton.Yes
         )
 
     def _start(

@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from typing import List, Optional, Union
 
-from PyQt5.QtCore import QTimer, pyqtSignal
-from PyQt5.QtWidgets import QVBoxLayout, QWidget
+from qtpy.QtCore import QTimer, Signal
+from qtpy.QtWidgets import QVBoxLayout, QWidget
 
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.fm.structures import ChannelSettings
@@ -28,15 +28,13 @@ class FluorescenceMultiChannelWidget(QWidget):
     Drop-in replacement for ChannelListWidget at call sites.
     """
 
-    channel_field_changed = pyqtSignal(
-        object, str, object
-    )  # ChannelSettings, field, value
-    settings_changed = pyqtSignal(list)  # List[ChannelSettings]
-    channel_added = pyqtSignal(object)  # ChannelSettings
-    channel_removed = pyqtSignal(object)  # ChannelSettings
-    channel_changed = pyqtSignal(object)  # ChannelSettings
-    enabled_changed = pyqtSignal(list)  # List[ChannelSettings] (enabled only)
-    order_changed = pyqtSignal(list)  # List[ChannelSettings]
+    channel_field_changed = Signal(object, str, object)  # ChannelSettings, field, value
+    settings_changed = Signal(list)  # List[ChannelSettings]
+    channel_added = Signal(object)  # ChannelSettings
+    channel_removed = Signal(object)  # ChannelSettings
+    channel_changed = Signal(object)  # ChannelSettings
+    enabled_changed = Signal(list)  # List[ChannelSettings] (enabled only)
+    order_changed = Signal(list)  # List[ChannelSettings]
 
     def __init__(
         self,

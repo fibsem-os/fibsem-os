@@ -9,8 +9,8 @@ ToastManager — no microscope or experiment required.
 
 import sys
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QApplication,
     QLabel,
     QMainWindow,
@@ -31,7 +31,7 @@ from fibsem.ui.widgets.notifications import NotificationBell, ToastManager
 
 
 class HookTestWindow(QMainWindow):
-    _hook_toast_signal = pyqtSignal(str, str)
+    _hook_toast_signal = Signal(str, str)
 
     def __init__(self):
         super().__init__()
@@ -207,4 +207,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = HookTestWindow()
     w.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

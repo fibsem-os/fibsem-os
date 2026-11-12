@@ -7,8 +7,8 @@ Run with:
 
 import sys
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QApplication,
     QPushButton,
     QSplitter,
@@ -107,13 +107,13 @@ def main():
     right_layout.addWidget(widget)
     right_layout.addWidget(panel)
 
-    window = QSplitter(Qt.Horizontal)
+    window = QSplitter(Qt.Orientation.Horizontal)
     window.addWidget(parent.view_controller.widget)
     window.addWidget(right)
     window.setSizes([720, 460])
     window.resize(1280, 800)
     window.show()
-    app.exec_()
+    app.exec()
 
 
 if __name__ == "__main__":

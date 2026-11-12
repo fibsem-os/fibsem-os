@@ -4,7 +4,7 @@ in proposal_list, for the operator to approve or decline."""
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fastapi.testclient import TestClient  # noqa: E402
 

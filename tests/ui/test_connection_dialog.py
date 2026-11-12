@@ -18,9 +18,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QDialog  # noqa: E402
+from qtpy.QtWidgets import QDialog  # noqa: E402
 
 from fibsem import config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
@@ -32,9 +32,9 @@ from fibsem.workflows.session import AppSession  # noqa: E402
 @pytest.fixture
 def dialog(qapp):
     d = ConnectionDialog()
-    # Shown, not exec_'d: a child of a hidden window reports `isVisible() == False`
+    # Shown, not exec'd: a child of a hidden window reports `isVisible() == False`
     # whatever its own flag says, so "the message is shown" would pass without the
-    # code doing anything. exec_ would block the test on the event loop.
+    # code doing anything. exec would block the test on the event loop.
     d.show()
     yield d
     d.session.disconnect()
@@ -74,7 +74,7 @@ def test_dismissing_leaves_the_session_empty(dialog):
     without a microscope."""
     dialog.offline_button.click()
 
-    assert dialog.result() == QDialog.Rejected
+    assert dialog.result() == QDialog.DialogCode.Rejected
     assert dialog.microscope is None
     assert dialog.settings is None
 
@@ -82,7 +82,7 @@ def test_dismissing_leaves_the_session_empty(dialog):
 def test_connecting_holds_the_session_and_accepts(dialog):
     dialog.connect_to_microscope()
 
-    assert dialog.result() == QDialog.Accepted
+    assert dialog.result() == QDialog.DialogCode.Accepted
     assert dialog.microscope is not None
     assert dialog.settings is not None
 
@@ -99,7 +99,7 @@ def test_a_configuration_that_resolves_nowhere_is_reported(dialog):
 
     assert dialog.message_label.isVisible()
     assert "could not be found" in dialog.message_label.text()
-    assert dialog.result() != QDialog.Accepted
+    assert dialog.result() != QDialog.DialogCode.Accepted
 
 
 def test_a_failure_stays_in_the_dialog(dialog, monkeypatch):
@@ -112,7 +112,7 @@ def test_a_failure_stays_in_the_dialog(dialog, monkeypatch):
 
     dialog.connect_to_microscope()
 
-    assert dialog.isVisible() or dialog.result() != QDialog.Accepted
+    assert dialog.isVisible() or dialog.result() != QDialog.DialogCode.Accepted
     assert dialog.microscope is None
     assert "Could not reach" in dialog.message_label.text()
     assert "timed out" in dialog.message_label.text()

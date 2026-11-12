@@ -13,9 +13,9 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PyQt5.QtCore import QPoint, QRect, QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QIcon, QPixmap
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QPoint, QRect, QSize, Qt, Signal
+from qtpy.QtGui import QColor, QIcon, QPixmap
+from qtpy.QtWidgets import (
     QApplication,
     QComboBox,
     QFrame,
@@ -151,8 +151,8 @@ class _ContrastSlider(QRangeSlider):
 class _ChannelRow(QFrame):
     """One channel: eye visibility toggle + colour chip + name, click to select."""
 
-    selected = pyqtSignal(int)
-    visibility_changed = pyqtSignal(int, bool)
+    selected = Signal(int)
+    visibility_changed = Signal(int, bool)
 
     def __init__(
         self, index: int, layer: FMLayer, parent: Optional[QWidget] = None
@@ -161,7 +161,7 @@ class _ChannelRow(QFrame):
         self._index = index
         self.setObjectName("channelRow")
         self.setProperty("selected", False)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         lay = QHBoxLayout(self)
         lay.setContentsMargins(10, 7, 10, 7)
         lay.setSpacing(11)
@@ -170,7 +170,7 @@ class _ChannelRow(QFrame):
         self.eye.setObjectName("eyeBtn")
         self.eye.setCheckable(True)
         self.eye.setChecked(layer.visible)
-        self.eye.setCursor(Qt.PointingHandCursor)
+        self.eye.setCursor(Qt.CursorShape.PointingHandCursor)
         self.eye.setIconSize(QSize(16, 16))
         self._refresh_eye(layer.visible)
         self.eye.toggled.connect(self._on_eye)
@@ -227,7 +227,7 @@ class FMCanvasWidget(QWidget):
 
     # The plane on screen changed: a z step, or max projection toggled. The bar under
     # the view follows it (`current_z`, `max_projection`), as its Z reads the plane.
-    z_display_changed = pyqtSignal()
+    z_display_changed = Signal()
 
     def _make_canvas(self) -> FibsemCanvasBase:
         """The canvas this widget composites onto."""
@@ -266,7 +266,7 @@ class FMCanvasWidget(QWidget):
         # actually find focus in a stack.
         self._z_prev = self._z_step_button("‹", "Previous Z-slice", -1)
         zrl.addWidget(self._z_prev)
-        self._z_slider = QSlider(Qt.Horizontal)
+        self._z_slider = QSlider(Qt.Orientation.Horizontal)
         self._z_slider.setMinimum(0)
         self._z_slider.setSingleStep(1)
         self._z_slider.setPageStep(1)
@@ -1073,19 +1073,19 @@ class FMLayersPanel(QFrame):
     + name) over a detail panel (colormap / opacity / gamma / contrast) for the
     selected channel. Emits :attr:`changed` whenever an edit needs a re-composite."""
 
-    changed = pyqtSignal()
-    moved = pyqtSignal()  # the user finished dragging the panel somewhere
-    close_requested = pyqtSignal()  # the × in the header
+    changed = Signal()
+    moved = Signal()  # the user finished dragging the panel somewhere
+    close_requested = Signal()  # the × in the header
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         # Float as a separate top-level tool window: the panel overlays the
         # matplotlib canvas, and as a child widget its native sliders were forced
         # to repaint (and flicker) on every canvas redraw during a slider drag.
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint)
         # Cursor-to-window offset while the header is being dragged; None otherwise.
         self._drag_origin: Optional[QPoint] = None
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setObjectName("fmPanel")
         self.setStyleSheet(_PANEL_QSS)
         self.setFixedWidth(268)
@@ -1129,14 +1129,14 @@ class FMLayersPanel(QFrame):
         self._btn_close.setIcon(fibsem_icon("mdi:close", color=TEXT_MUTED_COLOR))
         self._btn_close.setIconSize(QSize(14, 14))
         self._btn_close.setFixedSize(18, 18)
-        self._btn_close.setCursor(Qt.PointingHandCursor)
+        self._btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_close.clicked.connect(self.close_requested)
         header.addWidget(self._btn_close)
         # The whole header row is the drag handle; kept as a widget so the mouse
         # handlers below can tell a drag from a click on the controls beneath it.
         self._header = QWidget()
         self._header.setLayout(header)
-        self._header.setCursor(Qt.OpenHandCursor)
+        self._header.setCursor(Qt.CursorShape.OpenHandCursor)
         root.addWidget(self._header)
         root.addSpacing(12)
 
@@ -1197,7 +1197,7 @@ class FMLayersPanel(QFrame):
         self.autocontrast_cb.setObjectName("autoPill")
         self.autocontrast_cb.setCheckable(True)
         self.autocontrast_cb.setChecked(True)
-        self.autocontrast_cb.setCursor(Qt.PointingHandCursor)
+        self.autocontrast_cb.setCursor(Qt.CursorShape.PointingHandCursor)
         self.autocontrast_cb.toggled.connect(self._on_autocontrast)
         ch.addWidget(ct_lbl)
         ch.addStretch()
@@ -1205,7 +1205,7 @@ class FMLayersPanel(QFrame):
         root.addLayout(ch)
         root.addSpacing(8)
 
-        self.contrast = _ContrastSlider(Qt.Horizontal)
+        self.contrast = _ContrastSlider(Qt.Orientation.Horizontal)
         self.contrast.setRange(0, 1000)
         self.contrast.setValue((0, 1000))
         self.contrast.valueChanged.connect(self._on_contrast)
@@ -1225,18 +1225,19 @@ class FMLayersPanel(QFrame):
 
         self.btn_reset = QPushButton("Reset adjustments")
         self.btn_reset.setObjectName("resetBtn")
-        self.btn_reset.setCursor(Qt.PointingHandCursor)
+        self.btn_reset.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_reset.clicked.connect(self._on_reset)
         root.addWidget(self.btn_reset)
 
     # ── drag to move ──────────────────────────────────────────────────────
 
     def mousePressEvent(self, event) -> None:
-        if event.button() == Qt.LeftButton and self._header.geometry().contains(
-            event.pos()
+        if (
+            event.button() == Qt.MouseButton.LeftButton
+            and self._header.geometry().contains(event.pos())
         ):
             self._drag_origin = event.globalPos() - self.frameGeometry().topLeft()
-            self._header.setCursor(Qt.ClosedHandCursor)
+            self._header.setCursor(Qt.CursorShape.ClosedHandCursor)
             event.accept()
             return
         super().mousePressEvent(event)
@@ -1251,7 +1252,7 @@ class FMLayersPanel(QFrame):
     def mouseReleaseEvent(self, event) -> None:
         if self._drag_origin is not None:
             self._drag_origin = None
-            self._header.setCursor(Qt.OpenHandCursor)
+            self._header.setCursor(Qt.CursorShape.OpenHandCursor)
             self.moved.emit()
             event.accept()
             return
@@ -1268,7 +1269,7 @@ class FMLayersPanel(QFrame):
         head.addWidget(valw)
         root.addLayout(head)
         root.addSpacing(7)
-        s = QSlider(Qt.Horizontal)
+        s = QSlider(Qt.Orientation.Horizontal)
         s.setRange(lo, hi)
         s.setValue(val)
         root.addWidget(s)

@@ -8,10 +8,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QEvent
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QEvent
+from qtpy.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.applications.autolamella.ui.lamella.rows import LamellaRow
@@ -30,15 +30,15 @@ def row(tmp_path, destroy_widgets_after_test):
 def test_hovering_the_name_starts_the_thumbnail_and_leaving_stops_it(row):
     assert not row.btn_defect.isVisibleTo(row)  # no verdict, no icon to hover
 
-    QApplication.sendEvent(row.name_label, QEvent(QEvent.Enter))
+    QApplication.sendEvent(row.name_label, QEvent(QEvent.Type.Enter))
     assert row._hover_timer.isActive()
 
-    QApplication.sendEvent(row.name_label, QEvent(QEvent.Leave))
+    QApplication.sendEvent(row.name_label, QEvent(QEvent.Type.Leave))
     assert not row._hover_timer.isActive()
 
 
 def test_the_thumbnail_shows_after_the_hover(row):
     row._show_popup()
     assert row._popup is not None and row._popup.isVisible()
-    QApplication.sendEvent(row.name_label, QEvent(QEvent.Leave))
+    QApplication.sendEvent(row.name_label, QEvent(QEvent.Type.Leave))
     assert not row._popup.isVisible()

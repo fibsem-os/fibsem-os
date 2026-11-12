@@ -11,9 +11,9 @@ import sys
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] without the UI extra
+pytest.importorskip("qtpy.QtWidgets")  # CI installs .[test] without the UI extra
 
-from PyQt5.QtWidgets import QApplication, QWidget
+from qtpy.QtWidgets import QApplication, QWidget
 
 from fibsem.correlation.structures import Coordinate, PointType, PointXYZ
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget

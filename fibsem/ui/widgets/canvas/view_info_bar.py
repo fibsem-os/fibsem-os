@@ -25,9 +25,8 @@ import logging
 import weakref
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from PyQt5 import sip
-from PyQt5.QtCore import QPoint, Qt, QTimer, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QPoint, Qt, QTimer, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QFrame,
     QHBoxLayout,
@@ -66,6 +65,7 @@ from fibsem.theme.tokens import (
     TEXT_STRONG_COLOR,
 )
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt import sip
 
 _logger = logging.getLogger(__name__)
 
@@ -193,11 +193,11 @@ class ViewInfoBar(QWidget):
         self._highlight_timer.setInterval(_HIGHLIGHT_TICK_MS)
         self._highlight_timer.timeout.connect(self._fade_highlights)
         self.setObjectName("viewInfoBar")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(_BAR_STYLE)
         self.setFixedHeight(BAR_HEIGHT)
         # The bar must never be what decides how wide a view can get.
-        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
 
         self._keys: Tuple[str, ...] = stored_bar_keys(kind) or BAR_DEFAULT_FIELDS
         self._info: Optional[ImageFields] = None
@@ -215,7 +215,7 @@ class ViewInfoBar(QWidget):
         lay.setSpacing(10)
         # Nor what decides its own: fields drop to fit, so its content's width is not
         # a minimum (the default would make it one whenever the bar is a window).
-        lay.setSizeConstraint(QLayout.SetNoConstraint)
+        lay.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
 
         self.kind_label = QLabel(kind)
         self.kind_label.setStyleSheet(_KIND_STYLE)
@@ -415,7 +415,7 @@ class ViewInfoBar(QWidget):
             for _ in labelled:
                 label = QLabel()
                 label.setStyleSheet(_FIELD_STYLE)
-                label.setTextFormat(Qt.RichText)
+                label.setTextFormat(Qt.TextFormat.RichText)
                 self._fields_layout.addWidget(label)
                 self.field_labels.append(label)
             self._label_keys = [f.key for f in labelled]
@@ -532,15 +532,15 @@ class FieldPicker(QFrame):
     uses, then the time. Each tick saves at once; Defaults forgets the choice.
     """
 
-    changed = pyqtSignal(object)  # the chosen keys, in display order
-    reset = pyqtSignal()
+    changed = Signal(object)  # the chosen keys, in display order
+    reset = Signal()
 
     def __init__(
         self, kind: str, keys: Sequence[str], parent: Optional[QWidget] = None
     ) -> None:
-        super().__init__(parent, Qt.Popup)
+        super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("fieldPicker")
-        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(_PICKER_STYLE)
         self._kind = kind
 
@@ -568,7 +568,7 @@ class FieldPicker(QFrame):
         self.defaults_button = QPushButton("Defaults")
         self.defaults_button.setToolTip("Show this bar's default fields")
         self.defaults_button.clicked.connect(self.reset)
-        lay.addWidget(self.defaults_button, 0, Qt.AlignLeft)
+        lay.addWidget(self.defaults_button, 0, Qt.AlignmentFlag.AlignLeft)
         self.set_keys(keys)
 
     def set_keys(self, keys: Sequence[str]) -> None:

@@ -8,7 +8,7 @@ shows.
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem import utils  # noqa: E402
 from fibsem.milling.tasks import FibsemMillingTaskConfig  # noqa: E402

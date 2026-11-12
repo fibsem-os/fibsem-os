@@ -21,8 +21,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Callable, Iterable, List, Optional, Sequence, Tuple
 
-from PyQt5.QtCore import QObject, Qt, QTimer, pyqtSignal
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtCore import QObject, Qt, QTimer, Signal
+from qtpy.QtWidgets import QApplication
 
 from fibsem.imaging.tiling.geometry import TilePosition
 from fibsem.ui.widgets.canvas.overlays.base import CanvasOverlay, _modifiers_from_event
@@ -102,14 +102,14 @@ class TileGridOverlay(QObject, CanvasOverlay):
     state is how they drift apart.
     """
 
-    tile_toggled = pyqtSignal(int, int, bool)  # row, col, enabled
-    grid_resize_requested = pyqtSignal(int, int)  # rows, cols
-    grid_move_requested = pyqtSignal(float, float)  # new centre, canvas coordinates
+    tile_toggled = Signal(int, int, bool)  # row, col, enabled
+    grid_resize_requested = Signal(int, int)  # rows, cols
+    grid_move_requested = Signal(float, float)  # new centre, canvas coordinates
     # A move or resize gesture has ended. For work a host wants to do once, at the end,
     # rather than on every motion event -- anything that repaints the whole canvas
     # belongs here, because during the drag the grid is blitted over a held background
     # and a repaint throws that away.
-    drag_finished = pyqtSignal()
+    drag_finished = Signal()
 
     def __init__(self, parent: Optional[QObject] = None) -> None:
         QObject.__init__(self, parent)
@@ -850,11 +850,15 @@ class TileGridOverlay(QObject, CanvasOverlay):
         if x_side and y_side:
             # Opposite corners share a diagonal: top-left/bottom-right lie along "\",
             # top-right/bottom-left along "/".
-            return Qt.SizeFDiagCursor if x_side == y_side else Qt.SizeBDiagCursor
+            return (
+                Qt.CursorShape.SizeFDiagCursor
+                if x_side == y_side
+                else Qt.CursorShape.SizeBDiagCursor
+            )
         if x_side:
-            return Qt.SizeHorCursor
+            return Qt.CursorShape.SizeHorCursor
         if y_side:
-            return Qt.SizeVerCursor
+            return Qt.CursorShape.SizeVerCursor
         return None
 
     def _cursor_at(self, x: float, y: float, painting: bool = False):
@@ -873,7 +877,7 @@ class TileGridOverlay(QObject, CanvasOverlay):
             # warning that a press here will not move the grid, and a move cursor over a
             # point the grid has stood aside for is a lie.
             return None
-        return Qt.CrossCursor if painting else Qt.SizeAllCursor
+        return Qt.CursorShape.CrossCursor if painting else Qt.CursorShape.SizeAllCursor
 
     def _update_cursor(self, event) -> None:
         """Show a resize cursor over the grid's edges, and a cross while painting.

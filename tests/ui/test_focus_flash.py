@@ -20,12 +20,12 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 import numpy as np
-from PyQt5.QtCore import QPoint, Qt
-from PyQt5.QtGui import QWheelEvent
-from PyQt5.QtWidgets import QApplication, QWidget
+from qtpy.QtCore import QPoint, Qt
+from qtpy.QtGui import QWheelEvent
+from qtpy.QtWidgets import QApplication, QWidget
 
 from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 from fibsem.ui.fm.widgets.objective_control_widget import ObjectiveControlWidget
@@ -64,7 +64,9 @@ def canvas():
     return c
 
 
-def _wheel(dx: int, dy: int, modifiers=Qt.ShiftModifier) -> QWheelEvent:
+def _wheel(
+    dx: int, dy: int, modifiers=Qt.KeyboardModifier.ShiftModifier
+) -> QWheelEvent:
     """A wheel event with the delta on the axis of our choosing.
 
     macOS puts a Shift+wheel magnitude on x with y zero; Windows and Linux put it on y.
@@ -75,9 +77,9 @@ def _wheel(dx: int, dy: int, modifiers=Qt.ShiftModifier) -> QWheelEvent:
         pos,
         QPoint(0, 0),
         QPoint(dx, dy),
-        Qt.NoButton,
+        Qt.MouseButton.NoButton,
         modifiers,
-        Qt.NoScrollPhase,
+        Qt.ScrollPhase.NoScrollPhase,
         False,
     )
 
@@ -121,7 +123,9 @@ class TestTheGestureSurvivesAHorizontalDelta:
         seen = []
         canvas.canvas_scrolled.connect(lambda x, y, d, m: seen.append(d))
 
-        canvas.wheelEvent(_wheel(dx=120, dy=0, modifiers=Qt.NoModifier))
+        canvas.wheelEvent(
+            _wheel(dx=120, dy=0, modifiers=Qt.KeyboardModifier.NoModifier)
+        )
 
         assert seen == []
 

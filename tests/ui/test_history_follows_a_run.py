@@ -14,11 +14,11 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import QEvent  # noqa: E402
-from PyQt5.QtTest import QTest  # noqa: E402
-from PyQt5.QtWidgets import QApplication, QLabel  # noqa: E402
+from qtpy.QtCore import QEvent  # noqa: E402
+from qtpy.QtTest import QTest  # noqa: E402
+from qtpy.QtWidgets import QApplication, QLabel  # noqa: E402
 
 from fibsem.applications.autolamella.structures import (  # noqa: E402
     AutoLamellaTaskProtocol,
@@ -98,7 +98,7 @@ def _report(name, status):
 
 def _labels(widget):
     # A rebuild deleteLater()s the old rows; until that runs they are still children.
-    QApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     return widget._content.findChildren(QLabel)
 
 

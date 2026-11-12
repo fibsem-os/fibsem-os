@@ -11,8 +11,8 @@ import os
 import sys
 from typing import TYPE_CHECKING, Any, List, Optional
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QTimer
+from qtpy.QtWidgets import (
     QFileDialog,
     QInputDialog,
     QMessageBox,
@@ -274,10 +274,10 @@ class VolumeWindow(AppWindow):
             "Run Workflow",
             f"Run {len(task_names)} task{'s' if len(task_names) != 1 else ''} "
             f"on {positions} position{'s' if positions != 1 else ''}?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
         )
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             return
         started = session.runner.start(experiment, request)
         if not started.started:
@@ -297,7 +297,7 @@ def main(
     window.show()
     if splash is not None:
         splash.finish(window)
-    code = app.exec_()
+    code = app.exec()
     window.session.stop_app_server()
     sys.exit(code)
 

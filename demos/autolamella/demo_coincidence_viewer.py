@@ -12,7 +12,7 @@ import os
 import sys
 import tempfile
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 import fibsem.config as cfg
 from fibsem import utils
@@ -32,7 +32,7 @@ def main() -> int:
     else:
         experiment = Experiment(path=tempfile.mkdtemp(), name="coincidence-demo")
     _viewer = open_coincidence_viewer_window(microscope, experiment)
-    return app.exec_()
+    return app.exec()
 
 
 if __name__ == "__main__":

@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.fm.progress import (  # noqa: E402
     FluorescenceAcquisitionProgress as Report,
@@ -44,11 +44,11 @@ def bar(qapp, monkeypatch):
 
 
 def _wait(ms=120):
-    from PyQt5.QtCore import QEventLoop, QTimer
+    from qtpy.QtCore import QEventLoop, QTimer
 
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 def test_a_z_stack_counts_its_planes(bar):

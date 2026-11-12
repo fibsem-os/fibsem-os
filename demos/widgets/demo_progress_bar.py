@@ -1,7 +1,7 @@
 import sys
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QApplication,
     QLabel,
     QProgressBar,
@@ -23,7 +23,7 @@ class IndeterminateProgressExample(QWidget):
         layout = QVBoxLayout(self)
 
         self.label = QLabel("Idle")
-        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.label)
 
         self.progress_bar = QProgressBar()
@@ -53,4 +53,4 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     w = IndeterminateProgressExample()
     w.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

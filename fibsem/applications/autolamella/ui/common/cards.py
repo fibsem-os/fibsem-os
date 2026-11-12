@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QFrame, QVBoxLayout, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QFrame, QVBoxLayout, QWidget
 
 from fibsem.config import CARD_MODES, MODE_COZY
 from fibsem.theme.tokens import PRIMARY_COLOR, SURFACE_COLOR
@@ -62,7 +62,7 @@ class RecordCard(QWidget):
     `refresh()` -- so nothing outside `_apply_layout` knows which one is showing.
     """
 
-    clicked = pyqtSignal(object)  # the record
+    clicked = Signal(object)  # the record
 
     def __init__(
         self,

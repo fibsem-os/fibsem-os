@@ -6,8 +6,9 @@ import inspect
 import weakref
 from typing import Any, Callable, Optional
 
-from PyQt5 import sip
-from PyQt5.QtCore import QObject, pyqtSignal
+from qtpy.QtCore import QObject, Signal
+
+from fibsem.ui.qt import sip
 
 __all__ = ["connect_for_lifetime", "connect_on_gui_thread"]
 
@@ -31,7 +32,7 @@ class _Relay(QObject):
     or not it was ever closed.
     """
 
-    fired = pyqtSignal(object)
+    fired = Signal(object)
 
     def __init__(self, owner: QObject, slot: Callable) -> None:
         super().__init__(owner)

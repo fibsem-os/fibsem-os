@@ -15,8 +15,8 @@ import logging
 import os
 from typing import TYPE_CHECKING, List, Optional
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt, Signal
+from qtpy.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -102,7 +102,7 @@ class PositionEditor(QWidget):
     """One position's stored fields, over a saved FIB image of it."""
 
     # a field of the position changed here
-    edited = pyqtSignal()
+    edited = Signal()
 
     def __init__(self, session: "AppSession", parent: Optional[QWidget] = None):
         super().__init__(parent)
@@ -244,7 +244,9 @@ class PositionEditor(QWidget):
             self.image_combo.addItem(image_label(folder, path), path)
             when = format_time(os.path.getmtime(path), "%H:%M")
             self.image_combo.setItemData(
-                self.image_combo.count() - 1, f"{path}\n{when}", Qt.ToolTipRole
+                self.image_combo.count() - 1,
+                f"{path}\n{when}",
+                Qt.ItemDataRole.ToolTipRole,
             )
         pick = shown if shown in paths else self._default_image(position, paths)
         if pick is not None:

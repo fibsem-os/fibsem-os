@@ -5,7 +5,7 @@ import logging
 from copy import deepcopy
 from typing import TYPE_CHECKING, Any, Callable, Optional
 
-from PyQt5.QtWidgets import (
+from qtpy.QtWidgets import (
     QGridLayout,
     QMessageBox,
     QSizePolicy,
@@ -76,7 +76,13 @@ class ExperimentTab(QWidget):
         self.grid_layout_experiment.addWidget(self.selected_lamella_widget, 1, 0, 1, 2)
 
         self.grid_layout_experiment.addItem(
-            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding), 2, 0, 1, 2
+            QSpacerItem(
+                20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding
+            ),
+            2,
+            0,
+            1,
+            2,
         )
 
         self.lamella_list.add_requested.connect(
@@ -201,9 +207,9 @@ class ExperimentTab(QWidget):
             self,
             "Move to Lamella Position",
             f"Move to position of Lamella {lamella.name}?\n{stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if ret != QMessageBox.Yes:
+        if ret != QMessageBox.StandardButton.Yes:
             return
 
         logging.info(f"Moving to position of {lamella.name}.")
@@ -323,9 +329,9 @@ class ExperimentTab(QWidget):
             f"Save new position for Lamella {lamella.name} position?\n\n"
             f"New Stage Position: {current_position.pretty}\n"
             f"Existing Stage Position: {lamella.stage_position.pretty}",
-            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
-        if ret != QMessageBox.Yes:
+        if ret != QMessageBox.StandardButton.Yes:
             return
 
         # As Set pose does: the stored objective position is kept, and the

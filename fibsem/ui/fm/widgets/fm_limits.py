@@ -16,8 +16,8 @@ import logging
 import math
 from typing import Any, Dict, Mapping, Optional, Tuple
 
-from PyQt5.QtCore import QEvent, QObject
-from PyQt5.QtWidgets import QAbstractSpinBox, QToolTip
+from qtpy.QtCore import QEvent, QObject
+from qtpy.QtWidgets import QAbstractSpinBox, QToolTip
 
 from fibsem.fm.structures import ChannelSettings
 from fibsem.structures.params import Parameter
@@ -136,7 +136,7 @@ class _NativeUnitsTooltip(QObject):
         return f"{self._base}: {native}" if self._base else native
 
     def eventFilter(self, spin: QObject, event: QEvent) -> bool:
-        if event.type() == QEvent.ToolTip:
+        if event.type() == QEvent.Type.ToolTip:
             QToolTip.showText(event.globalPos(), self.text(spin), spin)
             return True
         return False

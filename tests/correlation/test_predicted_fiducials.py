@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.correlation.history import find_spot_burns  # noqa: E402
 from fibsem.correlation.structures import (  # noqa: E402
@@ -797,7 +797,7 @@ def test_a_run_says_when_the_stack_records_no_slice_thickness(loaded):
 
 def test_a_poor_verdict_warns_but_allows_continue(loaded, monkeypatch):
     """FIB-1172: the user may take a poor fit, with the warning in front of them."""
-    from PyQt5.QtWidgets import QMessageBox
+    from qtpy.QtWidgets import QMessageBox
 
     from fibsem.ui.correlation.widgets import correlation_tab_widget as ctw
 

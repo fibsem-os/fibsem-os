@@ -32,9 +32,9 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QApplication
+from qtpy.QtWidgets import QApplication
 
 from fibsem.applications.autolamella.structures import Lamella
 from fibsem.workflows.quality import QualityRecord, Verdict

@@ -16,14 +16,16 @@ instead of depending on which fields a production task happens to carry.
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
 from dataclasses import dataclass, field  # noqa: E402
 from enum import Enum  # noqa: E402
 from typing import ClassVar, List, Literal, Optional  # noqa: E402
 
-from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtWidgets import (  # noqa: E402
+from qtpy.QtCore import Qt  # noqa: E402
+from qtpy.QtWidgets import (  # noqa: E402
     QCheckBox,
     QComboBox,
     QDoubleSpinBox,
@@ -172,9 +174,9 @@ def test_tabbing_past_an_uneditable_field_leaves_the_value_alone(
     host.show()
 
     nested_box = _control(form, "nested").widget
-    nested_box.setFocus(Qt.MouseFocusReason)
+    nested_box.setFocus(Qt.FocusReason.MouseFocusReason)
     qapp.processEvents()
-    elsewhere.setFocus(Qt.MouseFocusReason)
+    elsewhere.setFocus(Qt.FocusReason.MouseFocusReason)
     qapp.processEvents()
 
     assert isinstance(config.nested, NestedSettings)

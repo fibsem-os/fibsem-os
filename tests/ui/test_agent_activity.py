@@ -10,7 +10,7 @@ from types import SimpleNamespace  # noqa: E402
 
 import pytest  # noqa: E402
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.acting import AGENT, OPERATOR, WORKFLOW  # noqa: E402
 from fibsem.control import Control  # noqa: E402
@@ -20,11 +20,11 @@ from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
 
 
 def _wait(ms: int) -> None:
-    from PyQt5.QtCore import QEventLoop, QTimer
+    from qtpy.QtCore import QEventLoop, QTimer
 
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 @pytest.fixture

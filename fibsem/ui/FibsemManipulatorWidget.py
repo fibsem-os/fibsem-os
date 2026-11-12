@@ -1,8 +1,8 @@
 import logging
 from typing import TYPE_CHECKING, Optional
 
-from PyQt5 import QtWidgets
-from PyQt5.QtWidgets import QMessageBox
+from qtpy import QtWidgets
+from qtpy.QtWidgets import QMessageBox
 
 from fibsem import constants
 from fibsem.microscope import FibsemMicroscope
@@ -119,7 +119,10 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
 
         layout.addItem(
             QtWidgets.QSpacerItem(
-                20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+                20,
+                40,
+                QtWidgets.QSizePolicy.Policy.Minimum,
+                QtWidgets.QSizePolicy.Policy.Expanding,
             ),
             14,
             0,
@@ -307,7 +310,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
             _ = message_box_ui(
                 title="No name.",
                 text="Please enter a position name.",
-                buttons=QMessageBox.Ok,
+                buttons=QMessageBox.StandardButton.Ok,
             )
             return
         name = self.savedPositionName_lineEdit.text()

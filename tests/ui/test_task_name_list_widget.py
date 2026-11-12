@@ -8,10 +8,10 @@ nothing at all for a task that has not started.
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtCore import Qt  # noqa: E402
-from PyQt5.QtWidgets import QLabel  # noqa: E402
+from qtpy.QtCore import Qt  # noqa: E402
+from qtpy.QtWidgets import QLabel  # noqa: E402
 
 from fibsem.ui.widgets.custom_widgets import TaskNameListWidget  # noqa: E402
 
@@ -61,7 +61,7 @@ def test_the_chip_does_not_change_the_row_text_or_selection(qapp):
     assert widget.selected_task == "Polishing"
     assert widget._list.item(1).text() == "Polishing"
     row = widget._list.itemWidget(widget._list.item(1))
-    assert row.testAttribute(Qt.WA_TransparentForMouseEvents)
+    assert row.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
 
 
 def test_tooltips_are_per_row_and_survive_a_repopulate(qapp):

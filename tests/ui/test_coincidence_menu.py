@@ -2,9 +2,9 @@
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QMenu  # noqa: E402
+from qtpy.QtWidgets import QMenu  # noqa: E402
 
 from fibsem.applications.autolamella.ui.coincidence.menu import (
     CoincidenceMenu,  # noqa: E402

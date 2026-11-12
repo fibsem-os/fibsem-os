@@ -6,9 +6,11 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt5")  # CI installs .[test] only; the UI extra is deliberate
+pytest.importorskip(
+    "qtpy.QtWidgets"
+)  # CI installs .[test] only; the UI extra is deliberate
 
-from PyQt5.QtCore import QEventLoop, QTimer
+from qtpy.QtCore import QEventLoop, QTimer
 
 import fibsem.config as cfg
 from fibsem import utils
@@ -37,7 +39,7 @@ NOMINAL_X = 48.8e-3
 def _pump(ms: int = 200) -> None:
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
-    loop.exec_()
+    loop.exec()
 
 
 def _until(condition, tries: int = 50) -> None:
@@ -199,7 +201,7 @@ def test_a_cancelled_travel_does_not_move(stage_control, monkeypatch):
 
 
 def _calibration_tab_button(window):
-    from PyQt5.QtWidgets import QPushButton
+    from qtpy.QtWidgets import QPushButton
 
     return window.tabs.widget(2).findChild(QPushButton, "calibrate_sem_to_fm")
 

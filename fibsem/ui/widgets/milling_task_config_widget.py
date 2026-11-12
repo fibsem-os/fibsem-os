@@ -3,8 +3,8 @@ from __future__ import annotations
 import copy
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import (
     QGridLayout,
     QLabel,
     QLineEdit,
@@ -61,8 +61,8 @@ class MillingTaskConfigWidget(QWidget):
     No viewer or correlation dependencies.
     """
 
-    settings_changed = pyqtSignal(FibsemMillingTaskConfig)
-    eye_toggled = pyqtSignal(bool)  # True = patterns visible
+    settings_changed = Signal(FibsemMillingTaskConfig)
+    eye_toggled = Signal(bool)  # True = patterns visible
 
     def __init__(
         self,

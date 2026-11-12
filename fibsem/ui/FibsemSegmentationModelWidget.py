@@ -5,9 +5,9 @@ except ImportError as _e:  # pragma: no cover - exercised only on a napari-less 
         "Image labelling draws in napari, which is no longer part of the [ui] extra. "
         "Install it with: pip install 'fibsem[labelling]'"
     ) from _e
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtGui import QFont
+from qtpy import QtWidgets
+from qtpy.QtCore import Signal
+from qtpy.QtGui import QFont
 
 from fibsem.detection.detection import DetectedFeatures
 from fibsem.segmentation.model import SegmentationModel, load_model
@@ -32,8 +32,8 @@ RECOMMENDED_SAM_CHECKPOINTS = ["facebook/sam-vit-base", "Zigeng/SlimSAM-uniform-
 
 
 class FibsemSegmentationModelWidget(QtWidgets.QDialog):
-    continue_signal = pyqtSignal(DetectedFeatures)
-    model_loaded = pyqtSignal()
+    continue_signal = Signal(DetectedFeatures)
+    model_loaded = Signal()
 
     def __init__(
         self,
@@ -75,7 +75,10 @@ class FibsemSegmentationModelWidget(QtWidgets.QDialog):
         layout.addWidget(self.pushButton_load_model, 3, 0, 1, 2)
 
         spacer = QtWidgets.QSpacerItem(
-            20, 40, QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Expanding
+            20,
+            40,
+            QtWidgets.QSizePolicy.Policy.Minimum,
+            QtWidgets.QSizePolicy.Policy.Expanding,
         )
         layout.addItem(spacer, 4, 0, 1, 2)
 

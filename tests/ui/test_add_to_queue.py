@@ -15,7 +15,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.structures import (
     Experiment,
@@ -340,10 +340,10 @@ def test_the_menu_is_headed_by_what_it_does(widget):
 
 def test_the_menu_offers_both_destinations(widget):
     """The whole button opens the menu, so neither option hides behind an arrow."""
-    from PyQt5.QtWidgets import QToolButton
+    from qtpy.QtWidgets import QToolButton
 
     assert widget._btn_add.text() == "Add to Queue"
-    assert widget._btn_add.popupMode() == QToolButton.InstantPopup
+    assert widget._btn_add.popupMode() == QToolButton.ToolButtonPopupMode.InstantPopup
     assert [a.text() for a in entries(widget)] == [
         "Add to End of Queue",
         "Add to Run Next",

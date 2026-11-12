@@ -40,9 +40,9 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Optional, Tuple
 
-from PyQt5.QtCore import QSize, QTimer, pyqtSignal
-from PyQt5.QtGui import QFontMetrics
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import QSize, QTimer, Signal
+from qtpy.QtGui import QFontMetrics
+from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QProgressBar,
@@ -123,7 +123,7 @@ class _LineLabel(ElidedLabel):
     def __init__(self, floor: int) -> None:
         super().__init__()
         self._floor = floor
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
     def sizeHint(self) -> QSize:  # noqa: N802 - Qt naming
         width = QFontMetrics(self.font()).horizontalAdvance(self.text()) + 4
@@ -142,7 +142,7 @@ class FibsemStatusBar(QStatusBar):
 
     # The failure line's Show: where the failures are is the host's to
     # say (AutoLamella's run timeline marks them); the bar only asks.
-    failure_details_requested = pyqtSignal()
+    failure_details_requested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

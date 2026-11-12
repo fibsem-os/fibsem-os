@@ -19,9 +19,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
-from PyQt5.QtWidgets import QMessageBox
+from qtpy.QtWidgets import QMessageBox
 
 from fibsem.correlation.structures import (
     Coordinate,
@@ -74,7 +74,9 @@ def test_a_run_finishing_after_the_points_are_cleared_is_dropped(
 ):
     other = tmp_path / "other_ib.tif"
     FibsemImage.generate_blank_image(resolution=(400, 300)).save(str(other))
-    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.Ok)
+    monkeypatch.setattr(
+        QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Ok
+    )
 
     widget._run()
     widget._images_tab._load_fib(str(other))  # another image; clear the points

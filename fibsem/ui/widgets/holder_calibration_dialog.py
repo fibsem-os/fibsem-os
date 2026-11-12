@@ -26,8 +26,8 @@ import os
 from dataclasses import replace
 from typing import Dict, List, Optional
 
-from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt, pyqtSignal
+from qtpy import QtWidgets
+from qtpy.QtCore import Qt, Signal
 
 from fibsem import utils
 from fibsem.structures.settings import (
@@ -125,10 +125,10 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
     Cancel leaves it exactly as it was.
     """
 
-    holder_saved = pyqtSignal(object)  # SampleHolder
+    holder_saved = Signal(object)  # SampleHolder
     # The microscope's position signal is a psygnal, emitted on whichever thread
     # moved the stage. This Qt signal is the hop onto the GUI thread.
-    _stage_moved = pyqtSignal(object)  # FibsemStagePosition
+    _stage_moved = Signal(object)  # FibsemStagePosition
 
     def __init__(
         self,
@@ -237,7 +237,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         outer.addWidget(self._rail)
 
         divider = QtWidgets.QFrame()
-        divider.setFrameShape(QtWidgets.QFrame.VLine)
+        divider.setFrameShape(QtWidgets.QFrame.Shape.VLine)
         divider.setStyleSheet(f"color: {BORDER_COLOR};")
         outer.addWidget(divider)
 
@@ -328,7 +328,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         self.button_orientation.setStyleSheet(stylesheets.PRIMARY_BUTTON_STYLESHEET)
         self.button_orientation.clicked.connect(self._on_move_to_orientation)
         self.orientation_status = _label("", 12, TEXT_MUTED_COLOR, wrap=True)
-        layout.addWidget(self.button_orientation, 0, Qt.AlignLeft)
+        layout.addWidget(self.button_orientation, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(self.orientation_status)
         layout.addStretch()
         return page
@@ -383,9 +383,13 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         self.review_table.setHorizontalHeaderLabels(["Slot", "Position", "Note"])
         self.review_table.horizontalHeader().setStretchLastSection(True)
         self.review_table.verticalHeader().setVisible(False)
-        self.review_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.review_table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
-        self.review_table.setFocusPolicy(Qt.NoFocus)
+        self.review_table.setEditTriggers(
+            QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers
+        )
+        self.review_table.setSelectionMode(
+            QtWidgets.QAbstractItemView.SelectionMode.NoSelection
+        )
+        self.review_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         layout.addWidget(self.review_table, 1)
         self.review_summary = _label("", 12, TEXT_COLOR, wrap=True)
         layout.addWidget(self.review_summary)
@@ -738,7 +742,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
             )
             note = QtWidgets.QTableWidgetItem("; ".join(notes[name]))
             if any("outside" in n for n in notes[name]):
-                note.setForeground(Qt.red)
+                note.setForeground(Qt.GlobalColor.red)
             self.review_table.setItem(row, 2, note)
         self.review_table.resizeColumnsToContents()
 

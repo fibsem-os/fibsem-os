@@ -10,7 +10,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-pytest.importorskip("PyQt5")
+pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.devices.core import ParameterMetadata  # noqa: E402
 from fibsem.drivers.demo import devices as demo  # noqa: E402
@@ -183,9 +183,9 @@ def test_without_hardware_units_the_tooltips_stay_as_they_were(qapp):
 def test_hovering_shows_the_value_it_has_now(qapp, fm_with_units):
     """The box's value is often set with its signals blocked, so the tooltip is worked
     out when it opens, not when the value changes."""
-    from PyQt5.QtCore import QEvent, QPoint
-    from PyQt5.QtGui import QHelpEvent
-    from PyQt5.QtWidgets import QToolTip
+    from qtpy.QtCore import QEvent, QPoint
+    from qtpy.QtGui import QHelpEvent
+    from qtpy.QtWidgets import QToolTip
 
     from fibsem.ui.fm.widgets.channel_settings_widget import ChannelSettingsWidget
 
@@ -197,7 +197,8 @@ def test_hovering_shows_the_value_it_has_now(qapp, fm_with_units):
     spin.blockSignals(False)
 
     qapp.sendEvent(
-        spin, QHelpEvent(QEvent.ToolTip, QPoint(5, 5), spin.mapToGlobal(QPoint(5, 5)))
+        spin,
+        QHelpEvent(QEvent.Type.ToolTip, QPoint(5, 5), spin.mapToGlobal(QPoint(5, 5))),
     )
 
     assert QToolTip.text() == "Light source power (%): 0.12 W"

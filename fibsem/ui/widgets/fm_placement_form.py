@@ -10,8 +10,8 @@ import logging
 from typing import Optional, Tuple
 
 import numpy as np
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QFormLayout, QPushButton, QWidget
+from qtpy.QtCore import Signal
+from qtpy.QtWidgets import QFormLayout, QPushButton, QWidget
 
 from fibsem import utils
 from fibsem.ui import notification_service, stylesheets
@@ -21,7 +21,7 @@ from fibsem.ui.widgets.custom_widgets import ValueSpinBox
 class FMPlacementForm(QWidget):
     """The FM's origin and pose; ``changed`` fires on every edit."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, microscope, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

@@ -15,8 +15,8 @@ from __future__ import annotations
 from typing import Callable, List, Optional, Sequence, Tuple
 
 import numpy as np
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from qtpy.QtCore import Qt
+from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QHBoxLayout,
@@ -90,7 +90,7 @@ class ImageFitDialog(QDialog):
         hint.setStyleSheet(stylesheets.LABEL_INSTRUCTIONS_STYLE)
         layout.addWidget(hint)
 
-        splitter = QSplitter(Qt.Horizontal)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self._pane(reference_label, self.reference_canvas))
         splitter.addWidget(self._pane(image_label, self.image_canvas))
         layout.addWidget(splitter, 1)
