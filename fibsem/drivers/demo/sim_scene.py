@@ -43,7 +43,7 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import map_coordinates as ndi_map_coordinates
 from scipy.ndimage import zoom as ndi_zoom
 
-from fibsem.drivers.demo import sim_relief, sim_solid
+from fibsem.drivers.demo import sim_optics, sim_relief, sim_solid
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -754,6 +754,13 @@ class SampleScene:
     # Opt-in (0 = off): on, every acquisition carries a current-dependent
     # lateral offset, which tests with exact expectations must account for
     current_offset_scale: float = 0.0
+    # the beams' settings show in the image: a working distance away from
+    # focus and stigmation off zero blur it, and the current sets the probe
+    # size and the noise (see sim_optics). False draws every image sharp
+    beam_optics: bool = True
+    # focus is at the beam's eucentric height, give or take this (m): each
+    # beam's own seeded error, which an autofocus takes out
+    focus_fuzz: float = 15e-6
     _current_offsets: Dict[Tuple[str, float], Tuple[float, float]] = field(
         default_factory=dict, repr=False
     )
@@ -2342,6 +2349,8 @@ class SampleScene:
         "contamination_size",  # [min, max] m
         "beam_offset",  # {electron: [dx, dy], ion: [dx, dy]} m
         "current_offset_scale",  # m, sigma of the per-current beam offset
+        "beam_optics",  # focus, stigmation and current show in the image
+        "focus_fuzz",  # m, how far focus is from the eucentric height, at most
         "film",  # continuous | holey
         "hole_diameter",  # m
         "hole_pitch",  # m
@@ -2447,6 +2456,7 @@ class SampleScene:
         beam_shift: Tuple[float, float] = (0.0, 0.0),
         beam_current: Optional[float] = None,
         dwell_time: Optional[float] = None,
+        optics: Optional[sim_optics.Optics] = None,
     ) -> np.ndarray:
         """Render one beam's view of the scene at the current stage position.
 
@@ -2467,6 +2477,8 @@ class SampleScene:
                 `beam_offset` for the beam is added to it.
             beam_current: the beam current (A); each distinct current carries
                 its own seeded offset (see current_offset_scale).
+            optics: the beam's focus, stigmation and current, which blur the
+                image and set its noise; None draws it sharp.
 
         Returns:
             uint8 image of shape (height, width).
@@ -2495,6 +2507,7 @@ class SampleScene:
                 rng,
                 charge,
                 sim_solid.canvas if self.renderer == "solid" else None,
+                optics if self.beam_optics else None,
             )
 
         # where the world anchor appears in the CURRENT view. Asked this way
@@ -3281,6 +3294,16 @@ class SampleScene:
                 float(v) for v in rng.normal(0, self.current_offset_scale, size=2)
             )
         return self._current_offsets[key]
+
+    def focus_offset(self, beam_type: BeamType) -> float:
+        """How far the beam's focus is from its eucentric height (m): drawn
+        once per beam from the scene's seed, within `focus_fuzz`."""
+        if self.focus_fuzz <= 0:
+            return 0.0
+        rng = np.random.default_rng(
+            [self.seed, zlib.crc32(beam_type.name.lower().encode()), 77]
+        )
+        return float(rng.uniform(-self.focus_fuzz, self.focus_fuzz))
 
     def _turn(self, stage_position: FibsemStagePosition) -> float:
         """-1 when the stage is half a turn from the anchor, else 1.

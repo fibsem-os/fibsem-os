@@ -15,6 +15,7 @@ import numpy as np
 from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
+from fibsem.drivers.demo.sim_optics import Optics
 from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
     FluorescenceMicroscope,
@@ -487,6 +488,13 @@ class DemoSimulator:
             except Exception:
                 current = None
             self.sample_scene.holder_slots = self.scene_holder_slots()
+            stigmation = self.microscope.get_stigmation(effective_beam_type)
+            optics = Optics(
+                defocus=self.microscope.get_working_distance(effective_beam_type)
+                - self.scene_focus(effective_beam_type),
+                stigmation=(float(stigmation.x), float(stigmation.y)),
+                current=current,
+            )
             image.data = self.sample_scene.render(
                 beam_type=effective_beam_type,
                 stage_position=self.scene_stage_position(),
@@ -496,6 +504,7 @@ class DemoSimulator:
                 beam_shift=(float(shift.x), float(shift.y)),
                 beam_current=current,
                 dwell_time=effective_image_settings.dwell_time,
+                optics=optics,
             )
         # generate the next image from the sequence iterator
         elif self.use_image_sequence:
@@ -762,13 +771,24 @@ class DemoSimulator:
                 random.uniform(0.5, 1.0)
             )  # simulate time taken to calculate auto-focus
             self._warn_if_channel_moved(beam_type, "auto_focus")
-            focus_adjustment = random.uniform(-100e-6, 100e-6)
-            new_wd = wd + focus_adjustment
+            if self.sample_scene is not None and self.sample_scene.beam_optics:
+                # the sample has a true focus, and the routine finds it
+                new_wd = self.scene_focus(beam_type) + random.uniform(-2e-6, 2e-6)
+            else:
+                new_wd = wd + random.uniform(-100e-6, 100e-6)
             self.microscope.set_working_distance(new_wd, beam_type)
 
         if reduced_area:
             self.microscope.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
+
+    def scene_focus(self, beam_type: BeamType) -> float:
+        """The working distance at which the sample scene is in focus (m):
+        the beam's eucentric height, off by the scene's own small error."""
+        height = self.microscope._beam_config(
+            "eucentric_height", beam_type
+        ).eucentric_height
+        return float(height) + self.sample_scene.focus_offset(beam_type)
 
     def setup_sample_scene(self) -> None:
         """Opt-in synthetic-sample imaging, default off.
@@ -985,7 +1005,8 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         blanked=False,
         beam=BeamSettings(
             beam_type=BeamType.ELECTRON,
-            working_distance=4.0e-3,
+            # in focus on a sample at the eucentric height
+            working_distance=system.electron.eucentric_height,
             beam_current=100e-12,
             voltage=2000,
             hfw=150e-6,
@@ -1009,7 +1030,7 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         blanked=False,
         beam=BeamSettings(
             beam_type=BeamType.ION,
-            working_distance=16.5e-3,
+            working_distance=system.ion.eucentric_height,
             beam_current=20e-12,
             voltage=30000,
             hfw=150e-6,

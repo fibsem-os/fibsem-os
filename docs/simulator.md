@@ -106,6 +106,25 @@ is milled through like the rest. Set either thickness in the config for a grid t
 in coated. The coat is laid over everything, so a trench milled before a deposition is
 not filled in.
 
+## Beam settings
+
+The SEM and FIB images answer to the beam's settings, as the instrument's do
+(`beam_optics`, false draws every image sharp):
+
+- **Working distance.** Each beam is in focus at its eucentric height
+  (`eucentric_height` in the configuration), give or take a small seeded error
+  (`focus_fuzz`). A working distance away from that blurs the image, more the further
+  it is and more at a small field of view. The Demo starts at the eucentric height, and
+  its autofocus finds the true focus.
+- **Stigmation.** Off zero, the blur is stretched one way; through focus it turns to the
+  other way, as astigmatism does. Zero is right.
+- **Beam current.** A higher current is a bigger probe, so a softer image with less
+  noise; a lower one is sharper and noisier.
+- **Beam shift** moves the image, as it always has.
+
+Focus does not follow the stage height or the sample's own height, and voltage and
+dwell time do not change the noise.
+
 ## Milling leaves marks
 
 ![Milled trench](img/simulator/milling.png)
@@ -231,6 +250,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | -- | -- | -- |
 | `beam_offset` | {} | per-beam misalignment `{electron: [dx, dy], ion: [dx, dy]}` (m): a persistent lateral offset |
 | `current_offset_scale` | 0 | sigma (m) of a seeded per-(beam, current) offset; 0 is off |
+| `beam_optics` | true | working distance, stigmation and current show in the image (see Beam settings) |
+| `focus_fuzz` | 15e-6 | how far a beam's focus is from its eucentric height, at most (m) |
 
 ### Grid and film
 
