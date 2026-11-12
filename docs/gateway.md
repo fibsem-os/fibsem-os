@@ -16,15 +16,11 @@ fibsem-gateway install
 ```
 
 On Windows this puts a "Agent Gateway" shortcut in your Startup folder, so the gateway
-starts when you log on, with no console. It needs no admin rights.
+starts when you log on, with its window minimised and no console. It needs no admin rights.
 `fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run`.
 
-The tray icon is off for now, because it slowed the gateway on a microscope PC. `--tray` turns
-it back on.
-
-To stop the gateway, run `fibsem-gateway stop` (or **Quit gateway** in the tray).
-`fibsem-gateway restart` (or **Restart gateway** in the tray) stops it and starts it again with
-the same flags. A gateway that doesn't answer is ended by its process id.
+To stop the gateway, close its window, or run `fibsem-gateway stop`.
+`fibsem-gateway restart` stops it and starts it again with the same flags. A gateway that doesn't answer is ended by its process id.
 
 The app starts with no microscope. Connect one in the window, or on the gateway's page once
 the app is up (**Connection**, with the configurations saved on this PC). To have the app
@@ -34,18 +30,16 @@ connect as it starts, give connection flags to `install` or `run` (`--manufactur
 The gateway listens on this PC only (`http://127.0.0.1:8010`). Another computer reaches it
 over an SSH tunnel, as it reaches the App Server.
 
-## The tray and the page
+## The window and the page
 
-With `--tray`, the tray icon's dot shows the app: grey for off, blue with its window, purple without one.
-Its menu does the following:
-
-- starts an app with its window;
-- starts an app without a window, with the last experiment or one you choose;
-- stops it, closing its window if it has one;
-- ends the agent, while one runs;
-- pairs a computer;
-- opens the gateway's page. Quitting the gateway
-stops an app without its window that isn't running a workflow.
+The gateway runs in a small window, on the taskbar (the Dock on a Mac). It shows the app, with
+**Start** and **Stop**; the microscope's connection; and the agent, with **End**. **Pair a
+computer** shows a code for another computer's browser. **Open page** opens the gateway's page,
+and **Restart** and **Stop** at the bottom restart or stop the gateway. The desktop shortcut brings the window to
+the front, starting the gateway first if none runs.
+Its icon's badge shows the app: grey for off, blue with its window, purple without one. Closing the window asks,
+then stops the gateway. Stopping it also stops an app without its window that isn't running a
+workflow; an app with its window keeps running. `--no-window` runs the gateway without it.
 
 The page (`/ui/gateway`) shows:
 
@@ -97,7 +91,7 @@ While it runs, the card shows the goal, playbook, level and spend.
 - **End** stops the agent and keeps the app.
 - **Stopping the app** from the gateway (Stop, a new start, or Quit) ends the agent first.
 
-The tray has **End agent** while one runs. A hub with "may start and stop apps" can start and
+The page has **End** while one runs. A hub with "may start and stop apps" can start and
 end the agent too. Each session's record and log are in
 `~/.fibsem/agent/sessions/<date>-<session id>/`, and the page lists the latest sessions.
 
@@ -139,8 +133,8 @@ same from a terminal.
 
 ## Pairing a hub
 
-Pair a hub as you pair a browser, with a 4-digit code: **Pair a computer → A hub that may
-start and stop apps** in the tray, or `fibsem-gateway pair --hub --may-switch`. With it a
+Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`. The
+window's **Pair a computer** pairs a browser, not a hub. With it a
 hub can also connect and disconnect the microscope. Without that grant a hub can only read
 the gateway. Untick **May start and stop apps** on the page to take it back, or unpair the
 hub. A hub can never force a stop past a running workflow; only the operator at the PC
@@ -155,7 +149,7 @@ Double-click the AutoLamella desktop shortcut as usual.
 - With the app running without its window, you're asked first: **Take over** stops it (and
   any workflow it is running), then opens the window; **Cancel** leaves it running.
 
-Only the operator closes a window: on the gateway's page, in the tray, or at the PC. A hub
+Only the operator closes a window: on the gateway's page, or at the PC. A hub
 can't. The window closes as its own close button does, so it saves and disconnects first. If
 it asks a question as it closes, the gateway leaves it open to be answered at the PC and says
 so. It is never killed.

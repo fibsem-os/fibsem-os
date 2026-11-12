@@ -6,7 +6,8 @@ granted "may start and stop apps" (`SWITCH_MODES`); forcing past a running
 workflow, and ``/gateway/claim`` (a desktop launch on this PC), for the
 operator only. ``/gateway/microscope/...`` connects and disconnects the
 running host's microscope, ``/gateway/app/agent-page`` links the operator to
-its Agent page, ``/gateway/quit`` stops (or restarts) the gateway for the
+its Agent page, ``/gateway/show`` brings the gateway's window to the front,
+``/gateway/quit`` stops (or restarts) the gateway for the
 operator, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
 the same rules as starting the app.
@@ -114,6 +115,7 @@ def build_gateway_app(
     agent: Optional[GatewayAgent] = None,
     microscope: Optional[HostMicroscope] = None,
     on_quit: Optional[Callable[[bool], None]] = None,
+    on_show: Optional[Callable[[], bool]] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
     app.state.auth = auth
@@ -351,7 +353,7 @@ def build_gateway_app(
         def quit_gateway(
             body: Optional[Dict[str, Any]] = None, found: Caller = Depends(caller)
         ) -> dict:
-            """``{restart}``: stop the gateway as the tray's Quit does; with
+            """``{restart}``: stop the gateway as closing its window does; with
             ``restart``, it then starts again. The operator only."""
             if not found.operator:
                 raise _refused(
@@ -360,6 +362,14 @@ def build_gateway_app(
             restart = bool((body or {}).get("restart", False))
             on_quit(restart)
             return {"stopping": True, "restart": restart}
+
+    @app.post("/gateway/show")
+    def show_window(found: Caller = Depends(caller)) -> dict:
+        """``{shown}``: bring the gateway's window to the front (the desktop
+        shortcut); false when it runs without one. The operator only."""
+        if not found.operator:
+            raise _refused(403, "operator_only", "Only the operator shows the window.")
+        return {"shown": bool(on_show and on_show())}
 
     app.include_router(build_pairing_router(auth))
     app.include_router(web_app_router())
