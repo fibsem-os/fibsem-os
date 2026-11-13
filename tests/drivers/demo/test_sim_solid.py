@@ -258,6 +258,11 @@ def test_a_cut_face_shows_the_cell_and_its_nucleus(microscope, monkeypatch):
         assert (face == material).sum() > 20, material
     tones = {sim_solid.INSIDE[m][0] for m in (1, 2, 3)}
     assert len(tones) == 3
+    # what is in the cell is faint against it: a cryo face shows little
+    cell = np.array(sim_solid.INSIDE[sim_solid.CELL])
+    for part in (sim_solid.NUCLEUS, sim_solid.DROPLET, sim_solid.VESICLE):
+        off = np.abs(np.array(sim_solid.INSIDE[part]) / cell - 1)
+        assert (off > 0.03).all() and (off < 0.3).all(), part
 
 
 def _trace(microscope, monkeypatch, beam_type, hfw):

@@ -12,7 +12,7 @@ export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingEle
 /** Label and value pairs, the labels muted. */
 export function Facts({ rows, className }: { rows: [string, ReactNode][]; className?: string }) {
   return (
-    <dl className={cn("m-0 grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 text-[13px]", className)}>
+    <dl className={cn("m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3.5 gap-y-1.5 text-[13px]", className)}>
       {rows.map(([label, value]) => (
         <div key={label} className="contents">
           <dt className="text-muted-foreground">{label}</dt>

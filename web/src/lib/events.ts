@@ -44,6 +44,7 @@ const PROGRESS = new Set([
   "tiled_acquisition",
   "fib_acquisition",
   "fm_acquisition",
+  "agent_transcript",
 ]);
 
 // What an item's news makes stale: its record, its History and its thumbnail,

@@ -207,5 +207,8 @@ STAGE_POSITION_CHANGED = _kind(
 )
 SEM_ACQUISITION = _kind("sem_acquisition", LIVE, "A live SEM frame.", live=True)
 FIB_ACQUISITION = _kind("fib_acquisition", LIVE, "A live FIB frame.", live=True)
+AGENT_TRANSCRIPT = _kind(
+    "agent_transcript", LIVE, "fibsem-agent sent transcript lines.", live=True
+)
 
 LIVE_KINDS: FrozenSet[str] = frozenset(k.name for k in KINDS.values() if k.live)
