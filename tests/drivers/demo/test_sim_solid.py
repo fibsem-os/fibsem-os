@@ -397,6 +397,55 @@ def test_damage_is_shapes_on_the_lamella_face(microscope):
     assert 0 < gone.sum() < 0.5 * gone.size
 
 
+@pytest.mark.parametrize("current, breaks", [(60e-12, False), (1e-9, True)])
+def test_a_high_current_damages_a_lamella_a_low_one_leaves(microscope, current, breaks):
+    """`damage_below` is the thickness at risk at `damage_current`; a pass at
+    a higher current puts a thicker lamella at risk, and says so."""
+    scene = _use(
+        microscope,
+        damage_chance=1.0,
+        damage_below=(0.3e-6, 0.3e-6),
+        damage_current=60e-12,
+        **PLAIN,
+    )
+    microscope.set_beam_current(current, BeamType.ION)
+    _mill(microscope, (12e-6, 4e-6, 2.4e-6), (12e-6, 4e-6, -2.4e-6))
+    record = scene.mill_passes[-1]
+    assert 0.6e-6 < record["gap"] < 0.9e-6
+    assert record["damage_below"] == pytest.approx(0.3e-6 * (current / 60e-12) ** 0.5)
+    if not breaks:
+        assert record["damage_chance"] == 0.0 and scene.damage_started is None
+        return
+    # thicker than the usual limit: at risk, but at less than the full chance
+    limit, gap = record["damage_below"], record["gap"]
+    chance = (limit - gap) / (limit - 0.3e-6)
+    assert 0.2 < chance < 0.8
+    assert record["damage_chance"] == pytest.approx(chance)
+    if scene.damage_started is not None:
+        assert scene.damage_started["current"] == pytest.approx(current)
+        assert scene.damage_started["below"] > scene.damage_started["gap"]
+
+
+def test_a_thicker_lamella_is_less_likely_to_break_at_a_high_current():
+    """Over the usual limit the chance falls with thickness, to nothing at
+    the limit the current sets; under the usual limit it is the full chance."""
+    chances = []
+    for gap in (0.2e-6, 0.5e-6, 0.9e-6, 1.3e-6):
+        scene = SampleScene(
+            damage_chance=0.4, damage_below=(0.3e-6, 0.3e-6), damage_current=60e-12
+        )
+        record = {"gap": gap, "current": 1e-9, "pass": 1, "band": (0, 1e-5, 0, gap)}
+        scene._damage(record, np.random.default_rng(0))
+        chances.append(record["damage_chance"])
+    assert chances[0] == pytest.approx(0.4)
+    assert chances[0] > chances[1] > chances[2] > chances[3] == 0.0
+
+
+def test_the_current_matters_to_damage_only_where_a_sample_is_configured():
+    assert SampleScene().damage_current == 0.0
+    assert SampleScene.from_config({}).damage_current == pytest.approx(60e-12)
+
+
 def _columns(scene, x, y, half=20.0, step=0.1) -> dict:
     xa = x + np.arange(-half, half, step)
     ya = y + np.arange(-half, half, step)
