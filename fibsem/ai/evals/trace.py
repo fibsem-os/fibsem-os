@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from fibsem.ai.agent.harness import _clip, _result_text, step
 from fibsem.ai.evals import visual
 
 AGENT_LOG = "agent.log"
@@ -102,8 +103,6 @@ def read_transcript(path: Path, cwd: Optional[Path] = None) -> Trace:
     either source; a tool result marked as an error is a failure. A file read
     in the agent's folder is named from it: the folder each line says it ran in,
     else *cwd*."""
-    from fibsem.ai.agent.harness import _clip, _result_text, step
-
     trace = Trace()
     for kind, blocks, ran_in in _messages(path):
         for block in blocks:
