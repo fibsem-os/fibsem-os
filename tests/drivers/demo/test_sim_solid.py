@@ -571,3 +571,21 @@ def test_the_record_lists_each_target_and_whether_it_is_gone(microscope):
     targets = scene.record()["targets"]
     assert len(targets) == len(scene.fm_targets()) > 0
     assert not any(t["milled"] for t in targets[:20])
+
+
+def test_a_gis_coat_closes_a_broken_hole_and_keeps_the_relief_under_it():
+    """The coat lies over what is there: it grows in over a broken hole and
+    closes a small one, and a bar still stands up under it."""
+    scene = SampleScene(film="holey", **{**PLAIN, "broken_hole_fraction": 0.05})
+    bare = _columns(scene, 60.0, 60.0, half=40.0, step=0.2)
+    broken = bare["surface"] < sim_solid.NONE / 2
+    assert broken.any()
+    scene.deposit(120)  # 4.8 um
+    coated = _columns(scene, 60.0, 60.0, half=40.0, step=0.2)
+    lo, hi = coated["coat"]
+    over = broken & (hi > sim_solid.NONE / 2)
+    assert over.mean() > 0.9 * broken.mean()
+    # a layer over the hole, not a plug down through it
+    assert 0.5 < (hi - lo)[over].mean() < 4.9
+    relief = np.ptp(bare["surface"][~broken])
+    assert np.ptp(hi[~broken]) > 0.6 * relief

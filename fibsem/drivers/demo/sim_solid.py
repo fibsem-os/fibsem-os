@@ -113,6 +113,8 @@ BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
 RIM = (1.5, 1.2)  # how bright the rim round a milled edge is
 RIM_WIDTH = 1.1  # um
 CURTAIN = 0.28  # how strongly curtaining streaks a cut face
+BRIDGE = 0.6  # how far a coat reaches out over nothing, in its own thickness
+SAG = 0.25  # um it drops per um out
 CRACK_AT = 0.3  # um; the lamella thickness the damage shapes are sized for
 GROOVE = 0.08  # um; how deep curtaining grooves a cut
 CACHE_SIZE = 2  # views kept (one per beam)
@@ -417,6 +419,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     )
     gis = scene.gis_thickness * UM
     coat = np.full(shape, NONE, dtype=f32)
+    under = surface  # what the coat lies on
     if gis > 0:
         # the GIS lays a coat over everything, filling the fine detail in
         soft = max(gis, 0.3)
@@ -425,8 +428,20 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         )
         coat = np.where(gone, NONE, np.maximum(surface, smooth) + gis).astype(f32)
         level = level + gis
+        # it grows in from the edge of a hole or a rip, and closes a small one
+        open_ = gone & ~beyond
+        if open_.any():
+            far, (iy, ix) = ndi.distance_transform_edt(
+                gone, sampling=(sy, sx), return_indices=True
+            )
+            bridged = open_ & (far < BRIDGE * gis)
+            # thinner and lower the further out it hangs
+            reach = np.clip(far / (BRIDGE * gis), 0, 1)
+            over = coat[iy, ix] - SAG * far
+            under = np.where(bridged, over - gis * (1 - 0.6 * reach), under)
+            coat = np.where(bridged, over, coat).astype(f32)
     return {
-        "coat": (surface, coat),
+        "coat": (under, coat),
         "particle": (p_lo, p_hi),
         "nucleus": (n_lo, n_hi),
         "organelle": (o_lo, o_hi),

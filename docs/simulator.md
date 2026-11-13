@@ -96,7 +96,9 @@ the sample: a sputter coat (`sputter_thickness`, 0.5 nm/s) takes most of the cha
 away and brightens the SEM a little; a GIS coat (`gis_thickness`, 0.04 um/s with the
 valve open) smooths the detail, reads brighter in the FIB, takes some charging away, and
 is milled through like the rest. Set either thickness in the config for a grid that comes
-in coated. The coat is laid over everything, so a trench milled before a deposition is
+in coated. The coat follows what is under it, so bars and cells keep their relief. It
+grows in over a broken hole or a rip in the film, by about half its thickness from each
+edge: a small hole closes, a large rip narrows. A trench milled before a deposition is
 not filled in.
 
 ## Beam settings
