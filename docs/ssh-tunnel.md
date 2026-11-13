@@ -27,20 +27,21 @@ Set-Service -Name sshd -StartupType Automatic
 This also opens port 22 in Windows Firewall. If the lab network has its own firewall,
 ask for port 22 from the agent computer to the microscope PC.
 
-Then add the agent computer's key (see below) to the Windows account the agent logs in as:
+Make a standard (not administrator) Windows account for the tunnel, such as `fibsem-tunnel`.
+It needs nothing but the login. Don't use an administrator account: their keys go in one
+shared file, `C:\ProgramData\ssh\administrators_authorized_keys`, that lets the key into
+every administrator account.
 
-- a standard account: `C:\Users\<account>\.ssh\authorized_keys`
-- an administrator account: `C:\ProgramData\ssh\administrators_authorized_keys`, then
-  ```powershell
-  icacls.exe "C:\ProgramData\ssh\administrators_authorized_keys" /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
-  ```
-
-Put this in front of the key, on the same line, so the key can open the tunnel and do
-nothing else (no shell, no other ports):
+Add the agent computer's key (see below) to that account's
+`C:\Users\fibsem-tunnel\.ssh\authorized_keys`, with this in front of it on the same line:
 
 ```
-restrict,port-forwarding,permitopen="127.0.0.1:8001",permitopen="127.0.0.1:8010" ssh-ed25519 AAAA... agent-laptop
+restrict,port-forwarding,permitopen="127.0.0.1:8001",permitopen="127.0.0.1:8010",command="echo tunnel only" ssh-ed25519 AAAA... agent-laptop
 ```
+
+`restrict` turns off everything, `port-forwarding` and `permitopen` allow only the two
+ports, and `command` replaces any command the key asks to run, so the key opens the tunnel
+and nothing else.
 
 Use one key per agent computer. To stop a computer connecting, delete its line, and
 unpair it in the web app's **Settings → Paired computers**.
@@ -58,7 +59,7 @@ Add the microscope PC to `~/.ssh/config`:
 ```
 Host microscope
     HostName <microscope-pc>
-    User <account>
+    User fibsem-tunnel
     IdentityFile ~/.ssh/microscope
     LocalForward 8001 127.0.0.1:8001
     LocalForward 8010 127.0.0.1:8010
@@ -66,6 +67,11 @@ Host microscope
     ServerAliveCountMax 3
     ExitOnForwardFailure yes
 ```
+
+`LocalForward` listens on the agent computer's `127.0.0.1` only. Don't add `-g` or
+`GatewayPorts`: that would open the tunnel to the agent computer's network. On a computer
+other people log in to, they can reach `localhost:8001` too; they still need a token, which
+is kept readable by you alone.
 
 ## Each session
 
