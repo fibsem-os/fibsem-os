@@ -43,6 +43,7 @@ from fibsem.structures.settings import (
     Point,
 )
 from fibsem.structures.system import SessionInfo
+from fibsem.util import fast_yaml
 from fibsem.util.timestamps import now
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
@@ -750,7 +751,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         if not os.path.exists(path):
             raise FileNotFoundError(f"No file with name {path} found.")
         with open(path) as f:
-            ddict = yaml.safe_load(f)
+            ddict = fast_yaml.safe_load(f)
         check_app(ddict, Experiment.app, path)
 
         # create experiment from dict
