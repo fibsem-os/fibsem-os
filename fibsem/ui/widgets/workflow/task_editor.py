@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import List, Optional
 
-from qtpy.QtCore import QDateTime, QSize, Qt, Signal
+from qtpy.QtCore import QDate, QDateTime, QSize, Qt, QTime, Signal
 from qtpy.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -280,7 +280,7 @@ class WorkflowTaskEditorWidget(QWidget):
         if task.scheduled_at is None:
             return QDateTime.currentDateTime()
         sa = task.scheduled_at
-        return QDateTime(sa.year, sa.month, sa.day, sa.hour, sa.minute)
+        return QDateTime(QDate(sa.year, sa.month, sa.day), QTime(sa.hour, sa.minute))
 
     def _apply_schedule_bounds(self) -> None:
         """Restrict the picker to [now, now + SCHEDULE_DAYS_AHEAD days].

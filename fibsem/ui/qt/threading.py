@@ -40,6 +40,7 @@ from qtpy.QtCore import QObject, Signal
 
 from fibsem.acting import OPERATOR
 from fibsem.control import MicroscopeBusy
+from fibsem.ui.qt.sip import receivers
 
 if TYPE_CHECKING:
     from fibsem.control import Control
@@ -138,7 +139,7 @@ class FunctionWorker(QObject):
         except Exception as error:  # noqa: BLE001 - refused or unreachable: said
             from fibsem.ui.control import refused
 
-            if isinstance(error, MicroscopeBusy) and not self.receivers(self.errored):
+            if isinstance(error, MicroscopeBusy) and not receivers(self, self.errored):
                 refused(error)
             elif not isinstance(error, MicroscopeBusy):
                 logging.warning("could not take control for %s: %s", action, error)

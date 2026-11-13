@@ -27,12 +27,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, List, Optional
 
 from qtpy.QtCore import QObject, Signal
-from superqt import ensure_main_thread
 
 from fibsem.acting import AGENT
 from fibsem.ai.agent.now import AgentNow
 from fibsem.structures.settings import BeamType
 from fibsem.theme.tokens import PURPLE_COLOR
+from fibsem.ui.qt.main_thread import ensure_main_thread
 
 if TYPE_CHECKING:
     from fibsem.control import InControl

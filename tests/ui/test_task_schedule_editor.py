@@ -21,7 +21,7 @@ import pytest
 
 pytest.importorskip("qtpy.QtWidgets")
 
-from qtpy.QtCore import QDateTime
+from qtpy.QtCore import QDate, QDateTime, QTime
 
 from fibsem.ui.widgets.workflow.task_editor import (
     WorkflowTaskEditorWidget,
@@ -51,7 +51,7 @@ def test_ticking_the_box_writes_the_chosen_time(qapp):
 
     editor._schedule_cb.setChecked(True)
     editor._dt_edit.setDateTime(
-        QDateTime(when.year, when.month, when.day, when.hour, when.minute)
+        QDateTime(QDate(when.year, when.month, when.day), QTime(when.hour, when.minute))
     )
 
     assert _applied(editor).scheduled_at == when

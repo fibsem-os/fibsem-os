@@ -13,7 +13,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 from superqt.utils import qdebounced
 
 from fibsem.constants import METRE_TO_MICRON, MICRON_TO_METRE
@@ -22,6 +21,7 @@ from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.structures.system import InsertableDeviceState
 from fibsem.ui import notification_service
 from fibsem.ui.control import control_of, operator_acts
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.qt.threading import FunctionWorker, thread_worker
 from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,

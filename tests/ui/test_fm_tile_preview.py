@@ -20,6 +20,7 @@ from fibsem.geometry.projection import BeamStageProjection, surface_foreshorteni
 from fibsem.imaging.tiling.geometry import PlaneRegion
 from fibsem.structures.settings import BeamType, FibsemStagePosition
 from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
+from fibsem.ui.qt.sip import receivers
 
 OVERLAP = 0.1
 
@@ -71,8 +72,8 @@ def test_nothing_in_the_pane_can_move_the_stage(pane):
     kind of thing that gets copied.
     """
     canvas = pane.canvas.canvas
-    assert canvas.receivers(canvas.canvas_clicked) == 0
-    assert canvas.receivers(canvas.canvas_double_clicked) == 0
+    assert receivers(canvas, canvas.canvas_clicked) == 0
+    assert receivers(canvas, canvas.canvas_double_clicked) == 0
 
 
 def test_the_grid_cannot_be_dragged_out_of_shape(pane):

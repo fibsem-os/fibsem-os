@@ -54,6 +54,18 @@ def _widget(qapp):
     return clw.ChannelListWidget(fm=_FakeFM(), channel_settings=[channel])
 
 
+def _stub_menu_exec(monkeypatch, exec_):
+    """Swap the widget's QMenu for one whose exec is *exec_*.
+
+    Patching QMenu.exec itself does not reach an instance on PySide.
+    """
+
+    class StubMenu(QMenu):
+        exec = exec_
+
+    monkeypatch.setattr(clw, "QMenu", StubMenu)
+
+
 def _recent_rows(menu: QMenu):
     return [
         a
@@ -105,10 +117,8 @@ def test_channel_available_matches_filter_set(qapp):
 def test_no_recents_adds_directly_without_menu(qapp, monkeypatch):
     w = _widget(qapp)
     monkeypatch.setattr(clw, "load_recent_channels", lambda state: [])
-    monkeypatch.setattr(
-        QMenu,
-        "exec",
-        lambda *a, **k: pytest.fail("menu must not open with no recents"),
+    _stub_menu_exec(
+        monkeypatch, lambda *a, **k: pytest.fail("menu must not open with no recents")
     )
     before = w._list.count()
     w._on_add_channel()
@@ -137,7 +147,7 @@ def test_menu_lists_new_channel_then_recents(qapp, monkeypatch):
         captured["menu"] = self
         return None
 
-    monkeypatch.setattr(QMenu, "exec", fake_exec)
+    _stub_menu_exec(monkeypatch, fake_exec)
     w._on_add_channel()
 
     menu = captured["menu"]

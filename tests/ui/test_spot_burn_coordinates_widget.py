@@ -173,7 +173,7 @@ def test_hide_after_controller_is_gone_does_not_raise():
     The dialog owns both, so on close the controller's C++ object can go first; the
     widget's hideEvent then disarms an overlay on a dead object. Must be survivable.
     """
-    import sip
+    from fibsem.ui.qt import sip
 
     w, controller, view, _ = _host(
         settings=SpotBurnSettings(coordinates=[Point(0.3, 0.3)])
@@ -259,6 +259,7 @@ def test_canvas_box_select_selects_the_rows():
         }[name]
         gui = QMouseEvent(
             qtype,
+            QPointF(0, 0),
             QPointF(0, 0),
             Qt.MouseButton.LeftButton,
             Qt.MouseButton.LeftButton,

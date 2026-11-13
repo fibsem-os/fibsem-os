@@ -51,7 +51,6 @@ from qtpy.QtWidgets import (
     QStatusBar,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem.fm.progress import FluorescenceAcquisitionProgress
 from fibsem.imaging.spot import SpotBurnProgress
@@ -64,6 +63,7 @@ from fibsem.theme.tokens import (
     TEXT_MUTED_COLOR,
     TEXT_STRONG_COLOR,
 )
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.stylesheets import SECONDARY_BUTTON_STYLESHEET, STATUS_BAR_STYLESHEET
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.util.durations import format_duration_rounded

@@ -1247,7 +1247,7 @@ def _fit_combos(w):
 def test_fit_combos_ignore_the_wheel(qapp):
     """Scrolling past the Fit Settings panel must not silently change a fit
     method or channel — the selection has to survive a wheel event."""
-    from qtpy.QtCore import QPoint, Qt
+    from qtpy.QtCore import QPoint, QPointF, Qt
     from qtpy.QtGui import QWheelEvent
 
     w = _widget(qapp)
@@ -1260,8 +1260,8 @@ def test_fit_combos_ignore_the_wheel(qapp):
             qapp.sendEvent(
                 combo,
                 QWheelEvent(
-                    QPoint(5, 5),
-                    combo.mapToGlobal(QPoint(5, 5)),
+                    QPointF(5, 5),
+                    QPointF(combo.mapToGlobal(QPoint(5, 5))),
                     QPoint(0, -120),
                     QPoint(0, -120),
                     Qt.MouseButton.NoButton,

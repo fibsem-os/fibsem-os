@@ -58,6 +58,8 @@ SEQUENCE = textwrap.dedent(
     app = QApplication([])
     open_use_and_close()
     open_use_and_close()  # closing a window leaves the service to the next one
+    if hasattr(app, "shutdown"):  # PySide keeps the singleton until told
+        app.shutdown()
     del app  # the end of a test file, when nothing else held the QApplication
 
     app = QApplication([])

@@ -135,7 +135,8 @@ def test_the_card_has_no_way_to_answer_or_message_the_agent(qapp):
     card.set_request(_request())
     card.set_suggestion(_SUGGESTION)
     card.set_asking(_ASKING)
-    assert not card.findChildren((QLineEdit, QPlainTextEdit))
+    assert not card.findChildren(QLineEdit)
+    assert not card.findChildren(QPlainTextEdit)
     words = {button.text().strip() for button in card.findChildren(QPushButton)}
     assert not words & {"Approve", "Reject…", "Allow", "Deny…", "Decline…", "Send"}
     card.deleteLater()

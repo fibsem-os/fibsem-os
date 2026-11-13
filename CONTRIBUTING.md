@@ -131,8 +131,9 @@ QT_QPA_PLATFORM=offscreen python -m pytest tests/ui/test_something.py -q
 ```
 
 **CI is thinner than a development environment.** The build matrix installs `.[test]`, not
-`.[ui]`, so the PyQt5 tests `importorskip` and are skipped there; only the `ui-tests` job
-runs them. No job installs `[labelling]`, so nothing that needs napari runs on CI at all. A
+`.[ui]`, so the Qt tests `importorskip` and are skipped there; only the `ui-tests` jobs
+run them, once on PyQt5 and once on PySide6. Import Qt from `qtpy`, never from a binding;
+`QT_API=pyside6` runs a test under PySide6 locally. No job installs `[labelling]`, so nothing that needs napari runs on CI at all. A
 UI test passing locally is not evidence CI ran it.
 
 **Prefer real objects to stand-ins.** A fake encodes the author's assumption about the

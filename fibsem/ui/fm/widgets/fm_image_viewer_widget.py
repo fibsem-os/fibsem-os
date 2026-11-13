@@ -15,10 +15,10 @@ from typing import List, Optional, Union
 
 from qtpy.QtCore import Signal, Slot
 from qtpy.QtWidgets import QPushButton, QVBoxLayout, QWidget
-from superqt import ensure_main_thread
 
 from fibsem.fm.structures import FluorescenceImage
 from fibsem.ui.fm.widgets.load_image_dialog import LoadImageDialog
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.stylesheets import NAPARI_STYLE, PRIMARY_BUTTON_STYLESHEET
 from fibsem.ui.widgets.canvas.fm_canvas import FMCanvasWidget
 from fibsem.ui.widgets.image_viewer_dialog import ImageViewer, ViewerItem

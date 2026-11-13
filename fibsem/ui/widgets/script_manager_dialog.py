@@ -20,6 +20,7 @@ from qtpy.QtWidgets import (
     QDialog,
     QFileDialog,
     QHBoxLayout,
+    QHeaderView,
     QInputDialog,
     QLabel,
     QPushButton,
@@ -366,7 +367,7 @@ class ScriptManagerDialog(QDialog):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, header.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table.setColumnWidth(2, 130)
         return table
 

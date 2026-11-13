@@ -35,6 +35,7 @@ from fibsem.applications.autolamella.ui.coincidence.viewer import (
     _FmImageCanvas,
 )
 from fibsem.structures.image import FibsemImage
+from fibsem.ui.qt.sip import receivers
 from fibsem.ui.widgets.canvas.image_canvas import FibsemImageCanvas
 from fibsem.ui.widgets.canvas.overlays import RectOverlay, ScanDirectionArrowOverlay
 
@@ -418,7 +419,7 @@ def test_dragging_the_fib_rect_still_repositions_the_pattern():
     widget.set_fib_image(_fib_image())
 
     overlay = widget.fib_canvas.rect_overlay
-    assert overlay.receivers(overlay.rect_changed), (
+    assert receivers(overlay, overlay.rect_changed), (
         "the rect drag is not wired to anything"
     )
 

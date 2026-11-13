@@ -137,17 +137,15 @@ def _clone_wheel_event(event: QWheelEvent) -> QWheelEvent:
     delta, not the position, so this is fine for scrolling purposes.
     """
     return QWheelEvent(
-        event.pos(),
-        event.globalPos(),
+        event.position(),
+        event.globalPosition(),
         event.pixelDelta(),
         event.angleDelta(),
-        event.angleDelta().y(),
-        Qt.Orientation.Vertical,
         event.buttons(),
         event.modifiers(),
         event.phase(),
-        event.source(),
         event.inverted(),
+        event.source(),
     )
 
 
@@ -172,8 +170,9 @@ def install_wheel_blocker_recursive(root: QWidget) -> None:
     Widgets added *after* this call are not covered — call it again if a form
     populates itself dynamically.
     """
-    for child in root.findChildren((QAbstractSpinBox, QComboBox)):
-        install_wheel_blocker(child)
+    for kind in (QAbstractSpinBox, QComboBox):
+        for child in root.findChildren(kind):
+            install_wheel_blocker(child)
 
 
 def message_box_ui(
