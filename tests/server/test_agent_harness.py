@@ -918,6 +918,34 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
     assert [n["payload"].get("reply_to") for n in notes] == [message_id]
 
 
+def test_a_resumed_session_hears_what_it_missed_while_it_was_down(session):
+    kept = []
+
+    async def reply(prompt):
+        return None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, keep_cursor=kept.append)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    first = AgentSession(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    assert wait_for(lambda: kept, timeout=20), "no event id kept after the turn"
+    assert running.stop() == 0
+    assert first in agent.prompts[1]
+
+    # Sent while no agent watched.
+    missed = AgentSession(session).message("and 02?")
+
+    again = ScriptedAgent(reply)
+    running = _harness(session, again, resumed=True, after=kept[-1])
+    assert wait_for(lambda: len(again.prompts) >= 2, timeout=20), (
+        "the resumed session did not hear the message it missed"
+    )
+    assert running.stop() == 0
+    assert missed in again.prompts[1]
+    assert first not in again.prompts[1], "a message it had already heard came again"
+
+
 def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
     async def reply(prompt):
         if prompt.startswith("You are"):

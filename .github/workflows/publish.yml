@@ -89,7 +89,7 @@ jobs:
           python-version: "3.11"
       - run: pip install build
       - run: python -m build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -132,7 +132,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
@@ -141,7 +141,7 @@ jobs:
         run: >-
           python .github/scripts/wheel_smoke.py dist/*.whl --extras ui
           --freeze "constraints-${{ github.ref_name }}-${{ matrix.name }}.txt"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: constraints-${{ matrix.name }}
           path: constraints-*.txt
@@ -154,7 +154,7 @@ jobs:
       id-token: write
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
@@ -175,7 +175,7 @@ jobs:
     steps:
       # The versions the release was installed and started with, one file per
       # platform, for `pip install -c` (INSTALLATION.md).
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: constraints-*
           path: constraints/

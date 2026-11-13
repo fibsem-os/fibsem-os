@@ -53,7 +53,9 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
 from fibsem.workflows.actions import ACTION, is_message
 from fibsem.workflows.actions import OPERATOR_STOP as STOPPED_NO_REASON
+from fibsem.workflows.events import event_id
 from fibsem.workflows.events import kinds as event_kinds
+from fibsem.workflows.events import payloads as typed
 
 # Kinds that end a workflow: report it, and keep watching. A stalled workflow
 # drained with decisions pending; a failed one died outside a task (FIB-1037).
@@ -234,50 +236,47 @@ def _print_events(events, since, say, marked=None):
     for event in events:
         kind = event.get("kind", "")
         data = event.get("payload") or {}
+        # The kinds typed in `payloads`, read as their type.
+        p = typed.read_payload(event)
         since = max(since, event.get("seq", since))
         _keep_marked(event, marked)
         if kind == event_kinds.PROPOSAL_HELD:
-            say(_proposal_line(data.get("item_name"), data.get("task_name")))
+            say(_proposal_line(p.item_name, p.task_name))
         elif kind == event_kinds.PROPOSAL_RELEASED:
             out(
                 PROPOSAL_RELEASED,
-                f"PROPOSAL RELEASED item={data.get('item_name')} "
-                f"task={data.get('task_name')}",
+                f"PROPOSAL RELEASED item={p.item_name} task={p.task_name}",
             )
         elif kind == event_kinds.SUGGESTION_DECLINED:
-            reason = " ".join(str(data.get("reason") or "").split())
-            line = f"SUGGESTION DECLINED{_item_of(data)} task={data.get('task')}"
+            reason = " ".join(str(p.reason or "").split())
+            line = f"SUGGESTION DECLINED{_item_of(data)} task={p.task}"
             out(SUGGESTION, f"{line}: {reason}" if reason else line)
-        elif kind == event_kinds.PROPOSAL_DECIDED and data.get("kind") == "actions":
-            out(REQUEST, _request_decided_line(data))
-        elif kind == event_kinds.PROPOSAL_DECIDED and data.get("suggestion_id"):
-            out(
-                SUGGESTION,
-                f"SUGGESTION APPROVED{_item_of(data)} task={data.get('task')}",
-            )
+        elif kind == event_kinds.PROPOSAL_DECIDED and p.kind == "actions":
+            out(REQUEST, _request_decided_line(p))
+        elif kind == event_kinds.PROPOSAL_DECIDED and p.suggestion_id:
+            out(SUGGESTION, f"SUGGESTION APPROVED{_item_of(data)} task={p.task}")
         elif kind in (
             event_kinds.REQUEST_DECIDED,
             event_kinds.REQUEST_FINISHED,
             event_kinds.REQUEST_CANCELLED,
         ):
             out(REQUEST, _request_line(kind, data))
-        elif kind == event_kinds.COMMAND_ENDED and data.get("waited"):
+        elif kind == event_kinds.COMMAND_ENDED and p.waited:
             pass  # a caller waiting for it (service_wait_for_run) has the end
         elif kind == event_kinds.COMMAND_ENDED:
             # A long command the agent started (a mill, a spot burn) ended.
             line = (
-                f"COMMAND ENDED {data.get('service')}.{data.get('command')} "
-                f"run={data.get('run_id')} state={data.get('state')}"
+                f"COMMAND ENDED {p.service}.{p.command} run={p.run_id} state={p.state}"
             )
             out(
-                COMMAND_FAILED if data.get("state") == "failed" else COMMAND_ENDED,
-                f"{line} ({data['error']})" if data.get("error") else line,
+                COMMAND_FAILED if p.state == "failed" else COMMAND_ENDED,
+                f"{line} ({p.error})" if p.error else line,
             )
         elif kind == event_kinds.MILLING_STAGE_STARTED:
-            out(MILL_STAGE_STARTED, _mill_stage_line(event, data))
+            out(MILL_STAGE_STARTED, _mill_stage_line(event, p))
         elif kind == event_kinds.MILLING:
-            failed = data.get("status") == "failed"
-            out(MILL_FAILED if failed else MILL_ENDED, _mill_ended_line(event, data))
+            failed = p.status == "failed"
+            out(MILL_FAILED if failed else MILL_ENDED, _mill_ended_line(event, p))
         elif kind == event_kinds.MILLING_READING:
             line = _reading_line(data)
             if line:
@@ -300,17 +299,17 @@ def _print_events(events, since, say, marked=None):
         elif _is_message(event):
             say(_message_line(data, marked))
         elif kind == event_kinds.AGENT_PLAN_EDITED:
-            sections = ", ".join(str(s) for s in data.get("sections") or [])
+            sections = ", ".join(str(s) for s in p.sections or [])
             out(PLAN_EDITED, f"PLAN EDITED by the operator: {sections}")
         elif kind == event_kinds.AGENT_LEVEL_SET:
-            line = _level_line(data)
+            line = _level_line(p)
             if line:
-                out(LEVEL_LOWERED if _lowered(data) else LEVEL, line)
+                out(LEVEL_LOWERED if _lowered(p) else LEVEL, line)
         elif kind == event_kinds.WORKFLOW_STARTED:
             out(WORKFLOW_STARTED, "WORKFLOW STARTED")
             running = True
         elif kind in WORKFLOW_ENDS:
-            detail = data.get("error") or _counts(data.get("task_counts"))
+            detail = p.error or _counts(p.task_counts)
             out(
                 WORKFLOW_FAILED
                 if kind == event_kinds.WORKFLOW_FAILED
@@ -319,10 +318,10 @@ def _print_events(events, since, say, marked=None):
             )
             running = False
         elif kind in INTERESTING:
-            task = data.get("task_name")
-            line = f"EVENT {kind} {data.get('item_name', '')}"
+            task = p.task_name
+            line = f"EVENT {kind} {p.item_name or ''}"
             line = f"{line} {task}" if task else line
-            reason = _skip_reason(data) if kind == event_kinds.TASK_SKIPPED else None
+            reason = _skip_reason(p) if kind == event_kinds.TASK_SKIPPED else None
             out(kind, f"{line} ({reason})" if reason else line)
     return since, running
 
@@ -514,30 +513,27 @@ def _unanswered(events):
     return waiting
 
 
-def _level_line(data):
+def _level_line(p: typed.LevelSet):
     """The operator changed the level. Off has no line here: the agent is
     refused, and the watch says AGENT OFF."""
     try:
-        level = AgentLevel(data.get("level"))
+        level = AgentLevel(p.level)
     except ValueError:
         return None
     if level is AgentLevel.OFF:
         return None
-    return (
-        f"LEVEL {level.value} (was {data.get('previous')}): the operator set the "
-        "agent level"
-    )
+    return f"LEVEL {level.value} (was {p.previous}): the operator set the agent level"
 
 
 # The levels from least to most the agent may do.
 _RANK = {level: rank for rank, level in enumerate(AgentLevel)}
 
 
-def _lowered(data) -> bool:
+def _lowered(p: typed.LevelSet) -> bool:
     """Whether the operator set the level lower than it was."""
     try:
-        level = AgentLevel(data.get("level"))
-        previous = AgentLevel(data.get("previous"))
+        level = AgentLevel(p.level)
+        previous = AgentLevel(p.previous)
     except ValueError:
         return False
     return _RANK[level] < _RANK[previous]
@@ -564,15 +560,15 @@ def _item_of(event):
     return f" item={name}" if name else ""
 
 
-def _mill_stage_line(event, data):
+def _mill_stage_line(event, p: typed.MillingStageStarted):
     """A mill's stage started, from ``milling_stage_started``: which of how
     many, with the current and depth it mills at, to check against the plan."""
-    stage = data.get("stage") or {}
-    index, total = data.get("stage_index"), data.get("total_stages")
+    stage = p.stage if isinstance(p.stage, dict) else {}
+    index, total = p.stage_index, p.total_stages
     place = f"{index + 1}/{total}" if isinstance(index, int) else "?"
     line = (
         f"MILL STAGE STARTED {place} '{stage.get('name')}'{_item_of(event)} "
-        f"task='{data.get('milling_task_name')}'"
+        f"task='{p.milling_task_name}'"
     )
     current = (stage.get("milling") or {}).get("milling_current")
     if current is not None:
@@ -580,7 +576,7 @@ def _mill_stage_line(event, data):
     depth = (stage.get("pattern") or {}).get("depth")
     if depth is not None:
         line += f" depth={_si(depth)}m"
-    return f"{line} run={data.get('milling_run_id')}"
+    return f"{line} run={p.milling_run_id}"
 
 
 def _si(value):
@@ -591,20 +587,20 @@ def _si(value):
         return str(value)
 
 
-def _mill_ended_line(event, data):
+def _mill_ended_line(event, p: typed.Milling):
     """A mill ended, from its ``milling`` event: its status, how each stage
     ended, and the error of a failed one."""
-    status = data.get("status")
-    if data.get("reason"):
-        status = f"{status} ({data['reason']})"
+    status = p.status
+    if p.reason:
+        status = f"{status} ({p.reason})"
     line = (
-        f"MILL ENDED '{data.get('milling_task_name')}'{_item_of(event)} "
-        f"status={status} run={data.get('milling_run_id')}"
+        f"MILL ENDED '{p.milling_task_name}'{_item_of(event)} "
+        f"status={status} run={p.milling_run_id}"
     )
-    stages = [_stage_part(stage) for stage in data.get("stages") or []]
+    stages = [_stage_part(stage) for stage in p.stages or []]
     if stages:
         line += " stages: " + ", ".join(stages)
-    return f"{line} ({data['error']})" if data.get("error") else line
+    return f"{line} ({p.error})" if p.error else line
 
 
 def _check_part(data):
@@ -687,12 +683,12 @@ def _reading_line(data):
     return line
 
 
-def _request_decided_line(data):
+def _request_decided_line(p: typed.ProposalDecided):
     """The operator approved or rejected the agent's request, or it was
     withdrawn: its proposal's decision."""
-    head = f"REQUEST {data.get('proposal_id')}"
-    reason = " ".join(str(data.get("reason") or "").split())
-    outcome = data.get("outcome")
+    head = f"REQUEST {p.proposal_id}"
+    reason = " ".join(str(p.reason or "").split())
+    outcome = p.outcome
     if outcome == "Confirmed":
         return f"{head} approved"
     if outcome == "Rejected":
@@ -717,11 +713,11 @@ def _request_line(kind, data):
     return f"{head} approved"
 
 
-def _skip_reason(data):
+def _skip_reason(p: typed.TaskEvent):
     """``missing_prereqs: Mill Fiducial``: why a task was skipped, and for a
     missing requirement which one (FIB-1357)."""
-    reason = data.get("skip_reason")
-    missing = data.get("missing_prereqs")
+    reason = p.skip_reason
+    missing = p.missing_prereqs
     if reason and missing:
         return f"{reason}: {', '.join(str(name) for name in missing)}"
     return reason
@@ -787,6 +783,7 @@ def watch(
     report_reads=True,
     on_seeded=None,
     after=None,
+    on_cursor=None,
 ):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
@@ -810,6 +807,9 @@ def watch(
 
     Each line said is a `Wake`. ``on_seeded`` is called once the event stream
     first answers: from there on, no line is missed.
+
+    ``on_cursor`` is called with the id of the newest event read, after the
+    lines it made were said: a later ``after=`` that id picks up from there.
     """
     say = out or _print_line
     sleep_fn = sleep_fn or time.sleep
@@ -824,6 +824,12 @@ def watch(
         say(line)
         if report_reads:
             report_read(client, list(getattr(line, "message_ids", ())))
+
+    def moved(events):
+        if on_cursor is not None and events:
+            last = event_id(events[-1])
+            if last:
+                on_cursor(last)
 
     def seeded(snapshot):
         if on_seeded is not None and snapshot.get("available"):
@@ -892,6 +898,11 @@ def watch(
             _keep_marked(event, marked)
         for data in _unanswered(snapshot.get("events", [])):
             out(_message_line(data, marked))
+    if held_before or after is not None:
+        # Everything up to the snapshot's newest event has been said (or was
+        # history before this watch began). A watch resumed by seq has not
+        # said the events after that seq yet.
+        moved(snapshot.get("events", []))
     checked_at = clock()
 
     failures = 0
@@ -958,6 +969,7 @@ def watch(
 
         events = payload.get("events", [])
         since, running = _print_events(events, since, out, marked)
+        moved(events)
         since = max(since, latest)
         if running is not None:
             workflow_live = running
@@ -975,6 +987,7 @@ def watch(
                     since, running = _print_events(
                         last.get("events", []), since, out, marked
                     )
+                    moved(last.get("events", []))
                 if running is None:
                     out(NO_END_EVENT_LINE)
                     running = False
