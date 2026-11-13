@@ -7,6 +7,7 @@ unnamed third grid.
 """
 
 import inspect
+import threading
 import time
 
 import pytest
@@ -279,6 +280,21 @@ def _slowed(monkeypatch, service, command, seconds=0.3):
     monkeypatch.setattr(service, command, slow)
 
 
+def _held(monkeypatch, service, command) -> threading.Event:
+    """*command* on *service*, held until the returned event is set: a run that
+    is still going when the next call comes, however slow the machine."""
+    method = getattr(service, command)
+    release = threading.Event()
+
+    def held(**kwargs):
+        release.wait(30)
+        return method(**kwargs)
+
+    held.__signature__ = inspect.signature(method)
+    monkeypatch.setattr(service, command, held)
+    return release
+
+
 def test_a_request_s_next_step_waits_for_a_long_command_to_end(arctis, monkeypatch):
     """Two loads and an unload in one request run one after another, each to its
     end (sim session 2026-10-19 F1: the second load started 10 ms after the
@@ -349,15 +365,18 @@ def test_a_failed_run_fails_its_request_step(arctis):
 def test_a_long_command_does_not_start_beside_another(driving, arctis, monkeypatch):
     """Its starter may image or move beside a running long command, but not
     start another: two sample-handling moves at once is the case to avoid."""
-    _slowed(monkeypatch, arctis.sample_handling, "ensure_loaded", seconds=1.0)
-    started = _call(driving, "grid_load", grid_name="G1")
-    assert started.status_code == 200, started.text
+    release = _held(monkeypatch, arctis.sample_handling, "ensure_loaded")
+    try:
+        started = _call(driving, "grid_load", grid_name="G1")
+        assert started.status_code == 200, started.text
 
-    beside = _call(driving, "grid_unload")
-    assert beside.status_code == 409, beside.text
-    assert beside.json()["detail"]["error_type"] == "microscope_busy"
-    # A read beside it is still fine.
-    assert _call(driving, "grid_get_inventory").status_code == 200
+        beside = _call(driving, "grid_unload")
+        assert beside.status_code == 409, beside.text
+        assert beside.json()["detail"]["error_type"] == "microscope_busy"
+        # A read beside it is still fine.
+        assert _call(driving, "grid_get_inventory").status_code == 200
+    finally:
+        release.set()
 
     run = started.json()["result"]
     ended = driving.get(RUN_STATE, params={"run_id": run["run_id"], "wait": 10})
