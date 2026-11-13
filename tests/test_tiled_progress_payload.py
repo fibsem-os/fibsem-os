@@ -7,7 +7,7 @@ thing that gets edited by someone looking at one consumer.
 
 Deliberately **not** under `tests/ui`. The overview widget is the only consumer of the
 `tile` key today and it is a Qt widget, so this test naturally wanted to live beside it
--- where CI, which installs `.[test]` and so has no PyQt5, would have skipped the whole
+-- where CI, which installs `.[test]` and so has no Qt, would have skipped the whole
 module and never checked the acquisition code at all.
 
 Run directly:

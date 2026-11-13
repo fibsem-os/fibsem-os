@@ -3,7 +3,7 @@
 The export dialog's preview and the file it saves both come from :func:`render_export`,
 so what the dialog shows is what lands on disk. Qt-free for the same reason as
 ``fibsem.imaging.drawing``, which draws the scalebar and crosshair: it can be scripted,
-and tested on CI, where PyQt5 is not installed.
+and tested on CI, where Qt is not installed.
 
 Two steps. :func:`load_export_image` (or one of the ``from_*`` constructors) reads an
 image once into an :class:`ExportImage` -- display pixels plus the metadata already

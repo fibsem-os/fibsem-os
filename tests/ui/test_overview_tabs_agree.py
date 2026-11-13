@@ -1,7 +1,7 @@
 """The two overview tabs draw the same things, so they must draw them the same way.
 
 Checked against the modules' *source*, not by importing them, for two reasons: importing
-either pulls in PyQt5, which CI does not install — and this is exactly the check worth
+either pulls in Qt, which CI does not install — and this is exactly the check worth
 having where the rest of the UI tests are skipped — and what is being guarded against is
 someone writing a colour down a second time, which is a property of the text.
 

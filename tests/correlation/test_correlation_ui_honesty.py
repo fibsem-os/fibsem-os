@@ -13,7 +13,7 @@ two of them let a wrong number reach the experiment:
   the one handed to correlation;
 * legend entries surviving an image swap that removed their markers.
 
-Headless PyQt5, offscreen.
+Headless Qt, offscreen.
 """
 
 import os

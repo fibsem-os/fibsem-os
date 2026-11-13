@@ -21,7 +21,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
-# CI installs `.[test]`, not `.[ui]`, so PyQt5 is absent there.
+# CI installs `.[test]`, not `.[ui]`, so Qt is absent there.
 pytest.importorskip("qtpy.QtWidgets")
 
 from qtpy.QtWidgets import QApplication, QLabel  # noqa: E402

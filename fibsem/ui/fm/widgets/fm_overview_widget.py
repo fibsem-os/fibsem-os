@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import qtpy
 from qtpy.QtCore import QPoint, Qt, Signal
 from qtpy.QtWidgets import (
     QDialog,
@@ -353,16 +352,12 @@ class FMOverviewWidget(OverviewWidgetBase):
         # worst a click that toggles a tile you meant to select, which greys out visibly
         # and undoes with one more click. A wrong action that announces itself beats a
         # dead end that does not.
-        # On PySide a closure over self here keeps a dropped widget alive, so it holds
-        # the widget weakly. PyQt5 keeps the plain closure (both connections below
-        # weak segfault its garbage collector). Goes with PyQt5.
-        if qtpy.PYSIDE6:
-            reserved = weakref.WeakMethod(self._is_reserved)
-            self.tile_grid_overlay.set_reserved(
-                lambda x, y: (method := reserved()) is not None and method(x, y)
-            )
-        else:
-            self.tile_grid_overlay.set_reserved(lambda x, y: self._is_reserved(x, y))
+        # A closure over self here would keep a dropped widget alive, so it holds the
+        # widget weakly.
+        reserved = weakref.WeakMethod(self._is_reserved)
+        self.tile_grid_overlay.set_reserved(
+            lambda x, y: (method := reserved()) is not None and method(x, y)
+        )
         self.canvas.canvas.add_overlay(self.tile_grid_overlay)
 
         # The same three switches the beam tab offers, over the same three shapes, from
@@ -372,13 +367,8 @@ class FMOverviewWidget(OverviewWidgetBase):
         self.overlay_controls = CanvasOverlayControls(
             stage_context.context_overlay_entries(self.microscope)
         )
-        # The same split: PySide holds a lambda strongly, so it gets the bound method.
-        if qtpy.PYSIDE6:
-            self.overlay_controls.toggled.connect(self._on_overlays_toggled)
-        else:
-            self.overlay_controls.toggled.connect(
-                lambda *_: self._on_overlays_toggled()
-            )
+        # A bound method, not a lambda: PySide holds a lambda strongly.
+        self.overlay_controls.toggled.connect(self._on_overlays_toggled)
         self._context_defaults_for_calibrated = stage_context.holder_is_calibrated(
             self.microscope
         )

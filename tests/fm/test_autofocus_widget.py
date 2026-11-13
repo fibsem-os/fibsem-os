@@ -1,6 +1,6 @@
 """Headless tests for the dynamic multi-pass AutofocusWidget.
 
-Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
+Uses Qt directly with the offscreen platform (no pytest-qt dependency).
 """
 
 import os

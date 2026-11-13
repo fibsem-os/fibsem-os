@@ -13,7 +13,7 @@ into a section inside the correlation window. Things lost or invented on the way
   handed over a *blank generated placeholder* when the lamella had no reference
   image, which would scale the burns and the POI by placeholder dimensions.
 
-Headless PyQt5, offscreen.
+Headless Qt, offscreen.
 """
 
 import os

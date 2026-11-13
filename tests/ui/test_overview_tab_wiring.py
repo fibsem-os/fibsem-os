@@ -8,7 +8,7 @@ a page left out of a connection, a loaded experiment, a workflow lock or a
 selection keeps showing something stale rather than raising.
 
 Checked statically, against the source: this is one of the few CI runs without
-PyQt5. The behaviour behind these calls is tested for real in
+Qt. The behaviour behind these calls is tested for real in
 `test_overview_tab_host.py`, which builds the tabs against a live simulator.
 """
 
@@ -169,7 +169,7 @@ def test_the_retired_flag_is_gone_everywhere(window_source):
 
     assert "overview_canvas_tab" not in str(fibsem_cfg.UserPreferences().to_dict())
     assert "overview_canvas_tab" not in window_source
-    # Read from disk, not imported. This is one of the few CI runs *without* PyQt5, and
+    # Read from disk, not imported. This is one of the few CI runs *without* Qt, and
     # `import preferences_dialog` pulls it in -- taking the whole module down at
     # collection, which is the failure the static approach here exists to avoid.
     assert "overview_canvas_tab" not in PREFERENCES_DIALOG.read_text(encoding="utf-8")
@@ -212,7 +212,7 @@ def test_the_napari_tab_and_its_flag_are_gone(window_source):
     ):
         assert gone not in window_source, f"{gone} survived the tab removal"
     # Read from disk rather than imported: this is one of the few CI runs *without*
-    # PyQt5, and importing the dialog would take the module down at collection.
+    # Qt, and importing the dialog would take the module down at collection.
     assert "napari_overview" not in PREFERENCES_DIALOG.read_text(encoding="utf-8")
 
     stale = {"features": {"napari_overview_tab": True}}
@@ -249,7 +249,7 @@ def test_the_two_host_tabs_share_one_base():
     """Both drive an experiment the same way, so neither owns that plumbing.
 
     Read from source rather than imported, like everything else in this file: this is
-    the one UI test module CI actually runs, because it needs no PyQt5. An earlier
+    the one UI test module CI actually runs, because it needs no Qt. An earlier
     version of this test imported the classes and turned the whole run red on every
     platform.
 
