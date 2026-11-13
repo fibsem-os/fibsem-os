@@ -22,7 +22,7 @@ from fibsem.fm.structures import (
     OverviewParameters,
     ZParameters,
 )
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     EventRecorder,
     read_events,

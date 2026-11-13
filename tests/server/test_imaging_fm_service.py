@@ -348,8 +348,8 @@ def test_the_display_images_answer_the_fm_frame_in_its_colour(microscope):
 
 
 def test_fm_frames_reach_the_events_one_a_second_at_most(microscope):
-    from fibsem.workflows.event_recording import LIVE_KINDS
     from fibsem.workflows.events import EventBuffer, attach_microscope_taps
+    from fibsem.workflows.events.recording import LIVE_KINDS
 
     buffer = EventBuffer()
     disposers = attach_microscope_taps(buffer, microscope)

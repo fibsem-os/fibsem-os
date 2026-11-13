@@ -1099,7 +1099,7 @@ class RunStep:
 
 
 @dataclass
-class RunPlan:
+class RunEstimateView:
     """A lamella run's steps in queue order and its estimate, or for an
     addition to the running queue what it adds and delays."""
 

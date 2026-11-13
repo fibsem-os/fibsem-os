@@ -25,7 +25,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import MillRoughTaskC
 from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
-from fibsem.workflows.event_recording import EVENTS_FILENAME, read_events
+from fibsem.workflows.events.recording import EVENTS_FILENAME, read_events
 from fibsem.workflows.history_rows import (
     OUTSIDE_A_TASK,
     HistoryFilter,

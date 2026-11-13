@@ -44,7 +44,7 @@ from fibsem.applications.autolamella.tools.event_tables import (
 )
 from fibsem.util.durations import format_duration_as_clock, format_duration_in_words
 from fibsem.util.timestamps import wall_time_of, zone_label
-from fibsem.workflows.event_recording import EVENTS_FILENAME
+from fibsem.workflows.events.recording import EVENTS_FILENAME
 from fibsem.workflows.proposals import kind_label
 
 REPORT_DIRNAME = "reporting"

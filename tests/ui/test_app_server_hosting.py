@@ -15,7 +15,7 @@ import httpx
 from fibsem import config as fibsem_cfg
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.server import hosting
-from fibsem.workflows.event_recording import recorder_for
+from fibsem.workflows.events.recording import recorder_for
 from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
 

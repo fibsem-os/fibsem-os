@@ -141,7 +141,7 @@ def session_facts(session: Optional[Dict[str, Any]]) -> List[Tuple[str, str]]:
     return facts
 
 
-class AgentSession:
+class AgentControl:
     """The agent as the operator meets it, over one :class:`AppSession`: the
     App Server it reaches the session through, its level and its requests."""
 

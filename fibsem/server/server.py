@@ -563,7 +563,7 @@ def build_server(
     under ``/services`` whatever ``serve_microscope`` is, since they use no
     device: by default a new copy of each.
 
-    ``operator`` is the session's ``AgentSession``: passing one mounts the
+    ``operator`` is the session's ``AgentControl``: passing one mounts the
     operator's routes (`fibsem.server.agent.operator`), behind the operator token.
     """
     if auth is None:

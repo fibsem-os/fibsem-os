@@ -227,7 +227,7 @@ class TestLifecycle:
         assert grid.has_completed_task("echo")
 
     def test_a_step_is_recorded_as_the_grid_s(self, microscope, experiment, tmp_path):
-        from fibsem.workflows.event_recording import (
+        from fibsem.workflows.events.recording import (
             EVENTS_FILENAME,
             EventRecorder,
             read_events,

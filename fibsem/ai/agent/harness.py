@@ -154,11 +154,11 @@ you or for them. Where a skill shows curl, python or a script, use the \
 matching mcp__fibsem__ tool, or say what you can't do."""
 
 
-def defaults() -> playbooks.Session:
+def defaults() -> playbooks.SessionSettings:
     """The shipped base playbook's session settings: what a timer or a
     watcher built without them uses."""
     base = playbooks.shipped_base(find_checkout())
-    return base.session if base is not None else playbooks.Session()
+    return base.session if base is not None else playbooks.SessionSettings()
 
 
 def texts(kind: Optional[str] = None) -> instruments.Texts:
@@ -2361,7 +2361,7 @@ REQUIRED = (
 )
 
 
-def _resolve(args, given: playbooks.Session) -> None:
+def _resolve(args, given: playbooks.SessionSettings) -> None:
     """Fill what the command line left out from the playbook's session
     settings, which carry the base playbook's defaults."""
     if args.model is None:

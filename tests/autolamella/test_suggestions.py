@@ -11,8 +11,8 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.structures.settings import MicroscopeState, Point
-from fibsem.workflows.event_recording import ProposalTap
 from fibsem.workflows.events import EventBuffer
+from fibsem.workflows.events.recording import ProposalTap
 from fibsem.workflows.proposals import (
     POINT_OF_INTEREST,
     STATE,

@@ -38,7 +38,7 @@ SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
 SESSION_BUDGET = "agent_session_budget"
 MESSAGES_READ = "agent_messages_read"
-# A message's id (`AgentSession.message`), and how many one report names.
+# A message's id (`AgentControl.message`), and how many one report names.
 _MESSAGE_ID = re.compile(r"^[0-9a-f]{1,32}$")
 MAX_READ = 50
 

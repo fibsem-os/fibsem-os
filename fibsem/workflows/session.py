@@ -23,14 +23,14 @@ from psygnal import Signal
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.acting import AGENT, OPERATOR, ActorKind
-from fibsem.ai.agent.session import AgentSession
+from fibsem.ai.agent.session import AgentControl
 from fibsem.alerts import Alerts
 from fibsem.devices.runs import Runs
 from fibsem.imaging.latest import LatestImages
 from fibsem.imaging.overview_session import OverviewSession
 from fibsem.instrument import CONNECTED_MESSAGE, DeviceInstrument, configured_kind
-from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.events import EventBuffer
+from fibsem.workflows.events.recording import EventRecorder
 from fibsem.workflows.runner import WorkflowRunner
 
 EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
@@ -145,7 +145,7 @@ class AppSession:
         self.experiments_folder: Optional[str] = None
         # The agent as the operator meets it: its level, its requests and the
         # operator's messages.
-        self.agent = AgentSession(self)
+        self.agent = AgentControl(self)
         # Slack messages for someone away from the instrument, while the App
         # Server is hosted (its web app is where they are answered).
         self.alerts: Optional[Alerts] = None

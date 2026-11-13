@@ -5,7 +5,7 @@ app's session builds ``build_server(session=...)`` with the app's ``/app`` view
 and runs it on a daemon thread, with or without a microscope connected. One
 process, one microscope connection, one commander — the whole reason embedded
 hosting exists. The microscope (connected through the session, whoever asks),
-the event stream (``event_recording.EventRecorder``, which exists whether or
+the event stream (``events.recording.EventRecorder``, which exists whether or
 not this runs), the responder and the agent's token are the session's
 (``fibsem.workflows.session``); the ``/app`` view over them is the
 application's own (AutoLamella's is ``AutoLamellaAppContext``). Every route

@@ -42,7 +42,7 @@ from fibsem.structures.settings import MicroscopeState, Point  # noqa: E402
 from fibsem.ui.edit_recording import (
     SETTLE_MS,  # noqa: E402  # noqa: E402
 )
-from fibsem.workflows.event_recording import EventRecorder  # noqa: E402
+from fibsem.workflows.events.recording import EventRecorder  # noqa: E402
 from fibsem.workflows.task_config import TaskPlan
 from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 

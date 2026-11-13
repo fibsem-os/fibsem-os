@@ -1130,7 +1130,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ),
     ToolSpec(
         name="workflow_plan",
-        returns="RunPlan",
+        returns="RunEstimateView",
         description="What a lamella run would queue and cost — the Workflow tab's confirmation: the (item, task) steps in queue order, checked as workflow_start will check them, with the estimate (work and hold seconds, expected finish, each task's count and seconds). With add=true, what adding them to the running queue (at the end, or run_next) would add and delay, as its confirmation shows. Computes only; reads no hardware.",
         method="POST",
         path="/app/workflow/plan",

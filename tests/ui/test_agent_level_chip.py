@@ -444,7 +444,7 @@ def test_the_chip_shows_the_running_server_s_level_and_sets_it(main_ui, host):
 
 def test_stop_agent_drops_to_watch_and_is_the_operator_s_on_the_record(main_ui, host):
     from fibsem import utils
-    from fibsem.workflows.event_recording import EventRecorder
+    from fibsem.workflows.events.recording import EventRecorder
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")
