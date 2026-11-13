@@ -59,6 +59,7 @@ from fibsem.server.auth import (
     require_token,
     take_control,
 )
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.connection import ServedInstrument, build_connection_router
 from fibsem.server.devices import (
     ERROR_STATUS,
@@ -590,6 +591,8 @@ def build_server(
     async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
         _record_refusal(request, exc)
         return await http_exception_handler(request, exc)
+
+    refuse_invalid_requests(app)
 
     @app.exception_handler(Exception)
     def _unhandled(request: Request, exc: Exception) -> JSONResponse:

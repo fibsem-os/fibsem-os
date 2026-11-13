@@ -35,6 +35,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.auth import _bearer_token, _matches
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import (
     HUB,
@@ -118,6 +119,7 @@ def build_gateway_app(
     on_show: Optional[Callable[[], bool]] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
+    refuse_invalid_requests(app)
     app.state.auth = auth
 
     def caller(request: HTTPConnection) -> Caller:

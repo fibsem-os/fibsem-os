@@ -136,6 +136,7 @@ from fibsem.instrument import DeviceInstrument
 from fibsem.schema import arguments_schema
 from fibsem.server import operator_token
 from fibsem.server.auth import refusal_error, require_operator
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.images import (
     IMAGES_MEDIA_TYPE,
@@ -954,6 +955,7 @@ def build_device_app(
     by_name: Dict[str, Device] = {device.name: device for device in devices}
     auth = auth if auth is not None else DeviceAuth.from_disk()
     app = FastAPI(title="fibsem devices")
+    refuse_invalid_requests(app)
     app.state.auth = auth
     token = Depends(require_operator())
     app.include_router(build_pairing_router(auth))
