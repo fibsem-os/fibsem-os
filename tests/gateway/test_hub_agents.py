@@ -263,3 +263,12 @@ def test_the_hubs_routes_start_end_and_set_the_level(made, scope, tmp_path):
     assert ended.json()["instruments"][0]["session"] is None
     missing = client.post("/hub/instruments/Nope/agent/end", headers=operator)
     assert missing.status_code == 404
+
+
+def test_the_hub_reads_the_level_the_instrument_caps_it_at(made, scope):
+    hub, _ = made()
+    hub.check()
+    assert hub.state().instruments[0].level_cap is None
+    scope.limit = AgentLevel.ASSIST
+    hub.check()
+    assert hub.state().instruments[0].level_cap == "assist"

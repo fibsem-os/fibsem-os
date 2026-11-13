@@ -56,7 +56,15 @@ CALL_TIMEOUT_S = 15.0
 MAX_INSTRUMENTS = 32
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$")
 # What the hub keeps of an instrument's ``GET /gateway``.
-_GATEWAY_KEYS = ("mode", "version", "app", "experiment", "switching", "since")
+_GATEWAY_KEYS = (
+    "mode",
+    "version",
+    "app",
+    "experiment",
+    "switching",
+    "since",
+    "last_experiment",
+)
 # And of the agent running there (``GET /gateway/agent``).
 _AGENT_KEYS = ("session_id", "state", "playbook", "goal", "level", "started")
 
@@ -96,6 +104,10 @@ class InstrumentState:
     """The agent running there, if one is."""
     session: Optional[Dict[str, Any]] = None
     """The agent this hub runs for it on this PC, if it does."""
+    microscope: Optional[Dict[str, Any]] = None
+    """Whether its app has the microscope, and the configuration's name."""
+    level_cap: Optional[str] = None
+    """The highest level its PC lets a hub set; None for no limit."""
 
 
 @dataclass
@@ -442,7 +454,16 @@ class Hub:
                         for key in _GATEWAY_KEYS
                         if gateway.get(key) is not None
                     }
-                    found.agent = self._agent(url, token)
+                    found.agent, found.level_cap = self._agent(url, token)
+                    # The apps a hub can start: the ones that run without a window.
+                    apps = gateway.get("apps")
+                    found.gateway["apps"] = [
+                        {"key": app.get("key"), "name": app.get("name")}
+                        for app in (apps if isinstance(apps, list) else [])
+                        if isinstance(app, dict) and app.get("headless")
+                    ]
+                    if found.gateway.get("mode") == "running":
+                        found.microscope = self._microscope(url, token)
                 elif status in (401, 403):
                     found.why = "Its gateway no longer knows this hub: pair again."
                 else:
@@ -460,12 +481,41 @@ class Hub:
             found.since = before.since if same and before is not None else now
             self._read[instrument.name] = found
 
-    def _agent(self, url: str, token: str) -> Optional[Dict[str, Any]]:
+    def _agent(
+        self, url: str, token: str
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        """The agent running there, and the level its PC caps a hub at."""
         status, agent = self._fetch(url, "/gateway/agent", token, TIMEOUT_S)
-        running = agent.get("running") if isinstance(agent, dict) else None
-        if status != 200 or not isinstance(running, dict):
+        if status != 200 or not isinstance(agent, dict):
+            return None, None
+        running, cap = agent.get("running"), agent.get("hub_max_level")
+        cap = cap if isinstance(cap, str) and cap else None
+        if not isinstance(running, dict):
+            return None, cap
+        return {key: running[key] for key in _AGENT_KEYS if running.get(key)}, cap
+
+    def _microscope(self, url: str, token: str) -> Optional[Dict[str, Any]]:
+        """Whether the app there has the microscope; None while the app
+        doesn't answer."""
+        status, found = self._fetch(
+            url, "/gateway/microscope/connection", token, TIMEOUT_S
+        )
+        if status != 200 or not isinstance(found, dict):
             return None
-        return {key: running[key] for key in _AGENT_KEYS if running.get(key)}
+        configuration = found.get("configuration")
+        about = configuration if isinstance(configuration, dict) else {}
+        model = " ".join(
+            part
+            for part in (about.get("manufacturer"), about.get("model"))
+            if isinstance(part, str) and part
+        )
+        name = about.get("name")
+        return {
+            "connected": bool(found.get("connected")),
+            "connecting": bool(found.get("connecting")),
+            **({"configuration": name} if isinstance(name, str) and name else {}),
+            **({"model": model} if model else {}),
+        }
 
     def check(self) -> None:
         """Read every instrument once, side by side."""
@@ -482,6 +532,10 @@ class Hub:
         with ThreadPoolExecutor(max_workers=min(8, len(instruments))) as pool:
             for instrument in instruments:
                 pool.submit(self._safely, instrument)
+
+    def read(self, name: str) -> None:
+        """Read *name* now, after something was done there."""
+        self._safely(self.instrument(name))
 
     def _safely(self, instrument: Instrument) -> None:
         try:

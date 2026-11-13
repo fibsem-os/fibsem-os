@@ -186,7 +186,12 @@ def test_pairing_keeps_a_token_and_the_instrument_is_read(hub, instruments, tmp_
     code = instruments.auth.pairing.open(role=HUB)
     (row,) = hub.pair("Scope 1", code).instruments
     assert row.paired and row.reachable and row.why is None
-    assert row.gateway == {"mode": OFF, "version": "1.2.3", "switching": False}
+    assert row.gateway == {
+        "mode": OFF,
+        "version": "1.2.3",
+        "switching": False,
+        "apps": [],
+    }
     assert row.agent is None
     kept = tmp_path / "hub" / "scope-1.json"
     assert json.loads(kept.read_text())["role"] == HUB
@@ -396,3 +401,100 @@ def test_without_ssh_installed_the_tunnel_says_so():
 def test_the_tunnel_command_only_forwards(ssh):
     tunnel = ssh.tunnels.ensure("Scope 1", "user@scope-1")
     assert command(tunnel)[:2] == ["ssh", "-N"]
+
+
+# -- what the hub's page shows and does ---------------------------------------
+
+
+class Running:
+    """An instrument whose app is running: what its gateway answers a hub,
+    and what the hub asked it to do."""
+
+    def __init__(self, refuses=False):
+        self.asked = []
+        self.refuses = refuses
+        self.mode = "running"
+
+    def fetch(self, url, route, token, timeout, method="GET", body=None):
+        self.asked.append((method, route))
+        if route == "/health":
+            return 200, {}
+        if route == "/gateway/start":
+            self.started = body
+            self.mode = "running"
+            return 200, {}
+        if route == "/gateway/stop":
+            if self.refuses:
+                detail = {"error_type": "no_grant", "message": "Not this hub."}
+                return 403, {"detail": detail}
+            self.mode = "off"
+            return 200, {}
+        if route == "/gateway":
+            apps = [
+                {"key": "autolamella", "name": "AutoLamella", "headless": True},
+                {"key": "viewer", "name": "Viewer", "headless": False},
+            ]
+            return 200, {"mode": self.mode, "version": "1.2.3", "apps": apps}
+        if route == "/gateway/microscope/connection":
+            configuration = {"name": "sim", "manufacturer": "Demo", "model": "FIB"}
+            return 200, {"connected": True, "configuration": configuration}
+        return 200, {"running": None}
+
+
+def _running_hub(tmp_path, there):
+    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", fetch=there.fetch)
+    hub.add("Scope 1", URL)
+    (tmp_path / "hub").mkdir()
+    (tmp_path / "hub" / "scope-1.json").write_text(json.dumps({"token": "t"}))
+    return hub
+
+
+def test_the_hub_reads_whether_the_app_has_the_microscope(tmp_path):
+    hub = _running_hub(tmp_path, Running())
+    hub.check()
+    (row,) = hub.state().instruments
+    assert row.microscope == {
+        "connected": True,
+        "connecting": False,
+        "configuration": "sim",
+        "model": "Demo FIB",
+    }
+
+
+def test_the_operator_stops_an_instruments_app_from_the_hub(tmp_path):
+    there = Running()
+    hub = _running_hub(tmp_path, there)
+    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    stopped = client.post("/hub/instruments/Scope 1/app/stop", headers=operator)
+    assert stopped.status_code == 200
+    assert ("POST", "/gateway/stop") in there.asked
+    assert stopped.json()["instruments"][0]["gateway"]["mode"] == "off"
+
+
+def test_an_instrument_that_refuses_the_stop_says_so_in_its_words(tmp_path):
+    hub = _running_hub(tmp_path, Running(refuses=True))
+    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    refused = client.post("/hub/instruments/Scope 1/app/stop", headers=operator)
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["message"] == "Not this hub."
+
+
+def test_the_operator_starts_an_app_the_instrument_runs_without_a_window(tmp_path):
+    there = Running()
+    there.mode = "off"
+    hub = _running_hub(tmp_path, there)
+    hub.check()
+    (row,) = hub.state().instruments
+    assert row.gateway["apps"] == [{"key": "autolamella", "name": "AutoLamella"}]
+    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    started = client.post(
+        "/hub/instruments/Scope 1/app/start",
+        json={"app": "autolamella"},
+        headers=operator,
+    )
+    assert started.status_code == 200
+    assert there.started == {"app": "autolamella", "window": False, "last": True}
+    assert started.json()["instruments"][0]["gateway"]["mode"] == "running"

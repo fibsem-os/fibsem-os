@@ -407,6 +407,39 @@ def build_gateway_app(
                 raise _refused(422, "no_code", "Give the code its gateway shows.")
             return _act(found, {}, lambda force, via: hub.pair(name, code))
 
+        @app.post("/hub/instruments/{name}/app/start", response_model=HubState)
+        def start_instrument_app(
+            name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)
+        ):
+            """``{app}``: start the app on the instrument's PC without its
+            window, on the experiment it had last, as this hub. Its gateway
+            refuses a hub it wasn't paired to start and stop apps."""
+
+            def start(force, via):
+                hub.call(
+                    name,
+                    "POST",
+                    "/gateway/start",
+                    {"app": body.get("app"), "window": False, "last": True},
+                )
+                hub.read(name)
+                return hub.state()
+
+            return _act(found, {}, start)
+
+        @app.post("/hub/instruments/{name}/app/stop", response_model=HubState)
+        def stop_instrument_app(name: str, found: Caller = Depends(hub_operator)):
+            """Stop the app on the instrument's PC, as this hub: its gateway
+            refuses a hub it wasn't paired to start and stop apps, and a stop
+            during a run."""
+
+            def stop(force, via):
+                hub.call(name, "POST", "/gateway/stop", {})
+                hub.read(name)
+                return hub.state()
+
+            return _act(found, {}, stop)
+
     if hub is not None and hub_agents is not None:
 
         @app.post("/hub/instruments/{name}/agent/start", response_model=HubState)

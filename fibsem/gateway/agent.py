@@ -65,6 +65,8 @@ class AgentState:
     sessions: List[Dict[str, Any]] = field(default_factory=list)
     api_key: bool = False
     microscope: str = ""
+    # The highest level this PC lets a hub set; None for no limit.
+    hub_max_level: Optional[str] = None
 
 
 def read_playbooks() -> List[dict]:
@@ -285,6 +287,7 @@ class GatewayAgent:
             sessions=rows[:SESSIONS_SHOWN],
             api_key=self._has_key(),
             microscope=self.microscope,
+            hub_max_level=getattr(self._hub_max_level(), "value", None),
         )
 
     def _connected(self) -> Optional[Dict[str, Any]]:
