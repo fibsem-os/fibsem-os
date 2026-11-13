@@ -15,6 +15,19 @@ from fibsem.server.leases import LEASE_HEADER
 TOKEN = "test-token"
 
 
+def _every_field(schema):
+    """*schema* with every field of each class required: the web's types
+    (scripts/web_openapi.py) read each one as present."""
+    if isinstance(schema, list):
+        return [_every_field(s) for s in schema]
+    if not isinstance(schema, dict):
+        return schema
+    out = {k: _every_field(v) for k, v in schema.items()}
+    if isinstance(schema.get("properties"), dict):
+        out["required"] = list(schema["properties"])
+    return out
+
+
 @pytest.fixture(scope="module")
 def client():
     previous = os.environ.get("FIBSEM_SIM_NO_DELAY")
@@ -39,7 +52,8 @@ def _matches(client, method, path, route, **kwargs):
     schema = declared["content"]["application/json"]["schema"]
     assert schema, f"{method} {route} declares no response schema"
     jsonschema.validate(
-        response.json(), {**schema, "components": openapi["components"]}
+        response.json(),
+        _every_field({**schema, "components": openapi["components"]}),
     )
     return response.json()
 
