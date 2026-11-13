@@ -449,6 +449,13 @@ class SampleScene:
     # focus is at the beam's eucentric height, give or take this (m): each
     # beam's own seeded error, which an autofocus takes out
     focus_fuzz: float = 15e-6
+    # a session that starts wrong, for something to notice and put right:
+    # the scan rotation each beam boots at (degrees, {electron: 180}), and
+    # how the FM camera is really mounted (a mount transform's name; None is
+    # as the configuration says). Mounted another way, the FM image is
+    # flipped until the camera's mount transform is set to match
+    scan_rotation_at_start: Dict[str, float] = field(default_factory=dict)
+    fm_camera_mount: Optional[str] = None
     _current_offsets: Dict[Tuple[str, float], Tuple[float, float]] = field(
         default_factory=dict, repr=False
     )
@@ -2006,6 +2013,8 @@ class SampleScene:
         "current_offset_scale",  # m, sigma of the per-current beam offset
         "beam_optics",  # focus, stigmation and current show in the image
         "focus_fuzz",  # m, how far focus is from the eucentric height, at most
+        "scan_rotation_at_start",  # {electron: deg, ion: deg} the beams boot at
+        "fm_camera_mount",  # the mount transform the FM camera really has
         "film",  # continuous | holey
         "hole_diameter",  # m
         "hole_pitch",  # m
@@ -2049,6 +2058,10 @@ class SampleScene:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
         kwargs.setdefault("beam_optics", True)
+        if kwargs.get("fm_camera_mount") is not None:
+            from fibsem.devices.fm import mount_transform_from_name
+
+            mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
         for key in (
             "cells_per_cluster",
             "cell_size",

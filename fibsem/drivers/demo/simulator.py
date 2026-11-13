@@ -341,7 +341,13 @@ def render_fm_scene(
     # frame goes through the mount and user transforms before display:
     # pre-apply their inverse (flips are self-inverse; reversed order)
     frame = fm._transform_array(frame, fm._transform)
-    return fm._transform_array(frame, fm.mount_transform)
+    mount = fm.mount_transform
+    if scene.fm_camera_mount is not None:
+        # the camera as it is really mounted, whatever its configuration says
+        from fibsem.devices.fm import mount_transform_from_name
+
+        mount = mount_transform_from_name(scene.fm_camera_mount)
+    return fm._transform_array(frame, mount)
 
 
 def _grid_stage_position(grid_position) -> FibsemStagePosition:
@@ -830,6 +836,10 @@ class DemoSimulator:
         self.sample_scene = SampleScene.from_config(
             {k: v for k, v in config.items() if k != "enabled"}
         )
+        for name, degrees in self.sample_scene.scan_rotation_at_start.items():
+            beam = self.microscope.beams.get(BeamType[name.upper()])
+            if beam is not None:
+                beam.sim_beam.scan_rotation = float(np.radians(degrees))
         if self.sample_scene.beam_optics:
             # a session starts in focus on a sample at the eucentric height,
             # near enough: the scene's own focus error is left for an autofocus

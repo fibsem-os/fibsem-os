@@ -125,6 +125,17 @@ The SEM and FIB images answer to the beam's settings, as the instrument's do
 Voltage changes nothing, and the height of a cell or the depth of a trench is too
 little to change focus.
 
+## Starting wrong
+
+A session can start with something set wrong, to practise noticing it:
+
+- `scan_rotation_at_start: {electron: 180}` boots a beam at that scan rotation (degrees)
+  whatever the configuration's default is. An overview taken then, and looked at after
+  the rotation is put right, has its positions point-reflected.
+- `fm_camera_mount: flip-x` (or `flip-y`, `flip-xy`) is how the FM camera is really
+  mounted. Unless the camera's `mount_transform` in the configuration says the same, the
+  FM image is flipped and a click on it sends the stage the wrong way.
+
 ## Milling leaves marks
 
 ![Milled trench](img/simulator/milling.png)
@@ -252,6 +263,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `current_offset_scale` | 0 | sigma (m) of a seeded per-(beam, current) offset; 0 is off |
 | `beam_optics` | true | working distance, stigmation and current show in the image (see Beam settings) |
 | `focus_fuzz` | 15e-6 | how far a beam's focus is from its eucentric height, at most (m) |
+| `scan_rotation_at_start` | {} | the scan rotation each beam boots at, `{electron: deg, ion: deg}` |
+| `fm_camera_mount` | null | the mount transform the FM camera really has; null is as configured |
 
 ### Grid and film
 
