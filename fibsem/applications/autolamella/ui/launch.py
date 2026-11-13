@@ -14,6 +14,7 @@ from fibsem.tools.apps import AUTOLAMELLA
 from fibsem.tools.desktop_launch import Splash
 from fibsem.ui.icon import autolamella_icon
 from fibsem.ui.qt.app import start_qt_app
+from fibsem.ui.widgets.bug_report_widget import offer_crash_reports
 
 
 def _start_update_check(on_done: Optional[Callable[[], None]] = None) -> None:
@@ -88,10 +89,9 @@ def run_ui(
     # making the app always killable with Ctrl+C. (A hard stop, not a graceful one;
     # use Cmd+Q / File→Exit for a clean shutdown when the loop is responsive.)
     signal.signal(signal.SIGINT, signal.SIG_DFL)
-    # Diagnostics: dump every thread's Python stack on a fatal signal, and on demand
-    # via `kill -USR1 <pid>` — the fastest way to see *where* a frozen GUI thread is
+    # Diagnostics: dump every thread's Python stack on demand via
+    # `kill -USR1 <pid>` — the fastest way to see *where* a frozen GUI thread is
     # stuck (it does not terminate the process, so you can dump repeatedly).
-    faulthandler.enable()
     if hasattr(signal, "SIGUSR1"):
         faulthandler.register(signal.SIGUSR1, all_threads=True)
 
@@ -101,6 +101,8 @@ def run_ui(
     if splash is not None:
         splash.finish(window)
     _start_update_check(on_done=window.experiment_header.update_version_chip)
+    # After the first paint, so the question has a window behind it.
+    QTimer.singleShot(0, lambda: offer_crash_reports(window))
     if args.quickstart or args.quickload:
         # Once the event loop is running, not inline here: connecting blocks for
         # seconds against real hardware, and doing it before exec() would hold up
