@@ -18,6 +18,7 @@ import numpy as np
 import yaml
 
 from fibsem import config as cfg
+from fibsem import utils
 from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.sim_cases import (
     RULES,
@@ -28,6 +29,10 @@ from fibsem.ai.evals.sim_cases import (
     measure_square,
     scene_options,
 )
+from fibsem.drivers.demo.sim_optics import ANGLE
+from fibsem.drivers.demo.sim_scene import SampleScene
+from fibsem.geometry.projection import BeamStageProjection
+from fibsem.structures.settings import BeamType, FibsemStagePosition
 
 TASK = "live_site_selection"
 ARCTIS = Path(cfg.SHIPPED_CONFIG_PATH) / "sim-arctis-configuration.yaml"
@@ -39,17 +44,20 @@ GRID = "Grid-01"
 REACH = (0.72e-3, 0.39e-3)
 # Each seed's scene: the cells and film the screening thread settled on,
 # the damage and ice drawn by the seed.
-SCENE = {"cell_type": "rpe", "film": "holey", "extent": 2.4e-3}
+# No ice plates: the simulator draws none an SEM overview shows, so a square
+# would be keyed thick for ice nobody can see (back once it draws them).
+SCENE = {"cell_type": "rpe", "film": "holey", "extent": 2.4e-3, "ice_density": 0.0}
 STEP = 0.5e-6  # m, the grid a cell's outline is measured on
 
 BRIEF = (
     "Grid {grid} is loaded and the stage is at the SEM orientation. Find "
-    "sites for lamellae on it: take an SEM overview of the grid, pick the "
-    "likely sites (a cell on intact film, clear of the grid bars, no thick "
-    "ice), save each as a lamella (item_add) at the cell, then go to each "
-    "one, image it, and say whether it is good for milling a lamella and "
-    "why. Save at most {most} sites. The stage can't reach every part of "
-    "the overview: a move it can't make is refused."
+    "sites for lamellae on it: take a {beam} overview of the grid at the SEM "
+    "orientation and pick the likely sites (a cell on intact film, clear of "
+    "the grid bars, no thick ice). Go to each one, focus the SEM and make it "
+    "coincident (the FIB centred on the same point as the SEM), save it there "
+    "as a lamella (item_add), image it with the SEM, and say whether it is "
+    "good for milling a lamella and why. Save at most {most} sites. The stage "
+    "can't reach every part of the overview: a move it can't make is refused."
 )
 MOST = 8
 
@@ -57,7 +65,6 @@ MOST = 8
 def microscope_config(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict:
     """The simulated Arctis with one grid at the stage's origin, its content
     drawn by *seed*; the stage goes where it reports."""
-    from fibsem.drivers.demo.sim_scene import SampleScene
 
     config = yaml.safe_load(ARCTIS.read_text())
     sim = config["sim"]
@@ -72,7 +79,6 @@ def microscope_config(seed: int, overrides: Optional[Dict[str, Any]] = None) -> 
 def _session(config_path: Path):
     """A Demo microscope on *config_path*, as the run's App Server connects
     it: the same scene, anchored at the same pose."""
-    from fibsem import utils
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(
@@ -84,8 +90,6 @@ def _session(config_path: Path):
 def stage_to_world(microscope) -> np.ndarray:
     """The 2 x 3 map from a stage x, y (m, the SEM orientation, no tilt) to
     the scene's world point at the centre of the SEM's view."""
-    from fibsem.geometry.projection import BeamStageProjection
-    from fibsem.structures.settings import BeamType, FibsemStagePosition
 
     connection = microscope._connection
     scene = connection.sample_scene
@@ -106,6 +110,64 @@ def stage_to_world(microscope) -> np.ndarray:
             [(y1 - y0) / 1e-4, (y2 - y0) / 1e-4, y0],
         ]
     )
+
+
+def _centre(microscope, beam_type) -> np.ndarray:
+    """The scene's world point at the centre of *beam_type*'s view, where
+    the stage is, the beam's shift and current offset included."""
+
+    connection = microscope._connection
+    projection = BeamStageProjection.from_microscope(microscope, beam_type=beam_type)
+    shift = microscope.get_beam_shift(beam_type)
+    try:
+        current = float(microscope.get_beam_current(beam_type))
+    except Exception:
+        current = None
+    return np.array(
+        connection.sample_scene.view_to_world(
+            beam_type,
+            connection.scene_stage_position(),
+            projection,
+            0.0,
+            0.0,
+            (float(shift.x), float(shift.y)),
+            current,
+        )
+    )
+
+
+def optics_key(microscope) -> Dict[str, Any]:
+    """What the key needs to say whether a site was focused and made
+    coincident, at the SEM orientation: the working distance the SEM is in
+    focus at for a stage z (m, linear in z), and the stage z at which the
+    SEM's and the FIB's view centres meet, with how far apart they are for
+    each metre of z away from it."""
+
+    connection = microscope._connection
+    zs = (0.0, -20e-6)
+    focus, gap = [], []
+    for z in zs:
+        microscope.move_stage_absolute(FibsemStagePosition(x=0, y=0, z=z, r=0, t=0))
+        focus.append(connection.scene_focus(BeamType.ELECTRON, here=True))
+        gap.append(
+            _centre(microscope, BeamType.ION) - _centre(microscope, BeamType.ELECTRON)
+        )
+    dz = zs[1] - zs[0]
+    focus_per_z = (focus[1] - focus[0]) / dz
+    change = (gap[1] - gap[0]) / dz  # the centres' gap, per metre of z
+    # the z where the gap is least: along the direction it changes in
+    rate = float(np.linalg.norm(change))
+    coincident_z = zs[0] - float(gap[0] @ change) / rate**2
+
+    return {
+        # the SEM's convergence half-angle: a working distance d from focus
+        # spreads the beam over ANGLE * d
+        "sem_angle": ANGLE[0],
+        "sem_focus_wd": round(focus[0], 9),
+        "sem_focus_per_z": round(focus_per_z, 6),
+        "coincident_z": round(coincident_z, 9),
+        "coincidence_per_z": round(rate, 6),
+    }
 
 
 def _to_stage(world_map: np.ndarray, x: float, y: float) -> Tuple[float, float]:
@@ -226,23 +288,31 @@ def build_key(config_path: Path) -> Dict[str, Any]:
             "frame": frame,
             "squares": squares,
             "cells": cells,
+            "optics": optics_key(microscope),
         }
     finally:
         microscope.disconnect()
 
 
 def write_case(
-    seed: int, out: Path, overrides: Optional[Dict[str, Any]] = None, **_: Any
+    seed: int,
+    out: Path,
+    overrides: Optional[Dict[str, Any]] = None,
+    beam: str = "SEM",
+    **_: Any,
 ) -> Path:
-    """The live site selection case for one seed under ``out/live-site-selection/``."""
-    folder = Path(out) / "live-site-selection" / f"sim-{int(seed):04d}"
+    """The live site selection case for one seed under
+    ``out/live-site-selection/``: its overview with the SEM, or with the FIB
+    (*beam* FIB, ``sim-NNNN-fib``), at the SEM orientation either way."""
+    suffix = "" if beam == "SEM" else "-fib"
+    folder = Path(out) / "live-site-selection" / f"sim-{int(seed):04d}{suffix}"
     folder.mkdir(parents=True, exist_ok=True)
     config = microscope_config(seed, overrides)
     (folder / MICROSCOPE).write_text(yaml.safe_dump(config, sort_keys=False))
     key = build_key(folder / MICROSCOPE)
     good = sum(1 for q in key["squares"] if q["label"] == "good")
     case = {
-        "id": f"sim-{int(seed):04d}-live-site-selection",
+        "id": f"sim-{int(seed):04d}{suffix}-live-site-selection",
         "task": TASK,
         "tier": TIER,
         "playbook": "autolamella",
@@ -253,6 +323,7 @@ def write_case(
         "sim_run": {
             "microscope": MICROSCOPE,
             "level": "drive",
+            "overview_beam": "ELECTRON" if beam == "SEM" else "ION",
             "setup": [
                 {"tool": "grid_load", "arguments": {"grid_name": GRID}},
                 {
@@ -261,7 +332,7 @@ def write_case(
                 },
             ],
         },
-        "brief": BRIEF.format(grid=GRID, most=MOST),
+        "brief": BRIEF.format(grid=GRID, most=MOST, beam=beam),
         "scoring": {"max_sites": MOST, "min_good_fraction": 0.5},
         "key": key,
         "traps": [

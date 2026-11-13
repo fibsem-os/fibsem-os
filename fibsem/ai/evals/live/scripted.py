@@ -17,6 +17,7 @@ It finds its run's App Server by ``FIBSEM_DISCOVERY_FILE`` and its task by
 import argparse
 import json
 import logging
+import math
 import os
 import sys
 from pathlib import Path
@@ -25,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from fibsem.ai.evals.live.client import LiveClient, LiveError
-from fibsem.ai.evals.live.runs import TASK_ENV
+from fibsem.ai.evals.live.runs import CASE_ENV, TASK_ENV
 from fibsem.server import discovery
 
 log = logging.getLogger(__name__)
@@ -37,6 +38,18 @@ ANSWER = "answer.json"
 
 MOST_SITES = 8
 SITE_HFW = 80e-6  # m, the image at each site
+FOCUS_HFW = 80e-6  # m, the autofocus's field at each site
+# scored by the image's variance: on a noisy SEM image tenengrad (the
+# default) scores lowest at focus
+FOCUS_METHOD = "variance"
+COINCIDENCE_TRIES = 3
+FIB_TILE_HFW = 300e-6  # m, a FIB overview's tiles at the SEM orientation
+RECENTRE_M = 20e-6  # a cell this near a site's centre is the one meant
+SEM_LOOK_HFW = 400e-6  # m, the SEM look that sets its greys
+# the share of the ring round a cell that must be film for it to be clear:
+# the FIB's film and bars are nearer in grey, so its ring reads less clean
+CLEAR = {"ELECTRON": 0.9, "ION": 0.8}
+COINCIDENT_M = 0.3e-6  # a check this near the centre is coincident
 CLEARANCE_UM = 4.0  # film all round a cell, past its edge
 CELL_AREA_UM2 = (40.0, 1200.0)  # a bright blob this big is a cell's core
 BODY = 2.0  # a cell's body, from its bright core's radius
@@ -46,7 +59,8 @@ TORN_UM2 = 150.0  # this much black near a cell is torn film, not specks
 def _levels(image: np.ndarray) -> Tuple[float, float]:
     """The film's and the bars' grey levels: the two most common greys of
     a smoothed image (film darker than the bars)."""
-    hist, edges = np.histogram(image, bins=64, range=(0, 255))
+    # torn film is black: not a level of its own
+    hist, edges = np.histogram(image[image > 40], bins=64, range=(0, 255))
     centres = (edges[:-1] + edges[1:]) / 2
     first = int(np.argmax(hist))
     masked = hist.copy()
@@ -56,20 +70,32 @@ def _levels(image: np.ndarray) -> Tuple[float, float]:
     return a, b
 
 
+def _film(smooth: np.ndarray, step: float) -> float:
+    """The film's grey in an image that may or may not show a bar: the
+    darker of its two levels when they are a bar's step apart, else its one
+    most common grey (a site's image can be mostly bar, so not the median)."""
+    hist, edges = np.histogram(smooth[smooth > 40], bins=64, range=(0, 255))
+    centres = (edges[:-1] + edges[1:]) / 2
+    film, bar = _levels(smooth)
+    if 0.6 * step <= bar - film <= 1.5 * step:
+        return film
+    return float(centres[int(np.argmax(hist))])
+
+
 def find_cells(
     image: np.ndarray, pixel_size: float, step: Optional[float] = None
 ) -> List[Dict[str, Any]]:
     """Bright blobs the size of a cell, each with the share of the ring
     around it that is film: 1 is a cell clear of every bar. *step* is how
     much brighter a bar is than the film, for an image that may show no bar
-    (a site's): the film is then the image's median grey."""
+    (a site's): the film is then found from *step*."""
     from scipy import ndimage as ndi
 
     smooth = ndi.gaussian_filter(image.astype(np.float32), 1.0e-6 / pixel_size)
     if step is None:
         film, bar = _levels(smooth)
     else:
-        film = float(np.median(smooth))
+        film = _film(smooth, step)
         bar = film + step
     cells_mask = smooth > bar + 0.5 * (bar - film)
     film_mask = smooth < (film + bar) / 2
@@ -137,6 +163,18 @@ def assess_site(image: np.ndarray, pixel_size: float, step: float) -> Tuple[str,
     )
 
 
+def _sim_run() -> Dict[str, Any]:
+    """The case's ``sim_run`` block (never its key), when the runner names
+    the case."""
+    import yaml
+
+    folder = os.environ.get(CASE_ENV)
+    if not folder:
+        return {}
+    data = yaml.safe_load((Path(folder) / "case.yaml").read_text()) or {}
+    return data.get("sim_run") or {}
+
+
 def _image_path(answer: Any) -> str:
     """The saved file of an image command's answer."""
     image = (answer or {}).get("image", answer) or {}
@@ -150,20 +188,117 @@ def _read(path: str) -> np.ndarray:
     return image if image.ndim == 2 else image[..., 0]
 
 
+def make_coincident(client: LiveClient, tries: int = COINCIDENCE_TRIES) -> float:
+    """Bring the FIB onto the point at the SEM's centre: check, then move
+    the stage along the vertical by what the check measured, until it is
+    within COINCIDENT_M. The last offset measured (m)."""
+    dy = float("inf")
+    for _ in range(tries):
+        check = client.call("alignment_check_coincidence", hfw=SITE_HFW)
+        found = (check.get("summary") or {}).get("metadata") or check
+        dy = float(found["dy"])
+        log.info(
+            "coincidence: dy %.2f um, dz %.2f um, score %.3f, agrees %s",
+            dy * 1e6,
+            float(found.get("dz", 0)) * 1e6,
+            float(found.get("score", 0)),
+            found.get("agrees"),
+        )
+        if abs(dy) <= COINCIDENT_M:
+            break
+        client.call("stage_vertical_move", dy=dy, beam_type="ION")
+    return dy
+
+
+def _stretch(client: LiveClient, name: str, shape) -> float:
+    """How much further the stage moves per pixel down *name* than across
+    it: 1 face on, more for a view that foreshortens y (the FIB's)."""
+    h, w = shape
+    at = [
+        client.call("experiment_get_image_stage_position", path=name, x=x, y=y)[
+            "stage_position"
+        ]
+        for x, y in ((0, 0), (w - 1, 0), (0, h - 1))
+    ]
+    across = math.hypot(at[1]["x"] - at[0]["x"], at[1]["y"] - at[0]["y"]) / (w - 1)
+    down = math.hypot(at[2]["x"] - at[0]["x"], at[2]["y"] - at[0]["y"]) / (h - 1)
+    return down / across
+
+
+def _centre_on_cell(client: LiveClient, name: str, step: float) -> None:
+    """Look with the SEM and move onto the cell nearest the centre, if one
+    is within reach of it; the stage stays put otherwise."""
+    look = client.call(
+        "beam_acquire_image",
+        beam_type="ELECTRON",
+        image_settings={"hfw": SITE_HFW, "resolution": [1536, 1024]},
+        path="sites",
+        filename=f"{name}-look",
+    )
+    path = _image_path(look)
+    image = _read(path)
+    pixel_size = SITE_HFW / image.shape[1]
+    h, w = image.shape
+    near = [
+        (np.hypot(c["x_px"] - w / 2, c["y_px"] - h / 2) * pixel_size, c)
+        for c in find_cells(image, pixel_size, step)
+    ]
+    near = [(d, c) for d, c in near if d < RECENTRE_M]
+    if not near:
+        return
+    off, cell = min(near, key=lambda pair: pair[0])
+    if off < 1e-6:
+        return
+    at = client.call(
+        "experiment_get_image_stage_position",
+        path=f"sites/{Path(path).name}",
+        x=cell["x_px"],
+        y=cell["y_px"],
+    )["stage_position"]
+    z = client.call("stage_get_position")["value"]["z"]
+    client.call("stage_move_absolute", x=at["x"], y=at["y"], z=z, r=at["r"], t=at["t"])
+    log.info("%s: centred on the cell, %.1f um over", name, off * 1e6)
+
+
 def site_selection(client: LiveClient, work: Path) -> Dict[str, Any]:
+    beam = _sim_run().get("overview_beam", "ELECTRON")
+    settings: Dict[str, Any] = {}
+    if beam == "ION":
+        # the FIB foreshortens y: smaller tiles, so the rows stay in reach
+        settings = {"image_settings": {"beam_type": "ION", "hfw": FIB_TILE_HFW}}
     # the overview at the experiment's top: a path is inside the experiment
     overview = client.call(
-        "beam_acquire_overview", settings={}, name="overview", path="."
+        "beam_acquire_overview", settings=settings, name="overview", path="."
     )
     summary = overview["image"]["summary"]
     path, pixel_size = summary["path"], float(summary["pixel_size"])
     image = _read(path)
-    film, bar = _levels(image)
+    # face on: the image stretched so a pixel is as tall as it is wide
+    stretch = _stretch(client, Path(path).name, image.shape)
+    if abs(stretch - 1) > 0.01:
+        from scipy import ndimage as ndi
+
+        image = ndi.zoom(image, (stretch, 1), order=1)
+    if beam == "ION":
+        # the site images are the SEM's: its greys from a wide SEM look
+        wide = client.call(
+            "beam_acquire_image",
+            beam_type="ELECTRON",
+            image_settings={"hfw": SEM_LOOK_HFW, "resolution": [1536, 1024]},
+            path="sites",
+            filename="grid",
+        )
+        film, bar = _levels(_read(_image_path(wide)))
+    else:
+        film, bar = _levels(image)
+    clear = CLEAR[beam]
     cells = [
         c
         for c in find_cells(image, pixel_size)
-        if c["film_share"] >= 0.9 and not c["torn_near"]
+        if c["film_share"] >= clear and not c["torn_near"]
     ]
+    for c in cells:
+        c["y_px"] = round(c["y_px"] / stretch, 1)
     cells.sort(key=lambda c: (-c["film_share"], -c["area_um2"]))
     sites = []
     for cell in cells:
@@ -176,20 +311,35 @@ def site_selection(client: LiveClient, work: Path) -> Dict[str, Any]:
             y=cell["y_px"],
         )["stage_position"]
         try:
+            # z as it is: the last site's coincident height holds on a flat grid
+            z = client.call("stage_get_position")["value"]["z"]
             client.call(
-                "stage_move_absolute",
-                x=at["x"],
-                y=at["y"],
-                z=at["z"],
-                r=at["r"],
-                t=at["t"],
+                "stage_move_absolute", x=at["x"], y=at["y"], z=z, r=at["r"], t=at["t"]
             )
         except LiveError as error:
             # out of the stage's reach: the next cell
             log.info("Skipping a cell the stage can't reach: %s", error)
             continue
         name = f"Site-{len(sites) + 1:02d}"
-        client.call("item_add", name=name, stage_position=at)
+        # where the overview put the cell is rough (the FIB sees a cell's top
+        # displaced by its height): centre on it with the SEM first
+        _centre_on_cell(client, name, bar - film)
+        # ready to mill: in focus, and the FIB looking where the SEM does
+        focus = client.call(
+            "beam_auto_focus",
+            beam_type="ELECTRON",
+            hfw=FOCUS_HFW,
+            settings={"method": FOCUS_METHOD},
+        )
+        log.info(
+            "%s focus: %.1f um from %.1f um",
+            name,
+            focus["working_distance"] * 1e6,
+            focus["initial_working_distance"] * 1e6,
+        )
+        make_coincident(client)
+        # saved where the stage is now, coincident
+        client.call("item_add", name=name)
         shot = client.call(
             "beam_acquire_image",
             beam_type="ELECTRON",

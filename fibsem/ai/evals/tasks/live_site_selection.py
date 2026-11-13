@@ -22,6 +22,13 @@ VERDICTS = ("good", "bad")
 ON_CELL_SLACK = 1e-6
 BAD_SQUARES = ("damaged", "thick")
 FLAT = math.radians(1.0)  # a pose this near no tilt is at the SEM orientation
+# A site is ready to mill when the SEM's and FIB's view centres meet within
+# this (m) at its saved pose, and its SEM image is sharp: the beam's spread
+# from being out of focus under this many pixels
+COINCIDENT = 1e-6
+SHARP_PX = 2.0
+NEAR = 5e-6  # m, an image this near a site's x, y is of it
+SITE_HFW = 300e-6  # m, wider than this is not a look at one site
 
 
 def _frame_point(
@@ -80,6 +87,45 @@ def site_truth(key: Dict[str, Any], x: float, y: float) -> Dict[str, Any]:
     return truth
 
 
+def prepared(
+    key: Dict[str, Any], at: Dict[str, float], answer: Dict[str, Any]
+) -> Dict[str, Any]:
+    """How ready a site was left for milling, from the run's record: how far
+    the beams' view centres are apart at its saved pose (um), and whether
+    the run took an SEM image of it and how blurred the last one is (px).
+    A key without the optics says nothing."""
+    optics = key.get("optics")
+    if not optics:
+        return {}
+    out: Dict[str, Any] = {}
+    z = float(at.get("z") or 0.0)
+    off = optics["coincidence_per_z"] * abs(z - optics["coincident_z"])
+    out["coincidence_um"] = round(off * 1e6, 2)
+    out["coincident"] = off <= COINCIDENT
+    images = [
+        image
+        for image in (answer.get("record") or {}).get("images") or []
+        if image.get("beam") == "ELECTRON"
+        and (image.get("hfw") or 1.0) <= SITE_HFW
+        and image.get("stage_position")
+        and math.hypot(
+            image["stage_position"]["x"] - at["x"],
+            image["stage_position"]["y"] - at["y"],
+        )
+        <= NEAR
+    ]
+    out["imaged"] = bool(images)
+    if images:
+        last = max(images, key=lambda i: i.get("time") or 0)
+        z_image = float(last["stage_position"].get("z") or 0.0)
+        focus = optics["sem_focus_wd"] + optics["sem_focus_per_z"] * z_image
+        spread = optics["sem_angle"] * abs(float(last["working_distance"]) - focus)
+        out["blur_px"] = round(spread / float(last["pixel_size"]), 2)
+        out["sharp"] = out["blur_px"] <= SHARP_PX
+        out["image"] = last["path"]
+    return out
+
+
 def _positions(answer: Dict[str, Any]) -> Dict[str, Dict[str, float]]:
     """The saved items' stage positions by name, from the run's record: the
     pose at the SEM orientation (no tilt) the key is in, the milling pose
@@ -126,6 +172,7 @@ def score_live_site_selection(
             continue
         truth = site_truth(key, float(at["x"]), float(at["y"]))
         entry = {"item": name, "verdict": verdict, **truth}
+        entry.update(prepared(key, at, answer))
         if truth["truth"] == "good":
             good_cells.add(truth.get("cell"))
         if truth["truth"] in VERDICTS:
@@ -136,6 +183,21 @@ def score_live_site_selection(
                 entry["costly"] = True
         per_site.append(entry)
     counted = len(sites[:most])
+    record = answer.get("record") or {}
+    scored = [p for p in per_site if "coincident" in p]
+    said_good = [p for p in scored if p["verdict"] == "good"]
+    # what a site called good must be left with to count as ready to mill:
+    # coincident, and (once the simulator's autofocus can find focus) sharp
+    need_sharp = bool(case.scoring.get("require_sharp", False))
+    ready = [
+        p for p in said_good if p["coincident"] and (p.get("sharp") or not need_sharp)
+    ]
+    steps = {
+        "overview": bool(record.get("overviews")),
+        "sites_saved": len(positions),
+        "sites_imaged": sum(1 for p in scored if p.get("imaged")),
+        "verdicts": counted,
+    }
     fraction = len(good_cells) / counted if counted else 0.0
     wanted = float(case.scoring.get("min_good_fraction", 0.5))
     accuracy = right / called if called else 0.0
@@ -150,10 +212,26 @@ def score_live_site_selection(
         "verdicts_scored": called,
         "not_saved": unsaved,
         "costly": costly,
+        "steps": steps,
         "per_site": per_site,
     }
+    if scored:
+        details.update(
+            coincident=sum(1 for p in scored if p["coincident"]),
+            sharp=sum(1 for p in scored if p.get("sharp")),
+            ready=len(ready),
+            said_good=len(said_good),
+        )
+    # a site called good is one to mill: it must be left ready for it
+    unready = len(said_good) - len(ready)
+    if not case.scoring.get("require_ready", True):
+        unready = 0
     hit = (
-        good_cells and fraction >= wanted and accuracy >= wanted_accuracy and not costly
+        good_cells
+        and fraction >= wanted
+        and accuracy >= wanted_accuracy
+        and not costly
+        and not unready
     )
     return ("hit" if hit else "miss"), details
 
@@ -253,6 +331,8 @@ def summary(d: Dict[str, Any]) -> str:
     )
     if d.get("costly"):
         text += f", {d['costly']} bad called good"
+    if "said_good" in d:
+        text += f", {d['ready']} of {d['said_good']} called good left ready to mill"
     return text
 
 
@@ -277,5 +357,8 @@ TASK = EvalTask(
     summary=summary,
     draw=draw_live_site_selection,
     key_text=key_text,
-    sims=(Sim("live-site-selection", "fibsem.ai.evals.live.sim_sites"),),
+    sims=(
+        Sim("live-site-selection", "fibsem.ai.evals.live.sim_sites"),
+        Sim("live-site-selection-fib", "fibsem.ai.evals.live.sim_sites_fib"),
+    ),
 )

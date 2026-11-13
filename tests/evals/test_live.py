@@ -81,7 +81,7 @@ KEY = {
 
 def _case(tmp_path, **scoring):
     folder = tmp_path / "live"
-    folder.mkdir()
+    folder.mkdir(parents=True)
     data = {
         "id": "live-1",
         "task": "live_site_selection",
@@ -164,6 +164,69 @@ def test_a_site_not_saved_or_saved_tilted_is_not_scored_there(tmp_path):
     assert _positions({"record": {"items": [_item("A", 1.0, 2.0)]}})["A"]["x"] == 1.0
 
 
+OPTICS = {
+    "sem_angle": 4e-3,
+    "sem_focus_wd": 7e-3,
+    "sem_focus_per_z": 1.0,
+    "coincident_z": -10e-6,
+    "coincidence_per_z": 1.3,
+}
+
+
+def _image(x, y, z, wd, path="sites/A_eb.tif", hfw=80e-6, time=1.0):
+    return {
+        "path": path,
+        "beam": "ELECTRON",
+        "hfw": hfw,
+        "pixel_size": hfw / 1536,
+        "working_distance": wd,
+        "stage_position": {"x": x, "y": y, "z": z, "r": 0.0, "t": 0.0},
+        "time": time,
+    }
+
+
+def test_a_site_is_scored_on_coincidence_and_the_focus_of_its_image(tmp_path):
+    case = _case(tmp_path)
+    key = {**KEY, "optics": OPTICS}
+    ready = _item("A", 0.0, 0.0)
+    ready["poses"]["MILLING"]["z"] = -10.2e-6
+    off = _item("B", 8e-6, 0.0)  # the same cell, at the boot height
+    answer = {
+        "sites": [{"item": "A", "verdict": "good"}, {"item": "B", "verdict": "good"}],
+        "record": {
+            "overviews": ["overview-07-00-00.tif"],
+            "items": [ready, off],
+            "images": [
+                # focused for its z; then one out of focus, older, ignored
+                _image(0.0, 0.0, -10.2e-6, 7e-3 - 10.2e-6, time=2.0),
+                _image(0.0, 0.0, -10.2e-6, 7e-3 + 40e-6, time=1.0),
+                _image(8e-6, 0.0, 0.0, 7e-3 + 60e-6, path="sites/B_eb.tif"),
+            ],
+        },
+    }
+    result, details = score_live_site_selection(case, answer, key)
+    a, b = details["per_site"]
+    assert a["coincident"] and a["sharp"] and a["blur_px"] < 0.5
+    assert not b["coincident"] and b["coincidence_um"] == pytest.approx(13.0)
+    assert not b["sharp"]
+    assert details["steps"] == {
+        "overview": True,
+        "sites_saved": 2,
+        "sites_imaged": 2,
+        "verdicts": 2,
+    }
+    # B was called good but left off coincidence: not ready to mill
+    assert (details["ready"], details["said_good"]) == (1, 2)
+    assert result == "miss"
+    # coincident but blurred passes unless sharpness is asked for
+    b_ready = _item("B", 8e-6, 0.0)
+    b_ready["poses"]["MILLING"]["z"] = -10e-6
+    answer["record"]["items"][1] = b_ready
+    assert score_live_site_selection(case, answer, key)[0] == "hit"
+    strict = _case(tmp_path / "strict", require_sharp=True)
+    assert score_live_site_selection(strict, answer, key)[0] == "miss"
+
+
 def test_an_answer_without_sites_or_with_a_wrong_verdict_is_invalid(tmp_path):
     case = _case(tmp_path)
     with pytest.raises(InvalidAnswer):
@@ -234,5 +297,7 @@ def test_a_scripted_run_of_a_live_case_end_to_end(tmp_path, monkeypatch):
     assert record["items"]
     score = result["scores"][0]
     assert score["result"] in ("hit", "miss")
-    assert score["details"]["not_saved"] == 0
-    assert score["details"]["good_sites"] >= 1
+    details = score["details"]
+    assert details["not_saved"] == 0 and details["good_sites"] >= 1
+    assert details["steps"]["overview"] and details["steps"]["sites_imaged"] >= 1
+    assert details["coincident"] >= 1

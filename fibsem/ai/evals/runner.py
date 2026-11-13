@@ -302,6 +302,8 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
     if sim_run:
         # the simulator's sample, with no waits; the agent works it
         env["FIBSEM_SIM_NO_DELAY"] = "1"
+        # the agent is what the case tests, released or not
+        env["FIBSEM_UNRELEASED"] = "1"
     server_log = open(folder / "server.log", "w")
     server = subprocess.Popen(
         config.server_command
@@ -358,6 +360,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
                 discovery.DISCOVERY_FILE_ENV: str(found_at),
                 # for a scripted agent: which case it runs
                 live.TASK_ENV: case.task,
+                live.CASE_ENV: str(case.path.resolve()),
             }
             agent = subprocess.Popen(
                 command, env=agent_env, stdout=agent_log, stderr=subprocess.STDOUT
@@ -382,7 +385,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         )
         result.update(_collect_session(session, folder / "session"))
         if sim_run:
-            record = live.record(found_at, home)
+            record = live.record(found_at, home, experiment)
             (folder / live.RECORD).write_text(json.dumps(record, indent=2))
     finally:
         if agent is not None and agent.poll() is None:
