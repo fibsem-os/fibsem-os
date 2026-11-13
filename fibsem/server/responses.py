@@ -970,6 +970,8 @@ class Events:
     latest_seq: Optional[int] = None
     stream: Optional[str] = None
     oldest_available: Optional[int] = None
+    # asked with `after`: whether every event after that one is here
+    resumed: Optional[bool] = None
 
 
 @dataclass

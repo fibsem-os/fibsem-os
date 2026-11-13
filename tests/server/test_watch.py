@@ -186,6 +186,32 @@ def test_since_resumes_where_the_last_watch_left_off(app):
     assert lines == ["REQUEST ab12 approved", "WORKFLOW ENDED (workflow_completed)"]
 
 
+def test_after_an_id_resumes_after_that_event(app):
+    app.buffer.append("proposal_held", {"item_name": "01", "task_name": "Setup"})
+    app.buffer.append("request_decided", {"request_id": "ab12", "outcome": "approved"})
+    app.buffer.append("workflow_completed", {})
+    first = app.buffer.events_since(0)["events"][0]["id"]
+
+    code, lines = _watch({}, after=first)
+
+    assert code is None
+    assert lines == ["REQUEST ab12 approved", "WORKFLOW ENDED (workflow_completed)"]
+
+
+def test_after_an_id_the_app_no_longer_has_is_a_gap(app):
+    app.buffer.append("task_started", {"item_name": "l3"})
+    app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({}, after="an-app-long-gone-7")
+
+    assert code is None
+    assert lines == [
+        watch_mod.GAP_LINE,
+        "EVENT task_started l3",
+        "WORKFLOW ENDED (workflow_completed)",
+    ]
+
+
 def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
     # FIB-1423: the operator wrote from the card.
     def run():
