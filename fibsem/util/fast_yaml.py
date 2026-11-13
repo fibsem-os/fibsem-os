@@ -13,7 +13,7 @@ _Dumper = getattr(yaml, "CSafeDumper", yaml.SafeDumper)
 
 
 def safe_load(stream: Union[str, bytes, IO]) -> Any:
-    return yaml.load(stream, Loader=_Loader)
+    return yaml.load(stream, Loader=_Loader)  # noqa: S506 - _Loader is a SafeLoader
 
 
 def safe_dump(data: Any, **options: Any) -> str:
