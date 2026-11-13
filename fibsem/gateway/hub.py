@@ -1,7 +1,9 @@
 """The hub role: a gateway that is given a list of instruments.
 
 Each instrument is another PC's gateway, named in ``~/.fibsem/hub.yaml`` with
-the address this PC reaches it at. The hub pairs with each one as a hub (the
+where ssh connects to it: the hub opens a tunnel to each and picks the ports
+(`fibsem.gateway.tunnels`). An instrument can instead give an address to use
+as it is. The hub pairs with each one as a hub (the
 code ``fibsem-gateway pair --hub`` shows there), keeps the token it answers,
 and reads each gateway's health in the background: whether it answers, what it
 runs and its agent. Nothing is read when the list is empty, and no instrument
@@ -26,6 +28,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from fibsem.gateway.gateway import GatewayRefused
+from fibsem.gateway.tunnels import TunnelDown, Tunnels, valid_destination
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.util.files import write_atomic
 
@@ -56,12 +59,12 @@ _AGENT_KEYS = ("session_id", "state", "playbook", "goal", "level", "started")
 
 @dataclass
 class Instrument:
-    """One instrument in the hub's list: its name there and the address this
-    PC reaches its gateway at. *ssh* is the destination a tunnel to it opens
-    from (``user@host``)."""
+    """One instrument in the hub's list: its name there, and how this PC
+    reaches its gateway. With *ssh* (``user@host``) the hub opens a tunnel to
+    it and picks the ports; without, *url* is the address to use as it is."""
 
     name: str
-    url: str
+    url: Optional[str] = None
     ssh: Optional[str] = None
 
 
@@ -70,8 +73,10 @@ class InstrumentState:
     """An instrument as the hub last read it."""
 
     name: str
-    url: str
+    url: Optional[str] = None
     ssh: Optional[str] = None
+    tunnel: Optional[Dict[str, Any]] = None
+    """Its tunnel, when the hub opens one: open or not, the local ports."""
     paired: bool = False
     """Whether this hub holds a token for its gateway."""
     reachable: Optional[bool] = None
@@ -151,6 +156,7 @@ class Hub:
         pair: Callable[[str, str, str], Tuple[str, str]] = _pair,
         clock: Callable[[], float] = time.time,
         every_s: float = CHECK_EVERY_S,
+        tunnels: Optional[Tunnels] = None,
     ) -> None:
         self._file = Path(file or HUB_FILE)
         self._tokens = Path(tokens or TOKENS_DIR)
@@ -158,6 +164,7 @@ class Hub:
         self._pair = pair
         self._clock = clock
         self._every_s = every_s
+        self._tunnels = tunnels or Tunnels()
         self._lock = threading.Lock()
         self._read: Dict[str, InstrumentState] = {}
         self._stop = threading.Event()
@@ -177,10 +184,11 @@ class Hub:
         for row in rows if isinstance(rows, list) else []:
             if not isinstance(row, dict):
                 continue
-            name, url = row.get("name"), row.get("url")
-            if isinstance(name, str) and isinstance(url, str):
-                ssh = row.get("ssh")
-                found.append(Instrument(name, url.rstrip("/"), ssh if ssh else None))
+            name, url, ssh = row.get("name"), row.get("url"), row.get("ssh")
+            url = url.rstrip("/") if isinstance(url, str) and url else None
+            ssh = ssh if isinstance(ssh, str) and ssh else None
+            if isinstance(name, str) and (url or ssh):
+                found.append(Instrument(name, url, ssh))
         return found[:MAX_INSTRUMENTS]
 
     def _instrument(self, name: str) -> Instrument:
@@ -193,7 +201,7 @@ class Hub:
         rows = [
             {
                 "name": i.name,
-                "url": i.url,
+                **({"url": i.url} if i.url else {}),
                 **({"ssh": i.ssh} if i.ssh else {}),
             }
             for i in instruments
@@ -201,17 +209,34 @@ class Hub:
         self._file.parent.mkdir(parents=True, exist_ok=True)
         write_atomic(self._file, yaml.safe_dump({"instruments": rows}, sort_keys=False))
 
-    def add(self, name: str, url: str, ssh: Optional[str] = None) -> HubState:
-        """Add an instrument, or change the address of the one named *name*."""
-        name, url = name.strip(), url.strip().rstrip("/")
+    def add(
+        self, name: str, url: Optional[str] = None, ssh: Optional[str] = None
+    ) -> HubState:
+        """Add an instrument, or change how the one named *name* is reached:
+        by a tunnel to *ssh*, or at *url* as it is."""
+        name = name.strip()
+        url = (url or "").strip().rstrip("/") or None
+        ssh = (ssh or "").strip() or None
         if not _NAME.match(name):
             raise GatewayRefused(
                 422,
                 "bad_name",
                 "Name it with up to 40 letters, digits, spaces, dots or dashes.",
             )
-        split = urlsplit(url)
-        if split.scheme not in ("http", "https") or not split.hostname:
+        if ssh is not None and not valid_destination(ssh):
+            raise GatewayRefused(
+                422, "bad_ssh", "Give where ssh connects to it, such as user@host."
+            )
+        split = urlsplit(url or "")
+        if url is None and ssh is None:
+            raise GatewayRefused(
+                422,
+                "no_address",
+                "Give where ssh connects to it (user@host), or its gateway's address.",
+            )
+        if url is not None and (
+            split.scheme not in ("http", "https") or not split.hostname
+        ):
             raise GatewayRefused(
                 422, "bad_url", "Give its gateway's address, such as http://host:8010."
             )
@@ -222,11 +247,10 @@ class Hub:
                 409, "too_many", f"A hub lists up to {MAX_INSTRUMENTS} instruments."
             )
         if len(kept) == len(instruments):
-            kept.append(Instrument(name, url, ssh or None))
+            kept.append(Instrument(name, url, ssh))
         else:
             kept = [
-                Instrument(name, url, ssh or None) if i.name == name else i
-                for i in instruments
+                Instrument(name, url, ssh) if i.name == name else i for i in instruments
             ]
         self._write(kept)
         with self._lock:
@@ -241,6 +265,7 @@ class Hub:
             self._token_file(name).unlink()
         except OSError:
             pass
+        self._tunnels.close(name)
         with self._lock:
             self._read.pop(name, None)
         return self.state()
@@ -285,9 +310,29 @@ class Hub:
     # -- reaching and reading an instrument -----------------------------------
 
     def reach(self, instrument: Instrument) -> str:
-        """The address this PC reaches *instrument*'s gateway at: the one
-        place that decides how an instrument is reached."""
-        return instrument.url
+        """The address this PC reaches *instrument*'s gateway at, through
+        its tunnel when it has one: the one place that decides how an
+        instrument is reached. Raises `TunnelDown` when the tunnel isn't open."""
+        if instrument.ssh:
+            return self._tunnels.ensure(instrument.name, instrument.ssh).gateway_url
+        return instrument.url or ""
+
+    def app_url(self, instrument: Instrument) -> Optional[str]:
+        """The address this PC reaches *instrument*'s App Server at: the
+        tunnel's other port. None for an instrument reached without one."""
+        if instrument.ssh:
+            return self._tunnels.ensure(instrument.name, instrument.ssh).app_url
+        return None
+
+    def _tunnel(self, instrument: Instrument) -> Optional[Dict[str, Any]]:
+        tunnel = self._tunnels.get(instrument.name) if instrument.ssh else None
+        if tunnel is None:
+            return None
+        return {
+            "open": tunnel.open,
+            "gateway_port": tunnel.gateway_port,
+            "app_port": tunnel.app_port,
+        }
 
     def _check_one(self, instrument: Instrument) -> None:
         now = self._clock()
@@ -299,8 +344,8 @@ class Hub:
             paired=token is not None,
             checked=now,
         )
-        url = self.reach(instrument)
         try:
+            url = self.reach(instrument)
             status, _ = self._fetch(url, "/health", None, TIMEOUT_S)
             found.reachable = status == 200
             if not found.reachable:
@@ -320,9 +365,13 @@ class Hub:
                     found.why = "Its gateway no longer knows this hub: pair again."
                 else:
                     found.why = f"Its gateway answered {status}."
+        except TunnelDown as down:
+            found.reachable = False
+            found.why = str(down)
         except OSError as error:
             found.reachable = False
             found.why = f"Its gateway didn't answer: {error}"
+        found.tunnel = self._tunnel(instrument)
         with self._lock:
             before = self._read.get(instrument.name)
             same = before is not None and before.reachable == found.reachable
@@ -343,6 +392,9 @@ class Hub:
         with self._lock:
             for gone in [name for name in self._read if name not in names]:
                 del self._read[gone]
+        for instrument in instruments:
+            if not instrument.ssh:
+                self._tunnels.close(instrument.name)
         if not instruments:
             return
         with ThreadPoolExecutor(max_workers=min(8, len(instruments))) as pool:
@@ -379,7 +431,9 @@ class Hub:
             self._thread.start()
 
     def stop(self) -> None:
+        """Stop reading, and close every tunnel."""
         self._stop.set()
+        self._tunnels.close_all()
 
     def _run(self) -> None:
         while not self._stop.is_set():

@@ -193,6 +193,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         if not again.is_set():
             quit_gateway(gateway)
         gateway.close()
+        hub.stop()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)
         # the port is free for the next gateway once the server has stopped

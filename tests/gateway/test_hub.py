@@ -2,6 +2,7 @@
 reading their health, and who may change the list."""
 
 import json
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
 from fibsem.gateway.hub import Hub, Instrument
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
+from fibsem.gateway.tunnels import Tunnels, command
 from fibsem.server.pairing import HUB
 
 OPERATOR_TOKEN = "operator-token"
@@ -60,8 +62,57 @@ def instruments(tmp_path):
     return Instruments(tmp_path)
 
 
+class FakeSsh:
+    """An ssh that holds its tunnel open until ended, or ends at once saying
+    *fails*."""
+
+    def __init__(self, command, fails=None):
+        self.command = command
+        self.code = None if fails is None else 255
+        self.stderr = SimpleNamespace(read=lambda: fails or "")
+
+    def poll(self):
+        return self.code
+
+    def terminate(self):
+        self.code = -15
+
+    def wait(self, timeout=None):
+        return self.code
+
+    def kill(self):
+        self.code = -9
+
+
+class Ssh:
+    """Every ssh the tunnels started, and the time they read."""
+
+    def __init__(self):
+        self.started = []
+        self.fails = None
+        self.now = 0.0
+        ports = iter(range(50_000, 60_000))
+        self.tunnels = Tunnels(
+            spawn=self.spawn,
+            port=lambda: next(ports),
+            accepts=lambda port: True,
+            which=lambda name: "/usr/bin/ssh",
+            clock=lambda: self.now,
+            sleep=lambda s: None,
+        )
+
+    def spawn(self, command):
+        self.started.append(FakeSsh(command, self.fails))
+        return self.started[-1]
+
+
 @pytest.fixture
-def hub(tmp_path, instruments):
+def ssh():
+    return Ssh()
+
+
+@pytest.fixture
+def hub(tmp_path, instruments, ssh):
     clock = iter(range(100, 10_000))
     return Hub(
         tmp_path / "hub.yaml",
@@ -69,6 +120,7 @@ def hub(tmp_path, instruments):
         fetch=instruments.fetch,
         pair=instruments.pair,
         clock=lambda: float(next(clock)),
+        tunnels=ssh.tunnels,
     )
 
 
@@ -103,6 +155,7 @@ def test_the_list_is_kept_in_the_hubs_file(hub, tmp_path):
         ("../x", URL, "bad_name"),
         ("Scope", "scope-1:8010", "bad_url"),
         ("Scope", "ftp://scope-1", "bad_url"),
+        ("Scope", None, "no_address"),
     ],
 )
 def test_a_bad_name_or_address_is_refused(hub, name, url, error):
@@ -215,7 +268,7 @@ def test_the_operator_changes_the_list_and_a_paired_hub_only_reads_it(served):
     assert client.delete("/hub/instruments/Scope 1", headers=other).status_code == 403
 
     bad = client.post("/hub/instruments", json={"name": "x"}, headers=operator)
-    assert bad.status_code == 422 and bad.json()["detail"]["error_type"] == "bad_url"
+    assert bad.status_code == 422 and bad.json()["detail"]["error_type"] == "no_address"
     no_code = client.post("/hub/instruments/Scope 1/pair", json={}, headers=operator)
     assert no_code.status_code == 422
     gone = client.delete("/hub/instruments/Scope 1", headers=operator)
@@ -223,3 +276,96 @@ def test_the_operator_changes_the_list_and_a_paired_hub_only_reads_it(served):
     assert (
         client.delete("/hub/instruments/Scope 1", headers=operator).status_code == 404
     )
+
+
+# -- tunnels ---------------------------------------------------------------
+
+
+def test_an_instrument_with_ssh_is_reached_through_a_tunnel_the_hub_opens(
+    hub, instruments, ssh
+):
+    instruments.up = {"http://127.0.0.1:50000"}
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.check()
+    (row,) = hub.state().instruments
+    assert row.reachable is True
+    assert row.tunnel == {"open": True, "gateway_port": 50000, "app_port": 50001}
+    (process,) = ssh.started
+    assert process.command[-2:] == ["--", "user@scope-1"]
+    assert "BatchMode=yes" in process.command
+    assert "127.0.0.1:50000:127.0.0.1:8010" in process.command
+    assert "127.0.0.1:50001:127.0.0.1:8001" in process.command
+    assert hub.app_url(hub.instruments()[0]) == "http://127.0.0.1:50001"
+
+    hub.check()
+    assert len(ssh.started) == 1, "an open tunnel is kept, not opened again"
+
+
+def test_two_instruments_never_share_a_port(hub, ssh):
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.add("Scope 2", ssh="user@scope-2")
+    hub.check()
+    ports = [
+        port
+        for row in hub.state().instruments
+        for port in (row.tunnel["gateway_port"], row.tunnel["app_port"])
+    ]
+    assert len(set(ports)) == 4
+
+
+def test_a_tunnel_that_drops_is_opened_again(hub, instruments, ssh):
+    instruments.up = {"http://127.0.0.1:50000", "http://127.0.0.1:50002"}
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.check()
+    ssh.started[0].code = 255  # the network went away
+    hub.check()
+    assert len(ssh.started) == 2
+    (row,) = hub.state().instruments
+    assert row.reachable is True and row.tunnel["gateway_port"] == 50002
+
+
+def test_a_tunnel_that_cannot_open_says_why_and_waits_before_trying_again(hub, ssh):
+    ssh.fails = "Warning: something\nuser@scope-1: Permission denied (publickey).\n"
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.check()
+    (row,) = hub.state().instruments
+    assert row.reachable is False and row.tunnel["open"] is False
+    assert row.why == (
+        "ssh to user@scope-1 failed: user@scope-1: Permission denied (publickey)."
+    )
+    hub.check()
+    assert len(ssh.started) == 1, "not hammered: tried again after a wait"
+    ssh.now += 60
+    ssh.fails = None
+    hub.check()
+    assert len(ssh.started) == 2 and hub.state().instruments[0].tunnel["open"]
+
+
+def test_removing_an_instrument_or_stopping_the_hub_closes_its_tunnel(hub, ssh):
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.add("Scope 2", ssh="user@scope-2")
+    hub.check()
+    by_destination = {p.command[-1]: p for p in ssh.started}
+    hub.remove("Scope 1")
+    assert by_destination["user@scope-1"].poll() is not None
+    assert by_destination["user@scope-2"].poll() is None
+    hub.stop()
+    assert by_destination["user@scope-2"].poll() is not None
+
+
+@pytest.mark.parametrize("destination", ["-oProxyCommand=x", "user@host x", "", "a;b"])
+def test_an_ssh_destination_that_could_be_an_option_is_refused(hub, ssh, destination):
+    with pytest.raises(GatewayRefused):
+        hub.add("Scope 1", ssh=destination)
+    assert ssh.started == []
+
+
+def test_without_ssh_installed_the_tunnel_says_so():
+    tunnels = Tunnels(which=lambda name: None, spawn=lambda command: 1 / 0)
+    with pytest.raises(OSError, match="ssh isn't installed"):
+        tunnels.ensure("Scope 1", "user@scope-1")
+
+
+def test_the_tunnel_command_only_forwards(ssh):
+    tunnel = ssh.tunnels.ensure("Scope 1", "user@scope-1")
+    assert command(tunnel)[:2] == ["ssh", "-N"]

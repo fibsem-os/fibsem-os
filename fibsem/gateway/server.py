@@ -370,14 +370,16 @@ def build_gateway_app(
 
         @app.post("/hub/instruments", response_model=HubState)
         def add_instrument(body: Dict[str, Any], found: Caller = Depends(hub_operator)):
-            """``{name, url, ssh}``: add an instrument, or change the address
-            of the one with that name."""
-            ssh = str(body.get("ssh") or "").strip() or None
+            """``{name, ssh | url}``: add an instrument, or change how the one
+            with that name is reached: *ssh* is where a tunnel to it connects
+            (``user@host``), *url* its gateway's address to use as it is."""
             return _act(
                 found,
                 {},
                 lambda force, via: hub.add(
-                    str(body.get("name") or ""), str(body.get("url") or ""), ssh
+                    str(body.get("name") or ""),
+                    str(body.get("url") or "") or None,
+                    str(body.get("ssh") or "") or None,
                 ),
             )
 
