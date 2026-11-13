@@ -6,7 +6,18 @@ implements its Protocol: its routes are mounted, ``/capabilities`` lists it,
 and the catalog offers its tools (``ToolSpec.part``).
 """
 
-from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
+
+if TYPE_CHECKING:
+    from fibsem.server.app_context import AppContext
 
 __all__ = [
     "GRIDS",
@@ -257,7 +268,7 @@ PARTS = {
 }
 
 
-def served_parts(context: Any) -> List[str]:
+def served_parts(context: Optional["AppContext"]) -> List[str]:
     """The parts *context* implements, in PARTS order; none without a context."""
     if context is None:
         return []

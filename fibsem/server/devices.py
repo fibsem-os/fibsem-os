@@ -131,12 +131,12 @@ from fibsem.devices.wire import (
     type_hints,
     type_path,
 )
-from fibsem.drivers.registry import REMOTE_DRIVER
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.instrument import DeviceInstrument
 from fibsem.schema import arguments_schema
 from fibsem.server import operator_token
 from fibsem.server.auth import refusal_error, require_operator
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.images import (
     IMAGES_MEDIA_TYPE,
@@ -147,6 +147,7 @@ from fibsem.server.images import (
     is_image_result,
     tiff_bytes,
 )
+from fibsem.server.kept_reads import KeptReads, read_wait, with_age
 from fibsem.server.operator_token import read_device_token
 from fibsem.server.pairing_routes import build_pairing_router
 from fibsem.server.responses import (
@@ -604,6 +605,7 @@ def build_device_router(
     adopt_control: Optional[Callable[[Request], Optional[Callable[[], None]]]] = None,
     paths: Optional[Callable[[Mapping[str, Any]], Dict[str, Any]]] = None,
     listing: Optional[Sequence[Any]] = None,
+    kept: Optional[KeptReads] = None,
 ) -> APIRouter:
     """The ``/devices`` routes over whatever *devices* returns, by name.
 
@@ -620,7 +622,9 @@ def build_device_router(
     mark those (``agent: false``): the App Server's blocklist. *paths* reads a
     command's or query's relative paths where they belong (the App Server: in the
     open experiment), before *refuse* checks them. *listing*, when given,
-    gates the listing of every device in place of *read*.
+    gates the listing of every device in place of *read*. *kept* answers a
+    value read and a parameter read with the last value while the instrument is
+    busy, to a caller that asks (`fibsem.server.kept_reads`).
 
     With *long_commands*, a command marked ``long`` answers at once with its run
     and runs on, and ``GET {prefix}/{name}/run`` reads the service's latest run
@@ -661,6 +665,14 @@ def build_device_router(
             raise
         except Exception as error:
             raise answer_for_error(error, what) from None
+
+    def kept_answer(
+        request: Request, d: Device, name: str, read: Callable[[], Any]
+    ) -> Response:
+        if kept is None:
+            return answer(read())
+        value, age = kept.read(d, name, read, read_wait(request))
+        return with_age(answer(value), age)
 
     @router.get(
         prefix,
@@ -734,33 +746,41 @@ def build_device_router(
     @router.get(
         prefix + "/{device}/values", dependencies=list(read), response_model=Values
     )
-    def read_values(device: str) -> Response:
+    def read_values(request: Request, device: str) -> Response:
         """Every parameter's value in one call; those this backend lacks are
         named apart, not failed."""
         d = lookup(device)
-        values, unavailable = {}, []
-        for name in d.declared_parameters():
-            try:
-                value = getattr(d, name).get_value()
-            except ParameterUnavailable:
-                unavailable.append(name)
-                continue
-            except Exception as error:
-                raise answer_for_error(error, f"{noun} {device}.{name}") from None
-            values[name] = to_wire(value)
-        return answer(Values(values, unavailable))
+
+        def read() -> Values:
+            values, unavailable = {}, []
+            for name in d.declared_parameters():
+                try:
+                    value = getattr(d, name).get_value()
+                except ParameterUnavailable:
+                    unavailable.append(name)
+                    continue
+                except Exception as error:
+                    raise answer_for_error(error, f"{noun} {device}.{name}") from None
+                values[name] = to_wire(value)
+            return Values(values, unavailable)
+
+        return kept_answer(request, d, "values", read)
 
     @router.get(
         prefix + "/{device}/{parameter}",
         dependencies=list(read),
         response_model=ValueAnswer,
     )
-    def read_parameter(device: str, parameter: str) -> Response:
-        value = run(
-            lambda: parameter_of(device, parameter).get_value(),
-            f"{noun} {device}.{parameter}",
+    def read_parameter(request: Request, device: str, parameter: str) -> Response:
+        param = run(
+            lambda: parameter_of(device, parameter), f"{noun} {device}.{parameter}"
         )
-        return answer(ValueAnswer(to_wire(value)))
+
+        def read() -> ValueAnswer:
+            value = run(param.get_value, f"{noun} {device}.{parameter}")
+            return ValueAnswer(to_wire(value))
+
+        return kept_answer(request, lookup(device), parameter, read)
 
     @router.put(
         prefix + "/{device}/{parameter}",
@@ -955,6 +975,7 @@ def build_device_app(
     by_name: Dict[str, Device] = {device.name: device for device in devices}
     auth = auth if auth is not None else DeviceAuth.from_disk()
     app = FastAPI(title="fibsem devices")
+    refuse_invalid_requests(app)
     app.state.auth = auth
     token = Depends(require_operator())
     app.include_router(build_pairing_router(auth))
@@ -1086,7 +1107,7 @@ def _refuse_unservable(entries: Iterable[Any], allow_remote: bool = False) -> No
     """Refuse an entry a Device Server can't serve, before anything is built. With
     *allow_remote* (the App Server's own devices) a remote entry is built as usual."""
     for entry in entries:
-        if entry.driver == REMOTE_DRIVER:
+        if entry.is_remote:
             if allow_remote:
                 continue
             raise ValueError(

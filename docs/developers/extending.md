@@ -279,7 +279,7 @@ device that acquires channels and z-stacks. Implement the four parts; the
 `devices.py` of the `autoscript` and `odemis` drivers hold the two hardware
 implementations. An FM on its own computer needs no driver on the
 microscope's side: serve its parts with the device server and configure the
-FM as `driver: remote` ([Devices on another computer](devices.md#devices-on-another-computer)).
+FM with `remote: <address>:<port>` ([Devices on another computer](devices.md#devices-on-another-computer)).
 This interface is under active development and is expected to change; open
 an issue before building on it.
 

@@ -144,6 +144,11 @@ def _parser() -> argparse.ArgumentParser:
         help="the FIB overview's milling angle in degrees (default 38)",
     )
     make_sim.add_argument(
+        "--coated",
+        action="store_true",
+        help="grid: overviews of a sputtered and GIS coated grid (sim-NNNN-gis)",
+    )
+    make_sim.add_argument(
         "--task",
         nargs="+",
         choices=["grid"] + sorted(sim.name for sim in _sims()),
@@ -243,6 +248,7 @@ def main(argv=None) -> int:
                     overrides,
                     beam=beam,
                     milling_angle=args.milling_angle,
+                    coated=args.coated,
                 ):
                     print(f"Wrote {folder}")
         return 0

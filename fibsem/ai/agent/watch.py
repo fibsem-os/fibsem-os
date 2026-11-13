@@ -17,7 +17,8 @@ with ``service_wait_for_run``, so has the end), ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
 monitor's trigger or error), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
 its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
-``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``QUIET`` (a workflow is running
+``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``STOPPED`` (the operator stopped
+the agent, a run or a mill), ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
 the agent from its card; one still unanswered when the watch starts
 is said first), ``NOTE`` (the operator kept a note on a
@@ -50,7 +51,9 @@ from urllib.parse import quote
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
-from fibsem.workflows.actions import is_message
+from fibsem.workflows.actions import ACTION, is_message
+from fibsem.workflows.actions import OPERATOR_STOP as STOPPED_NO_REASON
+from fibsem.workflows.events import kinds as event_kinds
 
 # Kinds that end a workflow: report it, and keep watching. A stalled workflow
 # drained with decisions pending; a failed one died outside a task (FIB-1037).
@@ -95,17 +98,27 @@ PROPOSAL_RELEASED = "proposal_released"
 SUGGESTION = "suggestion"
 REQUEST = "request"
 COMMAND_ENDED = "command_ended"
+COMMAND_FAILED = "command_failed"
 MILL_STAGE_STARTED = "mill_stage_started"
 MILL_ENDED = "mill_ended"
+MILL_FAILED = "mill_failed"
 MILL_READING = "mill_reading"
+# A milling monitor's stop rule fired (a MILL READING with a trigger).
+STOP_RULE = "stop_rule"
 AUTOFOCUS = "autofocus"
 ALIGNMENT = "alignment"
 NOTE = "note"
 MESSAGE = "message"
 PLAN_EDITED = "plan_edited"
 LEVEL = "level"
+LEVEL_LOWERED = "level_lowered"
+# The operator stopped the agent, a run or a mill.
+OPERATOR_STOP = "operator_stop"
 WORKFLOW_STARTED = "workflow_started"
 WORKFLOW_ENDED = "workflow_ended"
+# A workflow failed, or ended without an end event. One the operator stopped
+# is their STOPPED line; one the agent stopped is no news to it.
+WORKFLOW_FAILED = "workflow_failed"
 QUIET = "quiet"
 GAP = "gap"
 RESTARTED = "restarted"
@@ -113,11 +126,13 @@ AGENT_BACK = "agent_back"
 SERVER_UNAVAILABLE = "server_unavailable"
 SERVER_GONE = "server_gone"
 NO_EVENTS = "no_events"
+# A poll's failure when nothing answered: the failure says what to check.
+UNREACHABLE = "unreachable"
 # What the watch says just before it gives up.
 LAST_KINDS = {SERVER_UNAVAILABLE, SERVER_GONE, NO_EVENTS}
 
 ENDED = "WORKFLOW ENDED"
-NO_END_EVENT_LINE = Wake(WORKFLOW_ENDED, f"{ENDED} (stopped without an end event)")
+NO_END_EVENT_LINE = Wake(WORKFLOW_FAILED, f"{ENDED} (stopped without an end event)")
 
 POLL_S = 25.0  # the server caps a park at 30 s
 RETRY_DELAY_S = 5.0
@@ -183,7 +198,7 @@ def _poll(client, since, timeout, after=None):
             timeout=timeout + 10.0,
         )
     except (OSError, ValueError) as error:
-        return None, f"unreachable ({error})"
+        return None, f"{UNREACHABLE} ({error})"
     if response.status_code >= 400:
         if _error_type(response) == AGENT_OFF:
             return None, AGENT_OFF
@@ -221,53 +236,61 @@ def _print_events(events, since, say, marked=None):
         data = event.get("payload") or {}
         since = max(since, event.get("seq", since))
         _keep_marked(event, marked)
-        if kind == "proposal_held":
+        if kind == event_kinds.PROPOSAL_HELD:
             say(_proposal_line(data.get("item_name"), data.get("task_name")))
-        elif kind == "proposal_released":
+        elif kind == event_kinds.PROPOSAL_RELEASED:
             out(
                 PROPOSAL_RELEASED,
                 f"PROPOSAL RELEASED item={data.get('item_name')} "
                 f"task={data.get('task_name')}",
             )
-        elif kind == "suggestion_declined":
+        elif kind == event_kinds.SUGGESTION_DECLINED:
             reason = " ".join(str(data.get("reason") or "").split())
             line = f"SUGGESTION DECLINED{_item_of(data)} task={data.get('task')}"
             out(SUGGESTION, f"{line}: {reason}" if reason else line)
-        elif kind == "proposal_decided" and data.get("kind") == "actions":
+        elif kind == event_kinds.PROPOSAL_DECIDED and data.get("kind") == "actions":
             out(REQUEST, _request_decided_line(data))
-        elif kind == "proposal_decided" and data.get("suggestion_id"):
+        elif kind == event_kinds.PROPOSAL_DECIDED and data.get("suggestion_id"):
             out(
                 SUGGESTION,
                 f"SUGGESTION APPROVED{_item_of(data)} task={data.get('task')}",
             )
-        elif kind in ("request_decided", "request_finished", "request_cancelled"):
+        elif kind in (
+            event_kinds.REQUEST_DECIDED,
+            event_kinds.REQUEST_FINISHED,
+            event_kinds.REQUEST_CANCELLED,
+        ):
             out(REQUEST, _request_line(kind, data))
-        elif kind == "command_ended" and data.get("waited"):
+        elif kind == event_kinds.COMMAND_ENDED and data.get("waited"):
             pass  # a caller waiting for it (service_wait_for_run) has the end
-        elif kind == "command_ended":
+        elif kind == event_kinds.COMMAND_ENDED:
             # A long command the agent started (a mill, a spot burn) ended.
             line = (
                 f"COMMAND ENDED {data.get('service')}.{data.get('command')} "
                 f"run={data.get('run_id')} state={data.get('state')}"
             )
             out(
-                COMMAND_ENDED,
+                COMMAND_FAILED if data.get("state") == "failed" else COMMAND_ENDED,
                 f"{line} ({data['error']})" if data.get("error") else line,
             )
-        elif kind == "milling_stage_started":
+        elif kind == event_kinds.MILLING_STAGE_STARTED:
             out(MILL_STAGE_STARTED, _mill_stage_line(event, data))
-        elif kind == "milling":
-            out(MILL_ENDED, _mill_ended_line(event, data))
-        elif kind == "milling_reading":
+        elif kind == event_kinds.MILLING:
+            failed = data.get("status") == "failed"
+            out(MILL_FAILED if failed else MILL_ENDED, _mill_ended_line(event, data))
+        elif kind == event_kinds.MILLING_READING:
             line = _reading_line(data)
             if line:
-                out(MILL_READING, line)
-        elif kind == "autofocus":
+                reading = data.get("reading") or {}
+                out(STOP_RULE if reading.get("trigger") else MILL_READING, line)
+        elif kind == ACTION and event.get("actor") == "operator" and data.get("stops"):
+            out(OPERATOR_STOP, _operator_stop_line(data))
+        elif kind == event_kinds.AUTOFOCUS:
             out(AUTOFOCUS, _autofocus_line(event, data))
-        elif kind == "alignment":
+        elif kind == event_kinds.ALIGNMENT:
             out(ALIGNMENT, _alignment_line(event, data))
         elif (
-            kind == "note"
+            kind == event_kinds.NOTE
             and event.get("actor") == "operator"
             and not is_message(event)
         ):
@@ -276,20 +299,22 @@ def _print_events(events, since, say, marked=None):
             out(NOTE, f"NOTE from the operator on {data.get('item_name')}: {text}")
         elif _is_message(event):
             say(_message_line(data, marked))
-        elif kind == "agent_plan_edited":
+        elif kind == event_kinds.AGENT_PLAN_EDITED:
             sections = ", ".join(str(s) for s in data.get("sections") or [])
             out(PLAN_EDITED, f"PLAN EDITED by the operator: {sections}")
-        elif kind == "agent_level_set":
+        elif kind == event_kinds.AGENT_LEVEL_SET:
             line = _level_line(data)
             if line:
-                out(LEVEL, line)
-        elif kind == "workflow_started":
+                out(LEVEL_LOWERED if _lowered(data) else LEVEL, line)
+        elif kind == event_kinds.WORKFLOW_STARTED:
             out(WORKFLOW_STARTED, "WORKFLOW STARTED")
             running = True
         elif kind in WORKFLOW_ENDS:
             detail = data.get("error") or _counts(data.get("task_counts"))
             out(
-                WORKFLOW_ENDED,
+                WORKFLOW_FAILED
+                if kind == event_kinds.WORKFLOW_FAILED
+                else WORKFLOW_ENDED,
                 f"{ENDED} ({kind}: {detail})" if detail else f"{ENDED} ({kind})",
             )
             running = False
@@ -297,7 +322,7 @@ def _print_events(events, since, say, marked=None):
             task = data.get("task_name")
             line = f"EVENT {kind} {data.get('item_name', '')}"
             line = f"{line} {task}" if task else line
-            reason = _skip_reason(data) if kind == "task_skipped" else None
+            reason = _skip_reason(data) if kind == event_kinds.TASK_SKIPPED else None
             out(kind, f"{line} ({reason})" if reason else line)
     return since, running
 
@@ -305,8 +330,10 @@ def _print_events(events, since, say, marked=None):
 def _is_message(event) -> bool:
     """Whether *event* is the operator's message to the agent."""
     kind = event.get("kind", "")
-    return kind == "operator_message" or (
-        kind == "note" and event.get("actor") == "operator" and is_message(event)
+    return kind == event_kinds.OPERATOR_MESSAGE or (
+        kind == event_kinds.NOTE
+        and event.get("actor") == "operator"
+        and is_message(event)
     )
 
 
@@ -340,7 +367,7 @@ def _keep_marked(event, marked) -> None:
     message citing it follows it on the record."""
     data = event.get("payload") or {}
     if (
-        event.get("kind") == "evidence"
+        event.get("kind") == event_kinds.EVIDENCE
         and event.get("actor") == "operator"
         and data.get("evidence_id")
     ):
@@ -502,6 +529,34 @@ def _level_line(data):
     )
 
 
+# The levels from least to most the agent may do.
+_RANK = {level: rank for rank, level in enumerate(AgentLevel)}
+
+
+def _lowered(data) -> bool:
+    """Whether the operator set the level lower than it was."""
+    try:
+        level = AgentLevel(data.get("level"))
+        previous = AgentLevel(data.get("previous"))
+    except ValueError:
+        return False
+    return _RANK[level] < _RANK[previous]
+
+
+def _operator_stop_line(data):
+    """The operator stopped something: the agent (down to Watch, its action
+    stopped), a run, a task or a mill."""
+    line = f"STOPPED by the operator: {data.get('what')}"
+    reason = " ".join(str(data.get("reason") or "").split())
+    if reason and reason != STOPPED_NO_REASON:
+        line += f" ({reason})"
+    if data.get("stops") == "agent":
+        line += f"; your level is now {data.get('level')}"
+        if data.get("stopped"):
+            line += f" and {data['stopped']} was stopped"
+    return line
+
+
 def _item_of(event):
     """`` item=<name>`` for the lamella or grid the event happened on, or ''."""
     item = event.get("item")
@@ -648,9 +703,9 @@ def _request_decided_line(data):
 def _request_line(kind, data):
     """The agent's request moved on (FIB-1283): decided, finished, cancelled."""
     head = f"REQUEST {data.get('request_id')}"
-    if kind == "request_cancelled":
+    if kind == event_kinds.REQUEST_CANCELLED:
         return f"{head} cancelled: {data.get('why')}"
-    if kind == "request_finished":
+    if kind == event_kinds.REQUEST_FINISHED:
         counts = f"{data.get('applied')} of {data.get('of')}"
         # An applied action stopped part way, a mill say (FIB-1398).
         if data.get("cancelled"):
@@ -792,7 +847,8 @@ def watch(
         out(
             Wake(
                 SERVER_UNAVAILABLE,
-                f"SERVER UNAVAILABLE: /app/events gave {failure}. Is the app running?",
+                f"SERVER UNAVAILABLE: /app/events gave {failure}."
+                + ("" if failure.startswith(UNREACHABLE) else " Is the app running?"),
             )
         )
         return 1
@@ -859,7 +915,12 @@ def watch(
                 out(
                     Wake(
                         SERVER_GONE,
-                        f"SERVER GONE: /app/events gave {failure}. The app has stopped.",
+                        f"SERVER GONE: /app/events gave {failure}."
+                        + (
+                            ""
+                            if failure.startswith(UNREACHABLE)
+                            else " The app has stopped."
+                        ),
                     )
                 )
                 return 1

@@ -16,6 +16,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.server import AuthConfig, build_server
+from fibsem.server.app_context import AppContext
 from fibsem.server.files import list_folder
 from fibsem.structures.settings import MicroscopeState
 from fibsem.workflows.actions import ACTION
@@ -80,8 +81,11 @@ def test_a_refusal_names_the_app_the_operator_works_in(client):
     assert "in AutoLamella." in asked.json()["detail"]["message"]
 
 
-class _CoreOnly:
+class _CoreOnly(AppContext):
     """An app context with no optional parts."""
+
+    def __init__(self):
+        super().__init__(session=None)
 
     def status(self):
         return {"core": True}
@@ -447,6 +451,17 @@ def test_events_long_poll_over_http(client, event_buffer):
 
     caught_up = client.get("/app/events?since=1&timeout=0", headers=AUTH).json()
     assert caught_up["events"] == []
+
+
+def test_events_say_what_they_are_when_asked(client, event_buffer):
+    event_buffer.append("task_failed", {"task_name": "Polishing", "error": "boom"})
+    plain = client.get("/app/events?since=0", headers=AUTH).json()["events"][-1]
+    assert "text" not in plain
+    said = client.get("/app/events?since=0&text=true", headers=AUTH).json()
+    record = said["events"][-1]
+    assert record["group"] == "workflow"
+    assert record["text"]["label"] == "failed"
+    assert record["text"]["error"] == "boom"
 
 
 def test_events_unavailable_without_a_buffer(microscope, host):

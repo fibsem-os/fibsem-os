@@ -23,20 +23,11 @@ pytest.importorskip("qtpy.QtWidgets")
 import fibsem.config as _fibsem_config
 from fibsem import utils
 from fibsem.structures.settings import BeamType
+from tests.waiting import qt_wait_for
 
 _ARCTIS_CONFIG = os.path.join(
     os.path.dirname(_fibsem_config.__file__), "config", "sim-arctis-configuration.yaml"
 )
-
-
-def _wait_for(qapp, condition, timeout=10.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        qapp.processEvents()
-        if condition():
-            return True
-        time.sleep(0.01)
-    return False
 
 
 @pytest.fixture
@@ -73,12 +64,12 @@ class TestTheBeamButton:
         image_widget.toggle_live_acquisition()
         assert button.text() == "Stop Acquisition"
         beam = image_widget.microscope.beams[BeamType.ELECTRON]
-        assert _wait_for(qapp, lambda: beam.is_live)
+        assert qt_wait_for(lambda: beam.is_live)
 
         # Ended off the GUI thread, as live view ends after a pause in xT.
         threading.Thread(target=beam.stop_live).start()
 
-        assert _wait_for(qapp, lambda: button.text() == "Start Acquisition")
+        assert qt_wait_for(lambda: button.text() == "Start Acquisition")
         assert image_widget.pushButton_acquire_sem_image.isEnabled()
 
         # So the next click starts live view, as the button says.
@@ -89,7 +80,7 @@ class TestTheBeamButton:
         microscope = image_widget.microscope
         button = image_widget.pushButton_start_acquisition
         image_widget.toggle_live_acquisition()
-        assert _wait_for(qapp, lambda: microscope.is_acquiring)
+        assert qt_wait_for(lambda: microscope.is_acquiring)
 
         stop = microscope.stop_acquisition
 
@@ -105,7 +96,7 @@ class TestTheBeamButton:
         assert button.text() == "Stopping…"
         assert not button.isEnabled()
 
-        assert _wait_for(qapp, lambda: button.text() == "Start Acquisition")
+        assert qt_wait_for(lambda: button.text() == "Start Acquisition")
         assert button.isEnabled()
         assert not microscope.is_acquiring
 
@@ -129,7 +120,7 @@ class TestTheFMPanel:
         fm = fm_widget.fm
         button = fm_widget.pushButton_toggle_acquisition
         fm.start_acquisition(channel_settings=fm_widget.channel_settings)
-        assert _wait_for(qapp, lambda: button.text() == "Stop Acquisition")
+        assert qt_wait_for(lambda: button.text() == "Stop Acquisition")
 
         stop = fm.stop_acquisition
 
@@ -145,7 +136,7 @@ class TestTheFMPanel:
         assert button.text() == "Stopping…"
         assert not button.isEnabled()
 
-        assert _wait_for(qapp, lambda: button.text() == "Start Acquisition")
+        assert qt_wait_for(lambda: button.text() == "Start Acquisition")
         assert not fm.is_streaming
 
     def test_cancel_does_not_wait_for_the_run(self, fm_widget, monkeypatch):

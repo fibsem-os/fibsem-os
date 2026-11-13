@@ -6,13 +6,16 @@ Uses the shared offscreen ``qapp`` fixture from tests/conftest.py.
 """
 
 import os
+import time
 
 import pytest
 
 pytest.importorskip("qtpy.QtWidgets")
 
+from qtpy.QtCore import QTimer  # noqa: E402
 from qtpy.QtWidgets import QMessageBox  # noqa: E402
 
+from fibsem.ui.run import view  # noqa: E402
 from tests.run_state import StubRunner
 
 
@@ -82,7 +85,34 @@ def test_closing_the_window_mid_run_records_the_stop(
     monkeypatch.setattr(
         QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes
     )
+    monkeypatch.setattr(view, "CLOSE_WAIT_S", 0.2)  # the stub never ends
     assert main_ui.run_view.confirm_close() is True
     assert _stops(recorder) == [
         ({"stopped": "workflow", "via": "closing the window"}, "operator")
     ]
+
+
+def test_closing_waits_for_the_stopped_run_to_end(main_ui, runner, monkeypatch):
+    """The run's thread is a daemon: a close that does not wait can end it
+    before it has turned the beams off (engineering review R2)."""
+    monkeypatch.setattr(
+        QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes
+    )
+    monkeypatch.setattr(view, "CLOSE_WAIT_S", 30.0)
+    QTimer.singleShot(300, lambda: setattr(runner, "is_running", False))
+    started = time.monotonic()
+    assert main_ui.run_view.confirm_close() is True
+    assert runner.is_running is False, "closed before the run ended"
+    assert 0.25 < time.monotonic() - started < 10
+
+
+def test_closing_goes_ahead_when_the_run_does_not_end(
+    main_ui, runner, monkeypatch, caplog
+):
+    monkeypatch.setattr(
+        QMessageBox, "exec", lambda self: QMessageBox.StandardButton.Yes
+    )
+    monkeypatch.setattr(view, "CLOSE_WAIT_S", 0.3)
+    assert main_ui.run_view.confirm_close() is True
+    assert runner.is_running is True
+    assert "did not stop within" in caplog.text

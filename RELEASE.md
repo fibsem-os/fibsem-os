@@ -63,7 +63,7 @@ work that lands on `main` after the cut, finished or not, stays out of them.
    git push && git push --tags
    ```
 
-4. **GitHub Actions takes over** — the tag and the packaged version are checked against each other, the tests must pass, and the package is uploaded to PyPI, where `rcN` is treated as a pre-release automatically. A GitHub Release is then created from the tag with generated notes, marked as a pre-release so it does not take the "Latest" badge from the last real release.
+4. **GitHub Actions takes over** — the tag and the packaged version are checked against each other, the tests must pass on Linux and Windows, the built wheel must install outside the repository and start on the simulator on both, and the package is uploaded to PyPI, where `rcN` is treated as a pre-release automatically. A GitHub Release is then created from the tag with generated notes and the versions the wheel was installed with as `constraints-<tag>-windows.txt` and `-linux.txt`, marked as a pre-release so it does not take the "Latest" badge from the last real release.
 
 5. **Put the version back** to the development marker, so `main` does not sit on a version that has already been published:
    ```

@@ -417,6 +417,43 @@ class TestFitFromPoints:
                 target, abs=1e-6
             )
 
+    def test_in_a_tilted_view_the_dialog_previews_the_fit_it_makes(
+        self, widget, microscope, monkeypatch
+    ):
+        """The RMS the dialog shows is the one the fit gets: a quarter turn in a
+        foreshortened view is no worse a fit than one looking straight down."""
+        from qtpy.QtWidgets import QDialog
+
+        from fibsem.ui.widgets.image_fit_dialog import ImageFitDialog
+
+        _show(widget, FORESHORTENED)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        targets = self._targets_for(widget, key, 20e-6, 30e-6, 90.0)
+        canvas_key, tile = widget._reference_tile_for_fit(key)
+
+        def to_canvas(x, y):
+            return np.array(widget._tile_pixel_to_canvas(canvas_key, tile, x, y))
+
+        origin = to_canvas(0, 0)
+        inverse = np.linalg.inv(
+            np.column_stack([to_canvas(1, 0) - origin, to_canvas(0, 1) - origin])
+        )
+        previews = []
+
+        def answer(dialog):
+            for pixel, target in zip(self.PIXELS, targets):
+                dialog.add_pair(pixel, tuple(inverse @ (np.array(target) - origin)))
+            previews.append(dialog._preview(dialog.pairs(), False))
+            return QDialog.DialogCode.Accepted
+
+        monkeypatch.setattr(ImageFitDialog, "exec", answer)
+        widget._fit_aligned_image(key)
+
+        assert previews[0].rms == pytest.approx(0.0, abs=1e-6)
+        assert previews[0].rotation == pytest.approx(90.0, abs=1e-6)
+        record = widget.aligned_images.get(key)
+        assert record.placement == pytest.approx((20e-6, 30e-6, 90.0, 1.0), rel=1e-6)
+
     def test_a_locked_scale_stays_at_one(self, widget, microscope):
         _show(widget, SQUARE)
         key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
@@ -466,6 +503,15 @@ class TestTheOverviewUnderTheImage:
         bottom_right = widget.canvas.metres_to_canvas(cx + w / 2, cy + h / 2)
         got = widget._tile_pixel_to_canvas(canvas_key, tile, width - 0.5, height - 0.5)
         assert got == pytest.approx(bottom_right, abs=1e-6)
+
+    def test_a_view_shown_again_still_has_its_reference(self, widget, microscope):
+        sem = _show(widget, SQUARE) and widget._current_view
+        widget.set_image(_beam_image(microscope, *FORESHORTENED))
+        assert widget._current_view != sem
+        widget.show_view(sem)
+        key = widget.add_aligned_image(_fm_image(microscope, _fm_at(microscope)), "fm")
+        assert widget._reference_tile_for_fit(key) is not None
+        assert widget.record_at(*widget.aligned_images.get(key).overlay.centre)
 
     def test_with_nothing_placed_there_is_no_reference(self, widget, microscope):
         assert widget._reference_tile_for_fit("no-such-key") is None

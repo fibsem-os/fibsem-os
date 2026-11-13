@@ -423,6 +423,7 @@ def _summary(result: Any, data: Any, seed: Any) -> Dict[str, Any]:
         answer["ri_note"] = NO_RI_CORRECTION
     return answer
 
+
 def _fit_figure(image_path: str, diagnostic, x: float, y: float) -> Dict[str, Any]:
     """A point fit's diagnostic figure saved beside the image it was fitted on:
     its path and preview."""

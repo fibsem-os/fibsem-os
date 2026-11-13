@@ -6,14 +6,13 @@ and ``start_live`` are refused at once with ``ResourceBusy``, naming where it is
 live, rather than interleaving frames. The live beam's own acquire goes on.
 """
 
-import time
-
 import pytest
 
 from fibsem import utils
 from fibsem.devices import ResourceBusy, Resources
 from fibsem.drivers.demo.devices import DemoScanGenerator
 from fibsem.structures.settings import BeamType
+from tests.waiting import wait_for
 
 
 @pytest.fixture
@@ -27,13 +26,6 @@ def microscope(monkeypatch):
     for beam in microscope.beams.values():
         beam.stop_live()
     microscope.disconnect()
-
-
-def _until(condition, timeout=5.0):
-    deadline = time.monotonic() + timeout
-    while not condition():
-        assert time.monotonic() < deadline, "timed out"
-        time.sleep(0.01)
 
 
 def test_a_resource_held_by_one_is_refused_to_another():
@@ -53,7 +45,7 @@ def test_the_other_beam_is_refused_while_one_is_live(microscope):
     sem = microscope.beams[BeamType.ELECTRON]
     fib = microscope.beams[BeamType.ION]
     sem.start_live()
-    _until(lambda: sem.scanner.sim_frames > 0)
+    assert wait_for(lambda: sem.scanner.sim_frames > 0)
 
     with pytest.raises(ResourceBusy, match="unit is live on electron"):
         fib.acquire()
@@ -63,7 +55,7 @@ def test_the_other_beam_is_refused_while_one_is_live(microscope):
     assert sem.acquire().data is not None  # the live beam's own image goes on
 
     sem.stop_live()
-    _until(lambda: not sem.is_live)
+    assert wait_for(lambda: not sem.is_live)
     assert fib.acquire().data is not None
 
 

@@ -27,6 +27,7 @@ from fibsem.devices.beam import Beam
 from fibsem.devices.core import ParameterMetadata
 from fibsem.structures.settings import BeamType
 from fibsem.ui.widgets.beam_settings_widget import FibsemBeamSettingsWidget
+from tests.waiting import qt_wait_for
 
 _app = QApplication.instance() or QApplication([])
 
@@ -125,14 +126,6 @@ def test_fib_preset_hidden_without_presets():
 # ---------------------------------------------------------------------------
 
 
-def _wait_for(condition, timeout_ms=2000):
-    for _ in range(timeout_ms // 25):
-        if condition():
-            return True
-        _pump(25)
-    return condition()
-
-
 def test_preset_activation_runs_off_the_gui_thread(toasts):
     widget, microscope = make_widget(
         BeamType.ION, presets=["A", "B"], current_preset="A"
@@ -142,12 +135,12 @@ def test_preset_activation_runs_off_the_gui_thread(toasts):
 
     widget.preset_combo.setCurrentIndex(widget.preset_combo.findData("B"))
 
-    assert _wait_for(lambda: microscope.activated == ["B"] and applied)
+    assert qt_wait_for(lambda: microscope.activated == ["B"] and applied)
     assert microscope.activation_threads[0] is not threading.main_thread()
     # Waited for, not read: the combo is re-enabled by the worker's `finished`,
     # which arrives after the `returned` that applied the preset. Reading it
     # the instant `settings_changed` fires is a race a slow runner loses.
-    assert _wait_for(widget.preset_combo.isEnabled)
+    assert qt_wait_for(widget.preset_combo.isEnabled)
     assert toasts == []
 
 
@@ -160,15 +153,15 @@ def test_preset_failure_toasts_and_reverts(toasts):
 
     widget.preset_combo.setCurrentIndex(widget.preset_combo.findData("B"))
 
-    assert _wait_for(lambda: bool(toasts))
+    assert qt_wait_for(lambda: bool(toasts))
     msg, level = toasts[0]
     assert "B" in msg and "PresetNotFound" in msg
     assert level == "error"
     # reverted to the preset the microscope still reports, control usable again,
     # and no settings_changed for a preset that never applied
-    assert _wait_for(lambda: widget.preset_combo.currentData() == "A")
+    assert qt_wait_for(lambda: widget.preset_combo.currentData() == "A")
     # `finished` follows `errored` the same way it follows `returned`
-    assert _wait_for(widget.preset_combo.isEnabled)
+    assert qt_wait_for(widget.preset_combo.isEnabled)
     assert changed == []
 
 
@@ -179,5 +172,5 @@ def test_preset_failure_with_no_prior_preset_clears_selection(toasts):
 
     widget.preset_combo.setCurrentIndex(widget.preset_combo.findData("B"))
 
-    assert _wait_for(lambda: bool(toasts))
-    assert _wait_for(lambda: widget.preset_combo.currentIndex() == -1)
+    assert qt_wait_for(lambda: bool(toasts))
+    assert qt_wait_for(lambda: widget.preset_combo.currentIndex() == -1)

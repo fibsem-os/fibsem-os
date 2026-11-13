@@ -108,6 +108,15 @@ def test_it_says_what_runs(made):
     assert not window.agent.button.isHidden()
 
 
+def test_an_agent_from_another_computer_that_went_quiet_says_so(made):
+    window = made.window
+    quiet = "Not heard from for 3 min. If it runs on another computer, its SSH tunnel may be down."
+    window._show_read(None, None, {"name": "agent-laptop", "quiet": quiet})
+    assert "agent-laptop connected" in window.agent.line.text()
+    assert window.agent.detail.text() == quiet
+    assert window.agent.button.isHidden()
+
+
 def test_start_starts_the_only_app_and_stop_asks_first(made, monkeypatch):
     window, gateway = made.window, made.gateway
     started, stopped = [], []

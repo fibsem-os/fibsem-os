@@ -5,7 +5,6 @@ inside the open experiment, ``stop`` ends them cancelled, and
 """
 
 import os
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +15,7 @@ from fibsem.structures.settings import (
     ImageSettings,
     OverviewAcquisitionSettings,
 )
+from tests.fixtures.app_contexts import ExperimentContext
 
 TOKEN = "test-token"
 IMAGING = "/microscope/services/imaging"
@@ -30,7 +30,7 @@ def experiment(tmp_path):
 
 @pytest.fixture
 def client(microscope, experiment):
-    context = SimpleNamespace(experiment_path=str(experiment))
+    context = ExperimentContext(str(experiment))
     app = build_server(
         microscope,
         app_context=context,

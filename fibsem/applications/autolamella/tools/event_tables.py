@@ -48,6 +48,7 @@ from fibsem.workflows.event_recording import (
     milling_run_of,
     read_events,
 )
+from fibsem.workflows.events import kinds as event_kinds
 from fibsem.workflows.proposals import DETECTION, POINT_OF_INTEREST, STATE
 
 RUN_COLUMNS = [
@@ -203,13 +204,13 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
         run_id = task.get("id")
         acted[(record.get("actor"), kind)] += 1
 
-        if kind == "task_started":
+        if kind == event_kinds.TASK_STARTED:
             runs[run_id] = _run(item, task, payload, start=time)
-        elif kind in _RUN_ENDS or kind == "task_skipped":
+        elif kind in _RUN_ENDS or kind == event_kinds.TASK_SKIPPED:
             run = runs.get(run_id)
             if run is None:  # skipped, or started before the file did
                 run = runs[run_id] = _run(item, task, payload, start=None)
-            if kind == "task_skipped":
+            if kind == event_kinds.TASK_SKIPPED:
                 run.update(start=time, outcome=SKIPPED)
                 reason = payload.get("skip_reason")
             else:
@@ -220,7 +221,7 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             state = payload.get("task_state") or {}
             run["outputs"] = dict(state.get("outputs") or {})
             _end(current_step.pop(run_id, None), time)
-        elif kind == "task_step":
+        elif kind == event_kinds.TASK_STEP:
             _end(current_step.pop(run_id, None), time)
             step = {
                 "item": item.get("name"),
@@ -233,7 +234,7 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             }
             steps.append(step)
             current_step[run_id] = step
-        elif kind == "milling_stage_started":
+        elif kind == event_kinds.MILLING_STAGE_STARTED:
             stage = payload.get("stage") or {}
             milling_run_id, milling_task = milling_run_of(payload)
             row = {
@@ -251,28 +252,31 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
             }
             milling.append(row)
             stages[(milling_run_id, stage.get("name"))] = row
-        elif kind == "milling_progress" and payload.get("status") == "stage-finished":
+        elif (
+            kind == event_kinds.MILLING_PROGRESS
+            and payload.get("status") == "stage-finished"
+        ):
             key = (milling_run_of(payload)[0], payload.get("stage_name"))
             row = stages.pop(key, None)
             if row is not None:
                 row.update(end=time, finished=True)
-        elif kind == "prompt_raised":
+        elif kind == event_kinds.PROMPT_RAISED:
             key = (record.get("session"), payload.get("question_id"))
             raised[key] = (time, run_id, item.get("name"), task.get("name"))
-        elif kind in ("prompt_answered", "prompt_cancelled"):
+        elif kind in (event_kinds.PROMPT_ANSWERED, event_kinds.PROMPT_CANCELLED):
             prompt = raised.pop(
                 (record.get("session"), payload.get("question_id")), None
             )
             if prompt is not None:
                 _waited(prompt, time, "prompt", waits, wait_rows)
-        elif kind == "proposal_asked":
+        elif kind == event_kinds.PROPOSAL_ASKED:
             asked[payload.get("proposal_id")] = (
                 time,
                 run_id,
                 item.get("name"),
                 task.get("name"),
             )
-        elif kind == "proposal_decided":
+        elif kind == event_kinds.PROPOSAL_DECIDED:
             key = (payload.get("proposal_id"), payload.get("decision"))
             if payload.get("filled_in") and key in decided:
                 # The values a confirmation "as it stands" was made at.
@@ -284,9 +288,9 @@ def event_tables(records: Iterable[Dict[str, Any]]) -> EventTables:
                 _waited(question, time, "question", waits, wait_rows)
             decisions.append(row)
             decided[key] = row
-        elif kind == "edit":
+        elif kind == event_kinds.EDIT:
             edits.append(_edit(time, record, payload))
-        elif kind == "fm_image_acquired":
+        elif kind == event_kinds.FM_IMAGE_ACQUIRED:
             fm.append(_fm(time, record, payload))
 
     for run in runs.values():

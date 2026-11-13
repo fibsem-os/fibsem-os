@@ -254,6 +254,29 @@ jobs:
         echo "Agent test files: $(echo "$agent_files" | grep -c .)"
         pytest $agent_files -q --timeout=300
 
+  wheel:
+    # The jobs above import fibsem from the checkout, so a file the wheel leaves out
+    # passes them and fails for users. This builds the wheel, installs it into a fresh
+    # environment outside the repository, runs `fibsem-cli --help`, starts the App
+    # Server on the simulator and asks it for /health. Windows follows the matrix rule:
+    # not on a draft.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(github.event_name == 'pull_request' && github.event.pull_request.draft && '["ubuntu-latest"]' || '["ubuntu-latest", "windows-latest"]') }}
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-python@v7
+      with:
+        # What INSTALLATION.md tells users to create.
+        python-version: "3.11"
+    - run: python -m pip install build
+    - run: python -m build --wheel
+    - name: Install the wheel outside the repository and start it
+      shell: bash
+      run: python .github/scripts/wheel_smoke.py dist/*.whl --extras ui
+
   lint:
     # Its own job, not a step inside the matrix above: ruff's result does not
     # vary by OS or Python version, so running it in the matrix would repeat the

@@ -4,7 +4,7 @@ import { ImageInfoBar, ScaleBar } from "@/components/image-info";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { api } from "@/lib/api";
+import { api, ApiError, reading, type Reading } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import type {
   Capabilities,
@@ -36,7 +36,8 @@ function beamRows(v: Values): Row[] {
     ["Field width", fmt.length(num(v.hfw))],
     ["Working distance", fmt.length(num(v.working_distance))],
   ];
-  if (v.detector_type) rows.push(["Detector", [v.detector_type, v.detector_mode].filter(Boolean).map(String).join(" · ")]);
+  if (v.detector_type)
+    rows.push(["Detector", [v.detector_type, v.detector_mode].filter(Boolean).map(String).join(" · ")]);
   if (v.dwell_time != null) rows.push(["Dwell", fmt.seconds(num(v.dwell_time))]);
   if (Array.isArray(v.resolution)) rows.push(["Resolution", v.resolution.join(" × ")]);
   if (v.plasma_gas) rows.push(["Plasma gas", String(v.plasma_gas)]);
@@ -121,7 +122,18 @@ function slots(listing: DeviceListing): Slot[] {
   return out;
 }
 
-function DeviceCard({ slot, values }: { slot: Slot; values?: DeviceValues }) {
+/** When the card's readings are not live: their age while the microscope is
+ * busy, or that it is busy with nothing read yet. */
+function staleness(read?: Reading<DeviceValues>, error?: unknown): string | null {
+  const busy = error instanceof ApiError && error.errorType === "busy";
+  if (read?.age != null) return `Busy · read ${Math.round(read.age)} s ago`;
+  if (busy) return read ? "Busy · not read again yet" : "Microscope busy";
+  return null;
+}
+
+function DeviceCard({ slot, read, error }: { slot: Slot; read?: Reading<DeviceValues>; error?: unknown }) {
+  const values = read?.value;
+  const stale = staleness(read, error);
   if (!slot.spec)
     return (
       <Card className="flex items-center gap-2 py-3 opacity-60">
@@ -144,7 +156,8 @@ function DeviceCard({ slot, values }: { slot: Slot; values?: DeviceValues }) {
         <CardTitle className="text-foreground">{slot.title}</CardTitle>
         <span className="ml-auto text-xs text-muted-foreground">{sub}</span>
       </div>
-      {values ? <Facts rows={rows} /> : <span className="text-[13px] text-muted-foreground">Reading…</span>}
+      {stale && <span className="text-xs text-[var(--fibsem-semantic-warning-color)]">{stale}</span>}
+      {values ? <Facts rows={rows} /> : !stale && <span className="text-[13px] text-muted-foreground">Reading…</span>}
     </Card>
   );
 }
@@ -168,7 +181,10 @@ function Shown({ image, alt, height }: { image: ImagePayload; alt: string; heigh
 }
 
 function LastAcquired() {
-  const images = useQuery({ queryKey: ["app/experiment/images"], queryFn: () => api<DisplayImages>("/app/experiment/images") });
+  const images = useQuery({
+    queryKey: ["app/experiment/images"],
+    queryFn: () => api<DisplayImages>("/app/experiment/images"),
+  });
   const [shown, setShown] = useState<string | null>(null);
   const keys = images.data?.fm_available ? (["sem", "fib", "fm"] as const) : (["sem", "fib"] as const);
   const pairs = keys.map((key) => [key, images.data?.[key] ?? null] as [string, ImagePayload | null]);
@@ -345,11 +361,11 @@ export function MicroscopePage() {
       .filter((slot) => slot.spec)
       .map((slot) => ({
         queryKey: ["microscope/devices", slot.spec!.name, "values"],
-        queryFn: () => api<DeviceValues>(`/microscope/devices/${encodeURIComponent(slot.spec!.name)}/values`),
+        queryFn: () => reading<DeviceValues>(`/microscope/devices/${encodeURIComponent(slot.spec!.name)}/values`),
         refetchInterval: READINGS_EVERY_MS,
       })),
   });
-  const valuesOf = new Map(cards.filter((s) => s.spec).map((s, i) => [s.spec!.name, readings[i]?.data]));
+  const readOf = new Map(cards.filter((s) => s.spec).map((s, i) => [s.spec!.name, readings[i]]));
 
   return (
     <div className="mx-auto flex w-full max-w-[1400px] flex-wrap gap-5 p-5">
@@ -365,7 +381,12 @@ export function MicroscopePage() {
         {listing.error && <p className="text-[13px] text-destructive">{(listing.error as Error).message}</p>}
         <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-2">
           {cards.map((slot) => (
-            <DeviceCard key={slot.title} slot={slot} values={slot.spec ? valuesOf.get(slot.spec.name) : undefined} />
+            <DeviceCard
+              key={slot.title}
+              slot={slot}
+              read={slot.spec ? readOf.get(slot.spec.name)?.data : undefined}
+              error={slot.spec ? readOf.get(slot.spec.name)?.error : undefined}
+            />
           ))}
         </div>
       </main>
