@@ -15,6 +15,8 @@ if TYPE_CHECKING:
     from fibsem.milling.patterning.base import BasePattern
     from fibsem.structures.image import FibsemImage
 
+logger = logging.getLogger(__name__)
+
 
 def create_pattern_mask(
     pattern: "BasePattern",
@@ -78,7 +80,7 @@ def create_pattern_mask(
                 pattern_mask |= shape_mask
 
     except Exception as e:
-        logging.debug(f"Failed to create mask for pattern {pattern.name}: {e}")
+        logger.debug(f"Failed to create mask for pattern {pattern.name}: {e}")
 
     return pattern_mask
 
@@ -136,7 +138,7 @@ def get_pattern_bounding_box(
         return (x_min, y_min, x_max, y_max)
 
     except Exception as e:
-        logging.debug(
+        logger.debug(
             f"Failed to calculate bounding box for pattern {pattern.name}: {e}"
         )
         return (0, 0, 0, 0)

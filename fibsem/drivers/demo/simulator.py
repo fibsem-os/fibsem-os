@@ -44,6 +44,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.demo.microscope import DemoMicroscope
     from fibsem.drivers.demo.sim_scene import SampleScene
 
+logger = logging.getLogger(__name__)
+
 ######################## SIMULATOR ########################
 
 
@@ -382,12 +384,12 @@ class DemoSimulator:
         try:
             self._setup_image_iterators()
         except ValueError as e:
-            logging.error("Failed to set up sim image iterators: %s", str(e))
+            logger.error("Failed to set up sim image iterators: %s", str(e))
 
     def connect(self, ip_address: str, port: int = 8080) -> None:
-        logging.debug(f"Connecting to microscope at {ip_address}:{port}")
+        logger.debug(f"Connecting to microscope at {ip_address}:{port}")
         self.connected = True
-        logging.debug(f"Connected to microscope at {ip_address}:{port}")
+        logger.debug(f"Connected to microscope at {ip_address}:{port}")
 
     def disconnect(self) -> None:
         self.connected = False
@@ -412,7 +414,7 @@ class DemoSimulator:
         view = self.imaging_system.active_view
         if view == expected.value:
             return True
-        logging.warning(
+        logger.warning(
             "Imaging channel changed during %s: set to %s (view %d), found view %d. "
             "The FM and the beams share one channel on a TFS system, so the grab here "
             "would return the other view's buffer (FIB-517).",
@@ -441,7 +443,7 @@ class DemoSimulator:
                 beam_type=effective_beam_type
             )
 
-        logging.debug(f"acquiring new {effective_beam_type.name} image.")
+        logger.debug(f"acquiring new {effective_beam_type.name} image.")
 
         # set the imaging hfw, as the hardware drivers do: an acquisition leaves
         # the beam at the field it imaged, so anything that follows in image
@@ -556,7 +558,7 @@ class DemoSimulator:
             x1, y1 = x0 + width, y0 + height
             image.data = image.data[y0:y1, x0:x1]
 
-        logging.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
+        logger.debug({"msg": "acquire_image", "metadata": image.metadata.to_dict()})
 
         return image
 
@@ -587,13 +589,13 @@ class DemoSimulator:
 
             # check if file still exists
             if not os.path.exists(filename):
-                logging.warning(
+                logger.warning(
                     f"Image file not found: {filename}, falling back to random noise"
                 )
                 return np.random.randint(0, 256, output_shape, dtype=dtype)
 
             # load and process the image
-            logging.debug(
+            logger.debug(
                 f"Generating image from {filename} for beam type {beam_type.name}"
             )
             img = FibsemImage.load(filename)
@@ -607,18 +609,18 @@ class DemoSimulator:
             )
             return image_data.astype(dtype)
         except StopIteration as e:
-            logging.debug(
+            logger.debug(
                 f"Image sequence for {beam_type.name} exhausted, falling back to random noise: {e}"
             )
             return np.random.randint(0, 256, output_shape, dtype=dtype)
 
         except (FileNotFoundError, OSError, ValueError) as e:
-            logging.warning(
+            logger.warning(
                 f"Failed to load image for {beam_type.name}: {e}, falling back to random noise"
             )
             return np.random.randint(0, 256, output_shape, dtype=dtype)
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"Unexpected error loading image for {beam_type.name}: {e}, falling back to random noise"
             )
             return np.random.randint(0, 256, output_shape, dtype=dtype)
@@ -632,7 +634,7 @@ class DemoSimulator:
         self.use_image_sequence = False
 
         if self.microscope.system.sim is None:
-            logging.debug(
+            logger.debug(
                 "No simulator configuration found, using random noise generation"
             )
             return
@@ -641,7 +643,7 @@ class DemoSimulator:
         fib_data_path = self.microscope.system.sim.get("fib", None)
 
         if sem_data_path is None or fib_data_path is None:
-            logging.info(
+            logger.info(
                 "SEM or FIB data path not configured in simulator settings, using random noise generation"
             )
             return
@@ -679,7 +681,7 @@ class DemoSimulator:
             )
 
         self.use_image_sequence = True
-        logging.info(
+        logger.info(
             f"Image iterators initialized: {len(self._sem_filenames)} SEM images, {len(self._fib_filenames)} FIB images"
         )
 
@@ -701,7 +703,7 @@ class DemoSimulator:
             finally:
                 self.imaging_system.active_view = restore_view
                 self.imaging_system.active_device = restore_device
-        logging.debug({"msg": "acquire_chamber_image"})
+        logger.debug({"msg": "acquire_chamber_image"})
         return frame
 
     def live(
@@ -733,7 +735,7 @@ class DemoSimulator:
                 emit(image)
 
         except Exception as e:
-            logging.error(f"Error in acquisition worker: {e}")
+            logger.error(f"Error in acquisition worker: {e}")
 
     def autocontrast(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
@@ -746,7 +748,7 @@ class DemoSimulator:
             self.set_channel(beam_type)
             if reduced_area is not None:
                 self.microscope.set_reduced_area_scanning_mode(reduced_area, beam_type)
-            logging.debug(f"Autocontrasting {beam_type.name} beam.")
+            logger.debug(f"Autocontrasting {beam_type.name} beam.")
             sim_sleep(
                 random.uniform(0.5, 1.0)
             )  # simulate time taken to calculate auto-contrast
@@ -757,7 +759,7 @@ class DemoSimulator:
 
         if reduced_area:
             self.microscope.set_full_frame_scanning_mode(beam_type)
-        logging.debug({"msg": "autocontrast", "beam_type": beam_type.name})
+        logger.debug({"msg": "autocontrast", "beam_type": beam_type.name})
 
     def auto_focus(
         self, beam_type: BeamType, reduced_area: Optional[FibsemRectangle]
@@ -769,7 +771,7 @@ class DemoSimulator:
             self.set_channel(beam_type)
             if reduced_area is not None:
                 self.microscope.set_reduced_area_scanning_mode(reduced_area, beam_type)
-            logging.debug(f"Auto-focusing {beam_type.name} beam.")
+            logger.debug(f"Auto-focusing {beam_type.name} beam.")
             wd: float = self.microscope._beam_config(
                 "eucentric_height", beam_type
             ).eucentric_height
@@ -787,7 +789,7 @@ class DemoSimulator:
 
         if reduced_area:
             self.microscope.set_full_frame_scanning_mode(beam_type)
-        logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
+        logger.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
     def scene_focus(self, beam_type: BeamType, here: bool = False) -> float:
         """The working distance at which the sample scene is in focus (m):
@@ -854,12 +856,12 @@ class DemoSimulator:
             # surroundings rather than anchoring the world there
             self.sample_scene.anchor(self.scene_stage_position())
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 "Could not anchor the sample scene at connect (%s); "
                 "it will anchor at the first acquisition instead.",
                 e,
             )
-        logging.info(
+        logger.info(
             "Simulator sample scene enabled (coincidence offset %.2f um, "
             "tilt axis offset %.1f um)",
             self.sample_scene.coincidence_offset * 1e6,
@@ -983,7 +985,7 @@ class DemoSimulator:
         dx = (float(point.x) - 0.5) * hfw
         dy = (0.5 - float(point.y)) * hfw * (height / width)
         shift = self.microscope.get_beam_shift(beam_type)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sim_spot_burn",
                 "point": (float(point.x), float(point.y)),

@@ -51,6 +51,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.registry import BuildContext
     from fibsem.structures.system import DeviceEntry
 
+logger = logging.getLogger(__name__)
+
 # -- what the columns have ----------------------------------------------------------
 
 # The beam currents, in beam mode (FIB) or probe number (SEM) order: mode n is the
@@ -193,7 +195,7 @@ def nearest_beam_current(current: float, beam_type: BeamType) -> Tuple[int, floa
     currents = np.asarray(BEAM_CURRENTS[beam_type])
     index = int(np.argmin(np.abs(np.log(currents) - np.log(current))))
     if not np.isclose(currents[index], current, rtol=1e-6):
-        logging.warning(
+        logger.warning(
             f"{beam_type.name} current {current:.3e} A is not available; "
             f"using {currents[index]:.3e} A"
         )
@@ -436,7 +438,7 @@ class JeolElectronBeam(JeolBeam):
         steps = [round(v / SEM_SHIFT_METRES_PER_DAC) for v in (value.x, value.y)]
         x, y = (int(np.clip(s, low, high)) for s in steps)
         if [x, y] != steps:
-            logging.warning(f"SEM beam shift {value} clipped to DAC ({x}, {y})")
+            logger.warning(f"SEM beam shift {value} clipped to DAC ({x}, {y})")
         self._sem("setAbsoluteImageShiftX", x)
         self._sem("setAbsoluteImageShiftY", y)
 
@@ -454,7 +456,7 @@ class JeolElectronBeam(JeolBeam):
     def write_resolution(self, value: Sequence[int]) -> None:
         frame = nearest_resolution(tuple(value), list(SEM_PHOTO_SIZES))
         if frame != tuple(value):
-            logging.warning(
+            logger.warning(
                 f"SEM resolution {tuple(value)} is not available; using {frame}."
             )
         self._sem("setPhotoScanMode2", 0, SEM_SCAN_MODE)  # photo type NORMAL, on Fine2
@@ -488,7 +490,7 @@ class JeolElectronBeam(JeolBeam):
     def write_detector_type(self, value: str) -> None:
         signal = self._detector_signal(value)
         if signal is None:
-            logging.warning(f"No SEM detector {value!r}; not set.")
+            logger.warning(f"No SEM detector {value!r}; not set.")
             return
         self.connection.set_view_layout()
         self._fib("setViewSignal", self.connection.view(BeamType.ELECTRON), signal)
@@ -677,7 +679,7 @@ class JeolIonBeam(JeolBeam):
     def write_resolution(self, value: Sequence[int]) -> None:
         frame = nearest_resolution(tuple(value), self._resolutions())
         if frame != tuple(value):
-            logging.info(
+            logger.info(
                 f"FIB resolution {tuple(value)} is not available; using {frame}."
             )
         self._set_scan_type(fib_scan_type(frame, self.read_dwell_time()))
@@ -717,7 +719,7 @@ class JeolIonBeam(JeolBeam):
     def write_detector_type(self, value: str) -> None:
         signal = self.connection.sdk.command.EViewSignal(FIB_DETECTOR_SIGNAL)
         if value != signal.name:
-            logging.warning(
+            logger.warning(
                 f"No FIB detector {value!r}; the FIB has {signal.name!r}. Not set."
             )
             return
@@ -867,7 +869,7 @@ class JeolStage(Stage):
         target = to_jeol_stage_position(full)
         command = self.connection.sdk.command
         axes = command.EStageAxisFlags
-        logging.info(f"Moving stage to {full}.")
+        logger.info(f"Moving stage to {full}.")
         self.connection.fib_call(
             "setMultiAxisStagePositionAbs",
             command.EStageType.BSS,

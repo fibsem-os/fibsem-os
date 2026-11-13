@@ -6,6 +6,8 @@ import sys
 import threading
 from typing import Any, Optional
 
+logger = logging.getLogger(__name__)
+
 try:
     sys.modules.pop("PySide6.QtCore")
 except Exception:
@@ -249,7 +251,7 @@ class AutoLamellaWindow(AppWindow):
                 self._show_config_edit(**detail)
             except Exception:
                 # Chrome only: the edit has applied whatever happens here.
-                logging.exception("showing an agent's config edit failed")
+                logger.exception("showing an agent's config edit failed")
 
     def _on_microscope_changed(self):
         """Another microscope, or none: hand it to everything that holds one."""
@@ -479,7 +481,7 @@ class AutoLamellaWindow(AppWindow):
                 events.removed.disconnect(self._rebuild_lamella_list)
                 events.changed.disconnect(self._refresh_overview_positions)
             except Exception as e:
-                logging.debug(f"Could not disconnect position events: {e}")
+                logger.debug(f"Could not disconnect position events: {e}")
 
         # Bound methods rather than lambdas, so the disconnects above can find them.
         # psygnal passes each callback only as many arguments as it accepts, so a
@@ -576,10 +578,10 @@ class AutoLamellaWindow(AppWindow):
                 self.experiment, stage, self.session.record_event
             )
         except Exception as e:  # noqa: BLE001 - the inventory still shows
-            logging.warning(f"Could not record the inventoried grids: {e}")
+            logger.warning(f"Could not record the inventoried grids: {e}")
             return
         if added:
-            logging.info(f"Recorded {len(added)} grid(s) from the inventory.")
+            logger.info(f"Recorded {len(added)} grid(s) from the inventory.")
 
     def _refresh_grids_tab_microscope(self):
         if getattr(self, "grids_tab", None) is None:
@@ -645,7 +647,7 @@ class AutoLamellaWindow(AppWindow):
         try:
             rename_and_save_grid(experiment, stage, old, new, self.session.record_event)
         except Exception as e:  # noqa: BLE001 - renamed in memory; saved next time
-            logging.warning(f"Could not save the experiment after a rename: {e}")
+            logger.warning(f"Could not save the experiment after a rename: {e}")
         self.grids_tab.refresh()
         self.workflow_tab.grid_workflow_widget.refresh()
         self._refresh_grid_context()
@@ -663,7 +665,7 @@ class AutoLamellaWindow(AppWindow):
             try:
                 loaded = {e.name for e in stage.grid_inventory() if e.loaded}
             except Exception as e:  # noqa: BLE001 - drawn as "not on the stage"
-                logging.debug(f"Could not read the grid inventory: {e}")
+                logger.debug(f"Could not read the grid inventory: {e}")
         return {g.id: (g.name, g.name in loaded) for g in experiment.grids}
 
     def _refresh_grid_context(self, *_args) -> None:
@@ -1172,7 +1174,7 @@ class AutoLamellaWindow(AppWindow):
             try:
                 self.system_widget.connect_to_microscope()
             except Exception as e:
-                logging.warning(f"Quickstart: unable to connect to the microscope: {e}")
+                logger.warning(f"Quickstart: unable to connect to the microscope: {e}")
                 notification_service.show_toast(
                     f"Quickstart: could not connect to the microscope: {e}", "error"
                 )
@@ -1197,19 +1199,19 @@ class AutoLamellaWindow(AppWindow):
 
         if experiment_path is None:
             msg = "Quickload: no recent experiment to load."
-            logging.warning(msg)
+            logger.warning(msg)
             notification_service.show_toast(msg, "warning")
             return
 
         experiment, why = load_for_adoption(experiment_path)
         if experiment is None:
             msg = f"Quickload: {why}; not loaded."
-            logging.warning(msg)
+            logger.warning(msg)
             notification_service.show_toast(msg, "warning")
             return
 
         self.session.adopt(experiment)
-        logging.info(
+        logger.info(
             f"Quickload: loaded experiment {experiment.name} from {experiment_path}"
         )
 
@@ -1280,7 +1282,7 @@ class AutoLamellaWindow(AppWindow):
         try:
             summary = ml_export.export_experiment(self.experiment, output_path)
         except Exception as e:
-            logging.error(f"Failed to export targeting ML data: {e}", exc_info=True)
+            logger.error(f"Failed to export targeting ML data: {e}", exc_info=True)
             notification_service.show_toast(f"Export failed: {e}", "error")
             return
 
@@ -1345,7 +1347,7 @@ class AutoLamellaWindow(AppWindow):
                     self.panel.fm_control_widget._build_fluorescence_configuration()
                 )
             except Exception as e:
-                logging.warning(f"Could not read current FM configuration: {e}")
+                logger.warning(f"Could not read current FM configuration: {e}")
 
         self._coincidence_viewer_window = open_coincidence_viewer_window(
             microscope=self.microscope,

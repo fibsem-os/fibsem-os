@@ -19,6 +19,8 @@ from pathlib import Path
 
 import pytest
 
+logger = logging.getLogger(__name__)
+
 pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.applications.autolamella.structures import Experiment  # noqa: E402
@@ -63,7 +65,7 @@ def test_adopting_an_experiment_points_logging_at_its_logfile(
         getattr(h, "baseFilename", "") for h in logging.getLogger().handlers
     ]
 
-    logging.info("after adoption")
+    logger.info("after adoption")
     for handler in logging.getLogger().handlers:
         handler.flush()
     assert "after adoption" in logfile.read_text(encoding="utf-8")
@@ -99,7 +101,7 @@ def test_a_second_adoption_moves_logging_to_the_new_experiment(
     session.adopt(first)
     session.adopt(second)
 
-    logging.info("belongs to the second experiment")
+    logger.info("belongs to the second experiment")
     for handler in logging.getLogger().handlers:
         handler.flush()
 

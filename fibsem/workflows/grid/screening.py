@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.workflows.grid.protocol import GridExperiment
 
+logger = logging.getLogger(__name__)
+
 
 def present_grids(
     microscope: "FibsemMicroscope", experiment: "GridExperiment"
@@ -34,10 +36,10 @@ def present_grids(
     inventory = stage.get_inventory()
     added = experiment.sync_grids_from_inventory(stage)
     if added:
-        logging.info(f"Inventory added {len(added)} grid(s): {[g.name for g in added]}")
+        logger.info(f"Inventory added {len(added)} grid(s): {[g.name for g in added]}")
     names = [e.name for e in inventory if e.present and e.name]
     if not names:
-        logging.warning("Inventory found no grids to screen.")
+        logger.warning("Inventory found no grids to screen.")
     return names
 
 
@@ -119,9 +121,9 @@ def name_and_record_grids(
         record = experiment.get_grid_by_name(entry.name)
         if record is not None:
             record.name = new
-        logging.info(f"Named the grid in {entry.slot_name} {new} (was {entry.name}).")
+        logger.info(f"Named the grid in {entry.slot_name} {new} (was {entry.name}).")
     added = experiment.sync_grids_from_inventory(stage)
     if added:
-        logging.info(f"Recorded {len(added)} grid(s): {[g.name for g in added]}")
+        logger.info(f"Recorded {len(added)} grid(s): {[g.name for g in added]}")
     experiment.save()
     return [final[e.slot_name] for e in inventory if e.slot_name in final]

@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
     from fibsem.workflows.status import WorkflowStatusEvent, WorkflowStatusUpdate
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["RunView"]
 
 
@@ -287,7 +289,7 @@ class RunView(QObject):
     def _workflow_finished(self):
         """The panel's half of a run ending, then the summary. The replay reads
         this function's log line as the run's end."""
-        logging.info("Workflow finished.")
+        logger.info("Workflow finished.")
         session = self._session
         if session.microscope is None:
             return
@@ -376,4 +378,4 @@ class RunView(QObject):
             dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             dialog.show()
         except Exception as e:
-            logging.warning(f"Failed to show workflow summary dialog: {e}")
+            logger.warning(f"Failed to show workflow summary dialog: {e}")

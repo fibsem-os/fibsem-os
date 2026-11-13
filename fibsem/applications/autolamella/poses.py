@@ -37,6 +37,8 @@ from fibsem.workflows.proposals import ItemPoses
 if TYPE_CHECKING:  # pragma: no cover - annotation only
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 # The orientation a lamella is milled at, when one has to be chosen rather than
 # recovered. See `_to_milling` for when that happens.
 MILLING_ORIENTATION = "MILLING"
@@ -187,7 +189,7 @@ def sync_fluorescence_pose(
     if pose is None:
         return False
     if getattr(lamella, "fluorescence_pose_set_at_fm", False) and not force:
-        logging.info(
+        logger.info(
             f"Kept the fluorescence pose of {getattr(lamella, 'name', '?')}: it was "
             f"set at the FM."
         )
@@ -195,7 +197,7 @@ def sync_fluorescence_pose(
 
     milling = getattr(lamella, "milling_pose", None)
     if milling is None or milling.stage_position is None:
-        logging.debug(
+        logger.debug(
             f"Cannot sync the fluorescence pose of {getattr(lamella, 'name', '?')}: "
             f"it has no milling pose to derive one from."
         )
@@ -212,7 +214,7 @@ def sync_fluorescence_pose(
         # Left as it stands rather than cleared. It cannot be derived on this system, so
         # whatever is there was put there deliberately and is the better of two bad
         # answers -- but it is now stale, and saying so is the only thing left to do.
-        logging.warning(
+        logger.warning(
             f"Could not update the fluorescence pose of "
             f"{getattr(lamella, 'name', '?')} to follow its milling pose; it still "
             f"describes the previous position."
@@ -286,7 +288,7 @@ def _to_fluorescence(
     try:
         return microscope.to_device(position, FM_DEVICE, orientation)
     except ValueError as e:
-        logging.warning(f"Could not derive a fluorescence pose for {position}: {e}")
+        logger.warning(f"Could not derive a fluorescence pose for {position}: {e}")
         return None
 
 
@@ -317,7 +319,7 @@ def grid_id_at(experiment, microscope: "FibsemMicroscope", position) -> Optional
         else:
             grid = stage.grid_at_position(position)
     except Exception as e:  # noqa: BLE001 - a lamella is never refused for this
-        logging.debug(f"Could not resolve the grid for a new lamella: {e}")
+        logger.debug(f"Could not resolve the grid for a new lamella: {e}")
         return None
     if grid is None:
         return None

@@ -14,6 +14,8 @@ from fibsem.structures.settings import (
     FibsemRectangleSettings,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def main():
 
@@ -59,17 +61,17 @@ def main():
 
     for slice_idx in range(int(settings.protocol["steps"])):
         # slice
-        logging.info("------------------------ SLICE ------------------------")
+        logger.info("------------------------ SLICE ------------------------")
 
         microscope.setup_milling(milling_settings)
         microscope.draw_pattern(pattern_settings)
-        logging.info(f"Estimated milling time: {microscope.estimate_milling_time()} s")
+        logger.info(f"Estimated milling time: {microscope.estimate_milling_time()} s")
         microscope.run_milling()
         # clear the pattern and put the ion beam back as setup found it
         microscope.finish_milling()
 
         # view
-        logging.info("------------------------ VIEW ------------------------")
+        logger.info("------------------------ VIEW ------------------------")
         settings.image.filename = f"slice_{slice_idx:04d}"
         eb_image = acquire.acquire_image(microscope, settings.image)
 

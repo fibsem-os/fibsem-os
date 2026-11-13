@@ -54,6 +54,8 @@ from fibsem.util.timestamps import to_iso
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 def acquire_channels(
     microscope: FluorescenceMicroscope,
@@ -81,7 +83,7 @@ def acquire_channels(
 
         # Check for cancellation before each channel
         if stop_event and stop_event.is_set():
-            logging.info("Multi-channel acquisition cancelled")
+            logger.info("Multi-channel acquisition cancelled")
             return None
 
         image = microscope.acquire_image(channel)
@@ -124,7 +126,7 @@ def acquire_z_stack(
             z_level_images: List[List[FluorescenceImage]] = []
             for j, z in enumerate(z_positions):
                 if stop_event and stop_event.is_set():
-                    logging.info(
+                    logger.info(
                         "Z-stack acquisition cancelled before z-level acquisition"
                     )
                     microscope.objective.move_absolute(z_init)
@@ -144,7 +146,7 @@ def acquire_z_stack(
                         )
                     )
                     if stop_event and stop_event.is_set():
-                        logging.info(
+                        logger.info(
                             "Z-stack acquisition cancelled during z-level acquisition"
                         )
                         microscope.objective.move_absolute(z_init)
@@ -160,7 +162,7 @@ def acquire_z_stack(
             # Channel-wise (default): for each channel, acquire all z-planes
             for i, ch in enumerate(channel_settings):
                 if stop_event and stop_event.is_set():
-                    logging.info(
+                    logger.info(
                         "Z-stack acquisition cancelled before channel acquisition"
                     )
                     microscope.objective.move_absolute(z_init)
@@ -179,7 +181,7 @@ def acquire_z_stack(
                         )
                     )
                     if stop_event and stop_event.is_set():
-                        logging.info("Z-stack acquisition cancelled during z-stack")
+                        logger.info("Z-stack acquisition cancelled during z-stack")
                         microscope.objective.move_absolute(z_init)
                         return None
 
@@ -206,7 +208,7 @@ def _warn_if_off_step(image: FluorescenceImage, zstep: float) -> None:
     if measured is None or zstep <= 0:
         return
     if abs(measured - zstep) > Z_STEP_TOLERANCE * zstep:
-        logging.warning(
+        logger.warning(
             f"z-stack: the objective moved {measured * 1e9:.0f} nm per plane on "
             f"average, not the {zstep * 1e9:.0f} nm asked for; positions read "
             f"back: {[round(z * 1e9) for z in image.metadata.z_positions or []]} nm"
@@ -259,7 +261,7 @@ def record_fluorescence_image(
             ),
         }
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not describe an FM image for the record", exc_info=True)
+        logger.debug("could not describe an FM image for the record", exc_info=True)
         return
     record = getattr(microscope, "record_event", None)
     if record is not None:
@@ -313,7 +315,7 @@ def acquire_image(
             image.metadata.filename = filename
             image.save(filename)
         except Exception as e:
-            logging.error(f"Failed to save image to {filename}: {e}")
+            logger.error(f"Failed to save image to {filename}: {e}")
 
     if image is not None and record:
         record_fluorescence_image(microscope.parent, image)
@@ -437,9 +439,9 @@ class OverviewDestination:
         try:
             mosaic.save(self.mosaic_path)
         except Exception as e:
-            logging.error(f"Failed to save the overview to {self.mosaic_path}: {e}")
+            logger.error(f"Failed to save the overview to {self.mosaic_path}: {e}")
             return None
-        logging.info(f"Overview saved to: {self.mosaic_path}")
+        logger.info(f"Overview saved to: {self.mosaic_path}")
         return self.mosaic_path
 
 
@@ -532,17 +534,17 @@ class FMTiledAcquisitionRunner:
                 self._autofocus_if_mode(AutoFocusMode.ONCE)
                 self._run_tile_loop()
         except OperationCancelledError:
-            logging.info("Tileset acquisition cancelled")
+            logger.info("Tileset acquisition cancelled")
             self._end("cancelled")
             raise
         except Exception as e:
-            logging.error(f"Error during tileset acquisition: {e}")
+            logger.error(f"Error during tileset acquisition: {e}")
             self._end("failed", str(e))
             raise
         finally:
             self._restore()
 
-        logging.info(
+        logger.info(
             f"Tileset acquisition complete: {self._rows}x{self._cols} tiles acquired"
         )
         self._register_tiles()
@@ -652,7 +654,7 @@ class FMTiledAcquisitionRunner:
             and self._tile_order is TileOrderStrategy.SPIRAL
         ):
             self._autofocus_mode = AutoFocusMode.EACH_TILE
-            logging.info(
+            logger.info(
                 "EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order"
             )
 
@@ -660,7 +662,7 @@ class FMTiledAcquisitionRunner:
         self.tileset = [[None] * self._cols for _ in range(self._rows)]
 
         n_enabled = self.overview_parameters.n_enabled_tiles
-        logging.info(
+        logger.info(
             f"Starting tileset acquisition: {self._rows}x{self._cols} grid "
             f"with {self._overlap:.1%} overlap, {self._tile_order.value} order, "
             f"{n_enabled}/{self._rows * self._cols} tiles enabled"
@@ -780,7 +782,7 @@ class FMTiledAcquisitionRunner:
             )
 
         if position != self._initial_objective_position:
-            logging.info(
+            logger.info(
                 f"Starting the overview at the saved focus position "
                 f"({position * 1e3:.4f} mm), from "
                 f"{self._initial_objective_position * 1e3:.4f} mm."
@@ -810,7 +812,7 @@ class FMTiledAcquisitionRunner:
                     break
 
         if self._autofocus_channel is None:
-            logging.warning(
+            logger.warning(
                 f"Autofocus channel '{self.autofocus_settings.channel_name}' not found, "
                 f"using first channel"
             )
@@ -820,8 +822,8 @@ class FMTiledAcquisitionRunner:
         if not enabled_passes:
             raise ValueError("Auto-focus settings has no enabled passes")
 
-        logging.info(f"Auto-focus mode: {self._autofocus_mode.value}")
-        logging.info(
+        logger.info(f"Auto-focus mode: {self._autofocus_mode.value}")
+        logger.info(
             f"Auto-focus settings: {self.autofocus_settings.method.value}, "
             f"{len(enabled_passes)} enabled pass(es)"
         )
@@ -949,7 +951,7 @@ class FMTiledAcquisitionRunner:
         # consumer needs -- names and display colours -- comes off a real acquisition
         # rather than being assembled from settings.
         self._preview_metadata: Optional[FluorescenceImageMetadata] = None
-        logging.debug(f"{self._preview.describe()} (full {full_h}x{full_w})")
+        logger.debug(f"{self._preview.describe()} (full {full_h}x{full_w})")
 
     def _paint_preview(self, tile: TilePosition, image: FluorescenceImage) -> None:
         """Paint one acquired tile into the live preview mosaic.
@@ -968,7 +970,7 @@ class FMTiledAcquisitionRunner:
             if self._preview_metadata is None:
                 self._build_preview_metadata(image)
         except Exception as e:  # pragma: no cover - preview is never load-bearing
-            logging.debug(
+            logger.debug(
                 f"Could not paint tile ({tile.row}, {tile.col}) into preview: {e}"
             )
 
@@ -981,7 +983,7 @@ class FMTiledAcquisitionRunner:
             planes = _to_channel_planes(image.data, len(self.channel_settings))
             self._layout_check.add((tile.row, tile.col), _layout_plane(planes))
         except Exception as e:
-            logging.warning(f"Tile layout check stopped: {e}")
+            logger.warning(f"Tile layout check stopped: {e}")
             self._layout_check = None
 
     def _register_tiles(self) -> None:
@@ -1036,7 +1038,7 @@ class FMTiledAcquisitionRunner:
         self.result.autofocus.append(
             {"mode": mode.value, "objective_position": self._tile_objective_position}
         )
-        logging.info(
+        logger.info(
             f"Autofocus ({mode.value}) found "
             f"{self._tile_objective_position * 1e3:.4f} mm; tiles acquired there."
         )
@@ -1092,7 +1094,7 @@ class FMTiledAcquisitionRunner:
 
         self._autofocus_if_mode(AutoFocusMode.EACH_TILE)
 
-        logging.info(f"Acquiring tile [{row + 1}/{self._rows}][{col + 1}/{self._cols}]")
+        logger.info(f"Acquiring tile [{row + 1}/{self._rows}][{col + 1}/{self._cols}]")
         self._emit_tile_progress(row, col)
 
         filename = None
@@ -1143,11 +1145,11 @@ class FMTiledAcquisitionRunner:
         }
         params_filename = os.path.join(self.save_directory, "overview-parameters.json")
         utils.save_json(params_filename, params)
-        logging.info(f"Saved tileset acquisition parameters to {params_filename}")
+        logger.info(f"Saved tileset acquisition parameters to {params_filename}")
 
     def _restore(self) -> None:
         """Put the stage and objective back where they started."""
-        logging.info("Returning to initial position")
+        logger.info("Returning to initial position")
         self.microscope.safe_absolute_stage_movement(self._initial_position)
         self.microscope.fm.objective.move_absolute(self._initial_objective_position)
         self._emit(TiledStatus.TILES_ACQUIRED)
@@ -1449,7 +1451,7 @@ def stitch_tileset(
     if not acquired:
         raise ValueError("Tileset contains no acquired tiles")
 
-    logging.info(
+    logger.info(
         f"Stitching {rows}x{cols} tileset with {tile_overlap:.1%} overlap "
         f"({len(acquired)}/{rows * cols} tiles acquired)"
     )
@@ -1485,10 +1487,10 @@ def stitch_tileset(
     mosaic_width = effective_tile_width * (cols - 1) + tile_width
     mosaic_height = effective_tile_height * (rows - 1) + tile_height
 
-    logging.info(
+    logger.info(
         f"Tile size: {tile_height}x{tile_width}, Mosaic size: {mosaic_height}x{mosaic_width}"
     )
-    logging.info(f"Channels: {nc_channels}, Z-planes: {nz_planes}")
+    logger.info(f"Channels: {nc_channels}, Z-planes: {nz_planes}")
 
     # Initialize mosaic array with proper dimensions (C, Z, Y, X)
     mosaic_data = np.zeros(
@@ -1581,5 +1583,5 @@ def stitch_tileset(
     # Create stitched FluorescenceImage
     stitched_image = FluorescenceImage(data=mosaic_data, metadata=stitched_metadata)
 
-    logging.info(f"Stitching complete: {mosaic_height}x{mosaic_width} mosaic created")
+    logger.info(f"Stitching complete: {mosaic_height}x{mosaic_width} mosaic created")
     return stitched_image

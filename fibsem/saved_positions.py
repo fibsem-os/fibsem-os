@@ -19,6 +19,8 @@ from fibsem import config as cfg
 from fibsem.session_state import SessionState
 from fibsem.structures.settings import FibsemStagePosition
 
+logger = logging.getLogger(__name__)
+
 SAVED_POSITIONS = "saved_positions"
 
 
@@ -51,7 +53,7 @@ def load_saved_positions(state: SessionState) -> List[FibsemStagePosition]:
         try:
             positions.append(FibsemStagePosition.from_dict(entry))
         except Exception as e:
-            logging.warning(f"Skipping a saved position that could not be read: {e}")
+            logger.warning(f"Skipping a saved position that could not be read: {e}")
     return positions
 
 

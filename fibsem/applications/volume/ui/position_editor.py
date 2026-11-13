@@ -57,6 +57,8 @@ if TYPE_CHECKING:
     from fibsem.applications.volume.experiment import VolumeExperiment
     from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["PositionEditor", "image_label", "position_images"]
 
 POI_OVERLAY_ID = "position_poi"
@@ -282,7 +284,7 @@ class PositionEditor(QWidget):
             try:
                 self.image = FibsemImage.load(path)
             except Exception:  # noqa: BLE001 - a file that can't be read shows nothing
-                logging.warning(f"could not load {path}", exc_info=True)
+                logger.warning(f"could not load {path}", exc_info=True)
         if self.image is None:
             self.view_controller.clear()
             self.hint.setText("No saved FIB image of this position yet.")

@@ -29,6 +29,8 @@ from fibsem.ui.widgets.microscope_configuration_window import (
 )
 from fibsem.workflows.session import MICROSCOPE, AppSession
 
+logger = logging.getLogger(__name__)
+
 # What connecting did beyond connecting (`utils.setup_session`'s `connect_actions`),
 # said in the connect message.
 DID = {"beams_on": "turned the beams on", "defaults": "applied its defaults"}
@@ -383,7 +385,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         try:
             info = (utils.load_yaml(path) or {}).get("info") or {}
         except Exception as e:  # a slot: nothing may reach Qt
-            logging.debug(f"Could not read configuration {path}: {e}")
+            logger.debug(f"Could not read configuration {path}: {e}")
             self.label_configuration_info.setText("This file could not be read.")
             return
         parts = [
@@ -414,7 +416,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         try:
             self.settings = utils.load_microscope_configuration(configuration_path)
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 f"Unable to load configuration {configuration_name} from {configuration_path}: {e}"
             )
             notification_service.show_toast(
@@ -535,12 +537,12 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                 # narrower except would leave the abort in place for the exception
                 # nobody predicted, which is the one that will happen.
                 self._last_connection_error = str(e)
-                logging.error(f"Could not connect to the microscope: {e}")
+                logger.error(f"Could not connect to the microscope: {e}")
                 notification_service.show_toast(f"Could not connect: {e}", "error")
             else:
                 # user notification
                 msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
-                logging.info(msg)
+                logger.info(msg)
                 actions = getattr(self.microscope, "connect_actions", None) or {}
                 done = [DID[k] for k, ok in actions.items() if ok and k in DID]
                 failed = [

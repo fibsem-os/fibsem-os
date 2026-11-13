@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.remote.devices import DeviceClient
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
     """Today's FM API over an FM served from another computer: the FM API over
@@ -57,7 +59,7 @@ class RemoteFluorescenceMicroscope(FluorescenceMicroscope):
             raise RuntimeError(f"{host}:{port} serves no FM {sorted(missing)}")
         fm = cls(devices, parent=parent)
         if fm.online:
-            logging.info(f"Connected to the fluorescence microscope at {host}:{port}")
+            logger.info(f"Connected to the fluorescence microscope at {host}:{port}")
         return fm
 
     @property

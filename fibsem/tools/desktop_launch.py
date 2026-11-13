@@ -46,6 +46,8 @@ if TYPE_CHECKING:
     from qtpy.QtGui import QPainter, QPixmap
     from qtpy.QtWidgets import QWidget
 
+logger = logging.getLogger(__name__)
+
 SPLASH_WIDTH = 440
 SPLASH_HEIGHT = 240
 ICON_SIZE = 96
@@ -342,7 +344,7 @@ def gateway_allows(key: str, app: App) -> bool:
     try:
         state = call("GET", "/gateway")
     except (OSError, ValueError) as e:
-        logging.warning("Gateway didn't answer (%s); opening as usual", e)
+        logger.warning("Gateway didn't answer (%s); opening as usual", e)
         return True
     if state is None or state.get("window"):
         return True
@@ -368,7 +370,7 @@ def gateway_allows(key: str, app: App) -> bool:
     try:
         call("POST", "/gateway/claim", {"pid": os.getpid(), "app": key})
     except (OSError, ValueError) as e:
-        logging.warning("Gateway claim failed (%s); opening anyway", e)
+        logger.warning("Gateway claim failed (%s); opening anyway", e)
     return True
 
 

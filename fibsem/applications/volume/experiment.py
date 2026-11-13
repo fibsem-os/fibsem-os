@@ -20,6 +20,8 @@ from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.status import TaskStatus
 from fibsem.workflows.task_config import TaskConfig
 
+logger = logging.getLogger(__name__)
+
 PROTOCOL_FILENAME = "protocol.yaml"
 
 
@@ -178,7 +180,7 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         the protocol (``VolumeProtocol.add_new``). Raises ValueError for an
         unknown type or a name the protocol already has."""
         config = self.task_protocol.add_new(task_type, task_name)
-        logging.info(
+        logger.info(
             f"Added task {config.task_name} ({task_type}) to experiment {self.name}"
         )
         return config
@@ -191,7 +193,7 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
         """Take a task out of the protocol and its plan. Task history stays:
         it is the record of what ran."""
         self.task_protocol.remove(task_name)
-        logging.info(f"Removed task {task_name} from experiment {self.name}")
+        logger.info(f"Removed task {task_name} from experiment {self.name}")
 
     def slices_cut(self, position: VolumePosition) -> int:
         """How many slices ``position`` has cut: a per-slice task completed."""
@@ -246,7 +248,7 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
             with open(protocol_path) as f:
                 protocol = VolumeProtocol.from_dict(yaml.safe_load(f))
         else:
-            logging.warning(
+            logger.warning(
                 f"{path.parent.name} has no {PROTOCOL_FILENAME}; using the default."
             )
             protocol = VolumeProtocol.default()

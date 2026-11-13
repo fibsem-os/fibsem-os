@@ -68,6 +68,8 @@ if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceImage
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class AutoLamellaTaskConfig(SiteTaskConfig, ABC):
@@ -227,12 +229,12 @@ def _save_converted_protocol(path: str, protocol: AutoLamellaTaskProtocol) -> No
             shutil.copy2(path, backup)
         protocol.save(path)
     except OSError as e:
-        logging.warning(
+        logger.warning(
             f"Could not save {path} as a task protocol ({e}); it is converted "
             "each time it opens."
         )
         return
-    logging.info(
+    logger.info(
         f"Saved {path} as a task protocol; the file as it was is kept as {backup}."
     )
 
@@ -428,7 +430,7 @@ class Lamella(SiteItem):
         try:
             self.save_thumbnail(image)
         except Exception as e:
-            logging.warning(f"Could not save the thumbnail for {self.name}: {e}")
+            logger.warning(f"Could not save the thumbnail for {self.name}: {e}")
 
     @property
     def fluorescence_pose(self) -> Optional[MicroscopeState]:
@@ -474,7 +476,7 @@ class Lamella(SiteItem):
                 stage_position=self.milling_pose.stage_position
             )
         except ValueError:
-            logging.debug(
+            logger.debug(
                 f"Could not compute milling angle for {self.name}: stage tilt/rotation unavailable"
             )
 
@@ -517,7 +519,7 @@ class Lamella(SiteItem):
             # written before that fix is still on disk, and any other corruption lands here
             # too. This is reached from a Qt slot, where an escaping exception aborts the
             # process under PyQt5 rather than raising.
-            logging.warning(f"Could not read the thumbnail at {thumb_path}: {e}")
+            logger.warning(f"Could not read the thumbnail at {thumb_path}: {e}")
             if _THUMBNAIL_PLACEHOLDER is None:
                 _THUMBNAIL_PLACEHOLDER = _make_thumbnail_placeholder()
             return _THUMBNAIL_PLACEHOLDER
@@ -777,9 +779,9 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         if os.path.exists(protocol_path):
             try:
                 experiment.task_protocol = AutoLamellaTaskProtocol.load(protocol_path)
-                logging.info(f"Loaded task protocol from {protocol_path}")
+                logger.info(f"Loaded task protocol from {protocol_path}")
             except Exception as e:
-                logging.warning(
+                logger.warning(
                     f"Failed to load task protocol from {protocol_path}: {e}"
                 )
 
@@ -812,13 +814,13 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
                 (p for p in self.positions if p.name == source_lamella_name), None
             )
             if source_lamella is None:
-                logging.warning(f"Source lamella '{source_lamella_name}' not found.")
+                logger.warning(f"Source lamella '{source_lamella_name}' not found.")
                 return 0
             source_task_config = source_lamella.task_config
             source_display_name = source_lamella_name
         else:
             if self.task_protocol is None:
-                logging.warning("No base protocol available.")
+                logger.warning("No base protocol available.")
                 return 0
             source_task_config = self.task_protocol.task_config
             source_display_name = "base protocol"
@@ -871,7 +873,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
             # folder, or at none from the protocol.
             lamella._sync_imaging_paths()
             updated_count += 1
-            logging.info(
+            logger.info(
                 f"Applied config from '{source_display_name}' to '{lamella.name}' "
                 f"for tasks: {task_names}"
             )
@@ -885,7 +887,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
             for task_name in task_names:
                 if task_name in source_task_config:
                     self._set_protocol_config(source_task_config[task_name])
-            logging.info(f"Updated base protocol tasks: {task_names}")
+            logger.info(f"Updated base protocol tasks: {task_names}")
 
         return updated_count
 
@@ -903,7 +905,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         for lamella in self.positions:
             lamella.task_config[config.task_name] = deepcopy(config)
             lamella._sync_imaging_paths()
-        logging.info(
+        logger.info(
             f"Added task {config.task_name} ({task_type}) to experiment {self.name}"
         )
         return config
@@ -921,7 +923,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         for lamella in self.positions:
             lamella.task_config.pop(task_name, None)
 
-        logging.info(f"Removed task {task_name} from experiment {self.name}")
+        logger.info(f"Removed task {task_name} from experiment {self.name}")
 
     def at_failure(self) -> List[Lamella]:
         """Return a list of lamellas that have failed"""
@@ -951,7 +953,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
             )
 
         self.positions.append(deepcopy(lamella))
-        logging.info(f"Added lamella {lamella.name} to experiment {self.name}")
+        logger.info(f"Added lamella {lamella.name} to experiment {self.name}")
 
     @classmethod
     def create(
@@ -981,7 +983,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         # save the experiment
         experiment.save()
 
-        logging.info(f"Created new experiment {experiment.name} at {experiment.path}")
+        logger.info(f"Created new experiment {experiment.name} at {experiment.path}")
 
         return experiment
 
@@ -1045,7 +1047,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         # create the lamella directory
         os.makedirs(lamella.path, exist_ok=True)
 
-        logging.info(f"Created new lamella {lamella.name} at {lamella.path}")
+        logger.info(f"Created new lamella {lamella.name} at {lamella.path}")
 
         self.add_lamella(lamella)
 

@@ -117,6 +117,8 @@ if TYPE_CHECKING:
     from fibsem.fm.remote import RemoteFluorescenceMicroscope
     from fibsem.structures.system import DeviceEntry
 
+logger = logging.getLogger(__name__)
+
 READ_TIMEOUT = 5.0
 # Commands that stop something, which carry a reason (fibsem.server.server).
 _STOPS = frozenset(("stop", "stop_live", "cancel"))
@@ -299,7 +301,7 @@ class DeviceClient:
         if not first:
             self._resync()
         if not first or bound:
-            logging.info(f"device events from {self.base_url} resumed")
+            logger.info(f"device events from {self.base_url} resumed")
             self.reconnected.emit()
 
     def _bind_offline(self) -> bool:
@@ -319,13 +321,13 @@ class DeviceClient:
         for device in offline:
             description = descriptions.get(device.name)
             if description is None:
-                logging.warning(f"{self.base_url} serves no '{device.name}'")
+                logger.warning(f"{self.base_url} serves no '{device.name}'")
                 continue
             try:
                 device._bind_from(description)
                 device._prime()
             except Exception as error:  # a type mismatch: stays offline, and says so
-                logging.error(f"{device.name} at {self.base_url}: {error}")
+                logger.error(f"{device.name} at {self.base_url}: {error}")
         return True
 
     def _resync(self) -> None:
@@ -336,7 +338,7 @@ class DeviceClient:
                     param.refresh_metadata()
                     param.get_value()  # emits changed if it moved while we were away
                 except Exception as error:
-                    logging.warning(
+                    logger.warning(
                         f"{device.name}.{param.name} after reconnect: {error}"
                     )
 
@@ -423,9 +425,7 @@ class RemoteParts:
         for name, info in description["parameters"].items():
             spec = declared.get(name)
             if spec is None:
-                logging.debug(
-                    f"{self.name}: the server has '{name}', not declared here"
-                )
+                logger.debug(f"{self.name}: the server has '{name}', not declared here")
                 continue
             if (info["type"], info["unit"]) != (spec.type.__name__, spec.unit):
                 raise TypeError(
@@ -883,7 +883,7 @@ def connect_remote_fm(
             if owned:
                 client.close()
             raise
-        logging.warning(
+        logger.warning(
             f"The fluorescence microscope is not reachable ({error}). It will connect "
             "when its device server starts."
         )
@@ -963,7 +963,7 @@ def remote_class(entry_type: str, description: Mapping[str, Any]) -> Optional[ty
         set(description.get("parameters", {})) - set(interface.declared_parameters())
     )
     if lost:
-        logging.warning(
+        logger.warning(
             f"'{name}' is reached as a plain {entry_type} ({interface.__name__}), as "
             f"{why}. Not available here: {', '.join(lost)}. Install the driver's "
             "plugin on this computer too to use them."
@@ -1023,7 +1023,7 @@ def build_remote_fm(
     from fibsem.fm.remote import RemoteFluorescenceMicroscope
 
     if entry.options.get("mount_transform") not in (None, "none"):
-        logging.warning(
+        logger.warning(
             "The configuration states the FM's mount_transform, but this FM is "
             "remote: its Device Server's fm entry states its own, and that is "
             "what is used."

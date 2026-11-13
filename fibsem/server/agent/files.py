@@ -19,6 +19,8 @@ from typing import Callable, Dict, Optional
 from fibsem import paths
 from fibsem.ai.agent import manager
 
+logger = logging.getLogger(__name__)
+
 FOLDER = "agent"
 PREFIXES = ("plan-", "transcript-")
 
@@ -48,7 +50,7 @@ class AgentFiles:
         try:
             path = self._experiment_path()
         except Exception:  # noqa: BLE001 - no experiment is the answer
-            logging.debug("could not read the open experiment", exc_info=True)
+            logger.debug("could not read the open experiment", exc_info=True)
             return None
         return path if path and os.path.isdir(path) else None
 
@@ -93,6 +95,6 @@ class AgentFiles:
                             out.write(path.read_text(encoding="utf-8"))
                         path.unlink()
                 except OSError:
-                    logging.warning(
+                    logger.warning(
                         "could not move %s into %s", path, target, exc_info=True
                     )

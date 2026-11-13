@@ -32,6 +32,8 @@ from fibsem.drivers.demo.sim_scene import SampleScene, surface_foreshortening
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, ImageSettings
 
+logger = logging.getLogger(__name__)
+
 TIER = "sim"
 # the playbook a real session runs for these tasks (`run --playbook case`)
 PLAYBOOK = "autolamella"
@@ -613,7 +615,7 @@ def write_cases(
     (reference / "measures.json").write_text(
         json.dumps([q.__dict__ for q in squares], indent=1, default=str)
     )
-    logging.info("sim cases for seed %s: %d squares", seed, len(squares))
+    logger.info("sim cases for seed %s: %d squares", seed, len(squares))
     return written
 
 

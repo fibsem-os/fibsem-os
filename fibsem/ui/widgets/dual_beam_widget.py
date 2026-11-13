@@ -19,6 +19,8 @@ from fibsem.ui.widgets.beam_widget import FibsemBeamWidget
 from fibsem.ui.widgets.custom_widgets import IconToolButton, TitledPanel
 from fibsem.workflows.actions import record_operator_action
 
+logger = logging.getLogger(__name__)
+
 
 class FibsemDualBeamWidget(QWidget):
     """Dual-beam widget with SEM / FIB radio buttons to switch between beam views.
@@ -167,7 +169,7 @@ class FibsemDualBeamWidget(QWidget):
         self.sem_widget.setVisible(sem_checked)
         self.fib_widget.setVisible(not sem_checked)
         self.sync_beam_status()
-        logging.debug({"msg": "_on_beam_selected", "beam_type": self.beam_type.name})
+        logger.debug({"msg": "_on_beam_selected", "beam_type": self.beam_type.name})
 
     def _on_beam_on_clicked(self):
         bt = self.beam_type
@@ -201,7 +203,7 @@ class FibsemDualBeamWidget(QWidget):
 
     def _on_refresh_clicked(self):
         self.sync_from_microscope()
-        logging.debug({"msg": "_on_refresh_clicked", "beam_type": self.beam_type.name})
+        logger.debug({"msg": "_on_refresh_clicked", "beam_type": self.beam_type.name})
 
     # ------------------------------------------------------------------
     # Public API — delegates to the active sub-widget

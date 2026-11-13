@@ -41,6 +41,8 @@ from fibsem.fm.structures import (
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSettings
 
+logger = logging.getLogger(__name__)
+
 PLAYBOOK = "autolamella-correlative"
 MILLING_ANGLE = 15.0  # degrees
 FIB_RESOLUTION = (1536, 1024)
@@ -292,7 +294,7 @@ def write_case(
         kind = target_kind(seed)
         target = _pick_target(rng, scene, kind)
         if target is None:
-            logging.warning("seed %s: no %s in the scene, no case", seed, kind)
+            logger.warning("seed %s: no %s in the scene, no case", seed, kind)
             return None
         tx, ty, above_film = target["midpoint"]
         # targets are given above the film; the views and the FM focus work
@@ -302,7 +304,7 @@ def write_case(
         microscope.move_stage_relative(FibsemStagePosition(x=tx, y=-ty, z=0))
         fib = _FibMap(microscope, scene, fib_resolution, FIB_HFW)
         if not _centred(fib, tx, ty, tz):
-            logging.warning(
+            logger.warning(
                 "seed %s: target not centred at %s", seed, fib.px(tx, ty, tz)
             )
             return None
@@ -437,5 +439,5 @@ def write_case(
             sort_keys=False,
         )
     )
-    logging.info("correlation case for seed %s: %s", seed, case["key"]["target_fib_px"])
+    logger.info("correlation case for seed %s: %s", seed, case["key"]["target_fib_px"])
     return folder

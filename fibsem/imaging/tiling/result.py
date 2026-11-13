@@ -19,6 +19,8 @@ from fibsem.imaging.tiling.layout_check import TileLayoutCheck
 from fibsem.imaging.tiling.registration import Registration
 from fibsem.structures.settings import FibsemStagePosition
 
+logger = logging.getLogger(__name__)
+
 # Written into the run's tile folder, beside the tiles it describes.
 METADATA_FILE = "overview-metadata.json"
 
@@ -121,12 +123,12 @@ class OverviewResult:
         if check is not None:
             try:
                 summary = check.summary()
-                logging.info(summary.describe())
+                logger.info(summary.describe())
                 warning = summary.warning
                 if warning:
-                    logging.warning(warning)
+                    logger.warning(warning)
             except Exception as e:  # noqa: BLE001 - a report, not the run
-                logging.warning(f"Could not report the tile layout check: {e}")
+                logger.warning(f"Could not report the tile layout check: {e}")
         registration = self.registration
         if (
             registration is not None
@@ -247,7 +249,7 @@ class OverviewResult:
                 json.dump(self.to_dict(), f, indent=2)
         except Exception as e:  # noqa: BLE001 - the tiles are already saved
             self.record_path = None
-            logging.warning(f"Could not write the overview record: {e}")
+            logger.warning(f"Could not write the overview record: {e}")
 
 
 def _position(position: Optional[FibsemStagePosition]) -> Optional[Dict[str, Any]]:

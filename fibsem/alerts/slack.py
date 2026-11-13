@@ -20,6 +20,8 @@ import httpx
 
 from fibsem.alerts.rules import Alert
 
+logger = logging.getLogger(__name__)
+
 API = "https://slack.com/api/"
 TIMEOUT_S = 15.0
 # Slack refuses a section longer than this.
@@ -161,7 +163,7 @@ class SlackChannel:
                     if e.error != "invalid_blocks":
                         raise
                     self._sleep(2.0 * (attempt + 1))  # still processing the file
-            logging.info(
+            logger.info(
                 "Slack kept refusing the image block; sending the image under the message"
             )
             posted = self._post(alert)

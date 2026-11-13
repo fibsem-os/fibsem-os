@@ -13,6 +13,8 @@ from fibsem import utils
 from fibsem.constants import DATETIME_FILE_NANO
 from fibsem.detection.detection import DetectedFeatures, Feature
 
+logger = logging.getLogger(__name__)
+
 
 def decode_segmap(image, nc=3):
     """Decode segmentation class mask into an RGB image mask"""
@@ -61,7 +63,7 @@ def save_ml_feature_data(
         fname = det.fibsem_image.metadata.image_settings.filename
         beam_type = det.fibsem_image.metadata.image_settings.beam_type
     except AttributeError:
-        logging.warning(
+        logger.warning(
             "No image metadata found for ml images, saving with timestamp instead"
         )
         fname = f"ml-{utils.current_timestamp(DATETIME_FILE_NANO)}"
@@ -85,7 +87,7 @@ def save_ml_feature_data(
             "pixelsize": det.pixelsize,  # pixelsize
             "checkpoint": det.checkpoint,  # checkpoint
         }
-        logging.debug(msgd)
+        logger.debug(msgd)
         fd.append(deepcopy(msgd))  # to write to disk
 
     # save features data csv
@@ -102,7 +104,7 @@ def save_feature_data_to_csv(
     image = det.fibsem_image
     filename = os.path.join(cfg.DATA_ML_PATH, f"{filename}")
     image.save(filename)  # type: ignore
-    logging.debug(f"Saved detection image to {filename}")
+    logger.debug(f"Saved detection image to {filename}")
 
     # save mask to disk
     os.makedirs(os.path.join(cfg.DATA_ML_PATH, "mask"), exist_ok=True)
@@ -110,7 +112,7 @@ def save_feature_data_to_csv(
     mask_fname = Path(mask_fname).with_suffix(".tif")
     im = Image.fromarray(det.mask)
     im.save(mask_fname)
-    logging.debug(f"Saved detection mask to {mask_fname}")
+    logger.debug(f"Saved detection mask to {mask_fname}")
 
     # convert to csv format
     csv_data = []
@@ -128,7 +130,7 @@ def save_feature_data_to_csv(
         del dat["dm"]
 
         csv_data.append(dat)
-    logging.debug(f"Converted {len(csv_data)} features to csv format")
+    logger.debug(f"Converted {len(csv_data)} features to csv format")
 
     df = pd.DataFrame(csv_data)
 
@@ -138,4 +140,4 @@ def save_feature_data_to_csv(
         df_tmp = pd.read_csv(DATAFRAME_PATH)
         df = pd.concat([df_tmp, df], axis=0, ignore_index=True)
     df.to_csv(DATAFRAME_PATH, index=False)
-    logging.debug(f"Saved feature data to {DATAFRAME_PATH}")
+    logger.debug(f"Saved feature data to {DATAFRAME_PATH}")

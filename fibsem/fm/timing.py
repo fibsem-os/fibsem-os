@@ -21,6 +21,8 @@ from fibsem.fm.structures import (
     ZStackOrder,
 )
 
+logger = logging.getLogger(__name__)
+
 # Timing constants for acquisition operations
 # Camera readout, processing and save, per image, on top of the exposure. Measured
 # on a Thermo run: a 42-image z-stack ran at 2.31 s/image net of exposure and z
@@ -309,7 +311,7 @@ def estimate_tileset_acquisition_time(
         autofocus_operations = 0
     else:
         # Handle unknown enum value
-        logging.warning(
+        logger.warning(
             f"Unknown autofocus mode: {autofocus_mode}, defaulting to no autofocus"
         )
         autofocus_operations = 0

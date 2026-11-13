@@ -47,6 +47,8 @@ from fibsem.util.timestamps import wall_time_of, zone_label
 from fibsem.workflows.event_recording import EVENTS_FILENAME
 from fibsem.workflows.proposals import kind_label
 
+logger = logging.getLogger(__name__)
+
 REPORT_DIRNAME = "reporting"
 REPORT_FILENAME = "report.html"
 
@@ -791,7 +793,7 @@ def _thumbnail(path: Path, width: int = 360) -> Optional[str]:
         out = io.BytesIO()
         image.convert("L").save(out, format="JPEG", quality=80)
     except Exception:  # noqa: BLE001 - a missing thumbnail is not a missing report
-        logging.debug(f"no thumbnail for {path}", exc_info=True)
+        logger.debug(f"no thumbnail for {path}", exc_info=True)
         return None
     return "data:image/jpeg;base64," + base64.b64encode(out.getvalue()).decode()
 

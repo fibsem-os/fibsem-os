@@ -8,6 +8,8 @@ from huggingface_hub import hf_hub_download, scan_cache_dir
 
 from fibsem import config as cfg
 
+logger = logging.getLogger(__name__)
+
 
 # helper functions
 def decode_segmap(image, nc=5):
@@ -144,7 +146,7 @@ def _get_cached_huggingface_checkpoints() -> List[str]:
             selected_repo = repo_info
 
     if selected_repo is None:
-        logging.warning(f"Cannot find repoistory {cfg.HUGGINFACE_REPO} in cache.")
+        logger.warning(f"Cannot find repoistory {cfg.HUGGINFACE_REPO} in cache.")
         return checkpoints
 
     # get info about each revision
@@ -156,7 +158,7 @@ def _get_cached_huggingface_checkpoints() -> List[str]:
             latest_revision_hash = revision.commit_hash
 
         if revision_date < latest_revision_date:
-            logging.debug(
+            logger.debug(
                 f"Skipping revision {revision.commit_hash} as it is older than the latest revision {latest_revision_hash}."
             )
             continue

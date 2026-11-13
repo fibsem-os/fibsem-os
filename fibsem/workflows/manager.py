@@ -37,6 +37,8 @@ from fibsem.workflows.status import (
     take_back_finish,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class WorkflowExperiment(Protocol):
     """What the manager needs of an application's experiment."""
@@ -194,7 +196,7 @@ class BaseTaskManager:
         self.stall_reason = f"{len(deferred)} task(s) cannot run: " + ", ".join(
             f"{i.item_name}/{i.task_name}" for i, _ in deferred
         )
-        logging.error(self.stall_reason)
+        logger.error(self.stall_reason)
 
     def closing_note(self) -> str:
         """Why the run ended short of done, and what to do: shown on the
@@ -364,7 +366,7 @@ class BaseTaskManager:
         """The run drained with work that cannot run: the WORKFLOW_STALLED
         hook, the log, and the closing note on the label and the status bar."""
         self._fire_workflow_hook(HookEvent.WORKFLOW_STALLED)
-        logging.warning(f"Workflow stalled: {self.stall_reason}")
+        logger.warning(f"Workflow stalled: {self.stall_reason}")
         post_status(
             self,
             "",
@@ -406,7 +408,7 @@ class BaseTaskManager:
                         if not self.microscope.is_on(beam):
                             self.microscope.turn_on(beam)
                     names = self._names_for_run(names)
-                    logging.info(
+                    logger.info(
                         f"Starting tasks: {task_names}, for {self.ITEM_NOUN}: {names}"
                     )
                     self.run(task_names, names)
@@ -415,16 +417,16 @@ class BaseTaskManager:
                         self.microscope.turn_off(BeamType.ELECTRON)
                         self.microscope.turn_off(BeamType.ION)
         except MicroscopeBusy as e:
-            logging.warning(f"Workflow not started: {e}")
+            logger.warning(f"Workflow not started: {e}")
             self._end_unstarted_quietly(e)
         except (InterruptedError, OperationCancelledError) as e:
             # A Stop, not a failure: anyone scanning the log for problems must
             # not see one per Stop press. The task layer has already recorded
             # the outcome as Cancelled.
-            logging.info(f"Workflow cancelled: {e}")
+            logger.info(f"Workflow cancelled: {e}")
             self._end_unstarted_quietly(e)
         except Exception as e:
-            logging.error(f"Error during the workflow: {e}", exc_info=True)
+            logger.error(f"Error during the workflow: {e}", exc_info=True)
             self._end_unstarted_quietly(e)
 
     def run(self, task_names: List[str], names: Optional[List[str]] = None) -> None:
@@ -532,13 +534,13 @@ class BaseTaskManager:
             if self.should_abort or isinstance(
                 e, (OperationCancelledError, InterruptedError)
             ):
-                logging.info(f"Task {task_name} on {record.name} cancelled by user.")
+                logger.info(f"Task {task_name} on {record.name} cancelled by user.")
                 record.task_state.status = TaskStatus.Cancelled
                 record.task_state.status_message = (
                     self.stop_message or "Cancelled by user."
                 )
             else:
-                logging.warning(
+                logger.warning(
                     f"Error running task {task_name} on {record.name}: {e}",
                     exc_info=True,
                 )
@@ -588,7 +590,7 @@ class BaseTaskManager:
         try:
             self.end_unstarted_run(error)
         except Exception:
-            logging.exception("reporting the end of a run that never began failed")
+            logger.exception("reporting the end of a run that never began failed")
 
     def stop(self, message: str = "") -> None:
         """End the run once the task now running unwinds, and stop its mill.
@@ -623,7 +625,7 @@ class BaseTaskManager:
             except NothingToStop:
                 pass
             except Exception:
-                logging.exception("Stopping %s failed", type(service).__name__)
+                logger.exception("Stopping %s failed", type(service).__name__)
 
     def deciders(self) -> Tuple[ActorKind, ...]:
         """Who can decide this run's proposals now: the session's surfaces

@@ -29,6 +29,8 @@ from fibsem.workflows.proposals import (
     DecisionOutcome,
 )
 
+logger = logging.getLogger(__name__)
+
 # How far the confirmed position may be from the one imaged before the view
 # is imaged again, in metres.
 MOVED_TOL = 0.5e-6
@@ -318,7 +320,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
         )
         save_coincidence_diagnostics(start, diagnostics_path, prefix="start_")
         if not start.converged:
-            logging.warning(
+            logger.warning(
                 "SEM/FIB coincidence not reached before the tilt (%s); the tilt's "
                 "height-offset estimate will be off",
                 start.reason,
@@ -328,7 +330,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
 
         orientation = self.microscope.get_stage_orientation()
         if orientation != "SEM":
-            logging.warning(
+            logger.warning(
                 "Coincident tilt to the milling angle starting from the %s "
                 "orientation is not validated (expected SEM or MILLING)",
                 orientation,
@@ -352,7 +354,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 alignment, diagnostics_path, prefix=f"tilt{i:02d}_"
             )
         if tilt.converged:
-            logging.debug(
+            logger.debug(
                 {
                     "msg": "milling_tilt_coincident",
                     "tilt_axis_offset": tilt.tilt_axis_offset,
@@ -362,7 +364,7 @@ class SelectMillingPositionTask(AutoLamellaTask):
                 }
             )
         else:
-            logging.warning(
+            logger.warning(
                 "Coincidence not restored at the milling angle (%s); continuing "
                 "at the target tilt",
                 tilt.reason,

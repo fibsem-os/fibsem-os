@@ -43,6 +43,8 @@ from fibsem.structures.settings import (
     ImageSettings,
 )
 
+logger = logging.getLogger(__name__)
+
 STEPS = ("rough-1", "rough-2", "stress-relief")
 GAPS = (3.0e-6, 1.0e-6)  # m: the lamella after rough 1, then rough 2
 ROUGH_HEIGHT = 8e-6  # m, each rough 1 trench
@@ -251,7 +253,7 @@ def write_case(
     (reference / "steps.yaml").write_text(yaml.safe_dump(records, sort_keys=False))
     with open(folder / "case.yaml", "w") as f:
         yaml.safe_dump(case, f, sort_keys=False, width=100)
-    logging.info(
+    logger.info(
         "rough milling case for seed %s: through %s, intact %s", seed, through, intact
     )
     return folder

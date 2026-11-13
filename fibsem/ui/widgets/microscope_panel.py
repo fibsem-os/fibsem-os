@@ -43,6 +43,8 @@ from fibsem.ui.widgets.milling_task_viewer_widget import MillingTaskViewerWidget
 from fibsem.ui.widgets.workflow.prompt_bar import PromptBar
 from fibsem.workflows.session import EXPERIMENT, MICROSCOPE
 
+logger = logging.getLogger(__name__)
+
 try:  # ml dependencies are optional
     from fibsem.ui.FibsemEmbeddedDetectionWidget import (
         FibsemEmbeddedDetectionUI as FibsemEmbeddedDetectionWidget,
@@ -165,7 +167,7 @@ class MicroscopeControls(QWidget):
                     self._on_stage_position_updated
                 )
             except Exception as e:
-                logging.debug(f"Could not disconnect microscope stage events: {e}")
+                logger.debug(f"Could not disconnect microscope stage events: {e}")
         if microscope is not None and microscope.stage is not None:
             microscope.stage.position.changed.connect(self._on_stage_position_updated)
         self._stage_followed = microscope
@@ -442,7 +444,7 @@ class MicroscopePanel(MicroscopeControls):
             try:
                 followed.events.disconnect(self._on_experiment_event)  # type: ignore
             except Exception as e:
-                logging.debug(f"Could not disconnect experiment events: {e}")
+                logger.debug(f"Could not disconnect experiment events: {e}")
         if getattr(experiment, "events", None) is None:
             experiment = None
         if experiment is not None:

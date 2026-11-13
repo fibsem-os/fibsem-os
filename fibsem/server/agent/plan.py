@@ -44,6 +44,8 @@ from fibsem.server.auth import (
     require_level,
 )
 
+logger = logging.getLogger(__name__)
+
 FOLDER = "agent"
 SECTIONS = ("Brief", "Playbook", "Rules", "Steps", "Progress", "Summary")
 PLAN_EDITED = "agent_plan_edited"
@@ -241,7 +243,7 @@ class PlanStore:
                         .isoformat(timespec="seconds")
                     )
                 except (OSError, ValueError, HTTPException):
-                    logging.warning("could not read the plan %s", path, exc_info=True)
+                    logger.warning("could not read the plan %s", path, exc_info=True)
         return self.sections
 
     def write(self, session_id: str, sections: Dict[str, str], by: str) -> None:
@@ -257,7 +259,7 @@ class PlanStore:
             partial.write_text(render(sections), encoding="utf-8")
             os.replace(partial, path)
         except OSError:
-            logging.warning("could not write the plan %s", path, exc_info=True)
+            logger.warning("could not write the plan %s", path, exc_info=True)
 
     def answer(self) -> Dict[str, Any]:
         sections = self.sections
@@ -277,7 +279,7 @@ class PlanStore:
         try:
             return self._experiment_sample() or None
         except Exception:  # noqa: BLE001 - the plan still reads without it
-            logging.debug("could not read the experiment's sample", exc_info=True)
+            logger.debug("could not read the experiment's sample", exc_info=True)
             return None
 
     def set_experiment_sample(self, value: str) -> None:
@@ -286,7 +288,7 @@ class PlanStore:
         try:
             self._set_experiment_sample(value)
         except Exception:  # noqa: BLE001 - the plan keeps it all the same
-            logging.warning("could not set the experiment's sample", exc_info=True)
+            logger.warning("could not set the experiment's sample", exc_info=True)
 
     def deadlines(self, session_id: Optional[str]) -> Optional[List[Dict[str, str]]]:
         """The Rules that give a time, each {text, by}. None with no plan."""
@@ -352,7 +354,7 @@ def build_agent_plan_router(
         try:
             emit(kind, payload, actor=actor)
         except Exception:  # noqa: BLE001 - the record never costs the edit
-            logging.debug("could not record %s", kind, exc_info=True)
+            logger.debug("could not record %s", kind, exc_info=True)
 
     def _save(request: Request, sections: Dict[str, str]) -> Dict[str, Any]:
         auth: AuthConfig = request.app.state.auth

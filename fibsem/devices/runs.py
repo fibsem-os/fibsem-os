@@ -33,6 +33,8 @@ from psygnal import Signal
 from fibsem.cancellation import CANCELLED, FAILED, ended_by
 from fibsem.util.timestamps import now_iso
 
+logger = logging.getLogger(__name__)
+
 __all__ = [
     "Run",
     "Runs",
@@ -276,7 +278,7 @@ class Runs:
         try:
             self.changed.emit(run)
         except Exception:  # noqa: BLE001 - a listener never costs the run
-            logging.exception("A listener to %s's runs failed", run.service)
+            logger.exception("A listener to %s's runs failed", run.service)
 
     def _tell(self, kind: str, run: Run, **extra: Any) -> None:
         payload = {

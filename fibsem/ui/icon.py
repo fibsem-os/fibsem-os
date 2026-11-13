@@ -40,6 +40,8 @@ from qtpy.QtCore import Qt
 from qtpy.QtGui import QIcon, QPainter, QPixmap
 from qtpy.QtSvg import QSvgRenderer
 
+logger = logging.getLogger(__name__)
+
 # qtawesome's font prefix for Material Design Icons v6.
 _MDI = "mdi6"
 
@@ -66,7 +68,7 @@ def fibsem_icon(key: str, color: Optional[str] = None, **kwargs) -> QIcon:
         # Unknown/misspelled icon name: qtawesome raises, but widget code (often
         # a paint/refresh path) expects a QIcon. Degrade gracefully to a blank
         # icon and log so the missing key can be fixed.
-        logging.warning("fibsem_icon: unknown icon %r; rendering blank", key)
+        logger.warning("fibsem_icon: unknown icon %r; rendering blank", key)
         return QIcon()
 
 
@@ -109,7 +111,7 @@ def drag_handle_pixmap(
     """
     pixmap = QPixmap(DRAG_HANDLE_PATH)
     if pixmap.isNull():
-        logging.warning("drag handle icon missing or unreadable: %s", DRAG_HANDLE_PATH)
+        logger.warning("drag handle icon missing or unreadable: %s", DRAG_HANDLE_PATH)
         return pixmap
     return pixmap.scaled(
         width,
@@ -152,7 +154,7 @@ def _application_icon(path: str, path_16: str) -> QIcon:
         source = path_16 if size == 16 else path
         renderer = QSvgRenderer(source)
         if not renderer.isValid():
-            logging.warning("application icon missing or unreadable: %s", source)
+            logger.warning("application icon missing or unreadable: %s", source)
             continue
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)

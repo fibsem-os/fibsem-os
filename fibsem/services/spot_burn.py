@@ -56,6 +56,8 @@ from fibsem.services.core import Service, save_beam_conditions
 from fibsem.structures.settings import BeamType, ImageSettings, Point
 from fibsem.util import wording
 
+logger = logging.getLogger(__name__)
+
 _S = TypeVar("_S", bound="SpotBurn")
 
 
@@ -205,7 +207,7 @@ class SpotBurn(Service):
             )
         )
         if not points:
-            logging.warning("No spot burn coordinates to burn.")
+            logger.warning("No spot burn coordinates to burn.")
             self._report_end(SpotBurnStatus.FINISHED, 0)
             return SpotBurnStatus.FINISHED
 
@@ -220,7 +222,7 @@ class SpotBurn(Service):
             self._report_end(status, len(points))
             return status
         except Exception as e:
-            logging.error(f"Error in run_spot_burn: {e}")
+            logger.error(f"Error in run_spot_burn: {e}")
             self._report(SpotBurnProgress(status=SpotBurnStatus.FAILED, error=str(e)))
             raise
         finally:
@@ -230,7 +232,7 @@ class SpotBurn(Service):
                     try:
                         getattr(beam, name).write_through(saved[name])
                     except Exception:
-                        logging.exception(
+                        logger.exception(
                             f"Failed to restore the beam {name} after the spot burn"
                         )
 
@@ -277,7 +279,7 @@ class SpotBurn(Service):
             if "hfw" in self.ion.parameters:
                 field_of_view = self.ion.hfw.get_value()
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug("spot burn recorded without its field of view", exc_info=True)
+            logger.debug("spot burn recorded without its field of view", exc_info=True)
         self.session.record(
             "spot_burn_started",
             {
@@ -353,11 +355,11 @@ class SpotBurn(Service):
         total_remaining = n * exposure_time
         for i, point in enumerate(points, 1):
             if self._stopped(stop_event):
-                logging.info(f"Spot burn cancelled before point {i}/{n}.")
+                logger.info(f"Spot burn cancelled before point {i}/{n}.")
                 return SpotBurnStatus.CANCELLED
             # The experiment replay reads this line from the log (its `_SPOT`), so
             # keep its wording and this method's name.
-            logging.info(
+            logger.info(
                 f"burning spot {i}: {point}, exposure time: {exposure_time}, "
                 f"milling current: {current}"
             )
@@ -369,7 +371,7 @@ class SpotBurn(Service):
             while remaining > 0:
                 if self._stopped(stop_event):
                     beam.blank()
-                    logging.info(f"Spot burn cancelled during point {i}/{n}.")
+                    logger.info(f"Spot burn cancelled during point {i}/{n}.")
                     return SpotBurnStatus.CANCELLED
                 # The last wait is only what is left, so an exposure that isn't a
                 # whole number of polls is timed exactly.
@@ -394,7 +396,7 @@ class SpotBurn(Service):
         try:
             beam.full_frame()
         except Exception:
-            logging.exception(
+            logger.exception(
                 "Failed to restore full-frame scanning after the spot burn"
             )
 
@@ -426,7 +428,7 @@ def in_bounds(points: Sequence[Point]) -> Tuple[List[Point], List[Point]]:
     for point in points:
         (kept if in_frame(point) else dropped).append(point)
     if dropped:
-        logging.warning(
+        logger.warning(
             f"Skipping {len(dropped)} spot burn coordinate(s) outside image bounds "
             f"(0-1): {dropped}"
         )

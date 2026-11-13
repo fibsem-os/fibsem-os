@@ -39,6 +39,8 @@ from fibsem.structures.settings import FibsemStagePosition
 from fibsem.structures.system import InsertableDeviceState
 from fibsem.util import wording
 
+logger = logging.getLogger(__name__)
+
 _C = TypeVar("_C", bound="Coating")
 
 ARCTIS_DEPOSITION_POSITION = FibsemStagePosition(
@@ -212,7 +214,7 @@ class Coating(Service):
                 start = None
             return self._end(status)
         except Exception as e:
-            logging.error(f"The deposition failed: {e}")
+            logger.error(f"The deposition failed: {e}")
             self._report(CoatingProgress(status=CoatingStatus.FAILED, error=str(e)))
             raise
         finally:
@@ -244,7 +246,7 @@ class Coating(Service):
             coater.run(seconds, grids)
             return self._end(CoatingStatus.FINISHED)
         except Exception as e:
-            logging.error(f"The sputter coat failed: {e}")
+            logger.error(f"The sputter coat failed: {e}")
             self._report(CoatingProgress(status=CoatingStatus.FAILED, error=str(e)))
             raise
 
@@ -262,7 +264,7 @@ class Coating(Service):
         remaining: Optional[float] = None,
         total: Optional[float] = None,
     ) -> None:
-        logging.info(f"Coating: {step}")
+        logger.info(f"Coating: {step}")
         self._report(
             CoatingProgress(
                 status=CoatingStatus.RUNNING,
@@ -293,7 +295,7 @@ class Coating(Service):
         remaining = seconds
         while remaining > 0:
             if self._stopped(stop_event):
-                logging.info("Deposition stopped with the valve open.")
+                logger.info("Deposition stopped with the valve open.")
                 return CoatingStatus.CANCELLED
             step = min(self.poll_interval, remaining)
             self._wait(step)
@@ -323,12 +325,12 @@ class Coating(Service):
                 if not done():
                     undo()
             except Exception:
-                logging.exception(f"After the deposition, failed to {what}")
+                logger.exception(f"After the deposition, failed to {what}")
         if start is not None:
             try:
                 self._move_to(start)
             except Exception:
-                logging.exception("After the deposition, failed to move the stage back")
+                logger.exception("After the deposition, failed to move the stage back")
 
     def _move_to(self, position: FibsemStagePosition) -> None:
         """The safe move, with the FM objective out first: it must not be over the

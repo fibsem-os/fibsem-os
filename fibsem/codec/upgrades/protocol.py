@@ -40,6 +40,8 @@ from fibsem.fm.structures import ChannelSettings
 from fibsem.structures.settings import OverviewAcquisitionSettings
 from fibsem.workflows.attention import attention_from
 
+logger = logging.getLogger(__name__)
+
 SUPERVISED = "supervised"
 AUTOMATED = "automated"
 
@@ -85,7 +87,7 @@ def run_plan(data: Dict[str, Any]) -> Dict[str, Any]:
             entry["attention"] = attention_from(entry["attention"], where).value
         requires = entry.get("requires")
         if requires is not None and not _names(requires):
-            logging.warning(
+            logger.warning(
                 f"{where} has requires {requires!r}, not a list of task names; "
                 "read as none."
             )

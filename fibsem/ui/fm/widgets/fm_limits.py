@@ -24,6 +24,8 @@ from fibsem.structures.params import Parameter
 from fibsem.ui.widgets.custom_widgets import ValueSpinBox
 from fibsem.ui.widgets.form_builder import bound_spec, configure_spinbox
 
+logger = logging.getLogger(__name__)
+
 NativeScale = Tuple[float, Optional[str]]
 
 # The channel numbers with a box of their own, each bound to one of the FM's devices.
@@ -49,7 +51,7 @@ def _read(fm: Any, what: str, read) -> Optional[Any]:
     try:
         return read(fm)
     except Exception as e:  # a widget must open even when the FM can't answer
-        logging.warning(f"Could not read the FM's {what}, using the defaults: {e}")
+        logger.warning(f"Could not read the FM's {what}, using the defaults: {e}")
         return None
 
 

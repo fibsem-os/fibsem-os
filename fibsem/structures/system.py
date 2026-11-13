@@ -40,6 +40,8 @@ if TYPE_CHECKING:
     from fibsem.fm.structures import FluorescenceConfiguration
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 class InsertableDeviceState(Enum):
     """Where a device that goes in and out is: the FM objective, the manipulator. A
@@ -1197,7 +1199,7 @@ def read_device_entries(settings: dict) -> Dict[str, DeviceEntry]:
             entry = DeviceEntry.from_dict(item)
         except UnknownDeviceType as e:
             # such as a device this version no longer has
-            logging.warning(f"{e} It is ignored.")
+            logger.warning(f"{e} It is ignored.")
             continue
         if entry.name in entries:
             raise ValueError(
@@ -1523,12 +1525,12 @@ def _parse_image_transform(value: Any) -> CameraImageTransform:
 
     migrated = _LEGACY_IMAGE_TRANSFORMS.get(value)
     if migrated is not None:
-        logging.info(
+        logger.info(
             f"Camera image transform {value!r} is now {migrated.value!r}; migrated."
         )
         return migrated
 
-    logging.warning(
+    logger.warning(
         f"Unsupported camera image transform {value!r}; falling back to none. "
         "Rotations are now applied as a fixed mount correction inside the driver."
     )

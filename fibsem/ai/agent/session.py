@@ -24,6 +24,8 @@ from fibsem.workflows.proposals import DecisionResult
 if TYPE_CHECKING:
     from fibsem.workflows.session import AppSession
 
+logger = logging.getLogger(__name__)
+
 # A request the operator still has to decide, or one being applied.
 OPEN = ("pending", "applying")
 # The longest message to the agent, in characters.
@@ -209,7 +211,7 @@ class AgentSession:
                 )
         previous = auth.level
         auth.set_level(level)
-        logging.info("Agent level set to %s by the operator", level.value)
+        logger.info("Agent level set to %s by the operator", level.value)
         self._record("agent_level_set", previous=previous, level=level)
         return None
 
@@ -223,7 +225,7 @@ class AgentSession:
             return None
         previous = host.auth.level
         stopped = host.stop_agent(self._session.microscope)
-        logging.warning(
+        logger.warning(
             "Agent stopped by the operator: level set to watch%s",
             f"; stopped {stopped}" if stopped else "",
         )
@@ -293,7 +295,7 @@ class AgentSession:
             store.approve(request_id)
         else:
             store.reject(request_id, reason=reason)
-        logging.info(
+        logger.info(
             "Agent's request %s %s by the operator",
             request_id,
             "approved" if approve else "rejected",
@@ -417,7 +419,7 @@ class AgentSession:
             raise LookupError("The App Server isn't running.")
         replaces = self._paired_agent()
         computer = connections.allow(ask_id)
-        logging.info("Operator allowed %s to connect", computer.name)
+        logger.info("Operator allowed %s to connect", computer.name)
         self._record_connection(
             f"Allow {computer.name} to connect",
             reason=f"Replaces {replaces}" if replaces else "",
@@ -431,7 +433,7 @@ class AgentSession:
         if connections is None:
             raise LookupError("The App Server isn't running.")
         ask = connections.deny(ask_id, reason)
-        logging.info("Operator denied %s", ask.name)
+        logger.info("Operator denied %s", ask.name)
         self._record_connection(f"Deny {ask.name}", reason=reason.strip())
 
     def _record_connection(self, what: str, reason: str = "") -> None:
@@ -456,7 +458,7 @@ class AgentSession:
         if recorder is None:
             return None
         message_id = uuid.uuid4().hex[:8]
-        logging.info("Operator message to the agent (%s): %s", message_id, text)
+        logger.info("Operator message to the agent (%s): %s", message_id, text)
         evidence_id = None
         if evidence is not None:
             evidence_id = evidence["evidence_id"]
@@ -545,7 +547,7 @@ class AgentSession:
                 self.draw_pictures()
                 described = self._describe_again(store, described)
             except Exception:
-                logging.exception("Drawing the agent's pictures failed")
+                logger.exception("Drawing the agent's pictures failed")
             self._draw_now.wait(1.0)
         if unsubscribe is not None:
             unsubscribe()

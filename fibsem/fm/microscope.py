@@ -67,6 +67,8 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures.settings import FibsemStagePosition
 
+logger = logging.getLogger(__name__)
+
 RATE_LIMIT_DEFAULT = 0.05  # seconds between updates
 
 FM_DEVICE_NAMES = ("fm", "camera", "light_source", "filter_set", "objective")
@@ -200,7 +202,7 @@ class ObjectiveLens:
             with scope:
                 position, state = self.position, self.state
         except Exception as e:
-            logging.debug(f"Could not read the objective after moving it: {e}")
+            logger.debug(f"Could not read the objective after moving it: {e}")
             return
         self.position_changed.emit(position, state)
 
@@ -367,7 +369,7 @@ class Camera:
     def gain(self, value: float) -> None:
         if self._has_no_gain():
             if not self._gain_warning_logged:
-                logging.warning("Camera has no gain control; ignoring gain settings.")
+                logger.warning("Camera has no gain control; ignoring gain settings.")
                 self._gain_warning_logged = True
             return
         _param(self._device, "gain").write_through(value)
@@ -922,7 +924,7 @@ class FluorescenceMicroscope:
         self._transform = (
             transform if transform is not None else CameraImageTransform.NONE
         )
-        logging.info(f"Image transform set to: {transform}")
+        logger.info(f"Image transform set to: {transform}")
         # Announced, because this is not only a display preference: `fm_image_geometry()`
         # carries it, so it is an input to every projection between stage space and a
         # canvas. A view holding a projection has no other way to learn it moved.
@@ -1188,7 +1190,7 @@ class FluorescenceMicroscope:
         if self.is_streaming or (
             self._acquisition_thread and self._acquisition_thread.is_alive()
         ):
-            logging.warning("Acquisition thread is already running.")
+            logger.warning("Acquisition thread is already running.")
             return
 
         # reset stop event if needed
@@ -1290,7 +1292,7 @@ class FluorescenceMicroscope:
             # The objective moved on the FM's side; announce where it ended up.
             self.objective._notify_moved()
             if not frames:
-                logging.info("Z-stack acquisition cancelled")
+                logger.info("Z-stack acquisition cancelled")
                 return None
 
             images: List[FluorescenceImage] = []
@@ -1322,7 +1324,7 @@ class FluorescenceMicroscope:
             finally:
                 group.stop_live()
         except Exception as e:
-            logging.error(f"Error in acquisition worker: {e}")
+            logger.error(f"Error in acquisition worker: {e}")
             self.acquisition_failed.emit(str(e))
         finally:
             self._streaming.clear()

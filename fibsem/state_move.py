@@ -20,6 +20,8 @@ from typing import Dict, List, Optional
 
 import yaml
 
+logger = logging.getLogger(__name__)
+
 # What the package ships in config/ and the AutoLamella protocol folder. Anything
 # else there was written by the install.
 SHIPPED_CONFIGURATIONS = frozenset(
@@ -119,13 +121,13 @@ def _copy(source: Path, target: Path, moves: Moves) -> None:
             shutil.copy2(source, target)
         moves.copied[str(source)] = str(target)
     except OSError as e:
-        logging.warning(f"Could not copy {source} to {target}: {e}")
+        logger.warning(f"Could not copy {source} to {target}: {e}")
         moves.left.append(str(source))
 
 
 def _move(source: Path, target: Path, moves: Moves) -> None:
     if target.exists():
-        logging.warning(f"Not moving {source}: {target} already exists.")
+        logger.warning(f"Not moving {source}: {target} already exists.")
         moves.left.append(str(source))
         return
     try:
@@ -133,7 +135,7 @@ def _move(source: Path, target: Path, moves: Moves) -> None:
         shutil.move(str(source), str(target))
         moves.moved[str(source)] = str(target)
     except OSError as e:
-        logging.warning(f"Could not move {source} to {target}: {e}")
+        logger.warning(f"Could not move {source} to {target}: {e}")
         moves.left.append(str(source))
 
 
@@ -193,7 +195,7 @@ def _read(path: Path) -> Optional[dict]:
         with open(path) as f:
             data = yaml.safe_load(f)
     except (OSError, yaml.YAMLError) as e:
-        logging.warning(f"Could not read {path}: {e}")
+        logger.warning(f"Could not read {path}: {e}")
         return None
     return data if isinstance(data, dict) else None
 
@@ -261,7 +263,7 @@ def _record(root: Path, package_dir: Path, moves: Moves) -> None:
         f"{len(moves.moved)} moved, {len(moves.left)} left where they were. "
         f"Listed in {root / RECORD_FILE}."
     )
-    logging.warning(summary)
+    logger.warning(summary)
     _pending[:] = [summary] + moves.lines()
     try:
         root.mkdir(parents=True, exist_ok=True)
@@ -269,11 +271,11 @@ def _record(root: Path, package_dir: Path, moves: Moves) -> None:
             f.write(f"{datetime.now().isoformat(timespec='seconds')}\n{summary}\n\n")
             f.write("\n".join(moves.lines()) + "\n")
     except OSError as e:
-        logging.warning(f"Could not write {root / RECORD_FILE}: {e}")
+        logger.warning(f"Could not write {root / RECORD_FILE}: {e}")
 
 
 def log_pending() -> None:
     """Write what the move did into the log just configured, once."""
     for line in _pending:
-        logging.warning(line)
+        logger.warning(line)
     _pending.clear()

@@ -45,6 +45,8 @@ from fibsem.util.timestamps import now_iso
 from fibsem.utils import current_timestamp
 from fibsem.workflows.config_patch import PatchError, apply_patch
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class MillingTaskAcquisitionSettings(Configurable):
@@ -390,7 +392,7 @@ class FibsemMillingTask:
                     run.result, run.exception = self.ended(), self.error
 
     def _run(self) -> None:
-        logging.info(f"Running milling task: {self.name} with ID: {self.task_id}")
+        logger.info(f"Running milling task: {self.name} with ID: {self.task_id}")
 
         # Read by the `finally` below, which runs whichever way the task ends. Seeded
         # with the failure case because `except Exception` does not catch everything:
@@ -429,10 +431,10 @@ class FibsemMillingTask:
 
             outcome = MillingProgressStatus.TASK_FINISHED
         except OperationCancelledError as e:
-            logging.info(f"Milling task '{self.name}' cancelled by user: {e}")
+            logger.info(f"Milling task '{self.name}' cancelled by user: {e}")
             outcome = MillingProgressStatus.TASK_CANCELLED
         except Exception as e:
-            logging.error(f"Milling task '{self.name}' failed: {e}", exc_info=True)
+            logger.error(f"Milling task '{self.name}' failed: {e}", exc_info=True)
             outcome = MillingProgressStatus.TASK_FAILED
             error = str(e)
             self.error = e
@@ -473,7 +475,7 @@ class FibsemMillingTask:
                 if self.microscope.imaging is not None:
                     self.microscope.imaging.show(fib_image)
         except Exception as e:
-            logging.error(f"Error acquiring image after milling task: {e}")
+            logger.error(f"Error acquiring image after milling task: {e}")
 
     def _mill_stage(self, stage: FibsemMillingStage, idx: int) -> None:
         """Run a single milling stage with progress updates.
@@ -571,7 +573,7 @@ class FibsemMillingTask:
             "end_time": time.time(),
             "timestamp": now_iso(),
         }
-        logging.debug(f"{msgd}")
+        logger.debug(f"{msgd}")
         return result
 
     def _record_run(self, started_at: str) -> None:
@@ -592,7 +594,7 @@ class FibsemMillingTask:
                 **self.ended(),
             }
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not record the {self.name} run", exc_info=True)
+            logger.debug(f"could not record the {self.name} run", exc_info=True)
             return
         self.microscope.record_event("milling", payload)
 
@@ -660,7 +662,7 @@ class FibsemMillingTask:
                 "stage": stage.to_dict(),
             }
         except Exception:  # noqa: BLE001 - recording must not matter
-            logging.debug(
+            logger.debug(
                 f"could not describe {stage.name} for the record", exc_info=True
             )
             return
@@ -755,7 +757,7 @@ class FibsemMillingTask:
                 if image is not None and imaging is not None:
                     imaging.show(image)
         except Exception as e:
-            logging.error(f"Error showing the images after milling: {e}")
+            logger.error(f"Error showing the images after milling: {e}")
 
 
 def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
@@ -765,7 +767,7 @@ def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
     if result is None:
         return {}
     if not isinstance(result, MillingStrategyResult):
-        logging.warning(
+        logger.warning(
             f"{stage.strategy.strategy_name} returned {type(result).__name__} for "
             f"{stage.name}, not a MillingStrategyResult; it is not recorded"
         )
@@ -773,7 +775,7 @@ def _strategy_result(stage: FibsemMillingStage, result: Any) -> Dict[str, Any]:
     try:
         return result.to_dict()
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug(f"could not record {stage.name}'s strategy result", exc_info=True)
+        logger.debug(f"could not record {stage.name}'s strategy result", exc_info=True)
         return {}
 
 
@@ -790,7 +792,7 @@ def _stage_run_ended(
             "steps": [step.to_dict() for step in stage_run.steps],
         }
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not record how a stage run ended", exc_info=True)
+        logger.debug("could not record how a stage run ended", exc_info=True)
         return {}
 
 
@@ -801,14 +803,14 @@ def _current_used(microscope: FibsemMicroscope) -> Dict[str, Any]:
     try:
         answer = microscope.milling.current_used()
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not read the milling current used", exc_info=True)
+        logger.debug("could not read the milling current used", exc_info=True)
         return {}
     used = {}
     if answer.get("milling_current") is not None:
         used["milling_current_used"] = answer["milling_current"]
     if answer.get("warning"):
         used["current_warning"] = answer["warning"]
-        logging.warning(answer["warning"])
+        logger.warning(answer["warning"])
     return used
 
 
@@ -837,7 +839,7 @@ def record_milling_skipped(
             ],
         }
     except Exception:  # noqa: BLE001 - recording must not matter
-        logging.debug("could not record a skipped milling task", exc_info=True)
+        logger.debug("could not record a skipped milling task", exc_info=True)
         return
     microscope.record_event("milling", payload)
 

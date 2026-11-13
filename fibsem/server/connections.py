@@ -32,6 +32,8 @@ from typing import Callable, List, Optional
 from fibsem.codec import encode
 from fibsem.server.pairing import AGENT, PairedComputer, PairedTokens
 
+logger = logging.getLogger(__name__)
+
 __all__ = ["ASK_WAIT_S", "LOCAL", "ConnectAsk", "Connections"]
 
 # How long one POST /connect waits for the operator; the asker asks again.
@@ -135,7 +137,7 @@ class Connections:
             try:
                 callback()
             except Exception:  # noqa: BLE001 - a listener never blocks an ask
-                logging.exception("Connections listener failed")
+                logger.exception("Connections listener failed")
 
     def asking(self) -> List[ConnectAsk]:
         """The ask waiting for the operator: none or one."""
@@ -180,7 +182,7 @@ class Connections:
                 try:
                     callback(computer, replaced.name if replaced else None)
                 except Exception:  # noqa: BLE001 - a listener never blocks an ask
-                    logging.exception("Connections listener failed")
+                    logger.exception("Connections listener failed")
             with self._changed_cond:
                 return self._answer() or {"state": "waiting", "id": ask_id}
         if new:

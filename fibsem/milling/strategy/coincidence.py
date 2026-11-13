@@ -32,6 +32,8 @@ from fibsem.utils import save_json
 if TYPE_CHECKING:
     import threading
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class CoincidenceMillingStrategyConfig(MillingStrategyConfig):
@@ -202,7 +204,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         self.image_path = os.path.join(self.path, "timelapse")
         os.makedirs(self.path, exist_ok=True)
         os.makedirs(self.image_path, exist_ok=True)
-        logging.info(f"Created directory for coincidence images at {self.path}")
+        logger.info(f"Created directory for coincidence images at {self.path}")
 
         # cache camera resolution
         self.camera_resolution = self.microscope.fm.camera.resolution
@@ -240,7 +242,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
     ) -> MillingStrategyResult:
         """Coincidence Milling Strategy. Says why the mill stopped, how long it
         milled, whether the intensity dropped, and where its summary is."""
-        logging.info(f"Running {self.name} Milling Strategy for {stage.name}")
+        logger.info(f"Running {self.name} Milling Strategy for {stage.name}")
 
         self._stop_event = stop_event
         self._setup_strategy_components(microscope, stage)
@@ -312,7 +314,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         # stop milling and fm acquisition
         self.microscope.stop_milling()
         self.microscope.fm.stop_acquisition()
-        logging.info("Milling finished. FM acquisition stopped.")
+        logger.info("Milling finished. FM acquisition stopped.")
 
         # finalize
         self.microscope.fm.acquisition_signal.disconnect(self.on_fm_acquisition_signal)
@@ -348,14 +350,14 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
             # check for stop event
             if self.is_cancelled:
-                logging.info("Milling stop event set. Stopping milling.")
+                logger.info("Milling stop event set. Stopping milling.")
                 self.end_reason = "stopped"
                 self.microscope.stop_milling()
                 break
 
             # unsupervised runs: automatically stop on intensity drop
             if not self.config.supervised and self._drop_detected:
-                logging.info("Unsupervised: intensity drop detected. Stopping milling.")
+                logger.info("Unsupervised: intensity drop detected. Stopping milling.")
                 self.end_reason = "drop"
                 self.microscope.stop_milling()
                 break
@@ -385,7 +387,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             )
             # timeout
             if time.time() >= max_end_time:
-                logging.info(
+                logger.info(
                     f"Max End Time reached: {max_end_time - start_time} seconds have passed. Stopping milling."
                 )
                 self.end_reason = "timeout"
@@ -410,15 +412,15 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
     def _save_intensities(self):
         if self.path is None:
-            logging.warning("Path is not set. Cannot save intensities.")
+            logger.warning("Path is not set. Cannot save intensities.")
             return
 
         if self.camera_resolution is None:
-            logging.warning("Camera resolution is not set. Cannot save bounding box.")
+            logger.warning("Camera resolution is not set. Cannot save bounding box.")
             return
 
         if self.config.bbox is None:
-            logging.warning("Bounding box is not set. Cannot save bounding box.")
+            logger.warning("Bounding box is not set. Cannot save bounding box.")
             return
 
         # write intensities and timestamps as 2d np.arr to .path
@@ -426,14 +428,14 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             arr = np.array([self.intensities, self.timestamps])
             intensities_path = os.path.join(self.path, "intensities.npy")
             np.save(file=intensities_path, arr=arr)
-            logging.info(f"Saved intensities to {intensities_path}")
+            logger.info(f"Saved intensities to {intensities_path}")
 
             x, y, w, h = self.config.bbox.to_pixel_coordinates(self.camera_resolution)
             bbox_dict = {"x": x, "y": y, "w": w, "h": h}
             save_json(os.path.join(self.path, "bbox.json"), bbox_dict)
 
         except Exception as e:
-            logging.error(f"Error occured while saving intensities... {e}")
+            logger.error(f"Error occured while saving intensities... {e}")
 
         self._save_stats_dataframe()
 
@@ -447,18 +449,18 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
             df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
             csv_path = os.path.join(self.path, "intensity_stats.csv")
             df.to_csv(csv_path, index=False)
-            logging.info(f"Saved intensity stats DataFrame to {csv_path}")
+            logger.info(f"Saved intensity stats DataFrame to {csv_path}")
         except Exception as e:
-            logging.error(f"Error saving intensity stats DataFrame: {e}", exc_info=True)
+            logger.error(f"Error saving intensity stats DataFrame: {e}", exc_info=True)
 
     def on_fm_acquisition_signal(self, image: FluorescenceImage):
         if self.microscope is None or self.microscope.fm is None:
-            logging.error(
+            logger.error(
                 "Microscope or FM is not set. Cannot process FM acquisition signal."
             )
             return
         if self.camera_resolution is None:
-            logging.error(
+            logger.error(
                 "Camera resolution is not set. Cannot process FM acquisition signal."
             )
             return
@@ -487,7 +489,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
         rule = self._rule.update(float(mean_intensity), elapsed)
         if rule["drop_detected"]:
             self._drop_detected = True  # latch for the monitor loop (auto-stop)
-            logging.warning(
+            logger.warning(
                 f"Intensity drop detected: rolling_mean={rule['rolling_mean']:.2f} < "
                 f"threshold={rule['threshold_value']:.2f} (peak={rule['peak_rolling_mean']:.2f})"
             )
@@ -576,7 +578,7 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
                         try:
                             ax.imshow(_to_display(data), cmap="gray", aspect="equal")
                         except Exception:
-                            logging.exception(
+                            logger.exception(
                                 "save_run_summary_figure: failed to render panel '%s'",
                                 title,
                             )
@@ -657,16 +659,16 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
                 out_path = os.path.join(self.path, "run_summary.png")
                 fig.savefig(out_path, dpi=100, bbox_inches="tight")
-            logging.info("Saved run summary figure to %s", out_path)
+            logger.info("Saved run summary figure to %s", out_path)
             return out_path
 
         except Exception:
-            logging.exception("save_run_summary_figure: failed to save figure")
+            logger.exception("save_run_summary_figure: failed to save figure")
             return None
 
     def _on_bbox_update(self, bbox: Optional[FibsemRectangle]):
         """Handle updates to the bounding box. Pass None to clear (use full image)."""
-        logging.info(f"Bounding Box Updated: {bbox}")
+        logger.info(f"Bounding Box Updated: {bbox}")
         self.config.bbox = bbox
 
     def _save_fm_image(self, ddict: dict) -> None:
@@ -694,4 +696,4 @@ class CoincidenceMillingStrategy(MillingStrategy[CoincidenceMillingStrategyConfi
 
                 image.save(filename)
         except Exception as e:
-            logging.error(f"Error saving FM image: {e}", exc_info=True)
+            logger.error(f"Error saving FM image: {e}", exc_info=True)

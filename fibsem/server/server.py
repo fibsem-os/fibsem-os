@@ -91,6 +91,8 @@ from fibsem.server.web_app import web_app_router
 from fibsem.structures.settings import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
 
+logger = logging.getLogger(__name__)
+
 API_VERSION = "0.3.0"
 
 
@@ -350,13 +352,13 @@ def _record_refusal(request: Request, exc: StarletteHTTPException) -> None:
         if call is not None and call.action and not detail.get("call"):
             # The call as the card says it, when the sidecar named it.
             payload["line"] = call.action
-        logging.info(
+        logger.info(
             f"agent refused: {payload['what']} ({payload['route']}): "
             f"403 {error_type} at {payload['level']}"
         )
         request.app.state.served.record_event(ACTION, payload)
     except Exception:  # noqa: BLE001 - recording must not change the answer
-        logging.debug("could not record an agent refusal", exc_info=True)
+        logger.debug("could not record an agent refusal", exc_info=True)
 
 
 # Routes that put the agent's call on the record themselves: its requests, its
@@ -452,7 +454,7 @@ class _AgentActs:
                 requests.describe_call, call.tool, call.arguments, scope.get("path", "")
             )
         except Exception:  # noqa: BLE001 - the plain line stands in
-            logging.debug("could not describe an agent call", exc_info=True)
+            logger.debug("could not describe an agent call", exc_info=True)
             return None
 
     @staticmethod
@@ -511,7 +513,7 @@ class _AgentActs:
                     payload["message"] = message.strip()
             scope["app"].state.served.record_event(ACTION, payload)
         except Exception:  # noqa: BLE001 - recording must not change the answer
-            logging.debug("could not record an agent call", exc_info=True)
+            logger.debug("could not record an agent call", exc_info=True)
 
 
 def _gateway_url() -> Optional[str]:

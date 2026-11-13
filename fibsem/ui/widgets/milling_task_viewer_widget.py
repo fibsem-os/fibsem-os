@@ -24,6 +24,8 @@ from fibsem.ui.widgets.milling_widget import FibsemMillingWidget
 if TYPE_CHECKING:
     from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 
+logger = logging.getLogger(__name__)
+
 
 def _apply_diff_to_pattern(pattern, diff: Point) -> None:
     """Shift a pattern's position by diff (in-place). Handles LinePattern start/end offsets."""
@@ -275,7 +277,7 @@ class MillingTaskViewerWidget(QWidget):
             try:
                 self._right_click_menu_action_provider(cfg, point_clicked)
             except Exception:
-                logging.exception("Failed to add custom context-menu actions.")
+                logger.exception("Failed to add custom context-menu actions.")
                 notification_service.show_toast(
                     "Failed to add point-of-interest menu action; pattern movement options will still be shown.",
                     "warning",
@@ -318,7 +320,7 @@ class MillingTaskViewerWidget(QWidget):
             _apply_diff_to_pattern(pattern_copy, diff)
             if not is_pattern_placement_valid(pattern_copy, self._fib_image):
                 msg = f"'{stage.name}' pattern would be outside the FIB image."
-                logging.warning(msg)
+                logger.warning(msg)
                 notification_service.show_toast(msg, "warning")
                 return
 
@@ -352,7 +354,7 @@ class MillingTaskViewerWidget(QWidget):
             self._fib_image = self._image_widget.ib_image
             self._schedule_pattern_update()
         except Exception as e:
-            logging.error(f"MillingTaskViewerWidget: viewer image update error: {e}")
+            logger.error(f"MillingTaskViewerWidget: viewer image update error: {e}")
 
     def _update_pattern_display(self) -> None:
         """Debounced entry point: render the current stages onto the FIB canvas.

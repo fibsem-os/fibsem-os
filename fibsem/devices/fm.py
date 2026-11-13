@@ -32,6 +32,8 @@ from fibsem.structures.params import Display, RangeLimit
 from fibsem.structures.system import CameraImageTransform, InsertableDeviceState
 from fibsem.util.timestamps import now_iso, zone_known
 
+logger = logging.getLogger(__name__)
+
 
 def mount_transform_name(transform: CameraImageTransform) -> str:
     """How a mount transform is written in a configuration and on the wire."""
@@ -199,9 +201,9 @@ class Objective(Device):
     def write_focus_position(self, value: Optional[float]) -> None:
         self._focus_position = None if value is None else float(value)
         if value is None:
-            logging.info("Objective focus position cleared.")
+            logger.info("Objective focus position cleared.")
         else:
-            logging.info(f"Objective focus position set to: {value * 1e3:.3f} mm")
+            logger.info(f"Objective focus position set to: {value * 1e3:.3f} mm")
 
     @command
     def save_focus_position(self) -> float:
@@ -389,7 +391,7 @@ class FM(Device):
                     continue
                 if idle <= self.live_timeout:
                     continue
-            logging.warning(
+            logger.warning(
                 f"{self.name}: no live frame asked for in {idle:.1f} s, stopping live "
                 "view"
             )
@@ -519,7 +521,7 @@ class FM(Device):
             return True
 
         def cancelled() -> List[Frame]:
-            logging.info(f"{self.name}: z-stack cancelled")
+            logger.info(f"{self.name}: z-stack cancelled")
             if restore_position is not None:
                 objective.move_absolute(restore_position)
             return []

@@ -33,6 +33,8 @@ from pydantic import PydanticSchemaGenerationError, ValidationError
 
 from fibsem.codec import Tagged, decode, encode
 
+logger = logging.getLogger(__name__)
+
 # How the server sends an array (a camera frame) and the remote driver recognises one.
 NPY_MEDIA_TYPE = "application/x-npy"
 
@@ -134,7 +136,7 @@ def type_hints(func: Callable[..., Any]) -> Dict[str, Any]:
         try:
             hints[name] = typing.get_type_hints(holder, globalns)[name]
         except Exception as error:  # a hint only importable for type checking
-            logging.debug(f"{func.__qualname__}: no hint for {name!r} ({error})")
+            logger.debug(f"{func.__qualname__}: no hint for {name!r} ({error})")
     return hints
 
 

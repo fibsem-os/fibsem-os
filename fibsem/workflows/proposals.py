@@ -48,6 +48,8 @@ from fibsem.structures.settings import (
 )
 from fibsem.util.timestamps import now
 
+logger = logging.getLogger(__name__)
+
 # One process, one open experiment: a single lock serialises the writers that
 # can run on different threads at once -- the workflow thread saving after a
 # task, and a decision from the GUI thread or the App Server. Held
@@ -541,7 +543,7 @@ def _prepare_poi(experiment: Any, item: Any, value: Any) -> PreparedWrite:
         for pattern, moved in moves:
             pattern.point = moved
         if synced:
-            logging.info(f"Synced tasks to POI: {synced}")
+            logger.info(f"Synced tasks to POI: {synced}")
         return list(synced)
 
     def undo() -> None:

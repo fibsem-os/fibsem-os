@@ -71,6 +71,8 @@ from fibsem.structures.settings import (
 )
 from fibsem.utils import current_timestamp
 
+logger = logging.getLogger(__name__)
+
 ##### TILE GRID
 
 
@@ -180,7 +182,7 @@ class TiledAcquisitionRunner:
             self._run_tile_loop()
         except OperationCancelledError:
             status, error = TiledStatus.CANCELLED, None
-            logging.info("Tiled acquisition cancelled")
+            logger.info("Tiled acquisition cancelled")
             self._end("cancelled")
             raise
         except Exception as e:
@@ -188,11 +190,11 @@ class TiledAcquisitionRunner:
             # thrown away, so a failed run told the UI "Acquisition Failed" and nothing
             # about why -- and a stage-limits rejection names every offending tile.
             status, error = TiledStatus.FAILED, str(e)
-            logging.error(f"Tiled acquisition failed: {e}")
+            logger.error(f"Tiled acquisition failed: {e}")
             self._end("failed", str(e))
             raise
         finally:
-            logging.info(
+            logger.info(
                 f"Tiled acquisition complete, restoring initial position: "
                 f"{self._start_state.stage_position.pretty}"
             )
@@ -368,7 +370,7 @@ class TiledAcquisitionRunner:
         self._mosaic_metadata = self._build_mosaic_metadata(full_w, full_h)
         self._init_preview(full_w, full_h)
 
-        logging.info(
+        logger.info(
             f"Tiled acquisition centre position: {self._centre_position.pretty}"
         )
 
@@ -382,7 +384,7 @@ class TiledAcquisitionRunner:
             for tile in self._ordered
         ]
         for tile, sp in zip(self._ordered, self._tile_stage_positions):
-            logging.debug(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
+            logger.debug(f"Tile ({tile.row}, {tile.col}) projected: {sp.pretty}")
         self._record_grid()
 
         stage = self.microscope.stage
@@ -399,7 +401,7 @@ class TiledAcquisitionRunner:
             and settings.tile_order is TileOrderStrategy.SPIRAL
         ):
             self._af_mode = AutoFocusMode.EACH_TILE
-            logging.info(
+            logger.info(
                 "EACH_ROW autofocus upgraded to EACH_TILE for SPIRAL tile order"
             )
 
@@ -412,7 +414,7 @@ class TiledAcquisitionRunner:
         scanned = scanned_resolution(self.microscope, image_settings.beam_type, asked)
         if scanned == asked:
             return
-        logging.warning(
+        logger.warning(
             f"The {image_settings.beam_type.name} beam scans {asked[0]} x {asked[1]} "
             f"as {scanned[0]} x {scanned[1]}; the overview's tiles are laid out at that."
         )
@@ -522,7 +524,7 @@ class TiledAcquisitionRunner:
         thumbnail, so the cost is the tile rather than the mosaic.
         """
         self._preview = PreviewMosaic(full_w, full_h, dtype=np.uint8)
-        logging.debug(f"{self._preview.describe()} (full {full_h}x{full_w})")
+        logger.debug(f"{self._preview.describe()} (full {full_h}x{full_w})")
 
     def _paint_preview(self, tile: TilePosition, image: FibsemImage) -> None:
         """Paint one acquired tile into the live preview.
@@ -533,7 +535,7 @@ class TiledAcquisitionRunner:
         try:
             self._preview.paint(image.filtered_data, tile.canvas_x, tile.canvas_y)
         except Exception as e:
-            logging.debug(f"Could not paint the live preview: {e}")
+            logger.debug(f"Could not paint the live preview: {e}")
 
     def _preview_image(self) -> Optional[FibsemImage]:
         """The mosaic so far, as a placeable image.
@@ -581,11 +583,11 @@ class TiledAcquisitionRunner:
 
             image_settings.filename = f"tile_{tile.row}_{tile.col}"
 
-            logging.debug(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
+            logger.debug(f"Tile ({tile.row}, {tile.col}) — target: {stage_pos.pretty}")
             self.microscope.safe_absolute_stage_movement(stage_pos)
             record = self.result.tile(tile.row, tile.col)
             record.position = self.microscope.get_stage_position()
-            logging.debug(
+            logger.debug(
                 f"Tile ({tile.row}, {tile.col}) — actual: {record.position.pretty}"
             )
 
@@ -601,7 +603,7 @@ class TiledAcquisitionRunner:
             # apply per-tile focus offset (no-op until focus map is implemented)
             self._apply_focus_offset(tile)
 
-            logging.info(f"Acquiring Tile ({tile.row}, {tile.col})")
+            logger.info(f"Acquiring Tile ({tile.row}, {tile.col})")
             image = self._acquire_tile(tile)
             record.acquired = True
             record.path = image.filepath or None
@@ -711,7 +713,7 @@ class TiledAcquisitionRunner:
         try:
             self._layout_check.add((tile.row, tile.col), image.filtered_data)
         except Exception as e:
-            logging.warning(f"Tile layout check stopped: {e}")
+            logger.warning(f"Tile layout check stopped: {e}")
             self._layout_check = None
 
     def _register(self) -> Registration:
@@ -744,7 +746,7 @@ class TiledAcquisitionRunner:
             registration.note = (
                 f"Tiles were left as planned: composing them failed ({e})."
             )
-            logging.warning(registration.note)
+            logger.warning(registration.note)
             return self._canvas
 
     # ── helpers ──────────────────────────────────────────────────────────
@@ -762,9 +764,7 @@ class TiledAcquisitionRunner:
         if not getattr(self, "_autocontrast_once", False):
             return
         _check_cancelled(self.stop_event)
-        logging.info(
-            f"Auto contrast at the grid centre: {self._centre_position.pretty}"
-        )
+        logger.info(f"Auto contrast at the grid centre: {self._centre_position.pretty}")
         self.microscope.safe_absolute_stage_movement(self._centre_position)
         _check_cancelled(self.stop_event)
         self.microscope.autocontrast(
@@ -810,7 +810,7 @@ class TiledAcquisitionRunner:
         # arrives as OperationCancelledError from inside the sweep.
         if result is None and not self._af_unavailable_logged:
             self._af_unavailable_logged = True
-            logging.warning(
+            logger.warning(
                 "Autofocus is unavailable on the %s beam for this microscope; the "
                 "overview will be acquired at the current working distance.",
                 self._image_settings.beam_type.name,

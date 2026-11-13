@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     # Annotation-only, to avoid a runtime dependency on a sibling widget module.
     from fibsem.ui.FibsemImageSettingsWidget import FibsemImageSettingsWidget
 
+logger = logging.getLogger(__name__)
+
 
 class FibsemManipulatorWidget(QtWidgets.QWidget):
     def __init__(
@@ -232,7 +234,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
                 )
             except Exception as e:
                 error_message = f"Error moving manipulator (Relative): {str(e)}"
-                logging.error(error_message)
+                logger.error(error_message)
                 notification_service.show_toast(error_message, "error")
 
         else:
@@ -247,7 +249,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
                 )
             except Exception as e:
                 error_message = f"Error moving manipulator (Corrected): {str(e)}"
-                logging.error(error_message)
+                logger.error(error_message)
                 notification_service.show_toast(error_message, "error")
 
         self.update_ui()
@@ -316,7 +318,7 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
         name = self.savedPositionName_lineEdit.text()
         position = self.microscope.get_manipulator_position()
         self.saved_positions[name] = position
-        logging.info(f"Saved position {name} at {position}")
+        logger.info(f"Saved position {name} at {position}")
         self.savedPosition_combobox.addItem(name)
         self.savedPositionName_lineEdit.clear()
 
@@ -334,16 +336,16 @@ class FibsemManipulatorWidget(QtWidgets.QWidget):
                 )
             except Exception as e:
                 error_message = f"Error moving manipulator to {name}: {e}"
-                logging.error(error_message)
+                logger.error(error_message)
                 notification_service.show_toast(error_message, "error")
                 return
             if moved:
-                logging.info(f"Moved to named position {name}")
+                logger.info(f"Moved to named position {name}")
             self.update_ui()
             return
 
         position = self.saved_positions[name]
-        logging.info(f"Moving to saved position {name} at {position}")
+        logger.info(f"Moving to saved position {name} at {position}")
         operator_acts(
             control_of(self.microscope),
             f"move the manipulator to {name}",

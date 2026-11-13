@@ -44,6 +44,8 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures.settings import BeamType, ImageSettings
 
+logger = logging.getLogger(__name__)
+
 # Independent band-pass scales (sigma pairs, px) for the agreement gate.
 AGREEMENT_BANDS: Tuple[Tuple[float, float], Tuple[float, float]] = ((2, 8), (4, 16))
 DEFAULT_AGREEMENT_TOLERANCE = 0.75e-6  # m
@@ -175,7 +177,7 @@ def geometry_from_images(
 
     model = StageModel.from_geometry(md.hardware_geometry)
     if model.turned_round(stage_position.r or 0.0):
-        logging.warning(
+        logger.warning(
             "Coincidence measurement on the flipped (FIB-orientation) side: "
             "validated on the simulator only, not yet on hardware (FIB-868)."
         )
@@ -379,7 +381,7 @@ def measure_coincidence(
         max_rival_ratio=max_rival_ratio,
         prior=None if prior is None else (float(prior[0]), float(prior[1])),
     )
-    logging.debug(
+    logger.debug(
         {
             "msg": "measure_coincidence",
             "dx": measurement.dx,
@@ -788,7 +790,7 @@ def ensure_coincident(
         coarse_used=coarse_used,
         moves_applied=moves,
     )
-    logging.debug(
+    logger.debug(
         {
             "msg": "ensure_coincident",
             "converged": result.converged,
@@ -981,7 +983,7 @@ def tilt_coincident(
         if undo_walk and abs(walk) > MIN_WALK_TO_UNDO:
             _undo_surface_walk(microscope, start_pose, tilt_axis_offset)
             walk_undone = True
-    logging.debug(
+    logger.debug(
         {
             "msg": "tilt_coincident",
             "target_tilt": target_tilt,
@@ -1042,7 +1044,7 @@ def _undo_surface_walk(
 
     projection = BeamStageProjection.from_microscope(microscope, BeamType.ELECTRON)
     if projection is None:
-        logging.warning("Cannot undo the tilt walk: no SEM projection available")
+        logger.warning("Cannot undo the tilt walk: no SEM projection available")
         return
     now = microscope.get_stage_position()
     pretilt = StageModel.from_geometry(projection.geometry).surface_slope(now.r or 0.0)

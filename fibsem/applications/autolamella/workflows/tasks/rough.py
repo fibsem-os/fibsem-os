@@ -22,6 +22,8 @@ from fibsem.structures.settings import Point
 from fibsem.workflows.proposals import MILLING
 from fibsem.workflows.task import ALIGNMENT_REFERENCE_IMAGE_FILENAME
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class MillRoughTaskConfig(AutoLamellaTaskConfig):
@@ -130,7 +132,7 @@ class MillRoughTask(AutoLamellaTask):
                     polishing_task_name = task_name
                     break
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 f"Unable to find MillPolishingTaskConfig in lamella task config: {e}"
             )
 
@@ -138,7 +140,7 @@ class MillRoughTask(AutoLamellaTask):
             polishing_milling_task_config is not None
             and polishing_task_name is not None
         ):
-            logging.info(
+            logger.info(
                 "Syncing polishing milling pattern positions with rough milling pattern positions..."
             )
             for polishing_stage in polishing_milling_task_config.stages:

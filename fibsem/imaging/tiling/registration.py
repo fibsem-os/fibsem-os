@@ -43,6 +43,8 @@ from fibsem.imaging.tiling.layout_check import (
     TileLayoutCheck,
 )
 
+logger = logging.getLogger(__name__)
+
 PixelPosition = Tuple[float, float]  # (y, x): top-left corner on the canvas
 
 # Fewer confident pairs than this and the tiles are left as planned: on a 2x2 one
@@ -104,7 +106,7 @@ def registered_positions(
         worst = max(used, key=lambda p: _residual(p, positions))
         if _residual(worst, positions) <= limit:
             break
-        logging.debug(
+        logger.debug(
             f"Dropping tile pair {worst.a}-{worst.b}: disagrees with its neighbours "
             f"by {_residual(worst, positions):.1f} px"
         )
@@ -204,14 +206,14 @@ def measure_registration(
             registration.note = f"Tiles aligned: {moved}."
     except Exception as e:  # noqa: BLE001 - the tiles are worth more than this
         registration.note = f"Tiles were left as planned: aligning them failed ({e})."
-        logging.warning(registration.note)
+        logger.warning(registration.note)
         return registration
     return _logged(registration)
 
 
 def _logged(registration: Registration) -> Registration:
     refused = registration.requested and not registration.applied
-    logging.log(logging.WARNING if refused else logging.INFO, registration.note)
+    logger.log(logging.WARNING if refused else logging.INFO, registration.note)
     return registration
 
 

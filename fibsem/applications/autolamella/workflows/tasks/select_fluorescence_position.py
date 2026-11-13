@@ -12,6 +12,8 @@ from fibsem.applications.autolamella.workflows.tasks.base import AutoLamellaTask
 from fibsem.structures.system import InsertableDeviceState
 from fibsem.workflows.proposals import STATE
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class SelectFluorescencePositionConfig(AutoLamellaTaskConfig):
@@ -70,7 +72,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
 
         # Check for cancellation before each position
         if self._stop_event and self._stop_event.is_set():
-            logging.info(
+            logger.info(
                 f"{self.task_name}: {self.lamella.name} - Acquisition cancelled"
             )
             return
@@ -82,7 +84,7 @@ class SelectFluorescencePositionTask(AutoLamellaTask):
         # move objective to saved position
         self.log_status_message("MOVE_OBJECTIVE", "Moving Objective to position...")
         if self.microscope.fm.objective.state is not InsertableDeviceState.INSERTED:
-            logging.info(
+            logger.info(
                 "Objective is not inserted. Inserting the objective before acquiring fluorescence images."
             )
             self.microscope.fm.objective.insert()

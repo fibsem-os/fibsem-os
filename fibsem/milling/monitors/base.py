@@ -38,6 +38,8 @@ from fibsem.structures.params import param
 if TYPE_CHECKING:
     from fibsem.milling.steps import MillingStep
 
+logger = logging.getLogger(__name__)
+
 TMillingMonitorConfig = TypeVar("TMillingMonitorConfig", bound=MillingMonitorConfig)
 
 # What a deciding monitor does when its rule triggers: end the step itself, or
@@ -116,14 +118,14 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
         try:
             self.on_stop()
         except Exception as e:  # noqa: BLE001 - a monitor's own failure
-            logging.warning(f"Milling monitor {self.name} failed to stop: {e}")
+            logger.warning(f"Milling monitor {self.name} failed to stop: {e}")
             self.error = self.error or e
         self._report_held()
         record: Dict[str, Any] = {"name": self.name}
         try:
             record.update(self.result().to_dict())
         except Exception as e:  # noqa: BLE001 - recording must not matter
-            logging.debug(f"could not record {self.name}'s result", exc_info=True)
+            logger.debug(f"could not record {self.name}'s result", exc_info=True)
             self.error = self.error or e
         if self.error is not None:
             record["error"] = f"{type(self.error).__name__}: {self.error}"
@@ -138,7 +140,7 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
             call()
         except Exception as e:  # noqa: BLE001 - a monitor's own failure
             self.error = e
-            logging.warning(f"Milling monitor {self.name} failed: {e}", exc_info=True)
+            logger.warning(f"Milling monitor {self.name} failed: {e}", exc_info=True)
         if self.error is None or self.step is None:
             return
         e = self.error
@@ -151,7 +153,7 @@ class MillingMonitor(Generic[TMillingMonitorConfig]):
             except Exception:  # noqa: BLE001 - the step fails for the monitor
                 # The beam's stop raised; the step's end is the monitor's, and
                 # the state monitor stops the beam again.
-                logging.warning("Could not stop the beam", exc_info=True)
+                logger.warning("Could not stop the beam", exc_info=True)
 
     # ── what a monitor does to the step ───────────────────────────────────
 

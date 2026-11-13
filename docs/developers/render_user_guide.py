@@ -2803,7 +2803,7 @@ def render_correlation(h: Harness) -> None:
                 )
             import logging as _logging
 
-            _logging.warning(
+            _logging.getLogger(__name__).warning(
                 {
                     "msg": "guide_fib_marks",
                     "marks": [(round(x), round(y)) for x, y in found],
@@ -2864,7 +2864,7 @@ def render_correlation(h: Harness) -> None:
         if os.environ.get("FIBSEM_GUIDE_DEBUG"):
             import logging as _logging
 
-            _logging.warning(
+            _logging.getLogger(__name__).warning(
                 {
                     "msg": "guide_fib_seeds",
                     "seeds": [

@@ -55,6 +55,8 @@ from fibsem.ui.widgets.custom_widgets import ValueSpinBox
 from fibsem.ui.widgets.guided_setup_dialog import StageDiagram
 from fibsem.util.timestamps import now
 
+logger = logging.getLogger(__name__)
+
 # Slot positions are stored at this orientation; every other pose is derived from
 # them by the stable-move projection, which is what the startup stamping of the
 # holder has always assumed. Now it is written down, and enforced.
@@ -176,7 +178,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         try:
             microscope.stage.position.changed.connect(self._stage_moved.emit)
         except Exception as e:  # noqa: BLE001 - a microscope without a stage
-            logging.debug(f"No stage position signal to subscribe to: {e}")
+            logger.debug(f"No stage position signal to subscribe to: {e}")
 
     # -- what the steps are ---------------------------------------------------
 
@@ -517,7 +519,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         try:
             return self._microscope.get_stage_orientation()
         except Exception as e:  # noqa: BLE001 - no stage, or no r/t
-            logging.debug(f"Could not read the stage orientation: {e}")
+            logger.debug(f"Could not read the stage orientation: {e}")
             return None
 
     def _at_calibration_orientation(self) -> bool:
@@ -541,7 +543,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         try:
             self._update_diagram(self._microscope.get_stage_position())
         except Exception as e:  # noqa: BLE001 - the words below still say where we are
-            logging.debug(f"Could not read the stage position: {e}")
+            logger.debug(f"Could not read the stage position: {e}")
         orientation = self._stage_orientation()
         if orientation == CALIBRATION_ORIENTATION:
             self._set_status(
@@ -609,7 +611,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         try:
             self._on_stage_moved(self._microscope.get_stage_position())
         except Exception as e:  # noqa: BLE001 - shown as a dash until it moves
-            logging.debug(f"Could not read the stage position: {e}")
+            logger.debug(f"Could not read the stage position: {e}")
 
     def _on_stage_moved(self, position: FibsemStagePosition) -> None:
         if self._closed or position is None:
@@ -817,7 +819,7 @@ class HolderCalibrationDialog(QtWidgets.QDialog):
         except Exception as e:  # noqa: BLE001 - surfaced on the review page
             self._set_status(self.review_summary, f"Save failed: {e}", ERROR_COLOR)
             return
-        logging.info(
+        logger.info(
             f"Saved sample holder '{holder.name}' with {len(self._captured)} "
             f"recalibrated slot(s) to {self._configuration_path}."
         )

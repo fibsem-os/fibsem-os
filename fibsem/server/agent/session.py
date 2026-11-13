@@ -30,6 +30,8 @@ from fibsem.ai.agent.session import budget_low
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.server.responses import AgentSession
 
+logger = logging.getLogger(__name__)
+
 SESSION_STARTED = "agent_session_started"
 SESSION_GOAL = "agent_session_goal"
 SESSION_ENDED = "agent_session_ended"
@@ -320,7 +322,7 @@ def build_agent_session_router(
             try:
                 emit(kind, dict(session))
             except Exception:  # noqa: BLE001 - the record never costs the report
-                logging.debug("could not record %s", kind, exc_info=True)
+                logger.debug("could not record %s", kind, exc_info=True)
         return {"session": with_plan(request, session)}
 
     @router.post("/read")

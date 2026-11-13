@@ -21,6 +21,8 @@ from fibsem.ui.stylesheets import (
 )
 from fibsem.ui.widgets.custom_widgets import TitledPanel
 
+logger = logging.getLogger(__name__)
+
 # Error message constants
 
 ERROR_NO_PROTOCOL_TITLE = "No Protocol"
@@ -200,7 +202,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
 
             self._update_protocol_display()
             self.btn_ok.setEnabled(True)
-            logging.info(f"Displaying existing protocol: {existing_protocol.name}")
+            logger.info(f"Displaying existing protocol: {existing_protocol.name}")
         else:
             self._update_protocol_display()
 
@@ -234,7 +236,7 @@ class AutoLamellaLoadTaskProtocolWidget(QtWidgets.QDialog):
             )
             return
 
-        logging.info(
+        logger.info(
             f"Protocol '{self.protocol.name}' loaded into experiment '{self.experiment.name}'"
         )
 
@@ -280,10 +282,10 @@ def load_task_protocol_dialog(
     if result == QtWidgets.QDialog.DialogCode.Accepted:
         protocol = dialog.get_protocol()
         if protocol:
-            logging.info(f"Protocol loaded: {protocol.name}")
-            logging.info(f"Number of tasks: {len(protocol.task_config)}")
-            logging.info(f"Protocol attached to experiment: {experiment.name}")
+            logger.info(f"Protocol loaded: {protocol.name}")
+            logger.info(f"Number of tasks: {len(protocol.task_config)}")
+            logger.info(f"Protocol attached to experiment: {experiment.name}")
         return protocol
     else:
-        logging.info("Protocol loading cancelled")
+        logger.info("Protocol loading cancelled")
         return None

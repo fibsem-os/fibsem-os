@@ -57,6 +57,8 @@ if TYPE_CHECKING:
 
     from fibsem.fm.microscope import FluorescenceMicroscope
 
+logger = logging.getLogger(__name__)
+
 THERMO_API_AVAILABLE = False
 MINIMUM_AUTOSCRIPT_VERSION = parse_version("4.9")
 # Set when the guarded import below fails, so the connection error can say why.
@@ -123,7 +125,7 @@ try:
 
     # special case for Monash development environment
     if os.environ.get("COMPUTERNAME", "hostname") == "MU00190108":
-        logging.info("Overwriting autoscript version to 4.9, for Monash dev install")
+        logger.info("Overwriting autoscript version to 4.9, for Monash dev install")
         AUTOSCRIPT_VERSION = MINIMUM_AUTOSCRIPT_VERSION
 
     if AUTOSCRIPT_VERSION < MINIMUM_AUTOSCRIPT_VERSION:
@@ -164,13 +166,13 @@ try:
     THERMO_API_AVAILABLE = True
 except AutoScriptException as e:
     THERMO_API_IMPORT_ERROR = str(e)
-    logging.warning("Failed to load AutoScript (ThermoFisher): %s", str(e))
+    logger.warning("Failed to load AutoScript (ThermoFisher): %s", str(e))
 except ImportError as e:
     THERMO_API_IMPORT_ERROR = _SERVE_ERROR or str(e)
-    logging.debug("AutoScript (ThermoFisher) not found: %s", THERMO_API_IMPORT_ERROR)
+    logger.debug("AutoScript (ThermoFisher) not found: %s", THERMO_API_IMPORT_ERROR)
 except Exception as e:
     THERMO_API_IMPORT_ERROR = str(e)
-    logging.error(
+    logger.error(
         "Failed to load AutoScript (ThermoFisher) due to unexpected error",
         exc_info=True,
     )
@@ -527,7 +529,7 @@ class ThermoMicroscope(FibsemMicroscope):
         self.experiment = FibsemExperimentRef()
 
         # logging
-        logging.debug(
+        logger.debug(
             {
                 "msg": "create_microscope_client",
                 "system_settings": system_settings.to_dict(),
@@ -541,7 +543,7 @@ class ThermoMicroscope(FibsemMicroscope):
     def _disconnect(self) -> None:
         """Disconnect from the microscope client."""
         if self._connection is None:
-            logging.warning("Microscope client is not connected.")
+            logger.warning("Microscope client is not connected.")
             return
 
         self._connection.disconnect()
@@ -574,9 +576,9 @@ class ThermoMicroscope(FibsemMicroscope):
             self._connection = self._new_connection()
         sdk = self._connection.sdk
 
-        logging.info(f"Microscope client connecting to [{ip_address}:{port}]")
+        logger.info(f"Microscope client connecting to [{ip_address}:{port}]")
         self._connection.connect(host=ip_address, port=port)
-        logging.info(f"Microscope client connected to [{ip_address}:{port}]")
+        logger.info(f"Microscope client connected to [{ip_address}:{port}]")
 
         # system information
         self.system.info.model = sdk.service.system.name
@@ -584,13 +586,13 @@ class ThermoMicroscope(FibsemMicroscope):
         self.system.info.hardware_version = sdk.service.system.version
         self.system.info.software_version = sdk.service.autoscript.client.version
         info = self.system.info
-        logging.info(
+        logger.info(
             f"Microscope client connected to model {info.model} with serial number {info.serial_number} and software version {info.software_version}."
         )
 
         # autoscript information
-        logging.info(f"Autoscript Client: {sdk.service.autoscript.client.version}")
-        logging.info(f"Autoscript Server: {sdk.service.autoscript.server.version}")
+        logger.info(f"Autoscript Client: {sdk.service.autoscript.client.version}")
+        logger.info(f"Autoscript Server: {sdk.service.autoscript.server.version}")
 
         self._build_beams()
         self._build_milling()
@@ -625,7 +627,7 @@ class ThermoMicroscope(FibsemMicroscope):
         try:
             self._build_sample_handling()
         except Exception as e:
-            logging.warning(f"Could not build the sample handling: {e}")
+            logger.warning(f"Could not build the sample handling: {e}")
 
         self._build_parts()
         self._bind_device_roles()
@@ -728,7 +730,7 @@ class ThermoMicroscope(FibsemMicroscope):
             built = self._build_devices(fitted, _LOADER_TYPES)
             device = next(iter(built.values()), None)
         if device is None:
-            logging.info("No sample loader: grids are exchanged by hand.")
+            logger.info("No sample loader: grids are exchanged by hand.")
         return device
 
     @property

@@ -42,6 +42,8 @@ from fibsem.workflows.saved_format import FORMAT_VERSION, check_app, saved_app
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 EXPERIMENT_FILENAME = "experiment.yaml"
 
 
@@ -135,7 +137,7 @@ class BaseExperiment:
         a saved experiment."""
         version = ddict.get("format_version") or 0
         if version > FORMAT_VERSION:
-            logging.warning(
+            logger.warning(
                 f"{self.name} was written in experiment format {version}, newer "
                 f"than this version reads ({FORMAT_VERSION}); what it does not "
                 "know is dropped, and saving would lose it."
@@ -360,7 +362,7 @@ class BaseExperiment:
                     pass  # unreadable: overwrite it
             _write_configuration_file(path, snapshot)
         except Exception as e:
-            logging.warning(
+            logger.warning(
                 f"Could not copy the microscope configuration into {path}: {e}"
             )
 

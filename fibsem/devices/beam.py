@@ -41,6 +41,8 @@ from fibsem.structures.settings import (
 )
 from fibsem.util.timestamps import now
 
+logger = logging.getLogger(__name__)
+
 # The resolutions a scan is set to on a driver whose instrument can't list its own:
 # the standard 3:2 frames. A beam's resolution choices are what its scan can be set
 # to; square frames are left out until acquisition can ask for them on its own.
@@ -303,7 +305,7 @@ class Beam(Device):
             min=max(limits.min, scanner.min), max=min(limits.max, scanner.max)
         )
         if both.min > both.max:
-            logging.warning(
+            logger.warning(
                 f"{self.name}: its dwell times ({limits.min}-{limits.max} s) and its "
                 f"scanner's ({scanner.min}-{scanner.max} s) don't overlap; offering "
                 "the scanner's"
@@ -322,7 +324,7 @@ class Beam(Device):
             return own
         within = [c for c in choices if resolution_within(tuple(c), scanner)]
         if not within:
-            logging.warning(
+            logger.warning(
                 f"{self.name}: none of its resolutions is within its scanner's "
                 f"{scanner}; offering them all, and the scanner refuses what it "
                 "can't scan"
@@ -339,7 +341,7 @@ class Beam(Device):
         try:
             return self.installed_plasma_gas() or None
         except Exception as error:
-            logging.debug(f"{self.name}: installed_plasma_gas: {error}")
+            logger.debug(f"{self.name}: installed_plasma_gas: {error}")
             return None
 
     def installed_plasma_gas(self) -> Optional[str]:
@@ -490,7 +492,7 @@ class Beam(Device):
         # Set and left set, as the field width is. A beam without the setting
         # images at its own, and says so.
         if "bit_depth" not in self.parameters:
-            logging.warning(
+            logger.warning(
                 f"{self.name} has no bit depth setting: a {bits}-bit image was asked "
                 "for, it images at its own."
             )
@@ -660,7 +662,7 @@ class Beam(Device):
         ``live_frame``, until `stop_live`. Warns and does nothing when already live."""
         with self._live_lock:
             if self.is_live:
-                logging.warning(f"{self.name} live view is already running.")
+                logger.warning(f"{self.name} live view is already running.")
                 return
             scanned = "scanner" in self.roles
             if scanned:
@@ -709,7 +711,7 @@ class Beam(Device):
         try:
             live(self._live_stop)
         except Exception as e:
-            logging.error(f"{self.name} live view stopped: {e}")
+            logger.error(f"{self.name} live view stopped: {e}")
         finally:
             if scanned:
                 self.scanner.resources.release(SCANNER_RESOURCE, self.name)
@@ -743,7 +745,7 @@ def _role_record(device: Device) -> Dict[str, Any]:
     try:
         facts = device.facts()
     except Exception as error:
-        logging.debug(f"{device.name}: facts: {error}")
+        logger.debug(f"{device.name}: facts: {error}")
         facts = {}
     return {
         "name": device.name,
@@ -761,5 +763,5 @@ def _cached_or_none(param: BoundParameter) -> Any:
     try:
         return param.cached
     except Exception as error:
-        logging.debug(f"{param.device.name}.{param.name}: {error}")
+        logger.debug(f"{param.device.name}.{param.name}: {error}")
         return param.last_known

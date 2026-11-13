@@ -33,6 +33,8 @@ from fibsem.workflows.event_recording import EventRecorder
 from fibsem.workflows.events import EventBuffer
 from fibsem.workflows.runner import WorkflowRunner
 
+logger = logging.getLogger(__name__)
+
 EditExecutor = Callable[[Callable[[], Any]], "Future[Any]"]
 
 # Where a session's plain experiments go, one folder per session that needed one.
@@ -317,7 +319,7 @@ class AppSession:
         try:
             instrument.disconnect()
         except Exception as e:  # noqa: BLE001 - a failed teardown still ends it
-            logging.error(f"Could not cleanly disconnect: {e}")
+            logger.error(f"Could not cleanly disconnect: {e}")
             error = str(e)
         with self.changed.paused():
             self.stop_recording()
@@ -415,7 +417,7 @@ class AppSession:
             self.recorder.set_experiment(experiment.path, experiment)
         self.experiment = experiment
         experiment.configure_logging()
-        logging.info(f"Logging to experiment {experiment.name} at {experiment.path}")
+        logger.info(f"Logging to experiment {experiment.name} at {experiment.path}")
         self.changed.emit(EXPERIMENT)
 
     def recording_experiment(self) -> Any:
@@ -475,7 +477,7 @@ class AppSession:
                 experiment=recorded,
             )
         except Exception:
-            logging.exception("event stream failed to start; continuing without it")
+            logger.exception("event stream failed to start; continuing without it")
             self.recorder = None
 
     def stop_recording(self) -> None:

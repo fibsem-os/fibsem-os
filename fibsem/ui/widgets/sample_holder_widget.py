@@ -47,6 +47,8 @@ from fibsem.ui.icon import ICON_MOVE_TO_POSITION, fibsem_icon
 from fibsem.ui.widgets.custom_widgets import TitledPanel, style_with_tooltip
 from fibsem.util.timestamps import to_datetime
 
+logger = logging.getLogger(__name__)
+
 _ROW_HEIGHT = 40
 _SLOT_LABEL_WIDTH = 64
 _ICON_BTN = 26
@@ -419,7 +421,7 @@ class SampleHolderWidget(QWidget):
                     slot.name, grid, persist=True
                 )
             except Exception as e:  # noqa: BLE001 - keep the in-memory change, say so
-                logging.warning(f"Could not record the grid in {slot.name}: {e}")
+                logger.warning(f"Could not record the grid in {slot.name}: {e}")
                 slot.loaded_grid = grid
         else:
             slot.loaded_grid = grid
@@ -437,7 +439,7 @@ class SampleHolderWidget(QWidget):
                 QToolTip.showText(
                     field.mapToGlobal(field.rect().bottomLeft()), reason, field
                 )
-        logging.info(f"Rename of {slot.name} refused: {reason}")
+        logger.info(f"Rename of {slot.name} refused: {reason}")
 
     def _on_move_slot(self, slot: GridSlot) -> None:
         if self._microscope is None or slot.position is None:
@@ -447,7 +449,7 @@ class SampleHolderWidget(QWidget):
             try:
                 self._microscope.sample_handling.move_to_slot(slot.name)
             except Exception as e:  # noqa: BLE001 - a refused or failed move is reported
-                logging.warning(f"Failed to move to slot '{slot.name}': {e}")
+                logger.warning(f"Failed to move to slot '{slot.name}': {e}")
             return
         self.move_to_requested.emit(position)
 

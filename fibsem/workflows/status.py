@@ -38,6 +38,8 @@ from fibsem.workflows.interaction import (
 if TYPE_CHECKING:
     from fibsem.workflows.queue import WorkItem
 
+logger = logging.getLogger(__name__)
+
 
 class TaskStatus(NamedEnum, Enum):
     NotStarted = auto()
@@ -294,7 +296,7 @@ def post_status(
     is no run."""
     status = getattr(run, "status", None)
     if status is None:
-        logging.info(msg or status_bar or "")
+        logger.info(msg or status_bar or "")
         return
     status.emit(
         WorkflowStatusEvent(

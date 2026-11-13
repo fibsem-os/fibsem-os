@@ -35,6 +35,8 @@ from fibsem.workflows.grid.base import (
     GridTaskConfig,
 )
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     pass
 
@@ -164,5 +166,5 @@ class BeamOverviewGridTask(GridTask):
             )
             self.record_output(f"{self.config.role}_thumbnail", thumbnail)
         except Exception as e:  # noqa: BLE001 - the overview is already recorded
-            logging.warning(f"Could not write the overview thumbnail: {e}")
+            logger.warning(f"Could not write the overview thumbnail: {e}")
         self.log_status_message("ACQUIRED", f"{beam} overview recorded")

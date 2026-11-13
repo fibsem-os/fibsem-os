@@ -35,6 +35,8 @@ from fibsem.structures.settings import (
     ImageSettings,
 )
 
+logger = logging.getLogger(__name__)
+
 TARGET = 200e-9  # m
 REACHED = 50e-9  # m: within this above the target counts as there
 OVER = 60e-9  # m: thinner than the target by more than this is too far
@@ -247,7 +249,7 @@ def write_case(
     )
     span, _ = stop_span(records, target)
     if not span:
-        logging.warning("seed %s: damaged on the first pass, no case", seed)
+        logger.warning("seed %s: damaged on the first pass, no case", seed)
         return None
     names = [p["name"] for p in passes]
     case = {
@@ -287,7 +289,7 @@ def write_case(
     (reference / "passes.yaml").write_text(yaml.safe_dump(records, sort_keys=False))
     with open(folder / "case.yaml", "w") as f:
         yaml.safe_dump(case, f, sort_keys=False, width=100)
-    logging.info(
+    logger.info(
         "polishing case for seed %s: stop after %s, damage %s",
         seed,
         case["key"]["stop_after"],

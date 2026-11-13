@@ -6,6 +6,8 @@ import numpy as np
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 def convert_milling_angle_to_stage_tilt(
     milling_angle: float, pretilt: float, column_tilt: float
@@ -77,7 +79,7 @@ def is_close_to_milling_angle(
     stage_tilt = convert_milling_angle_to_stage_tilt(
         milling_angle, pretilt=pretilt, column_tilt=column_tilt
     )
-    logging.info(
+    logger.info(
         f"The current stage tilt is {np.degrees(current_stage_tilt):.2f} deg, "
         f"the stage tilt for the milling angle is {np.degrees(stage_tilt):.2f} deg"
     )

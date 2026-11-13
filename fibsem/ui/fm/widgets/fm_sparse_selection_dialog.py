@@ -52,6 +52,8 @@ from fibsem.ui.fm.widgets.fm_tile_preview import FMTilePreviewWidget
 from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.util.durations import format_duration_rounded
 
+logger = logging.getLogger(__name__)
+
 # Amber, matching the stage-limits box the preview draws it against.
 _WARNING = STAGE_LIMITS_COLOUR
 
@@ -347,7 +349,7 @@ def beam_overviews_in(
         try:
             image = FibsemImage.load(path)
         except Exception as e:
-            logging.debug(f"Not an overview this can use: {path} ({e})")
+            logger.debug(f"Not an overview this can use: {path} ({e})")
             continue
         if BeamStageProjection.from_image(image) is None:
             continue
@@ -364,7 +366,7 @@ def beam_overviews_in(
                 microscope.get_stage_orientation(stage_position=position),
             )
         except Exception as e:
-            logging.debug(f"Could not tell which view {path} belongs to: {e}")
+            logger.debug(f"Could not tell which view {path} belongs to: {e}")
             continue
         views.setdefault(view, []).append(image)
     return views

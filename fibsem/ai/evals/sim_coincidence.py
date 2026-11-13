@@ -44,6 +44,8 @@ from fibsem.structures.settings import (
     ImageSettings,
 )
 
+logger = logging.getLogger(__name__)
+
 # the planned lamella after each pass (m): the base, then thinner each time
 SCHEDULE = (None, 2.0e-6, 1.4e-6, 1.0e-6, 0.7e-6, 0.5e-6, 0.35e-6, 0.25e-6)
 WIDTH = 8e-6  # m, the lamella's width
@@ -124,7 +126,7 @@ def write_case(
         microscope._connection.sample_scene = scene
         target = _pick_target(rng, scene, kind)
         if target is None:
-            logging.warning("seed %s: no %s in the scene, no case", seed, kind)
+            logger.warning("seed %s: no %s in the scene, no case", seed, kind)
             return None
         tx, ty, above = target["midpoint"]
         tz = above + scene._fm_film()
@@ -256,5 +258,5 @@ def write_case(
     )
     with open(folder / "case.yaml", "w") as f:
         yaml.safe_dump(case, f, sort_keys=False, width=100)
-    logging.info("coincidence case for seed %s: lost at %s", seed, lost)
+    logger.info("coincidence case for seed %s: lost at %s", seed, lost)
     return folder

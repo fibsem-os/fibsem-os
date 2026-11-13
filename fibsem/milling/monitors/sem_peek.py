@@ -21,6 +21,8 @@ from fibsem.milling.monitors.base import (
 from fibsem.structures.params import param
 from fibsem.structures.settings import BeamType, ImageSettings
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class SemPeekConfig(MillingPeriodicMonitorConfig):
@@ -94,7 +96,7 @@ class SemPeekMonitor(MillingPeriodicMonitor[SemPeekConfig]):
         try:
             fig.savefig(path, dpi=100)
         except Exception:  # noqa: BLE001 - the figure must not cost the record
-            logging.debug("could not save the SEM peek sheet", exc_info=True)
+            logger.debug("could not save the SEM peek sheet", exc_info=True)
             path = None
         return path
 

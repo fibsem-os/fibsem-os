@@ -38,6 +38,8 @@ from fibsem.imaging.export import (
     render_export,
 )
 
+logger = logging.getLogger(__name__)
+
 # "FM" is a beam like the others: an animation of the tasks that saved a fluorescence
 # stack, a frame each. "both" is SEM and FIB side by side.
 BEAMS = ("SEM", "FIB", "FM", "both")
@@ -111,7 +113,7 @@ class AnimationFrame:
             try:
                 self._fluorescence = load_export_image(path)
             except Exception:
-                logging.warning("Animation: could not read %s", path, exc_info=True)
+                logger.warning("Animation: could not read %s", path, exc_info=True)
                 self._fluorescence_failed = True
         return self._fluorescence
 
@@ -171,7 +173,7 @@ def load_frames(steps: Sequence[AnimationStep]) -> List[AnimationFrame]:
             try:
                 images.append(load_export_image(path))
             except Exception:
-                logging.warning("Animation: could not read %s", path, exc_info=True)
+                logger.warning("Animation: could not read %s", path, exc_info=True)
         if images or step.fluorescence:
             frames.append(
                 AnimationFrame(

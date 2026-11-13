@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
     from fibsem.structures.system import SystemSettings
 
+logger = logging.getLogger(__name__)
+
 
 @dataclass(frozen=True)
 class ResolvedEntry:
@@ -111,7 +113,7 @@ def resolve_device_entries(
     resolved = []
     for entry in merged.values():
         if entry.enabled is False:
-            logging.info(f"Device '{entry.name}' is disabled in the configuration.")
+            logger.info(f"Device '{entry.name}' is disabled in the configuration.")
             continue
         resolved.append(
             ResolvedEntry(
@@ -251,14 +253,14 @@ def disconnect_devices(
         try:
             close()
         except Exception as e:
-            logging.warning(f"Device '{name}' did not disconnect cleanly: {e}")
+            logger.warning(f"Device '{name}' did not disconnect cleanly: {e}")
     pending = list(cleanups)
     cleanups.clear()
     for cleanup in reversed(pending):
         try:
             cleanup()
         except Exception as e:
-            logging.warning(f"A device connection did not close cleanly: {e}")
+            logger.warning(f"A device connection did not close cleanly: {e}")
 
 
 def _builder(item: ResolvedEntry) -> Optional["DeviceBuilder"]:
@@ -299,7 +301,7 @@ def _not_built(
     message = f"Device '{item.name}' was not built: {reason}."
     if item.required:
         raise DeviceBuildError(message) from error
-    logging.warning(message)
+    logger.warning(message)
     mark = getattr(microscope, "_mark_device_not_built", None)
     if mark is not None:
         mark(item.name, reason)
@@ -340,15 +342,13 @@ def bind_device_roles(
                 continue
             device = devices.get(target)
             if device is None:
-                logging.warning(
-                    f"{where}: '{target}' was not built; role left unbound."
-                )
+                logger.warning(f"{where}: '{target}' was not built; role left unbound.")
                 continue
             try:
                 parent.fill_roles(**{role: device})
             except TypeError as e:
                 raise RoleBindingError(f"{where}: {e}") from None
-            logging.info(f"{item.name}.{role} is bound to '{target}'.")
+            logger.info(f"{item.name}.{role} is bound to '{target}'.")
 
 
 def _check_no_cycle(bindings: Mapping[str, Mapping[str, str]]) -> None:

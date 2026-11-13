@@ -100,6 +100,8 @@ from fibsem.util.timestamps import (
     to_datetime,
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ZStackOrder(NamedEnum, Enum):
     """Acquisition order for z-stack."""
@@ -603,7 +605,7 @@ def _annotated_metadata(ome: OMEMetadata) -> Optional["FluorescenceImageMetadata
         try:
             return FluorescenceImageMetadata.from_dict(json.loads(text))
         except Exception as e:
-            logging.warning(f"Failed to load structured annotations: {e}")
+            logger.warning(f"Failed to load structured annotations: {e}")
             return None
     return None
 
@@ -920,7 +922,7 @@ class FluorescenceImage:
         try:
             ome = safe_ome_from_tiff(filename)
         except Exception as e:
-            logging.debug(f"No OME metadata in {filename}: {e}")
+            logger.debug(f"No OME metadata in {filename}: {e}")
             ome = None
         if ome is not None:
             metadata = _annotated_metadata(ome)
@@ -929,7 +931,7 @@ class FluorescenceImage:
                 try:
                     metadata = FluorescenceImageMetadata.from_ome(ome)
                 except Exception as e:
-                    logging.warning(f"Failed to load OME metadata: {e}")
+                    logger.warning(f"Failed to load OME metadata: {e}")
         if metadata is None:
             metadata = cls._create_basic_metadata(data_shape)
         return metadata

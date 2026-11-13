@@ -25,6 +25,8 @@ from fibsem.ui.widgets.form_builder import AdvancedRows, Row, build_control
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
+logger = logging.getLogger(__name__)
+
 
 class FibsemStrategySettingsWidget(AdvancedRows, QWidget):
     """Metadata-driven form widget for any milling strategy's config.
@@ -131,7 +133,7 @@ class FibsemStrategySettingsWidget(AdvancedRows, QWidget):
                 read_only_fallback=False,
             )
             if control is None:
-                logging.warning("Control for '%s' is unsupported", field_name)
+                logger.warning("Control for '%s' is unsupported", field_name)
                 continue
 
             label = QLabel(spec.label or field_name.replace("_", " ").title())

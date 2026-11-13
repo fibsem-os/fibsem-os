@@ -116,6 +116,8 @@ if TYPE_CHECKING:
     from fibsem.drivers.registry import BuildContext
     from fibsem.structures.system import DeviceEntry
 
+logger = logging.getLogger(__name__)
+
 
 # The ranges the simulated beams take: wide enough for any real column's values.
 _SIM_HFW_LIMITS = RangeLimit(min=100e-9, max=3e-3)
@@ -339,15 +341,15 @@ class DemoBeam(Beam):
     def write_plasma_gas(self, value: str) -> None:
         # An unavailable gas logs and is ignored, as the Demo branch does.
         gases = self._choices("plasma_gas").choices
-        logging.info(f"Checking if plasma_gas={value} is available ({BeamType.ION})")
+        logger.info(f"Checking if plasma_gas={value} is available ({BeamType.ION})")
         if value not in gases:
-            logging.warning(
+            logger.warning(
                 f"Plasma gas {value} not available. Available values: {gases}"
             )
             return
-        logging.info(f"Setting plasma gas to {value}... this may take some time...")
+        logger.info(f"Setting plasma gas to {value}... this may take some time...")
         self.parent.system.ion.plasma_gas = value
-        logging.info(f"Plasma gas set to {value}.")
+        logger.info(f"Plasma gas set to {value}.")
 
     def metadata_plasma_gas(self) -> ParameterMetadata:
         return self._choices("plasma_gas")
@@ -481,7 +483,7 @@ class DemoStage(Stage):
             if value is not None:
                 setattr(self.sim_position, axis, value)
         self._moved(before)
-        logging.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
+        logger.debug({"msg": "move_stage_absolute", "position": position.to_dict()})
 
     def _move_relative(self, delta: FibsemStagePosition) -> None:
         from fibsem.drivers.demo.simulator import STAGE_MOVEMENT_SLEEP_TIME
@@ -490,14 +492,14 @@ class DemoStage(Stage):
         before = deepcopy(self.sim_position)
         self.sim_position += delta
         self._moved(before)
-        logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
+        logger.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
 
     def _moved(self, before: FibsemStagePosition) -> None:
         if self.sim_error is None:
             return
         self.sim_error.moved(before, self.sim_position)
         actual = self.sim_error.actual(self.sim_position)
-        logging.debug(
+        logger.debug(
             {
                 "msg": "sim_stage_error",
                 "reported": self.sim_position.to_dict(),
@@ -506,14 +508,14 @@ class DemoStage(Stage):
         )
 
     def _home(self) -> None:
-        logging.info("Homing stage...")
+        logger.info("Homing stage...")
         self.sim_homed = True
-        logging.info("Stage homed.")
+        logger.info("Stage homed.")
 
     def _link(self) -> None:
-        logging.info("Linking stage...")
+        logger.info("Linking stage...")
         self.sim_linked = True
-        logging.info("Stage linked.")
+        logger.info("Stage linked.")
 
 
 class DemoXYZStage(Stage):
@@ -605,16 +607,16 @@ class DemoChamber(Chamber):
         return self.sim_pressure
 
     def _pump(self) -> None:
-        logging.info("Pumping chamber...")
+        logger.info("Pumping chamber...")
         self.sim_state = ChamberState.PUMPED
         self.sim_pressure = 1e-6
-        logging.info("Chamber pumped.")
+        logger.info("Chamber pumped.")
 
     def _vent(self) -> None:
-        logging.info("Venting chamber...")
+        logger.info("Venting chamber...")
         self.sim_state = ChamberState.VENTED
         self.sim_pressure = 1e5
-        logging.info("Chamber vented.")
+        logger.info("Chamber vented.")
 
 
 # Demo's two saved positions. insert_manipulator goes to PARK and
@@ -677,32 +679,32 @@ class DemoManipulator(Manipulator):
         raise ValueError(f"Unknown manipulator position: {name}")
 
     def _insert(self, name: str) -> None:
-        logging.info(f"Inserting manipulator to {name}...")
+        logger.info(f"Inserting manipulator to {name}...")
         self._move_absolute(_DEMO_PARK)
         self.sim_inserted = True
-        logging.debug({"msg": "insert_manipulator", "name": name})
+        logger.debug({"msg": "insert_manipulator", "name": name})
 
     def _retract(self) -> None:
-        logging.info("Retracting manipulator...")
+        logger.info("Retracting manipulator...")
         self._move_absolute(_DEMO_ORIGIN)
         self.sim_inserted = False
-        logging.debug({"msg": "retract_manipulator"})
+        logger.debug({"msg": "retract_manipulator"})
 
     def _move_absolute(self, position: FibsemManipulatorPosition) -> None:
-        logging.info(f"Moving manipulator: {position} (Absolute)")
+        logger.info(f"Moving manipulator: {position} (Absolute)")
         self.sim_position = deepcopy(position)
-        logging.debug(
+        logger.debug(
             {"msg": "move_manipulator_absolute", "position": position.to_dict()}
         )
 
     def _move_relative(self, delta: FibsemManipulatorPosition) -> None:
-        logging.info(f"Moving manipulator: {delta} (Relative)")
+        logger.info(f"Moving manipulator: {delta} (Relative)")
         self.sim_position += delta
-        logging.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
+        logger.debug({"msg": "move_manipulator_relative", "position": delta.to_dict()})
 
     def _move_corrected(self, dx: float, dy: float, beam_type: BeamType) -> None:
         # Demo applies no correction: dx and dy go straight onto x and y.
-        logging.info(
+        logger.info(
             f"Moving manipulator: dx={dx:.2e}, dy={dy:.2e}, "
             f"beam_type = {beam_type.name} (Corrected)"
         )
@@ -710,7 +712,7 @@ class DemoManipulator(Manipulator):
 
     def _stop(self) -> None:
         # Its moves finish before they return, so there is never one to stop.
-        logging.info("Stopping manipulator.")
+        logger.info("Stopping manipulator.")
 
 
 # -- The sample loader --------------------------------------------------------------
@@ -910,34 +912,34 @@ class DemoGasInjector(GasInjector):
         return self.heated_temperature if self.sim_heated else self.room_temperature
 
     def _insert(self, position: Optional[str]) -> None:
-        logging.info(f"Inserting {self.name}" + (f" to {position}" if position else ""))
+        logger.info(f"Inserting {self.name}" + (f" to {position}" if position else ""))
         self.sim_inserted = True
         self.sim_position = position
 
     def _retract(self) -> None:
-        logging.info(f"Retracting {self.name}")
+        logger.info(f"Retracting {self.name}")
         self.sim_inserted = False
         self.sim_position = None
 
     def _heater_on(self, gas: Optional[str]) -> None:
         if gas:
             self.sim_gas = str(gas)
-        logging.info(f"Heating {self.name} ({self.sim_gas})...")
+        logger.info(f"Heating {self.name} ({self.sim_gas})...")
         sim_sleep(self.heater_delay)
         self.sim_heated = True
 
     def _heater_off(self) -> None:
-        logging.info(f"Turning off the {self.name} heater")
+        logger.info(f"Turning off the {self.name} heater")
         self.sim_heated = False
 
     def _open(self) -> None:
-        logging.info(f"Opening the {self.name} valve")
+        logger.info(f"Opening the {self.name} valve")
         self.sim_opened = True
         self.sim_opened_at = time.monotonic()
         self.sim_open_seconds = 0.0
 
     def _close(self) -> None:
-        logging.info(f"Closing the {self.name} valve")
+        logger.info(f"Closing the {self.name} valve")
         self.sim_opened = False
         if self.sim_opened_at is not None:
             # the sample is coated for as long as the valve was open
@@ -1012,7 +1014,7 @@ class DemoSputterCoater(SputterCoater):
 
     def _run(self, seconds: float, grids: Optional[Tuple[int, ...]]) -> None:
         on = f" on grids {list(grids)}" if grids else ""
-        logging.info(f"Sputtering for {seconds} s at {self.sim_current:.2e} A{on}...")
+        logger.info(f"Sputtering for {seconds} s at {self.sim_current:.2e} A{on}...")
         self.sim_inserted = True
         try:
             sim_sleep(seconds)
@@ -1426,7 +1428,7 @@ class DemoObjective(Objective):
 
     def write_limit_position(self, value: float) -> None:
         self.sim_limit_position = value
-        logging.info(
+        logger.info(
             f"Objective user-defined position limit set to: {value * 1e3:.3f} mm"
         )
 
@@ -1437,7 +1439,7 @@ class DemoObjective(Objective):
 
     def _move_relative(self, delta: float) -> None:
         self.sim_position += delta
-        logging.info(
+        logger.info(
             f"Objective moved to new position: {self.sim_position * 1e3:.3f} mm "
             f"(delta: {delta * 1e3:.3f} mm)"
         )
@@ -1445,14 +1447,14 @@ class DemoObjective(Objective):
 
     def _move_absolute(self, position: float) -> None:
         if not position <= self.sim_limit_position:
-            logging.warning(
+            logger.warning(
                 f"Clipping position {position} to user-defined limits "
                 f"{self.sim_limit_position}"
             )
             position = float(np.clip(position, 0, self.sim_limit_position))
         sim_sleep(0.5)
         self.sim_position = position
-        logging.info(
+        logger.info(
             f"Objective moved to absolute position: {self.sim_position * 1e3:.3f} mm"
         )
         self._moved()

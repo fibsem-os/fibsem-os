@@ -30,6 +30,8 @@ from fibsem.milling.monitors.intensity import IntensityDropRule
 from fibsem.structures.params import Display, RangeLimit, param
 from fibsem.structures.settings import FibsemRectangle
 
+logger = logging.getLogger(__name__)
+
 # The numbers each reading carries, from the drop rule.
 _READING = (
     "value",
@@ -216,7 +218,7 @@ class FmIntensityMonitor(MillingStreamMonitor[FmIntensityConfig]):
         try:
             fig.savefig(path, dpi=100)
         except Exception:  # noqa: BLE001 - the figure must not cost the record
-            logging.debug("could not save the intensity figure", exc_info=True)
+            logger.debug("could not save the intensity figure", exc_info=True)
             path = None
         return path
 
