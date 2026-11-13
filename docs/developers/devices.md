@@ -636,9 +636,8 @@ hardware:
         enabled: false
       - name: fm
         enabled: true
-        driver: remote
-        address: 192.168.0.20
-        port: 8765
+        driver: Odemis
+        remote: 192.168.0.20:8765
 ```
 
 **The list is an overlay.** A backend builds the devices its instrument always has.
@@ -652,7 +651,8 @@ Each entry has:
 | `name` | Unique in the file, and the device's name in `microscope.devices`. Defaults to the type. A beam is named `electron` or `ion`. |
 | `type` | The device type: `beam`, `stage`, `chamber`, `manipulator`, `fm`, `sample_loader`, `gis`, `sputter_coater`, or a type a plugin adds. May be left out where the name is a type (`name: fm`). |
 | `enabled` | Absent: the backend's default. `false`: never built, and its driver never touches it. |
-| `driver` | The driver that builds it, by its registry name. Absent: the driver for `info.manufacturer`. `remote` is a device on another computer, at `address` and `port`. |
+| `driver` | The driver that builds it, by its registry name. Absent: the driver for `info.manufacturer`. |
+| `remote` | `<address>:<port>` of the Device Server it runs behind, for a device on another computer. Absent: the device is on this computer. |
 | `required` | Whether connecting fails if the device cannot be built. Defaults to `true` for a device the file lists, since the site says it has it; `false` logs a failed build and leaves the device out. A device only the backend assumes (one the file doesn't list) is logged, left out and marked not fitted. |
 | `roles` | Binds a role of this device to another entry by name (`{scanner: scan_generator}`). Every backend binds it; see [Binding a role from the configuration](#binding-a-role-from-the-configuration). |
 
@@ -675,7 +675,7 @@ to the Demo microscope, so they run with no hardware.
 | A new kind of device with settings only | A device class, its builder and a driver record ([Adding a device type](#adding-a-device-type), [Adding a driver](#adding-a-driver)) | `lamp/` |
 | A new kind of device with commands | The same, plus commands, a `DeviceFault` on a refusal, hardware check steps and a guided setup | `knife/` |
 | A type fibsemOS already has, on its own controller | A device implementing that type's interface, bound to a role if it fills one ([Roles](#roles)) | `scanner/` |
-| A device plugged into another computer | Any of the above, served by a device server and named `driver: remote` ([Devices on another computer](#devices-on-another-computer)) | `scanner/remote.py` |
+| A device plugged into another computer | Any of the above, served by a device server and given `remote: <address>:<port>` ([Devices on another computer](#devices-on-another-computer)) | `scanner/remote.py` |
 
 Its README gives the steps in order, from wrapping the vendor's library to checking
 the device in the application.
@@ -896,12 +896,15 @@ every network and nothing is encrypted (INSTALLATION.md, "Delmic METEOR"). An en
 the server can't serve (a remote one, or an `fm` entry stating keys the host's entry
 owns, such as `origin`) is refused at start-up.
 
-On the microscope's computer, the `fm` entry names `driver: remote` and the server's
-`address` and `port`, as in the example under
-[Configuring devices](#configuring-devices). The FM's devices are then built from what
+On the microscope's computer, the `fm` entry gives the server as
+`remote: <address>:<port>`, as in the example under
+[Configuring devices](#configuring-devices). Where a device runs and which driver makes
+it are two separate keys: `driver` still names the device's own driver (the one the
+server builds it with), and a warning says so when the server's is another. Older
+files that write `driver: remote` with `address` and `port` still work. The FM's devices are then built from what
 the server has, backed by HTTP (`fibsem/drivers/remote/devices.py`), and parameters,
 metadata and commands behave as they do locally. Beams, the stage, the chamber, the
-manipulator and the FM's parts can each be an entry with `driver: remote`; a stage,
+manipulator and the FM's parts can each be an entry with `remote:`; a stage,
 chamber or manipulator entry keeps its type's name. Moves, pumping and venting run on
 the server, which checks a stage move against the limits as well. What a device says
 about itself beyond its parameters (the stage's frame, shuttle and the device each
@@ -960,7 +963,7 @@ Every route and stream needs a token: the one the server keeps for its install
 (`~/.fibsem/device-server-token.json`, made on first start), which a client on the
 same computer reads by itself, or one paired by command: `--pair` prints a code, and
 `fibsem-cli pair-device ADDRESS:PORT CODE` on the other computer keeps the token for
-every later connect. A remote entry names only `address` and `port`. Keep the server
+every later connect. A remote entry names only where the server is. Keep the server
 on the microscope's private network all the same: the traffic is not encrypted.
 
 ### Over the App Server
