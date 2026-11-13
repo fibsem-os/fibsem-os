@@ -62,6 +62,7 @@ from fibsem.ui.stylesheets import (
     PRIMARY_BUTTON_STYLESHEET,
     SECONDARY_BUTTON_STYLESHEET,
 )
+from fibsem.ui.widgets.custom_widgets import ElidedLabel
 
 __all__ = ["GatewayWindow", "app_line", "mode_colour", "run_window"]
 
@@ -170,9 +171,10 @@ class _Section(QFrame):
         self.line = QLabel()
         self.line.setStyleSheet(BODY_STYLE)
         self.line.setTextFormat(Qt.TextFormat.RichText)
-        self.detail = QLabel()
+        # One line, the whole text in the tooltip: a long agent goal wrapped
+        # past the panel's height and was drawn squashed into it.
+        self.detail = ElidedLabel()
         self.detail.setStyleSheet(BODY_MUTED_STYLE)
-        self.detail.setWordWrap(True)
         self.button = QPushButton()
         self.button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
         self.button.hide()
