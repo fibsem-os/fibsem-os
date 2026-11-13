@@ -38,6 +38,7 @@ from fibsem.workflows.proposals import (
     record,
 )
 from fibsem.workflows.saved_format import FORMAT_VERSION, check_app, saved_app
+from fibsem.workflows.status import INTERRUPTED, TaskStatus, take_back_finish
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -98,6 +99,24 @@ class BaseExperiment:
     def get_item_by_id(self, item_id: str) -> Optional[Any]:
         """The item with ``item_id``. By id -- names change."""
         return next((item for item in self.items() if item.id == item_id), None)
+
+    def end_what_was_running(self, reason: str) -> int:
+        """Record every task still InProgress as Failed, with *reason*: nothing
+        is running an experiment that was just read from disk. A task that ends
+        writes its own outcome, but a process that ends without unwinding
+        leaves InProgress on disk, and on the next load the item would read as
+        running: skipped by edits and refused its decisions, with no run to
+        stop. Called by ``load``; the second load finds nothing. Returns how
+        many."""
+        ended = 0
+        with EXPERIMENT_WRITE_LOCK:
+            for item in self.items():
+                state = getattr(item, "task_state", None)
+                if state is None or state.status is not TaskStatus.InProgress:
+                    continue
+                take_back_finish(item, state.task_id, TaskStatus.Failed, reason)
+                ended += 1
+        return ended
 
     def item_path(self, item: Any) -> Path:
         """The directory an item's recorded outputs are relative to."""
@@ -400,6 +419,7 @@ class FibsemExperiment(ProposalDecisions, BaseExperiment):
         experiment = cls(path=path.parent.parent, name=path.parent.name)
         experiment._read_identity(ddict)
         experiment.withdraw_what_was_asked("the app closed before it was answered")
+        experiment.end_what_was_running(INTERRUPTED)
         return experiment
 
 

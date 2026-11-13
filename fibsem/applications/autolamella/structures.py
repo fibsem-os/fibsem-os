@@ -55,7 +55,7 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.site_task import SiteTaskConfig
-from fibsem.workflows.status import TaskState
+from fibsem.workflows.status import INTERRUPTED, TaskState
 from fibsem.workflows.task_config import (
     RunPlan,
     TaskProtocol,
@@ -759,6 +759,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         # a question the task was waiting on when the app closed: nothing is
         # waiting on it now
         experiment.withdraw_what_was_asked("the app closed before it was answered")
+        experiment.end_what_was_running(INTERRUPTED)
 
         # lamella paths are stored as-created, so re-point them at wherever the
         # experiment actually is now. otherwise a moved or copied experiment
