@@ -114,7 +114,9 @@ class PositionEditor(QWidget):
 
         self.image_combo = QComboBox()
         self.image_combo.setMinimumContentsLength(28)
-        self.image_combo.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLength)
+        self.image_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         picker = QHBoxLayout()
         picker.addStretch(1)
         picker.addWidget(QLabel("Image"))
