@@ -309,9 +309,7 @@ def test_a_built_fm_puts_its_devices_in_the_microscopes_devices():
 
 
 @pytest.mark.parametrize("driver", [None, "Odemis"])
-def test_an_fm_with_remote_is_not_looked_for_on_the_beams_connection(
-    tmp_path, driver
-):
+def test_an_fm_with_remote_is_not_looked_for_on_the_beams_connection(tmp_path, driver):
     from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
 
     settings = utils.load_yaml(IFLM_CONFIG)
