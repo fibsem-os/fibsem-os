@@ -567,7 +567,7 @@ class ConnectionDialog(QDialog):
         self._connect_address = address
         self._cancel = threading.Event()
         worker = self._connect_worker = FunctionWorker(
-            self.session.connect,
+            self.session.connect_unless_cancelled,
             path,
             progress=self._connect_step.emit,
             cancel=self._cancel,
@@ -606,7 +606,9 @@ class ConnectionDialog(QDialog):
         if self.is_connecting and not self._cancel.is_set():
             self._show_message(step, is_error=False)
 
-    def _on_connected(self, _instrument: object) -> None:
+    def _on_connected(self, instrument: object) -> None:
+        if instrument is None:  # cancelled
+            return
         if self._cancel.is_set():  # finished after its last check: let it go
             self.session.disconnect()
             return

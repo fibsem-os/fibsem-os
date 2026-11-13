@@ -288,6 +288,15 @@ class AppSession:
         finally:
             self._connect_lock.release()
 
+    def connect_unless_cancelled(self, *args: Any, **kwargs: Any) -> Any:
+        """`connect`, returning None when it was cancelled rather than raising:
+        a cancel is the operator's choice, not a failure to log."""
+        try:
+            return self.connect(*args, **kwargs)
+        except utils.ConnectCancelled:
+            logging.info("Connecting was cancelled.")
+            return None
+
     def _connect_devices(
         self,
         settings: Dict[str, Any],

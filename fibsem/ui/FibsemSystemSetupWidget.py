@@ -544,7 +544,7 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         # the connect is done, so nothing can be started against a half-made one.
         self._cancel = threading.Event()
         worker = self._connect_worker = FunctionWorker(
-            self.session.connect,
+            self.session.connect_unless_cancelled,
             configuration_path,
             progress=self._connect_step.emit,
             cancel=self._cancel,
@@ -580,9 +580,10 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self._label_status_title.setText("Cancelled")
         self._label_status_subtitle.setText("Letting go of the step still under way…")
 
-    def _on_connected(self, _instrument: object) -> None:
-        if self._cancel.is_set():  # finished after its last check: let it go
-            self.session.disconnect()
+    def _on_connected(self, instrument: object) -> None:
+        if instrument is None or self._cancel.is_set():
+            if instrument is not None:  # finished after its last check
+                self.session.disconnect()
             notification_service.show_toast("Connecting was cancelled.", "info")
             return
         msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
