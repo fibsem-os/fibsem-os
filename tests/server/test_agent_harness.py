@@ -29,6 +29,7 @@ from fibsem.applications.autolamella.server.context import (
 from fibsem.server import AuthConfig
 from fibsem.server.hosting import AppServerHost
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.events import split_event_id
 from fibsem.workflows.session import AppSession
 from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
@@ -916,6 +917,64 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
         if e["kind"] == "note" and e.get("actor") != "operator"
     ]
     assert [n["payload"].get("reply_to") for n in notes] == [message_id]
+
+
+def test_an_event_id_after_lines_already_taken_is_the_current_turn_s():
+    # The watch says a poll's lines, then the id of its newest event: two
+    # items. A turn can take the lines before the id arrives.
+    async def main():
+        harness = Harness(ScriptedAgent(), lambda: None, keep_cursor=kept.append)
+        harness._items, harness._urgent = asyncio.Queue(), asyncio.Event()
+        harness._watcher = watcher = object()
+        harness._put(watcher, watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab"))
+        assert len(harness._drain()) == 1  # the turn starts with the line
+        harness._put(watcher, harness_mod._Cursor("s-5"))
+        harness._keep_given_cursor()  # the turn is over
+        # With lines still waiting, the id waits behind them.
+        harness._put(watcher, watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=cd"))
+        harness._put(watcher, harness_mod._Cursor("s-6"))
+        harness._keep_given_cursor()
+
+    kept = []
+    asyncio.run(main())
+    assert kept == ["s-5"]
+
+
+def test_a_resumed_session_hears_what_it_missed_while_it_was_down(session):
+    kept = []
+
+    async def reply(prompt):
+        return None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, keep_cursor=kept.append)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    first = AgentSession(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    # The id is kept once the turn carrying the message is over, not as it
+    # starts: an id kept before then (the kickoff's) is from before the message.
+    (sent,) = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if (e.get("payload") or {}).get("id") == first
+    ]
+    assert wait_for(
+        lambda: any(split_event_id(k)[1] >= sent["seq"] for k in kept), timeout=20
+    ), "the message's event id was not kept after its turn"
+    assert running.stop() == 0
+    assert first in agent.prompts[1]
+
+    # Sent while no agent watched.
+    missed = AgentSession(session).message("and 02?")
+
+    again = ScriptedAgent(reply)
+    running = _harness(session, again, resumed=True, after=kept[-1])
+    assert wait_for(lambda: len(again.prompts) >= 2, timeout=20), (
+        "the resumed session did not hear the message it missed"
+    )
+    assert running.stop() == 0
+    assert missed in again.prompts[1]
+    assert first not in again.prompts[1], "a message it had already heard came again"
 
 
 def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
