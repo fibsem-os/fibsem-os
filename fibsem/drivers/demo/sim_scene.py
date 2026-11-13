@@ -42,7 +42,7 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import zoom as ndi_zoom
 
 from fibsem.devices.fm import mount_transform_from_name
-from fibsem.drivers.demo import sim_optics, sim_solid, sim_view
+from fibsem.drivers.demo import sim_faults, sim_optics, sim_solid, sim_view
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -457,6 +457,8 @@ class SampleScene:
     # flipped until the camera's mount transform is set to match
     scan_rotation_at_start: Dict[str, float] = field(default_factory=dict)
     fm_camera_mount: Optional[str] = None
+    # what goes wrong, and when: see sim_faults
+    faults: List[dict] = field(default_factory=list)
     _current_offsets: Dict[Tuple[str, float], Tuple[float, float]] = field(
         default_factory=dict, repr=False
     )
@@ -1064,6 +1066,7 @@ class SampleScene:
         projection: BeamStageProjection,
         beam_shift: Tuple[float, float] = (0.0, 0.0),
         beam_current: Optional[float] = None,
+        extra_drift: Tuple[float, float] = (0.0, 0.0),
     ) -> List[MilledRegion]:
         """Commit milling patterns to the world.
 
@@ -1103,6 +1106,8 @@ class SampleScene:
         n_pass = len(self.mill_passes)
         rng = np.random.default_rng([int(self.seed) & 0x7FFFFFFF, 47, n_pass])
         drift = rng.normal(0.0, self.mill_drift, 2) if self.mill_drift > 0 else (0, 0)
+        # a fault's drift, on top (pattern coordinates, m)
+        drift = (drift[0] + extra_drift[0], drift[1] + extra_drift[1])
         kerf = 0.0
         if self.mill_kerf and beam_current:
             # half the spot: ~15 nm at 100 pA, ~110 nm at 15 nA
@@ -2017,6 +2022,7 @@ class SampleScene:
         "focus_fuzz",  # m, how far focus is from the eucentric height, at most
         "scan_rotation_at_start",  # {electron: deg, ion: deg} the beams boot at
         "fm_camera_mount",  # the mount transform the FM camera really has
+        "faults",  # what goes wrong and when, see sim_faults
         "film",  # continuous | holey
         "hole_diameter",  # m
         "hole_pitch",  # m
@@ -2062,6 +2068,7 @@ class SampleScene:
         kwargs.setdefault("beam_optics", True)
         if kwargs.get("fm_camera_mount") is not None:
             mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
+        sim_faults.Faults(kwargs.get("faults"))  # or it raises
         for key in (
             "cells_per_cluster",
             "cell_size",
@@ -2758,6 +2765,23 @@ class SampleScene:
         here = sim_solid.Plan(self, x * um + near, y * um + near)
         return bool(here.gone_at(x * um, y * um, (z + self._fm_film()) * um)[0])
 
+    def due(self, event: str, beam_type: Optional[BeamType] = None) -> dict:
+        """Count one event (see sim_faults) and give the faults that fire on
+        it, by kind."""
+        if not self.faults:
+            return {}
+        schedule = getattr(self, "_fault_schedule", None)
+        if schedule is None:
+            schedule = sim_faults.Faults(self.faults, self.seed)
+            object.__setattr__(self, "_fault_schedule", schedule)
+        beam = None if beam_type is None else beam_type.name.lower()
+        return {fault.kind: fault for fault in schedule.due(event, beam)}
+
+    def faults_fired(self) -> List[dict]:
+        """The faults that have fired, in order: kind, event, count, time."""
+        schedule = getattr(self, "_fault_schedule", None)
+        return [] if schedule is None else [dict(entry) for entry in schedule.log]
+
     def record(self, points: Optional[Dict[str, tuple]] = None) -> dict:
         """What was done to the sample, as plain values that go straight to
         JSON: each milling pass (drawn and cut gaps, drift, current, damage),
@@ -2791,6 +2815,7 @@ class SampleScene:
                 "seed": self.seed,
                 "passes": self.mill_passes,
                 "damage_started": self.damage_started,
+                "faults": self.faults_fired(),
                 "regions": [
                     {
                         "points": r.points,

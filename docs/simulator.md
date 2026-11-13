@@ -138,6 +138,35 @@ A session can start with something set wrong, to practise noticing it:
   mounted. Unless the camera's `mount_transform` in the configuration says the same, the
   FM image is flipped and a click on it sends the stage the wrong way.
 
+## Things going wrong
+
+`faults` is a list of things that go wrong during a session, each once, on a count of
+images, milling passes, stage moves or valve openings from the start:
+
+```yaml
+sim:
+  sample:
+    faults:
+      - {kind: beam_off, beam: ion, at: 3}             # the third FIB image
+      - {kind: mill_drift, at: [2, 5], amount: 4e-7}   # a pass from 2 to 5, by the seed
+      - {kind: stage_fails, at: 10}                    # the tenth stage move
+```
+
+| kind | counts | what happens | `amount` |
+| -- | -- | -- | -- |
+| `beam_off` | images, or passes with `on: mill` | the beam turns off: black frames until it is turned on, and a pass mills nothing | |
+| `current_drop` | images, or passes with `on: mill` | the beam current falls to this fraction | 0.3 |
+| `charging` | images | this frame charges that much more | 3.0 |
+| `blank_image` | images | this frame is black | |
+| `noisy_image` | images | this frame has that many times the noise | 6.0 |
+| `stage_fails` | stage moves | the move raises and the stage stays where it was | |
+| `stage_off` | stage moves | the stage lands that far off in x (m) and reads as if it had not | 5e-6 |
+| `gis_closed` | valve openings | the valve does not open and nothing is laid down | |
+| `mill_drift` | passes | this pass drifts that much more (m), up the image | 3e-7 |
+
+With `beam: electron` or `beam: ion` a fault counts that beam's images or passes only.
+What fired is logged and kept: `scene.faults_fired()`, and `faults` in `scene.record()`.
+
 ## Milling leaves marks
 
 ![Milled trench](img/simulator/milling.png)
@@ -275,6 +304,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `focus_fuzz` | 15e-6 | how far a beam's focus is from its eucentric height, at most (m) |
 | `scan_rotation_at_start` | {} | the scan rotation each beam boots at, `{electron: deg, ion: deg}` |
 | `fm_camera_mount` | null | the mount transform the FM camera really has; null is as configured |
+| `faults` | [] | things that go wrong and when, see "Things going wrong" |
 
 ### Grid and film
 
