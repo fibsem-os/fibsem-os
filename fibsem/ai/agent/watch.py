@@ -112,6 +112,8 @@ AGENT_BACK = "agent_back"
 SERVER_UNAVAILABLE = "server_unavailable"
 SERVER_GONE = "server_gone"
 NO_EVENTS = "no_events"
+# A poll's failure when nothing answered: the failure says what to check.
+UNREACHABLE = "unreachable"
 # What the watch says just before it gives up.
 LAST_KINDS = {SERVER_UNAVAILABLE, SERVER_GONE, NO_EVENTS}
 
@@ -180,7 +182,7 @@ def _poll(client, since, timeout):
             timeout=timeout + 10.0,
         )
     except (OSError, ValueError) as error:
-        return None, f"unreachable ({error})"
+        return None, f"{UNREACHABLE} ({error})"
     if response.status_code >= 400:
         if _error_type(response) == AGENT_OFF:
             return None, AGENT_OFF
@@ -786,7 +788,8 @@ def watch(
         out(
             Wake(
                 SERVER_UNAVAILABLE,
-                f"SERVER UNAVAILABLE: /app/events gave {failure}. Is the app running?",
+                f"SERVER UNAVAILABLE: /app/events gave {failure}."
+                + ("" if failure.startswith(UNREACHABLE) else " Is the app running?"),
             )
         )
         return 1
@@ -847,7 +850,12 @@ def watch(
                 out(
                     Wake(
                         SERVER_GONE,
-                        f"SERVER GONE: /app/events gave {failure}. The app has stopped.",
+                        f"SERVER GONE: /app/events gave {failure}."
+                        + (
+                            ""
+                            if failure.startswith(UNREACHABLE)
+                            else " The app has stopped."
+                        ),
                     )
                 )
                 return 1
