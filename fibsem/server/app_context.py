@@ -556,6 +556,7 @@ class AppContext:
                 str(experiment.path),
                 len(experiment.positions),
                 getattr(experiment, "sample", "") or "",
+                getattr(experiment, "id", "") or "",
             )
             # The proposals a task is stopped on, for an agent that has just
             # connected: their events are behind its cursor.

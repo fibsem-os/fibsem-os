@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, BookOpen, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
+import { ArrowDown, BookOpen, Check, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
@@ -14,6 +14,7 @@ import { Composer } from "./agent/Composer";
 import { KnowledgeDialog } from "./agent/Knowledge";
 import { EvidenceImage } from "./agent/Pictures";
 import { PlanDialog } from "./agent/PlanDialog";
+import { say, since } from "./agent/steps";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // The agent's news (lib/events.ts) reads it, its session and its plan again at once.
@@ -36,6 +37,23 @@ const SHOWS = [
   ["transcript", "Transcript"],
 ] as const;
 type Show = (typeof SHOWS)[number][0];
+
+// Whether steps show their tool calls rather than words, kept in this browser.
+const CALLS_KEY = "fibsem.agent.toolCalls";
+function readCalls(): boolean {
+  try {
+    return localStorage.getItem(CALLS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function keepCalls(on: boolean) {
+  try {
+    localStorage.setItem(CALLS_KEY, on ? "1" : "0");
+  } catch {
+    // A browser that keeps nothing still shows the choice until reload.
+  }
+}
 
 const TONE: Record<string, string> = {
   ok: "text-[var(--fibsem-ok-color)]",
@@ -80,9 +98,9 @@ function Message({ row, unread }: { row: RecentRow; unread?: [string, string] })
       </div>
     );
   return (
-    <div className="my-1 flex gap-2 py-2 pl-2.5">
+    <div className="my-2 flex gap-2 py-1 pl-2.5">
       <Time when={row.when} />
-      <div className="min-w-0 flex-1 break-words">
+      <div className="min-w-0 flex-1 break-words text-[15px]">
         <div className="text-[12px] font-semibold text-[#c4b5fd]">{row.kind === "note" ? "Agent · note" : "Agent"}</div>
         <Markdown text={row.text} />
         {row.evidence && <EvidenceImage id={row.evidence.evidence_id} />}
@@ -163,6 +181,17 @@ function Actions({ rows, folded }: { rows: RecentRow[]; folded: boolean }) {
 }
 
 /** How long a step took, when it took long enough to say: "12 s", "3 min 5 s". */
+/** Now, ticking each second while *on*: the running step's clock. */
+function useClock(on: boolean): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!on) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [on]);
+  return now;
+}
+
 function took(s: number | undefined): string | null {
   if (s == null || s < 2) return null;
   if (s < 60) return `${Math.round(s)} s`;
@@ -188,14 +217,20 @@ function Working({
   live,
   answered,
   running,
+  now,
+  calls,
 }: {
   lines: TranscriptLine[];
   folded: boolean;
   live: boolean;
   answered: Answers;
   running: (step: TranscriptLine) => boolean;
+  now?: string | null;
+  calls: boolean;
 }) {
   const [open, setOpen] = useState(live);
+  const [shownCall, setShownCall] = useState<number | null>(null);
+  const clock = useClock(live);
   useEffect(() => {
     if (live) setOpen(true);
   }, [live]);
@@ -207,8 +242,8 @@ function Working({
   const count = steps ? [`${steps} ${steps === 1 ? "step" : "steps"}`] : [];
   const summary = ["Working", ...count, ...(failed ? [`${failed} failed`] : [])].join(" · ");
   return (
-    <div className="flex gap-2 py-1.5 pl-2.5">
-      <Time when={lines[0].t.split("T")[1]?.slice(0, 5) ?? ""} />
+    <div className="flex gap-2 py-0.5 pl-2.5 opacity-80">
+      <Time when="" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         {folded && (
           <button
@@ -221,7 +256,7 @@ function Working({
           </button>
         )}
         {shown && (
-          <div className={cn("grid grid-cols-[72px_minmax(0,1fr)] gap-x-2.5 gap-y-1 text-[13px]", folded && "pl-5")}>
+          <div className={cn("grid grid-cols-[72px_minmax(0,1fr)] gap-x-2.5 gap-y-0.5 text-[12px]", folded && "pl-5")}>
             {lines.map((l, i) => {
               if (l.kind === "said")
                 return (
@@ -242,6 +277,7 @@ function Working({
               const reason = l.kind === "failed" ? l.text : answer?.kind === "failed" ? answer.text : undefined;
               const runs = l.kind === "step" && !answer && running(l);
               const duration = took(answer?.took_s);
+              const said = l.kind === "step" ? say(l.verb ?? "Called", l.text) : null;
               return (
                 <div key={i} className="contents">
                   <span
@@ -250,12 +286,31 @@ function Working({
                       reason != null ? "text-destructive" : "text-muted-foreground",
                     )}
                   >
-                    {l.kind === "failed" ? "Failed" : l.verb}
+                    {l.kind === "failed" ? "Failed" : calls ? l.verb : runs ? "Running" : said?.verb ?? l.verb}
                     {runs && <Loader size={11} className="shrink-0 animate-spin" aria-label="running" />}
                   </span>
                   <span className="min-w-0 break-words">
-                    {l.kind === "step" && <span className="font-mono text-[12px]">{l.text}</span>}
+                    {said && calls && <span className="font-mono text-[12px]">{l.text}</span>}
+                    {said && !calls && (
+                      <button
+                        className="cursor-pointer border-0 bg-transparent p-0 text-left text-foreground"
+                        title={said.call ? "Show the call" : undefined}
+                        onClick={() => setShownCall(shownCall === i ? null : i)}
+                      >
+                        {runs && now ? now : said.words}
+                      </button>
+                    )}
+                    {runs && (
+                      <span className="text-muted-foreground">
+                        {" · "}
+                        {calls && now ? `${now} · ` : ""}
+                        {since(l.t, clock)}
+                      </span>
+                    )}
                     {duration && reason == null && <span className="text-muted-foreground"> · {duration}</span>}
+                    {said?.call && !calls && shownCall === i && (
+                      <span className="block font-mono text-[12px] text-muted-foreground">{said.call}</span>
+                    )}
                     {reason != null && (
                       <span className="text-muted-foreground">
                         {l.kind === "step" ? " · failed: " : ""}
@@ -286,11 +341,15 @@ function Record({
   lines,
   show,
   heard,
+  now,
+  calls,
 }: {
   rows: RecentRow[];
   lines: TranscriptLine[];
   show: Show;
   heard: boolean;
+  now?: string | null;
+  calls: boolean;
 }) {
   const out: JSX.Element[] = [];
   let run: RecentRow[] = [];
@@ -332,6 +391,8 @@ function Record({
           live={live}
           answered={answered}
           running={running}
+          now={now}
+          calls={calls}
         />,
       );
     }
@@ -414,6 +475,7 @@ export function AgentPage() {
     });
   }, [isWorking, since, client]);
   const [show, setShow] = useState<Show>("all");
+  const [calls, setCalls] = useState(readCalls);
   const [knowledge, setKnowledge] = useState(false);
   const list = useRef<HTMLDivElement>(null);
   // Kept at the newest row while the reader hasn't scrolled up from it.
@@ -461,6 +523,15 @@ export function AgentPage() {
   const request = a.request && ["pending", "applying"].includes(a.request.status) ? a.request : null;
   const suggestion = a.suggestion && a.request?.status !== "pending" ? a.suggestion : null;
   const label = SHOWS.find(([key]) => key === show)![1];
+  // The newest step, unanswered, is the one the record shows running.
+  const entries = transcript.data?.entries ?? [];
+  const lastStep = [...entries].reverse().find((l) => l.kind === "step");
+  const nowOnStep =
+    (show === "all" || show === "transcript") &&
+    isWorking &&
+    !a.stopped &&
+    lastStep != null &&
+    !entries.some((l) => answers(l) && l.session_id === lastStep.session_id && l.step === lastStep.seq);
   const session = reported.data?.session;
   const panel = hasPanel(session) ? (
     <SidePanel session={session} plan={plan.data} budgetLow={a.budget_low} onOpenPlan={() => setPlanOpen(true)} />
@@ -530,6 +601,20 @@ export function AgentPage() {
                     {word}
                   </button>
                 ))}
+                <div className="my-1 border-t border-border" />
+                <button
+                  role="menuitemcheckbox"
+                  aria-checked={calls}
+                  className="flex cursor-pointer items-center justify-between rounded border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-foreground hover:bg-accent"
+                  onClick={() => {
+                    keepCalls(!calls);
+                    setCalls(!calls);
+                    close();
+                  }}
+                >
+                  Show tool calls
+                  {calls && <Check size={14} />}
+                </button>
               </div>
             )}
           </Popup>
@@ -574,6 +659,8 @@ export function AgentPage() {
                   lines={transcript.data?.entries ?? []}
                   show={show}
                   heard={isWorking && !agent.data?.stopped}
+                  now={a.now}
+                  calls={calls}
                 />
               ) : (
                 <div className="py-8 text-center text-[13px] text-muted-foreground">
@@ -618,8 +705,11 @@ export function AgentPage() {
           </section>
         )}
         <div className="flex flex-col gap-2.5 border-t border-border pt-3 pb-4">
-          {/* Kept while a session runs, so the composer doesn't move as commands start and end. */}
-          {(a.session || a.now) && <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>}
+          {/* Kept while a session runs, so the composer doesn't move as commands start and end.
+              The running step says it in the record; here only when no step shows it. */}
+          {(a.session || a.now) && !nowOnStep && (
+            <div className="min-h-5 text-[13px] text-muted-foreground">{a.now}</div>
+          )}
           {a.waiting && (
             <div className="text-[13px]">
               <b>Waiting on a decision:</b> {a.waiting.proposal}{" "}

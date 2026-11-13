@@ -28,6 +28,7 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.ai.agent.report import SessionReport, plain
 from fibsem.ai.agent.session import budget_low
 from fibsem.codec import decode
+from fibsem.instrument_id import instrument_id
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.server.bodies import MessagesReadBody
 from fibsem.server.responses import AgentSession
@@ -96,6 +97,23 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
     return session, kinds
 
 
+def where(request: Request) -> Dict[str, Optional[str]]:
+    """This instrument's id, the serial number its microscope reports, and
+    the open experiment's id; None for each the server can't name."""
+    microscope = getattr(getattr(request.app.state, "served", None), "current", None)
+    serial = getattr(
+        getattr(getattr(microscope, "system", None), "info", None),
+        "serial_number",
+        None,
+    )
+    experiment = getattr(getattr(microscope, "experiment", None), "id", None)
+    return {
+        "instrument_id": instrument_id(),
+        "instrument_serial": serial if serial not in ("", "Unknown") else None,
+        "experiment_id": str(experiment) if experiment else None,
+    }
+
+
 def build_agent_session_router(
     emit: Optional[Callable[[str, Dict[str, Any]], None]] = None,
 ) -> APIRouter:
@@ -125,6 +143,11 @@ def build_agent_session_router(
     def report_session(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         session, kinds = report(auth, body)
+        for key, value in where(request).items():
+            if value is None:
+                session.pop(key, None)
+            else:
+                session[key] = value
         for kind in kinds:
             if emit is None:
                 break

@@ -14,6 +14,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -1594,6 +1595,27 @@ def test_with_no_server_the_agent_never_starts():
     running = Running(Harness(agent, lambda: None, server_wait_s=0.3, retry_s=0.05))
     assert running.ended() == 1
     assert not agent.started and not agent.prompts
+
+
+def test_a_server_of_another_api_version_ends_the_agent_at_once(caplog):
+    class OtherVersion:
+        closed = False
+
+        def request(self, method, path, **kwargs):
+            return SimpleNamespace(
+                status_code=200, json=lambda: {"api_version": "99.0.0"}
+            )
+
+        def close(self):
+            self.closed = True
+
+    client, agent = OtherVersion(), ScriptedAgent()
+    # A long wait: it ends on the version, not on the deadline.
+    running = Running(Harness(agent, lambda: client, server_wait_s=600, retry_s=0.05))
+    assert running.ended(timeout=10.0) == 1
+    assert not agent.started and client.closed
+    assert any("routes are version 99.0.0" in r.getMessage() for r in caplog.records)
+    assert running.harness._resumable is False
 
 
 def test_a_compacted_context_asks_for_the_plan_on_the_next_turn():

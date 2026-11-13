@@ -70,7 +70,7 @@ from fibsem.server.devices import (
     stream_events,
     stream_live,
 )
-from fibsem.server.discovery import fibsem_folder
+from fibsem.server.discovery import API_VERSION, fibsem_folder
 from fibsem.server.kept_reads import KeptReads, read_wait, with_age
 from fibsem.server.knowledge_routes import build_knowledge_router
 from fibsem.server.leases import LEASE_HEADER
@@ -97,8 +97,6 @@ if TYPE_CHECKING:
     from fibsem.server.app_context import AppContext
 
 logger = logging.getLogger(__name__)
-
-API_VERSION = "0.3.0"
 
 
 def _show_in_app(microscope: Optional[FibsemMicroscope], image) -> None:

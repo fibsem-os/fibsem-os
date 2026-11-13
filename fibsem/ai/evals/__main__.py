@@ -101,6 +101,12 @@ def _parser() -> argparse.ArgumentParser:
         help=f"the playbook each run starts on; '{CASE_PLAYBOOK}' for each case's own",
     )
     run.add_argument("--model", default=None)
+    run.add_argument(
+        "--scripted",
+        action="store_true",
+        help="run the scripted agent (fibsem.ai.evals.live.scripted) in "
+        "fibsem-agent's place, on the live cases it knows: no model, no usage",
+    )
     matrix = sub.add_parser(
         "matrix",
         parents=[common],
@@ -320,14 +326,22 @@ def main(argv=None) -> int:
     config.code = args.code
     config.playbook = args.playbook
     config.model = args.model
-    missing = _missing_playbooks(keyed, args.playbook)
-    if missing:
-        print(f"error: no playbook {', '.join(missing)}")
-        return 1
-    print(
-        f"{len(keyed)} cases x {args.repeats} repeats, at most "
-        f"${args.budget_usd:.2f} each, into {args.out}"
-    )
+    if args.scripted:
+        from fibsem.ai.evals.live import runs as live_runs
+        from fibsem.ai.evals.live.scripted import AGENTS
+
+        config.agent_command = live_runs.scripted_command()
+        keyed = [c for c in keyed if c.task in AGENTS]
+        print(f"{len(keyed)} cases x {args.repeats} repeats, scripted, into {args.out}")
+    else:
+        missing = _missing_playbooks(keyed, args.playbook)
+        if missing:
+            print(f"error: no playbook {', '.join(missing)}")
+            return 1
+        print(
+            f"{len(keyed)} cases x {args.repeats} repeats, at most "
+            f"${args.budget_usd:.2f} each, into {args.out}"
+        )
     try:
         run_cases(keyed, config, on_result=said)
     except RunnerError as error:

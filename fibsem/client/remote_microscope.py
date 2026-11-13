@@ -29,6 +29,7 @@ from fibsem.client.transport import NO_SERVER, ServerUnreachable, resolve, serve
 from fibsem.drivers.remote.devices import REMOTE_FM_PARTS, DeviceClient
 from fibsem.drivers.remote.services import connect_remote_services
 from fibsem.microscope import FibsemMicroscope
+from fibsem.server.discovery import check_api
 from fibsem.structures.system import FibsemExperimentRef, FibsemUser
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,7 @@ class RemoteMicroscope(FibsemMicroscope):
         # Control is the server's: a run here holds it there, by a lease.
         self.control = RemoteControl(client._transport)
         try:
+            check_api(self.client.capabilities(), "RemoteMicroscope")
             self.system = self.client.system
             self.system.info.ip_address = ip_address
             descriptions = client.describe()

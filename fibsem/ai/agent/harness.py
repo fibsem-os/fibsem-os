@@ -64,6 +64,7 @@ from fibsem.codec import decode
 from fibsem.extras import missing_extra_message
 from fibsem.keystore import get_secret
 from fibsem.logo import print_fibsem_logo
+from fibsem.server.discovery import ApiMismatch, check_api, code_mismatch
 from fibsem.unreleased import refuse
 from fibsem.util import timestamps
 
@@ -814,16 +815,20 @@ def _close(client) -> None:
 
 def _reachable(client) -> bool:
     """Whether the App Server answers this client, at any level; a warning
-    when it runs other fibsem code than fibsem-agent."""
-    from fibsem.server.discovery import code_mismatch
-
+    when it runs other fibsem code than fibsem-agent. Raises `ApiMismatch`
+    when its routes are another version's."""
     try:
         response = client.request("GET", "/capabilities", timeout=10.0)
     except Exception:
         return False
     if response.status_code == 200:
         try:
-            warning = code_mismatch(response.json(), "fibsem-agent")
+            capabilities = response.json()
+        except Exception:  # noqa: BLE001 - not an App Server's answer
+            return False
+        check_api(capabilities, "fibsem-agent")
+        try:
+            warning = code_mismatch(capabilities, "fibsem-agent")
         except Exception:  # noqa: BLE001 - a warning never costs the connection
             warning = None
         if warning:
@@ -864,8 +869,12 @@ class Harness:
         url: Optional[str] = None,
         after: Optional[str] = None,
         keep_cursor: Optional[Callable[[str], None]] = None,
+        keep_where: Optional[Callable[[dict], None]] = None,
     ) -> None:
         self._agent = agent
+        # Stores the instrument and experiment the App Server names in its
+        # answer to a report, in the session's own record.
+        self._keep_where = keep_where
         # The App Server's address when given (--url): a waiting line says
         # what to check there, such as an SSH tunnel.
         self._url = url
@@ -1186,6 +1195,8 @@ class Harness:
             return None
 
         reported = await asyncio.get_running_loop().run_in_executor(None, post)
+        if isinstance(reported, dict) and self._keep_where is not None:
+            self._keep_where(reported)
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("deadlines"))
         await self._send_transcript()
@@ -1397,9 +1408,19 @@ class Harness:
         while not self._stopping.is_set():
             client = self._connect()
             if client is not None:
-                if await asyncio.get_running_loop().run_in_executor(
-                    None, _reachable, client
-                ):
+                try:
+                    answers = await asyncio.get_running_loop().run_in_executor(
+                        None, _reachable, client
+                    )
+                except ApiMismatch as mismatch:
+                    # Waiting can't help: the two installs differ.
+                    _close(client)
+                    log.error("%s fibsem-agent stops.", mismatch)
+                    self._end_reason = "the App Server is another version"
+                    self._resumable = False
+                    self._code = 1
+                    return None
+                if answers:
                     if said:
                         log.info("The App Server answers.")
                     return client
@@ -2250,6 +2271,7 @@ def main(argv=None) -> int:
         quiet_s=playbook.session.quiet_min * 60,
         after=record.get(sessions.EVENT_AFTER),
         keep_cursor=session.keep_event_cursor,
+        keep_where=session.keep_where,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,
