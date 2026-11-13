@@ -44,18 +44,31 @@ workflow; an app with its window keeps running. A restart leaves the app running
 new gateway takes it back as it starts, so Stop and the app's state work again.
 `--no-window` runs the gateway without it.
 
-The page (`/ui/gateway`) shows:
+The page (`/ui/gateway`) is a launcher: it starts and stops the app and the agent on this
+PC. What a running agent is doing, and its questions, are on the app's Agent page. The list
+on the left has four pages:
 
-- the **Microscope**: before the app starts, a configuration saved on this PC (the default
-  first) and **Connect when the app starts**; while it runs, Connect and Disconnect, the same
-  as the web app's Microscope page;
-- the app: Start, with an app, an experiment folder and **Show the window on this PC**, or
-  what runs and Stop (with its window, Stop asks first, then closes the window);
-- the agent;
-- the paired computers;
-- every start and stop, with who made it and from where.
+- **Overview.** While nothing runs: the **Microscope** (a configuration saved on this PC,
+  the default first, and **Connect when the app starts**) and the **App** (an app, an
+  experiment folder and **Show the window on this PC**), with **Start the app**. While it
+  runs: one row for the microscope, with Connect or Disconnect, and one for the app, with
+  **Open the app** and **Stop** (with its window, Stop asks first, then closes the window).
+  Under them, the **Agent** card (below).
+- **History.** Every start and stop of the app, with who made it and from where, and the
+  latest agent sessions, newest first. **All**, **App** and **Agent** filter it. A session
+  opens to show its playbook, spend, how it ended and what it last said, and **Resume**.
+- **Pairing.** The paired computers, and a code to pair another.
+- **Settings.**
+  - **Secrets:** whether each key fibsemOS reads is set on this PC, and where from (the
+    environment or the key store). The page never shows or takes a key. **Copy command**
+    copies the `fibsem-cli key set` command to run on the PC.
+  - **Defaults:** what Overview fills in for the microscope, the app and the agent, kept in
+    `~/.fibsem/gateway-defaults.json`. Only the operator saves them.
+  - **Playbooks:** the playbooks on this PC, read-only.
+  - **Gateway:** the version, **Restart** and **Stop**. Stopping the gateway from the page
+    stops the app and any agent run. Start it again at the computer.
 
-At the top right, the page says when there is newer code: "fibsemOS 0.6.3 available" when a
+The bottom of the list says when there is newer code: "fibsemOS 0.6.3 available" when a
 newer release is on PyPI, or "Update available" for a source checkout behind GitHub's
 `main` (hover it for how many changes). The gateway asks when it starts and once a day after. Offline, or with a commit that
 was never pushed, it shows nothing.
@@ -65,10 +78,11 @@ was never pushed, it shows nothing.
 The gateway can run the agent on this PC, next to the app. The **Agent** card on the page
 starts it with:
 
-- a **playbook** (`fibsem-agent`, the general one, is picked first);
-- a **level** (Watch, Assist or Drive): the playbook's session `level` is picked first, else
-  Watch;
-- an optional **budget**, in place of the playbook's;
+- a **playbook** (the default in Settings, else `fibsem-agent`, the general one);
+- a **level** (Watch, Assist or Drive): the default in Settings, else the playbook's
+  session `level`, else Watch;
+- an optional **budget**, in place of the playbook's (the default in Settings is picked
+  first);
 - a **goal** for the session.
 
 Under the goal, the playbook's `description` says what it is for.
@@ -86,7 +100,9 @@ Start needs:
 If another agent is already connected, such as Claude Code from another computer, Start asks
 first. **Disconnect and start** replaces it.
 
-While it runs, the card shows the goal, playbook, level and spend.
+While it runs, the card shows the goal, and the playbook, level, spend and start time on one
+line, with **Open the Agent page** and **End**. It says so when the agent is waiting for the
+app or has restarted.
 
 - **If the app restarts,** the agent waits for it and resumes the same session. That's at
   most 3 times an hour after the app restarts, and once an hour after a crash. The gateway
@@ -96,7 +112,8 @@ While it runs, the card shows the goal, playbook, level and spend.
 
 The page has **End** while one runs. A hub with "may start and stop apps" can start and
 end the agent too. Each session's record and log are in
-`~/.fibsem/agent/sessions/<date>-<session id>/`, and the page lists the latest sessions.
+`~/.fibsem/agent/sessions/<date>-<session id>/`. History lists the latest sessions, and the
+Agent card shows the last one with **Resume**.
 
 Running `fibsem-agent` by hand still works as before. The gateway doesn't need to be running
 for it.
