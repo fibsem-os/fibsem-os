@@ -17,7 +17,7 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from fibsem.util.process import end
 
@@ -147,8 +147,17 @@ class Tunnels:
         with self._lock:
             return self._tunnels.get(name)
 
-    def ensure(self, name: str, destination: str) -> Tunnel:
-        """The open tunnel to *name* at *destination*, opened now if it isn't."""
+    def ensure(
+        self,
+        name: str,
+        destination: str,
+        ports: Optional[Tuple[int, int]] = None,
+    ) -> Tunnel:
+        """The open tunnel to *name* at *destination*, opened now if it isn't.
+        A tunnel opened again keeps its ports, and a first one takes *ports*
+        (its gateway's and its app's, as kept from an earlier run) when
+        nothing else listens on them: an agent given the app's address keeps
+        reaching it."""
         with self._lock:
             lock = self._locks.setdefault(name, threading.Lock())
         with lock:
@@ -156,6 +165,8 @@ class Tunnels:
             if tunnel is not None and tunnel.destination != destination:
                 self._end(tunnel)
                 tunnel = None
+            if tunnel is not None:
+                ports = (tunnel.gateway_port, tunnel.app_port)
             if tunnel is not None and tunnel.open:
                 return tunnel
             now = self._clock()
@@ -168,17 +179,22 @@ class Tunnels:
             if tunnel is not None and tunnel.process is not None:
                 # It was open and dropped: say so once, then open it again.
                 log.warning("The tunnel to %s dropped; opening it again.", name)
-            tunnel = self._open(name, destination)
+            tunnel = self._open(name, destination, ports)
             with self._lock:
                 self._tunnels[name] = tunnel
             if not tunnel.open:
                 raise TunnelDown(tunnel.why or "The tunnel is down.")
             return tunnel
 
-    def _open(self, name: str, destination: str) -> Tunnel:
-        gateway_port = app_port = self._port()
-        while app_port == gateway_port:
-            app_port = self._port()
+    def _open(
+        self, name: str, destination: str, ports: Optional[Tuple[int, int]]
+    ) -> Tunnel:
+        if ports is not None and not any(self._accepts(port) for port in ports):
+            gateway_port, app_port = ports
+        else:
+            gateway_port = app_port = self._port()
+            while app_port == gateway_port:
+                app_port = self._port()
         tunnel = Tunnel(destination, gateway_port, app_port)
         if not valid_destination(destination):
             return self._failed(tunnel, "Its ssh destination is not user@host.")

@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 import yaml
 
 from fibsem.gateway.gateway import GatewayRefused
-from fibsem.gateway.tunnels import TunnelDown, Tunnels, valid_destination
+from fibsem.gateway.tunnels import Tunnel, TunnelDown, Tunnels, valid_destination
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.util.files import write_atomic
 
@@ -45,6 +45,8 @@ log = logging.getLogger(__name__)
 HUB_FILE = DISCOVERY_DIR / "hub.yaml"
 # The token each instrument's gateway gave this hub, one file per instrument.
 TOKENS_DIR = DISCOVERY_DIR / "hub"
+# The local ports each instrument's tunnel last had, kept beside the tokens.
+PORTS_FILE = "_ports.json"
 CHECK_EVERY_S = 5.0
 # One instrument's read: a PC that is off answers nothing, and the others
 # are read beside it, not after it.
@@ -314,15 +316,45 @@ class Hub:
         its tunnel when it has one: the one place that decides how an
         instrument is reached. Raises `TunnelDown` when the tunnel isn't open."""
         if instrument.ssh:
-            return self._tunnels.ensure(instrument.name, instrument.ssh).gateway_url
+            return self._open(instrument).gateway_url
         return instrument.url or ""
 
     def app_url(self, instrument: Instrument) -> Optional[str]:
         """The address this PC reaches *instrument*'s App Server at: the
         tunnel's other port. None for an instrument reached without one."""
         if instrument.ssh:
-            return self._tunnels.ensure(instrument.name, instrument.ssh).app_url
+            return self._open(instrument).app_url
         return None
+
+    def _open(self, instrument: Instrument) -> Tunnel:
+        """*instrument*'s tunnel, on the ports it had in an earlier run when
+        they are free; the ports it has are kept for the next."""
+        path = self._tokens / PORTS_FILE
+        try:
+            kept = json.loads(path.read_text())
+        except (OSError, ValueError):
+            kept = {}
+        before = kept.get(instrument.name) if isinstance(kept, dict) else None
+        ports = (
+            (before[0], before[1])
+            if isinstance(before, list)
+            and len(before) == 2
+            and all(isinstance(port, int) for port in before)
+            else None
+        )
+        tunnel = self._tunnels.ensure(instrument.name, instrument.ssh or "", ports)
+        now = [tunnel.gateway_port, tunnel.app_port]
+        if before != now:
+            with self._lock:
+                try:
+                    kept = json.loads(path.read_text())
+                except (OSError, ValueError):
+                    kept = {}
+                kept = kept if isinstance(kept, dict) else {}
+                kept[instrument.name] = now
+                path.parent.mkdir(parents=True, exist_ok=True)
+                write_atomic(path, json.dumps(kept, indent=2))
+        return tunnel
 
     def _tunnel(self, instrument: Instrument) -> Optional[Dict[str, Any]]:
         tunnel = self._tunnels.get(instrument.name) if instrument.ssh else None

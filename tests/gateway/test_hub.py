@@ -87,15 +87,15 @@ class FakeSsh:
 class Ssh:
     """Every ssh the tunnels started, and the time they read."""
 
-    def __init__(self):
+    def __init__(self, first_port=50_000):
         self.started = []
         self.fails = None
         self.now = 0.0
-        ports = iter(range(50_000, 60_000))
+        ports = iter(range(first_port, 60_000))
         self.tunnels = Tunnels(
             spawn=self.spawn,
             port=lambda: next(ports),
-            accepts=lambda port: True,
+            accepts=self.accepts,
             which=lambda name: "/usr/bin/ssh",
             clock=lambda: self.now,
             sleep=lambda s: None,
@@ -104,6 +104,14 @@ class Ssh:
     def spawn(self, command):
         self.started.append(FakeSsh(command, self.fails))
         return self.started[-1]
+
+    def accepts(self, port):
+        """Whether a live ssh forwards *port*."""
+        return any(
+            process.poll() is None and f"127.0.0.1:{port}:127.0.0.1" in forward
+            for process in self.started
+            for forward in process.command
+        )
 
 
 @pytest.fixture
@@ -314,14 +322,33 @@ def test_two_instruments_never_share_a_port(hub, ssh):
 
 
 def test_a_tunnel_that_drops_is_opened_again(hub, instruments, ssh):
-    instruments.up = {"http://127.0.0.1:50000", "http://127.0.0.1:50002"}
+    instruments.up = {"http://127.0.0.1:50000"}
     hub.add("Scope 1", ssh="user@scope-1")
     hub.check()
     ssh.started[0].code = 255  # the network went away
     hub.check()
     assert len(ssh.started) == 2
     (row,) = hub.state().instruments
-    assert row.reachable is True and row.tunnel["gateway_port"] == 50002
+    # On the same ports: an agent given the app's address still reaches it.
+    assert row.reachable is True and row.tunnel["gateway_port"] == 50000
+
+
+def test_a_new_hub_opens_each_tunnel_on_the_ports_it_had(hub, tmp_path, instruments):
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.check()
+    before = hub.state().instruments[0].tunnel
+    hub.stop()
+
+    again = Ssh(first_port=55_000)
+    later = Hub(
+        tmp_path / "hub.yaml",
+        tmp_path / "hub",
+        fetch=instruments.fetch,
+        pair=instruments.pair,
+        tunnels=again.tunnels,
+    )
+    later.check()
+    assert later.state().instruments[0].tunnel == before
 
 
 def test_a_tunnel_that_cannot_open_says_why_and_waits_before_trying_again(hub, ssh):
