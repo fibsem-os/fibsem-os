@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+import fibsem
 from fibsem import paths
 from fibsem.util.process import pid_alive
 
@@ -37,6 +38,16 @@ DISCOVERY_FILE = Path(_OVERRIDE) if _OVERRIDE else DISCOVERY_DIR / "app-server.j
 LEGACY_DISCOVERY_FILE = (
     DISCOVERY_FILE if _OVERRIDE else DISCOVERY_DIR / "agent-server.json"
 )
+
+# The version of the App Server's routes. A change that an older client can't
+# work with (a route or a field removed or renamed, an answer that changes
+# meaning) raises the minor number, and clients built for another minor refuse
+# to connect (`api_mismatch`). A change clients can ignore raises the patch.
+API_VERSION = "0.3.0"
+
+
+class ApiMismatch(ConnectionError):
+    """The server's routes are another version's than this client's."""
 
 
 def fibsem_folder() -> str:
@@ -72,6 +83,38 @@ def code_mismatch(capabilities: dict, who: str) -> Optional[str]:
             "the same version on both machines."
         )
     return None
+
+
+def _minor(version: object) -> Optional[tuple]:
+    """*version*'s (major, minor), or None when it isn't a version."""
+    parts = str(version).split(".") if version else []
+    if len(parts) < 2 or not all(part.isdigit() for part in parts[:2]):
+        return None
+    return int(parts[0]), int(parts[1])
+
+
+def api_mismatch(capabilities: dict, who: str) -> Optional[str]:
+    """Why *who* can't work with the server these /capabilities are from: its
+    routes are another major or minor version's, or it names no version. None
+    when they match."""
+    served = capabilities.get("api_version")
+    if _minor(served) == _minor(API_VERSION):
+        return None
+    theirs = (capabilities.get("fibsem") or {}).get("version")
+    return (
+        f"{who}: the App Server's routes are version {served or 'unknown'}"
+        + (f" (fibsem {theirs})" if theirs else "")
+        + f", and {who} is built for {API_VERSION} (fibsem {fibsem.__version__}). "
+        "Install the same fibsem version on both computers."
+    )
+
+
+def check_api(capabilities: dict, who: str) -> None:
+    """Raise `ApiMismatch` when *who* can't work with the server these
+    /capabilities are from."""
+    why = api_mismatch(capabilities, who)
+    if why:
+        raise ApiMismatch(why)
 
 
 def dev_checkout(environ: Optional[dict] = None) -> Optional[str]:

@@ -64,6 +64,7 @@ from fibsem.codec import decode
 from fibsem.extras import missing_extra_message
 from fibsem.keystore import get_secret
 from fibsem.logo import print_fibsem_logo
+from fibsem.server.discovery import ApiMismatch, check_api, code_mismatch
 from fibsem.unreleased import refuse
 from fibsem.util import timestamps
 
@@ -814,16 +815,20 @@ def _close(client) -> None:
 
 def _reachable(client) -> bool:
     """Whether the App Server answers this client, at any level; a warning
-    when it runs other fibsem code than fibsem-agent."""
-    from fibsem.server.discovery import code_mismatch
-
+    when it runs other fibsem code than fibsem-agent. Raises `ApiMismatch`
+    when its routes are another version's."""
     try:
         response = client.request("GET", "/capabilities", timeout=10.0)
     except Exception:
         return False
     if response.status_code == 200:
         try:
-            warning = code_mismatch(response.json(), "fibsem-agent")
+            capabilities = response.json()
+        except Exception:  # noqa: BLE001 - not an App Server's answer
+            return False
+        check_api(capabilities, "fibsem-agent")
+        try:
+            warning = code_mismatch(capabilities, "fibsem-agent")
         except Exception:  # noqa: BLE001 - a warning never costs the connection
             warning = None
         if warning:
@@ -1403,9 +1408,19 @@ class Harness:
         while not self._stopping.is_set():
             client = self._connect()
             if client is not None:
-                if await asyncio.get_running_loop().run_in_executor(
-                    None, _reachable, client
-                ):
+                try:
+                    answers = await asyncio.get_running_loop().run_in_executor(
+                        None, _reachable, client
+                    )
+                except ApiMismatch as mismatch:
+                    # Waiting can't help: the two installs differ.
+                    _close(client)
+                    log.error("%s fibsem-agent stops.", mismatch)
+                    self._end_reason = "the App Server is another version"
+                    self._resumable = False
+                    self._code = 1
+                    return None
+                if answers:
                     if said:
                         log.info("The App Server answers.")
                     return client
