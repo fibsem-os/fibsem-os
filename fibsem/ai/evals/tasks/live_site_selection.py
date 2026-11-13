@@ -11,6 +11,8 @@ what it says it saved.
 import math
 from typing import Any, Dict, List, Tuple
 
+import numpy as np
+
 from fibsem.ai.evals.cases import Case
 from fibsem.ai.evals.scoring import InvalidAnswer
 from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
@@ -248,19 +250,22 @@ SQUARE_COLOURS = {
 def draw_live_site_selection(case: Case, runs: List[Run]):
     """The keyed squares and cells in stage coordinates (mm), and each
     repeat's sites with their verdicts."""
-    from matplotlib.patches import Circle, Rectangle
+    from matplotlib.patches import Circle, Polygon
 
     key = case.key
     fig, ax = _figure(12, 8)
     frame = key["frame"]
-    side = (frame["pitch"] - frame["bar_width"]) * 1e3
+    half = (frame["pitch"] - frame["bar_width"]) * 1e3 / 2
+    # the squares lie along the grid's own axes, not the stage's
+    u, v = np.asarray(frame["u"], float), np.asarray(frame["v"], float)
+    corners = [half * (a * u + b * v) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
     for square in key.get("squares") or []:
         colour = SQUARE_COLOURS.get(square["label"], "#999999")
+        centre = np.array([square["x"], square["y"]]) * 1e3
         ax.add_patch(
-            Rectangle(
-                (square["x"] * 1e3 - side / 2, square["y"] * 1e3 - side / 2),
-                side,
-                side,
+            Polygon(
+                [centre + c for c in corners],
+                closed=True,
                 fill=False,
                 color=colour,
                 lw=1.0 if square.get("certain", True) else 0.5,
