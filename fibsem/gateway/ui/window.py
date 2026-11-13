@@ -104,8 +104,13 @@ def microscope_line(connection: Optional[dict]) -> tuple:
     return "Not connected", GRAY_SECONDARY_COLOR
 
 
-def agent_line(running: Optional[dict]) -> tuple:
-    """``(text, goal, colour)`` for the agent's row."""
+def agent_line(running: Optional[dict], connected: Optional[dict] = None) -> tuple:
+    """``(text, detail, colour)`` for the agent's row: the gateway's agent and
+    its goal, else an agent connected from elsewhere and whether it is quiet."""
+    if not running and connected:
+        quiet = connected.get("quiet")
+        text = f"{connected.get('name')} connected"
+        return text, quiet or "", WARN_COLOR if quiet else OK_COLOR
     if not running:
         return "No agent", "", GRAY_SECONDARY_COLOR
     level = (running.get("level") or "").capitalize()
@@ -188,7 +193,9 @@ class _Section(QFrame):
 
 
 class _Reports(QObject):
-    read = Signal(object, object)  # agent's running row, microscope connection
+    # The agent's running row, the microscope's connection, an agent
+    # connected from elsewhere.
+    read = Signal(object, object, object)
     done = Signal(str, str)  # title, refusal ("" when it worked)
 
 
@@ -366,12 +373,13 @@ class GatewayWindow(QWidget):
     def _read_loop(self) -> None:
         """The agent's row and the microscope's connection, every few seconds."""
         while not self._closed.is_set():
-            running = connection = None
+            running = connection = connected = None
             try:
                 if self._agent is not None:
-                    running = self._agent.state().running
+                    state = self._agent.state()
+                    running, connected = state.running, state.connected
             except Exception:  # noqa: BLE001 - shown as no agent until next read
-                running = None
+                running = connected = None
             try:
                 if self._microscope is not None and self._gateway.mode().mode != OFF:
                     connection = self._microscope.connection()
@@ -379,16 +387,21 @@ class GatewayWindow(QWidget):
                 connection = None
             if self._closed.is_set():
                 return
-            self._reports.read.emit(running, connection)
+            self._reports.read.emit(running, connection, connected)
             self._closed.wait(READ_EVERY_S)
 
-    def _show_read(self, running: Optional[dict], connection: Optional[dict]) -> None:
+    def _show_read(
+        self,
+        running: Optional[dict],
+        connection: Optional[dict],
+        connected: Optional[dict] = None,
+    ) -> None:
         text, colour = microscope_line(connection)
         self.microscope.show_line(text, colour)
-        text, goal, colour = agent_line(running)
-        self.agent.show_line(text, colour, goal)
+        text, detail, colour = agent_line(running, connected)
+        self.agent.show_line(text, colour, detail)
         self.agent.button.setVisible(bool(running))
-        if not running:
+        if not running and not connected:
             self.agent.detail.setText("Start one on the page.")
             self.agent.detail.show()
 
