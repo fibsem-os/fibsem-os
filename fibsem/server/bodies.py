@@ -13,15 +13,18 @@ blank) stay in the route, with their own messages.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Union
+from typing import Annotated, Any, Dict, List, Mapping, Optional, Sequence, Union
 
 from fastapi import HTTPException
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Strict
 
 from fibsem.server.auth import refusal_error
 
 # Unknown keys refused: set as each class's ``__pydantic_config__``.
 STRICT = ConfigDict(extra="forbid")
+
+# A boolean sent as true or false: 1 or "yes" is refused, not read as True.
+Flag = Annotated[bool, Strict()]
 
 
 def invalid_body(errors: Sequence[Mapping[str, Any]]) -> HTTPException:
@@ -66,7 +69,7 @@ class MarkedEvidence:
     answers: Optional[str] = None
     verdict: Optional[str] = None
     judged: Optional[List[Dict[str, Any]]] = None
-    keep: Union[bool, str, None] = None
+    keep: Union[Flag, str, None] = None
     sample: Optional[str] = None
 
 
@@ -167,3 +170,148 @@ class LibraryFileBody:
 
     text: Optional[str] = None
     data: Optional[Any] = None
+
+
+# --- the workflow: runs, the queue, proposals and stopping (`app_routes`) -----
+
+
+@dataclass
+class RunBody:
+    """POST /app/workflow/start: the tasks to run, over the items named, or
+    every item."""
+
+    __pydantic_config__ = STRICT
+
+    task_names: List[str]
+    item_names: Optional[List[str]] = None
+
+
+@dataclass
+class RunPlanBody(RunBody):
+    """POST /app/workflow/plan: a run's confirmation, or for adding to the
+    running queue (``add``); computes, never acts."""
+
+    run_next: Flag = False
+    add: Flag = False
+
+
+@dataclass
+class GridPlanBody:
+    """POST /app/workflow/grids/plan: the grid tasks, over the grids named or
+    every recorded grid; ``screen_all`` inventories first and takes no
+    grid_names."""
+
+    __pydantic_config__ = STRICT
+
+    task_names: List[str]
+    grid_names: Optional[List[str]] = None
+    screen_all: Flag = False
+
+
+@dataclass
+class GridRunBody(GridPlanBody):
+    """POST /app/workflow/grids/start."""
+
+    unload_at_end: Flag = False
+    report_at_end: Flag = False
+
+
+@dataclass
+class DecideBody:
+    """POST /app/workflow/decide: a decision on a proposal, by its id (or the
+    run it came from, ``task_id``), as GET /app/workflow/proposals lists it."""
+
+    __pydantic_config__ = STRICT
+
+    item_id: str
+    task_name: str
+    outcome: str
+    proposal_id: Optional[str] = None
+    task_id: Optional[str] = None
+    values: Optional[Dict[str, Any]] = None
+    patch: Optional[Dict[str, Any]] = None
+    action: Optional[str] = None
+    reason: str = ""
+    actor: str = ""
+
+
+@dataclass
+class SuggestBody:
+    """POST /app/workflow/proposals/suggest: what the agent would decide, for
+    the operator to approve."""
+
+    __pydantic_config__ = STRICT
+
+    item_id: str
+    task_name: str
+    proposal_id: str
+    reason: str
+    outcome: Optional[str] = None
+    values: Optional[Dict[str, Any]] = None
+    patch: Optional[Dict[str, Any]] = None
+    action: Optional[str] = None
+    actor: str = ""
+
+
+@dataclass
+class SupervisionBody:
+    """POST /app/experiment/protocol/supervision."""
+
+    __pydantic_config__ = STRICT
+
+    task_name: str
+    supervise: Flag
+
+
+@dataclass
+class RequeueBody:
+    """POST /app/workflow/queue/requeue: ``front`` puts it first."""
+
+    __pydantic_config__ = STRICT
+
+    item_name: str
+    task_name: str
+    front: Flag = False
+
+
+@dataclass
+class QueueEditBody:
+    """POST /app/workflow/queue/edit: ``action`` is remove, move_up,
+    move_down or run_next."""
+
+    __pydantic_config__ = STRICT
+
+    item_name: str
+    task_name: str
+    action: str
+
+
+@dataclass
+class QueueGridsBody:
+    """POST /app/workflow/queue/grids: grid tasks added to a running grid run."""
+
+    __pydantic_config__ = STRICT
+
+    task_names: List[str]
+    grid_names: List[str]
+
+
+@dataclass
+class StopBody:
+    """POST /app/workflow/stop: why, for the record (the agent must say)."""
+
+    __pydantic_config__ = STRICT
+
+    reason: str = ""
+
+
+@dataclass
+class StopTaskBody:
+    """POST /app/workflow/stop_task: the task meant, so a late stop stops
+    nothing else."""
+
+    __pydantic_config__ = STRICT
+
+    item_name: str
+    task_name: str
+    reason: str = ""

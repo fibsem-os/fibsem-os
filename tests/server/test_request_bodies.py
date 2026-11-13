@@ -8,7 +8,7 @@ from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.server import AuthConfig, build_server
 from tests.run_state import stub_session
 
-# The agent's routes with a body, by method and path (the operator's are
+# The routes with a typed body, by method and path (the operator's are
 # mounted only with an operator).
 TYPED = [
     ("post", "/app/agent/requests"),
@@ -18,6 +18,18 @@ TYPED = [
     ("post", "/app/agent/transcript"),
     ("post", "/app/agent/read"),
     ("put", "/app/library/{kind}/{name}"),
+    ("post", "/app/workflow/plan"),
+    ("post", "/app/workflow/grids/plan"),
+    ("post", "/app/workflow/decide"),
+    ("post", "/app/workflow/start"),
+    ("post", "/app/workflow/grids/start"),
+    ("post", "/app/experiment/protocol/supervision"),
+    ("post", "/app/workflow/queue/requeue"),
+    ("post", "/app/workflow/queue/edit"),
+    ("post", "/app/workflow/queue/grids"),
+    ("post", "/app/workflow/proposals/suggest"),
+    ("post", "/app/workflow/stop"),
+    ("post", "/app/workflow/stop_task"),
 ]
 
 

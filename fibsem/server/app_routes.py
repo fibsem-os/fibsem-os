@@ -33,6 +33,20 @@ from fibsem.server.auth import (
     require_operator,
     take_control,
 )
+from fibsem.server.bodies import (
+    DecideBody,
+    GridPlanBody,
+    GridRunBody,
+    QueueEditBody,
+    QueueGridsBody,
+    RequeueBody,
+    RunBody,
+    RunPlanBody,
+    StopBody,
+    StopTaskBody,
+    SuggestBody,
+    SupervisionBody,
+)
 from fibsem.server.parts import (
     GRIDS,
     ITEMS,
@@ -132,32 +146,19 @@ def _served(router: APIRouter, context: Any) -> APIRouter:
     return router
 
 
-def _grid_run_body(body: Dict[str, Any]):
-    """Validate the shared body of the grid plan/start verbs, or raise 422."""
-    task_names = body.get("task_names")
-    grid_names = body.get("grid_names")
-    screen_all = body.get("screen_all", False)
-    ok = (
-        isinstance(task_names, list)
-        and bool(task_names)
-        and all(isinstance(t, str) for t in task_names)
-        and (
-            grid_names is None
-            or (
-                isinstance(grid_names, list)
-                and all(isinstance(g, str) for g in grid_names)
-            )
-        )
-        and isinstance(screen_all, bool)
-    )
-    if not ok:
+def _grid_run_body(
+    body: GridPlanBody,
+) -> Tuple[List[str], Optional[List[str]], bool]:
+    """The grid plan/start verbs' tasks, grids and screen_all, or the 422 when
+    no task is named."""
+    if not body.task_names:
         raise _missing_field(
             "Pass task_names (non-empty list of grid task names); "
             "grid_names (list of strings) is optional — omitted means every "
             "recorded grid; screen_all (bool) inventories first and runs over "
             "every present grid, and takes no grid_names."
         )
-    return task_names, grid_names, screen_all
+    return body.task_names, body.grid_names, body.screen_all
 
 
 # The image's acquisition metadata (JSON) rides on the JPEG answer, so one
@@ -211,9 +212,10 @@ def _note_body(body: Dict[str, Any], *optional: str) -> Tuple[str, Optional[str]
     return text, body.get("item_name")
 
 
-def _required_text(body: Dict[str, Any], key: str, what: str) -> str:
-    """*body*'s non-empty string *key*, or the 422 saying to pass it (*what*)."""
-    value = body.get(key)
+def _required_text(body: Any, key: str, what: str) -> str:
+    """*body*'s non-empty string *key* (a dict's key, or a typed body's
+    field), or the 422 saying to pass it (*what*)."""
+    value = body.get(key) if isinstance(body, dict) else getattr(body, key)
     if not isinstance(value, str) or not value:
         raise _missing_field(f"Pass {key}: {what}.")
     return value
@@ -253,28 +255,16 @@ def _numbers(text: Optional[str]) -> Optional[List[float]]:
         )
 
 
-def _run_body(body: Dict[str, Any]) -> Tuple[List[str], Optional[List[str]]]:
-    """A lamella run's task_names and item_names, or the 422 naming them."""
-    task_names = body.get("task_names")
-    item_names = body.get("item_names")
-    if (
-        not isinstance(task_names, list)
-        or not task_names
-        or not all(isinstance(t, str) for t in task_names)
-        or (
-            item_names is not None
-            and not (
-                isinstance(item_names, list)
-                and all(isinstance(i, str) for i in item_names)
-            )
-        )
-    ):
+def _run_body(body: RunBody) -> Tuple[List[str], Optional[List[str]]]:
+    """A lamella run's task_names and item_names, or the 422 when no task is
+    named."""
+    if not body.task_names:
         raise _missing_field(
             "Pass task_names (non-empty list of strings); "
             "item_names (list of strings) is optional — omitted "
             "means every item."
         )
-    return task_names, item_names
+    return body.task_names, body.item_names
 
 
 def _answer_or_refusal(result: Any) -> Any:
@@ -1027,17 +1017,14 @@ def build_app_router(context: Any) -> APIRouter:
         return context.proposals()
 
     @router.post("/workflow/plan", response_model=RunPlan, tags=[LAMELLAE])
-    def lamella_run_plan(body: Dict[str, Any]):
+    def lamella_run_plan(body: RunPlanBody):
         # The Workflow tab's confirmation for a run, or for adding to the
         # running queue (add): computes, never acts.
         task_names, item_names = _run_body(body)
-        run_next, add = body.get("run_next", False), body.get("add", False)
-        if not isinstance(run_next, bool) or not isinstance(add, bool):
-            raise _missing_field("run_next and add are booleans.")
-        return context.lamella_run_plan(task_names, item_names, run_next, add)
+        return context.lamella_run_plan(task_names, item_names, body.run_next, body.add)
 
     @router.post("/workflow/grids/plan", response_model=GridPlan, tags=[GRIDS])
-    def grid_workflow_plan(body: Dict[str, Any]):
+    def grid_workflow_plan(body: GridPlanBody):
         # A POST on the read router because it computes, never acts: the
         # preflight dialog's content for a grid run, from a body a GET could
         # not carry cleanly. No hardware is read.
@@ -1141,106 +1128,67 @@ def build_app_control_router(context: Any) -> APIRouter:
     router = _router()
 
     @router.post("/workflow/decide", response_model=Decided)
-    def decide(body: Dict[str, Any]):
+    def decide(body: DecideBody):
         # The same function the operator's decision goes through, on the main thread, blocking
         # until applied. Item by id, never by name: names change.
-        item_id = body.get("item_id")
-        task_name = body.get("task_name")
-        outcome = body.get("outcome")
         # What the decision is on: the proposal's own id, or -- from a caller
         # that has not learned it -- the run it came from. The id is the one to
         # pass: a task may ask several proposals in one run.
-        proposal_id = body.get("proposal_id") or ""
-        task_id = body.get("task_id") or ""
-        named = [v for v in (proposal_id, task_id) if v]
-        if not all(isinstance(v, str) and v for v in (item_id, task_name, outcome)) or (
-            not named or not all(isinstance(v, str) for v in named)
+        proposal_id = body.proposal_id or ""
+        task_id = body.task_id or ""
+        if not all((body.item_id, body.task_name, body.outcome)) or not (
+            proposal_id or task_id
         ):
             raise _missing_field(
                 "Pass item_id, task_name, proposal_id and outcome "
                 "(Confirmed or Rejected) from GET /app/workflow/proposals."
             )
-        values = body.get("values")
-        if values is not None and not isinstance(values, dict):
-            raise refusal_error(
-                422,
-                "invalid_value",
-                "values, when given, must be a JSON object keyed by "
-                "value name, e.g. {'poi': {'x': ..., 'y': ...}} in metres.",
-            )
-        patch = body.get("patch")
-        if patch is not None and not isinstance(patch, dict):
-            raise refusal_error(
-                422, "invalid_value", 'patch, when given, is {"<dotted path>": value}.'
-            )
-        action = body.get("action") or ""
-        if not isinstance(action, str):
-            raise refusal_error(
-                422,
-                "invalid_value",
-                "action, when given, is one of the proposal's actions.",
-            )
-        if outcome == "Rejected" and not str(body.get("reason", "")).strip():
+        if body.outcome == "Rejected" and not body.reason.strip():
             raise _missing_field("A reject needs a reason; it is recorded on the item.")
         cited = cited_evidence(context)
         result = context.decide(
-            item_id,
-            task_name,
-            outcome,
-            values=values,
-            reason=str(body.get("reason", "")),
-            actor=str(body.get("actor", "")),
+            body.item_id,
+            body.task_name,
+            body.outcome,
+            values=body.values,
+            reason=body.reason,
+            actor=body.actor,
             task_id=task_id,
             proposal_id=proposal_id,
-            action=action,
-            patch=patch,
+            action=body.action or "",
+            patch=body.patch,
             **({"evidence": cited["evidence_id"]} if cited else {}),
         )
         return _answer_or_refusal(result)
 
     @router.post("/workflow/start", response_model=RunStarted)
-    def start_workflow(body: Dict[str, Any]):
+    def start_workflow(body: RunBody):
         return context.start_workflow(*_run_body(body))
 
     @router.post("/workflow/grids/start", response_model=RunStarted, tags=[GRIDS])
-    def start_grid_workflow(body: Dict[str, Any]):
+    def start_grid_workflow(body: GridRunBody):
         # The Grids view's Run / Screen all grids, remotely. Shares the lamella
         # run's worker slot, so the context refuses it while any run is live.
         task_names, grid_names, screen_all = _grid_run_body(body)
-        unload_at_end = body.get("unload_at_end", False)
-        report_at_end = body.get("report_at_end", False)
-        if not isinstance(unload_at_end, bool) or not isinstance(report_at_end, bool):
-            raise _missing_field("unload_at_end and report_at_end are booleans.")
         return context.start_grid_workflow(
             task_names,
             grid_names,
             screen_all,
-            unload_at_end=unload_at_end,
-            report_at_end=report_at_end,
+            unload_at_end=body.unload_at_end,
+            report_at_end=body.report_at_end,
         )
 
     @router.post("/experiment/protocol/supervision", response_model=TaskEdit)
-    def set_supervision(body: Dict[str, Any]):
-        task_name = body.get("task_name")
-        if not isinstance(task_name, str) or "supervise" not in body:
-            raise _missing_field("Pass task_name (string) and supervise (boolean).")
-        return context.set_supervision(task_name, bool(body["supervise"]))
+    def set_supervision(body: SupervisionBody):
+        return context.set_supervision(body.task_name, body.supervise)
 
     @router.post("/workflow/queue/requeue", response_model=Requeued)
-    def requeue_task(body: Dict[str, Any]):
-        item_name = body.get("item_name")
-        task_name = body.get("task_name")
-        if not isinstance(item_name, str) or not isinstance(task_name, str):
-            raise _missing_field(
-                "Pass item_name and task_name (strings); front (boolean) is optional."
-            )
-        result = context.requeue_task(
-            item_name, task_name, front=bool(body.get("front", False))
-        )
+    def requeue_task(body: RequeueBody):
+        result = context.requeue_task(body.item_name, body.task_name, front=body.front)
         return _answer_or_refusal(result)
 
     @router.post("/workflow/queue/edit", response_model=QueueEdited)
-    def edit_queue(body: Dict[str, Any]):
+    def edit_queue(body: QueueEditBody):
         item_name = _required_text(body, "item_name", "the item whose task to edit")
         task_name = _required_text(body, "task_name", "the waiting task to edit")
         action = _required_text(
@@ -1249,11 +1197,9 @@ def build_app_control_router(context: Any) -> APIRouter:
         return _answer_or_refusal(context.edit_queue(item_name, task_name, action))
 
     @router.post("/workflow/queue/grids", response_model=GridTasksQueued, tags=[GRIDS])
-    def queue_grid_tasks(body: Dict[str, Any]):
+    def queue_grid_tasks(body: QueueGridsBody):
         # The Grids view's Add to queue on a running grid run: at the end.
-        task_names = _names(body, "task_names", "the grid tasks to add")
-        grid_names = _names(body, "grid_names", "the grids to add them for")
-        return context.queue_grid_tasks(task_names, grid_names)
+        return context.queue_grid_tasks(body.task_names, body.grid_names)
 
     return _served(router, context)
 
@@ -1264,54 +1210,33 @@ def build_app_suggest_router(context: Any) -> APIRouter:
     router = _router()
 
     @router.post("/workflow/proposals/suggest", response_model=Suggested)
-    def suggest(body: Dict[str, Any]):
-        item_id = body.get("item_id")
-        task_name = body.get("task_name")
-        proposal_id = body.get("proposal_id")
-        if not all(isinstance(v, str) and v for v in (item_id, task_name, proposal_id)):
+    def suggest(body: SuggestBody):
+        if not all((body.item_id, body.task_name, body.proposal_id)):
             raise _missing_field(
                 "Pass item_id, task_name and proposal_id from "
                 "GET /app/workflow/proposals."
             )
-        reason = body.get("reason")
-        if not isinstance(reason, str) or not reason.strip():
+        if not body.reason.strip():
             raise _missing_field(
                 "Pass a reason: the operator reads it when deciding whether to "
                 "approve the suggestion."
             )
-        for name, shape in (
-            ("values", "keyed by value name"),
-            ("patch", "{path: value}"),
-        ):
-            given = body.get(name)
-            if given is not None and not isinstance(given, dict):
-                raise refusal_error(
-                    422,
-                    "invalid_value",
-                    f"{name}, when given, is a JSON object {shape}.",
-                )
         cited = cited_evidence(context)
         result = context.suggest(
-            item_id,
-            task_name,
-            proposal_id,
-            reason=reason.strip(),
-            outcome=str(body.get("outcome") or "Confirmed"),
-            values=body.get("values"),
-            patch=body.get("patch"),
-            action=str(body.get("action") or ""),
+            body.item_id,
+            body.task_name,
+            body.proposal_id,
+            reason=body.reason.strip(),
+            outcome=body.outcome or "Confirmed",
+            values=body.values,
+            patch=body.patch,
+            action=body.action or "",
             evidence=cited,
-            actor=str(body.get("actor", "")),
+            actor=body.actor,
         )
         return _answer_or_refusal(result)
 
     return _served(router, context)
-
-
-def _stop_reason(body: Optional[Dict[str, Any]]) -> str:
-    """Why a stop was asked for, for the stopped task's record."""
-    reason = body.get("reason") if isinstance(body, dict) else None
-    return reason if isinstance(reason, str) else ""
 
 
 def build_app_stop_router(context: Any) -> APIRouter:
@@ -1321,18 +1246,18 @@ def build_app_stop_router(context: Any) -> APIRouter:
     router = _router()
 
     @router.post("/workflow/stop", response_model=Stopped)
-    def stop_workflow(body: Optional[Dict[str, Any]] = None):
+    def stop_workflow(body: Optional[StopBody] = None):
         # The same path as the GUI's Stop button, and never waits on the
         # command lock. The operator's own Stop is never gated.
-        return context.stop_workflow(_stop_reason(body))
+        return context.stop_workflow(body.reason if body else "")
 
     @router.post("/workflow/stop_task", response_model=Stopped)
-    def stop_task(body: Dict[str, Any]):
+    def stop_task(body: StopTaskBody):
         # The timeline's Stop Task: the task running, and the run carries on.
         # It names the task meant, so a stop landing late stops nothing else.
         item_name = _required_text(body, "item_name", "the item of the task running")
         task_name = _required_text(body, "task_name", "the task running")
-        return context.stop_task(item_name, task_name, _stop_reason(body))
+        return context.stop_task(item_name, task_name, body.reason)
 
     return _served(router, context)
 
