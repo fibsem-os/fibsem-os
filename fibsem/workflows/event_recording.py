@@ -33,12 +33,12 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tupl
 
 from fibsem.acting import TASK, ActorKind, current_actor
 from fibsem.workflows.actions import NOTE
-from fibsem.workflows.event_kinds import LIVE_KINDS  # noqa: F401 - read from here too
 from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
     make_lifecycle_hook,
 )
+from fibsem.workflows.events.kinds import LIVE_KINDS  # noqa: F401 - read from here too
 from fibsem.workflows.proposals import _encode_values
 
 EVENTS_FILENAME = "events.jsonl"

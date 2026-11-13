@@ -1,11 +1,11 @@
-"""The registry of event kinds (fibsem.workflows.event_kinds)."""
+"""The registry of event kinds (fibsem.workflows.events.kinds)."""
 
 import re
 from pathlib import Path
 
 from fibsem.hooks import HookEvent
-from fibsem.workflows import event_kinds
-from fibsem.workflows.event_kinds import GROUPS, KINDS, LIVE_KINDS, group_of
+from fibsem.workflows.events import kinds as event_kinds
+from fibsem.workflows.events.kinds import GROUPS, KINDS, LIVE_KINDS, group_of
 
 ROOT = Path(__file__).resolve().parents[1]
 

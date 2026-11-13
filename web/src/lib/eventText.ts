@@ -1,6 +1,6 @@
 // One line per event record: who, where, and what it says, for the Events page
 // and any list of recent events. What a record says, and its group, the server
-// writes (`fibsem.workflows.event_text`, asked with text=true).
+// writes (`fibsem.workflows.events.text`, asked with text=true).
 
 type Payload = Record<string, any>;
 

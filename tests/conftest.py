@@ -27,7 +27,7 @@ microscope = demo_microscope()
 
 
 # Kinds tests make up to exercise the buffer itself; any other kind written
-# must be registered in fibsem.workflows.event_kinds.
+# must be registered in fibsem.workflows.events.kinds.
 _MADE_UP_KINDS = frozenset(
     {"t", "x", "tick", "thing", "news", "unmarked", "inside", "outside"}
     | {"in the first", "in the second", "before any experiment"}
@@ -38,8 +38,8 @@ _MADE_UP_KINDS = frozenset(
 @pytest.fixture(autouse=True)
 def _every_event_kind_is_registered(monkeypatch):
     """Fail a test that writes an event of a kind nobody registered."""
-    from fibsem.workflows.event_kinds import KINDS
     from fibsem.workflows.events import EventBuffer
+    from fibsem.workflows.events.kinds import KINDS
 
     unregistered = []
     append = EventBuffer.append
@@ -53,7 +53,7 @@ def _every_event_kind_is_registered(monkeypatch):
     yield
     assert not unregistered, (
         f"events of unregistered kinds {sorted(set(unregistered))}: add them to "
-        "fibsem/workflows/event_kinds.py"
+        "fibsem/workflows/events/kinds.py"
     )
 
 

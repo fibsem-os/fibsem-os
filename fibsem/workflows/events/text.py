@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, Mapping, Optional
 
-from fibsem.workflows import event_kinds as k
+from fibsem.workflows.events import kinds as k
 
 Text = Dict[str, Any]
 # Each legacy question as raised, by "<session>:<question_id>", so its answer can

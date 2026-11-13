@@ -1,7 +1,7 @@
-"""What an event record says (fibsem.workflows.event_text), and the App Server
+"""What an event record says (fibsem.workflows.events.text), and the App Server
 sending it with each record."""
 
-from fibsem.workflows.event_text import describe, note_asked, with_text
+from fibsem.workflows.events.text import describe, note_asked, with_text
 
 
 def test_a_failed_task_says_so_with_its_error():

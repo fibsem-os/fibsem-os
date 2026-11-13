@@ -106,7 +106,7 @@ from fibsem.server.responses import (
 )
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows import evidence
-from fibsem.workflows.event_text import note_asked, with_text
+from fibsem.workflows.events.text import note_asked, with_text
 from fibsem.workflows.history_rows import (
     HistoryDecidedBy,
     HistoryOrder,
@@ -1131,7 +1131,7 @@ def build_app_router(context: Any) -> APIRouter:
 
 
 def _with_text(answer: Dict[str, Any]) -> Dict[str, Any]:
-    """*answer* with each record's ``text`` and ``group`` (`event_text`)."""
+    """*answer* with each record's ``text`` and ``group`` (`events.text`)."""
     events = answer.get("events")
     if not isinstance(events, list):
         return answer
