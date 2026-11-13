@@ -533,3 +533,41 @@ def test_a_thick_lamella_cracks_wider():
 
     assert area(1.0) > 2 * area(0.2)
     assert area(0.3) == pytest.approx(area(0.2))
+
+
+def test_the_record_says_what_was_milled_and_goes_to_json(microscope):
+    """After a run the scene's record lists each pass and region as plain
+    values, and says of any point whether it was milled away: before any FM
+    image, and for a pattern that stopped short."""
+    import json
+
+    scene = _use(microscope, **PLAIN)
+    _mill(microscope, (12e-6, 6e-6, 0.0))
+    x, y = np.mean(scene.milled[0].points, axis=0)
+    record = scene.record(
+        {"in the cut": (x, y, 1e-6), "beside it": (x + 40e-6, y, 1e-6)}
+    )
+    assert json.loads(json.dumps(record)) == record
+    assert len(record["passes"]) == 1 and len(record["regions"]) == 1
+    assert record["regions"][0]["depth"] == pytest.approx(10e-6)
+    assert not record["regions"][0]["damage"]
+    assert record["points"]["in the cut"]["milled"] is True
+    assert record["points"]["beside it"]["milled"] is False
+
+    shallow = _use(microscope, **PLAIN)
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=12e-6, height=6e-6, depth=0.3e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    x, y = np.mean(shallow.milled[0].points, axis=0)
+    points = shallow.record({"under the floor": (x, y, 0.5e-6)})["points"]
+    assert points["under the floor"]["milled"] is False
+
+
+def test_the_record_lists_each_target_and_whether_it_is_gone(microscope):
+    scene = _use(microscope, cell_type="rpe", seed=4)
+    targets = scene.record()["targets"]
+    assert len(targets) == len(scene.fm_targets()) > 0
+    assert not any(t["milled"] for t in targets[:20])

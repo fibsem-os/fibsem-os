@@ -15,6 +15,7 @@ import numpy as np
 from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
+from fibsem.devices.fm import mount_transform_from_name
 from fibsem.drivers.demo.sim_optics import Optics
 from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
@@ -344,8 +345,6 @@ def render_fm_scene(
     mount = fm.mount_transform
     if scene.fm_camera_mount is not None:
         # the camera as it is really mounted, whatever its configuration says
-        from fibsem.devices.fm import mount_transform_from_name
-
         mount = mount_transform_from_name(scene.fm_camera_mount)
     return fm._transform_array(frame, mount)
 

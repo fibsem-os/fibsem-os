@@ -161,6 +161,14 @@ damage. Below a seeded thickness (`damage_below`) each pass has a chance
 (`damage_chance`) of starting damage, recorded in `scene.damage_started` (pass and kind):
 a ragged front face, a crack across, or a piece broken out. It grows with every pass
 after.
+A lamella that breaks while it is still thick breaks more coarsely: its cracks gape
+wider, so a break in rough milling shows at a 50 um field of view.
+
+`scene.record()` gives all of this as plain values for `json.dump`: the passes, every
+milled region (its outline, depth, and whether it is a spot burn or damage), and for
+each fluorescence target whether it was milled away. Pass it points of your own,
+`scene.record({"name": (x, y, z)})` (world metres, z above the film), to ask the same of
+them.
 ## The fluorescence view
 
 ![Fluorescence channels](img/simulator/fluorescence.png)
