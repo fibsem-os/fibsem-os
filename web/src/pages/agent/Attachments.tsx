@@ -104,6 +104,7 @@ export function SentFiles({ files }: { files: { path: string; size: string }[] }
                   path: open,
                   kind: isImage(open) ? "image" : "text",
                   size: null,
+                  images: null,
                   modified: "",
                 }}
                 images={viewable(open) ? [open] : []}

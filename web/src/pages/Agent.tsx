@@ -1,8 +1,9 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, BookOpen, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
+import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
 import type { AgentPlan, AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -15,11 +16,18 @@ import { EvidenceImage } from "./agent/Pictures";
 import { PlanDialog } from "./agent/PlanDialog";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
-// Last heard moves with no events, so the agent is read again on a clock.
-const AGENT_EVERY_MS = 10000;
-// fibsem-agent sends its transcript about a second after it prints a line, and
-// the page reads it on the agent_transcript event; this clock is the fallback.
-const TRANSCRIPT_EVERY_MS = 15000;
+// The agent's news (lib/events.ts) reads it, its session and its plan again at once.
+// Last heard, spend and the transcript move with no news, so they are also read on one
+// clock: every 10 s while the agent works, every minute while none is heard.
+const WORKING_EVERY_MS = 10000;
+const IDLE_EVERY_MS = 60000;
+// Heard this recently: working (fibsem.ai.agent.levels.AGENT_LISTENING_S).
+const WORKING_S = 120;
+// While it works, the app's events also read the transcript, at most this often;
+// fibsem-agent's own agent_transcript event reads it at once.
+const TRANSCRIPT_GAP_MS = 3000;
+
+const working = (agent: AgentState | undefined) => agent?.last_heard_s != null && agent.last_heard_s < WORKING_S;
 
 const SHOWS = [
   ["all", "Everything"],
@@ -260,9 +268,6 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
 
 const time = (t: string) => Date.parse(t);
 const LIVE_FOR_MS = 60_000;
-// The agent counts as still there when heard from this recently (its watcher
-// asks every 25 s or so).
-const HEARD_FOR_S = 120;
 
 /** *heard*: the agent was heard from lately, so a step it started may still run
  * with no lines coming (a long milling call). */
@@ -336,27 +341,26 @@ function Record({
 }
 
 export function AgentPage() {
+  const client = useQueryClient();
   const agent = useQuery({
     queryKey: ["app/agent"],
     queryFn: () => api<AgentState>("/app/agent"),
-    refetchInterval: AGENT_EVERY_MS,
+    refetchInterval: (query) => (working(query.state.data) ? WORKING_EVERY_MS : IDLE_EVERY_MS),
   });
+  const isWorking = working(agent.data);
   const recent = useQuery({
     queryKey: ["app/agent/recent"],
     queryFn: () => api<{ rows: RecentRow[] }>("/app/agent/recent"),
   });
-  // Under "app/agent", so news about the agent reads it again; the checklist
-  // changes without news, so it is also read on the agent's clock.
+  // Under "app/agent", so news about the agent reads it again.
   const reported = useQuery({
     queryKey: ["app/agent", "session"],
     queryFn: () => api<{ session: ReportedSession | null }>("/app/agent/session"),
-    refetchInterval: AGENT_EVERY_MS,
   });
-  // plan.md: the side panel's steps and the plan dialog.
+  // plan.md: the side panel's steps and the plan dialog. Every edit is news.
   const plan = useQuery({
     queryKey: ["app/agent", "plan"],
     queryFn: () => api<AgentPlan>("/app/agent/plan"),
-    refetchInterval: AGENT_EVERY_MS,
   });
   const [planOpen, setPlanOpen] = useState(false);
   const rowsNow = recent.data?.rows ?? [];
@@ -364,14 +368,28 @@ export function AgentPage() {
   const transcript = useQuery({
     queryKey: ["app/agent/transcript", since],
     queryFn: () =>
-      api<{ entries: TranscriptLine[] }>(
-        `/app/agent/transcript${since ? `?since=${encodeURIComponent(since)}` : ""}`,
-      ),
-    refetchInterval: TRANSCRIPT_EVERY_MS,
+      api<{ entries: TranscriptLine[] }>(`/app/agent/transcript${since ? `?since=${encodeURIComponent(since)}` : ""}`),
     // A new oldest row starts a new read: keep the lines shown until it answers,
     // so the blocks don't vanish, fold and jump.
     placeholderData: keepPreviousData,
   });
+  // Each read of the agent while it works reads its spend and transcript too.
+  useEffect(() => {
+    if (!isWorking) return;
+    void client.invalidateQueries({ queryKey: ["app/agent", "session"], exact: true }, { cancelRefetch: false });
+    void client.invalidateQueries({ queryKey: ["app/agent/transcript"] }, { cancelRefetch: false });
+  }, [agent.dataUpdatedAt, isWorking, client]);
+  // What it does shows in the app's events before its transcript is read again.
+  useEffect(() => {
+    if (!isWorking) return;
+    return onEvents((events) => {
+      const read = client.getQueryState(["app/agent/transcript", since])?.dataUpdatedAt ?? 0;
+      const sent = events.some((e) => e.kind === "agent_transcript");
+      if (sent || Date.now() - read > TRANSCRIPT_GAP_MS) {
+        void client.invalidateQueries({ queryKey: ["app/agent/transcript"] }, { cancelRefetch: false });
+      }
+    });
+  }, [isWorking, since, client]);
   const [show, setShow] = useState<Show>("all");
   const [knowledge, setKnowledge] = useState(false);
   const list = useRef<HTMLDivElement>(null);
@@ -532,7 +550,7 @@ export function AgentPage() {
                   rows={rows}
                   lines={transcript.data?.entries ?? []}
                   show={show}
-                  heard={!agent.data?.stopped && (agent.data?.last_heard_s ?? Infinity) < HEARD_FOR_S}
+                  heard={isWorking && !agent.data?.stopped}
                 />
               ) : (
                 <div className="py-8 text-center text-[13px] text-muted-foreground">
