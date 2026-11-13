@@ -91,6 +91,8 @@ class HubAgents:
             "session_id": agent.session_id,
             "state": agent.state,
             **{key: about[key] for key in _ABOUT_KEYS if about.get(key) is not None},
+            # The level it has now, when it was set from here since the start.
+            **({"level": self._levels[name]} if name in self._levels else {}),
             **(
                 {"experiment_id": record["experiment_id"]}
                 if record.get("experiment_id")

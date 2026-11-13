@@ -9,6 +9,7 @@ import { Connections } from "@/shell/Settings";
 import { cn } from "@/lib/utils";
 import type { Connection } from "@/lib/types";
 import { AgentCard, AgentSessions } from "@/pages/gateway/AgentCard";
+import { Instruments } from "@/pages/gateway/Instruments";
 import { ConnectionCard } from "@/pages/Microscope";
 
 type Mode = "off" | "running";
@@ -604,6 +605,7 @@ export function GatewayPage() {
             appStarting={appStarting}
           />
         )}
+        <Instruments />
         <Card>
           <Connections roles={["operator", "hub"]} />
         </Card>
