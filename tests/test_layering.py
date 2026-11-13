@@ -35,7 +35,15 @@ CORE = [
     "workflows",
 ]
 
-UI_MODULES = ("fibsem.ui", "PyQt5", "PyQt6", "qtpy", "superqt", "napari")
+UI_MODULES = (
+    "fibsem.ui",
+    "PyQt5",
+    "PyQt6",
+    "PySide6",
+    "qtpy",
+    "superqt",
+    "napari",
+)
 
 
 def _core_files():
@@ -188,6 +196,7 @@ def test_every_listed_server_importer_still_imports_it():
     [
         ("fibsem.ui.notification_service", True),
         ("PyQt5.QtCore", True),
+        ("PySide6.QtCore", True),
         ("napari", True),
         ("fibsem.applications.autolamella.ui.window", True),
         ("fibsem.uiutils", False),
