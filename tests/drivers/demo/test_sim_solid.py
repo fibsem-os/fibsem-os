@@ -512,3 +512,24 @@ def test_the_fiducial_cross_is_the_brightest_thing_in_view(microscope):
         h, w = image.shape
         centre = image[h // 2 - 60 : h // 2 + 60, w // 2 - 60 : w // 2 + 60]
         assert np.percentile(centre, 99) > np.median(image) + 60
+
+
+def test_a_thick_lamella_cracks_wider():
+    """Damage on a lamella still 1 um thick is coarser than on a thin one, so
+    it shows at the field of view rough milling is watched at."""
+    scene = SampleScene(seed=5, **PLAIN)
+    ends = [(-6.0, 0.0), (6.0, 0.0)]
+
+    def area(thickness):
+        rng = np.random.default_rng(2)
+        pieces = sim_solid.damage(scene, "crack", 3, ends, -0.2, rng, thickness)
+        return sum(
+            0.5
+            * abs(
+                np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+            )
+            for p in pieces
+        )
+
+    assert area(1.0) > 2 * area(0.2)
+    assert area(0.3) == pytest.approx(area(0.2))

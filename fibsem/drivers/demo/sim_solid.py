@@ -113,6 +113,7 @@ BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
 RIM = (1.5, 1.2)  # how bright the rim round a milled edge is
 RIM_WIDTH = 1.1  # um
 CURTAIN = 0.28  # how strongly curtaining streaks a cut face
+CRACK_AT = 0.3  # um; the lamella thickness the damage shapes are sized for
 GROOVE = 0.08  # um; how deep curtaining grooves a cut
 CACHE_SIZE = 2  # views kept (one per beam)
 
@@ -973,12 +974,16 @@ def surface(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step=None):
     return np.where(mat == VOID, sim_view.VOID, z).astype(np.float32), mat
 
 
-def damage(scene, kind: str, severity: int, ends, slope: float, rng) -> list:
+def damage(
+    scene, kind: str, severity: int, ends, slope: float, rng, thickness: float = 0.3
+) -> list:
     """Damage to a thin lamella as shapes on its face, seen from above (world
     um): jagged bites out of its free edges, wandering cracks, or a torn hole
     with cracks running from it. `ends` are the world points of the two ends
     of the lamella's middle line on the plane z = 0; the lamella rises by
-    `slope` per um of y from there."""
+    `slope` per um of y from there. A thicker lamella (`thickness`, um)
+    breaks more coarsely: its cracks gape wider."""
+    gape = float(np.clip(thickness / CRACK_AT, 1.0, 3.0))
     (xa, ya), (xb, yb) = ends
     ts = np.arange(-60.0, 60.0, 0.05)
 
@@ -1029,14 +1034,14 @@ def damage(scene, kind: str, severity: int, ends, slope: float, rng) -> list:
                 heading = (0 if into > 0 else np.pi) + rng.normal(0, 0.5)
                 length = rng.uniform(1.0, 3.0) * severity
                 pieces += _crack(
-                    rng, x + skew, base + into * deep, heading, length, 0.08
+                    rng, x + skew, base + into * deep, heading, length, 0.08 * gape
                 )
     elif kind == "crack":
         for _ in range(severity):
             x = rng.uniform(x0 + 0.15 * width, x1 - 0.15 * width)
             f, b = span(x)
             length = rng.uniform(0.5, 0.95) * (b - f)
-            pieces += _crack(rng, x, f - 0.5, rng.normal(0, 0.25), length)
+            pieces += _crack(rng, x, f - 0.5, rng.normal(0, 0.25), length, 0.22 * gape)
     else:
         x = rng.uniform(x0 + 0.3 * width, x1 - 0.3 * width)
         f, b = span(x)
@@ -1060,7 +1065,7 @@ def damage(scene, kind: str, severity: int, ends, slope: float, rng) -> list:
                 d + size * np.cos(a),
                 a,
                 rng.uniform(2.0, 6.0),
-                0.12,
+                0.12 * gape,
             )
     # from along-the-lamella back to world y
     return [

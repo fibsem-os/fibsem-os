@@ -1196,6 +1196,7 @@ class SampleScene:
             ends,
             -frame.turn * frame.fs / frame.k,
             rng,
+            thickness=record["gap"] * um,
         )
         slack = 0.6e-6  # past the faces: a lamella is thicker further down
         band = [(x0, lo - slack), (x1, lo - slack), (x1, hi + slack), (x0, hi + slack)]
