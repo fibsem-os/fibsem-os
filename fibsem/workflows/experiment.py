@@ -16,10 +16,11 @@ from __future__ import annotations
 import importlib
 import logging
 import os
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
+from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type, Union
 
 import yaml
 from psygnal import Signal
@@ -43,6 +44,42 @@ if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
 
 EXPERIMENT_FILENAME = "experiment.yaml"
+
+
+class NewerFormat(RuntimeError):
+    """A save of an experiment that a newer version of fibsem-os wrote."""
+
+    def __init__(self, name: str, version: Optional[int]) -> None:
+        self.version = version
+        super().__init__(
+            f"{name} was written by a newer version of fibsemOS (experiment "
+            f"format {version}; this version writes {FORMAT_VERSION}) and is "
+            "open to look at only. Update fibsemOS to change it."
+        )
+
+
+def backup_path(path: Union[str, Path], before: int = FORMAT_VERSION) -> Path:
+    """Where an experiment.yaml written before format *before* is kept."""
+    return Path(f"{path}.before-v{before}")
+
+
+def _keep_the_file_as_it_was(path: Union[str, Path]) -> None:
+    """Copy an experiment.yaml in an older format, once, before this version
+    writes over it: the version that wrote it cannot read the new one, and the
+    copy is what going back to that version restores. A copy that cannot be
+    made is said in the log and does not stop the save."""
+    backup = backup_path(path)
+    if backup.exists() or not os.path.exists(path):
+        return
+    try:
+        shutil.copy2(path, backup)
+    except OSError as e:
+        logging.warning(f"Could not keep a copy of {path} before saving it: {e}")
+        return
+    logging.info(
+        f"Kept a copy of {path} as {backup} before saving it in experiment "
+        f"format {FORMAT_VERSION}."
+    )
 
 
 class BaseExperiment:
@@ -82,6 +119,9 @@ class BaseExperiment:
         # microscope to ask; None until then, because creating an experiment happens
         # in a dialog that has no microscope.
         self.session: Optional[SessionInfo] = None
+        # The format of the file this was read from; None for a new one. Not
+        # written: ``to_dict`` writes the format this build writes.
+        self.read_format: Optional[int] = None
         # Why the last save failed, or None when the file holds what memory
         # does. Not written: it describes the file, not the experiment.
         self.save_error: Optional[str] = None
@@ -134,11 +174,13 @@ class BaseExperiment:
         """Take the keys :meth:`to_dict` writes, other than name and path, from
         a saved experiment."""
         version = ddict.get("format_version") or 0
+        self.read_format = version
         if version > FORMAT_VERSION:
             logging.warning(
                 f"{self.name} was written in experiment format {version}, newer "
-                f"than this version reads ({FORMAT_VERSION}); what it does not "
-                "know is dropped, and saving would lose it."
+                f"than this version reads ({FORMAT_VERSION}). It is open to look "
+                "at and will not be saved: what this version does not know "
+                "would be lost."
             )
         self.created_at = to_datetime(ddict.get("created_at"))
         self.id = ddict.get("_id") or self.id
@@ -156,24 +198,37 @@ class BaseExperiment:
         event log. The next save that succeeds catches it up."""
         return self.save_error is not None
 
+    @property
+    def read_only(self) -> bool:
+        """Whether a newer version wrote the file, so this one must not."""
+        return self.read_format is not None and self.read_format > FORMAT_VERSION
+
     def save(self, save_protocol: bool = False) -> None:
         """Write the experiment to its experiment.yaml.
 
         A save that fails raises, and leaves the experiment ``unsaved`` until
         one succeeds: a read-only or locked file, a full disk, a value that
-        cannot be written. Nothing in memory is lost by it.
+        cannot be written. Nothing in memory is lost by it. One read from a
+        newer format is never written (`NewerFormat`). The first save of one
+        read from an older format keeps the file as it was beside it.
         """
+        path = os.path.join(self.path, EXPERIMENT_FILENAME)
         try:
+            if self.read_only:
+                raise NewerFormat(self.name, self.read_format)
             with EXPERIMENT_WRITE_LOCK:
                 data = self.to_dict()
             # Serialised in full, then swapped in whole: a value the writer
             # can't represent, or a crash part way, leaves the last saved file.
             text = yaml.safe_dump(data, indent=4)
-            write_atomic(os.path.join(self.path, EXPERIMENT_FILENAME), text)
+            if self.read_format is not None and self.read_format < FORMAT_VERSION:
+                _keep_the_file_as_it_was(path)
+            write_atomic(path, text)
         except Exception as e:
             self.save_error = f"{type(e).__name__}: {e}"
             raise
         self.save_error = None
+        self.read_format = FORMAT_VERSION
         if save_protocol:
             self.save_protocol()
 
