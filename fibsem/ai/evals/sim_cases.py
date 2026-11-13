@@ -28,7 +28,13 @@ import yaml
 from fibsem import config as cfg
 from fibsem import utils
 from fibsem.ai.evals.cases import FORMAT
-from fibsem.drivers.demo.sim_scene import SampleScene, surface_foreshortening
+from fibsem.drivers.demo import sim_solid
+from fibsem.drivers.demo.sim_scene import (
+    GIS_RATE,
+    SPUTTER_RATE,
+    SampleScene,
+    surface_foreshortening,
+)
 from fibsem.geometry.projection import BeamStageProjection
 from fibsem.structures.settings import BeamType, ImageSettings
 
@@ -75,6 +81,12 @@ VARIED = {
 }
 # Set for every seed.
 FIXED: Dict[str, Any] = {}
+# A coated grid, as it is before milling: sputtered, then GIS coated (s)
+COATED = {"sputter_s": 30.0, "gis_s": 120.0}
+COATED_NOTE = (
+    " The grid has been sputtered and GIS coated, so fine detail is hidden "
+    "and small holes and tears are covered over."
+)
 
 BRIEFS = {
     "square_finding": (
@@ -308,6 +320,12 @@ def measure_square(scene, grid, index: Tuple[int, int], step: float = 1e-6) -> D
     lu, lv = np.meshgrid(offsets, offsets)
     xs, ys = _to_world(grid, centre[0] + lu, centre[1] + lv)
     bars, _, rips, _, beyond = scene.film_masks(xs, ys)
+    if scene.gis_thickness > 0 and rips.any():
+        # the coat grows in from a tear's edge and closes what is narrow
+        from scipy import ndimage as ndi
+
+        inside = ndi.distance_transform_edt(rips) * step
+        rips = inside >= sim_solid.BRIDGE * scene.gis_thickness
     film = ~(bars | beyond)
     area = float(film.sum()) or 1.0
     broken = np.zeros_like(film)
@@ -477,14 +495,24 @@ def write_cases(
     hfw: float = HFW,
     beam: str = "SEM",
     milling_angle: float = MILLING_ANGLE,
+    coated: bool = False,
 ) -> List[Path]:
     """The three grid cases for one seed and beam, under
     ``out/<task>/sim-<seed>`` (``sim-<seed>-fib`` for the FIB). The
     square-finding case's ``reference/`` holds every square's measures and a
     preview of the key, for checking by eye; the agent sees neither. On the
-    FIB the grid is foreshortened, so its pitch and angle aren't scored."""
+    FIB the grid is foreshortened, so its pitch and angle aren't scored.
+    ``coated``: sputtered and GIS coated first (``COATED``), ``-gis`` cases."""
     out = Path(out)
     name = f"sim-{int(seed):04d}" + ("-fib" if beam == "FIB" else "")
+    note = ""
+    if coated:
+        overrides = {
+            **(overrides or {}),
+            "sputter_thickness": SPUTTER_RATE * COATED["sputter_s"],
+            "gis_thickness": GIS_RATE * COATED["gis_s"],
+        }
+        name, note = name + "-gis", COATED_NOTE
     overview = render_overview(seed, overrides, resolution, hfw, beam, milling_angle)
     squares = find_squares(overview)
     (pitch_px, angle_deg), (short_px, short_deg) = lattice(overview)
@@ -535,7 +563,7 @@ def write_cases(
             "id": f"{name}-sites",
             "task": "site_selection",
             "inputs": {"overview": "experiment/overview.tif"},
-            "brief": BRIEFS["site_selection"].format(w=w, h=h, view=view),
+            "brief": BRIEFS["site_selection"].format(w=w, h=h, view=view) + note,
             "key": {
                 **keyed,
                 "good": [q.point() for q in good],
@@ -548,6 +576,7 @@ def write_cases(
             "task": "square_finding",
             "inputs": {"overview": shared},
             "brief": BRIEFS["square_finding"].format(w=w, h=h, view=view)
+            + note
             + (
                 " The view is tilted, so the grid is foreshortened: give the pitch "
                 "and angle of the longer side of the squares."
@@ -588,7 +617,7 @@ def write_cases(
         "id": f"{name}-labels",
         "task": "square_quality",
         "inputs": {"overview": shared},
-        "brief": BRIEFS["square_quality"].format(w=w, h=h, view=view),
+        "brief": BRIEFS["square_quality"].format(w=w, h=h, view=view) + note,
         "squares": [q.point() for q in shown],
         "key": {**keyed, "labels": {str(q.number): q.label for q in shown}},
         "scoring": {"min_accuracy": 0.8, "costly_if_called_good": ["damaged"]},

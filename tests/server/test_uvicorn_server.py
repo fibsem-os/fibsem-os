@@ -1,7 +1,6 @@
 """A stopped server stops, even for a connection made as it stopped."""
 
 import asyncio
-import socket
 import threading
 import time
 
@@ -9,6 +8,7 @@ import httpx
 import uvicorn
 
 from fibsem.server.uvicorn_server import Server
+from tests.waiting import free_port
 
 
 async def _app(scope, receive, send):
@@ -18,17 +18,11 @@ async def _app(scope, receive, send):
     await send({"type": "http.response.body", "body": b"ok"})
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _late_connection_at_stop(server_class):
     """Whether the server ends when one keep-alive connection, busy all along,
     registers just after its shutdown began: the connection accepted as the
     listener closed."""
-    port = _free_port()
+    port = free_port()
     server = server_class(uvicorn.Config(_app, port=port, log_level="warning"))
     server.install_signal_handlers = lambda: None
     loop_ready = threading.Event()

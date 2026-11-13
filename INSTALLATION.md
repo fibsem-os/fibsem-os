@@ -55,6 +55,15 @@ it off only for a scripting-only install with no graphical interface. Image
 labelling (`fibsem_label`) draws in napari, which is not part of `[ui]`; add
 the `[labelling]` extra for it.
 
+To install the exact versions a release was installed and tested with, pass
+the constraints file attached to its
+[release page](https://github.com/fibsem-os/fibsem-os/releases), for Windows
+or Linux. Releases built since this was added carry one. For example:
+
+```bash
+pip install "fibsem[ui]==VERSION" -c https://github.com/fibsem-os/fibsem-os/releases/download/vVERSION/constraints-vVERSION-windows.txt
+```
+
 ### Offline installation
 
 For a computer with no internet connection, download the packages on a

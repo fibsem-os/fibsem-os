@@ -7,8 +7,6 @@ back, and rides out the server going offline and coming back.
 """
 
 import os
-import socket
-import time
 
 import pytest
 import yaml
@@ -22,23 +20,9 @@ from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.devices import DeviceServer, configured_devices
 from fibsem.server.pairing import PairedTokens, Pairing
 from fibsem.structures.system import InsertableDeviceState
+from tests.waiting import free_port, wait_for
 
 IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
-
-
-def _free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _wait_for(condition, timeout: float) -> bool:
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if condition():
-            return True
-        time.sleep(0.05)
-    return condition()
 
 
 @pytest.fixture
@@ -56,7 +40,7 @@ def meteor_pc(tmp_path, monkeypatch):
     )
     built, cleanups = configured_devices(str(server_file))
     auth = DeviceAuth("meteor", Pairing(PairedTokens(tmp_path / "paired.json")))
-    port = _free_port()
+    port = free_port()
     servers = []
 
     def start():
@@ -101,7 +85,7 @@ def test_deployment_b(meteor_pc, tmp_path):
     movement = microscope.stage_movement
     try:
         assert isinstance(fm, RemoteFluorescenceMicroscope)
-        assert _wait_for(lambda: fm.online, timeout=10)
+        assert wait_for(lambda: fm.online, timeout=10)
         far_objective = built["objective"]
 
         # To the FM and back: the far objective goes in at the FM, out to leave.
@@ -116,7 +100,7 @@ def test_deployment_b(meteor_pc, tmp_path):
 
         # The METEOR PC goes away: the FM's reads fail closed, the beams carry on.
         servers[-1].stop()
-        assert _wait_for(lambda: not fm.client.connected, timeout=15)
+        assert wait_for(lambda: not fm.client.connected, timeout=15)
         with pytest.raises(RemoteDeviceUnreachable):
             fm.objective.state
         microscope.get_stage_position()
@@ -126,7 +110,7 @@ def test_deployment_b(meteor_pc, tmp_path):
         came_back = []
         fm.client.reconnected.connect(lambda: came_back.append(True))
         start()
-        assert _wait_for(lambda: came_back and fm.client.connected, timeout=20)
+        assert wait_for(lambda: came_back and fm.client.connected, timeout=20)
         assert fm.devices["light_source"].power.cached == pytest.approx(0.4)
         assert fm.objective.state is InsertableDeviceState.RETRACTED
     finally:

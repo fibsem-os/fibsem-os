@@ -2,8 +2,8 @@
 
 The sidecar (``fibsem-mcp``) builds its MCP tool list from this module, and a
 contract test asserts every entry maps onto a real route on the server app —
-so the two surfaces cannot drift apart. Importable everywhere, including the
-py3.8 floor: what a tool needs from the rest of fibsem it imports when called.
+so the two surfaces cannot drift apart. Importable everywhere: what a tool needs
+from the rest of fibsem it imports when called.
 
 A tool lives in the module of its group (stage and beam tools in microscope and
 imaging, item tools in items, ...), with its route call (``call``) and the line

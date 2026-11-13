@@ -16,6 +16,7 @@ from fibsem.applications.autolamella.structures import (
     Experiment,
 )
 from fibsem.server import AuthConfig, build_server
+from fibsem.server.app_context import AppContext
 from fibsem.server.files import list_folder
 from fibsem.structures.settings import MicroscopeState
 from fibsem.workflows.actions import ACTION
@@ -80,8 +81,11 @@ def test_a_refusal_names_the_app_the_operator_works_in(client):
     assert "in AutoLamella." in asked.json()["detail"]["message"]
 
 
-class _CoreOnly:
+class _CoreOnly(AppContext):
     """An app context with no optional parts."""
+
+    def __init__(self):
+        super().__init__(session=None)
 
     def status(self):
         return {"core": True}

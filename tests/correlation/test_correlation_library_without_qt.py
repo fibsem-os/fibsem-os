@@ -40,7 +40,7 @@ def test_the_library_imports_no_qt():
         "fibsem.correlation.export, fibsem.correlation.points, "
         "fibsem.correlation.session, "
         "fibsem.imaging.localise, fibsem.fm.interpolation; "
-        "assert 'PyQt5' not in sys.modules"
+        "qt = {'qtpy', 'PySide6', 'PyQt5'} & set(sys.modules); assert not qt, qt"
     )
     root = str(Path(__file__).resolve().parents[2])  # this checkout's fibsem
     env = {**os.environ, "PYTHONPATH": root}
