@@ -5,6 +5,8 @@ type Payload = Record<string, any>;
 
 /** A record of /app/events (`fibsem.workflows.events`). */
 export interface AppEvent {
+  /** `<session>-<seq>`, unique for good; older records have none. */
+  id?: string;
   seq: number;
   kind: string;
   t?: string;

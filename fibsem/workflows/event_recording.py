@@ -321,6 +321,41 @@ def read_events_before(
     return found, 0
 
 
+def read_events_after(
+    path: Path,
+    after: str,
+    limit: int = 2000,
+    skip_kinds: Iterable[str] = (),
+    keep: Optional[Callable[[Dict[str, Any]], bool]] = None,
+) -> Tuple[List[Dict[str, Any]], bool]:
+    """The records after the one whose id is *after*, oldest first, and whether
+    that is all of them: False when *after* is not in the file, or more than
+    *limit* records follow it (then the last *limit* are returned).
+
+    A final line without its newline is a write in progress and is left out.
+    Lines of *skip_kinds* are dropped without being parsed, and so are records
+    *keep* says no to.
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    at = data.find(b'"id": ' + json.dumps(after).encode())
+    if at < 0:
+        return [], False
+    start = data.find(b"\n", at) + 1
+    end = data.rfind(b"\n") + 1
+    if start <= 0 or end <= start:
+        return [], True
+    needles = [b'"kind": ' + json.dumps(kind).encode() for kind in skip_kinds]
+    found: List[Dict[str, Any]] = []
+    for line in data[start:end].split(b"\n"):
+        record = _parse_line(line, needles)
+        if record is not None and (keep is None or keep(record)):
+            found.append(record)
+    if len(found) > limit:
+        return found[-limit:], False
+    return found, True
+
+
 def _parse_line(line: bytes, skip_needles: List[bytes]) -> Optional[Dict[str, Any]]:
     if not line.strip() or any(
         needle + b"," in line or needle + b"}" in line for needle in skip_needles
@@ -411,7 +446,7 @@ class EventRecorder:
         self.session_id = uuid.uuid4().hex
         self._microscope = microscope
         self.default_actor = default_actor
-        self.buffer = EventBuffer(stamp=self._stamp)
+        self.buffer = EventBuffer(stamp=self._stamp, stream=self.session_id)
         self._proposals: Optional[ProposalTap] = None
         self.writer = EventFileWriter()
         self._disposers: List[Callable[[], None]] = [
