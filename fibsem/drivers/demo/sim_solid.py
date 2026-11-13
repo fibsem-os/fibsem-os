@@ -1154,10 +1154,15 @@ class Plan:
             out[cut["box"]] |= (cut["from"] <= zz) & (zz <= cut["to"])
         return out
 
-    def fraction(self, lo: float, hi: float, n: int = 24) -> np.ndarray:
-        """How much of each column between two heights was milled away."""
+    def fraction(
+        self, lo: float, hi: float, n: int = 24, lean: float = 0.0
+    ) -> np.ndarray:
+        """How much of each column between two heights was milled away. A
+        view that looks along a tilted line (`lean`, rows it crosses per um
+        of height) sees through each height where that line meets it."""
         heights = np.linspace(lo, hi, n)
-        return np.mean([self.gone(z) for z in heights], axis=0).astype(np.float32)
+        gone = [_rows(self.gone(z), lean * z) for z in heights]
+        return np.mean(gone, axis=0).astype(np.float32)
 
     def gone_at(self, x, y, z) -> np.ndarray:
         """Whether loose points (um) were milled away, by the sample nearest
@@ -1295,14 +1300,45 @@ def reflectance(scene: "SampleScene", view: Plan) -> np.ndarray:
     return out.astype(np.float32)
 
 
-def cell_depth(view: Plan, levels: int = 12) -> tuple:
+def _rows(a: np.ndarray, rows: float) -> np.ndarray:
+    """`a` moved down by a whole number of rows, nothing coming in."""
+    n = int(round(rows))
+    if n == 0:
+        return a
+    out = np.zeros_like(a)
+    if abs(n) < len(a):
+        if n > 0:
+            out[n:] = a[:-n]
+        else:
+            out[:n] = a[-n:]
+    return out
+
+
+def cell_depth(view: Plan, levels: int = 12, lean: float = 0.0, dye=None) -> tuple:
     """How much cell is left in each column after milling (um), and which
     cell it is: what a dye through the whole cell shows from above. The
-    nucleus keeps the dye out of part of it."""
+    nucleus keeps the dye out of part of it. With `dye` (how strongly each
+    column is dyed) the depth is weighted by it, and with `lean` (rows a
+    tilted line of sight crosses per um of height) it is what lies along
+    each such line."""
     col = view.col
     top = col["cell"][1]
     there = top > NONE / 2
     tall = np.where(there, top - FILM_TOP, 0.0).astype(np.float32)
+    if lean:
+        n_lo, n_hi = col["nucleus"]
+        nucleus = np.where(n_hi > NONE / 2, np.clip(n_hi - n_lo, 0, None), 0.0)
+        share = np.clip(1 - 0.45 * nucleus / np.maximum(tall, 1e-6), 0, 1)
+        share = share * (1.0 if dye is None else dye)
+        n = 2 * levels
+        dz = float(tall.max()) / n if there.any() else 0.0
+        depth = np.zeros(tall.shape, dtype=np.float32)
+        for z in FILM_TOP + (np.arange(n) + 0.5) * dz:
+            here = there & (z < top)
+            if view.removed:
+                here &= ~view.gone(float(z))
+            depth += _rows(here * share, lean * z) * dz
+        return depth.astype(np.float32), col["cell_id"]
     kept = np.ones(tall.shape, dtype=np.float32)
     if view.removed:
         gone = np.zeros(tall.shape, dtype=np.float32)
@@ -1312,6 +1348,8 @@ def cell_depth(view: Plan, levels: int = 12) -> tuple:
     n_lo, n_hi = col["nucleus"]
     nucleus = np.where(n_hi > NONE / 2, np.clip(n_hi - n_lo, 0, None), 0.0)
     depth = np.clip(tall - 0.45 * nucleus, 0, None) * kept
+    if dye is not None:
+        depth = depth * dye
     return depth.astype(np.float32), col["cell_id"]
 
 

@@ -241,6 +241,12 @@ each over a few planes. Whatever a milled pattern cut through, along the beam th
 it, is gone from the FM, so a lamella keeps only what lies in its slab (the pattern's
 depth is not applied here); the membrane is gone wherever a pattern milled.
 
+On a tilted sample (an FM that shares the beams' point, with the stage at the milling
+angle) the FM looks along a slanted line. A point over the plane shows further along the
+view by its height, a cut dims only what lies along each line of sight, so a target a
+slanted cut left standing is not hidden under the trench's outline, and the plane is in
+focus along one line across the view, blurring away from it either side.
+
 `scene.fm_targets()` lists each target: the pair's midpoint (x, y and height, m), its
 two spots, its pool and its cilium's base and tip (or None). With `fm_red: cilia` it
 lists only the cells with a cilium, and the midpoint is the cilium's. The camera has hot

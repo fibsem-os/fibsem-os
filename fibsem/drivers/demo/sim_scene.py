@@ -103,6 +103,7 @@ FM_INTENSITY = 90.0
 FM_CELL_DEPTH = 9.0  # um; the cell thickness that glows at FM_INTENSITY
 FM_GLOW_HAZE = 2.5e-6  # m; how far out-of-focus light from a cell spreads
 FM_PSF_SIGMA = 0.13e-6  # m; an in-focus point source
+FM_FOCUS_LEVELS = 5  # the most different blurs drawn across one tilted view
 CILIUM_SIGMA = 0.09e-6  # m; a ~250 nm wide cilium, under the PSF
 # a source spread dimmer than this (canvas scale; the camera's noise is ~0.3)
 # is not drawn: far from focus it would cover the frame for nothing
@@ -2229,6 +2230,14 @@ class SampleScene:
         ax, ay = projection.to_plane(reference, stage_position)
         fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
         turn = self._turn(stage_position)
+        # a tilted view: a height shifts a point down the view the way a
+        # stage raise does, and the plane is nearer the objective at one edge
+        lift = 0.0
+        if fs < 0.9995:
+            raised = replace(stage_position, z=(stage_position.z or 0.0) + 1e-6)
+            _, ay_up = projection.to_plane(reference, raised)
+            lift = float(np.copysign(np.sqrt(1 - fs * fs), ay_up - ay))
+        self._fm_tilt = (float(fs), lift, pixel_size)
 
         bars, cells, red, fiducial = weights[:4]
         far_red = weights[4] if len(weights) > 4 else 0.0
@@ -2322,26 +2331,26 @@ class SampleScene:
             # a cell is a column of dye a few um tall: a cut along the
             # milling beam takes away the part of each column it passes
             # through, so from above a trench reaches as far as the SEM sees
-            canvas *= 1.0 - self.milled_fraction(xs_world, ys_world)
+            gone = self.milled_fraction(xs_world, ys_world)
+            canvas *= 1.0 - gone
         if dyed:
             canvas += self._fm_glow(dyed, xs_world, ys_world, pixel_size)
         if bars > 0 and self.milled:
-            canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
+            # the leaked reflection is dark where the view passes through
+            # nothing but a cut, and in a burn's pit: not over what a slanted
+            # cut left standing
+            dark = gone > 0.98
+            for region in self.milled:
+                if region.halo > 0:
+                    dark |= self._polygon_mask(region.points, xs_world, ys_world)
+            canvas[dark] = -bars * MILL_DEPTH
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
             if halo is not None:
                 canvas[halo] += bars * FM_HALO
         canvas[rim] = 0.0
         canvas[beyond] = 0.0
 
-        if defocus:
-            # a retracted objective is millimetres from focus: cap the blur so
-            # the frame reads as "out of focus" without costing more than the
-            # rest of the render. A wide blur is done on a decimated frame and
-            # scaled back - what a 40 px gaussian removes, decimating by 8
-            # already removed
-            sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
-            if sigma_px > 0.3:
-                canvas = _blur(canvas, sigma_px)
+        canvas = self._fm_focus(canvas, defocus)
 
         view = (ax, ay, cx, cy, pixel_size, fs, turn)
         if getattr(self, "fm_spots", None):
@@ -2408,11 +2417,13 @@ class SampleScene:
         thickest, gone where it was milled away, with the haze a widefield
         FM adds from above and below the focal plane."""
         plan, step = self._plan
-        depth, cell_id = sim_solid.cell_depth(plan)
+        cell_id = plan.col["cell_id"]
         ids = np.array(sorted(dyed), dtype=np.int64)
         level = np.array([dyed[i] for i in ids], dtype=np.float32)
         at = np.clip(np.searchsorted(ids, cell_id), 0, len(ids) - 1)
-        glow = np.where(ids[at] == cell_id, level[at], 0.0) * depth / FM_CELL_DEPTH
+        dye = np.where(ids[at] == cell_id, level[at], 0.0)
+        depth, _ = sim_solid.cell_depth(plan, lean=self._fm_lean(step), dye=dye)
+        glow = depth / FM_CELL_DEPTH
         height, width = ys_world.shape[0], xs_world.shape[1]
         glow = self._fm_full(glow.astype(np.float32), step, height, width)
         sharp = _blur(glow, max(FM_PSF_SIGMA / pixel_size, 0.6))
@@ -2433,11 +2444,42 @@ class SampleScene:
             halo = self.halo_mask(xs_world, ys_world, pixel)
             if halo is not None:
                 canvas[halo] += FM_HALO
-        if defocus:
-            sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
-            if sigma_px > 0.3:
-                canvas = _blur(canvas, sigma_px)
-        return self._fm_camera(canvas, rng)
+        return self._fm_camera(self._fm_focus(canvas, defocus), rng)
+
+    def _fm_seen(self, w, h):
+        """A point as the FM sees it: from where the plane under it shows
+        down the view (`w`, m from the centre) and its height over the plane
+        (`h`, m), where it shows down the view and its height along the
+        objective's axis. Looking straight at the plane these are w and h."""
+        fs, lift, _ = getattr(self, "_fm_tilt", (1.0, 0.0, 1.0))
+        return w + lift * h, fs * h - lift * w / fs
+
+    def _fm_focus(self, canvas: np.ndarray, defocus: float) -> np.ndarray:
+        """The canvas blurred for the objective's distance from focus. A
+        retracted objective is millimetres from focus: the blur is capped, so
+        the frame reads as out of focus without costing more than the rest of
+        the render. On a tilted sample the plane is in focus along one line
+        across the view and blurs away from it either side."""
+        fs, lift, pix = getattr(self, "_fm_tilt", (1.0, 0.0, 1.0))
+        defocus = float(defocus or 0.0)
+
+        def blurred(d):
+            sigma_px = min(abs(d) * 1e6 * self.fm_blur_px_per_um, 40.0)
+            return _blur(canvas, sigma_px) if sigma_px > 0.3 else canvas
+
+        height = canvas.shape[0]
+        reach = abs(lift) / fs * 0.5 * height * pix
+        if reach * 1e6 * self.fm_blur_px_per_um < 0.3:
+            return blurred(defocus)
+        levels = defocus + np.linspace(-reach, reach, FM_FOCUS_LEVELS)
+        rows = defocus + lift * (np.arange(height) - height / 2) * pix / fs
+        at = np.clip((rows - levels[0]) / (levels[1] - levels[0]), 0, len(levels) - 1)
+        out = np.zeros_like(canvas)
+        for j, level in enumerate(levels):
+            weight = np.clip(1 - np.abs(at - j), 0, 1)[:, None]
+            if weight.any():
+                out += weight * blurred(float(level))
+        return out
 
     def _fm_camera(self, canvas: np.ndarray, rng) -> np.ndarray:
         """The canvas as the camera reads it."""
@@ -2486,14 +2528,15 @@ class SampleScene:
         def stamp(x, y, z, sigma0, peak):
             # the point spread widens away from focus; a wide source (the
             # pool) barely changes, a point (a centriole) spreads and dims
-            dz = (z_plane - z - self._fm_film()) / z_r
+            w, along = self._fm_seen(turn * y * fs + ay, z + self._fm_film())
+            dz = (z_plane - along) / z_r
             sigma_m = float(np.hypot(sigma0, FM_PSF_SIGMA * abs(dz)))
             amp = weight * peak * (sigma0 / sigma_m) ** 2
             if amp < FM_FAINT:
                 return  # spread so far it is lost in the camera noise
             sigma = max(sigma_m / pix, 0.6)
             u = cx + (turn * x + ax) / pix
-            v = cy + (turn * y * fs + ay) / pix
+            v = cy + w / pix
             r = int(np.ceil(4 * sigma))
             u0, u1 = max(int(u) - r, 0), min(int(u) + r + 2, width)
             v0, v1 = max(int(v) - r, 0), min(int(v) + r + 2, height)
@@ -2680,8 +2723,11 @@ class SampleScene:
         ax, ay, cx, cy, pix, fs, turn = view
         height, width = canvas.shape
         u = cx + (turn * pts[:, 0] + ax) / pix
-        v = cy + (turn * pts[:, 1] * fs + ay) / pix
-        dz = float(defocus or 0.0) - pts[:, 2] - self._fm_film()
+        w, along = self._fm_seen(
+            turn * pts[:, 1] * fs + ay, pts[:, 2] + self._fm_film()
+        )
+        v = cy + w / pix
+        dz = float(defocus or 0.0) - along
         dz = dz / max(self.fm_axial_range, 1e-9)
         sigma_m = np.hypot(sigma0, FM_PSF_SIGMA * np.abs(dz))
         amp = peak * (sigma0 / sigma_m) ** 2
@@ -2736,7 +2782,9 @@ class SampleScene:
         ):
             # the solid sample: its cells stand taller, from the film up
             film = sim_solid.FILM_TOP
-            gone = plan[0].fraction(film + 0.05, film + 2 * top * um)
+            gone = plan[0].fraction(
+                film + 0.05, film + 2 * top * um, lean=self._fm_lean(plan[1])
+            )
             return self._fm_full(gone, plan[1], ys_world.shape[0], xs_world.shape[1])
         xs, ys = np.broadcast_arrays(xs_world * um, ys_world * um)
         heights = np.linspace(0.05, top * um, 24)
@@ -2832,6 +2880,12 @@ class SampleScene:
                 },
             }
         )
+
+    def _fm_lean(self, step: int) -> float:
+        """How many rows of the FM's plan (every `step`-th pixel) its line of
+        sight crosses per um of height: none looking straight at the plane."""
+        _, lift, pix = getattr(self, "_fm_tilt", (1.0, 0.0, 1.0))
+        return lift * 1e-6 / (pix * step)
 
     def _fm_film(self) -> float:
         """The height (m) of the film in the focal frame: heights in the FM
