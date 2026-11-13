@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { api } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -305,7 +305,7 @@ function Row({ instrument: i }: { instrument: Instrument }) {
   const { text, warn } = status(i);
   const ready = i.reachable && i.paired && i.gateway?.mode === "running";
   return (
-    <div className="flex flex-col gap-2 border-t border-border py-3">
+    <div className="flex flex-col gap-2 border-t border-border py-3 first:border-t-0 first:pt-0">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-[13px]">
         <span className="font-semibold">{i.name}</span>
         <span className={cn(warn && WARNING)}>{text}</span>
@@ -453,7 +453,6 @@ export function Instruments() {
     );
   return (
     <Card className="flex flex-col gap-2">
-      <CardTitle>Instruments</CardTitle>
       {state.instruments.map((instrument) => (
         <Row key={instrument.name} instrument={instrument} />
       ))}
