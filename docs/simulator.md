@@ -124,6 +124,13 @@ The SEM and FIB images answer to the beam's settings, as the instrument's do
   four times the counts of a 1 us dwell.
 - **Beam shift** moves the image, as it always has.
 
+A surface has fine texture all over (`surface_grain`, 0 is smooth): roughness well
+under a micron and small dark specks, fixed to the sample and the same in both beams.
+It is what a focus sweep has to go on where little else is in view: its default score
+(`tenengrad`) peaks at focus on a probe image at a field of view of 80 um or so, where
+a 10 um focus error is about half a pixel of blur. At 150 um and wider the same error
+is too small to see, and a sweep lands within a few tens of microns.
+
 Voltage changes nothing, and the height of a cell or the depth of a trench is too
 little to change focus.
 
@@ -332,6 +339,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `scan_rotation_at_start` | {} | the scan rotation each beam boots at, `{electron: deg, ion: deg}` |
 | `fm_camera_mount` | null | the mount transform the FM camera really has; null is as configured |
 | `imaging_damage` | 1 | how fast FIB imaging wears the sample away (1 is ice, 0 is never) |
+| `surface_grain` | 1 | how strongly a surface's fine texture shows (0 is smooth; see Beam settings) |
 | `faults` | [] | things that go wrong and when, see "Things going wrong" |
 
 ### Grid and film

@@ -113,6 +113,13 @@ HOLE_UNDER = (0.12, 0.06)  # how much darker thin ice is with no film under it
 CRACK = 0.9  # um; how deep a crack in the film grooves the ice over it
 ORGANELLE_STEP = 0.5  # um; a view coarser than this shows no organelles
 BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
+# a top's fine texture: (um, share) of each size of roughness, how strongly it
+# shows (SEM, FIB), and the dark specks in it
+ROUGH = ((0.12, 0.35), (0.3, 0.3), (0.8, 0.2), (2.0, 0.15))
+GRAIN = (0.4, 0.25)
+SPECK_CELL = 0.7  # um; at most one speck in each square this wide
+SPECK_SHARE = 0.5  # of those squares that have one
+SPECK = (0.5, 0.35)  # how much darker a speck is
 RIM = (1.5, 1.2)  # how bright the rim round a milled edge is
 RIM_WIDTH = 1.1  # um
 CURTAIN = 0.28  # how strongly curtaining streaks a cut face
@@ -888,6 +895,8 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
         mat_top = mat_top * (1 + 0.12 * (1 - np.exp(-scene.sputter_thickness / 5e-9)))
     mat_top = np.where(particle & hit["bead"], BEAD[which], mat_top)
     shade[top] = (mat_top * tilt)[top]
+    if scene.surface_grain > 0:
+        shade[top] *= _grain(scene, hit, pix, which)[top]
     # a bar under thin ice shows through
     bar = hit["bar"]
     under = top & np.isin(hit_m, (ICE, COAT))
@@ -939,6 +948,42 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     if hit["flip"]:
         shade, charge = shade[::-1], charge[::-1]
     return shade, charge
+
+
+def _grain(scene, hit: dict, pix: float, which: int) -> np.ndarray:
+    """The fine texture of a top, as a factor on its grey: a frosted surface
+    is rough all over at well under a micron, with small dark specks sitting
+    in it. It is what a focus score has to go on where nothing else is in
+    view. Fixed to the sample, and only as fine as the view's pixels show."""
+    x, y = np.broadcast_arrays(hit["x"][None, :], hit["y"])
+    seed = int(scene.seed) + 4001
+    rough = np.zeros(x.shape, dtype=np.float32)
+    for k, (scale, amp) in enumerate(ROUGH):
+        if scale < 2 * pix:  # below the sampling: it would only alias
+            continue
+        # each size on its own axes, so no lattice shows
+        c, s = np.cos(0.7 + 1.9 * k), np.sin(0.7 + 1.9 * k)
+        rough += amp * sim_view.value_noise(
+            x * c - y * s, x * s + y * c, scale, seed + 101 * k
+        )
+    grain = float(scene.surface_grain)
+    out = 1 + grain * GRAIN[which] * rough
+    if SPECK_CELL >= 3 * pix:
+        # one speck at most to a cell of the surface, anywhere in it
+        i = np.floor(x / SPECK_CELL).astype(np.int64)
+        j = np.floor(y / SPECK_CELL).astype(np.int64)
+        h = [sim_view._hash(i, j, seed + 11 + n) for n in range(6)]
+        r = SPECK_CELL * (0.07 + 0.28 * h[0] ** 2)
+        room = SPECK_CELL - 2 * r
+        dx = x - (i * SPECK_CELL + r + room * h[1])
+        dy = y - (j * SPECK_CELL + r + room * h[2])
+        # no two the same shape: each a little longer one way than the other
+        c, s = np.cos(np.pi * h[3]), np.sin(np.pi * h[3])
+        d = np.hypot(dx * c + dy * s, (dy * c - dx * s) * (1 + 0.5 * h[4]))
+        inside = np.clip((r - d) / pix + 0.5, 0, 1) * (h[5] < SPECK_SHARE)
+        dark = min(grain * SPECK[which], 0.9) * (0.5 + 0.5 * h[4])
+        out = out * (1 - dark * inside)
+    return np.clip(out, 0.1, None).astype(np.float32)
 
 
 def _rim(hit: dict, pix: float) -> np.ndarray:
