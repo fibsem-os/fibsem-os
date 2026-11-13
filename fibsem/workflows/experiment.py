@@ -27,6 +27,7 @@ from psygnal import Signal
 from fibsem.acting import Actor
 from fibsem.codec import encode
 from fibsem.structures.system import FibsemUser, SessionInfo
+from fibsem.util.files import write_atomic
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
 from fibsem.workflows.proposals import (
@@ -165,12 +166,10 @@ class BaseExperiment:
         try:
             with EXPERIMENT_WRITE_LOCK:
                 data = self.to_dict()
-            # Serialised in full before the file is opened: dumping straight into
-            # it left a zero-byte experiment.yaml behind the moment the writer met
-            # a value it could not represent, and nothing then loaded.
+            # Serialised in full, then swapped in whole: a value the writer
+            # can't represent, or a crash part way, leaves the last saved file.
             text = yaml.safe_dump(data, indent=4)
-            with open(os.path.join(self.path, EXPERIMENT_FILENAME), "w") as f:
-                f.write(text)
+            write_atomic(os.path.join(self.path, EXPERIMENT_FILENAME), text)
         except Exception as e:
             self.save_error = f"{type(e).__name__}: {e}"
             raise
