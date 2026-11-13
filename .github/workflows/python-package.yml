@@ -335,7 +335,8 @@ jobs:
   web:
     # The web app's build output is committed so a wheel install serves /ui/
     # without Bun. This rebuilds it and fails when the commit and the source
-    # disagree, including the palette written from fibsem/theme/tokens.py.
+    # disagree, including the palette written from fibsem/theme/tokens.py and
+    # the answer types written from the App Server's /openapi.json.
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -345,15 +346,19 @@ jobs:
     - uses: oven-sh/setup-bun@v2
       with:
         bun-version: "1.4.2"
+    - run: pip install .
     - run: python scripts/web_theme.py
     - run: bun install --frozen-lockfile
       working-directory: web
+    - run: bun run types
+      working-directory: web
     - run: bun run build
       working-directory: web
-    - name: Fail if the committed build or theme is stale
+    - name: Fail if the committed build, theme or types are stale
       run: |
-        git status --porcelain -- fibsem/server/ui web/src/theme.css
-        test -z "$(git status --porcelain -- fibsem/server/ui web/src/theme.css)" || {
-          echo "Run 'bun run theme && bun run build' in web/ and commit the result."
+        STALE="fibsem/server/ui web/src/theme.css web/src/lib/schema.ts"
+        git status --porcelain -- $STALE
+        test -z "$(git status --porcelain -- $STALE)" || {
+          echo "Run 'bun run theme && bun run types && bun run build' in web/ and commit the result."
           exit 1
         }
