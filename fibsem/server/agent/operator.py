@@ -35,7 +35,7 @@ from fibsem.server.agent.requests import RequestRefused
 from fibsem.server.agent.setup import setup_text
 from fibsem.server.auth import refusal_error, require_operator
 from fibsem.server.bodies import LevelBody, MessageBody, ReasonBody
-from fibsem.server.knowledge_routes import _instrument, _source
+from fibsem.server.knowledge_routes import entry_source, request_instrument
 from fibsem.server.parts import served_parts
 from fibsem.server.responses import (
     AgentCustomisation,
@@ -316,8 +316,8 @@ def build_operator_router(agent: AgentSession) -> APIRouter:
                 message=text,
                 task=agent.citing(record["answers"]) if answered else None,
                 root=root,
-                instrument=_instrument(request),
-                source=_source(request, root, None),
+                instrument=request_instrument(request),
+                source=entry_source(request, root, None),
             )
         except (knowledge.KnowledgeError, ValueError) as error:
             raise refusal_error(

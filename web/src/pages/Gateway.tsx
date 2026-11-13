@@ -26,7 +26,7 @@ interface GatewayState {
   switching: boolean;
   /** Which switch is in progress, from any page, tray or hub. */
   switch?: "starting" | "stopping" | null;
-  holder: { pid: number; url: string } | null;
+  other_host: { pid: number; url: string } | null;
   last_exit: {
     window: boolean;
     app: string | null;
@@ -430,9 +430,9 @@ function AppSection({
           )}
         </>
       )}
-      {state.holder && (
+      {state.other_host && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-          Another fibsem host runs here (pid {state.holder.pid}) that the
+          Another fibsem host runs here (pid {state.other_host.pid}) that the
           gateway didn't start: close it at the PC before starting the app.
         </p>
       )}

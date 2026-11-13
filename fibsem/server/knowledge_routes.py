@@ -59,7 +59,7 @@ def _picture(path: str) -> Dict[str, Any]:
     }
 
 
-def _instrument(request: Request) -> Optional[str]:
+def request_instrument(request: Request) -> Optional[str]:
     """The connected microscope's configured name, if it has one."""
     served = getattr(request.app.state, "served", None)
     microscope = served.current if served is not None else None
@@ -83,7 +83,7 @@ def _experiment_id(folder: Optional[str]) -> Optional[str]:
     return str(value) if value else None
 
 
-def _source(request: Request, experiment: Optional[str], item: Optional[str]):
+def entry_source(request: Request, experiment: Optional[str], item: Optional[str]):
     """Where an entry comes from: ids and names, never a path."""
     microscope = getattr(getattr(request.app.state, "served", None), "current", None)
     try:
@@ -215,9 +215,9 @@ def build_knowledge_router(
                 id=entry_id,
                 lasts=lasts,
                 remind=remind,
-                instrument=_instrument(request),
+                instrument=request_instrument(request),
                 session=name,
-                source=_source(request, experiment, item),
+                source=entry_source(request, experiment, item),
                 images=sources,
                 image_names=images,
             )

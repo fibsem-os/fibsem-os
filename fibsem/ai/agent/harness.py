@@ -53,12 +53,14 @@ from fibsem.ai.agent import (
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
+from fibsem.ai.agent.report import SessionReport, plain
 from fibsem.client.transport import (
     SERVER_TOKEN_ENV,
     SERVER_URL_ENV,
     server_env,
     unreachable_why,
 )
+from fibsem.codec import decode
 from fibsem.extras import missing_extra_message
 from fibsem.keystore import get_secret
 from fibsem.logo import print_fibsem_logo
@@ -1124,9 +1126,13 @@ class Harness:
                 body["playbook"] = state["playbook"] or {}
                 body["hooks"] = self._playbook.hooks()
                 self._playbook_sent = state
-        body = {key: value for key, value in body.items() if value is not None}
         if ended:
             body.update(ended=True, reason=self._end_reason)
+        try:
+            body = plain(decode(SessionReport, body, strict=True))
+        except ValueError:
+            log.warning("The session report did not read.", exc_info=True)
+            return
         self._goal_sent = True
 
         def post():
