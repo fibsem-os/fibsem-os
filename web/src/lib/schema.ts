@@ -37,6 +37,14 @@ export interface components {
             specialists: components["schemas"]["SkillRow"][];
             tools: components["schemas"]["ToolRow"][];
         };
+        /** @description POST /app/agent/requests: the agent's actions, each ``{tool,
+         *     arguments}``, and why, for the operator to approve at Assist. */
+        AgentRequestBody: {
+            actions: {
+                [key: string]: unknown;
+            }[];
+            reason: string;
+        };
         AgentRequestView: {
             actions: components["schemas"]["ActionView"][];
             /** @default  */
@@ -89,6 +97,15 @@ export interface components {
             suggestion: components["schemas"]["SuggestionCard"] | null;
             waiting: components["schemas"]["Waiting"] | null;
         };
+        /** @description POST /app/experiment/export/animation. */
+        AnimationExportBody: {
+            /** @default gif */
+            format?: string;
+            item_name: string;
+            options?: {
+                [key: string]: unknown;
+            } | null;
+        };
         /** @description One frame of an item's animation: a task, the beams it can draw, its
          *     files in the experiment. */
         AnimationFrameRow: {
@@ -114,6 +131,11 @@ export interface components {
             microscope_connected: boolean;
             progress: components["schemas"]["ProgressLine"] | null;
             workflow: components["schemas"]["WorkflowState"];
+        };
+        /** @description POST .../items/{item_name}/apply_protocol: the tasks to reset, or
+         *     every task the protocol defines. */
+        ApplyProtocolBody: {
+            task_names?: string[] | null;
         };
         /** @description A proposal a task is stopped on. */
         Asking: {
@@ -214,6 +236,17 @@ export interface components {
             replaces: string | null;
             user: string;
         };
+        /** @description POST /connect: an agent asking to connect, waiting up to ``wait_s``.
+         *     Unknown keys are ignored, as for pairing. */
+        ConnectBody: {
+            /** @default  */
+            client?: string;
+            /** @default  */
+            origin?: string;
+            /** @default  */
+            user?: string;
+            wait_s?: number | null;
+        };
         ConnectText: {
             text: string | null;
         };
@@ -254,6 +287,31 @@ export interface components {
             in_control: components["schemas"]["InControl"] | null;
             yours: boolean;
         };
+        /** @description POST .../items/{item_name}/correlation: a run folder from
+         *     correlation_correlate. */
+        CorrelationRunBody: {
+            run_path: string;
+        };
+        /** @description POST /app/workflow/decide: a decision on a proposal, by its id (or the
+         *     run it came from, ``task_id``), as GET /app/workflow/proposals lists it. */
+        DecideBody: {
+            action?: string | null;
+            /** @default  */
+            actor?: string;
+            item_id: string;
+            outcome: string;
+            patch?: {
+                [key: string]: unknown;
+            } | null;
+            proposal_id?: string | null;
+            /** @default  */
+            reason?: string;
+            task_id?: string | null;
+            task_name: string;
+            values?: {
+                [key: string]: unknown;
+            } | null;
+        };
         Decided: {
             /** @default false */
             applied: boolean;
@@ -267,6 +325,26 @@ export interface components {
             /** @default false */
             fm_available: boolean;
             sem: components["schemas"]["ImagePayload"] | null;
+        };
+        /** @description POST /app/experiment/images/drawn: a saved image with marks on it. */
+        DrawBody: {
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            channels?: string[] | null;
+            crosshair?: boolean | null;
+            looks?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            } | null;
+            marks?: unknown | null;
+            metadata_bar?: boolean | null;
+            path: string;
+            plane?: number | null;
         };
         /** @description One entry: its front matter, its text, its image names and its file. */
         Entry: {
@@ -315,6 +393,15 @@ export interface components {
             resumed: boolean | null;
             stream: string | null;
         };
+        /** @description POST /app/experiment/evidence: an experiment image (``image``) or one
+         *     the agent made (``upload``, base64), with marks on it. */
+        EvidenceBody: {
+            image?: string | null;
+            item_name?: string | null;
+            marks?: unknown | null;
+            source?: string | null;
+            upload?: string | null;
+        };
         EvidenceView: {
             answers: string | null;
             /** @default agent */
@@ -350,6 +437,11 @@ export interface components {
         ExperimentOpened_LamellaSummary_: {
             applied: boolean;
             experiment: components["schemas"]["LamellaSummary"] | null;
+        };
+        /** @description POST /app/experiment/load: a path from the recents or the experiments
+         *     folder. */
+        ExperimentPathBody: {
+            path: string;
         };
         ExperimentRef: {
             name: string;
@@ -554,6 +646,10 @@ export interface components {
             entries: components["schemas"]["FileEntry"][];
             root: string;
         };
+        /** @description PATCH /pairing/computers/{id}: the computer's grants, replaced. */
+        GrantsBody: {
+            grants?: string[];
+        };
         /** @description A grid's summary, every task run with its files, and its items. */
         GridDetail: {
             completed_tasks: string[];
@@ -612,6 +708,10 @@ export interface components {
             reason: string | null;
             unplaced: components["schemas"]["Unplaced"][];
         };
+        /** @description POST .../grids/{grid_name}/note: '' clears. */
+        GridNoteBody: {
+            note: string;
+        };
         GridPlan: {
             estimate: {
                 [key: string]: unknown;
@@ -621,6 +721,37 @@ export interface components {
             screen_all: boolean | null;
             steps: components["schemas"]["PlanStep"][];
             task_names: string[] | null;
+        };
+        /** @description POST /app/workflow/grids/plan: the grid tasks, over the grids named or
+         *     every recorded grid; ``screen_all`` inventories first and takes no
+         *     grid_names. */
+        GridPlanBody: {
+            grid_names?: string[] | null;
+            /** @default false */
+            screen_all?: boolean;
+            task_names: string[];
+        };
+        /** @description POST .../grids/{grid_name}/quality: GOOD, REWORK, FAILED, or
+         *     UNASSESSED to clear. */
+        GridQualityBody: {
+            /** @default  */
+            reason?: string;
+            verdict: string;
+        };
+        /** @description POST /app/experiment/grid_protocol/tasks/{task_name}/requirements. */
+        GridRequirementsBody: {
+            requires: string[];
+        };
+        /** @description POST /app/workflow/grids/start. */
+        GridRunBody: {
+            grid_names?: string[] | null;
+            /** @default false */
+            report_at_end?: boolean;
+            /** @default false */
+            screen_all?: boolean;
+            task_names: string[];
+            /** @default false */
+            unload_at_end?: boolean;
         };
         GridSummary: {
             completed_tasks: string[];
@@ -684,6 +815,16 @@ export interface components {
                 [key: string]: string;
             };
         };
+        /** @description POST /app/experiment/export/image: the dialog's options, or its
+         *     defaults. */
+        ImageExportBody: {
+            /** @default png */
+            format?: string;
+            options?: {
+                [key: string]: unknown;
+            } | null;
+            path: string;
+        };
         /** @description What the image export offers for one image: its starting options
          *     (`ExportOptions`) and every value its bar can show. */
         ImageExportForm: {
@@ -715,6 +856,29 @@ export interface components {
             result: {
                 [key: string]: unknown;
             };
+        };
+        /** @description POST /app/experiment/images/pair: two saved images side by side. */
+        ImagePairBody: {
+            after: string;
+            after_plane?: number | null;
+            before: string;
+            before_plane?: number | null;
+            box?: [
+                number,
+                number,
+                number,
+                number
+            ] | null;
+            channels?: string[] | null;
+            crosshair?: boolean | null;
+            looks?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            } | null;
+            marks?: unknown | null;
+            metadata_bar?: boolean | null;
+            share_looks?: boolean | null;
         };
         ImagePairDrawn: {
             after: string;
@@ -815,6 +979,18 @@ export interface components {
             by: components["schemas"]["ActorKind"];
             since: number;
         };
+        /** @description POST /app/experiment/analysis/intensity: points on a saved image. */
+        IntensityBody: {
+            channel?: string | null;
+            path: string;
+            planes?: number[] | null;
+            points: [
+                number,
+                number
+            ][];
+            radius_px?: number | null;
+            reference?: number | null;
+        };
         /** @description One playbook, skill or subagent in the list. */
         Item: {
             description: string | null;
@@ -870,6 +1046,21 @@ export interface components {
             item_name: string;
             role: string | null;
             slices: components["schemas"]["StackSlice"][];
+        };
+        /** @description POST /app/knowledge: an entry, new or (with ``id``) replacing one.
+         *     ``images`` are paths in the open experiment. */
+        KnowledgeBody: {
+            id?: string | null;
+            images?: string[];
+            item?: string | null;
+            lasts?: string | null;
+            playbook?: string | null;
+            remind?: string | null;
+            sample?: string | null;
+            section?: string | null;
+            /** @default  */
+            text?: string;
+            title: string;
         };
         /** @description One knowledge entry, and its images as pictures when asked for. */
         KnowledgeEntry: {
@@ -978,6 +1169,10 @@ export interface components {
         LendEnded: {
             ended: boolean;
         };
+        /** @description PUT /app/agent/level. */
+        LevelBody: {
+            level: string;
+        };
         LevelOption: {
             level: string;
             name: string;
@@ -986,6 +1181,12 @@ export interface components {
         };
         LevelSet: {
             level: string;
+        };
+        /** @description PUT /app/library/{kind}/{name}: the file's ``text``, or its ``data``
+         *     for the library to write. */
+        LibraryFileBody: {
+            data?: unknown | null;
+            text?: string | null;
         };
         /** @description The playbooks, skills or subagents (*kind*): the shipped and the lab's own. */
         LibraryIndex: {
@@ -1011,6 +1212,28 @@ export interface components {
             x: number;
             y: number;
         };
+        /** @description An image the operator marked for the agent, sent with a message
+         *     (`evidence.save`). ``keep`` keeps it as an example: True, or the
+         *     knowledge section (``sample``, ``playbook``, ``instrument``). */
+        MarkedEvidence: {
+            answers?: string | null;
+            channels?: unknown[] | null;
+            image?: string | null;
+            judged?: {
+                [key: string]: unknown;
+            }[] | null;
+            keep?: boolean | string | null;
+            marks?: unknown | null;
+            sample?: string | null;
+            verdict?: string | null;
+        };
+        /** @description POST /app/experiment/images/markers. */
+        MarkersBody: {
+            current?: boolean | null;
+            fov?: boolean | null;
+            grid_name?: string | null;
+            path: string;
+        };
         MarkersDrawn: {
             grid_name: string | null;
             image: string;
@@ -1022,9 +1245,20 @@ export interface components {
             };
             reason: string | null;
         };
+        /** @description POST /app/agent/messages: the operator's message to the agent. ``text``
+         *     may be empty when ``evidence`` says it. */
+        MessageBody: {
+            evidence?: components["schemas"]["MarkedEvidence"] | null;
+            /** @default  */
+            text?: string;
+        };
         MessageSent: {
             evidence_id: string | null;
             id: string;
+        };
+        /** @description POST /app/agent/read: the operator's messages the agent has read. */
+        MessagesReadBody: {
+            ids: string[];
         };
         MetadataAnswer: {
             choices: unknown[] | null;
@@ -1105,6 +1339,49 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description POST .../items/{item_name}/milling/drawn: the milling tasks to draw,
+         *     the first in colour; ``background`` is related or none. */
+        MillingDrawnBody: {
+            alignment_area?: boolean | null;
+            /** @default related */
+            background?: string;
+            image_path?: string | null;
+            metadata_bar?: boolean | null;
+            scan_direction?: boolean | null;
+            task_names: string | string[];
+        };
+        /** @description A new name. */
+        NameBody: {
+            name: string;
+        };
+        /** @description POST /app/experiment/create: a folder under the experiments folder. */
+        NewExperimentBody: {
+            description?: string | null;
+            name: string;
+            protocol?: string | null;
+            sample?: string | null;
+        };
+        /** @description POST /app/experiment/items: neither place is the stage now; the app
+         *     names it unless ``name`` is given. */
+        NewItemBody: {
+            name?: string | null;
+            overview?: {
+                [key: string]: unknown;
+            } | null;
+            stage_position?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** @description POST /app/experiment/protocol/tasks. */
+        NewTaskBody: {
+            task_name: string;
+            task_type: string;
+        };
+        /** @description POST /app/experiment/notes: an observation for the record. */
+        NoteBody: {
+            item_name?: string | null;
+            text: string;
+        };
         /** @description Messages to Slack for someone away from this instrument
          *     (``fibsem.alerts``): what needs an answer, the agent's messages, what
          *     failed and, when asked for, a finished run.
@@ -1143,6 +1420,20 @@ export interface components {
         };
         NotificationTest: {
             channel_id: string;
+        };
+        /** @description POST /pairing: for the operator's app, or ``agent`` (``hub`` on a
+         *     gateway, with ``grants``). */
+        OpenPairingBody: {
+            grants?: string[];
+            /** @default operator */
+            role?: string;
+        };
+        /** @description POST /app/experiment/messages: the agent's message to the operator,
+         *     ``reply_to`` the message it answers. */
+        OperatorMessageBody: {
+            item_name?: string | null;
+            reply_to?: string | null;
+            text: string;
         };
         /** @description What the playbook and subagent forms offer to pick from. */
         Options: {
@@ -1193,6 +1484,16 @@ export interface components {
                 z: number | null;
             };
         };
+        /** @description POST /pair: the code shown, and what to call this computer. Unknown
+         *     keys are ignored: a client of another version pairs here too. */
+        PairBody: {
+            /** @default  */
+            browser?: string;
+            /** @default  */
+            code?: string;
+            /** @default  */
+            name?: string;
+        };
         ParameterDescription: {
             agent: boolean | null;
             choices: unknown[] | null;
@@ -1211,6 +1512,14 @@ export interface components {
             type: string;
             type_path: string | null;
             unit: string | null;
+        };
+        /** @description A config edit: ``patch`` is ``{"<dotted path>": value}``, ``version``
+         *     the one the config read answered, so an edit over a newer one is refused. */
+        PatchBody: {
+            patch: {
+                [key: string]: unknown;
+            };
+            version: string;
         };
         Picture: {
             caption: string;
@@ -1233,6 +1542,34 @@ export interface components {
             x: number | null;
             y: number | null;
         };
+        /** @description POST /app/experiment/images/pixels: stage positions ({x, y, z, r, t,
+         *     coordinate_system}) as points on a saved image. */
+        PixelsBody: {
+            path: string;
+            stage_positions: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** @description Where an item is: a stage position, or a point on a grid overview
+         *     (``{grid_name, filename, px | fraction}``). */
+        PlaceBody: {
+            overview?: {
+                [key: string]: unknown;
+            } | null;
+            stage_position?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** @description PUT /app/agent/plan: the whole plan, its sections under ## headings. */
+        PlanBody: {
+            markdown: string;
+        };
+        /** @description POST /app/agent/plan/section: one section; empty text removes it. */
+        PlanSectionBody: {
+            section: string;
+            /** @default  */
+            text?: string;
+        };
         PlanStep: {
             grid: string;
             step: string;
@@ -1243,6 +1580,26 @@ export interface components {
             x: number;
             /** @default 0 */
             y: number;
+        };
+        /** @description POST .../items/{item_name}/move_to: a pose name from the item. */
+        PoseBody: {
+            pose: string;
+        };
+        /** @description POST /app/experiment/analysis/profile: a line on a saved image. */
+        ProfileBody: {
+            channel?: string | null;
+            dip?: boolean | null;
+            end: [
+                number,
+                number
+            ];
+            path: string;
+            plane?: number | null;
+            start: [
+                number,
+                number
+            ];
+            width_px?: number | null;
         };
         /** @description One line of measurable progress, or how it ended (*outcome*).
          *
@@ -1278,6 +1635,10 @@ export interface components {
             applied: boolean;
             protocol: components["schemas"]["LamellaProtocol"] | null;
         };
+        /** @description POST /app/experiment/protocol/load. */
+        ProtocolNameBody: {
+            protocol: string;
+        };
         ProtocolSaved: {
             name: string;
             path: string;
@@ -1303,6 +1664,13 @@ export interface components {
             items: components["schemas"]["QueueEntry"][];
             version: number | null;
         };
+        /** @description POST /app/workflow/queue/edit: ``action`` is remove, move_up,
+         *     move_down or run_next. */
+        QueueEditBody: {
+            action: string;
+            item_name: string;
+            task_name: string;
+        };
         QueueEdited: {
             action: string | null;
             /** @default false */
@@ -1321,6 +1689,11 @@ export interface components {
             status: string;
             task_name: string;
         };
+        /** @description POST /app/workflow/queue/grids: grid tasks added to a running grid run. */
+        QueueGridsBody: {
+            grid_names: string[];
+            task_names: string[];
+        };
         QueuedGridStep: {
             grid_name: string;
             item_id: string;
@@ -1330,6 +1703,12 @@ export interface components {
         RangeLimit: {
             max: number | null;
             min: number | null;
+        };
+        /** @description A decision with the operator's reason: denying a connection, rejecting
+         *     a request. */
+        ReasonBody: {
+            /** @default  */
+            reason?: string;
         };
         RecentExperiments: {
             items: components["schemas"]["ExperimentEntry"][];
@@ -1459,12 +1838,25 @@ export interface components {
         RequestList: {
             requests: components["schemas"]["AgentRequestView"][];
         };
+        /** @description POST /app/workflow/queue/requeue: ``front`` puts it first. */
+        RequeueBody: {
+            /** @default false */
+            front?: boolean;
+            item_name: string;
+            task_name: string;
+        };
         Requeued: {
             item_id: string | null;
             item_name: string | null;
             queue_version: number | null;
             queued: boolean;
             task_name: string | null;
+        };
+        /** @description POST .../tasks/{task_name}/requirements: the earlier tasks it needs,
+         *     and whether it must run. */
+        RequirementsBody: {
+            required?: boolean | null;
+            requires?: string[] | null;
         };
         ResultAnswer: {
             result: unknown;
@@ -1508,6 +1900,12 @@ export interface components {
             started_at: string;
             state: string;
             status_code: number | null;
+        };
+        /** @description POST /app/workflow/start: the tasks to run, over the items named, or
+         *     every item. */
+        RunBody: {
+            item_names?: string[] | null;
+            task_names: string[];
         };
         /** @description How the last run ended: completed, cancelled, stalled or failed, and
          *     why when it fell short. Kept until the next run starts. */
@@ -1555,6 +1953,16 @@ export interface components {
             run_next: boolean | null;
             steps: components["schemas"]["RunStep"][];
         };
+        /** @description POST /app/workflow/plan: a run's confirmation, or for adding to the
+         *     running queue (``add``); computes, never acts. */
+        RunPlanBody: {
+            /** @default false */
+            add?: boolean;
+            item_names?: string[] | null;
+            /** @default false */
+            run_next?: boolean;
+            task_names: string[];
+        };
         RunStarted: {
             grid_names: string[] | null;
             plan: components["schemas"]["PlanStep"][] | null;
@@ -1569,6 +1977,12 @@ export interface components {
             items: {
                 [key: string]: unknown;
             }[];
+        };
+        /** @description POST /app/experiment/protocol/save: a protocol folder's name. */
+        SaveProtocolBody: {
+            name: string;
+            /** @default false */
+            overwrite?: boolean;
         };
         SavedExperiments: {
             folder: string;
@@ -1700,6 +2114,11 @@ export interface components {
                 z: number | null;
             };
         };
+        /** @description POST /app/workflow/schedule: ISO-8601, or null to clear. */
+        ScheduleBody: {
+            scheduled_at?: string | null;
+            task_name: string;
+        };
         SkillRow: {
             description: string;
             name: string;
@@ -1726,12 +2145,31 @@ export interface components {
             stage: number[] | null;
             stations: components["schemas"]["MapPlace"][];
         };
+        /** @description A task's milling stages, by name, in their new sequence. */
+        StageOrderBody: {
+            milling_key: string;
+            order: string[];
+            version: string;
+        };
         StateAnswer: {
             microscope_state: components["schemas"]["MicroscopeState"];
         };
         Status: {
             /** @default ok */
             status: string;
+        };
+        /** @description POST /app/workflow/stop: why, for the record (the agent must say). */
+        StopBody: {
+            /** @default  */
+            reason?: string;
+        };
+        /** @description POST /app/workflow/stop_task: the task meant, so a late stop stops
+         *     nothing else. */
+        StopTaskBody: {
+            item_name: string;
+            /** @default  */
+            reason?: string;
+            task_name: string;
         };
         /** @description A stop; ``stopped`` false with ``reason`` when nothing was running,
          *     which a stop does not refuse. */
@@ -1740,6 +2178,24 @@ export interface components {
             reason: string | null;
             stopped: boolean;
             task_name: string | null;
+        };
+        /** @description POST /app/workflow/proposals/suggest: what the agent would decide, for
+         *     the operator to approve. */
+        SuggestBody: {
+            action?: string | null;
+            /** @default  */
+            actor?: string;
+            item_id: string;
+            outcome?: string | null;
+            patch?: {
+                [key: string]: unknown;
+            } | null;
+            proposal_id: string;
+            reason: string;
+            task_name: string;
+            values?: {
+                [key: string]: unknown;
+            } | null;
         };
         Suggested: {
             /** @default false */
@@ -1761,6 +2217,15 @@ export interface components {
         SuggestionDecided: {
             applied: boolean;
             proposal_id: string;
+        };
+        /** @description POST /app/experiment/protocol/supervision. */
+        SupervisionBody: {
+            supervise: boolean;
+            task_name: string;
+        };
+        /** @description A setting turned on or off. */
+        SwitchBody: {
+            on: boolean;
         };
         /** @description Which instrument, and what software is running on it. Provenance.
          *
@@ -1832,6 +2297,10 @@ export interface components {
         TaskHistory: {
             items: components["schemas"]["HistoryRow"][];
         };
+        /** @description Every task, in the new order. */
+        TaskOrderBody: {
+            order: string[];
+        };
         /** @description A lamella's thickness read off a FIB image (`ThicknessResult.to_dict`,
          *     in nm and degrees), with the plot. */
         Thickness: {
@@ -1872,6 +2341,17 @@ export interface components {
             window_from: string;
             window_um: number[];
         };
+        /** @description POST .../items/{item_name}/thickness: a saved image, and the window to
+         *     measure in, else the whole lamella. */
+        ThicknessBody: {
+            centre?: [
+                number,
+                number
+            ] | null;
+            height_um?: number | null;
+            path: string;
+            width_um?: number | null;
+        };
         ToolRow: {
             category: string;
             description: string;
@@ -1879,6 +2359,11 @@ export interface components {
             hardware: boolean;
             level: string;
             name: string;
+        };
+        /** @description POST /app/agent/transcript: lines fibsem-agent printed. */
+        TranscriptBody: {
+            entries?: unknown[];
+            session_id: string;
         };
         Unplaced: {
             item_name: string;
@@ -1904,6 +2389,15 @@ export interface components {
         Waiting: {
             proposal: string;
             who: string;
+        };
+        /** @description POST /app/agent/requests/{id}/withdraw. */
+        WithdrawBody: {
+            reason: string;
+        };
+        /** @description POST /app/workflow/options: only the options given change. */
+        WorkflowOptionsBody: {
+            show_run_summary?: boolean | null;
+            turn_beams_off?: boolean | null;
         };
         WorkflowState: {
             asking: components["schemas"]["Asking"][];
