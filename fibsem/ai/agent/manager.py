@@ -189,6 +189,20 @@ class SessionFolder:
         record["playbook"] = state.get("playbook")
         self._write(record)
 
+    def keep_where(self, reported: dict) -> None:
+        """The instrument and the experiment the session works on, as the App
+        Server names them in its answer to a report: written when either
+        changes, and kept when the server stops naming one."""
+        record = self.record()
+        found = {
+            key: reported[key]
+            for key in ("instrument_serial", "experiment_id")
+            if reported.get(key) and reported[key] != record.get(key)
+        }
+        if found:
+            record.update(found)
+            self._write(record)
+
     def keep_event_cursor(self, event_id: str) -> None:
         """The id of the newest event the agent has been given, so a resume
         watches from after it (`watch.watch` ``after``)."""

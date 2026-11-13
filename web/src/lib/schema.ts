@@ -461,6 +461,8 @@ export interface components {
             path: string;
         };
         ExperimentRef: {
+            /** @default  */
+            id: string;
             name: string;
             num_items: number;
             path: string;
@@ -1877,10 +1879,12 @@ export interface components {
             deadlines: components["schemas"]["Deadline"][] | null;
             effort: string | null;
             ended: boolean | null;
+            experiment_id: string | null;
             files: boolean | null;
             goal: string | null;
             harness: string | null;
             hooks: components["schemas"]["Hook"][] | null;
+            instrument_serial: string | null;
             model: string | null;
             playbook: components["schemas"]["PlaybookState"] | null;
             reason: string | null;

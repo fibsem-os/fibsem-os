@@ -138,6 +138,10 @@ class ReportedSession(SessionReport):
     started: Optional[str] = None
     # Read from its plan, when it keeps one.
     deadlines: Optional[List[Deadline]] = None
+    # The instrument it is connected to and the experiment open there, as the
+    # server knows them: ids, which a rename does not change.
+    instrument_serial: Optional[str] = None
+    experiment_id: Optional[str] = None
 
 
 def plain(report: SessionReport) -> Dict[str, Any]:
