@@ -26,6 +26,7 @@ from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageConfig,
 )
+from tests.fixtures.connecting import connect_and_wait
 from tests.protocols import planned, task_protocol
 
 
@@ -35,7 +36,7 @@ def main_ui(qapp):
     holder with no slot calibrated. Nothing about grids is set up."""
     window = module.AutoLamellaWindow()
     ui = window
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     stage = ui.microscope.sample_handling
     assert stage.magazine is None, "the default Demo grew a loader"
     yield window

@@ -26,6 +26,7 @@ from qtpy.QtWidgets import QWidget
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.workflows.proposals import DETECTION, Proposal
+from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
 
 ITEM, TASK = "item-1", "Setup"
@@ -51,7 +52,7 @@ class _DetWidget(QWidget):
 @pytest.fixture
 def ui(qapp):
     widget = AutoLamellaWindow()
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
     det_widget = _DetWidget()
     widget.panel.det_widget = det_widget
     index = widget.panel.tabWidget.addTab(det_widget, "Detection")

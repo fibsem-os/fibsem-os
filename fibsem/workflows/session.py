@@ -234,13 +234,15 @@ class AppSession:
         self,
         configuration_path: Optional[str] = None,
         progress: Optional[Callable[[str], None]] = None,
+        cancel: Optional[threading.Event] = None,
         **options: Any,
     ) -> Any:
         """Connect the instrument *configuration_path* names (the default
         configuration when None), record its events, and say so on
         ``changed``: a microscope, or with ``info.instrument: devices`` only the
         devices the file lists, remote ones included. Runs on the calling
-        thread; *progress* hears each step. *options* go to
+        thread; *progress* hears each step, and setting *cancel* stops it
+        between steps (`utils.ConnectCancelled`). *options* go to
         `utils.setup_session` (``manufacturer``, ``ip_address``, ``debug``).
         Raises ValueError while something is connected or another connect is
         under way, and whatever connecting raised."""
@@ -260,9 +262,14 @@ class AppSession:
             try:
                 devices = devices_configuration(configuration_path)
                 if devices is not None:
-                    return self._connect_devices(devices, configuration_path, step)
+                    return self._connect_devices(
+                        devices, configuration_path, step, cancel
+                    )
                 microscope, settings = utils.setup_session(
-                    config_path=configuration_path, progress=step, **options
+                    config_path=configuration_path,
+                    progress=step,
+                    cancel=cancel,
+                    **options,
                 )
             except Exception as error:
                 self.connect_error = str(error) or type(error).__name__
@@ -286,6 +293,7 @@ class AppSession:
         settings: Dict[str, Any],
         configuration_path: Optional[str],
         step: Callable[[str], None],
+        cancel: Optional[threading.Event] = None,
     ) -> Any:
         """Build the devices a ``devices`` configuration lists and keep them as
         what is connected. Called by `connect`, under its lock."""
@@ -293,6 +301,7 @@ class AppSession:
 
         step("Connecting the devices…")
         instrument = device_instrument(settings, allow_remote=True)
+        utils.stop_if_cancelled(cancel, instrument)
         with self.changed.paused():
             self.settings = None
             self.configuration_path = str(

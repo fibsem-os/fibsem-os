@@ -50,6 +50,7 @@ from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.workflows.status import HoldKind
+from tests.fixtures.connecting import connect_and_wait
 from tests.protocols import planned, task_protocol
 from tests.run_state import Stopped
 
@@ -89,7 +90,7 @@ def window(qapp, tmp_path_factory):
 
     window = module.AutoLamellaWindow()
     ui = window
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     # Read unconditionally by the main window's workflow update; the window
     # sets it when a run starts.
     window.run_border.set_state("idle")

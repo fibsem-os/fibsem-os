@@ -25,6 +25,7 @@ from fibsem.applications.autolamella.ui import (
     window as module,  # noqa: E402  # noqa: E402
 )
 from fibsem.structures.settings import FibsemStagePosition  # noqa: E402
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +39,7 @@ def _preferences(tmp_path, monkeypatch):
 def main_ui(qapp):
     window = module.AutoLamellaWindow()
     ui = window
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     yield window
     window.lamella_tab.editor._edits._timer.stop()
     ui.microscope.disconnect()

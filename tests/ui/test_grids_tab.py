@@ -26,6 +26,7 @@ from fibsem.workflows.grid.manager import (
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.quality import Verdict
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.fixtures.connecting import connect_and_wait
 from tests.run_state import StubRunner
 
 
@@ -385,7 +386,7 @@ def test_the_grid_workflow_flag_is_gone():
 def test_the_tab_follows_the_connection_and_the_experiment(main_ui, tmp_path):
     ui = main_ui
     assert main_ui.grids_tab.stage is None
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     assert main_ui.grids_tab.stage is ui.microscope.sample_handling
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -408,7 +409,7 @@ def test_an_experiment_with_no_lamella_tasks_loads(main_ui, tmp_path):
     task editor has nothing to show and says so by hiding its columns, where it
     used to raise on the empty selection and stop the whole experiment load."""
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()
@@ -425,7 +426,7 @@ def test_a_grid_task_added_on_the_protocol_tab_reaches_the_run_view(main_ui, tmp
     added on the Protocol tab's Grid page used to appear there only after an
     inventory or an experiment reload."""
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol()
@@ -449,7 +450,7 @@ def test_a_load_from_a_card_reaches_the_sample_view(main_ui, tmp_path):
     from tests.fixtures.demo_stage import demo_grid_loader
 
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     microscope = ui.microscope
     microscope.stage_device.compustage = True
     microscope.sample_handling = bind_sample_handling(microscope)
@@ -487,7 +488,7 @@ def _window_with_magazine(main_ui, tmp_path):
     from tests.fixtures.demo_stage import demo_grid_loader
 
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     microscope = ui.microscope
     microscope.stage_device.compustage = True
     microscope.sample_handling = bind_sample_handling(microscope)

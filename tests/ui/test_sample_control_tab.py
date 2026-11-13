@@ -2,6 +2,8 @@
 
 import pytest
 
+from tests.fixtures.connecting import connect_and_wait
+
 pytest.importorskip(
     "qtpy.QtWidgets"
 )  # CI installs .[test] only; the UI extra is deliberate
@@ -17,7 +19,7 @@ def test_the_sample_tab_lives_for_the_connection(main_ui):
     assert "Sample" not in _tab_labels(ui)
     assert ui.panel.sample_widget is None
 
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     labels = _tab_labels(ui)
     assert labels[labels.index("Milling") + 1] == "Sample"
     assert (

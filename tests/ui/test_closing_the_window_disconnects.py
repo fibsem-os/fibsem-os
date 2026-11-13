@@ -11,6 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from tests.fixtures.connecting import connect_and_wait
 from tests.protocols import add_planned, planned
 
 pytest.importorskip("qtpy.QtWidgets")
@@ -24,7 +25,7 @@ def test_closing_autolamella_disconnects_the_microscope(no_quit):
     from fibsem.applications.autolamella.ui import window as module
 
     window = module.AutoLamellaWindow()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     microscope = window.microscope
     assert microscope._connection.connected
 
@@ -37,7 +38,7 @@ def test_closing_fibsem_disconnects_the_microscope(qapp):
     from fibsem.ui.FibsemUI import FibsemUI
 
     window = FibsemUI()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     microscope = window.microscope
     assert microscope._connection.connected
 
@@ -52,7 +53,7 @@ def test_a_disconnect_that_fails_does_not_stop_the_close(qapp):
     from fibsem.ui.FibsemUI import FibsemUI
 
     window = FibsemUI()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     window.show()
     microscope = window.microscope
     microscope.disconnect = _refuse_to_disconnect
@@ -79,7 +80,7 @@ def running(no_quit, qapp, monkeypatch, tmp_path):
 
     window = module.AutoLamellaWindow()
     ui = window
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     microscope = ui.microscope
     experiment = Experiment(path=tmp_path, name="closing")
     experiment.task_protocol = AutoLamellaTaskProtocol()

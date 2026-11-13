@@ -42,6 +42,7 @@ from fibsem.workflows.proposals import (  # noqa: E402
     Proposal,
 )
 from fibsem.workflows.status import TaskStatus  # noqa: E402
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.proposal_records import set_proposals  # noqa: E402
 from tests.protocols import planned, task_protocol
@@ -77,7 +78,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "load_configuration",
         lambda configuration_name=None: arctis_config,
     )
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
     exp = Experiment(path=tmp_path / "exp", name="review-exp")
     exp.task_protocol = task_protocol(
         planned(name=SETUP, required=True, attention=Attention.supervised),

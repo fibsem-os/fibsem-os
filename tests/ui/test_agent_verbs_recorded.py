@@ -38,6 +38,7 @@ from fibsem.workflows.grid.imaging import (  # noqa: E402
 )
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.protocols import add_planned, planned
 from tests.run_state import hold_runs
@@ -62,7 +63,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "load_configuration",
         lambda configuration_name=None: arctis_config,
     )
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
 
     experiment = Experiment(path=tmp_path, name="agent-verbs")
     experiment.task_protocol = AutoLamellaTaskProtocol()
