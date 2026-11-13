@@ -21,12 +21,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Optional, Type
 
-import yaml
 from psygnal import Signal
 
 from fibsem.acting import Actor
 from fibsem.codec import encode
 from fibsem.structures.system import FibsemUser, SessionInfo
+from fibsem.util import fast_yaml
 from fibsem.util.files import write_atomic
 from fibsem.util.timestamps import now, to_datetime, to_iso
 from fibsem.utils import configure_logging as _configure_logging
@@ -168,7 +168,7 @@ class BaseExperiment:
                 data = self.to_dict()
             # Serialised in full, then swapped in whole: a value the writer
             # can't represent, or a crash part way, leaves the last saved file.
-            text = yaml.safe_dump(data, indent=4)
+            text = fast_yaml.safe_dump(data, indent=4)
             write_atomic(os.path.join(self.path, EXPERIMENT_FILENAME), text)
         except Exception as e:
             self.save_error = f"{type(e).__name__}: {e}"
@@ -395,7 +395,7 @@ class FibsemExperiment(ProposalDecisions, BaseExperiment):
         if path.is_dir():
             path = path / EXPERIMENT_FILENAME
         with open(path) as f:
-            ddict = yaml.safe_load(f) or {}
+            ddict = fast_yaml.safe_load(f) or {}
         check_app(ddict, cls.app, path)
         experiment = cls(path=path.parent.parent, name=path.parent.name)
         experiment._read_identity(ddict)
@@ -450,5 +450,5 @@ def load_experiment(path: Path) -> BaseExperiment:
     if path.is_dir():
         path = path / EXPERIMENT_FILENAME
     with open(path) as f:
-        ddict = yaml.safe_load(f) or {}
+        ddict = fast_yaml.safe_load(f) or {}
     return experiment_type(saved_app(ddict)).load(path)
