@@ -281,7 +281,13 @@ def turn_prompt(
     said = watch_mod.kinds(lines)
     if watch_mod.GAP in said:
         prompt += "\n\n" + words.reread_proposals
-    if said & {watch_mod.AGENT_BACK, watch_mod.RESTARTED, watch_mod.LEVEL}:
+    if said & {
+        watch_mod.AGENT_BACK,
+        watch_mod.RESTARTED,
+        watch_mod.LEVEL,
+        watch_mod.LEVEL_LOWERED,
+        watch_mod.OPERATOR_STOP,
+    }:
         prompt += "\n\n" + words.reread_level
     if said & {ALARM, watch_mod.PLAN_EDITED}:
         prompt += "\n\n" + words.reread_plan
@@ -291,6 +297,46 @@ def turn_prompt(
 # The kinds of the harness's own wake-ups: the agent's timer, and a deadline.
 ALARM = "alarm"
 DEADLINE = "deadline"
+
+# The wake-ups that cut the agent's turn short: news that makes the turn's
+# work wrong, not news that is only new. Everything else waits for the turn
+# to end.
+URGENT = frozenset(
+    {
+        # The operator wrote to the agent.
+        watch_mod.MESSAGE,
+        # The level went down, or the operator took control back.
+        watch_mod.LEVEL_LOWERED,
+        watch_mod.AGENT_OFF,
+        watch_mod.OPERATOR_STOP,
+        # A run stopped or failed, or the hardware failed. The operator's
+        # stop is OPERATOR_STOP above.
+        watch_mod.WORKFLOW_FAILED,
+        "task_failed",
+        watch_mod.COMMAND_FAILED,
+        watch_mod.MILL_FAILED,
+        # A milling monitor's stop rule fired.
+        watch_mod.STOP_RULE,
+    }
+)
+
+# Said first in the turn after one cut short. A call cut short is not undone:
+# the sidecar finishes its request and the App Server the action, but the
+# agent never sees the answer.
+INTERRUPTED = (
+    "Your last turn was cut short by a line below. A call you were waiting on "
+    "then may have finished on the instrument after you stopped waiting, and "
+    "its answer was lost: read where things stand (the stage's position, "
+    "app_get_status, service_wait_for_run with wait=0 for a long command you "
+    "started) before you act. Never repeat a relative move, or any call that "
+    "changes something by an amount, until you have checked it did not "
+    "already happen."
+)
+
+
+def is_urgent(line) -> bool:
+    """Whether *line* cuts the agent's turn short (`URGENT`)."""
+    return getattr(line, "kind", None) in URGENT
 
 
 class Wakes:
@@ -830,6 +876,10 @@ class Harness:
         # (watch, item): an item from a watch that has been replaced is dropped.
         self._items: Optional[asyncio.Queue] = None
         self._watcher: Optional[Watcher] = None
+        # Set when an urgent line arrives; cleared as the lines are taken.
+        self._urgent: Optional[asyncio.Event] = None
+        # The last turn was cut short by an urgent line.
+        self._cut_short = False
         self._wakes = self._new_wakes()
         self._code = 0
         self._stop_requested = False
@@ -862,10 +912,11 @@ class Harness:
     async def run(self) -> int:
         self._loop = asyncio.get_running_loop()
         self._stopping = asyncio.Event()
+        self._urgent = asyncio.Event()
         self._items = asyncio.Queue()
 
         def ring(line: str) -> None:
-            self._items.put_nowait((self._watcher, line))
+            self._put(self._watcher, line)
 
         if self._alarm is not None:
             self._alarm.bind(self._loop, ring)
@@ -903,15 +954,22 @@ class Harness:
                 log.debug("Closing the session failed.", exc_info=True)
         return self._code
 
+    def _put(self, watcher, item) -> None:
+        """An item for the next turn, on the loop; an urgent line from the
+        current watch cuts the turn going on short."""
+        self._items.put_nowait((watcher, item))
+        if watcher is self._watcher and is_urgent(item):
+            self._urgent.set()
+
     def _start_watcher(self, client) -> None:
-        loop, items = self._loop, self._items
+        loop = self._loop
         if self._watcher is not None:
             self._watcher.stop()
         watcher = None
 
         def deliver(item):
             try:
-                loop.call_soon_threadsafe(items.put_nowait, (watcher, item))
+                loop.call_soon_threadsafe(self._put, watcher, item)
             except RuntimeError:  # the loop has closed
                 raise _Stopped from None
 
@@ -971,11 +1029,13 @@ class Harness:
             self._agent.compacted = False
             prompt += "\n\nYour context was compacted. " + self._words.reread_plan
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
+        cutter = asyncio.ensure_future(self._interrupt_on_urgent())
         sender = asyncio.ensure_future(self._send_transcript_every())
         try:
             end = await self._agent.turn(prompt)
         finally:
             interrupter.cancel()
+            cutter.cancel()
             sender.cancel()
         self._turns += 1
         if end.cost_usd is not None:
@@ -1137,6 +1197,17 @@ class Harness:
             # The CLI may have had the Ctrl-C too, and be gone.
             log.debug("Interrupting the turn failed.", exc_info=True)
 
+    async def _interrupt_on_urgent(self) -> None:
+        await self._urgent.wait()
+        if self._stopping.is_set():
+            return
+        log.info("An urgent line: interrupting the agent's turn.")
+        self._cut_short = True
+        try:
+            await self._agent.interrupt()
+        except Exception:
+            log.debug("Interrupting the turn failed.", exc_info=True)
+
     async def _pause(self, seconds: float) -> bool:
         """Wait, unless the run is stopped; False when it was."""
         try:
@@ -1177,6 +1248,9 @@ class Harness:
             item = await self._get()
             if item is None:
                 return None
+            # Everything waiting is taken now: an urgent line after this
+            # cuts the next turn short.
+            self._urgent.clear()
             batch = [item] + self._drain()
             ended = any(isinstance(line, _WatchEnded) for line in batch)
             if not ended and _last_line(batch):
@@ -1193,6 +1267,9 @@ class Harness:
                 if prompt is None:
                     return None
             if prompt is not None:
+                if self._cut_short:
+                    self._cut_short = False
+                    prompt = f"{INTERRUPTED}\n\n{prompt}"
                 return prompt
 
     async def _rewatch(self, prompt: Optional[str]) -> Optional[str]:

@@ -20,6 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.server.agent.files import AgentFiles
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
+from fibsem.server.bodies import TranscriptBody
 from fibsem.util.timestamps import iso_from_posix
 
 FOLDER = "agent"
@@ -110,12 +111,12 @@ def build_agent_transcript_router(
         return files
 
     @router.post("/transcript")
-    def post_transcript(request: Request, body: Dict[str, Any]):
-        session_id = body.get("session_id")
-        if not isinstance(session_id, str) or not _SESSION.match(session_id):
+    def post_transcript(request: Request, body: TranscriptBody):
+        session_id = body.session_id
+        if not _SESSION.match(session_id):
             raise _invalid("session_id is the session's id: letters, digits, - and _.")
-        raw = body.get("entries")
-        if not isinstance(raw, list) or len(raw) > MAX_ENTRIES:
+        raw = body.entries
+        if len(raw) > MAX_ENTRIES:
             raise _invalid(f"entries is a list of at most {MAX_ENTRIES}.")
         now = time.time()
         entries = [_entry(item, now) for item in raw]

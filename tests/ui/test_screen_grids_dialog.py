@@ -7,7 +7,6 @@ scanned, and on a fixed holder, it opens at the review.
 """
 
 import os
-import time
 
 import pytest
 
@@ -41,6 +40,7 @@ from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState
 from tests.fixtures.demo_stage import demo_grid_loader
+from tests.waiting import qt_wait_for
 
 
 @pytest.fixture
@@ -323,20 +323,16 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
 
     monkeypatch.setattr(GridTaskManager, "_run_single_task", _run_single_task)
 
-    def _wait(condition, timeout_s=30.0):
-        deadline = time.monotonic() + timeout_s
-        while not condition() and time.monotonic() < deadline:
-            QTest.qWait(50)
-        assert condition()
-
     def _drive(dialog):
         """What the operator does: scan, type a name while it runs, Screen."""
         dialog.show()
-        _wait(lambda: dialog.stage_name == NOT_SCANNED)  # the read, on its thread
+        assert qt_wait_for(
+            lambda: dialog.stage_name == NOT_SCANNED, timeout=30
+        )  # the read, on its thread
         dialog.btn_scan.click()
         assert dialog.stage_name == SCANNING
         dialog._rows["Slot-01"].field.setText("grid-birch")
-        _wait(lambda: dialog.stage_name == REVIEW)
+        assert qt_wait_for(lambda: dialog.stage_name == REVIEW, timeout=30)
         assert dialog._rows["Slot-02"].note.text() == "From xT"
         dialog.btn_screen.click()
         return dialog.result()
@@ -369,7 +365,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
 
         window.workflow_tab._on_screen_all_grids()
         assert ui.session.runner.is_running
-        _wait(lambda: not ui.session.runner.is_running, 90.0)
+        assert qt_wait_for(lambda: not ui.session.runner.is_running, timeout=90.0)
         QTest.qWait(200)  # let the finished signal land
 
         assert ran == [

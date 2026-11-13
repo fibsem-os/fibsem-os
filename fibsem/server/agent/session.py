@@ -29,6 +29,7 @@ from fibsem.ai.agent.report import SessionReport, plain
 from fibsem.ai.agent.session import budget_low
 from fibsem.codec import decode
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
+from fibsem.server.bodies import MessagesReadBody
 from fibsem.server.responses import AgentSession
 
 SESSION_STARTED = "agent_session_started"
@@ -132,13 +133,9 @@ def build_agent_session_router(
         return {"session": with_plan(request, session)}
 
     @router.post("/read")
-    def report_read(body: Dict[str, Any]):
-        ids = body.get("ids")
-        if (
-            not isinstance(ids, list)
-            or not 0 < len(ids) <= MAX_READ
-            or not all(isinstance(i, str) and _MESSAGE_ID.match(i) for i in ids)
-        ):
+    def report_read(body: MessagesReadBody):
+        ids = body.ids
+        if not 0 < len(ids) <= MAX_READ or not all(_MESSAGE_ID.match(i) for i in ids):
             raise refusal_error(
                 422,
                 "invalid",

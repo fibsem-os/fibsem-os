@@ -1,0 +1,12 @@
+# Version updates for the actions the workflows use. Python dependencies are
+# floors in pyproject.toml, so there is nothing for Dependabot to bump there;
+# the weekly pip-audit workflow checks what they resolve to instead.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

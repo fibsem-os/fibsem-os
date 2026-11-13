@@ -16,7 +16,7 @@ microscope_busy`` naming who, rather than interleaved or queued.
 import hmac
 import json
 import logging
-from typing import Any, Callable, Dict, Mapping, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, FastAPI, Request, WebSocket
 from fastapi.exception_handlers import http_exception_handler
@@ -59,6 +59,7 @@ from fibsem.server.auth import (
     require_token,
     take_control,
 )
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.connection import ServedInstrument, build_connection_router
 from fibsem.server.devices import (
     ERROR_STATUS,
@@ -90,6 +91,9 @@ from fibsem.server.responses import (
 from fibsem.server.web_app import web_app_router
 from fibsem.structures.settings import BeamType, MicroscopeState
 from fibsem.workflows.actions import ACTION, action_record
+
+if TYPE_CHECKING:
+    from fibsem.server.app_context import AppContext
 
 API_VERSION = "0.3.0"
 
@@ -135,13 +139,15 @@ _assist = require_level(AgentLevel.ASSIST)
 _drive = require_level(AgentLevel.DRIVE)
 
 
-def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
+def _refuse(
+    app_context: Optional["AppContext"],
+) -> Callable[[Any, str, str, Mapping[str, Any]], Optional[str]]:
     """The App Server's blocklist (`fibsem.ai.agent.blocklist`): what the agent may
     never touch, and a path it may only give inside the open experiment, to a
     command or a query."""
 
     def experiment_path() -> Optional[str]:
-        return getattr(app_context, "experiment_path", None)
+        return app_context.experiment_path if app_context is not None else None
 
     def refuse(device, kind: str, name: str, kwargs: Mapping[str, Any]):
         return blocklist.blocked(device, kind, name) or (
@@ -153,10 +159,13 @@ def _refuse(app_context) -> Callable[[Any, str, str, Mapping[str, Any]], Optiona
     return refuse
 
 
-def _in_experiment(app_context) -> Callable[[Mapping[str, Any]], Dict[str, Any]]:
+def _in_experiment(
+    app_context: Optional["AppContext"],
+) -> Callable[[Mapping[str, Any]], Dict[str, Any]]:
     """A command's or query's relative paths, read inside the open experiment."""
     return lambda kwargs: blocklist.in_experiment(
-        kwargs, lambda: getattr(app_context, "experiment_path", None)
+        kwargs,
+        lambda: app_context.experiment_path if app_context is not None else None,
     )
 
 
@@ -524,7 +533,7 @@ def _gateway_url() -> Optional[str]:
 
 def build_server(
     microscope: Optional[FibsemMicroscope] = None,
-    app_context=None,
+    app_context: Optional["AppContext"] = None,
     auth: Optional[AuthConfig] = None,
     serve_microscope: bool = True,
     services: Optional[Mapping[str, Any]] = None,
@@ -568,7 +577,7 @@ def build_server(
     app.state.served = served
     app.state.session = session
     # The app the operator works in, as the agent's refusals name it.
-    app.state.app_name = getattr(app_context, "app_name", None) or "fibsemOS"
+    app.state.app_name = app_context.app_name if app_context else "fibsemOS"
     app.state.app_context = app_context
     if services is None:
         from fibsem.services.analysis import analysis_services
@@ -582,6 +591,8 @@ def build_server(
     async def _refused(request: Request, exc: StarletteHTTPException) -> Response:
         _record_refusal(request, exc)
         return await http_exception_handler(request, exc)
+
+    refuse_invalid_requests(app)
 
     @app.exception_handler(Exception)
     def _unhandled(request: Request, exc: Exception) -> JSONResponse:
@@ -636,7 +647,9 @@ def build_server(
             # (`AppContext.answer_types`), so a client decodes the app's facts.
             "answer_types": {
                 type_path(base): type_path(own)
-                for base, own in getattr(app_context, "answer_types", {}).items()
+                for base, own in (
+                    app_context.answer_types if app_context else {}
+                ).items()
             },
             # The agent level: what the agent may do right now.
             "level": auth.level.value,
@@ -897,14 +910,14 @@ def build_server(
             auth,
             frozenset(mounted),
             refused_path=lambda kwargs: blocklist.path_outside(
-                paths(kwargs), lambda: getattr(app_context, "experiment_path", None)
+                paths(kwargs), lambda: app_context.experiment_path
             ),
         )
         # What was learned on this microscope, kept under the state root.
         app.include_router(
             build_knowledge_router(
-                lambda: getattr(app_context, "experiment_path", None),
-                lambda: getattr(app_context, "experiment_sample", None),
+                lambda: app_context.experiment_path,
+                lambda: app_context.experiment_sample,
             )
         )
     if operator is not None:

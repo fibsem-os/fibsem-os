@@ -378,6 +378,7 @@ class DemoSimulator:
         self.imaging_system = ImagingSystem()
         self.image_cache: dict = {}
         self.sample_scene: Optional[SampleScene] = None
+        self._beams_down: set = set()  # beams a sample fault turned off
         self.use_image_sequence = False
         try:
             self._setup_image_iterators()
@@ -481,9 +482,11 @@ class DemoSimulator:
         )
 
         # shared-scene projection takes precedence when enabled
-        if self.sample_scene is not None:
-            from fibsem.geometry.projection import BeamStageProjection
-
+        fired = self._beam_faults("image", effective_beam_type)
+        if self._beam_down(effective_beam_type) or "blank_image" in fired:
+            # no beam, no signal: the detector's dark level
+            image.data = (image.data // 32).astype(image.data.dtype)
+        elif self.sample_scene is not None:
             projection = BeamStageProjection.from_microscope(
                 self.microscope, beam_type=effective_beam_type
             )
@@ -501,17 +504,40 @@ class DemoSimulator:
                 current=current,
                 dwell=effective_image_settings.dwell_time,
             )
-            image.data = self.sample_scene.render(
-                beam_type=effective_beam_type,
-                stage_position=self.scene_stage_position(),
-                hfw=effective_image_settings.hfw,
-                resolution=effective_image_settings.resolution,
-                projection=projection,
+            scene, charging = self.sample_scene, self.sample_scene.charging
+            if "charging" in fired:
+                scene.charging = charging + fired["charging"].amount
+            try:
+                image.data = scene.render(
+                    beam_type=effective_beam_type,
+                    stage_position=self.scene_stage_position(),
+                    hfw=effective_image_settings.hfw,
+                    resolution=effective_image_settings.resolution,
+                    projection=projection,
+                    beam_shift=(float(shift.x), float(shift.y)),
+                    beam_current=current,
+                    dwell_time=effective_image_settings.dwell_time,
+                    optics=optics,
+                )
+            finally:
+                scene.charging = charging
+            # the frame's own dose: it shows from the next image on
+            scene.expose(
+                effective_beam_type,
+                self.scene_stage_position(),
+                projection,
+                effective_image_settings.hfw,
+                effective_image_settings.resolution,
+                current,
+                effective_image_settings.dwell_time,
                 beam_shift=(float(shift.x), float(shift.y)),
-                beam_current=current,
-                dwell_time=effective_image_settings.dwell_time,
-                optics=optics,
             )
+            if "noisy_image" in fired:
+                sigma = fired["noisy_image"].amount * max(scene.noise_sigma, 4.0)
+                noise = np.random.default_rng().normal(0.0, sigma, image.data.shape)
+                image.data = np.clip(image.data + noise, 0, 255).astype(
+                    image.data.dtype
+                )
         # generate the next image from the sequence iterator
         elif self.use_image_sequence:
             image.data = self._generate_next_image(
@@ -934,6 +960,31 @@ class DemoSimulator:
         except Exception:
             return []
 
+    def _beam_faults(self, event: str, beam_type: BeamType) -> dict:
+        """The sample's faults that fire on this image or milling pass, by
+        kind (see sim_faults), with what they do to the beam done."""
+        scene = self.sample_scene
+        fired = {} if scene is None else scene.due(event, beam_type)
+        if "beam_off" in fired:
+            self.microscope._write_beam("on", False, beam_type)
+            self._beams_down.add(beam_type)
+        if "current_drop" in fired:
+            current = float(self.microscope.get_beam_current(beam_type))
+            self.microscope._write_beam(
+                "current", current * fired["current_drop"].amount, beam_type
+            )
+        return fired
+
+    def _beam_down(self, beam_type: BeamType) -> bool:
+        """Whether a fault turned this beam off and nothing has turned it on
+        since."""
+        if beam_type not in self._beams_down:
+            return False
+        if self.microscope._read_beam("on", beam_type):
+            self._beams_down.discard(beam_type)
+            return False
+        return True
+
     def mill_into_sample_scene(self, milling_current: float) -> None:
         """Commit the drawn patterns to the sample scene, when there is one:
         from now on every view shows them as trenches. Done when
@@ -941,9 +992,12 @@ class DemoSimulator:
         scene = self.sample_scene
         if scene is None or not self.milling_system.patterns:
             return
-        from fibsem.geometry.projection import BeamStageProjection
-
         beam = self.microscope.milling_channel
+        fired = self._beam_faults("mill", beam)
+        if self._beam_down(beam):
+            return  # no beam: the pass mills nothing
+        if "current_drop" in fired:
+            milling_current = self.microscope.get_beam_current(beam)
         projection = BeamStageProjection.from_microscope(
             self.microscope, beam_type=beam
         )
@@ -957,6 +1011,10 @@ class DemoSimulator:
             projection,
             beam_shift=(float(shift.x), float(shift.y)),
             beam_current=float(milling_current) if milling_current else None,
+            extra_drift=(
+                0.0,
+                fired["mill_drift"].amount if "mill_drift" in fired else 0.0,
+            ),
         )
 
     def burn_into_sample_scene(self, beam_type: BeamType) -> None:

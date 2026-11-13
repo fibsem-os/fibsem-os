@@ -131,12 +131,12 @@ from fibsem.devices.wire import (
     type_hints,
     type_path,
 )
-from fibsem.drivers.registry import REMOTE_DRIVER
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.instrument import DeviceInstrument
 from fibsem.schema import arguments_schema
 from fibsem.server import operator_token
 from fibsem.server.auth import refusal_error, require_operator
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.images import (
     IMAGES_MEDIA_TYPE,
@@ -955,6 +955,7 @@ def build_device_app(
     by_name: Dict[str, Device] = {device.name: device for device in devices}
     auth = auth if auth is not None else DeviceAuth.from_disk()
     app = FastAPI(title="fibsem devices")
+    refuse_invalid_requests(app)
     app.state.auth = auth
     token = Depends(require_operator())
     app.include_router(build_pairing_router(auth))
@@ -1086,7 +1087,7 @@ def _refuse_unservable(entries: Iterable[Any], allow_remote: bool = False) -> No
     """Refuse an entry a Device Server can't serve, before anything is built. With
     *allow_remote* (the App Server's own devices) a remote entry is built as usual."""
     for entry in entries:
-        if entry.driver == REMOTE_DRIVER:
+        if entry.is_remote:
             if allow_remote:
                 continue
             raise ValueError(
