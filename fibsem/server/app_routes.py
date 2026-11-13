@@ -18,7 +18,7 @@ import inspect
 import json
 import os
 import tempfile
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -115,6 +115,9 @@ from fibsem.workflows.history_rows import (
     HistoryStatus,
 )
 
+if TYPE_CHECKING:
+    from fibsem.server.app_context import AppContext
+
 __all__ = [
     "build_app_config_router",
     "build_app_control_router",
@@ -124,7 +127,7 @@ __all__ = [
 ]
 
 
-def _served(router: APIRouter, context: Any) -> APIRouter:
+def _served(router: APIRouter, context: "AppContext") -> APIRouter:
     """*router* without the routes of parts *context* doesn't implement (each
     part route is tagged with its part)."""
     served = set(served_parts(context))
@@ -330,10 +333,9 @@ def _router() -> APIRouter:
     return APIRouter(prefix="/app", route_class=_AsSentRoute)
 
 
-def _app_type(context: Any, base: type) -> type:
+def _app_type(context: "AppContext", base: type) -> type:
     """The class *context*'s app answers for *base* (`AppContext.answer_type`)."""
-    answer_type = getattr(context, "answer_type", None)
-    return answer_type(base) if answer_type is not None else base
+    return context.answer_type(base)
 
 
 # A route that answers an image, for /openapi.json.
@@ -376,7 +378,7 @@ def _export_body(body: Dict[str, Any], default_format: str):
     return options, fmt
 
 
-def build_app_router(context: Any) -> APIRouter:
+def build_app_router(context: "AppContext") -> APIRouter:
     router = _router()
 
     @router.get("/workflow/status", response_model=AppStatus)
@@ -1154,21 +1156,19 @@ def _evidence_refused(refusal: evidence.EvidenceRefused) -> HTTPException:
     return HTTPException(status_code=refusal.status_code, detail=refusal.detail)
 
 
-def cited_evidence(context: Any) -> Optional[Dict[str, Any]]:
+def cited_evidence(context: "AppContext") -> Optional[Dict[str, Any]]:
     """The record of the evidence the agent's call cites
     (`calls.EVIDENCE_HEADER`); None when it cites none."""
     call = current_call()
     if call is None or not call.evidence:
         return None
     try:
-        return evidence.load(
-            lambda: getattr(context, "experiment_path", None), call.evidence
-        )
+        return evidence.load(lambda: context.experiment_path, call.evidence)
     except evidence.EvidenceRefused as refusal:
         raise _evidence_refused(refusal)
 
 
-def build_app_control_router(context: Any) -> APIRouter:
+def build_app_control_router(context: "AppContext") -> APIRouter:
     """Routes that act on the session rather than observe it.
 
     Mounted (by build_server) at Drive: the operator raises the level from the
@@ -1294,7 +1294,7 @@ def build_app_control_router(context: Any) -> APIRouter:
     return _served(router, context)
 
 
-def build_app_suggest_router(context: Any) -> APIRouter:
+def build_app_suggest_router(context: "AppContext") -> APIRouter:
     """Suggesting on a pending proposal. Mounted (by build_server) for Assist
     and Drive: a suggestion decides nothing, so it needs no request."""
     router = _router()
@@ -1350,7 +1350,7 @@ def _stop_reason(body: Optional[Dict[str, Any]]) -> str:
     return reason if isinstance(reason, str) else ""
 
 
-def build_app_stop_router(context: Any) -> APIRouter:
+def build_app_stop_router(context: "AppContext") -> APIRouter:
     """Stopping the run. Mounted (by build_server) at Drive, with a reason: the
     workflow is never the agent's own, so at Assist the stop goes in a request
     the operator approves; a watching agent stops nothing."""
@@ -1373,7 +1373,7 @@ def build_app_stop_router(context: Any) -> APIRouter:
     return _served(router, context)
 
 
-def build_app_config_router(context: Any) -> APIRouter:
+def build_app_config_router(context: "AppContext") -> APIRouter:
     """Routes that edit configuration (protocols, item configs, schedules,
     run options). Mounted at Drive, like the control router."""
     router = _router()

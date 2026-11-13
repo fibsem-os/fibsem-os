@@ -1319,6 +1319,18 @@ class AppContext:
         self.record_event(EVIDENCE, {**record, "item_id": item_id})
         return {"recorded": True, **record}
 
+    def describe_action(
+        self, tool: str, arguments: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """The app's own description of an action in an agent's request, where
+        it can say it better than the catalog; None leaves it to the catalog."""
+        return None
+
+    def check_action(self, tool: str, arguments: Dict[str, Any]) -> Optional[str]:
+        """Why the app would refuse an action in an agent's request when it
+        runs, checked at filing; None when it has no objection."""
+        return None
+
     def record_event(
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
     ) -> None:

@@ -4,7 +4,6 @@ from the web page or a script, and nothing the agent's token can reach."""
 import base64
 import os
 import re
-import socket
 import time
 from pathlib import Path
 
@@ -31,14 +30,9 @@ from tests.autolamella.test_select_position_asks import (  # noqa: F401
     _experiment,
     microscope,
 )
+from tests.waiting import free_port
 
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 def _bearer(token: str) -> dict:
@@ -56,7 +50,7 @@ def server(microscope, tmp_path):  # noqa: F811
     session.app_server = AppServerHost(
         session,
         lambda: AutoLamellaAppContext(session),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "app-server.json",
         serve_microscope=False,
     )
@@ -159,7 +153,7 @@ def test_the_operator_reads_what_the_microscope_is(microscope, tmp_path):  # noq
     host = AppServerHost(
         session,
         lambda: AutoLamellaAppContext(session),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "app-server.json",
         serve_microscope=True,
     )

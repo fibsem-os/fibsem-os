@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import signal
 import subprocess
 import sys
 import threading
@@ -27,10 +26,11 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import fibsem
-from fibsem.server.discovery import DISCOVERY_DIR, _pid_alive, read_discovery_file
+from fibsem.server.discovery import DISCOVERY_DIR, read_discovery_file
 from fibsem.server.operator_token import read_operator_token
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
+from fibsem.util.process import kill_pid, pid_alive
 
 __all__ = [
     "GATEWAY_FILE",
@@ -188,7 +188,7 @@ def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
         return None
     if not isinstance(data, dict) or "url" not in data:
         return None
-    return data if _pid_alive(data.get("pid")) else None
+    return data if pid_alive(data.get("pid")) else None
 
 
 def saved_configurations() -> List[dict]:
@@ -562,7 +562,7 @@ class Gateway:
         with self._lock:
             if self._state.mode != OFF:
                 return self.state()
-        if not _pid_alive(pid):
+        if not pid_alive(pid):
             self.run_file.unlink(missing_ok=True)
             return self.state()
         found = self._discovery()
@@ -770,17 +770,14 @@ class Gateway:
         if stop_file is not None:
             stop_file.touch()
         end = time.monotonic() + self._stop_wait_s
-        while _pid_alive(pid) and stop_file is not None:
+        while pid_alive(pid) and stop_file is not None:
             if time.monotonic() > end:
                 break
             time.sleep(0.2)
-        if not _pid_alive(pid):
+        if not pid_alive(pid):
             return False
         logging.warning("Gateway: pid %d didn't stop; killing it", pid)
-        try:
-            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
-        except OSError:
-            pass
+        kill_pid(pid)
         return True
 
     def _close_window(self) -> None:
@@ -793,7 +790,7 @@ class Gateway:
         end = time.monotonic() + self._stop_wait_s
 
         def gone() -> bool:
-            return proc.poll() is not None if proc is not None else not _pid_alive(pid)
+            return proc.poll() is not None if proc is not None else not pid_alive(pid)
 
         try:
             while not gone():
@@ -868,7 +865,7 @@ class Gateway:
             code = proc.poll()
             if code is None:
                 return
-        elif claimed is not None and _pid_alive(claimed):
+        elif claimed is not None and pid_alive(claimed):
             return
         else:
             code = None

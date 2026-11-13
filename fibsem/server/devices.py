@@ -132,7 +132,6 @@ from fibsem.devices.wire import (
     type_hints,
     type_path,
 )
-from fibsem.drivers.registry import REMOTE_DRIVER
 from fibsem.fm.microscope import FluorescenceMicroscope
 from fibsem.instrument import DeviceInstrument
 from fibsem.schema import arguments_schema
@@ -1087,7 +1086,7 @@ def _refuse_unservable(entries: Iterable[Any], allow_remote: bool = False) -> No
     """Refuse an entry a Device Server can't serve, before anything is built. With
     *allow_remote* (the App Server's own devices) a remote entry is built as usual."""
     for entry in entries:
-        if entry.driver == REMOTE_DRIVER:
+        if entry.is_remote:
             if allow_remote:
                 continue
             raise ValueError(
