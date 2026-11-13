@@ -666,7 +666,8 @@ written back as version 2 when the configuration is saved.
 
 Which case your device is decides what you write. Each example is a working driver in
 [fibsem-plugin-example](https://github.com/fibsem-os/fibsem-plugin-example), on the
-microscope's own computer, and its `examples/devices-configuration.yaml` adds all three
+microscope's own computer, and its
+[examples/devices-configuration.yaml](https://github.com/fibsem-os/fibsem-plugin-example/blob/main/examples/devices-configuration.yaml) adds all three
 to the Demo microscope, so they run with no hardware.
 
 | Your device | What you write | Example |
