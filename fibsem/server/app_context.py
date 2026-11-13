@@ -369,7 +369,7 @@ class AppContext:
                 box=box,
             )
         except ValueError as exc:
-            return {"error_type": "invalid", "message": str(exc)}
+            return refused("invalid", str(exc))
         saved = drawn_path(target, _drawn_stem(target, checked, plane, box))
         return ImageDrawn(
             path,
@@ -423,7 +423,7 @@ class AppContext:
                 share_looks=share_looks,
             )
         except ValueError as exc:
-            return {"error_type": "invalid", "message": str(exc)}
+            return refused("invalid", str(exc))
         saved = drawn_path(
             first,
             f"{_drawn_stem(first, checked, before_plane, box)}"
@@ -1938,4 +1938,4 @@ def _checked_marks(marks: Any, image_path: str):
     try:
         return checked_marks(marks, image_path), None
     except EvidenceRefused as refusal:
-        return None, {"error_type": refusal.error_type, "message": refusal.message}
+        return None, refused(refusal.error_type, refusal.message)
