@@ -1,5 +1,5 @@
-"""Write web/openapi.json: the classes the App Server's routes answer, from its
-/openapi.json with every route the web app reads (/app, the agent's and the
+"""Write web/openapi.json: the classes the App Server's routes take and answer,
+from its /openapi.json with every route the web app reads (/app, the agent's and the
 operator's) and no microscope connected. `bun run types` in web/ runs it and
 writes web/src/lib/schema.ts from it; CI fails when that file is stale."""
 
@@ -41,13 +41,14 @@ def _refs(value) -> set:
     return set()
 
 
-def _answered(full: dict) -> list:
-    """The classes the routes answer, and the classes in those, by name."""
+def _named(full: dict, part: str) -> set:
+    """The classes the routes name in *part* of each operation ("responses" or
+    "requestBody"), and the classes in those, by name."""
     schemas = full["components"]["schemas"]
     found = set()
     todo = _refs(
         [
-            operation.get("responses", {})
+            operation.get(part, {})
             for operations in full["paths"].values()
             for operation in operations.values()
         ]
@@ -57,36 +58,42 @@ def _answered(full: dict) -> list:
         if name not in found and name in schemas:
             found.add(name)
             todo |= _refs(schemas[name])
-    return sorted(found)
+    return found
 
 
-def _as_answered(value):
-    """*value* as an answer reads: every field present, since `fibsem.codec.encode`
-    writes each one, and without pydantic's titles, which repeat the names."""
+def _plain(value, answered: bool):
+    """*value* without pydantic's titles, which repeat the names. An answer has
+    every field present, since `fibsem.codec.encode` writes each one; a body
+    keeps the fields it may leave out."""
     if isinstance(value, list):
-        return [_as_answered(v) for v in value]
+        return [_plain(v, answered) for v in value]
     if not isinstance(value, dict):
         return value
     out = {
-        k: _as_answered(v)
+        k: _plain(v, answered)
         for k, v in value.items()
         if not (k == "title" and isinstance(v, str))
     }
-    if isinstance(value.get("properties"), dict):
+    if answered and isinstance(value.get("properties"), dict):
         out["required"] = sorted(value["properties"])
     return out
 
 
 def classes() -> dict:
-    """The classes the routes answer: the web reads answers by class, not by path."""
+    """The classes the routes take and answer: the web names them by class, not
+    by path. A class that is both is written as an answer."""
     full = schema()
     schemas = full["components"]["schemas"]
+    answered = _named(full, "responses")
+    taken = _named(full, "requestBody") - answered
     return {
         "openapi": full["openapi"],
         "info": full["info"],
         "paths": {},
         "components": {
-            "schemas": {n: _as_answered(schemas[n]) for n in _answered(full)}
+            "schemas": {
+                n: _plain(schemas[n], n in answered) for n in sorted(answered | taken)
+            }
         },
     }
 

@@ -245,6 +245,11 @@ export interface components {
             error: string | null;
             run: components["schemas"]["RunAnswer"] | null;
         };
+        /** @description Take control of the microscope: what for, as the operator reads it. */
+        ControlRequest: {
+            /** @default remote run */
+            action: string;
+        };
         ControlView: {
             in_control: components["schemas"]["InControl"] | null;
             yours: boolean;
@@ -1094,6 +1099,11 @@ export interface components {
                 z: number | null;
             } | null;
             timestamp: number | string;
+        };
+        MicroscopeStateRequest: {
+            microscope_state: {
+                [key: string]: unknown;
+            };
         };
         /** @description Messages to Slack for someone away from this instrument
          *     (``fibsem.alerts``): what needs an answer, the agent's messages, what
