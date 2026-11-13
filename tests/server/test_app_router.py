@@ -501,6 +501,44 @@ def test_event_history_reads_the_record_before_the_live_buffer(
     assert [e["seq"] for e in earlier["events"]] == [1]
 
 
+def test_events_after_an_id_reach_back_past_a_restart(client, host, event_buffer):
+    import json
+    from pathlib import Path
+
+    from fibsem.workflows.event_recording import EVENTS_FILENAME
+
+    event_buffer.append("task_started", {"task_name": "Polishing"})
+    event_buffer.append("task_completed", {"task_name": "Polishing"})
+    now = event_buffer.events_since(0)["events"]
+
+    # In this stream, an id is its seq.
+    body = client.get(f"/app/events?after={now[0]['id']}", headers=AUTH).json()
+    assert [e["id"] for e in body["events"]] == [now[1]["id"]]
+    assert body["resumed"] is True
+
+    # The app before this one: its record is in the file, and the buffer has
+    # what came after.
+    night = [
+        {"id": "night-1", "session": "night", "seq": 1, "kind": "task_started"},
+        {"id": "night-2", "session": "night", "seq": 2, "kind": "milling_progress"},
+        {"id": "night-3", "session": "night", "seq": 3, "kind": "task_failed"},
+    ]
+    path = Path(host.experiment.path) / EVENTS_FILENAME
+    path.write_text(
+        "".join(json.dumps(r) + "\n" for r in night + now), encoding="utf-8"
+    )
+    body = client.get("/app/events?after=night-1", headers=AUTH).json()
+    # Progress left out, and the buffer's own records once, from the buffer.
+    assert [e["id"] for e in body["events"]] == ["night-3"] + [e["id"] for e in now]
+    assert body["resumed"] is True
+    assert body["latest_seq"] == now[-1]["seq"]
+
+    # An id nobody has: everything held, and a gap.
+    body = client.get("/app/events?after=gone-9", headers=AUTH).json()
+    assert [e["id"] for e in body["events"]] == [e["id"] for e in now]
+    assert body["resumed"] is False
+
+
 def test_task_schedule_verb_sets_clears_and_refuses(microscope, host, event_buffer):
     from fibsem.applications.autolamella.workflows.tasks.rough import (
         MillRoughTaskConfig,
