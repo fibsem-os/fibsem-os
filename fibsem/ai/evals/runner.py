@@ -37,6 +37,7 @@ from fibsem.ai.evals import tasks
 from fibsem.ai.evals.cases import Case, input_paths
 from fibsem.ai.evals.live import runs as live
 from fibsem.ai.evals.scoring import score_case
+from fibsem.drivers.demo.simulator import SIM_RECORD_ENV
 from fibsem.server import discovery
 from fibsem.util.process import end
 
@@ -316,11 +317,14 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
     # and its discovery file in the run's home.
     found_at = home / "app-server.json"
     sim_run = case.data.get("sim_run")
+    prepared: Dict[str, Any] = {}
     if sim_run:
         # the simulator's sample, with no waits; the agent works it
         env["FIBSEM_SIM_NO_DELAY"] = "1"
         # the agent is what the case tests, released or not
         env["FIBSEM_UNRELEASED"] = "1"
+        # the sample's truth (each pass's true gap, the damage), for scoring
+        env[SIM_RECORD_ENV] = str((folder / live.SIM_RECORD).resolve())
     server_log = open(folder / "server.log", "w")
     server = subprocess.Popen(
         config.server_command
@@ -343,7 +347,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
                 f"The App Server did not start; see {folder / 'server.log'}."
             )
         if sim_run:
-            live.set_up(case, found_at, home)
+            prepared = live.set_up(case, found_at, home, folder / live.SIM_RECORD)
         inputs = link_inputs(case, experiment)
         (work / TASK).write_text(task_text(case, inputs))
 
@@ -414,7 +418,9 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
             else "no_answer"
         )
         if sim_run:
-            record = live.record(found_at, home, experiment)
+            record = live.record(
+                found_at, home, experiment, folder / live.SIM_RECORD, prepared
+            )
             (folder / live.RECORD).write_text(json.dumps(record, indent=2))
     finally:
         if agent is not None and agent.poll() is None:

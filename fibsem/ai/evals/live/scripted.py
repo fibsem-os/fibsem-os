@@ -45,6 +45,15 @@ FOCUS_METHOD = "variance"
 COINCIDENCE_TRIES = 3
 CORRECTION_TRIES = 6  # the coincidence case starts far off: more moves
 CORRECTION_SITE = "Site-01"
+POLISH_ITEM = "Lam-01"
+POLISH_IMAGE_HFW = 30e-6  # m, the FIB image a pass is judged on
+# each pass's gap between the trenches (m), and where to stop (nm measured:
+# a FIB band reads a few tens of nm wide of the true gap)
+POLISH_SCHEDULE = (1.0e-6, 0.6e-6, 0.4e-6, 0.3e-6, 0.25e-6, 0.22e-6, 0.2e-6)
+POLISH_STOP_NM = 250
+FULL_FRAME_BELOW = 80e-12  # A: passes under this align on the full frame
+BROKEN_SHARE = 0.2
+WIDER = 1.3  # a band this much wider than before a pass is broken  # a band missing in this share of its columns is broken
 CLAIM_M = 1e-6  # a last check this near the centre: say it is coincident
 FIB_TILE_HFW = 300e-6  # m, a FIB overview's tiles at the SEM orientation
 RECENTRE_M = 20e-6  # a cell this near a site's centre is the one meant
@@ -379,9 +388,76 @@ def coincidence(client: LiveClient, work: Path) -> Dict[str, Any]:
     }
 
 
+def _measure(client: LiveClient, item: str, n: int) -> Dict[str, Any]:
+    """A FIB image of the lamella, saved in its folder, and the band's
+    thickness on it: median nm, and whether the band looks broken."""
+    shot = client.call(
+        "beam_acquire_image",
+        beam_type="ION",
+        image_settings={"hfw": POLISH_IMAGE_HFW, "resolution": [1536, 1024]},
+        path=item,
+        filename=f"P{n:02d}",
+    )
+    path = _image_path(shot)
+    found = client.call(
+        "item_measure_thickness", item_name=item, path=path[path.index(f"{item}/") :]
+    )
+    continuity = found.get("continuity") or {}
+    dropped = continuity.get("dropped", 0) / max(1, continuity.get("columns", 1))
+    codes = [w.get("code") for w in found.get("warnings") or []]
+    median = (found.get("thickness_nm") or {}).get("median")
+    log.info("P%02d: %s nm, dropped %.0f%%, %s", n, median, dropped * 100, codes)
+    return {
+        "nm": median,
+        "broken": dropped > BROKEN_SHARE or "no_band" in codes,
+    }
+
+
+def polishing(client: LiveClient, work: Path) -> Dict[str, Any]:
+    """Polish the item pass by pass with its own Polishing task, aligning
+    before each pass on the full frame (the passes are at a low current),
+    narrowing the gap down a fixed schedule; stop when the band measures at
+    the target, or looks broken."""
+    item = POLISH_ITEM
+    config = client.call("item_get_task_config", item_name=item, task_name="Polishing")
+    task = config["config"]["milling"]["mill_polishing"]
+    task["alignment"]["full_frame_below"] = FULL_FRAME_BELOW
+    measured = _measure(client, item, 0)
+    passes, damage = 0, False
+    for spacing in POLISH_SCHEDULE:
+        if measured["nm"] is not None and measured["nm"] <= POLISH_STOP_NM:
+            break
+        this = json.loads(json.dumps(task))
+        this["stages"][0]["pattern"]["spacing"] = spacing
+        client.call("milling_run_task", config=this, path=item)
+        passes += 1
+        before, measured = measured, _measure(client, item, passes)
+        # a band that reads much wider after a pass has come apart
+        wider = (
+            before["nm"] is not None
+            and measured["nm"] is not None
+            and measured["nm"] > before["nm"] * WIDER
+        )
+        if measured["broken"] or wider:
+            damage = True
+            break
+    return {
+        "item": item,
+        "thickness_nm": round(measured["nm"] or 0),
+        "passes": passes,
+        "damage_seen": damage,
+        "reason": (
+            "the band looked broken after the last pass"
+            if damage
+            else f"the band measured {measured['nm']} nm"
+        ),
+    }
+
+
 AGENTS: Dict[str, Callable[[LiveClient, Path], Dict[str, Any]]] = {
     "live_site_selection": site_selection,
     "live_coincidence_correction": coincidence,
+    "live_polishing": polishing,
 }
 
 

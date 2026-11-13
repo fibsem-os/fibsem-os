@@ -2,10 +2,12 @@
 run up as the operator would before the agent starts, and recording what
 the run did once it ends, to score."""
 
+import importlib
+import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fibsem.ai.evals.cases import Case
 from fibsem.ai.evals.live.client import LiveClient
@@ -15,6 +17,8 @@ log = logging.getLogger(__name__)
 
 # The run's record, beside its result: what the experiment holds at the end.
 RECORD = "record.json"
+# The simulator's record of the sample, written by the run's App Server
+SIM_RECORD = "sim-record.json"
 # Which case's task a scripted agent runs, and the case's folder, for its
 # ``sim_run`` set-up (a scripted agent reads nothing else of the case)
 TASK_ENV = "FIBSEM_EVAL_TASK"
@@ -26,17 +30,41 @@ def scripted_command() -> List[str]:
     return [sys.executable, "-m", "fibsem.ai.evals.live.scripted"]
 
 
-def set_up(case: Case, found_at: Path, home: Path) -> None:
+def set_up(
+    case: Case, found_at: Path, home: Path, sim_record: Optional[Path] = None
+) -> Dict[str, Any]:
     """The case's ``sim_run`` set-up, as the operator: the agent's level,
-    then each tool call in ``setup`` (a grid loaded, the stage moved)."""
+    then each step in ``setup``: a tool call (a grid loaded, the stage
+    moved), or ``prepare``, a function ``module:name`` given the operator's
+    client and the case, for set-up that needs answers to go on (an item's
+    task configuration to mill with). What the set-up left: how many milling
+    passes the sample had by then."""
     sim_run = case.data["sim_run"]
     with LiveClient.as_operator(found_at, home) as operator:
         operator.set_level(sim_run.get("level", "watch"))
         for step in sim_run.get("setup") or []:
-            operator.call(step["tool"], **(step.get("arguments") or {}))
+            if "prepare" in step:
+                module, name = step["prepare"].split(":")
+                getattr(importlib.import_module(module), name)(operator, case)
+            else:
+                operator.call(step["tool"], **(step.get("arguments") or {}))
+    sim = _read_sim(sim_record)
+    return {"setup_passes": len((sim or {}).get("passes") or [])}
 
 
-def record(found_at: Path, home: Path, experiment: Path) -> Dict[str, Any]:
+def _read_sim(path: Optional[Path]) -> Optional[Dict[str, Any]]:
+    if path is None or not Path(path).is_file():
+        return None
+    return json.loads(Path(path).read_text())
+
+
+def record(
+    found_at: Path,
+    home: Path,
+    experiment: Path,
+    sim_record: Optional[Path] = None,
+    prepared: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """What the run left in its experiment: each item's name, id and the
     stage position of each of its poses, and each SEM or FIB image saved."""
     items, shifts = [], {}
@@ -55,6 +83,10 @@ def record(found_at: Path, home: Path, experiment: Path) -> Dict[str, Any]:
             )
     return {
         "experiment": str(Path(experiment).resolve()),
+        # what was done to the simulated sample: truth the agent can't see
+        "sim": _read_sim(sim_record),
+        # what the set-up left, before the agent began
+        "prepared": prepared or {},
         "items": items,
         "images": saved_images(experiment),
         "overviews": overviews(experiment),
