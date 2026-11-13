@@ -9,6 +9,7 @@ what it says it saved.
 """
 
 import math
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -17,6 +18,8 @@ from fibsem.ai.evals.cases import Case
 from fibsem.ai.evals.scoring import InvalidAnswer
 from fibsem.ai.evals.tasks.base import EvalTask, Run, Sim
 from fibsem.ai.evals.visual import KEY, _colour, _figure, _legend
+from fibsem.geometry.saved_images import stage_projector
+from fibsem.structures.settings import FibsemStagePosition
 
 VERDICTS = ("good", "bad")
 # How far a site may be from a cell body's edge and still be on it (m): a
@@ -248,6 +251,124 @@ SQUARE_COLOURS = {
 
 
 def draw_live_site_selection(case: Case, runs: List[Run]):
+    """The keyed squares and cells over each repeat's own overview, with its
+    sites and their verdicts; a map in stage coordinates (mm) where no
+    overview is to hand."""
+    shown = [
+        (n, answer, path)
+        for n, (_, answer) in enumerate(runs)
+        if (path := _overview(answer)) is not None
+    ]
+    if shown:
+        return _draw_overlays(case, shown)
+    return _draw_map(case, runs)
+
+
+def _overview(answer: Any) -> Any:
+    """The overview a run saved, as a path, if it is still there."""
+    record = (answer or {}).get("record") or {}
+    experiment, names = record.get("experiment"), record.get("overviews") or []
+    if not experiment or not names:
+        return None
+    path = Path(experiment) / names[0]
+    return path if path.is_file() else None
+
+
+def _draw_overlays(case: Case, shown: List[Tuple[int, Dict[str, Any], Path]]):
+    """One panel per repeat: its overview, the key's squares (by label) and
+    good cells projected onto it, and its sites (o said good, x said bad;
+    cyan truly good, pink truly bad, yellow unsure)."""
+    import tifffile
+    from matplotlib.patches import Polygon
+
+    key = case.key
+    frame = key["frame"]
+    half = (frame["pitch"] - frame["bar_width"]) / 2
+    u, v = np.asarray(frame["u"], float), np.asarray(frame["v"], float)
+    corners = [half * (a * u + b * v) for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+    labels = {tuple(q["index"]): q["label"] for q in key.get("squares") or []}
+    truth_colours = {"good": "#00e5ff", "bad": "#ff2d55"}
+    fig, axes = _figure(12, 8 * len(shown), nrows=len(shown))
+    for ax, (n, answer, path) in zip(np.atleast_1d(axes), shown):
+        image = tifffile.imread(str(path))
+        image = image if image.ndim == 2 else image[..., 0]
+        block, project = stage_projector(str(path))
+        at = block["stage_position"]
+        at = at if isinstance(at, dict) else at.to_dict()
+
+        def px(xy, at=at, project=project):
+            point = project(
+                FibsemStagePosition(x=xy[0], y=xy[1], z=at["z"], r=at["r"], t=at["t"])
+            )
+            return (point.x, point.y)
+
+        ax.imshow(image, cmap="gray")
+        for square in key.get("squares") or []:
+            centre = np.array([square["x"], square["y"]])
+            certain = square.get("certain", True)
+            ax.add_patch(
+                Polygon(
+                    [px(centre + c) for c in corners],
+                    closed=True,
+                    fill=False,
+                    color=SQUARE_COLOURS.get(square["label"], "#999999"),
+                    lw=1.4 if certain else 0.8,
+                    ls="-" if certain else ":",
+                )
+            )
+        for cell in key.get("cells") or []:
+            if (
+                cell["on_film"]
+                and cell["clear"]
+                and labels.get(tuple(cell["square"])) not in BAD_SQUARES
+            ):
+                ax.plot(*px((cell["x"], cell["y"])), "o", ms=3, color=KEY)
+        positions = _positions(answer)
+        for site in answer.get("sites") or []:
+            name = str(site.get("item"))
+            where = positions.get(name)
+            if where is None:
+                continue
+            truth = site_truth(key, where["x"], where["y"])["truth"]
+            colour = truth_colours.get(truth, "#ffd60a")
+            x, y = px((where["x"], where["y"]))
+            good = str(site.get("verdict")) == "good"
+            ax.plot(
+                x, y, "o" if good else "x", ms=12, mew=2.5, mfc="none", color=colour
+            )
+            ax.annotate(
+                name,
+                (x, y),
+                xytext=(8, -8),
+                textcoords="offset points",
+                color=colour,
+                fontsize=8,
+                weight="bold",
+            )
+        ax.set_xlim(0, image.shape[1])
+        ax.set_ylim(image.shape[0], 0)
+        ax.axis("off")
+        ax.set_title(
+            f"r{n + 1}: {path.name}. Sites: o said good, x said bad; "
+            "cyan truly good, pink truly bad, yellow unsure",
+            fontsize=9,
+        )
+    _square_legend(fig)
+    return fig
+
+
+def _square_legend(fig) -> None:
+    from matplotlib.lines import Line2D
+
+    squares = [
+        Line2D([], [], color=colour, marker="s", ls="", mfc="none", label=label)
+        for label, colour in SQUARE_COLOURS.items()
+    ]
+    squares.append(Line2D([], [], color=KEY, marker="o", ls="", label="good cell"))
+    fig.legend(handles=squares, loc="lower center", ncol=len(squares), fontsize=8)
+
+
+def _draw_map(case: Case, runs: List[Run]):
     """The keyed squares and cells in stage coordinates (mm), and each
     repeat's sites with their verdicts."""
     from matplotlib.patches import Circle, Polygon
@@ -308,13 +429,7 @@ def draw_live_site_selection(case: Case, runs: List[Run]):
     ax.set_xlabel("stage x (mm)")
     ax.set_ylabel("stage y (mm)")
     _legend(ax, runs, "good site (key); o said good, x said bad")
-    from matplotlib.lines import Line2D
-
-    squares = [
-        Line2D([], [], color=colour, marker="s", ls="", mfc="none", label=label)
-        for label, colour in SQUARE_COLOURS.items()
-    ]
-    fig.legend(handles=squares, loc="lower center", ncol=len(squares), fontsize=8)
+    _square_legend(fig)
     return fig
 
 

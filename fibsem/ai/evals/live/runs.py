@@ -50,6 +50,7 @@ def record(found_at: Path, home: Path, experiment: Path) -> Dict[str, Any]:
                 }
             )
     return {
+        "experiment": str(Path(experiment).resolve()),
         "items": items,
         "images": saved_images(experiment),
         "overviews": overviews(experiment),
