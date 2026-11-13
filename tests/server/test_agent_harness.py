@@ -922,10 +922,11 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
 def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
     async def reply(prompt):
         if prompt.startswith("You are"):
-            for text in ("first", "second"):
-                AgentSession(session).message(text)
+            # Raising the level is news, but not urgent.
+            for level in (AgentLevel.ASSIST, AgentLevel.DRIVE):
+                assert AgentSession(session).set_level(level) is None
             # The turn goes on while the watcher hears both.
-            while len(_heard(caplog, "MESSAGE")) < 2:
+            while len(_heard(caplog, "LEVEL")) < 2:
                 await asyncio.sleep(0.05)
 
     agent = ScriptedAgent(reply)
@@ -935,11 +936,12 @@ def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
     assert running.stop() == 0
 
     assert len(agent.prompts) == 2, "both lines came as one turn"
+    assert agent.interrupts == 0, "a line that is not urgent interrupted"
     lines = agent.prompts[1].splitlines()
-    assert lines[0] == "The watcher printed:"
-    assert [line.split(": ")[1].split(" --")[0] for line in lines[1:]] == [
-        "first",
-        "second",
+    assert lines[:3] == [
+        "The watcher printed:",
+        "LEVEL assist (was watch): the operator set the agent level",
+        "LEVEL drive (was assist): the operator set the agent level",
     ]
 
 
@@ -1195,6 +1197,134 @@ def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():
     assert path == "/app/agent/transcript" and body["session_id"] == "scripted"
     (entry,) = body["entries"]
     assert entry["verb"] == "Ran" and "at" not in entry and entry["age_s"] >= 0
+
+
+# --- urgent lines --------------------------------------------------------------
+
+
+def test_the_urgent_lines_are_the_four_the_operator_chose():
+    assert harness_mod.URGENT == {
+        # an operator message
+        watch_mod.MESSAGE,
+        # the level lowered, or control taken back
+        watch_mod.LEVEL_LOWERED,
+        watch_mod.AGENT_OFF,
+        watch_mod.OPERATOR_STOP,
+        # a run that stops or fails, or a hardware error
+        watch_mod.WORKFLOW_FAILED,
+        "task_failed",
+        watch_mod.COMMAND_FAILED,
+        watch_mod.MILL_FAILED,
+        # a stop rule firing
+        watch_mod.STOP_RULE,
+    }
+    assert harness_mod.is_urgent(watch_mod.NO_END_EVENT_LINE)
+    for line in (
+        watch_mod.Wake(watch_mod.LEVEL, "LEVEL drive (was watch)"),
+        watch_mod.Wake(watch_mod.WORKFLOW_ENDED, "WORKFLOW ENDED (completed)"),
+        watch_mod.Wake(watch_mod.WORKFLOW_ENDED, "WORKFLOW ENDED (cancelled)"),
+        watch_mod.Wake(watch_mod.PROPOSAL, "PROPOSAL item=01"),
+        watch_mod.Wake(harness_mod.ALARM, "WAKE check drift"),
+        "MESSAGE id=ab12 from the operator: a plain string is never urgent",
+    ):
+        assert not harness_mod.is_urgent(line), line
+
+
+def test_a_lowered_level_or_a_stop_asks_the_agent_to_re_read_its_level():
+    for kind in (watch_mod.LEVEL_LOWERED, watch_mod.OPERATOR_STOP):
+        prompt = Wakes().add([watch_mod.Wake(kind, "...")])
+        assert harness_mod.texts().reread_level in prompt
+
+
+def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
+    operator = AgentSession(session)
+
+    async def reply(prompt):
+        if prompt.startswith("You are"):
+            # Not urgent: the turn goes on through it.
+            assert operator.set_level(AgentLevel.ASSIST) is None
+            while not _heard(caplog, "LEVEL assist"):
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(3 * POLL_S)
+            assert agent.interrupts == 0
+            operator.message("stop and look at 01")
+            return await agent.until_interrupted()
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    _until(lambda: len(agent.prompts) >= 2, what="the turn after the interrupt")
+    assert running.stop() == 0
+
+    assert agent.interrupts == 1
+    after = agent.prompts[1]
+    assert after.startswith(harness_mod.INTERRUPTED + "\n\nThe watcher printed:\n")
+    assert "LEVEL assist (was watch)" in after
+    assert "from the operator: stop and look at 01" in after
+
+
+def test_a_stage_move_cut_short_finishes_once_and_lets_go_of_control(session):
+    """The operator takes control back during the agent's stage move: the turn
+    is cut short and the agent stops waiting, but the move is not undone or
+    left half done. It finishes, once, and control is free; the next turn
+    says to read where the stage is rather than move again."""
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+
+    operator = AgentSession(session)
+    assert operator.set_level(AgentLevel.DRIVE) is None
+    microscope = session.microscope
+    stage = microscope.stage
+    before = microscope.get_stage_position()
+    moving, release = threading.Event(), threading.Event()
+    move_relative = stage.move_relative
+
+    def slow_move(delta):
+        moving.set()
+        assert release.wait(30), "the move was never let go"
+        return move_relative(delta)
+
+    stage.move_relative = slow_move
+    answers = []
+
+    def call_the_sidecar():
+        # Its own process in fibsem-agent: the CLI stops waiting for it, but
+        # its request runs on.
+        with _http(session) as http:
+            sidecar = build_sidecar(http, http.get("/capabilities").json())
+            answers.append(
+                asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 2e-6}))
+            )
+
+    async def reply(prompt):
+        if prompt.startswith("You are"):
+            threading.Thread(target=call_the_sidecar, daemon=True).start()
+            while not moving.is_set():
+                await asyncio.sleep(0.05)
+            assert microscope.control.current.by == "agent"
+            operator.stop()
+            return await agent.until_interrupted()
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    try:
+        _until(lambda: len(agent.prompts) >= 2, what="the turn after the stop")
+        assert not answers, "the move answered before it was let go"
+    finally:
+        release.set()
+    _until(lambda: answers, what="the move's answer")
+    assert running.stop() == 0
+    assert not answers[0].is_error, answers[0]
+
+    after = agent.prompts[1]
+    assert after.startswith(harness_mod.INTERRUPTED)
+    assert "STOPPED by the operator: Stop the agent; your level is now watch" in after
+    assert harness_mod.texts().reread_level in after
+    moved = microscope.get_stage_position()
+    assert moved.x == pytest.approx(before.x + 2e-6)
+    assert moved.y == pytest.approx(before.y)
+    control = microscope.control
+    assert control.current is None, "the move kept control"
+    assert session.agent_auth.level is AgentLevel.WATCH
 
 
 # --- ending -------------------------------------------------------------------
