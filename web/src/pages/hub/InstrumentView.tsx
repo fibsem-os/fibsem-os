@@ -106,19 +106,37 @@ export function InstrumentView({ instrument: i }: { instrument: Instrument }) {
       body: JSON.stringify({ app: chosen }),
     }),
   );
+  const wake = useHubAction(() =>
+    api<HubState>(`${at(i.name)}/gateway/start`, { method: "POST" }),
+  );
   const running = i.gateway?.mode === "running";
   if (!i.reachable || !i.gateway)
     return (
       <Card className="flex flex-col gap-1 p-4 text-[13px]">
-        <span className="flex items-center gap-2">
+        <span className="flex min-h-[30px] items-center gap-2">
           <Dot colour={i.reachable ? "warn" : "off"} />
           {i.reachable === false
             ? "Not reachable"
             : i.reachable === null
               ? "Checking"
               : "Not paired yet"}
+          {i.reachable === false && i.ssh && (
+            <span className="ml-auto flex items-center gap-2">
+              <Hint>
+                Runs the task <code>fibsem-gateway install</code> registered on
+                its PC. Someone must be logged on there.
+              </Hint>
+              <Button
+                disabled={wake.isPending || wake.isSuccess}
+                onClick={() => wake.mutate()}
+              >
+                {wake.isSuccess ? "Starting" : "Start its gateway"}
+              </Button>
+            </span>
+          )}
         </span>
         {i.why && <span className={MUTED}>{i.why}</span>}
+        <Failed error={wake.error} />
       </Card>
     );
   return (

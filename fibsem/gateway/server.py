@@ -407,6 +407,17 @@ def build_gateway_app(
                 raise _refused(422, "no_code", "Give the code its gateway shows.")
             return _act(found, {}, lambda force, via: hub.pair(name, code))
 
+        @app.post("/hub/instruments/{name}/gateway/start", response_model=HubState)
+        def start_instrument_gateway(name: str, found: Caller = Depends(hub_operator)):
+            """Start the instrument's gateway when it is down, over ssh, by
+            the task its ``fibsem-gateway install`` registered."""
+
+            def start(force, via):
+                hub.start_gateway(name)
+                return hub.state()
+
+            return _act(found, {}, start)
+
         @app.post("/hub/instruments/{name}/app/start", response_model=HubState)
         def start_instrument_app(
             name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)

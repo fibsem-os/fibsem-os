@@ -28,7 +28,13 @@ from urllib.parse import urlsplit
 import yaml
 
 from fibsem.gateway.gateway import GatewayRefused
-from fibsem.gateway.tunnels import Tunnel, TunnelDown, Tunnels, valid_destination
+from fibsem.gateway.tunnels import (
+    Tunnel,
+    TunnelDown,
+    Tunnels,
+    start_gateway_there,
+    valid_destination,
+)
 from fibsem.server.discovery import DISCOVERY_DIR
 from fibsem.util.files import write_atomic
 
@@ -182,6 +188,7 @@ class Hub:
         clock: Callable[[], float] = time.time,
         every_s: float = CHECK_EVERY_S,
         tunnels: Optional[Tunnels] = None,
+        start_there: Callable[[str], None] = start_gateway_there,
     ) -> None:
         self._file = Path(file or HUB_FILE)
         self._tokens = Path(tokens or TOKENS_DIR)
@@ -190,6 +197,7 @@ class Hub:
         self._clock = clock
         self._every_s = every_s
         self._tunnels = tunnels or Tunnels()
+        self._start_there = start_there
         self._lock = threading.Lock()
         self._read: Dict[str, InstrumentState] = {}
         self._stop = threading.Event()
@@ -410,6 +418,28 @@ class Hub:
             raise GatewayRefused(
                 status, "refused", f"{name}'s gateway answered {status}."
             ) from None
+
+    def start_gateway(self, name: str) -> None:
+        """Start *name*'s gateway when it is down, by the task its
+        ``fibsem-gateway install`` registered: only over ssh, and only in the
+        session of someone logged on at that PC."""
+        instrument = self.instrument(name)
+        if not instrument.ssh:
+            raise GatewayRefused(
+                409,
+                "no_ssh",
+                f"{name} has no ssh destination, so this PC can't start its gateway.",
+            )
+        try:
+            self._start_there(instrument.ssh)
+        except OSError as error:
+            raise GatewayRefused(
+                503,
+                "not_started",
+                f"{name}'s gateway wasn't started: {error} It needs "
+                "fibsem-gateway install run on that PC, and someone logged on.",
+            ) from None
+        log.info("The hub started %s's gateway.", name)
 
     def answers(self, url: str) -> bool:
         """Whether the server at *url* answers its ``/health``."""

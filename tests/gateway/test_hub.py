@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from fibsem.gateway.gateway import OFF, GatewayRefused, GatewayState, History
 from fibsem.gateway.hub import Hub, Instrument
 from fibsem.gateway.server import GatewayAuth, build_gateway_app
-from fibsem.gateway.tunnels import Tunnels, command
+from fibsem.gateway.tunnels import Tunnels, command, start_command
 from fibsem.server.pairing import HUB
 
 OPERATOR_TOKEN = "operator-token"
@@ -498,3 +498,41 @@ def test_the_operator_starts_an_app_the_instrument_runs_without_a_window(tmp_pat
     assert started.status_code == 200
     assert there.started == {"app": "autolamella", "window": False, "last": True}
     assert started.json()["instruments"][0]["gateway"]["mode"] == "running"
+
+
+def test_the_hub_starts_a_gateway_that_is_down_by_its_task_over_ssh(tmp_path):
+    asked = []
+    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", start_there=asked.append)
+    hub.add("Scope 1", ssh="user@scope-1")
+    hub.add("Scope 2", URL)
+    client = TestClient(build_gateway_app(FakeGateway(), _auth(tmp_path), hub=hub))
+    operator = {"Authorization": f"Bearer {OPERATOR_TOKEN}"}
+    started = client.post("/hub/instruments/Scope 1/gateway/start", headers=operator)
+    assert started.status_code == 200 and asked == ["user@scope-1"]
+    # Without ssh there is no way in.
+    refused = client.post("/hub/instruments/Scope 2/gateway/start", headers=operator)
+    assert refused.json()["detail"]["error_type"] == "no_ssh"
+    assert client.post("/hub/instruments/Scope 1/gateway/start").status_code == 401
+
+
+def test_a_gateway_that_does_not_start_says_what_it_needs(tmp_path):
+    def fails(destination):
+        raise OSError("ERROR: The system cannot find the file specified.")
+
+    hub = Hub(tmp_path / "hub.yaml", tmp_path / "hub", start_there=fails)
+    hub.add("Scope 1", ssh="user@scope-1")
+    with pytest.raises(GatewayRefused) as refused:
+        hub.start_gateway("Scope 1")
+    assert refused.value.error_type == "not_started"
+    assert "fibsem-gateway install" in str(refused.value)
+
+
+def test_the_start_command_only_runs_the_task():
+    assert start_command("user@scope-1")[-6:] == [
+        "--",
+        "user@scope-1",
+        "schtasks",
+        "/Run",
+        "/TN",
+        "fibsemOS-Agent-Gateway",
+    ]

@@ -417,6 +417,17 @@ def test_install_writes_a_startup_shortcut_running_pythonw_minimised(tmp_path):
     assert str(tmp_path / "Agent Gateway.lnk") in script
 
 
+def test_install_registers_a_task_a_hub_can_run_with_no_schedule():
+    command = gateway_main.task_command(["--manufacturer", "Thermo"])
+    assert command[:2] == ["schtasks", "/Create"]
+    assert command[command.index("/TN") + 1] == "fibsemOS-Agent-Gateway"
+    run = command[command.index("/TR") + 1]
+    assert "pythonw" in run
+    assert run.endswith("-m fibsem.gateway run --minimised --manufacturer Thermo")
+    # In the session of whoever is logged on, with that user's rights only.
+    assert "/IT" in command and command[command.index("/RL") + 1] == "LIMITED"
+
+
 def test_the_app_server_and_the_gateway_share_one_paired_file(tmp_path):
     # Two processes, two stores, one file: neither loses the other's pairings.
     path = tmp_path / "paired.json"

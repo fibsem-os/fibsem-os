@@ -16,8 +16,11 @@ fibsem-gateway install
 ```
 
 On Windows this puts a "Agent Gateway" shortcut in your Startup folder, so the gateway
-starts when you log on, with its window minimised and no console. It needs no admin rights.
-`fibsem-gateway uninstall` removes it. To run it once by hand: `fibsem-gateway run`.
+starts when you log on, with its window minimised and no console. It also registers a task,
+`fibsemOS-Agent-Gateway`, with no schedule: a lab hub that reaches this PC over ssh runs it
+to start a gateway that is down ("Start its gateway" on the hub's page). The task runs in the
+session of whoever is logged on, so it works on a locked PC and not on one nobody is logged
+on to. Neither needs admin rights. `fibsem-gateway uninstall` removes both. To run it once by hand: `fibsem-gateway run`.
 
 To stop the gateway, close its window, or run `fibsem-gateway stop`.
 `fibsem-gateway restart` stops it and starts it again with the same flags. A gateway that doesn't answer is ended by its process id.

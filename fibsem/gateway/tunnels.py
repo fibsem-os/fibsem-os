@@ -21,7 +21,15 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from fibsem.util.process import end
 
-__all__ = ["Tunnel", "TunnelDown", "Tunnels", "valid_destination"]
+__all__ = [
+    "TASK_NAME",
+    "Tunnel",
+    "TunnelDown",
+    "Tunnels",
+    "start_command",
+    "start_gateway_there",
+    "valid_destination",
+]
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +124,53 @@ def command(tunnel: Tunnel, ssh: str = "ssh") -> List[str]:
         "--",
         tunnel.destination,
     ]
+
+
+# The task `fibsem-gateway install` registers on a Windows PC, which starts
+# its gateway when a hub asks. No spaces: it is typed into a remote shell.
+TASK_NAME = "fibsemOS-Agent-Gateway"
+START_TIMEOUT_S = 20.0
+
+
+def start_command(destination: str, ssh: str = "ssh") -> List[str]:
+    """The ssh command that runs the gateway's task at *destination*, in the
+    session of whoever is logged on there, and nothing else."""
+    return [
+        ssh,
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=10",
+        "--",
+        destination,
+        "schtasks",
+        "/Run",
+        "/TN",
+        TASK_NAME,
+    ]
+
+
+def start_gateway_there(destination: str) -> None:
+    """Start the gateway on the PC at *destination*. Raises `OSError` in the
+    words ssh or the PC gave."""
+    ssh = shutil.which("ssh")
+    if not valid_destination(destination):
+        raise OSError("Give where ssh connects to it, such as user@host.")
+    if ssh is None:
+        raise OSError("ssh isn't installed on this PC.")
+    try:
+        done = subprocess.run(
+            start_command(destination, ssh),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=START_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        raise OSError(f"ssh to {destination} didn't answer.") from None
+    if done.returncode != 0:
+        said = (done.stderr or done.stdout or "").strip().splitlines()
+        raise OSError(said[-1] if said else f"ssh to {destination} failed.")
 
 
 class Tunnels:

@@ -36,6 +36,7 @@ from fibsem.gateway.gateway import (
 from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.hub import Hub
 from fibsem.gateway.hub_agents import HubAgents
+from fibsem.gateway.tunnels import TASK_NAME
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
@@ -308,6 +309,32 @@ def shortcut_command(path: Path, connection: List[str]) -> List[str]:
     return ["powershell", "-NoProfile", "-NonInteractive", "-Command", script]
 
 
+def task_command(connection: List[str]) -> List[str]:
+    """``schtasks`` that registers the task a hub runs to start this gateway
+    when it is down: no schedule of its own, in the session of whoever is
+    logged on (so its window shows), with this user's rights."""
+    run = subprocess.list2cmdline(
+        [str(pythonw()), "-m", "fibsem.gateway", "run", "--minimised", *connection]
+    )
+    return [
+        "schtasks",
+        "/Create",
+        "/TN",
+        TASK_NAME,
+        "/TR",
+        run,
+        # A task needs a schedule: once, at a time already past, is none.
+        "/SC",
+        "ONCE",
+        "/ST",
+        "00:00",
+        "/IT",
+        "/RL",
+        "LIMITED",
+        "/F",
+    ]
+
+
 def install(connection: List[str]) -> int:
     if sys.platform != "win32":
         command = " ".join(["fibsem-gateway", "run", *connection])
@@ -316,6 +343,12 @@ def install(connection: List[str]) -> int:
     path = _startup_folder() / f"{SHORTCUT_NAME}.lnk"
     subprocess.run(shortcut_command(path, connection), check=True)
     print(f"The gateway starts at logon: {path}")
+    task = subprocess.run(task_command(connection), capture_output=True, text=True)
+    if task.returncode == 0:
+        print(f"A hub can start it when it is down: task {TASK_NAME}")
+    else:
+        why = (task.stderr or task.stdout or "").strip()
+        print(f"The task a hub starts it with wasn't registered: {why}")
     return 0
 
 
@@ -326,6 +359,12 @@ def uninstall() -> int:
         print(f"Removed {path}")
     else:
         print("The gateway isn't set to start at logon.")
+    if sys.platform == "win32":
+        gone = subprocess.run(
+            ["schtasks", "/Delete", "/TN", TASK_NAME, "/F"], capture_output=True
+        )
+        if gone.returncode == 0:
+            print(f"Removed the task {TASK_NAME}")
     return 0
 
 
