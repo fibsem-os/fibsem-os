@@ -23,6 +23,7 @@ from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.devices import DeviceServer
 from fibsem.structures.system import InsertableDeviceState
 from tests.server.test_remote_fm import _unreachable
+from tests.waiting import free_port, wait_for
 
 
 def _far_group(fm):
@@ -341,35 +342,18 @@ def test_a_configuration_naming_a_remote_fm_connects_to_it(tmp_path):
 # ── a server that starts after the microscope (FIB-1086) ─────────────
 
 
-def _free_port() -> int:
-    import socket
-
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _wait_for(condition, timeout: float) -> bool:
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if condition():
-            return True
-        time.sleep(0.02)
-    return condition()
-
-
 def test_without_offline_an_unserved_fm_refuses_to_connect():
     # Paired, so what refuses is the missing server: without a token the
     # client refuses first, and the test passed only after one that made it.
     DeviceAuth.from_disk()
     with pytest.raises(RemoteDeviceUnreachable):
-        RemoteFluorescenceMicroscope.connect("127.0.0.1", _free_port())
+        RemoteFluorescenceMicroscope.connect("127.0.0.1", free_port())
 
 
 def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
     # A Device Server on this computer: its install token is there before it starts.
     DeviceAuth.from_disk()
-    port = _free_port()
+    port = free_port()
     client = DeviceClient("127.0.0.1", port, heartbeat=0.5)
     fm = RemoteFluorescenceMicroscope.connect(
         "127.0.0.1", port, client=client, offline=True
@@ -390,7 +374,7 @@ def test_an_fm_connected_offline_fails_closed_then_comes_online_by_itself():
 
         # On came_online too: the client marks itself connected and then emits
         # `reconnected`, so `connected` can read True a moment before it fires.
-        assert _wait_for(
+        assert wait_for(
             lambda: fm.online and client.connected and came_online, timeout=5
         )
         assert came_online == [True]
@@ -418,7 +402,7 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
 
     # A Device Server on this computer: its install token is there before it starts.
     DeviceAuth.from_disk()
-    port = _free_port()
+    port = free_port()
     settings = utils.load_yaml(
         os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
     )
@@ -441,7 +425,7 @@ def test_a_configured_fm_comes_online_after_the_microscope_with_its_calibration(
         server = DeviceServer(local.values(), port=port).start()
 
         far = FluorescenceMicroscope(local)
-        assert _wait_for(lambda: far.objective.limit_position == 0.004, timeout=10)
+        assert wait_for(lambda: far.objective.limit_position == 0.004, timeout=10)
         assert fm.online
         assert fm.objective.limit_position == 0.004
     finally:

@@ -15,7 +15,6 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
 
 import threading
-import time
 
 import pytest
 
@@ -30,6 +29,7 @@ from fibsem.milling import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from tests.answering import answering
 from tests.fixtures.main_window import main_window
+from tests.waiting import qt_wait_for
 
 ROUGH = "Rough Milling"
 MSG = "Run the rough mill."
@@ -100,26 +100,18 @@ def _run_on_worker_thread(task, ui, qapp):
 
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
-    _wait(
-        qapp,
+    assert qt_wait_for(
         lambda: (
             ui.panel.prompt_bar.message.text() == FIRST
             and ui.panel.prompt_bar.no.isEnabled()
         ),
+        timeout=20,
     )
     return thread, outcome
 
 
-def _wait(qapp, ready, timeout_s=20.0):
-    deadline = time.monotonic() + timeout_s
-    while not ready():
-        assert time.monotonic() < deadline, "timed out"
-        qapp.processEvents()
-        time.sleep(0.01)
-
-
 def _finish(thread, qapp):
-    _wait(qapp, lambda: not thread.is_alive())
+    assert qt_wait_for(lambda: not thread.is_alive(), timeout=20)
     thread.join(timeout=1.0)
 
 
@@ -129,7 +121,9 @@ def test_a_run_then_accept_records_the_run_and_no_skip(ui, qapp):
     thread, outcome = _run_on_worker_thread(task, ui, qapp)
 
     ui.panel.prompt_bar.yes.click()  # Run Milling
-    _wait(qapp, lambda: events and ui.panel.prompt_bar.no.isEnabled())
+    assert qt_wait_for(
+        lambda: events and ui.panel.prompt_bar.no.isEnabled(), timeout=20
+    )
     ui.panel.prompt_bar.no.click()  # Accept
     _finish(thread, qapp)
 
