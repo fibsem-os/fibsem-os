@@ -7,7 +7,6 @@ its decisions. Nothing here imports Qt.
 """
 
 import os
-import socket
 import time
 
 import httpx
@@ -28,14 +27,9 @@ from tests.autolamella.test_select_position_asks import (  # noqa: F401
     _experiment,
     microscope,
 )
+from tests.waiting import free_port
 
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @pytest.fixture
@@ -51,7 +45,7 @@ def agent(microscope, tmp_path):  # noqa: F811
     session.app_server = AppServerHost(
         session,
         lambda: AutoLamellaAppContext(session),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
     assert session.app_server.start()

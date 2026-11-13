@@ -9,7 +9,6 @@ tests/fm/_odemis_stubs.py.
 """
 
 import sys
-import time
 
 import pytest
 
@@ -21,15 +20,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.server.devices import DeviceServer
 from tests.fm import _odemis_stubs as stubs
-
-
-def wait_for(condition, timeout=2.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if condition():
-            return True
-        time.sleep(0.01)
-    return condition()
+from tests.waiting import wait_for
 
 
 @pytest.fixture(scope="module")

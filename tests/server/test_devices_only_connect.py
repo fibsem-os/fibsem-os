@@ -5,7 +5,6 @@ Server serves them under ``/microscope/devices``; what needs a FIB/SEM says so;
 disconnecting closes them.
 """
 
-import socket
 import time
 
 import pytest
@@ -23,6 +22,7 @@ from fibsem.server.device_auth import DeviceAuth
 from fibsem.server.devices import DeviceServer, configured_devices, served_fm_settings
 from fibsem.server.pairing import PairedTokens, Pairing
 from fibsem.workflows.session import AppSession
+from tests.waiting import free_port
 
 AGENT = "agent-token"
 OPERATOR = "operator-token"
@@ -44,12 +44,6 @@ def _write(path, devices):
         )
     )
     return str(path)
-
-
-def _free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @pytest.fixture
@@ -158,7 +152,7 @@ def fm_pc(tmp_path, monkeypatch):
     """The FM's own PC: a Device Server over the sim FM, with its pairing."""
     built, cleanups = configured_devices(served_fm_settings("fm"))
     auth = DeviceAuth("cryo-fm", Pairing(PairedTokens(tmp_path / "paired.json")))
-    port = _free_port()
+    port = free_port()
     monkeypatch.setattr(
         "fibsem.server.operator_token.DEVICE_TOKEN_FILE", tmp_path / "none.json"
     )

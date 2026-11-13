@@ -21,6 +21,7 @@ import fibsem.config as cfg  # noqa: E402
 from fibsem import utils  # noqa: E402
 from fibsem.ui.widgets.fluorescence_control_widget import FMControlWidget  # noqa: E402
 from tests.fixtures.fm_host import FMHost  # noqa: E402
+from tests.waiting import qt_wait_for
 
 IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 
@@ -29,14 +30,6 @@ def _pump(ms: int = 100) -> None:
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
     loop.exec()
-
-
-def _until(condition, tries: int = 50) -> bool:
-    for _ in range(tries):
-        if condition():
-            return True
-        _pump()
-    return condition()
 
 
 @pytest.fixture()
@@ -60,11 +53,11 @@ def test_a_travel_made_elsewhere_turns_the_controls_on_and_back_off(widget):
     assert not insert.isEnabled(), "on at the beams, where the objective is far away"
 
     microscope.stage_movement.move_to_device("FM")
-    assert _until(insert.isEnabled), "still off at the FM after the travel"
+    assert qt_wait_for(insert.isEnabled), "still off at the FM after the travel"
     assert widget.pushButton_toggle_acquisition.isEnabled()
 
     microscope.stage_movement.move_to_device("FIBSEM")
-    assert _until(lambda: not insert.isEnabled()), "still on back at the beams"
+    assert qt_wait_for(lambda: not insert.isEnabled()), "still on back at the beams"
 
 
 def test_teardown_stops_following_the_stage(widget):

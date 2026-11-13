@@ -132,6 +132,8 @@ class AppSession:
         # for another host beside this PC's own (an eval run).
         self.app_server_port: Optional[int] = None
         self.app_server_discovery: Optional[str] = None
+        # False for the microscope server, which serves no agent.
+        self.serve_agent = True
         # The window hosts it whatever the preference, until the operator
         # turns it off in Tools → Host (``--host``: the gateway's starts).
         self.host_app_server = False
@@ -503,6 +505,7 @@ class AppSession:
                 self,
                 app_context,
                 serve_microscope=self.serve_microscope is not False,
+                agent=self.serve_agent,
                 **where,
             )
         started = self.app_server.start()

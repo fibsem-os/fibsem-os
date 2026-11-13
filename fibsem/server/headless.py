@@ -15,6 +15,7 @@ from fibsem.server.agent.setup import setup_text
 from fibsem.workflows.session import AppSession
 
 __all__ = [
+    "announce_host",
     "connect",
     "connection_parser",
     "names_a_microscope",
@@ -107,32 +108,40 @@ def announce_code(code: str) -> None:
     print(f"A browser asked to pair. Pairing code: {code} (5 minutes).", flush=True)
 
 
-def serve_until_stopped(
-    session,
-    serve: Callable[[Any], bool],
-    prog: str,
-    stop: Optional[threading.Event] = None,
-) -> int:
-    """``serve(session)``, print where to reach it, then wait for Ctrl-C (or
-    *stop*, or a terminate signal: a service stop, a Windows close) and stop
-    the run, the server and the recording. The exit code."""
-    if not serve(session):
-        print("error: the host did not start serving; see the log.")
-        return 1
+def announce_host(session) -> None:
+    """What an app's host prints once serving: the experiment, the chat page
+    and how to set up an agent."""
     host = session.app_server
     experiment = session.experiment
     what = experiment.name if experiment is not None else "no experiment"
     print(f"The fibsem host is serving {what} at {host.url} (agent at Watch).")
     # The plain address, never the token: scrollback and service logs keep it.
     print(f"Chat and level controls: {host.url}/ui/agent (Pair this browser)")
-    pairing = host.auth.pairing
-    if pairing is not None:
-        # Seeing this terminal is the proof: the code shows only here.
-        pairing.announce = announce_code
     print(
         setup_text(host.url) or "fibsem-mcp is not installed beside this Python.",
         flush=True,
     )
+
+
+def serve_until_stopped(
+    session,
+    serve: Callable[[Any], bool],
+    prog: str,
+    stop: Optional[threading.Event] = None,
+    announce: Callable[[Any], None] = announce_host,
+) -> int:
+    """``serve(session)``, ``announce(session)`` where to reach it, then wait
+    for Ctrl-C (or *stop*, or a terminate signal: a service stop, a Windows
+    close) and stop the run, the server and the recording. The exit code."""
+    if not serve(session):
+        print("error: the host did not start serving; see the log.")
+        return 1
+    host = session.app_server
+    pairing = host.auth.pairing
+    if pairing is not None:
+        # Seeing this terminal is the proof: the code shows only here.
+        pairing.announce = announce_code
+    announce(session)
     stop = stop or threading.Event()
     _stop_on_terminate(stop)
     try:
