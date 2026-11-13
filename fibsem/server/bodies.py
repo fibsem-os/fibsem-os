@@ -13,10 +13,10 @@ blank) stay in the route, with their own messages.
 """
 
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Dict, List, Mapping, Optional, Sequence, Union
+from typing import Annotated, Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 from fastapi import HTTPException
-from pydantic import ConfigDict, Strict
+from pydantic import ConfigDict, Field, Strict
 
 from fibsem.server.auth import refusal_error
 
@@ -517,3 +517,181 @@ class CorrelationRunBody:
     __pydantic_config__ = STRICT
 
     run_path: str
+
+
+# --- images, analysis, exports and the record (`app_routes`) ------------------
+
+# A point on an image, [x, y] in its pixels.
+Point = Tuple[float, float]
+# A fluorescence stack's plane, 0 the first: a whole number, not text.
+Plane = Annotated[int, Strict(), Field(ge=0)]
+
+
+@dataclass
+class ThicknessBody:
+    """POST .../items/{item_name}/thickness: a saved image, and the window to
+    measure in, else the whole lamella."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    width_um: Optional[float] = None
+    height_um: Optional[float] = None
+    centre: Optional[Point] = None
+
+
+@dataclass
+class MarkersBody:
+    """POST /app/experiment/images/markers."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    grid_name: Optional[str] = None
+    fov: Optional[Flag] = None
+    current: Optional[Flag] = None
+
+
+@dataclass(kw_only=True)
+class DrawOptions:
+    """How a saved image is drawn: an FM stack's channels and looks, a box
+    to crop to ([x, y, width, height] in pixels)."""
+
+    __pydantic_config__ = STRICT
+
+    crosshair: Optional[Flag] = None
+    metadata_bar: Optional[Flag] = None
+    channels: Optional[List[str]] = None
+    looks: Optional[Dict[str, Dict[str, Any]]] = None
+    box: Optional[Tuple[float, float, float, float]] = None
+
+
+@dataclass(kw_only=True)
+class DrawBody(DrawOptions):
+    """POST /app/experiment/images/drawn: a saved image with marks on it."""
+
+    path: str
+    marks: Optional[Any] = None
+    plane: Optional[Plane] = None
+
+
+@dataclass(kw_only=True)
+class PairBody(DrawOptions):
+    """POST /app/experiment/images/pair: two saved images side by side."""
+
+    before: str
+    after: str
+    marks: Optional[Any] = None
+    before_plane: Optional[Plane] = None
+    after_plane: Optional[Plane] = None
+    share_looks: Optional[Flag] = None
+
+
+@dataclass
+class IntensityBody:
+    """POST /app/experiment/analysis/intensity: points on a saved image."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    points: List[Point]
+    planes: Optional[List[Plane]] = None
+    radius_px: Optional[float] = None
+    channel: Optional[str] = None
+    reference: Optional[Plane] = None
+
+
+@dataclass
+class ProfileBody:
+    """POST /app/experiment/analysis/profile: a line on a saved image."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    start: Point
+    end: Point
+    width_px: Optional[float] = None
+    channel: Optional[str] = None
+    plane: Optional[Plane] = None
+    dip: Optional[Flag] = None
+
+
+@dataclass
+class MillingDrawnBody:
+    """POST .../items/{item_name}/milling/drawn: the milling tasks to draw,
+    the first in colour; ``background`` is related or none."""
+
+    __pydantic_config__ = STRICT
+
+    task_names: Union[str, List[str]]
+    background: str = "related"
+    image_path: Optional[str] = None
+    scan_direction: Optional[Flag] = None
+    alignment_area: Optional[Flag] = None
+    metadata_bar: Optional[Flag] = None
+
+
+@dataclass
+class PixelsBody:
+    """POST /app/experiment/images/pixels: stage positions ({x, y, z, r, t,
+    coordinate_system}) as points on a saved image."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    stage_positions: List[Dict[str, Any]]
+
+
+@dataclass
+class ImageExportBody:
+    """POST /app/experiment/export/image: the dialog's options, or its
+    defaults."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+    options: Optional[Dict[str, Any]] = None
+    format: str = "png"
+
+
+@dataclass
+class AnimationExportBody:
+    """POST /app/experiment/export/animation."""
+
+    __pydantic_config__ = STRICT
+
+    item_name: str
+    options: Optional[Dict[str, Any]] = None
+    format: str = "gif"
+
+
+@dataclass
+class NoteBody:
+    """POST /app/experiment/notes: an observation for the record."""
+
+    __pydantic_config__ = STRICT
+
+    text: str
+    item_name: Optional[str] = None
+
+
+@dataclass
+class OperatorMessageBody(NoteBody):
+    """POST /app/experiment/messages: the agent's message to the operator,
+    ``reply_to`` the message it answers."""
+
+    reply_to: Optional[str] = None
+
+
+@dataclass
+class EvidenceBody:
+    """POST /app/experiment/evidence: an experiment image (``image``) or one
+    the agent made (``upload``, base64), with marks on it."""
+
+    __pydantic_config__ = STRICT
+
+    image: Optional[str] = None
+    upload: Optional[str] = None
+    marks: Optional[Any] = None
+    source: Optional[str] = None
+    item_name: Optional[str] = None

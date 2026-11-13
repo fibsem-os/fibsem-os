@@ -42,6 +42,16 @@ TYPED = [
     ("post", "/app/experiment/items"),
     ("post", "/app/experiment/items/{item_name}"),
     ("post", "/app/experiment/grids/{grid_name}/note"),
+    ("post", "/app/experiment/images/markers"),
+    ("post", "/app/experiment/images/drawn"),
+    ("post", "/app/experiment/images/pair"),
+    ("post", "/app/experiment/images/pixels"),
+    ("post", "/app/experiment/analysis/intensity"),
+    ("post", "/app/experiment/analysis/profile"),
+    ("post", "/app/experiment/export/image"),
+    ("post", "/app/experiment/notes"),
+    ("post", "/app/experiment/messages"),
+    ("post", "/app/experiment/evidence"),
 ]
 
 

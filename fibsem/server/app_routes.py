@@ -35,22 +35,35 @@ from fibsem.server.auth import (
     take_control,
 )
 from fibsem.server.bodies import (
+    AnimationExportBody,
     ApplyProtocolBody,
     CorrelationRunBody,
     DecideBody,
+    DrawBody,
+    DrawOptions,
+    EvidenceBody,
     ExperimentPathBody,
     GridNoteBody,
     GridPlanBody,
     GridQualityBody,
     GridRequirementsBody,
     GridRunBody,
+    ImageExportBody,
+    IntensityBody,
+    MarkersBody,
+    MillingDrawnBody,
     NameBody,
     NewExperimentBody,
     NewItemBody,
     NewTaskBody,
+    NoteBody,
+    OperatorMessageBody,
+    PairBody,
     PatchBody,
+    PixelsBody,
     PlaceBody,
     PoseBody,
+    ProfileBody,
     ProtocolNameBody,
     QueueEditBody,
     QueueGridsBody,
@@ -66,6 +79,7 @@ from fibsem.server.bodies import (
     SuggestBody,
     SupervisionBody,
     TaskOrderBody,
+    ThicknessBody,
     WorkflowOptionsBody,
 )
 from fibsem.server.parts import (
@@ -212,25 +226,12 @@ def _missing_field(message: str) -> HTTPException:
     return refusal_error(422, "missing_field", message)
 
 
-def _note_body(body: Dict[str, Any], *optional: str) -> Tuple[str, Optional[str]]:
-    """A note's or a message's text and item name, or the 422 that says what
-    to pass; the *optional* fields are strings too."""
-    text = body.get("text")
-    strings = ("item_name",) + optional
-    if (
-        not isinstance(text, str)
-        or not text.strip()
-        or len(text) > 4000
-        or any(
-            body.get(k) is not None and not isinstance(body.get(k), str)
-            for k in strings
-        )
-    ):
-        raise _missing_field(
-            "Pass text (a non-empty string, at most 4000 characters); "
-            f"{' and '.join(strings)} (strings) are optional."
-        )
-    return text, body.get("item_name")
+def _note_body(body: NoteBody) -> Tuple[str, Optional[str]]:
+    """A note's or a message's text and item name, or the 422 when the text
+    is blank or too long."""
+    if not body.text.strip() or len(body.text) > 4000:
+        raise _missing_field("Pass text (a non-empty string, at most 4000 characters).")
+    return body.text, body.item_name
 
 
 def _required_text(body: Any, key: str, what: str) -> str:
@@ -242,26 +243,9 @@ def _required_text(body: Any, key: str, what: str) -> str:
     return value
 
 
-def _names(body: Dict[str, Any], key: str, what: str) -> List[str]:
-    """*body*'s list of strings *key*, or the 422 saying to pass it (*what*)."""
-    value = body.get(key)
-    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-        raise _missing_field(f"Pass {key}: {what} (a list of strings).")
-    return value
-
-
-def _point(body: Dict[str, Any], key: str) -> List[float]:
-    """*body*'s pixel point *key*, [x, y], or the 422 saying to pass it."""
-    value = body.get(key)
-    if (
-        not isinstance(value, list)
-        or len(value) != 2
-        or not all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) for v in value
-        )
-    ):
-        raise _missing_field(f"Pass {key}: [x, y] in the image's pixels.")
-    return [float(v) for v in value]
+def _given(body: Any, *keys: str) -> Dict[str, Any]:
+    """A typed body's *keys* that were given (not None), as keywords."""
+    return {key: getattr(body, key) for key in keys if getattr(body, key) is not None}
 
 
 def _numbers(text: Optional[str]) -> Optional[List[float]]:
@@ -372,17 +356,6 @@ def _download(content: bytes, name: str) -> Response:
         media_type=exports.MEDIA_TYPES[os.path.splitext(name)[1]],
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"},
     )
-
-
-def _export_body(body: Dict[str, Any], default_format: str):
-    """An export's options (None: the dialog's defaults) and format."""
-    options = body.get("options")
-    if options is not None and not isinstance(options, dict):
-        raise _missing_field("options, when given, is an object.")
-    fmt = body.get("format", default_format)
-    if not isinstance(fmt, str):
-        raise _missing_field("format, when given, is a string.")
-    return options, fmt
 
 
 def build_app_router(context: Any) -> APIRouter:
@@ -521,23 +494,15 @@ def build_app_router(context: Any) -> APIRouter:
         response_model=Thickness,
         tags=[LAMELLAE],
     )
-    def measure_thickness(item_name: str, body: Dict[str, Any]):
+    def measure_thickness(item_name: str, body: ThicknessBody):
         # Computed over a saved file, nothing moves; a POST because the result
         # is saved beside the image, as an autofocus run is.
-        path = body.get("path")
-        if not isinstance(path, str) or not path:
+        path = body.path
+        if not path:
             raise _missing_field("path is required")
-        window = {}
-        for key in ("width_um", "height_um"):
-            value = body.get(key)
-            if value is None:
-                continue
-            try:
-                window[key] = float(value)
-            except (TypeError, ValueError):
-                raise _missing_field(f"{key} is a number of microns.") from None
-        if body.get("centre") is not None:
-            window["centre"] = _point(body, "centre")
+        window = _given(body, "width_um", "height_um")
+        if body.centre is not None:
+            window["centre"] = list(body.centre)
         return _answer_or_refusal(context.measure_thickness(item_name, path, **window))
 
     @router.get("/experiment/grids", response_model=Grids, tags=[GRIDS])
@@ -652,140 +617,63 @@ def build_app_router(context: Any) -> APIRouter:
             crop = _numbers(crop)
         return _typed(context.image_stage_position(path, px, fraction, crop))
 
-    def _flags(body: Dict[str, Any], *keys: str) -> Dict[str, bool]:
-        """*body*'s true-or-false *keys* that are given, or the 422."""
-        flags = {}
-        for key in keys:
-            if key in body:
-                if not isinstance(body[key], bool):
-                    raise refusal_error(422, "invalid", f"{key} is true or false")
-                flags[key] = body[key]
-        return flags
-
     @router.post(
         "/experiment/images/markers", response_model=MarkersDrawn, tags=[LAMELLAE]
     )
-    def render_markers(body: Dict[str, Any]):
+    def render_markers(body: MarkersBody):
         # A POST because the picture is saved beside the image, as a thickness
         # result is.
-        path, grid_name = body.get("path"), body.get("grid_name")
-        if not isinstance(path, str) or not path:
+        if not body.path:
             raise refusal_error(422, "missing_field", "path is required")
-        if grid_name is not None and not isinstance(grid_name, str):
-            raise refusal_error(422, "invalid", "grid_name is a string")
         return _answer_or_refusal(
-            context.render_markers(path, grid_name, **_flags(body, "fov", "current"))
+            context.render_markers(
+                body.path, body.grid_name, **_given(body, "fov", "current")
+            )
         )
 
-    def _draw_options(body: Dict[str, Any], *planes: str) -> Dict[str, Any]:
-        options: Dict[str, Any] = _flags(body, "crosshair", "metadata_bar")
-        channels = body.get("channels")
-        if channels is not None:
-            options["channels"] = _names(
-                body, "channels", "the fluorescence channels to show, by name"
-            )
-        for name in planes:
-            plane = body.get(name)
-            if plane is not None:
-                if isinstance(plane, bool) or not isinstance(plane, int) or plane < 0:
-                    raise _missing_field(
-                        f"{name} is a fluorescence stack's plane, 0 the first."
-                    )
-                options[name] = plane
-        looks = body.get("looks")
-        if looks is not None:
-            if not isinstance(looks, dict):
-                raise _missing_field(
-                    "looks is {layer name: {clim, gamma, opacity, color}}."
-                )
-            options["looks"] = looks
-        box = body.get("box")
-        if box is not None:
-            if (
-                not isinstance(box, list)
-                or len(box) != 4
-                or not all(isinstance(v, (int, float)) for v in box)
-                or box[2] <= 0
-                or box[3] <= 0
-            ):
+    def _draw_options(body: DrawOptions, *planes: str) -> Dict[str, Any]:
+        options = _given(
+            body, "crosshair", "metadata_bar", "channels", "looks", *planes
+        )
+        if body.box is not None:
+            if body.box[2] <= 0 or body.box[3] <= 0:
                 raise _missing_field("box is [x, y, width, height] in pixels.")
-            options["box"] = [float(v) for v in box]
+            options["box"] = list(body.box)
         return options
 
     @router.post("/experiment/images/drawn", response_model=ImageDrawn)
-    def draw_image(body: Dict[str, Any]):
+    def draw_image(body: DrawBody):
         # A POST because the picture is saved beside the image, as markers are.
         path = _required_text(body, "path", "a saved image inside the experiment")
         return _typed(
-            context.draw_image(path, body.get("marks"), **_draw_options(body, "plane"))
+            context.draw_image(path, body.marks, **_draw_options(body, "plane"))
         )
 
     @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
-    def draw_pair(body: Dict[str, Any]):
+    def draw_pair(body: PairBody):
         before = _required_text(body, "before", "a saved image inside the experiment")
         after = _required_text(body, "after", "a saved image inside the experiment")
         options = _draw_options(body, "before_plane", "after_plane")
         options.pop("crosshair", None)
-        options.update(_flags(body, "share_looks"))
-        return _typed(context.draw_pair(before, after, body.get("marks"), **options))
-
-    def _number(body: Dict[str, Any], key: str, whole: bool = False) -> Dict[str, Any]:
-        """*body*'s number *key* when given, as a keyword; or the 422."""
-        value = body.get(key)
-        if value is None:
-            return {}
-        kinds = int if whole else (int, float)
-        if isinstance(value, bool) or not isinstance(value, kinds):
-            what = "a whole number" if whole else "a number"
-            raise refusal_error(422, "invalid", f"{key} is {what}")
-        return {key: value}
-
-    def _channel(body: Dict[str, Any]) -> Dict[str, Any]:
-        channel = body.get("channel")
-        if channel is None:
-            return {}
-        if not isinstance(channel, str):
-            raise refusal_error(422, "invalid", "channel is a layer's name")
-        return {"channel": channel}
+        options.update(_given(body, "share_looks"))
+        return _typed(context.draw_pair(before, after, body.marks, **options))
 
     @router.post("/experiment/analysis/intensity", response_model=ImageMeasured)
-    def measure_intensity(body: Dict[str, Any]):
+    def measure_intensity(body: IntensityBody):
         # A POST because its figure is saved beside the image, as a drawing is.
         path = _required_text(body, "path", "a saved image inside the experiment")
-        points = body.get("points")
-        if not isinstance(points, list) or not points:
+        if not body.points:
             raise _missing_field("Pass points: a list of [x, y] in the image's pixels.")
-        points = [_point({"point": p}, "point") for p in points]
-        planes = body.get("planes")
-        if planes is not None and (
-            not isinstance(planes, list)
-            or not all(isinstance(z, int) and not isinstance(z, bool) for z in planes)
-        ):
-            raise refusal_error(
-                422, "invalid", "planes is a list of planes, 0 the first"
-            )
-        options = {
-            **_number(body, "radius_px"),
-            **_channel(body),
-            **_number(body, "reference", whole=True),
-        }
-        if planes is not None:
-            options["planes"] = planes
+        points = [list(p) for p in body.points]
+        options = _given(body, "radius_px", "channel", "reference", "planes")
         return _typed(context.measure_intensity(path, points, **options))
 
     @router.post("/experiment/analysis/profile", response_model=ImageMeasured)
-    def line_profile(body: Dict[str, Any]):
+    def line_profile(body: ProfileBody):
         path = _required_text(body, "path", "a saved image inside the experiment")
-        options = {
-            **_number(body, "width_px"),
-            **_channel(body),
-            **_number(body, "plane", whole=True),
-            **_flags(body, "dip"),
-        }
+        options = _given(body, "width_px", "channel", "plane", "dip")
         return _typed(
-            context.line_profile(
-                path, _point(body, "start"), _point(body, "end"), **options
-            )
+            context.line_profile(path, list(body.start), list(body.end), **options)
         )
 
     @router.get("/experiment/analysis/quality", response_model=ImageMeasured)
@@ -799,40 +687,30 @@ def build_app_router(context: Any) -> APIRouter:
         response_model=ItemMillingDrawn,
         tags=[LAMELLAE],
     )
-    def draw_item_milling(item_name: str, body: Dict[str, Any]):
+    def draw_item_milling(item_name: str, body: MillingDrawnBody):
         # A POST because the picture is saved beside the image, as markers are.
-        tasks = body.get("task_names")
-        if isinstance(tasks, str):
-            tasks = [tasks]
-        if not isinstance(tasks, list) or not tasks:
+        tasks = body.task_names
+        task_names = [tasks] if isinstance(tasks, str) else tasks
+        if not task_names:
             raise _missing_field(
                 "Pass task_names: the milling tasks to draw, the first in colour."
             )
-        task_names = _names({"task_names": tasks}, "task_names", "task names")
-        background = body.get("background", "related")
-        if background not in ("related", "none"):
+        if body.background not in ("related", "none"):
             raise refusal_error(422, "invalid", "background is related or none")
-        options = _flags(body, "scan_direction", "alignment_area", "metadata_bar")
-        image_path = body.get("image_path")
-        if image_path is not None and not isinstance(image_path, str):
-            raise _missing_field("image_path, when given, is a saved ion image.")
+        options = _given(body, "scan_direction", "alignment_area", "metadata_bar")
         return _typed(
             context.draw_item_milling(
-                item_name, task_names, image_path, background, **options
+                item_name, task_names, body.image_path, body.background, **options
             )
         )
 
     @router.post("/experiment/images/pixels", response_model=SavedImagePixels)
-    def image_pixels(body: Dict[str, Any]):
+    def image_pixels(body: PixelsBody):
         # A POST on the read router because it computes, never acts: stage
         # positions as points on a saved image, a list a GET could not carry.
         path = _required_text(body, "path", "a saved image inside the experiment")
-        positions = body.get("stage_positions")
-        if (
-            not isinstance(positions, list)
-            or not positions
-            or not all(isinstance(p, dict) for p in positions)
-        ):
+        positions = body.stage_positions
+        if not positions:
             raise _missing_field(
                 "Pass stage_positions: a non-empty list of stage positions "
                 "({x, y, z, r, t, coordinate_system})."
@@ -998,11 +876,10 @@ def build_app_router(context: Any) -> APIRouter:
         return answer(_files_answer(experiment, exports.image_form, path))
 
     @router.post("/experiment/export/image", responses=_EXPORT)
-    def export_image(body: Dict[str, Any], experiment: Optional[str] = None):
+    def export_image(body: ImageExportBody, experiment: Optional[str] = None):
         path = _required_text(body, "path", "an image inside the experiment")
-        options, fmt = _export_body(body, "png")
         content, name = _files_answer(
-            experiment, exports.image_file, path, options, fmt
+            experiment, exports.image_file, path, body.options, body.format
         )
         return _download(content, name)
 
@@ -1021,13 +898,12 @@ def build_app_router(context: Any) -> APIRouter:
         )
 
     @router.post("/experiment/export/animation", responses=_EXPORT, tags=[LAMELLAE])
-    def export_animation(body: Dict[str, Any]):
+    def export_animation(body: AnimationExportBody):
         item_name = _required_text(body, "item_name", "the lamella to animate")
-        options, fmt = _export_body(body, "gif")
         found = _animation_steps(item_name)
         try:
             content, name = exports.animation_file(
-                found["item_name"], found["steps"], options, fmt
+                found["item_name"], found["steps"], body.options, body.format
             )
         except files.FileRefusal as refusal:
             raise HTTPException(status_code=refusal.status, detail=refusal.detail)
@@ -1053,7 +929,7 @@ def build_app_router(context: Any) -> APIRouter:
         return context.grid_workflow_plan(task_names, grid_names, screen_all)
 
     @router.post("/experiment/notes", response_model=Recorded)
-    def add_note(body: Dict[str, Any]):
+    def add_note(body: NoteBody):
         # Observations for the record — event stream + experiment log. On the
         # read router, a POST the dashboard token is refused: a watching agent
         # notes what it sees, and a note changes nothing.
@@ -1067,11 +943,11 @@ def build_app_router(context: Any) -> APIRouter:
         return _answer_or_refusal(result)
 
     @router.post("/experiment/messages", response_model=Recorded)
-    def add_message(body: Dict[str, Any]):
+    def add_message(body: OperatorMessageBody):
         # The agent's message to the operator, on the record as a note to them.
         # Like a note, it changes nothing.
-        text, item_name = _note_body(body, "reply_to")
-        reply_to = body.get("reply_to")
+        text, item_name = _note_body(body)
+        reply_to = body.reply_to
         cited = cited_evidence(context)
         result = context.add_message(
             text,
@@ -1082,21 +958,19 @@ def build_app_router(context: Any) -> APIRouter:
         return _answer_or_refusal(result)
 
     @router.post("/experiment/evidence", response_model=Recorded)
-    def add_evidence(body: Dict[str, Any]):
+    def add_evidence(body: EvidenceBody):
         # What the agent judged from, kept in the experiment: an image of the
         # experiment's or one it made (uploaded, saved here), with marks on it.
         # Changes nothing, like a note.
-        item_name = body.get("item_name")
-        if item_name is not None and not isinstance(item_name, str):
-            raise _missing_field("item_name, when given, is a string.")
+        item_name = body.item_name
 
         def save() -> Dict[str, Any]:
             return evidence.save(
                 lambda: context.experiment_path,
-                image=body.get("image"),
-                upload=body.get("upload"),
-                marks=body.get("marks"),
-                source=body.get("source"),
+                image=body.image,
+                upload=body.upload,
+                marks=body.marks,
+                source=body.source,
                 item_name=item_name,
             )
 
