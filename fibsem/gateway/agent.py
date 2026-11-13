@@ -93,11 +93,10 @@ def set_level(url: str, level: str) -> None:
 
 
 def answers(url: str) -> bool:
-    import httpx
-
     try:
-        return httpx.get(f"{url}/health", timeout=3.0).status_code == 200
-    except httpx.HTTPError:
+        call_host(url, "GET", "/health", timeout=3.0)
+        return True
+    except (GatewayRefused, ValueError):
         return False
 
 

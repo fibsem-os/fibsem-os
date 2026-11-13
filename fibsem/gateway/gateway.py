@@ -27,7 +27,6 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import fibsem
 from fibsem.server.discovery import DISCOVERY_DIR, read_discovery_file
-from fibsem.server.operator_token import read_operator_token
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
 from fibsem.util.process import kill_pid, pid_alive
@@ -282,19 +281,16 @@ def _python() -> str:
     return str(exe)
 
 
-def workflow_running(url: str, token: Optional[str]) -> bool:
+def workflow_running(url: str) -> bool:
     """Whether the App Server at *url* is running a workflow. One that doesn't
     answer isn't."""
-    import httpx
+    # Here, not at the top: host.py imports GatewayRefused from this module.
+    from fibsem.gateway.host import call_host
 
     try:
-        r = httpx.get(
-            f"{url}/app/workflow/status",
-            headers={"Authorization": f"Bearer {token}"} if token else {},
-            timeout=3.0,
-        )
-        return bool(r.json()["workflow"]["running"]) if r.status_code == 200 else False
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        status = call_host(url, "GET", "/app/workflow/status", timeout=3.0)
+        return bool(status["workflow"]["running"])
+    except (GatewayRefused, ValueError, KeyError, TypeError):
         return False
 
 
@@ -315,7 +311,7 @@ class Gateway:
         new_folder: Callable[[], str] = experiments_folder,
         configurations: Callable[[], List[dict]] = saved_configurations,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
-        running: Callable[[str, Optional[str]], bool] = workflow_running,
+        running: Callable[[str], bool] = workflow_running,
         python: Optional[str] = None,
         stop_wait_s: float = STOP_WAIT_S,
         newer: Callable[[], Optional[Newer]] = check_newer,
@@ -441,7 +437,7 @@ class Gateway:
 
     def _run_going(self) -> bool:
         found = self._discovery()
-        return found is not None and self._running(found["url"], read_operator_token())
+        return found is not None and self._running(found["url"])
 
     # -- starting and stopping ---------------------------------------------
 
