@@ -30,11 +30,12 @@ import webbrowser
 import zipfile
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence, Tuple
 from urllib.parse import urlencode
 
 import fibsem
 import fibsem.config as fibsem_cfg
+from fibsem.ai.agent import manager as agent_sessions
 from fibsem.versioning import get_revision
 
 if TYPE_CHECKING:
@@ -59,7 +60,16 @@ _TRUNCATION_NOTE = "\n\n[trimmed -- the full text was copied to your clipboard]"
 _TITLE_MAX_LENGTH = 120
 
 # Text file extensions whose contents are scrubbed before being added to a bundle.
-_SCRUBBED_EXTENSIONS = {".log", ".yaml", ".yml", ".txt", ".md", ".json", ".csv"}
+_SCRUBBED_EXTENSIONS = {
+    ".log",
+    ".yaml",
+    ".yml",
+    ".txt",
+    ".md",
+    ".json",
+    ".jsonl",
+    ".csv",
+}
 
 # Rough per-file globs used to locate optional artifacts within an experiment.
 # The generic .tif/.tiff patterns also cover .ome.tif/.ome.tiff.
@@ -91,6 +101,14 @@ _IDENTITY_KEYS_RE = re.compile(
     re.MULTILINE,
 )
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# Not this computer's own address, which says nothing about the site.
+_IP_RE = re.compile(r"(?<![\w.])(?!127\.|0\.0\.0\.0)\d{1,3}(?:\.\d{1,3}){3}(?![\w.])")
+# The values of the keys that name a person or a place, to find them elsewhere.
+_NAMED_RE = re.compile(
+    r"^\s*[\"']?(?:user|organisation|organization|project)[\"']?\s*:[ \t]*"
+    r"[\"']?([^\"'\n#,]+?)[\"']?,?[ \t]*$",
+    re.MULTILINE,
+)
 
 # Machine names that are also ordinary words: replacing them would hide more of
 # a log than it protects.
@@ -110,8 +128,13 @@ class BugReportContent:
     include_logfile: bool = True
     include_experiment_yaml: bool = True
     include_protocol: bool = True
+    include_events: bool = True
     include_screenshots: bool = False
     include_images: bool = False
+    # From this PC, whether or not an experiment is open.
+    include_crash_records: bool = True
+    include_settings: bool = True
+    include_agent_log: bool = False
 
     system_context: Dict[str, str] = field(default_factory=dict)
 
@@ -267,11 +290,38 @@ def _redact_value(match: "re.Match[str]") -> str:
     return match.group(1) + "<redacted>"
 
 
-def scrub_file_text(text: str, experiment_path: Optional[str] = None) -> str:
-    """:func:`scrub_text` for a file out of the experiment, which also names the
-    operator, their organisation and project, and may hold email addresses."""
+def names_in(experiment_path: Optional[str]) -> List[str]:
+    """Who and where the experiment says it is: the operator, organisation and
+    project typed when it was created."""
+    if not experiment_path:
+        return []
+    try:
+        with open(
+            os.path.join(str(experiment_path), "experiment.yaml"),
+            encoding="utf-8",
+            errors="replace",
+        ) as f:
+            text = f.read()
+    except OSError:
+        return []
+    names = {m.group(1).strip() for m in _NAMED_RE.finditer(text)}
+    # Short or empty values would blank ordinary words wherever they appear.
+    return sorted(n for n in names if len(n) > 3 and n.lower() not in ("null", "none"))
+
+
+def scrub_file_text(
+    text: str, experiment_path: Optional[str] = None, names: Sequence[str] = ()
+) -> str:
+    """:func:`scrub_text` for a file out of the experiment or off this PC, which
+    also names the operator, their organisation and project, and may hold email
+    and network addresses. ``names`` are removed wherever they appear whole."""
     scrubbed = _IDENTITY_KEYS_RE.sub(_redact_value, text)
+    for name in names:
+        scrubbed = re.sub(
+            rf"(?<![\w-]){re.escape(name)}(?![\w-])", "<redacted>", scrubbed
+        )
     scrubbed = _EMAIL_RE.sub("<email>", scrubbed)
+    scrubbed = _IP_RE.sub("<ip>", scrubbed)
     return scrub_text(scrubbed, experiment_path)
 
 
@@ -292,6 +342,8 @@ def _collect_files(experiment_path: str, content: BugReportContent) -> List[str]
         _add(os.path.join(exp_path, "experiment.yaml"))
     if content.include_protocol:
         _add(os.path.join(exp_path, "protocol.yaml"))
+    if content.include_events:
+        _add(os.path.join(exp_path, "events.jsonl"))
     if content.include_screenshots:
         for path in glob(os.path.join(exp_path, _SCREENSHOT_GLOB), recursive=True):
             _add(path)
@@ -303,14 +355,42 @@ def _collect_files(experiment_path: str, content: BugReportContent) -> List[str]
     return files
 
 
+def _files_from_this_pc(content: BugReportContent) -> List[Tuple[str, str]]:
+    """What is selected that belongs to the PC, not to an experiment: each
+    file's path and its name in the bundle."""
+    from fibsem import diagnostics
+
+    files: List[Tuple[str, str]] = []
+
+    def _add(path, folder: str) -> None:
+        if path and os.path.isfile(path):
+            files.append((str(path), f"{folder}/{os.path.basename(path)}"))
+
+    if content.include_crash_records:
+        crashes = diagnostics.crash_folder()
+        if crashes.is_dir():
+            for path in sorted(crashes.iterdir()):
+                _add(path, "crashes")
+    if content.include_settings:
+        _add(fibsem_cfg.USER_PREFERENCES_PATH, "settings")
+        _add(fibsem_cfg.DEFAULT_CONFIGURATION_PATH, "settings")
+    if content.include_agent_log:
+        sessions = agent_sessions.folders()
+        if sessions:
+            _add(sessions[0] / agent_sessions.RECORD, "agent")
+            _add(sessions[0] / agent_sessions.LOG, "agent")
+    return files
+
+
 def estimate_bundle_size(
     experiment_path: Optional[str], content: BugReportContent
 ) -> int:
     """Estimate the on-disk size (bytes) of the selected artifacts."""
-    if experiment_path is None:
-        return 0
+    paths = [path for path, _ in _files_from_this_pc(content)]
+    if experiment_path is not None:
+        paths += _collect_files(experiment_path, content)
     total = 0
-    for path in _collect_files(experiment_path, content):
+    for path in paths:
         try:
             total += os.path.getsize(path)
         except OSError:
@@ -359,7 +439,7 @@ def _fit_url(
 def _render_report_text(content: BugReportContent) -> str:
     """Render the human-readable report body written to ``report.md``."""
     lines = [
-        f"# AutoLamella Bug Report: {content.title or '(no title)'}",
+        f"# fibsemOS bug report: {content.title or '(no title)'}",
         "",
         f"Severity: {content.severity}",
         f"Contact: {content.contact_email or '(not provided)'}",
@@ -390,7 +470,7 @@ def build_bug_report_bundle(
     only when explicitly selected.
     """
     timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
-    zip_name = f"bug-report-autolamella-{timestamp}.zip"
+    zip_name = f"bug-report-fibsem-{timestamp}.zip"
 
     if output_dir is None:
         # Prefer alongside the experiment; fall back to the log directory.
@@ -408,19 +488,25 @@ def build_bug_report_bundle(
             scrub_text(json.dumps(content.system_context, indent=2)),
         )
 
+        members = _files_from_this_pc(content)
         if experiment_path is not None:
             exp_path = str(experiment_path)
-            for path in _collect_files(experiment_path, content):
-                arcname = os.path.relpath(path, os.path.dirname(exp_path))
-                ext = os.path.splitext(path)[1].lower()
-                try:
-                    if ext in _SCRUBBED_EXTENSIONS:
-                        with open(path, encoding="utf-8", errors="replace") as f:
-                            zf.writestr(arcname, scrub_file_text(f.read(), exp_path))
-                    else:
-                        zf.write(path, arcname)
-                except OSError as e:
-                    logging.warning("Skipping %s in bug report bundle: %s", path, e)
+            members += [
+                (path, os.path.relpath(path, os.path.dirname(exp_path)))
+                for path in _collect_files(experiment_path, content)
+            ]
+        names = names_in(experiment_path)
+        for path, arcname in members:
+            ext = os.path.splitext(path)[1].lower()
+            try:
+                if ext in _SCRUBBED_EXTENSIONS:
+                    with open(path, encoding="utf-8", errors="replace") as f:
+                        text = scrub_file_text(f.read(), experiment_path, names)
+                    zf.writestr(arcname, text)
+                else:
+                    zf.write(path, arcname)
+            except OSError as e:
+                logging.warning("Skipping %s in bug report bundle: %s", path, e)
 
     logging.info("Created bug report bundle at %s", zip_path)
     return zip_path
@@ -442,7 +528,7 @@ def _github_issue_body(content: BugReportContent) -> str:
     lines += [
         "",
         "---",
-        "_Filed from the AutoLamella Report an Issue dialog. "
+        "_Filed from Report an Issue in fibsemOS. "
         "Do not paste private/experiment data into this public issue — "
         "use the email option to submit data privately._",
     ]
@@ -458,7 +544,7 @@ def open_github_issue(content: BugReportContent) -> SubmitResult:
     """
     # A public page: what the user typed or pasted is scrubbed like the bundle.
     body = scrub_text(_github_issue_body(content))
-    title = scrub_text(content.title or "AutoLamella issue")[:_TITLE_MAX_LENGTH]
+    title = scrub_text(content.title or "fibsemOS issue")[:_TITLE_MAX_LENGTH]
 
     def _build(text: str) -> str:
         return f"{GITHUB_NEW_ISSUE_URL}?{urlencode({'title': title, 'body': text})}"

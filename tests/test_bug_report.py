@@ -39,7 +39,7 @@ def test_bundle_filename_and_base_contents(tmp_path):
     )
 
     fname = os.path.basename(zip_path)
-    assert fname.startswith("bug-report-autolamella-")
+    assert fname.startswith("bug-report-fibsem-")
     assert fname.endswith(".zip")
     assert "AutoLamella-test" not in fname  # experiment name is not in filename
 
@@ -78,6 +78,8 @@ def test_bundle_excludes_text_files_when_unselected(tmp_path):
         include_logfile=False,
         include_experiment_yaml=False,
         include_protocol=False,
+        include_crash_records=False,
+        include_settings=False,
     )
     zip_path = bug_report.build_bug_report_bundle(
         content, experiment_path=experiment_path, output_dir=str(tmp_path)
@@ -113,9 +115,11 @@ def test_estimate_bundle_size(tmp_path):
         include_logfile=False,
         include_experiment_yaml=False,
         include_protocol=False,
+        include_crash_records=False,
+        include_settings=False,
     )
     assert bug_report.estimate_bundle_size(experiment_path, empty) == 0
-    assert bug_report.estimate_bundle_size(None, BugReportContent()) == 0
+    assert bug_report.estimate_bundle_size(None, empty) == 0
 
     full = BugReportContent(include_screenshots=True, include_images=True)
     assert bug_report.estimate_bundle_size(experiment_path, full) > 0
@@ -389,3 +393,127 @@ def test_the_public_issue_is_scrubbed(monkeypatch):
 
     assert home not in seen["url"] and home not in _body_of(seen["url"])
     assert home not in result.full_text
+
+
+# --- what the bundle holds beyond the experiment's own files ------------
+
+
+@pytest.fixture
+def this_pc(tmp_path, monkeypatch):
+    """A PC with an error record, settings and an agent session, under tmp_path."""
+    from fibsem import diagnostics
+    from fibsem.ai.agent import manager
+
+    log = tmp_path / "state" / "log"
+    (log / "crashes").mkdir(parents=True)
+    (log / "crashes" / "2026-01-01-00-00-00-1-01.json").write_text('{"error": "x"}')
+    preferences = tmp_path / "state" / "user-preferences.yaml"
+    preferences.write_text("contact_email: me@example.org\n")
+    configuration = tmp_path / "state" / "microscope-configuration.yaml"
+    configuration.write_text("ip_address: 192.168.0.12\nlocal: 127.0.0.1\n")
+    session = tmp_path / "sessions" / "2026-01-01-000000-abc"
+    session.mkdir(parents=True)
+    (session / manager.RECORD).write_text("{}")
+    (session / manager.LOG).write_text("the agent said hello")
+    monkeypatch.setattr(diagnostics.cfg, "LOG_PATH", str(log))
+    monkeypatch.setattr(
+        bug_report.fibsem_cfg, "USER_PREFERENCES_PATH", str(preferences)
+    )
+    monkeypatch.setattr(
+        bug_report.fibsem_cfg, "DEFAULT_CONFIGURATION_PATH", str(configuration)
+    )
+    monkeypatch.setattr(manager, "sessions_dir", lambda: tmp_path / "sessions")
+    return tmp_path
+
+
+def _read(zip_path, name):
+    with zipfile.ZipFile(zip_path) as zf:
+        return zf.read(name).decode()
+
+
+def test_a_bundle_without_an_experiment_still_holds_this_pcs_records(this_pc):
+    zip_path = bug_report.build_bug_report_bundle(
+        BugReportContent(title="t"), None, output_dir=str(this_pc)
+    )
+
+    names = _names(zip_path)
+    assert "crashes/2026-01-01-00-00-00-1-01.json" in names
+    assert "settings/user-preferences.yaml" in names
+    assert "settings/microscope-configuration.yaml" in names
+    assert not any(name.startswith("agent/") for name in names)
+    assert "example.org" not in _read(zip_path, "settings/user-preferences.yaml")
+    configuration = _read(zip_path, "settings/microscope-configuration.yaml")
+    assert "192.168.0.12" not in configuration
+    assert "127.0.0.1" in configuration
+
+
+def test_the_agent_log_goes_in_only_when_asked(this_pc):
+    zip_path = bug_report.build_bug_report_bundle(
+        BugReportContent(title="t", include_agent_log=True),
+        None,
+        output_dir=str(this_pc),
+    )
+
+    assert _read(zip_path, "agent/fibsem-agent.log") == "the agent said hello"
+
+
+def test_this_pcs_records_can_be_left_out(this_pc):
+    content = BugReportContent(
+        title="t", include_crash_records=False, include_settings=False
+    )
+
+    zip_path = bug_report.build_bug_report_bundle(content, None, str(this_pc))
+
+    assert sorted(_names(zip_path)) == ["report.md", "system_info.json"]
+    assert bug_report.estimate_bundle_size(None, content) == 0
+
+
+def test_the_operator_named_on_the_experiment_is_removed_from_its_events(this_pc):
+    experiment_path = _make_experiment_dir(this_pc)
+    with open(os.path.join(experiment_path, "experiment.yaml"), "w") as f:
+        f.write("metadata:\n  user: A Person\n  organisation: Some Lab\n")
+    with open(os.path.join(experiment_path, "events.jsonl"), "w") as f:
+        f.write('{"actor": "operator:A Person", "kind": "stop"}\n')
+
+    zip_path = bug_report.build_bug_report_bundle(
+        BugReportContent(title="t"), experiment_path, output_dir=str(this_pc)
+    )
+
+    events = _read(zip_path, "AutoLamella-test/events.jsonl")
+    assert "A Person" not in events
+    assert json.loads(events) == {"actor": "operator:<redacted>", "kind": "stop"}
+
+
+def test_a_short_name_is_not_removed_everywhere(tmp_path):
+    experiment_path = _make_experiment_dir(tmp_path)
+    with open(os.path.join(experiment_path, "experiment.yaml"), "w") as f:
+        f.write("metadata:\n  user: Al\n  project: null\n")
+
+    assert bug_report.names_in(experiment_path) == []
+
+
+def test_the_command_line_makes_a_bundle(this_pc, capsys):
+    from fibsem import cli
+
+    experiment_path = _make_experiment_dir(this_pc)
+    out = this_pc / "out"
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["report", experiment_path, "--title", "it stopped", "-o", str(out)])
+
+    assert stopped.value.code == 0
+
+    (bundle,) = out.glob("bug-report-fibsem-*.zip")
+    assert "AutoLamella-test/logfile.log" in _names(bundle)
+    assert "it stopped" in _read(bundle, "report.md")
+    assert str(bundle) in capsys.readouterr().out
+
+
+def test_the_command_line_refuses_a_folder_that_is_not_an_experiment(tmp_path, capsys):
+    from fibsem import cli
+
+    with pytest.raises(SystemExit) as stopped:
+        cli.main(["report", str(tmp_path)])
+
+    assert stopped.value.code == 1
+    assert "no experiment" in capsys.readouterr().out

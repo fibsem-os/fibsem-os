@@ -30,6 +30,7 @@ from fibsem import diagnostics
 from fibsem.tools import bug_report
 from fibsem.tools.bug_report import BugReportContent
 from fibsem.ui import stylesheets
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import open_path_in_file_explorer
 from fibsem.ui.widgets.custom_widgets import (
     TitledPanel,
@@ -128,17 +129,20 @@ class BugReportDialog(QDialog):
         self.checkbox_logfile = QCheckBox("Log file (logfile.log)")
         self.checkbox_experiment = QCheckBox("Experiment file (experiment.yaml)")
         self.checkbox_protocol = QCheckBox("Protocol file (protocol.yaml)")
+        self.checkbox_events = QCheckBox("Event record (events.jsonl)")
         self.checkbox_screenshots = QCheckBox("Task screenshots (.png)")
         self.checkbox_images = QCheckBox("Image data (.tiff) — may be large")
         self.checkbox_logfile.setChecked(True)
         self.checkbox_experiment.setChecked(True)
         self.checkbox_protocol.setChecked(True)
+        self.checkbox_events.setChecked(True)
 
         has_experiment = self.experiment_path is not None
         for cb in (
             self.checkbox_logfile,
             self.checkbox_experiment,
             self.checkbox_protocol,
+            self.checkbox_events,
             self.checkbox_screenshots,
             self.checkbox_images,
         ):
@@ -147,9 +151,25 @@ class BugReportDialog(QDialog):
             data_layout.addWidget(cb)
 
         if not has_experiment:
-            no_exp = QLabel("No experiment loaded — only text will be sent.")
+            no_exp = QLabel("No experiment loaded — nothing from one is included.")
             no_exp.setStyleSheet("color: orange; font-style: italic;")
             data_layout.addWidget(no_exp)
+
+        # From this PC, with or without an experiment.
+        self.checkbox_crashes = QCheckBox("Error records from this PC")
+        self.checkbox_settings = QCheckBox(
+            "Settings (preferences and microscope configuration)"
+        )
+        self.checkbox_agent_log = QCheckBox("Latest agent session log")
+        self.checkbox_crashes.setChecked(True)
+        self.checkbox_settings.setChecked(True)
+        for cb in (
+            self.checkbox_crashes,
+            self.checkbox_settings,
+            self.checkbox_agent_log,
+        ):
+            cb.stateChanged.connect(lambda _: self._update_preview())
+            data_layout.addWidget(cb)
 
         self.data_panel = TitledPanel(
             "Data to include", content=data, collapsible=False
@@ -244,6 +264,10 @@ class BugReportDialog(QDialog):
             include_logfile=self.checkbox_logfile.isChecked(),
             include_experiment_yaml=self.checkbox_experiment.isChecked(),
             include_protocol=self.checkbox_protocol.isChecked(),
+            include_events=self.checkbox_events.isChecked(),
+            include_crash_records=self.checkbox_crashes.isChecked(),
+            include_settings=self.checkbox_settings.isChecked(),
+            include_agent_log=self.checkbox_agent_log.isChecked(),
             include_screenshots=self.checkbox_screenshots.isChecked(),
             include_images=self.checkbox_images.isChecked(),
             system_context=self._system_context,
@@ -316,17 +340,27 @@ class BugReportDialog(QDialog):
         if not self._validate(content):
             return
         self._persist_email(content)
-        try:
-            zip_path = bug_report.build_bug_report_bundle(content, self.experiment_path)
-        except Exception as e:
-            logging.exception("Failed to create bug report bundle.")
-            QMessageBox.critical(
-                self, "Error", f"Could not create the bug report bundle:\n{e}"
-            )
-            return
+        # Off the GUI thread: image data can take the zip minutes.
+        self.pushButton_bundle.setEnabled(False)
+        self.pushButton_bundle.setText("Creating...")
+        worker = FunctionWorker(
+            bug_report.build_bug_report_bundle, content, self.experiment_path
+        )
+        worker.returned.connect(self._on_bundle_created)
+        worker.errored.connect(self._on_bundle_failed)
+        worker.start()
+        self._bundle_worker = worker
 
+    def _on_bundle_created(self, zip_path: str):
         BundleCreatedDialog(zip_path, parent=self).exec()
         self.accept()
+
+    def _on_bundle_failed(self, error: Exception):
+        self.pushButton_bundle.setEnabled(True)
+        self.pushButton_bundle.setText("Create Bundle")
+        QMessageBox.critical(
+            self, "Error", f"Could not create the bug report bundle:\n{error}"
+        )
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):  # type: ignore
