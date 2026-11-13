@@ -6,7 +6,6 @@ and ``fm_estimate_overview`` answers the tiles and the run's length.
 
 import os
 import threading
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -24,6 +23,7 @@ from fibsem.fm.structures import (
 from fibsem.fm.timing import estimate_fm_overview_time
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures.system import InsertableDeviceState
+from tests.fixtures.app_contexts import ExperimentContext
 
 TOKEN = "test-token"
 IMAGING = "/microscope/services/imaging"
@@ -60,7 +60,7 @@ def experiment(tmp_path):
 
 @pytest.fixture
 def client(microscope, experiment):
-    context = SimpleNamespace(experiment_path=str(experiment))
+    context = ExperimentContext(str(experiment))
     app = build_server(
         microscope,
         app_context=context,

@@ -5,7 +5,6 @@ and one ``stop`` that ends them. The FM's own ``cancel`` is the imaging stop's f
 
 import os
 import threading
-from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -21,6 +20,7 @@ from fibsem.fm.microscope import AcquisitionRefused
 from fibsem.fm.structures import ChannelSettings, ZParameters
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures.system import DeviceImagingState
+from tests.fixtures.app_contexts import ExperimentContext
 
 TOKEN = "test-token"
 IMAGING = "/microscope/services/imaging"
@@ -56,7 +56,7 @@ def experiment(tmp_path):
 
 @pytest.fixture
 def client(microscope, experiment):
-    context = SimpleNamespace(experiment_path=str(experiment))
+    context = ExperimentContext(str(experiment))
     app = build_server(
         microscope,
         app_context=context,
