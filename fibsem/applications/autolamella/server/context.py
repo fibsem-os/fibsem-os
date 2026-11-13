@@ -89,8 +89,11 @@ from fibsem.server.responses import (
     ReplayTimeline,
     SummaryRow,
     TaskOutputs,
+    invalid_patch,
     no_experiment,
+    refusal_of,
     refused,
+    stale_config,
 )
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, FibsemStagePosition, Point
@@ -675,10 +678,10 @@ class AutoLamellaAppContext(AppContext):
         the image, a path the agent can cite as evidence."""
         experiment = self._experiment
         if experiment is None:
-            return {"error_type": "not_found", "error": "No experiment is open."}
+            return refused("not_found", "No experiment is open.")
         lamella, refusal = find_item(experiment, item_name)
         if refusal:
-            return dict(refusal, error_type="not_found")
+            return refusal
         configs = dict(lamella.task_config)
         missing = [
             name
@@ -686,12 +689,11 @@ class AutoLamellaAppContext(AppContext):
             if not getattr(configs.get(name), "milling", None)
         ]
         if not task_names or missing:
-            return {
-                "error_type": "not_found",
-                "error": f"{item_name} has no milling task named "
-                f"{(missing or [''])[0]!r}.",
-                "task_names": [n for n, c in configs.items() if c.milling],
-            }
+            return refused(
+                "not_found",
+                f"{item_name} has no milling task named {(missing or [''])[0]!r}.",
+                task_names=[n for n, c in configs.items() if c.milling],
+            )
         if image_path:
             target, refusal = self._experiment_image(image_path)
             if refusal:
@@ -699,10 +701,9 @@ class AutoLamellaAppContext(AppContext):
         else:
             relative = _task_outputs.latest_task_image(lamella, "_ib.tif")
             if not relative:
-                return {
-                    "error_type": "not_found",
-                    "error": f"{item_name} has no FIB image yet: pass image_path.",
-                }
+                return refused(
+                    "not_found", f"{item_name} has no FIB image yet: pass image_path."
+                )
             target = os.path.join(str(lamella.path), relative)
 
         def enabled(name):
@@ -732,7 +733,7 @@ class AutoLamellaAppContext(AppContext):
                 metadata_bar=metadata_bar,
             )
         except Exception as exc:  # noqa: BLE001 - an image that can't be drawn on
-            return {"error_type": "invalid", "error": f"{target}: {exc}"}
+            return refused("invalid", f"{target}: {exc}")
         saved = drawn_path(target, f"{image_stem(target)}-{task_names[0]}")
         return ItemMillingDrawn(
             item_name,
@@ -838,7 +839,7 @@ class AutoLamellaAppContext(AppContext):
                 )
             return result
 
-        return session.run_edit(edit).result(timeout=timeout)
+        return refusal_of(session.run_edit(edit).result(timeout=timeout))
 
     def _editable(self):
         """The experiment and microscope an edit needs, or a refusal."""
@@ -940,7 +941,7 @@ class AutoLamellaAppContext(AppContext):
                 px=overview.get("px"),
                 fraction=overview.get("fraction"),
             )
-            if "error_type" in converted:
+            if isinstance(converted, Refusal):
                 return None, None, converted
             position = FibsemStagePosition.from_dict(converted["stage_position"])
             return position, converted["grid_id"], None
@@ -1503,7 +1504,7 @@ class AutoLamellaAppContext(AppContext):
             ),
             self.record_event,
         )
-        if applied.get("applied"):
+        if not isinstance(applied, Refusal) and applied.get("applied"):
             applied["run_path"] = run_path
         return applied
 
@@ -1847,20 +1848,19 @@ class AutoLamellaAppContext(AppContext):
 
         def edit():
             if _grid_task_version(grid_protocol, task_name, config) != version:
-                return {"stale": True}
+                return stale_config()
             settings = {k: v for k, v in patch.items() if k != "attention"}
             old = grid_protocol.get_attention(task_name)
             try:
                 new = Attention(patch.get("attention", old))
             except ValueError:
-                return {
-                    "invalid_patch": "attention is automated or supervised.",
-                    "path": "attention",
-                }
+                return invalid_patch(
+                    "attention is automated or supervised.", "attention"
+                )
             try:
                 changes = apply_patch(config, settings)
             except PatchError as exc:
-                return {"invalid_patch": str(exc), "path": exc.path}
+                return invalid_patch(str(exc), exc.path)
             if new is not old:
                 grid_protocol.set_attention(task_name, new)
                 changes.append(("attention", old.value, new.value))
@@ -1879,8 +1879,8 @@ class AutoLamellaAppContext(AppContext):
             return {"changes": changed, "saved": saved}
 
         result = self._agent_call(edit)
-        if "changes" not in result:
-            return {"applied": False, **result}
+        if isinstance(result, Refusal):
+            return result
         return {
             "applied": True,
             "task_name": task_name,
