@@ -467,7 +467,7 @@ def test_milled_patterns_persist_in_the_world(microscope):
     # (microscope image coordinates: metres from the centre, y up)
     microscope.draw_pattern(
         FibsemRectangleSettings(
-            width=30e-6, height=6e-6, depth=1e-6, centre_x=10e-6, centre_y=20e-6
+            width=30e-6, height=6e-6, depth=10e-6, centre_x=10e-6, centre_y=20e-6
         )
     )
     microscope.run_milling()
@@ -539,7 +539,7 @@ def test_a_rotated_pattern_mills_the_footprint_it_was_drawn_with(microscope):
         FibsemRectangleSettings(
             width=24e-6,
             height=3e-6,
-            depth=1e-6,
+            depth=10e-6,
             centre_x=-5e-6,
             centre_y=8e-6,
             rotation=np.deg2rad(45),

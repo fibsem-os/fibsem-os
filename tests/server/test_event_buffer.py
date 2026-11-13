@@ -9,7 +9,9 @@ import time
 from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
+    event_id,
     make_lifecycle_hook,
+    split_event_id,
     to_plain,
 )
 
@@ -23,6 +25,25 @@ def test_sequences_are_monotonic_and_filterable():
     assert result["latest_seq"] == 5
     assert result["oldest_available"] == 1
     json.dumps(result)
+
+
+def test_every_event_has_an_id_no_other_stream_reuses():
+    first, second = EventBuffer(), EventBuffer()
+    first.append("tick", {})
+    first.append("tick", {})
+    second.append("tick", {})
+    ids = [e["id"] for b in (first, second) for e in b.events_since(0)["events"]]
+    # Both streams start their seqs at 1; their ids still differ.
+    assert len(set(ids)) == 3
+    assert ids[0] == f"{first.stream}-1"
+    assert split_event_id(ids[1]) == (first.stream, 2)
+    assert split_event_id("not an id") is None
+
+
+def test_an_event_from_before_ids_still_has_one():
+    assert event_id({"session": "abc", "seq": 4}) == "abc-4"
+    assert event_id({"id": "abc-5", "session": "abc", "seq": 4}) == "abc-5"
+    assert event_id({"seq": 4}) is None
 
 
 def test_eviction_is_a_visible_gap_not_silent_continuity():

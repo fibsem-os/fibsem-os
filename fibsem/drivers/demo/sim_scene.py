@@ -41,6 +41,7 @@ from scipy.ndimage import binary_dilation as ndi_binary_dilation
 from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import zoom as ndi_zoom
 
+from fibsem.devices.fm import mount_transform_from_name
 from fibsem.drivers.demo import sim_optics, sim_solid, sim_view
 from fibsem.geometry.projection import (
     BeamStageProjection,
@@ -449,6 +450,13 @@ class SampleScene:
     # focus is at the beam's eucentric height, give or take this (m): each
     # beam's own seeded error, which an autofocus takes out
     focus_fuzz: float = 15e-6
+    # a session that starts wrong, for something to notice and put right:
+    # the scan rotation each beam boots at (degrees, {electron: 180}), and
+    # how the FM camera is really mounted (a mount transform's name; None is
+    # as the configuration says). Mounted another way, the FM image is
+    # flipped until the camera's mount transform is set to match
+    scan_rotation_at_start: Dict[str, float] = field(default_factory=dict)
+    fm_camera_mount: Optional[str] = None
     _current_offsets: Dict[Tuple[str, float], Tuple[float, float]] = field(
         default_factory=dict, repr=False
     )
@@ -1189,6 +1197,7 @@ class SampleScene:
             ends,
             -frame.turn * frame.fs / frame.k,
             rng,
+            thickness=record["gap"] * um,
         )
         slack = 0.6e-6  # past the faces: a lamella is thicker further down
         band = [(x0, lo - slack), (x1, lo - slack), (x1, hi + slack), (x0, hi + slack)]
@@ -2006,6 +2015,8 @@ class SampleScene:
         "current_offset_scale",  # m, sigma of the per-current beam offset
         "beam_optics",  # focus, stigmation and current show in the image
         "focus_fuzz",  # m, how far focus is from the eucentric height, at most
+        "scan_rotation_at_start",  # {electron: deg, ion: deg} the beams boot at
+        "fm_camera_mount",  # the mount transform the FM camera really has
         "film",  # continuous | holey
         "hole_diameter",  # m
         "hole_pitch",  # m
@@ -2049,6 +2060,8 @@ class SampleScene:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
         kwargs.setdefault("beam_optics", True)
+        if kwargs.get("fm_camera_mount") is not None:
+            mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
         for key in (
             "cells_per_cluster",
             "cell_size",
@@ -2735,12 +2748,65 @@ class SampleScene:
         plan = getattr(self, "_plan", None)
         if plan is not None:
             return bool(plan[0].gone_at(x * um, y * um, (z + self._fm_film()) * um)[0])
-        xs, ys = np.array([[x * um]]), np.array([[y * um]])
-        for region in self.milled:
-            lo, hi = sim_view._cut_range(self, region, xs, ys)
-            if lo[0, 0] <= z * um <= hi[0, 0]:
-                return True
-        return False
+        return self._milled_away(x, y, z)
+
+    def _milled_away(self, x: float, y: float, z: float) -> bool:
+        """`milled_through`, from the sample round the point as it is now,
+        whatever view was drawn last."""
+        um = sim_view.UM
+        near = np.arange(-16, 17) * 0.25  # wide enough to level a floor
+        here = sim_solid.Plan(self, x * um + near, y * um + near)
+        return bool(here.gone_at(x * um, y * um, (z + self._fm_film()) * um)[0])
+
+    def record(self, points: Optional[Dict[str, tuple]] = None) -> dict:
+        """What was done to the sample, as plain values that go straight to
+        JSON: each milling pass (drawn and cut gaps, drift, current, damage),
+        every milled region, the damage, and whether each target - and each
+        of `points`, a name to (x, y world m, z m above the film) - was
+        milled away."""
+
+        def plain(v):
+            if isinstance(v, dict):
+                return {str(k): plain(x) for k, x in v.items()}
+            if isinstance(v, (list, tuple)):
+                return [plain(x) for x in v]
+            if isinstance(v, np.ndarray):
+                return v.tolist()
+            if isinstance(v, np.generic):
+                return v.item()
+            return v
+
+        targets = []
+        for n, t in enumerate(self.fm_targets()):
+            x, y, z = t["midpoint"]
+            targets.append(
+                {
+                    "target": n,
+                    "midpoint": [x, y, z],
+                    "milled": self._milled_away(x, y, z),
+                }
+            )
+        return plain(
+            {
+                "seed": self.seed,
+                "passes": self.mill_passes,
+                "damage_started": self.damage_started,
+                "regions": [
+                    {
+                        "points": r.points,
+                        "depth": r.depth,
+                        "spot_burn": r.halo > 0,
+                        "damage": r.face is not None,
+                    }
+                    for r in self.milled
+                ],
+                "targets": targets,
+                "points": {
+                    name: {"point": list(p), "milled": self._milled_away(*p)}
+                    for name, p in (points or {}).items()
+                },
+            }
+        )
 
     def _fm_film(self) -> float:
         """The height (m) of the film in the focal frame: heights in the FM

@@ -178,6 +178,28 @@ def test_a_trench_is_cut_along_the_milling_beam(microscope):
     assert abs(centre[0]) <= 3 and abs(centre[1]) <= 3
 
 
+@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+def test_a_shallow_trench_shows_its_floor(microscope, beam_type):
+    """A pattern that stops in the ice leaves a floor both beams see, darker
+    the deeper it is; only a cut through the sample is black."""
+    grey = []
+    for depth in (0.3e-6, 1.0e-6, 10e-6):
+        _use(microscope, **PLAIN)
+        microscope.draw_pattern(
+            FibsemRectangleSettings(
+                width=12e-6, height=6e-6, depth=depth, centre_x=0.0, centre_y=0.0
+            )
+        )
+        microscope.run_milling()
+        image = _image(microscope, beam_type, hfw=40e-6)
+        dark = ndi.binary_erosion(image < 0.8 * np.median(image), iterations=8)
+        assert dark.sum() > 500
+        grey.append(float(np.median(image[dark])))
+    shallow, deeper, through = grey
+    assert shallow > deeper + 4 > through + 30, grey
+    assert through < 40, grey
+
+
 def test_a_lamella_between_two_trenches_stays(microscope):
     _use(microscope, **PLAIN)
     _mill(microscope, (20e-6, 6e-6, 3.5e-6), (20e-6, 6e-6, -3.5e-6))
@@ -490,3 +512,80 @@ def test_the_fiducial_cross_is_the_brightest_thing_in_view(microscope):
         h, w = image.shape
         centre = image[h // 2 - 60 : h // 2 + 60, w // 2 - 60 : w // 2 + 60]
         assert np.percentile(centre, 99) > np.median(image) + 60
+
+
+def test_a_thick_lamella_cracks_wider():
+    """Damage on a lamella still 1 um thick is coarser than on a thin one, so
+    it shows at the field of view rough milling is watched at."""
+    scene = SampleScene(seed=5, **PLAIN)
+    ends = [(-6.0, 0.0), (6.0, 0.0)]
+
+    def area(thickness):
+        rng = np.random.default_rng(2)
+        pieces = sim_solid.damage(scene, "crack", 3, ends, -0.2, rng, thickness)
+        return sum(
+            0.5
+            * abs(
+                np.sum(p[:, 0] * np.roll(p[:, 1], -1) - np.roll(p[:, 0], -1) * p[:, 1])
+            )
+            for p in pieces
+        )
+
+    assert area(1.0) > 2 * area(0.2)
+    assert area(0.3) == pytest.approx(area(0.2))
+
+
+def test_the_record_says_what_was_milled_and_goes_to_json(microscope):
+    """After a run the scene's record lists each pass and region as plain
+    values, and says of any point whether it was milled away: before any FM
+    image, and for a pattern that stopped short."""
+    import json
+
+    scene = _use(microscope, **PLAIN)
+    _mill(microscope, (12e-6, 6e-6, 0.0))
+    x, y = np.mean(scene.milled[0].points, axis=0)
+    record = scene.record(
+        {"in the cut": (x, y, 1e-6), "beside it": (x + 40e-6, y, 1e-6)}
+    )
+    assert json.loads(json.dumps(record)) == record
+    assert len(record["passes"]) == 1 and len(record["regions"]) == 1
+    assert record["regions"][0]["depth"] == pytest.approx(10e-6)
+    assert not record["regions"][0]["damage"]
+    assert record["points"]["in the cut"]["milled"] is True
+    assert record["points"]["beside it"]["milled"] is False
+
+    shallow = _use(microscope, **PLAIN)
+    microscope.draw_pattern(
+        FibsemRectangleSettings(
+            width=12e-6, height=6e-6, depth=0.3e-6, centre_x=0.0, centre_y=0.0
+        )
+    )
+    microscope.run_milling()
+    x, y = np.mean(shallow.milled[0].points, axis=0)
+    points = shallow.record({"under the floor": (x, y, 0.5e-6)})["points"]
+    assert points["under the floor"]["milled"] is False
+
+
+def test_the_record_lists_each_target_and_whether_it_is_gone(microscope):
+    scene = _use(microscope, cell_type="rpe", seed=4)
+    targets = scene.record()["targets"]
+    assert len(targets) == len(scene.fm_targets()) > 0
+    assert not any(t["milled"] for t in targets[:20])
+
+
+def test_a_gis_coat_closes_a_broken_hole_and_keeps_the_relief_under_it():
+    """The coat lies over what is there: it grows in over a broken hole and
+    closes a small one, and a bar still stands up under it."""
+    scene = SampleScene(film="holey", **{**PLAIN, "broken_hole_fraction": 0.05})
+    bare = _columns(scene, 60.0, 60.0, half=40.0, step=0.2)
+    broken = bare["surface"] < sim_solid.NONE / 2
+    assert broken.any()
+    scene.deposit(120)  # 4.8 um
+    coated = _columns(scene, 60.0, 60.0, half=40.0, step=0.2)
+    lo, hi = coated["coat"]
+    over = broken & (hi > sim_solid.NONE / 2)
+    assert over.mean() > 0.9 * broken.mean()
+    # a layer over the hole, not a plug down through it
+    assert 0.5 < (hi - lo)[over].mean() < 4.9
+    relief = np.ptp(bare["surface"][~broken])
+    assert np.ptp(hi[~broken]) > 0.6 * relief
