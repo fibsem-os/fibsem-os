@@ -90,6 +90,8 @@ def test_with_no_experiment_open_it_waits_in_the_sessions_folder(server, tmp_pat
         ("s1", {"kind": "said", "text": "x" * 2001}),
         ("s1", {"kind": "said", "text": "x", "age_s": "soon"}),
         ("s1", {"kind": "step", "text": "x", "verb": 3}),
+        ("s1", {"kind": "done", "text": "", "step": 2, "took_s": -1}),
+        ("s1", {"kind": "done", "text": "", "step": 2, "took_s": "long"}),
         ("s1", "said x"),
     ],
 )
@@ -176,3 +178,32 @@ def test_an_old_entry_is_placed_by_its_age_capped_at_a_day(server):
 
     age = time.time() - datetime.fromisoformat(entry["t"]).timestamp()
     assert 24 * 3600 - 5 < age < 24 * 3600 + 5
+
+
+def test_a_done_line_names_its_step_and_each_post_is_an_event(tmp_path):
+    """A done line says how long its step took; each post puts one live event
+    on the app's events, so the web page reads the lines at once."""
+    (tmp_path / "exp").mkdir()
+    emitted = []
+    app = FastAPI()
+    app.state.auth = AuthConfig.generate(level=AgentLevel.WATCH)
+    app.include_router(
+        build_agent_transcript_router(
+            lambda: str(tmp_path / "exp"),
+            lambda kind, data: emitted.append((kind, data)),
+        )
+    )
+    client = TestClient(
+        app, headers={"Authorization": f"Bearer {app.state.auth.token}"}
+    )
+    ran = {"seq": 1, "kind": "step", "verb": "Called", "text": "milling_run"}
+    done = {"seq": 2, "kind": "done", "text": "", "step": 1, "took_s": 312.04}
+    assert _post(client, "s1", ran, done).json() == {"kept": 2}
+    entries = client.get("/app/agent/transcript").json()["entries"]
+    assert entries[1]["kind"] == "done" and entries[1]["step"] == 1
+    assert entries[1]["took_s"] == 312.0
+    assert emitted == [("agent_transcript", {"session_id": "s1", "kept": 2})]
+    # A live kind: a run's history leaves it out.
+    from fibsem.workflows.events.kinds import LIVE_KINDS
+
+    assert "agent_transcript" in LIVE_KINDS
