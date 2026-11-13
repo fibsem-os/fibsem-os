@@ -101,6 +101,9 @@ PROPOSAL_HELD = _kind("proposal_held", PROPOSALS, "The run waits on a proposal."
 PROPOSAL_RELEASED = _kind(
     "proposal_released", PROPOSALS, "The run no longer waits on a proposal."
 )
+PROPOSAL_WAITING = _kind(
+    "proposal_waiting", PROPOSALS, "A held proposal still waits; who may decide it."
+)
 PROMPT_RAISED = _kind("prompt_raised", PROPOSALS, "A question.", legacy=True)
 PROMPT_ANSWERED = _kind("prompt_answered", PROPOSALS, "An answer.", legacy=True)
 PROMPT_SUGGESTED = _kind("prompt_suggested", PROPOSALS, "A suggestion.", legacy=True)
