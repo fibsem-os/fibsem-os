@@ -53,6 +53,7 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
 from fibsem.workflows.actions import ACTION, is_message
 from fibsem.workflows.actions import OPERATOR_STOP as STOPPED_NO_REASON
+from fibsem.workflows.events import event_id
 from fibsem.workflows.events import kinds as event_kinds
 
 # Kinds that end a workflow: report it, and keep watching. A stalled workflow
@@ -785,6 +786,7 @@ def watch(
     report_reads=True,
     on_seeded=None,
     after=None,
+    on_cursor=None,
 ):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
@@ -808,6 +810,9 @@ def watch(
 
     Each line said is a `Wake`. ``on_seeded`` is called once the event stream
     first answers: from there on, no line is missed.
+
+    ``on_cursor`` is called with the id of the newest event read, after the
+    lines it made were said: a later ``after=`` that id picks up from there.
     """
     say = out or _print_line
     sleep_fn = sleep_fn or time.sleep
@@ -822,6 +827,12 @@ def watch(
         say(line)
         if report_reads:
             report_read(client, list(getattr(line, "message_ids", ())))
+
+    def moved(events):
+        if on_cursor is not None and events:
+            last = event_id(events[-1])
+            if last:
+                on_cursor(last)
 
     def seeded(snapshot):
         if on_seeded is not None and snapshot.get("available"):
@@ -889,6 +900,11 @@ def watch(
             _keep_marked(event, marked)
         for data in _unanswered(snapshot.get("events", [])):
             out(_message_line(data, marked))
+    if held_before or after is not None:
+        # Everything up to the snapshot's newest event has been said (or was
+        # history before this watch began). A watch resumed by seq has not
+        # said the events after that seq yet.
+        moved(snapshot.get("events", []))
     checked_at = clock()
 
     failures = 0
@@ -950,6 +966,7 @@ def watch(
 
         events = payload.get("events", [])
         since, running = _print_events(events, since, out, marked)
+        moved(events)
         since = max(since, latest)
         if running is not None:
             workflow_live = running
@@ -967,6 +984,7 @@ def watch(
                     since, running = _print_events(
                         last.get("events", []), since, out, marked
                     )
+                    moved(last.get("events", []))
                 if running is None:
                     out(NO_END_EVENT_LINE)
                     running = False

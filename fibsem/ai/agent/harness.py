@@ -692,6 +692,15 @@ class _WatchEnded:
     code: int
 
 
+@dataclass
+class _Cursor:
+    """The id of the newest event the watch has read: its lines came before
+    this. Kept once the turn carrying them is over, so a resumed session
+    watches from there (`watch.watch` ``after``)."""
+
+    event_id: str
+
+
 def _last_line(batch) -> bool:
     """Whether the watch said it is giving up (`watch.LAST_KINDS`)."""
     return bool(watch_mod.kinds(batch) & watch_mod.LAST_KINDS)
@@ -722,9 +731,12 @@ class Watcher:
         poll_s: float = watch_mod.POLL_S,
         retry_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
+        after: Optional[str] = None,
     ) -> None:
         self._client = client
         self._deliver = deliver
+        # An event id to watch from, for a resumed session; None starts at the tail.
+        self._after = after
         self._poll_s = poll_s
         self._retry_s = retry_s
         # A running workflow quiet this long wakes the agent, once.
@@ -765,6 +777,8 @@ class Watcher:
                 quiet_s=self._quiet_s,
                 report_reads=False,
                 on_seeded=lambda: self._deliver(_Seeded()),
+                after=self._after,
+                on_cursor=lambda event_id: self._deliver(_Cursor(event_id)),
             )
         except _Stopped:
             return
@@ -837,8 +851,17 @@ class Harness:
         words: Optional[instruments.Texts] = None,
         deadline_warn_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
+        after: Optional[str] = None,
+        keep_cursor: Optional[Callable[[str], None]] = None,
     ) -> None:
         self._agent = agent
+        # A resumed session's first watch starts after the last event its
+        # agent was given (*after*); *keep_cursor* stores that id after each
+        # turn, for the next resume.
+        self._after = after
+        self._keep_cursor = keep_cursor
+        self._cursor_given: Optional[str] = None
+        self._cursor_kept: Optional[str] = after
         # What the agent is told, for the session's instrument kind.
         self._words = words or texts()
         self._quiet_s = quiet_s
@@ -977,6 +1000,7 @@ class Harness:
             poll_s=self._poll_s,
             retry_s=self._retry_s,
             quiet_s=self._quiet_s,
+            after=self._after,
         )
         self._watcher = watcher
         watcher.start()
@@ -998,6 +1022,8 @@ class Harness:
                 if item is None:
                     return False
                 if isinstance(item, _Seeded):
+                    # Only the first watch resumes: a later one starts at the tail.
+                    self._after = None
                     return True
                 if isinstance(item, _WatchEnded):
                     break
@@ -1036,6 +1062,7 @@ class Harness:
             cutter.cancel()
             sender.cancel()
         self._turns += 1
+        self._keep_given_cursor()
         if end.cost_usd is not None:
             self._spent_usd = end.cost_usd
         if end.tokens is not None:
@@ -1227,6 +1254,18 @@ class Harness:
                 return item
         return None
 
+    def _keep_given_cursor(self) -> None:
+        """Store the newest event id whose lines a finished turn carried."""
+        given = self._cursor_given
+        if self._keep_cursor is None or given is None or given == self._cursor_kept:
+            return
+        try:
+            self._keep_cursor(given)
+        except Exception:
+            log.debug("Keeping the event cursor failed.", exc_info=True)
+            return
+        self._cursor_kept = given
+
     def _drain(self) -> list:
         items = []
         while not self._items.empty():
@@ -1255,6 +1294,9 @@ class Harness:
                 batch.append(item)
                 ended = isinstance(item, _WatchEnded)
             lines = [line for line in batch if isinstance(line, str)]
+            for item in batch:
+                if isinstance(item, _Cursor):
+                    self._cursor_given = item.event_id
             prompt = self._wakes.add(lines)
             if ended:
                 prompt = await self._rewatch(prompt)
@@ -2129,6 +2171,8 @@ def main(argv=None) -> int:
         words=words,
         deadline_warn_s=playbook.session.deadline_warn_min * 60,
         quiet_s=playbook.session.quiet_min * 60,
+        after=record.get(sessions.EVENT_AFTER),
+        keep_cursor=session.keep_event_cursor,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,
