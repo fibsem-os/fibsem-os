@@ -61,3 +61,52 @@ def test_trace_puts_repeats_side_by_side(tmp_path, capsys):
     assert "| r1 | hit | fibsem-agent, autolamella-polishing | 2 | 2 | $0.40 |" in text
     assert "### r2: late" in text and "> It stays near 340 nm." in text
     assert 'Answer: `{"stop_after": "P2b"}`' in text
+
+
+def test_the_transcript_gives_the_steps_without_the_log(tmp_path):
+    """Claude Code's own record: each tool call by name, in the harness's words,
+    files named from the folder the agent ran in, refusals from the results."""
+    folder = run_folder(tmp_path)
+    (folder / "agent.log").unlink()
+    work = str(folder / "work")
+
+    def say(kind, *blocks, **extra):
+        return {
+            "type": kind,
+            "cwd": work,
+            "message": {"content": list(blocks)},
+            **extra,
+        }
+
+    def use(name, **arguments):
+        return {"type": "tool_use", "id": name, "name": name, "input": arguments}
+
+    lines = [
+        say("assistant", use("Skill", skill="fibsem-agent")),
+        say("assistant", use("Read", file_path=f"{work}/task.md")),
+        say("assistant", use("mcp__fibsem__plan_set_section", section="Brief")),
+        say(
+            "user",
+            {
+                "type": "tool_result",
+                "tool_use_id": "x",
+                "is_error": True,
+                "content": [{"type": "text", "text": "refused (409)"}],
+            },
+        ),
+        say("assistant", use("mcp__fibsem__experiment_read_file", path="P2b.tif")),
+        say("assistant", {"type": "text", "text": "It stays near 340 nm."}),
+        # A subagent's line is its own, not the run's.
+        say("assistant", use("Skill", skill="other"), isSidechain=True),
+        "not json",
+    ]
+    (folder / "session").mkdir()
+    (folder / "session" / "transcript.jsonl").write_text(
+        "\n".join(line if isinstance(line, str) else json.dumps(line) for line in lines)
+    )
+    got = trace.read_run(folder)
+    assert got.skills == ["fibsem-agent"]
+    assert got.looked_at == ["task.md", "P2b.tif"]
+    assert got.tools == {"plan_set_section": 1, "experiment_read_file": 1}
+    assert got.failed == ["refused (409)"]
+    assert got.said == ["It stays near 340 nm."]

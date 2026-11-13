@@ -59,6 +59,6 @@ def mount_agent_routes(
     )
     app.include_router(build_agent_plan_router(experiment_path, emit))
     # What fibsem-agent printed.
-    app.include_router(build_agent_transcript_router(experiment_path))
+    app.include_router(build_agent_transcript_router(experiment_path, emit))
     # The agent's playbooks, skills and subagents: shipped and the lab's.
     app.include_router(build_library_router())

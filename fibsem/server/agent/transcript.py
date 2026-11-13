@@ -10,6 +10,7 @@ Self-reported, like the session.
 """
 
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -22,10 +23,14 @@ from fibsem.server.agent.files import AgentFiles
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.server.bodies import TranscriptBody
 from fibsem.util.timestamps import iso_from_posix
+from fibsem.workflows.events.kinds import AGENT_TRANSCRIPT
+
+log = logging.getLogger(__name__)
 
 FOLDER = "agent"
 # context: what the harness says of the session ("Playbook set: ...").
-KINDS = ("said", "step", "failed", "context")
+# done: a step finished (its ``step``), so the page stops showing it running.
+KINDS = ("said", "step", "done", "failed", "context")
 MAX_ENTRIES = 200
 MAX_TEXT = 2000
 MAX_AGE_S = 24 * 3600
@@ -41,7 +46,7 @@ def _invalid(message: str) -> HTTPException:
 def _entry(raw: Any, now: float) -> Dict[str, Any]:
     """One posted entry, checked, stamped with the server's time."""
     if not isinstance(raw, dict):
-        raise _invalid("an entry is {kind, text, verb?, step?, age_s?}.")
+        raise _invalid("an entry is {kind, text, verb?, step?, took_s?, age_s?}.")
     kind = raw.get("kind")
     if kind not in KINDS:
         raise _invalid(f"kind is one of {list(KINDS)}.")
@@ -62,6 +67,11 @@ def _entry(raw: Any, now: float) -> Dict[str, Any]:
             if isinstance(value, bool) or not isinstance(value, int):
                 raise _invalid(f"{key} is a whole number.")
             entry[key] = value
+    took = raw.get("took_s")
+    if took is not None:
+        if isinstance(took, bool) or not isinstance(took, (int, float)) or took < 0:
+            raise _invalid("took_s is how many seconds the step took.")
+        entry["took_s"] = round(float(took), 1)
     verb = raw.get("verb")
     if verb is not None:
         if not isinstance(verb, str) or len(verb) > 40:
@@ -98,8 +108,12 @@ def read(folder: Path, since: Optional[str] = None) -> List[Dict[str, Any]]:
 
 def build_agent_transcript_router(
     experiment_path: Callable[[], Optional[str]],
+    emit: Optional[Callable[[str, Dict[str, Any]], None]] = None,
 ) -> APIRouter:
-    """``/app/agent/transcript``: the agent posts its lines, anyone reads them."""
+    """``/app/agent/transcript``: the agent posts its lines, anyone reads them.
+    *emit* puts an ``agent_transcript`` event on the app's events for each post,
+    so the web page reads the new lines at once; a live event, left out of a
+    run's history."""
     router = APIRouter(
         prefix="/app/agent", dependencies=[Depends(require_level(AgentLevel.WATCH))]
     )
@@ -127,6 +141,11 @@ def build_agent_transcript_router(
         ) as f:
             for entry in entries:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        if emit is not None and entries:
+            try:
+                emit(AGENT_TRANSCRIPT, {"session_id": session_id, "kept": len(entries)})
+            except Exception:  # noqa: BLE001 - the lines are kept either way
+                log.debug("could not record %s", AGENT_TRANSCRIPT, exc_info=True)
         return {"kept": len(entries)}
 
     @router.get("/transcript")
