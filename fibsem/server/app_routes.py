@@ -106,6 +106,7 @@ from fibsem.server.responses import (
 )
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows import evidence
+from fibsem.workflows.event_text import note_asked, with_text
 from fibsem.workflows.history_rows import (
     HistoryDecidedBy,
     HistoryOrder,
@@ -1099,19 +1100,37 @@ def build_app_router(context: Any) -> APIRouter:
         return _answer_or_refusal(result)
 
     @router.get("/events", response_model=Events)
-    def events(since: int = 0, timeout: float = 0.0):
+    def events(since: int = 0, timeout: float = 0.0, text: bool = False):
         # A long-poll: parks up to `timeout` seconds waiting for news. Capped
         # here because the park occupies a threadpool worker — a transport
-        # concern, so the transport owns the ceiling.
-        return context.events(since=since, timeout=min(max(timeout, 0.0), 30.0))
+        # concern, so the transport owns the ceiling. `text` adds what each
+        # record says, in words, for a page to show.
+        answer = context.events(since=since, timeout=min(max(timeout, 0.0), 30.0))
+        return _with_text(answer) if text else answer
 
     @router.get("/events/history", response_model=EventHistory)
-    def event_history(before: Optional[int] = None, limit: int = 500):
+    def event_history(
+        before: Optional[int] = None, limit: int = 500, text: bool = False
+    ):
         # The run before the live buffer, from the experiment's events file:
         # what a page opened in the morning needs to show the night.
-        return context.event_history(before=before, limit=limit)
+        answer = context.event_history(before=before, limit=limit)
+        return _with_text(answer) if text else answer
 
     return _served(router, context)
+
+
+def _with_text(answer: Dict[str, Any]) -> Dict[str, Any]:
+    """*answer* with each record's ``text`` and ``group`` (`event_text`)."""
+    events = answer.get("events")
+    if not isinstance(events, list):
+        return answer
+    asked: Dict[str, Any] = {}
+    described = []
+    for record in events:
+        note_asked(asked, record)
+        described.append(with_text(record, asked))
+    return {**answer, "events": described}
 
 
 def _evidence_refused(refusal: evidence.EvidenceRefused) -> HTTPException:

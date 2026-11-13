@@ -36,10 +36,8 @@ def test_an_unregistered_kind_is_other():
     assert group_of("not_a_kind") == "other"
 
 
-def test_every_kind_the_events_page_names_is_registered():
+def test_the_events_page_has_every_group():
     source = (ROOT / "web/src/lib/eventText.ts").read_text(encoding="utf-8")
-    named = set(re.findall(r'case "([a-z_]+)"', source))
-    named |= set(re.findall(r'^\s+"([a-z_]+)",$', source, re.MULTILINE))
-    named -= {group for group in GROUPS}
-    assert named, "found no kinds in eventText.ts"
-    assert named <= set(KINDS), sorted(named - set(KINDS))
+    listed = re.search(r"export const GROUPS = \[(.*?)\] as const", source, re.S)
+    assert listed is not None
+    assert re.findall(r'\["([a-z]+)",', listed.group(1)) == list(GROUPS)
