@@ -26,6 +26,7 @@ from qtpy.QtWidgets import (
 )
 
 import fibsem.config as fibsem_cfg
+from fibsem import diagnostics
 from fibsem.tools import bug_report
 from fibsem.tools.bug_report import BugReportContent
 from fibsem.ui import stylesheets
@@ -463,3 +464,35 @@ def open_bug_report_dialog(
         parent=parent,
     )
     dialog.exec()
+
+
+def offer_crash_reports(
+    parent: Optional[QWidget] = None,
+    experiment_path: Optional[str] = None,
+    microscope: Optional["FibsemMicroscope"] = None,
+) -> bool:
+    """Ask once about the errors an earlier run recorded, and open Report an
+    Issue on the latest if the operator wants to. True when there were any."""
+    pending = diagnostics.unseen_from_earlier_runs()
+    if not pending:
+        return False
+    latest = pending[-1]
+    more = f" ({len(pending)} in all)" if len(pending) > 1 else ""
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Icon.Warning)
+    box.setWindowTitle("An error was recorded")
+    box.setText(f"The last run recorded an unexpected error{more}.")
+    box.setInformativeText(f"{latest.summary}\n\nNothing has been sent.")
+    report = box.addButton("Report an Issue...", QMessageBox.ButtonRole.AcceptRole)
+    box.addButton("Not Now", QMessageBox.ButtonRole.RejectRole)
+    box.exec()
+    # Asked once, whatever the answer: the records stay on disk for a later report.
+    diagnostics.mark_seen(pending)
+    if box.clickedButton() == report:
+        open_bug_report_dialog(
+            experiment_path=experiment_path,
+            microscope=microscope,
+            traceback_text=latest.traceback,
+            parent=parent,
+        )
+    return True

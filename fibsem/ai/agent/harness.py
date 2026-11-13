@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from fibsem import diagnostics
 from fibsem.ai.agent import (
     code_mode,
     instruments,
@@ -1709,6 +1710,7 @@ def _skills_line(checkout: Path) -> str:
 
 def main(argv=None) -> int:
     refuse("fibsem-agent")
+    diagnostics.install("fibsem-agent")
     parser = argparse.ArgumentParser(
         prog="fibsem-agent",
         description="Run the fibsem agent through the App Server, with no "

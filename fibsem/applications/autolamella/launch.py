@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 import fibsem.config as fibsem_cfg
+from fibsem import diagnostics
 from fibsem.applications.autolamella import experiment_setup
 from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 from fibsem.applications.autolamella.structures import AutoLamellaTaskProtocol
@@ -137,6 +138,7 @@ def main(
     """Serve until Ctrl-C (or *stop* is set), then stop the run and the
     server; with *window*, ``window(session, window_args)`` until it closes,
     the flags this parser does not know (``--quickstart``) passed on."""
+    diagnostics.install("fibsem-autolamella-server")
     args, window_args = _parser().parse_known_args(argv)
     if window_args and window is None:
         _parser().parse_args(argv)  # says what is unknown, and exits
