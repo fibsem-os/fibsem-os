@@ -29,7 +29,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.microscope_configuration_window import (
     MicroscopeConfigurationWindow,
 )
-from fibsem.workflows.session import MICROSCOPE, AppSession
+from fibsem.workflows.session import CONNECTED_STEP, MICROSCOPE, AppSession
 
 # What connecting did beyond connecting (`utils.setup_session`'s `connect_actions`),
 # said in the connect message.
@@ -627,13 +627,19 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.comboBox_configuration.setEnabled(False)
         self.action_add_configuration.setEnabled(False)
         self._button_disconnect.setVisible(False)
-        self._button_cancel_connect.setVisible(True)
+        # Past cancelling once connected; the tabs are built next.
+        self._button_cancel_connect.setVisible(step != CONNECTED_STEP)
         self._button_cancel_connect.setEnabled(True)
         self._label_status_icon.setPixmap(
             fibsem_icon("mdi:progress-clock", color=NEUTRAL_500).pixmap(20, 20)
         )
         self._label_status_title.setText("Connecting")
         self._label_status_subtitle.setText(step)
+        if step == CONNECTED_STEP:
+            # Painted now: the tabs are built next, on this thread, before
+            # Qt would get round to it, and a Cancel left on screen meanwhile
+            # looks like one that does not answer.
+            self.repaint()
 
     def set_current_imaging(
         self, provider: Optional[Callable[[], ImageSettings]]

@@ -48,7 +48,11 @@ from fibsem.ui.icon import fibsem_icon
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
-from fibsem.workflows.session import AppSession, devices_configuration
+from fibsem.workflows.session import (
+    CONNECTED_STEP,
+    AppSession,
+    devices_configuration,
+)
 
 DIALOG_WIDTH = 400
 
@@ -605,6 +609,9 @@ class ConnectionDialog(QDialog):
     def _show_step(self, step: str) -> None:
         if self.is_connecting and not self._cancel.is_set():
             self._show_message(step, is_error=False)
+            if step == CONNECTED_STEP:  # past cancelling
+                self.cancel_button.setEnabled(False)
+                self.repaint()  # before the tabs are built on this thread
 
     def _on_connected(self, instrument: object) -> None:
         if instrument is None:  # cancelled

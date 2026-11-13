@@ -255,3 +255,38 @@ def test_a_cancelled_session_connect_holds_nothing(monkeypatch):
         session.connect(None, cancel=cancel, manufacturer="Demo")
     assert session.instrument is None
     assert session.connecting is None
+
+
+def test_cancel_goes_once_the_connect_is_done(tab, monkeypatch):
+    """The tabs are built on the GUI thread right after; a Cancel still on
+    screen then looked like one that did not answer."""
+    from fibsem.workflows.session import CONNECTED_STEP
+
+    seen = []
+    tab._connect_step.connect(
+        lambda step: seen.append((step, tab._button_cancel_connect.isVisibleTo(tab)))
+    )
+    monkeypatch.setattr(
+        utils,
+        "setup_session",
+        lambda *a, progress=None, cancel=None, **k: real_setup_session(
+            manufacturer="Demo", setup_logging=False, progress=progress
+        ),
+    )
+    tab.connect_to_microscope()
+    wait_connected(tab)
+
+    assert tab.microscope is not None
+    assert seen[-1] == (CONNECTED_STEP, False)
+
+
+def test_a_session_connect_ends_on_the_connected_step():
+    from fibsem.workflows.session import CONNECTED_STEP
+
+    steps = []
+    session = AppSession()
+    session.connect(None, progress=steps.append, manufacturer="Demo")
+    try:
+        assert steps[-1] == CONNECTED_STEP
+    finally:
+        session.disconnect()

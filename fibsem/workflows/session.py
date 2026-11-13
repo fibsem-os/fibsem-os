@@ -41,6 +41,9 @@ SESSIONS_PATH = os.path.join(cfg.LOG_PATH, "sessions")
 # What `AppSession.changed` names. The last three are the open experiment
 # edited where no widget drew the edit (the App Server): whoever draws it redraws.
 MICROSCOPE = "microscope"
+# The last step `AppSession.connect` reports: connected, past cancelling, and the
+# window's tabs are built next (on the GUI thread, which is busy until they are).
+CONNECTED_STEP = "Connected. Opening the microscope's tabs…"
 EXPERIMENT = "experiment"
 PROTOCOL = "protocol"
 GRID_RECORDS = "grid_records"
@@ -278,6 +281,8 @@ class AppSession:
                 raise
             finally:
                 self.connecting = None
+            if progress is not None:
+                utils._report(progress, CONNECTED_STEP)
             # Heard once everything here is the new microscope's.
             with self.changed.paused():
                 self.settings = settings
@@ -313,6 +318,7 @@ class AppSession:
         step("Connecting the devices…")
         instrument = device_instrument(settings, allow_remote=True)
         utils.stop_if_cancelled(cancel, instrument)
+        step(CONNECTED_STEP)
         with self.changed.paused():
             self.settings = None
             self.configuration_path = str(
