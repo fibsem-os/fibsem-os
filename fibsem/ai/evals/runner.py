@@ -35,6 +35,7 @@ from fibsem import __version__, paths
 from fibsem.ai.agent import manager, mirror, sources
 from fibsem.ai.evals import tasks
 from fibsem.ai.evals.cases import Case, input_paths
+from fibsem.ai.evals.live import runs as live
 from fibsem.ai.evals.scoring import score_case
 from fibsem.server import discovery
 from fibsem.util.process import end
@@ -169,10 +170,14 @@ def task_text(case: Case, inputs: Iterable[str]) -> str:
         notes = tasks.get(name).answer_notes
         if notes:
             lines += ["", notes]
-    lines += [
-        "",
-        "Look and read only. Once the answer is written you are done; say so and stop.",
-    ]
+    if case.data.get("sim_run"):
+        last = (
+            "The microscope is a simulator: work it as the task says. Once "
+            "the answer is written you are done; say so and stop."
+        )
+    else:
+        last = "Look and read only. Once the answer is written you are done; say so and stop."
+    lines += ["", last]
     return "\n".join(lines) + "\n"
 
 
@@ -191,6 +196,16 @@ def goal_text(case: Case) -> str:
         f"Eval case {case.id}: read {TASK} in your files folder, do what it "
         f"asks, and write {ANSWER} there."
     )
+
+
+def live_server_flags(case: Case) -> List[str]:
+    """A live case's App Server flags: its own microscope configuration,
+    and the microscope served to the agent."""
+    sim_run = case.data.get("sim_run")
+    if not sim_run:
+        return []
+    config = case.path / sim_run.get("microscope", "microscope.yaml")
+    return ["--config", str(config.resolve()), "--serve-microscope"]
 
 
 def link_inputs(case: Case, experiment: Path) -> List[str]:
@@ -246,6 +261,17 @@ def _read_answer(path: Path) -> Optional[Dict[str, Any]]:
     return answer if isinstance(answer, dict) else None
 
 
+def run_answer(folder: Path) -> Optional[Dict[str, Any]]:
+    """A run's answer as it is scored: what the agent wrote, and for a live
+    case the run's record beside it as ``record``, so a site is scored where
+    the run saved it, not where the agent says it did."""
+    answer = _read_answer(folder / "work" / ANSWER)
+    record = _read_answer(folder / live.RECORD)
+    if answer is not None and record is not None:
+        answer["record"] = record
+    return answer
+
+
 def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
     """One run of the agent on *case*; its result, also saved in the run's
     folder."""
@@ -272,9 +298,14 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
     # The run's own App Server, beside any other on this PC: its own port,
     # and its discovery file in the run's home.
     found_at = home / "app-server.json"
+    sim_run = case.data.get("sim_run")
+    if sim_run:
+        # the simulator's sample, with no waits; the agent works it
+        env["FIBSEM_SIM_NO_DELAY"] = "1"
     server_log = open(folder / "server.log", "w")
     server = subprocess.Popen(
         config.server_command
+        + live_server_flags(case)
         + ["--create", str(experiment), "--experiments", str(experiments)]
         + ["--port", str(_free_port()), "--discovery", str(found_at)],
         env=env,
@@ -292,6 +323,8 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
             raise RunnerError(
                 f"The App Server did not start; see {folder / 'server.log'}."
             )
+        if sim_run:
+            live.set_up(case, found_at, home)
         inputs = link_inputs(case, experiment)
         (work / TASK).write_text(task_text(case, inputs))
 
@@ -320,7 +353,12 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         result["version"] = code_version(home / "knowledge")
         with open(folder / "agent.log", "w") as agent_log:
             # The agent finds its own run's server, not this PC's.
-            agent_env = {**env, discovery.DISCOVERY_FILE_ENV: str(found_at)}
+            agent_env = {
+                **env,
+                discovery.DISCOVERY_FILE_ENV: str(found_at),
+                # for a scripted agent: which case it runs
+                live.TASK_ENV: case.task,
+            }
             agent = subprocess.Popen(
                 command, env=agent_env, stdout=agent_log, stderr=subprocess.STDOUT
             )
@@ -343,6 +381,9 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
             "answered" if answered else "timeout" if timed_out else "no_answer"
         )
         result.update(_collect_session(session, folder / "session"))
+        if sim_run:
+            record = live.record(found_at, home)
+            (folder / live.RECORD).write_text(json.dumps(record, indent=2))
     finally:
         if agent is not None and agent.poll() is None:
             end(agent, 10)
@@ -350,7 +391,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         server_log.close()
 
     result["seconds"] = round(time.monotonic() - started, 1)
-    answer = _read_answer(work / ANSWER)
+    answer = run_answer(folder)
     result["scores"] = [s.to_dict() for s in score_case(case, answer or {})]
     (folder / RESULT).write_text(json.dumps(result, indent=2))
     return result
