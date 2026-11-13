@@ -100,7 +100,7 @@ from fibsem.devices.wire import (
     frames_from_bytes,
     to_wire,
 )
-from fibsem.drivers.registry import DeviceBuilder, get_driver
+from fibsem.drivers.registry import DeviceBuilder, get_driver, normalize_name
 from fibsem.structures.image import FibsemImage, FibsemImageMetadata
 from fibsem.structures.params import Limits, RangeLimit
 from fibsem.structures.settings import (
@@ -1062,8 +1062,6 @@ def build_remote_fm(
 def _check_driver(entry: "DeviceEntry", description: Mapping[str, Any], where: str):
     """Warn when an entry names its own driver and the server's device is another
     driver's: the file says one thing, the server has another."""
-    from fibsem.drivers.registry import normalize_name
-
     stated, served = entry.driver, description.get("driver")
     if not stated or stated == REMOTE_DRIVER or not served:
         return
