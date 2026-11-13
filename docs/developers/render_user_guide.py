@@ -40,7 +40,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from qtpy.QtCore import QEventLoop, QPoint, QRect, Qt, QTimer
 from qtpy.QtGui import QColor, QFont, QPainter, QPen, QPixmap
-from qtpy.QtWidgets import QApplication, QWidget
+from qtpy.QtWidgets import QApplication, QDialog, QWidget
 
 import fibsem.config as cfg
 from fibsem import guided_setup
@@ -2489,8 +2489,10 @@ def render_correlation(h: Harness) -> None:
         ),
     ]
     # an asymmetric layout, so the pairs are unambiguous when the FM view is
-    # rotated or mirrored against the FIB view
-    points = [Point(0.3, 0.35), Point(0.7, 0.3), Point(0.65, 0.7), Point(0.35, 0.62)]
+    # rotated or mirrored against the FIB view. Short in y: at the milling
+    # angle the FIB view is foreshortened, and a tall layout spreads the marks
+    # past the FM field.
+    points = [Point(0.3, 0.42), Point(0.7, 0.4), Point(0.65, 0.6), Point(0.35, 0.56)]
     if SPOT not in protocol.task_config:
         tasks = protocol.workflow_config.tasks
         setup, fiducial = tasks[0].name, tasks[1].name
@@ -2706,6 +2708,11 @@ def render_correlation(h: Harness) -> None:
     h.pump(600)
 
     # -- the correlation dialog, driven through its tabs ----------------------
+    def unburnt(milled):
+        """The milled regions without the spot burns (the ones with a halo),
+        so the fiducial is in both frames of a difference and cancels."""
+        return [m for m in milled if not m.halo]
+
     def fm_marks():
         """Where the burn marks are in the FM frame: the difference between a
         reflection frame with the marks in the scene and one without, at the
@@ -2718,7 +2725,7 @@ def render_correlation(h: Harness) -> None:
         fm.objective.move_absolute(pose.objective_position)
         fm.set_channel(channels[0])
         with_marks = fm.camera.acquire_image().astype(np.float32)
-        kept, scene.milled = scene.milled, []
+        kept, scene.milled = scene.milled, unburnt(scene.milled)
         try:
             without = fm.camera.acquire_image().astype(np.float32)
         finally:
@@ -2770,14 +2777,15 @@ def render_correlation(h: Harness) -> None:
         with_marks = microscope.acquire_image(image_settings=settings).data.astype(
             np.float32
         )
-        kept, scene.milled = scene.milled, []
+        kept, scene.milled = scene.milled, unburnt(scene.milled)
         try:
             without = microscope.acquire_image(image_settings=settings).data.astype(
                 np.float32
             )
         finally:
             scene.milled = kept
-        diff = ndi.gaussian_filter(without - with_marks, 1.0)
+        # either sign: the 3D sample shows a burn bright in the ion beam
+        diff = np.abs(ndi.gaussian_filter(without - with_marks, 1.0))
         centre = float(np.median(diff))
         sigma = 1.4826 * float(np.median(np.abs(diff - centre))) + 1e-6
         labels, n = ndi.label(diff > centre + 8 * sigma)
@@ -2953,7 +2961,7 @@ def render_correlation(h: Harness) -> None:
         else:
             dialog.accept()
         h.pump(500)
-        return dialog.Accepted
+        return QDialog.DialogCode.Accepted
 
     original_exec = ctw.CorrelationTabDialog.exec
     original_question = ctw.QMessageBox.question
