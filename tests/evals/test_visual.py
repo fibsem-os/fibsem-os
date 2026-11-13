@@ -1,16 +1,18 @@
 """The HTML report: every task gets its figure from made-up images and answers."""
 
 import json
+from dataclasses import replace
 
 import numpy as np
 import pytest
 import tifffile
 import yaml
 
-from fibsem.ai.evals import visual
+from fibsem.ai.evals import tasks, visual
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import load_case
 from fibsem.ai.evals.scoring import score_case, score_live
+from fibsem.ai.evals.tasks import correlation
 
 rng = np.random.default_rng(0)
 
@@ -193,7 +195,8 @@ def test_a_figure_that_fails_leaves_the_rest(run, monkeypatch):
     def broken(case, runs, **kw):
         raise OSError("no such file")
 
-    monkeypatch.setitem(visual.DRAW, "correlation", broken)
+    task = replace(tasks.get("correlation"), draw=broken)
+    monkeypatch.setitem(tasks.all_tasks(), "correlation", task)
     page = visual.write_html(out, cases_root).read_text()
     assert "correlation: no figure (no such file)" in page
     assert page.count("data:image/png;base64,") == len(CASES)
@@ -203,11 +206,11 @@ def test_the_correlation_figure_shows_both_images(run):
     cases_root, out = run
     case = load_case(cases_root / "corr")
     runs = [run for _, run in visual.load_runs(out)["corr"]]
-    fig = visual.draw_correlation(case, runs)
+    fig = correlation.draw_correlation(case, runs)
     assert len(fig.axes) == 2
     # Without the stack, the FIB image alone.
     case.data["inputs"]["fm_stack"] = "experiment/missing.ome.tiff"
-    assert len(visual.draw_correlation(case, runs).axes) == 1
+    assert len(correlation.draw_correlation(case, runs).axes) == 1
 
 
 def test_report_html_from_the_command_line(run, capsys):
