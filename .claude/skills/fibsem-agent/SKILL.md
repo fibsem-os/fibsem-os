@@ -258,7 +258,11 @@ turn.
 
 Under `fibsem-agent` that is done for you: it runs the watcher, and each
 batch of its lines arrives as your next turn (`The watcher printed: …`).
-Don't start one of your own.
+Don't start one of your own. Most lines wait for your turn to end, but a
+few cut it short: a `MESSAGE`, your level going down or Off, `STOPPED`, a
+failed run, task, mill or command, and a milling monitor's trigger. The next turn says so first. A call you were waiting on
+then may still have finished: read where things stand before you act, and
+never repeat a relative move without checking.
 
 If your harness can't keep a background process alive while you are idle
 (spawned subagents usually can't: the watcher dies with your turn), don't go
@@ -294,6 +298,10 @@ Its lines:
   `/app/workflow/status`. `RESTARTED`: the app restarted, and the watcher
   reads it from the start.
 - `AGENT OFF` and `AGENT BACK`: the operator set the level to Off and back.
+- `STOPPED by the operator: <what>`: the operator stopped a run, a task, a
+  mill, or you (`Stop the agent`: your level is now Watch and your action on
+  the microscope was stopped). Re-read `server_get_capabilities` and
+  `app_get_status`; don't start it again unless they ask.
 - `QUIET`: a workflow is running and nothing has happened for a while. Check
   `app_get_status`, `proposal_list` and any unanswered message; if the run is
   fine, end your turn. It comes once until something else happens.

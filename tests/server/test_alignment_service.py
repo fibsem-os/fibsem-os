@@ -5,13 +5,13 @@ nothing. Both read only inside the open experiment.
 """
 
 import os
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures.settings import BeamType, ImageSettings
+from tests.fixtures.app_contexts import ExperimentContext
 
 TOKEN = "test-token"
 ALIGNMENT = "/microscope/services/alignment"
@@ -26,7 +26,7 @@ def experiment(tmp_path):
 
 @pytest.fixture
 def client(microscope, experiment):
-    context = SimpleNamespace(experiment_path=str(experiment))
+    context = ExperimentContext(str(experiment))
     app = build_server(
         microscope,
         app_context=context,

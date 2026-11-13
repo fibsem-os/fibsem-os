@@ -13,11 +13,9 @@ Resume carries an ended session on, whoever started it, as its record says.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import socket
-import subprocess
 import sys
 import threading
 import time
@@ -35,7 +33,6 @@ from fibsem.ai.agent.manager import (
     WORK,
     AgentRunning,
     AgentSessionManager,
-    agent_command,
     read_json,
 )
 from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
@@ -52,7 +49,6 @@ KEY_KEPT_S = 30.0
 # The agent's pairing, as the App Server's list of paired computers shows it.
 AGENT_NAME = "fibsem-agent (gateway)"
 SESSIONS_SHOWN = 5
-CONFIG_WAIT_S = 60.0
 
 
 @dataclass
@@ -68,45 +64,25 @@ class AgentState:
     microscope: str = ""
 
 
-def knowledge_stamp() -> Tuple[Tuple[str, int, int], ...]:
-    """Every file a playbook's answer is read from (the lab's knowledge and
-    the shipped ``.claude``), with its time and size: the same stamp, the
-    same answer."""
-    from fibsem import paths
-    from fibsem.ai.agent import sources
+def read_playbooks() -> List[dict]:
+    """The playbooks, as ``fibsem-agent --list-playbooks`` lists them."""
+    from fibsem.ai.agent.harness import SetupRefused, playbook_list
 
-    roots = [paths.state_root() / "knowledge"]
-    shipped = sources.find_root()
-    if shipped is not None:
-        roots.append(Path(shipped) / sources.CLAUDE)
-    found = []
-    for root in roots:
-        for path in sorted(root.rglob("*")) if root.is_dir() else ():
-            try:
-                stat = path.stat()
-            except OSError:
-                continue
-            found.append((str(path), stat.st_mtime_ns, stat.st_size))
-    return tuple(found)
+    try:
+        return playbook_list()
+    except SetupRefused as refused:
+        raise GatewayRefused(422, "bad_playbook", str(refused)) from None
 
 
-def fibsem_agent_json(flags: List[str]) -> Any:
-    """``fibsem-agent <flags> --json``'s answer; its error text on failure."""
-    done = subprocess.run(
-        agent_command() + flags + ["--json"],
-        capture_output=True,
-        text=True,
-        timeout=CONFIG_WAIT_S,
-        stdin=subprocess.DEVNULL,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-    )
-    if done.returncode != 0:
-        raise GatewayRefused(
-            422,
-            "bad_playbook",
-            (done.stderr or done.stdout).strip() or "fibsem-agent failed.",
-        )
-    return json.loads(done.stdout)
+def read_configuration(name: str) -> dict:
+    """What fibsem-agent would run with for playbook *name*
+    (``--show-config``), or `GatewayRefused`."""
+    from fibsem.ai.agent.harness import SetupRefused, playbook_configuration
+
+    try:
+        return playbook_configuration(name)
+    except SetupRefused as refused:
+        raise GatewayRefused(422, "bad_playbook", str(refused)) from None
 
 
 def set_level(url: str, level: str) -> None:
@@ -231,8 +207,8 @@ class GatewayAgent:
         level: Callable[[str, str], None] = set_level,
         reachable: Callable[[str], bool] = answers,
         last_heard: Callable[[str], dict] = heard,
-        agent_json: Callable[[List[str]], Any] = fibsem_agent_json,
-        stamp: Callable[[], Any] = knowledge_stamp,
+        playbooks: Callable[[], List[dict]] = read_playbooks,
+        configuration: Callable[[str], dict] = read_configuration,
         environ: Optional[Dict[str, str]] = None,
         stored: Callable[[str], Optional[str]] = stored_secret,
         platform: str = sys.platform,
@@ -244,11 +220,8 @@ class GatewayAgent:
         self._level = level
         self._answers = reachable
         self._heard = last_heard
-        self._agent_json = agent_json
-        self._stamp = stamp
-        # fibsem-agent's answers by flags, while the files they come from
-        # are unchanged: each answer is a new process, seconds long.
-        self._answers_by_flags: Dict[Tuple[str, ...], Tuple[Any, Any]] = {}
+        self._read_playbooks = playbooks
+        self._read_configuration = configuration
         self._environ = os.environ if environ is None else environ
         self._stored = stored
         # Whether there is a key, and when that was read (the page's state).
@@ -321,21 +294,10 @@ class GatewayAgent:
         }
 
     def playbooks(self) -> List[dict]:
-        return self._kept(["--list-playbooks"])
+        return self._read_playbooks()
 
     def configuration(self, name: str) -> dict:
-        return self._kept(["--playbook", name, "--show-config"])
-
-    def _kept(self, flags: List[str]) -> Any:
-        """``fibsem-agent``'s answer, asked again only once a file it is
-        read from changes. A refusal is not kept."""
-        stamp = self._stamp()
-        kept = self._answers_by_flags.get(tuple(flags))
-        if kept is not None and kept[0] == stamp:
-            return kept[1]
-        answer = self._agent_json(flags)
-        self._answers_by_flags[tuple(flags)] = (stamp, answer)
-        return answer
+        return self._read_configuration(name)
 
     # -- acting ------------------------------------------------------------
 

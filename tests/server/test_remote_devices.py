@@ -26,6 +26,7 @@ from fibsem.structures.settings import (
     Point,
     ScanMode,
 )
+from tests.waiting import wait_for
 
 BEAMS = (BeamType.ELECTRON, BeamType.ION)
 
@@ -40,15 +41,6 @@ SETS = {
     "detector_type": None,
     "detector_mode": None,
 }
-
-
-def wait_for(condition, timeout=2.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if condition():
-            return True
-        time.sleep(0.01)
-    return condition()
 
 
 @pytest.fixture

@@ -20,6 +20,8 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+from tests.waiting import qt_wait_for
+
 pytest.importorskip("qtpy.QtWidgets")
 
 
@@ -46,28 +48,18 @@ def viewer(qapp, tmp_path):
     widget.close()
 
 
-def _wait_for(qapp, condition, timeout=5.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        qapp.processEvents()
-        if condition():
-            return True
-        time.sleep(0.01)
-    return False
-
-
 def test_the_button_follows_a_stop_made_elsewhere(qapp, viewer):
     fm = viewer.microscope.fm
     button = viewer.btn_toggle_fm_acquisition
 
     fm.start_acquisition()
-    assert _wait_for(qapp, lambda: button.text() == "Stop Acquisition")
+    assert qt_wait_for(lambda: button.text() == "Stop Acquisition")
 
     # Ended off the GUI thread, as the acquisition thread does after a pause in xT.
     threading.Thread(target=fm.stop_acquisition).start()
 
-    assert _wait_for(qapp, lambda: not fm.is_streaming)
-    assert _wait_for(qapp, lambda: button.text() == "Start Acquisition")
+    assert qt_wait_for(lambda: not fm.is_streaming)
+    assert qt_wait_for(lambda: button.text() == "Start Acquisition")
     assert viewer._act_pause_acquisition.text() == "Resume Acquisition"
 
 
@@ -75,7 +67,7 @@ def test_stop_does_not_hold_the_gui_thread(qapp, viewer, monkeypatch):
     fm = viewer.microscope.fm
     button = viewer.btn_toggle_fm_acquisition
     fm.start_acquisition()
-    assert _wait_for(qapp, lambda: button.text() == "Stop Acquisition")
+    assert qt_wait_for(lambda: button.text() == "Stop Acquisition")
 
     stop = fm.stop_acquisition
 
@@ -94,7 +86,7 @@ def test_stop_does_not_hold_the_gui_thread(qapp, viewer, monkeypatch):
     button.click()  # a second click while stopping does nothing
     assert fm.is_streaming
 
-    assert _wait_for(qapp, lambda: button.text() == "Start Acquisition")
+    assert qt_wait_for(lambda: button.text() == "Start Acquisition")
     assert button.isEnabled()
     assert not fm.is_streaming
 
@@ -112,5 +104,5 @@ def test_live_frames_reach_the_widgets_on_the_gui_thread(qapp, viewer, monkeypat
     worker.start()
     worker.join()
 
-    assert _wait_for(qapp, lambda: bool(seen))
+    assert qt_wait_for(lambda: bool(seen))
     assert seen == [threading.main_thread()]

@@ -10,6 +10,7 @@ from fibsem.applications.autolamella.server.context import (
 )
 from fibsem.server.hosting import AppServerHost
 from fibsem.workflows.session import AppSession
+from tests.waiting import free_port
 
 
 def _session(microscope):
@@ -23,17 +24,11 @@ def _host(session, **kwargs):
     return AppServerHost(session, lambda: AutoLamellaAppContext(session), **kwargs)
 
 
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 @pytest.fixture
 def host(tmp_path, microscope):
     session = _session(microscope)
     server_host = _host(
-        session, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+        session, port=free_port(), discovery_path=tmp_path / "agent-server.json"
     )
     yield server_host
     server_host.stop()
@@ -138,7 +133,7 @@ def test_env_override_starts_at_drive(microscope, tmp_path, monkeypatch):
     monkeypatch.setenv("FIBSEM_AGENT_ARM_CONTROL", "1")
     server_host = _host(
         _session(microscope),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
     try:
@@ -159,7 +154,7 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     session = _session(microscope)
     first = _host(
         session,
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
     assert first.start()
@@ -170,7 +165,7 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     first.stop()
     second = _host(
         session,
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
     try:
@@ -184,7 +179,7 @@ def test_a_restart_keeps_the_token_and_the_level(microscope, tmp_path):
     # A new app session -- a new window -- starts at Watch with a new token.
     fresh = _host(
         _session(microscope),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
     try:
@@ -211,7 +206,7 @@ def test_a_host_with_no_microscope_serves_and_follows_a_connect(tmp_path, monkey
     monkeypatch.setenv("FIBSEM_SIM_NO_DELAY", "1")
     session = AppSession()
     host = _host(
-        session, port=_free_port(), discovery_path=tmp_path / "agent-server.json"
+        session, port=free_port(), discovery_path=tmp_path / "agent-server.json"
     )
     try:
         assert host.start()

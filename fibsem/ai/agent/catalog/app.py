@@ -1060,7 +1060,7 @@ TOOLS: Tuple[ToolSpec, ...] = (
     ToolSpec(
         name="app_get_events",
         returns="Events",
-        description="Events after a sequence number: milling/acquisition progress, stage moves, task lifecycle. Long-polls up to timeout seconds.",
+        description="Events after a sequence number or an event id: milling/acquisition progress, stage moves, task lifecycle. Each has an id that stays unique across restarts. Long-polls up to timeout seconds.",
         method="GET",
         path="/app/events",
         level="watch",
@@ -1076,8 +1076,12 @@ TOOLS: Tuple[ToolSpec, ...] = (
                 float,
                 default=0.0,
             ),
+            "after": arg(
+                "an event's id, in place of since: the events after it, across an "
+                "app restart too; resumed says whether all of them are here",
+            ),
         },
-        optional=("since", "timeout"),
+        optional=("since", "timeout", "after"),
     ),
     ToolSpec(
         name="workflow_stop",

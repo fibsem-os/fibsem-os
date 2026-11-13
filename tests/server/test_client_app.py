@@ -12,6 +12,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.client import FibsemClient, ServerError
 from fibsem.server import AuthConfig, build_server
+from fibsem.server.app_context import AppContext
 from fibsem.structures.settings import MicroscopeState
 from tests.run_state import stub_session
 from tests.server.test_client import TOKEN, InProcess
@@ -94,10 +95,13 @@ def test_a_refusal_raises(client, auth):
     assert refused.value.status == 403
 
 
-class _CoreOnly:
+class _CoreOnly(AppContext):
     """An app context with no optional parts."""
 
     app_name = "Core"
+
+    def __init__(self):
+        super().__init__(session=None)
 
     def status(self):
         return {"core": True}
