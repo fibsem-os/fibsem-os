@@ -252,6 +252,7 @@ TASK_TEXT = {
     "correlation": "Place the FM target on the FIB image",
     "polishing_stop": "Say when to stop polishing, pass by pass",
     "target_present": "Say if the target is still in the lamella, pass by pass",
+    "rough_milling": "Say if each rough milling step went through and the lamella held",
 }
 
 
@@ -283,6 +284,8 @@ def did(score: Dict[str, Any]) -> str:
             return f"{d['across_um']} um across, {d['along_um']} um along"
         if "error_um" in d:
             return f"{d['error_um']} um off"
+    if task == "rough_milling" and "total" in d:
+        return f"{d['correct']} of {d['total']} step checks right"
     if task == "target_present" and "total" in d:
         return f"{d['correct']} of {d['total']} passes right"
     return ""

@@ -12,6 +12,7 @@ from fibsem.ai.evals import (
     sim_cases,
     sim_correlation,
     sim_fm_target,
+    sim_rough,
     sim_placement,
     sim_polishing,
 )
@@ -351,3 +352,30 @@ def test_an_fm_target_case_from_the_sim(tmp_path, seed, kind, usable):
         np.hypot(o["x_px"] - target["x_px"], o["y_px"] - target["y_px"]) * size > 5
         for o in case.key["other_candidates"]
     )
+
+
+@pytest.mark.parametrize(
+    "seed, through, intact",
+    [
+        (1, ["yes", "yes", "yes"], ["yes", "yes", "yes"]),
+        (3, ["yes", "yes", "yes"], ["yes", "no", "no"]),
+        (10, ["yes", "no", "yes"], ["yes", "yes", "yes"]),
+    ],
+)
+def test_a_rough_milling_case_from_the_sim(tmp_path, seed, through, intact):
+    folder = sim_rough.write_case(seed, tmp_path, resolution=(192, 128))
+    case = load_case(folder)
+    assert check_case(case).ok, check_case(case).problems
+    assert case.tier == "sim"
+    steps = list(sim_rough.STEPS)
+    assert [p["name"] for p in case.data["passes"]] == steps
+    assert [case.key["milled_through"][s] for s in steps] == through
+    assert [case.key["intact"][s] for s in steps] == intact
+    right = {c: dict(case.key[c]) for c in ("milled_through", "intact")}
+    [hit] = score_case(case, right)
+    assert hit.result == "hit"
+    # calling every step good misses a fault, and that is costly
+    if "no" in through + intact:
+        good = {c: {s: "yes" for s in steps} for c in right}
+        [miss] = score_case(case, good)
+        assert miss.result == "miss" and miss.costly >= 1
