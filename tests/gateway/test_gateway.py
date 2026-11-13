@@ -238,7 +238,7 @@ def test_a_running_workflow_refuses_a_stop_unless_forced(tmp_path, fakes):
 def test_a_host_it_didnt_start_blocks_a_start(tmp_path, fakes):
     gateway = _gateway(tmp_path, fakes)
     fakes.found = {"pid": 424242, "url": "http://127.0.0.1:8001"}
-    assert gateway.state().holder.pid == 424242
+    assert gateway.state().other_host.pid == 424242
     with pytest.raises(GatewayRefused) as refused:
         _headless(gateway, last=True)
     assert refused.value.error_type == "held"
@@ -273,7 +273,7 @@ def test_a_claimed_window_is_closed_only_by_the_operator(tmp_path, fakes):
         state = gateway.claim(window.pid, "stand-in", "operator", "desktop launch")
         assert (state.mode, state.window, state.pid) == (RUNNING, True, window.pid)
         fakes.found = {"pid": window.pid, "url": "http://127.0.0.1:8001"}
-        assert gateway.state().holder is None  # its own App Server
+        assert gateway.state().other_host is None  # its own App Server
         for act in (
             lambda: gateway.stop("mac-mini", "hub", force=True),
             lambda: _headless(gateway, "mac-mini", "hub", last=True),
@@ -499,7 +499,7 @@ def test_a_new_gateway_takes_back_the_app_and_stops_it(tmp_path, fakes):
     state = again.adopt()
     assert (state.mode, state.app, state.pid) == (RUNNING, "stand-in", started.pid)
     assert (state.experiment, state.who) == (exp, "operator")
-    assert state.holder is None
+    assert state.other_host is None
     assert again.history().switches[0].result == "taken back"
     fakes.found = None
     state = again.stop("operator", "page")
