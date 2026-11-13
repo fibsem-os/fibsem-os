@@ -259,11 +259,11 @@ def test_grid_start_requires_control_and_a_valid_body(ui, qapp):
             == task["overview"]["nrows"] * task["overview"]["ncols"]
         )
     with _client(ui, arm_control=True) as client:
-        for body in (
-            {},
-            {"task_names": []},
-            {"task_names": ["x"], "screen_all": "yes"},
+        for body, error_type in (
+            ({}, "missing_field"),
+            ({"task_names": []}, "missing_field"),
+            ({"task_names": ["x"], "screen_all": "yes"}, "invalid"),
         ):
             rejected = client.post("/app/workflow/grids/start", headers=AUTH, json=body)
             assert rejected.status_code == 422, body
-            assert rejected.json()["detail"]["error_type"] == "missing_field"
+            assert rejected.json()["detail"]["error_type"] == error_type
