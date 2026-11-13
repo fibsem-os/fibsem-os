@@ -34,6 +34,7 @@ def confine_host(monkeypatch, tmp_path: Path) -> Path:
             port=port,
             discovery_path=path,
             serve_microscope=kwargs.get("serve_microscope", False),
+            agent=kwargs.get("agent", True),
         )
 
     monkeypatch.setattr(hosting, "AppServerHost", confined)
