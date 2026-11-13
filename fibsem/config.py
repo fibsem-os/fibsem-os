@@ -581,6 +581,7 @@ class ExperimentSummary:
 
     path: str  # path to the experiment.yaml file
     name: str
+    id: Optional[str] = None  # None when the file does not say
     app: Optional[str] = None  # the application that wrote it; None if unread
     created_at: Optional[datetime] = None  # None when the file does not say
     num_items: int = 0
@@ -624,6 +625,7 @@ def peek_experiment(experiment_yaml_path: str) -> ExperimentSummary:
         return ExperimentSummary(
             path=experiment_yaml_path,
             name=ddict.get("name") or fallback_name,
+            id=str(ddict["id"]) if ddict.get("id") else None,
             app=saved_app(ddict),
             created_at=to_datetime(ddict.get("created_at")),
             num_items=len(ddict.get("positions") or []),
