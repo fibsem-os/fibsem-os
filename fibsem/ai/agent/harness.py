@@ -869,8 +869,12 @@ class Harness:
         url: Optional[str] = None,
         after: Optional[str] = None,
         keep_cursor: Optional[Callable[[str], None]] = None,
+        keep_where: Optional[Callable[[dict], None]] = None,
     ) -> None:
         self._agent = agent
+        # Stores the instrument and experiment the App Server names in its
+        # answer to a report, in the session's own record.
+        self._keep_where = keep_where
         # The App Server's address when given (--url): a waiting line says
         # what to check there, such as an SSH tunnel.
         self._url = url
@@ -1191,6 +1195,8 @@ class Harness:
             return None
 
         reported = await asyncio.get_running_loop().run_in_executor(None, post)
+        if isinstance(reported, dict) and self._keep_where is not None:
+            self._keep_where(reported)
         if isinstance(reported, dict) and not ended:
             self._deadlines.set(reported.get("deadlines"))
         await self._send_transcript()
@@ -2265,6 +2271,7 @@ def main(argv=None) -> int:
         quiet_s=playbook.session.quiet_min * 60,
         after=record.get(sessions.EVENT_AFTER),
         keep_cursor=session.keep_event_cursor,
+        keep_where=session.keep_where,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,

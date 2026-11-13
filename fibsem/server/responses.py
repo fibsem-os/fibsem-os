@@ -348,6 +348,8 @@ class ExperimentRef:
     num_items: int
     # The sample, from the experiment's metadata ("" when nobody has named it).
     sample: str = ""
+    # The experiment's own id, which a rename or a move does not change.
+    id: str = ""
 
 
 @dataclass
