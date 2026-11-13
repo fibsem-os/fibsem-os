@@ -78,7 +78,7 @@ class GatewayRefused(Exception):
 
 
 @dataclass
-class Holder:
+class OtherHost:
     """An App Server the gateway didn't start."""
 
     pid: int
@@ -126,7 +126,7 @@ class GatewayState:
     """Whether the gateway is starting or stopping the app now."""
     switch: Optional[str] = None
     """Which: "starting" (a restart too) or "stopping"; None between switches."""
-    holder: Optional[Holder] = None
+    other_host: Optional[OtherHost] = None
     last_exit: Optional[LastExit] = None
     apps: List[GatewayApp] = field(default_factory=list)
     last_experiment: Optional[str] = None
@@ -367,7 +367,7 @@ class Gateway:
             state = replace(self._state)
             state.switch = self._switch
             state.switching = self._switch is not None
-        state.holder = self._holder()
+        state.other_host = self._other_host()
         facts = self._facts if self._facts is not None else self.refresh_facts()
         state.apps = [
             GatewayApp(key=key, name=app.name, headless=app.serve is not None)
@@ -426,14 +426,14 @@ class Gateway:
                 continue
         return History(switches=switches)
 
-    def _holder(self) -> Optional[Holder]:
+    def _other_host(self) -> Optional[OtherHost]:
         found = self._discovery()
         if found is None:
             return None
         pid = found.get("pid")
         with self._lock:
             ours = {self._state.pid, self._claimed}
-        return None if pid in ours else Holder(pid=pid, url=found["url"])
+        return None if pid in ours else OtherHost(pid=pid, url=found["url"])
 
     def _run_going(self) -> bool:
         found = self._discovery()
@@ -466,12 +466,12 @@ class Gateway:
         with self._take(who, via, RUNNING, app, experiment, window):
             if self._state.mode != OFF:
                 self._stop_current(force)
-            holder = self._holder()
-            if holder is not None:
+            other = self._other_host()
+            if other is not None:
                 raise GatewayRefused(
                     409,
                     "held",
-                    f"Another fibsem host (pid {holder.pid}) holds the microscope: "
+                    f"Another fibsem host (pid {other.pid}) has control of the microscope: "
                     "close it at the PC first.",
                 )
             self._start(app, chosen, window, experiment, last, connection, create)

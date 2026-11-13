@@ -163,8 +163,8 @@ def build_gateway_app(
 
     @app.get("/gateway", response_model=GatewayState)
     def get_gateway(found: Caller = Depends(caller)):
-        """Off or running, the app and its process, a holder the gateway
-        didn't start, and the last exit."""
+        """Off or running, the app and its process, another host the
+        gateway didn't start, and the last exit."""
         return gateway.state()
 
     @app.get("/gateway/history", response_model=History)
