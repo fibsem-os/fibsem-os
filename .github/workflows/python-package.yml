@@ -109,27 +109,27 @@ jobs:
 
   ui-tests:
     # The one job that installs the [ui] extra, and the only place the Qt tests
-    # are ever run: everything under tests/ui/, plus the files in tests/correlation/
-    # and tests/fm/ that use Qt.
+    # are ever run: everything under tests/ui/, plus the files elsewhere under
+    # tests/ that use Qt.
     #
     # Every file under tests/ui/ opens with `pytest.importorskip("qtpy.QtWidgets")`. The
     # matrix job above installs `.[test]` without it, so those files skip there and
     # its green says nothing about that directory; two pull requests each green alone
     # can break it together, and only a run with Qt installed catches that.
     #
-    # In tests/correlation/ and tests/fm/, only the files that name qtpy or PyQt5 run here,
-    # found at run time rather than listed, so a Qt test added there later is still
-    # picked up. Their other tests run in the matrix. No other file there imports
-    # fibsem.ui, qtpy, superqt or qtawesome.
+    # Outside tests/ui/, only the files that name qtpy or PyQt5 run here, found at run
+    # time rather than listed, so a Qt test added later is still picked up. Their
+    # other tests run in the matrix. Until FIB-1565 step 4 only tests/correlation/
+    # and tests/fm/ were searched, and the volume window never ran under Qt here.
     #
-    # Once per Qt binding: PyQt5, which ships today, and PySide6, which replaces it
-    # (FIB-1565). The code imports qtpy, and QT_API picks the binding.
+    # Once per Qt binding: PySide6, which [ui] installs, and PyQt5, kept as a
+    # fallback for one release (FIB-1565). The code imports qtpy; QT_API picks.
     strategy:
       fail-fast: false
       matrix:
-        qt: [pyqt5, pyside6]
-    # The PyQt5 leg keeps the plain name, which branch rules may require.
-    name: ${{ matrix.qt == 'pyqt5' && 'ui-tests' || 'ui-tests (pyside6)' }}
+        qt: [pyside6, pyqt5]
+    # The default binding's leg keeps the plain name, which branch rules may require.
+    name: ${{ matrix.qt == 'pyside6' && 'ui-tests' || 'ui-tests (pyqt5)' }}
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v7
@@ -157,9 +157,10 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        python -m pip install ".[test,ui]"
-        if [ "${{ matrix.qt }}" = "pyside6" ]; then
-          python -m pip install "PySide6>=6.8,<6.13"
+        if [ "${{ matrix.qt }}" = "pyqt5" ]; then
+          python -m pip install ".[test,ui,pyqt5]"
+        else
+          python -m pip install ".[test,ui]"
         fi
     - name: Fail if the UI extra did not actually install
       # A green job that skipped everything is the exact failure mode this job
@@ -182,9 +183,9 @@ jobs:
       # failure reproduces with `pytest <that shard's files>`, which the log prints.
       run: |
         set -euo pipefail
-        qt_files=$(grep -rlE --include='test_*.py' 'qtpy|PyQt5' tests/correlation tests/fm | sort)
+        qt_files=$(grep -rlE --include='test_*.py' --exclude-dir=ui 'qtpy|PyQt5' tests | sort)
         # Echoed so an empty or shrunken list is visible rather than silently green.
-        echo "Qt test files in tests/correlation and tests/fm: $(echo "$qt_files" | grep -c .)"
+        echo "Qt test files outside tests/ui: $(echo "$qt_files" | grep -c .)"
         files=$( (find tests/ui -name 'test_*.py'; echo "$qt_files") | grep . | sort)
         echo "Qt test files in all: $(echo "$files" | grep -c .)"
         shards=4
