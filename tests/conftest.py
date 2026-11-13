@@ -37,16 +37,20 @@ _MADE_UP_KINDS = frozenset(
 
 @pytest.fixture(autouse=True)
 def _every_event_kind_is_registered(monkeypatch):
-    """Fail a test that writes an event of a kind nobody registered."""
+    """Fail a test that writes an event of a kind nobody registered, or a
+    typed kind's payload with a field its type does not name."""
     from fibsem.workflows.events import EventBuffer
     from fibsem.workflows.events.kinds import KINDS
+    from fibsem.workflows.events.payloads import unknown_fields
 
     unregistered = []
+    untyped = set()
     append = EventBuffer.append
 
     def checked(self, kind, payload, actor=None):
         if kind not in KINDS and kind not in _MADE_UP_KINDS:
             unregistered.append(kind)
+        untyped.update(f"{kind}.{name}" for name in unknown_fields(kind, payload))
         return append(self, kind, payload, actor)
 
     monkeypatch.setattr(EventBuffer, "append", checked)
@@ -54,6 +58,10 @@ def _every_event_kind_is_registered(monkeypatch):
     assert not unregistered, (
         f"events of unregistered kinds {sorted(set(unregistered))}: add them to "
         "fibsem/workflows/events/kinds.py"
+    )
+    assert not untyped, (
+        f"payload fields no type names {sorted(untyped)}: add them to "
+        "fibsem/workflows/events/payloads.py"
     )
 
 
