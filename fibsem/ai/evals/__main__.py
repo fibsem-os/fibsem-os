@@ -203,6 +203,13 @@ def _parser() -> argparse.ArgumentParser:
     trace.add_argument("out", type=Path)
     trace.add_argument("--only", default=None, help="cases whose id contains this")
     trace.add_argument("--write", type=Path, default=None, help="a markdown file")
+    replay = sub.add_parser(
+        "replay",
+        help="a replay page beside each live repeat: its steps, images and the "
+        "simulator's true thickness",
+    )
+    replay.add_argument("out", type=Path)
+    replay.add_argument("--only", default=None, help="cases whose id contains this")
     serve = sub.add_parser(
         "serve",
         help="the review page on this computer: each run's results against the "
@@ -263,6 +270,12 @@ def main(argv=None) -> int:
         print(visual.compare_table(args.outs, args.cases))
         return 0
 
+    if args.command == "replay":
+        from fibsem.ai.evals import replay as replay_mod
+
+        for path in replay_mod.write_replays(args.out, args.only):
+            print(f"Wrote {path}")
+        return 0
     if args.command == "trace":
         text = trace_mod.trace_markdown(args.out, args.only)
         if args.write:
