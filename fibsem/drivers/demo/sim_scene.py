@@ -460,6 +460,10 @@ class SampleScene:
     # how fast FIB imaging wears the sample away, against ION_YIELD (0 = never):
     # every frame is a shallow mill over its field of view
     imaging_damage: float = 0.0
+    # how strongly a surface's fine texture shows: its roughness and the
+    # specks in it, which a focus score needs where nothing else is in view
+    # (1 = a frosted grid, 0 = smooth). On for a scene from the configuration
+    surface_grain: float = 0.0
     # focus is at the beam's eucentric height, give or take this (m): each
     # beam's own seeded error, which an autofocus takes out
     focus_fuzz: float = 15e-6
@@ -2134,6 +2138,7 @@ class SampleScene:
         "current_offset_scale",  # m, sigma of the per-current beam offset
         "beam_optics",  # focus, stigmation and current show in the image
         "imaging_damage",  # how fast FIB imaging wears the sample (1 = ice, 0 = never)
+        "surface_grain",  # how strongly a surface's fine texture shows (0 = smooth)
         "focus_fuzz",  # m, how far focus is from the eucentric height, at most
         "scan_rotation_at_start",  # {electron: deg, ion: deg} the beams boot at
         "fm_camera_mount",  # the mount transform the FM camera really has
@@ -2183,6 +2188,7 @@ class SampleScene:
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
         kwargs.setdefault("beam_optics", True)
         kwargs.setdefault("imaging_damage", 1.0)
+        kwargs.setdefault("surface_grain", 1.0)
         kwargs.setdefault("damage_current", DAMAGE_CURRENT)
         if kwargs.get("fm_camera_mount") is not None:
             mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
