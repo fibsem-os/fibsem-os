@@ -1,5 +1,6 @@
 """The registry of event kinds (fibsem.workflows.events.kinds)."""
 
+import ast
 import re
 from pathlib import Path
 
@@ -41,3 +42,44 @@ def test_the_events_page_has_every_group():
     listed = re.search(r"export const GROUPS = \[(.*?)\] as const", source, re.S)
     assert listed is not None
     assert re.findall(r'\["([a-z]+)",', listed.group(1)) == list(GROUPS)
+
+
+# The modules that read the record by kind.
+READERS = (
+    "fibsem/ai/agent/watch.py",
+    "fibsem/alerts/rules.py",
+    "fibsem/workflows/history_rows.py",
+    "fibsem/applications/autolamella/tools/event_tables.py",
+    "fibsem/applications/autolamella/tools/replay.py",
+)
+
+
+def _kind_literals(path):
+    """The string literals compared with an event's kind in *path*."""
+    tree = ast.parse((ROOT / path).read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare):
+            continue
+        sides = [node.left, *node.comparators]
+        if not any("kind" in ast.unparse(side).lower() for side in sides):
+            continue
+        for side in sides:
+            elements = (
+                side.elts
+                if isinstance(side, (ast.Tuple, ast.List, ast.Set))
+                else [side]
+            )
+            for element in elements:
+                if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                    yield element.lineno, element.value
+
+
+def test_readers_name_event_kinds_by_the_registry_s_constants():
+    # A renamed kind then breaks at import, not silently in one reader.
+    found = [
+        f"{path}:{line} {value!r}"
+        for path in READERS
+        for line, value in _kind_literals(path)
+        if value in KINDS
+    ]
+    assert not found, found
