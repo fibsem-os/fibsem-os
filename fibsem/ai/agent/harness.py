@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from fibsem import diagnostics
 from fibsem.ai.agent import (
     code_mode,
     instruments,
@@ -2028,6 +2029,7 @@ def playbook_configuration(name: str) -> dict:
 
 def main(argv=None) -> int:
     refuse("fibsem-agent")
+    diagnostics.install("fibsem-agent")
     parser = _parser()
     args = parser.parse_args(argv)
     if args.code and args.files:

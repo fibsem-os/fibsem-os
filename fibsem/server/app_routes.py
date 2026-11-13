@@ -17,6 +17,7 @@ import gzip
 import inspect
 import json
 import os
+import tempfile
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -153,6 +154,7 @@ from fibsem.server.responses import (
     Thickness,
     answer,
 )
+from fibsem.tools import bug_report
 from fibsem.util.timestamps import to_datetime
 from fibsem.workflows import evidence
 from fibsem.workflows.events.text import note_asked, with_text
@@ -802,6 +804,36 @@ def build_app_router(context: "AppContext") -> APIRouter:
         )
         _record_read(experiment, path, False)
         return JSONResponse(jsonable_encoder(answer), headers=cache)
+
+    @router.post(
+        "/report",
+        responses={200: {"content": {"application/zip": {}}}},
+        dependencies=[Depends(require_operator())],
+    )
+    def bug_report_bundle(body: Optional[Dict[str, Any]] = None):
+        # The operator's Report an Issue from the web page: the bundle is
+        # theirs to save and email. Nothing is sent, and no image data goes in.
+        body = body or {}
+        content = bug_report.BugReportContent(
+            title=str(body.get("title") or ""),
+            description=str(body.get("description") or ""),
+            include_screenshots=bool(body.get("screenshots")),
+            include_agent_log=bool(body.get("agent_log")),
+            system_context=bug_report.collect_system_context(),
+        )
+        experiment = context.experiment_path
+        with tempfile.TemporaryDirectory() as folder:
+            path = bug_report.build_bug_report_bundle(
+                content, str(experiment) if experiment else None, folder
+            )
+            name = os.path.basename(path)
+            with open(path, "rb") as f:
+                data = f.read()
+        return Response(
+            data,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
 
     @router.post(
         "/experiment/upload",

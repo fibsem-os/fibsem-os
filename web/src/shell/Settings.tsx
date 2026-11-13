@@ -3,14 +3,14 @@ import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Facts } from "@/components/ui/card";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { api, forgetToken } from "@/lib/api";
+import { api, download, forgetToken } from "@/lib/api";
 import { useAgentReleased } from "@/lib/experiment";
 import * as fmt from "@/lib/format";
 import { setNoticePrefs, systemNotices, useNoticePrefs } from "@/lib/notify";
 import type { Capabilities, NotificationSettings, Pairing, PairingRole } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const SECTIONS = { connections: "Connections", notifications: "Notifications", about: "About" } as const;
+const SECTIONS = { connections: "Connections", notifications: "Notifications", report: "Report an issue", about: "About" } as const;
 type Section = keyof typeof SECTIONS;
 
 function thisComputer(): string | null {
@@ -403,6 +403,55 @@ function Notifications() {
   );
 }
 
+/** A bug report bundle from the host, saved by this browser. Nothing is sent. */
+function Report() {
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [screenshots, setScreenshots] = useState(false);
+  const [agentLog, setAgentLog] = useState(false);
+  const agent = useAgentReleased();
+  const bundle = useMutation({
+    mutationFn: () =>
+      download("/app/report", { title, description, screenshots, agent_log: agentLog }, "bug-report-fibsem.zip"),
+  });
+  return (
+    <div className="flex max-w-md flex-col gap-3 text-[13px]">
+      <p className="m-0 text-muted-foreground">
+        Downloads a zip of the log, events, settings and error records from the instrument PC, with folder
+        locations, names and addresses removed. Email it to contact@fibsemos.org. Nothing is sent from here.
+      </p>
+      <input
+        className={FIELD}
+        placeholder="Short summary"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+      />
+      <textarea
+        className={cn(FIELD, "h-24 resize-y py-1.5")}
+        placeholder="What happened?"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+      />
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={screenshots} onChange={(e) => setScreenshots(e.target.checked)} />
+        Include screenshots (.png)
+      </label>
+      {agent && (
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={agentLog} onChange={(e) => setAgentLog(e.target.checked)} />
+          Include the latest agent session log
+        </label>
+      )}
+      <div className="flex items-center gap-3">
+        <Button disabled={bundle.isPending || !(title.trim() || description.trim())} onClick={() => bundle.mutate()}>
+          {bundle.isPending ? "Creating…" : "Download bundle"}
+        </Button>
+        {bundle.isError && <span className="text-destructive">{(bundle.error as Error).message}</span>}
+      </div>
+    </div>
+  );
+}
+
 function About() {
   const caps = useQuery({ queryKey: ["capabilities"], queryFn: () => api<Capabilities>("/capabilities") });
   return (
@@ -444,7 +493,7 @@ export function Settings({ open, onOpenChange }: { open: boolean; onOpenChange: 
             ))}
           </nav>
           <div className="min-w-0 flex-1 px-5 py-4">
-            {section === "connections" ? <Connections roles={agent ? ["operator", "agent"] : ["operator"]} /> : section === "notifications" ? <Notifications /> : <About />}
+            {section === "connections" ? <Connections roles={agent ? ["operator", "agent"] : ["operator"]} /> : section === "notifications" ? <Notifications /> : section === "report" ? <Report /> : <About />}
           </div>
         </div>
       </DialogContent>
