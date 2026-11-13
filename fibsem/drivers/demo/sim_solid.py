@@ -99,6 +99,7 @@ INSIDE = {
     VESICLE: (1.08, 0.95),
 }
 NOTHING = (0.1, 0.04)
+FLOOR = 1.3  # how much brighter a milled floor is than a cut face
 TILT = (0.5, 0.42)  # how strongly a slope changes the yield
 BAR_UNDER = (0.22, 0.12)  # how much a bar under thin ice adds
 BAR_DEPTH = 5.0  # the ice over which a bar fades
@@ -112,6 +113,9 @@ BRIGHTNESS = (118.0, 168.0)  # grey of plain flat ice
 RIM = (1.5, 1.2)  # how bright the rim round a milled edge is
 RIM_WIDTH = 1.1  # um
 CURTAIN = 0.28  # how strongly curtaining streaks a cut face
+BRIDGE = 0.6  # how far a coat reaches out over nothing, in its own thickness
+SAG = 0.25  # um it drops per um out
+CRACK_AT = 0.3  # um; the lamella thickness the damage shapes are sized for
 GROOVE = 0.08  # um; how deep curtaining grooves a cut
 CACHE_SIZE = 2  # views kept (one per beam)
 
@@ -415,6 +419,7 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     )
     gis = scene.gis_thickness * UM
     coat = np.full(shape, NONE, dtype=f32)
+    under = surface  # what the coat lies on
     if gis > 0:
         # the GIS lays a coat over everything, filling the fine detail in
         soft = max(gis, 0.3)
@@ -423,8 +428,20 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
         )
         coat = np.where(gone, NONE, np.maximum(surface, smooth) + gis).astype(f32)
         level = level + gis
+        # it grows in from the edge of a hole or a rip, and closes a small one
+        open_ = gone & ~beyond
+        if open_.any():
+            far, (iy, ix) = ndi.distance_transform_edt(
+                gone, sampling=(sy, sx), return_indices=True
+            )
+            bridged = open_ & (far < BRIDGE * gis)
+            # thinner and lower the further out it hangs
+            reach = np.clip(far / (BRIDGE * gis), 0, 1)
+            over = coat[iy, ix] - SAG * far
+            under = np.where(bridged, over - gis * (1 - 0.6 * reach), under)
+            coat = np.where(bridged, over, coat).astype(f32)
     return {
-        "coat": (surface, coat),
+        "coat": (under, coat),
         "particle": (p_lo, p_hi),
         "nucleus": (n_lo, n_hi),
         "organelle": (o_lo, o_hi),
@@ -478,6 +495,7 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
     for region in regions[len(done[0]) :]:
         cut = region.beam_cut
         pieces = getattr(region, "face", None)
+        floor = None
         if pieces is not None:
             # damage: shapes on the lamella's face, through its thickness
             a, b = sim_view._cut_range(scene, region, X, Y)
@@ -488,7 +506,9 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
         else:
             a, b = sim_view._cut_range(scene, region, X, Y, surface)
             # a pattern cuts only as deep as it was set to
-            a = np.maximum(a, np.minimum(surface, level - region.depth * UM))
+            stop = np.minimum(surface, level - region.depth * UM)
+            floor = stop > a
+            a = np.maximum(a, stop)
             if amp > 0 and cut is not None and abs(cut.k) > 0.05:
                 # curtaining grooves the cut: its edges wander, more further down
                 grow = GROOVE * amp / abs(cut.k)
@@ -506,6 +526,7 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
         hard = (grain[box] & hit[box]).any(axis=0)
         a = np.where(hit, a, 1.0)[box].astype(np.float32)
         b = np.where(hit, b, 0.0)[box].astype(np.float32)
+        floor = None if floor is None else (floor & hit)[box]
         outline = cut.polygon if cut is not None else region.points * UM
         edges = np.linalg.norm(np.roll(outline, -1, axis=0) - outline, axis=1)
         out.append(
@@ -518,6 +539,9 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
                 if pieces is not None
                 else float(np.clip(edges.min() / 9.0, 0.15, 1.0)),
                 "outline": outline,
+                # where it stopped at its depth: a floor, this wide
+                "floor": floor,
+                "span": float(edges.min()),
                 "view": None if cut is None else (cut.turn, cut.fs, cut.k),
                 "halo": region.halo * UM,
                 "rim": pieces is None,
@@ -740,6 +764,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
     z_up = np.where((surface > z_up) & (surface - z_up < dz), surface, z_up)
     open_to = np.full((height, width), np.nan, dtype=np.float32)
     across = np.zeros((height, width), dtype=np.float32)
+    span = np.zeros((height, width), dtype=np.float32)
 
     def over(cut):
         """The pixels a cut reaches, and what it removes above each."""
@@ -762,6 +787,12 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         # the face under a cut lies where the cut ends: its exact height
         z_face[where] = a[here]
         open_to[where] = b[here]
+        span[where] = 0.0
+        if cut["floor"] is not None:
+            floor = cut["floor"][
+                i[m] - cut["box"][0].start, cols[m] - cut["box"][1].start
+            ]
+            span[where] = np.where(floor[here], cut["span"], 0.0)
         opening[where] = cut["opening"]
         # a face shades by how squarely this beam looks at it
         mill = np.pi / 2
@@ -787,6 +818,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
             break
     wide = across > 0
     opening[wide] = np.clip(((open_to - z_face) * across)[wide] / 9.0, 0.15, 1.0)
+    span[~cut_above] = 0.0
     kind = np.zeros((height, width), dtype=np.uint8)
     kind[seen & ~above] = 1
     kind[seen & above & cut_above] = 2
@@ -818,6 +850,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
         "bead": at(col["bead"]),
         "cell_under": at(col["cell_under"]),
         "opening": opening,
+        "floor": span,
         "lean": lean,
         "view": (fs, kabs),
         "x": xw,
@@ -863,6 +896,13 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     # a cut face or a wall shows what it was cut from, darker further down
     depth = np.clip(hit["surface"] - z_hit, 0, None)
     inside = mat_in * (0.75 + 0.35 * hit["lean"]) * np.exp(-depth / 7.0)
+    # a pattern's floor is a surface like any other, darker the more sunk
+    span = hit["floor"]
+    floor = span > 0
+    sunk = 1 / (1 + (depth / np.where(floor, 0.5 * span, 1.0)) ** 2)
+    level = FLOOR * mat_in * np.clip(sunk, 0.2, 1.0)
+    inside = np.where(floor, level, inside)
+    opening = np.where(floor, 1.0, hit["opening"])
     removed, x = hit["removed"], hit["x"]
     amp = _curtaining(scene)
     if amp > 0 and removed:
@@ -874,8 +914,10 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
         weight = 1 + 1.5 * ndi.gaussian_filter1d(hard, max(1.0, 0.15 / pix))
         run = np.exp(-depth / (2.5 + 7.0 * np.abs(curtain(scene, x, 91.7))))
         streak = CURTAIN * amp * curtain(scene, x) * weight
+        # fainter on a floor, which the beam did not graze
+        run = np.where(floor, 0.3, run)
         inside = inside * np.clip(1 + streak * run, 0.25, 2.2)
-    shade[kind >= 2] = (inside * hit["opening"])[kind >= 2]
+    shade[kind >= 2] = (inside * opening)[kind >= 2]
     if removed:
         shade[top] *= (1 + RIM[which] * _rim(hit, pix))[top]
     # hollows are darker: fewer electrons reach the detector from a pit
@@ -947,12 +989,16 @@ def surface(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step=None):
     return np.where(mat == VOID, sim_view.VOID, z).astype(np.float32), mat
 
 
-def damage(scene, kind: str, severity: int, ends, slope: float, rng) -> list:
+def damage(
+    scene, kind: str, severity: int, ends, slope: float, rng, thickness: float = 0.3
+) -> list:
     """Damage to a thin lamella as shapes on its face, seen from above (world
     um): jagged bites out of its free edges, wandering cracks, or a torn hole
     with cracks running from it. `ends` are the world points of the two ends
     of the lamella's middle line on the plane z = 0; the lamella rises by
-    `slope` per um of y from there."""
+    `slope` per um of y from there. A thicker lamella (`thickness`, um)
+    breaks more coarsely: its cracks gape wider."""
+    gape = float(np.clip(thickness / CRACK_AT, 1.0, 3.0))
     (xa, ya), (xb, yb) = ends
     ts = np.arange(-60.0, 60.0, 0.05)
 
@@ -1003,14 +1049,14 @@ def damage(scene, kind: str, severity: int, ends, slope: float, rng) -> list:
                 heading = (0 if into > 0 else np.pi) + rng.normal(0, 0.5)
                 length = rng.uniform(1.0, 3.0) * severity
                 pieces += _crack(
-                    rng, x + skew, base + into * deep, heading, length, 0.08
+                    rng, x + skew, base + into * deep, heading, length, 0.08 * gape
                 )
     elif kind == "crack":
         for _ in range(severity):
             x = rng.uniform(x0 + 0.15 * width, x1 - 0.15 * width)
             f, b = span(x)
             length = rng.uniform(0.5, 0.95) * (b - f)
-            pieces += _crack(rng, x, f - 0.5, rng.normal(0, 0.25), length)
+            pieces += _crack(rng, x, f - 0.5, rng.normal(0, 0.25), length, 0.22 * gape)
     else:
         x = rng.uniform(x0 + 0.3 * width, x1 - 0.3 * width)
         f, b = span(x)
@@ -1034,7 +1080,7 @@ def damage(scene, kind: str, severity: int, ends, slope: float, rng) -> list:
                 d + size * np.cos(a),
                 a,
                 rng.uniform(2.0, 6.0),
-                0.12,
+                0.12 * gape,
             )
     # from along-the-lamella back to world y
     return [
