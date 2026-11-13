@@ -10,7 +10,6 @@ import fibsem.config as cfg
 from fibsem import utils
 from fibsem.drivers.demo import sim_optics
 from fibsem.drivers.demo.sim_optics import Optics
-from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.structures.settings import BeamType, ImageSettings, Point
 
 CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
@@ -19,9 +18,14 @@ CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "microscope-configuration.yaml")
 @pytest.fixture
 def microscope():
     microscope, _ = utils.setup_session(manufacturer="Demo", config_path=CONFIG)
-    scene = SampleScene(seed=3, noise_sigma=0.0, noise_fraction=0.0, charging=0.0)
-    scene.anchor(microscope.get_stage_position())
-    microscope._connection.sample_scene = scene
+    microscope.system.sim["sample"] = {
+        "enabled": True,
+        "seed": 3,
+        "noise_sigma": 0.0,
+        "noise_fraction": 0.0,
+        "charging": 0.0,
+    }
+    microscope._connection.setup_sample_scene()
     yield microscope
     microscope.disconnect()
 
@@ -42,7 +46,7 @@ def _detail(image: np.ndarray, axis=None) -> float:
 
 
 def _focus(microscope, beam_type, off=0.0) -> None:
-    focus = microscope._connection.scene_focus(beam_type)
+    focus = microscope._connection.scene_focus(beam_type, here=True)
     microscope.set_working_distance(focus + off, beam_type)
 
 
@@ -60,9 +64,11 @@ def test_the_demo_starts_near_focus_at_the_eucentric_height(microscope, beam_typ
 def test_a_working_distance_away_from_focus_blurs_the_image(microscope, beam_type):
     _focus(microscope, beam_type)
     sharp = _detail(_image(microscope, beam_type))
-    _focus(microscope, beam_type, 150e-6)
+    # the FIB's beam is the narrower, so it takes more to blur it
+    far = 1.0 if beam_type is BeamType.ELECTRON else 4.0
+    _focus(microscope, beam_type, far * 150e-6)
     soft = _detail(_image(microscope, beam_type))
-    _focus(microscope, beam_type, -600e-6)
+    _focus(microscope, beam_type, -far * 600e-6)
     softer = _detail(_image(microscope, beam_type))
     assert soft < 0.9 * sharp
     assert softer < 0.8 * soft
@@ -74,7 +80,7 @@ def test_autofocus_finds_the_focus(microscope):
     sharp = _detail(_image(microscope, beam_type))
     _focus(microscope, beam_type, 400e-6)
     microscope.auto_focus(beam_type)
-    focus = microscope._connection.scene_focus(beam_type)
+    focus = microscope._connection.scene_focus(beam_type, here=True)
     assert abs(microscope.get_working_distance(beam_type) - focus) <= 2e-6
     assert _detail(_image(microscope, beam_type)) > 0.97 * sharp
 
@@ -149,3 +155,72 @@ def test_a_sharp_beam_is_left_alone():
     stretched = sim_optics.blur(image, Optics(stigmation=(0.2, 0.0)), 0, 0.1)
     assert stretched.shape == image.shape
     assert stretched.mean() == pytest.approx(image.mean(), rel=0.02)
+
+
+def test_focus_follows_the_stage_height(microscope):
+    """A sample moved off the eucentric height is out of focus by as much
+    along the beam, and autofocus follows it there."""
+    beam_type = BeamType.ELECTRON
+    connection = microscope._connection
+    _focus(microscope, beam_type)
+    sharp = _detail(_image(microscope, beam_type))
+    before = connection.scene_focus(beam_type, here=True)
+    pose = microscope.get_stage_position()
+    pose.z += 300e-6
+    microscope.move_stage_absolute(pose)
+    after = connection.scene_focus(beam_type, here=True)
+    assert abs(after - before) >= 300e-6
+    assert _detail(_image(microscope, beam_type)) < 0.8 * sharp
+    microscope.auto_focus(beam_type)
+    assert abs(microscope.get_working_distance(beam_type) - after) <= 2e-6
+    assert _detail(_image(microscope, beam_type)) > 0.95 * sharp
+
+
+def test_a_tilted_view_is_sharpest_where_it_is_in_focus():
+    """Across a view the beam grazes, one edge is nearer than the other: with
+    the centre in focus the edges are soft, and a working distance set for an
+    edge sharpens that edge."""
+    rng = np.random.default_rng(1)
+    image = rng.random((300, 200)).astype(np.float32)
+    level = sim_optics.blur(image, Optics(), 0, 0.1)
+    assert level is image
+    tilted = sim_optics.blur(image, Optics(tilt=(0.0, 20.0)), 0, 0.1)
+    rows = np.abs(np.diff(tilted, axis=1)).mean(axis=1)
+    assert rows[140:160].mean() > 1.5 * rows[:20].mean()
+    assert rows[140:160].mean() > 1.5 * rows[-20:].mean()
+    # the top edge is 15 um * 20 = 300 um nearer: focus there
+    top = sim_optics.blur(image, Optics(defocus=300e-6, tilt=(0.0, 20.0)), 0, 0.1)
+    rows = np.abs(np.diff(top, axis=1)).mean(axis=1)
+    assert rows[:20].mean() > 1.5 * rows[140:160].mean()
+
+
+def test_a_longer_dwell_is_less_noise(microscope):
+    assert Optics(dwell=1e-6).dose(0) == 1.0
+    assert Optics(dwell=3e-6).dose(0) == pytest.approx(3.0)
+    usual, low, high = sim_optics.DWELL
+    assert usual == 1e-6 and Optics(dwell=1e-9).dose(0) == low
+    assert Optics(dwell=1e-3).dose(0) == high
+    scene = microscope._connection.sample_scene
+    scene.noise_sigma = 12.0
+    beam_type = BeamType.ION
+    _focus(microscope, beam_type)
+
+    def image(dwell):
+        settings = ImageSettings(
+            resolution=(512, 342),
+            hfw=150e-6,
+            dwell_time=dwell,
+            save=False,
+            beam_type=beam_type,
+        )
+        return microscope.acquire_image(image_settings=settings).data.astype(np.float32)
+
+    assert _detail(image(4e-6)) < 0.8 * _detail(image(0.5e-6))
+
+
+def test_a_scene_built_in_code_is_drawn_sharp_unless_it_asks():
+    from fibsem.drivers.demo.sim_scene import SampleScene
+
+    assert SampleScene().beam_optics is False
+    assert SampleScene.from_config({}).beam_optics is True
+    assert SampleScene.from_config({"beam_optics": False}).beam_optics is False

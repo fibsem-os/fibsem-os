@@ -756,8 +756,9 @@ class SampleScene:
     current_offset_scale: float = 0.0
     # the beams' settings show in the image: a working distance away from
     # focus and stigmation off zero blur it, and the current sets the probe
-    # size and the noise (see sim_optics). False draws every image sharp
-    beam_optics: bool = True
+    # size and the noise (see sim_optics). False draws every image sharp.
+    # On for a scene from the configuration; a scene built in code asks
+    beam_optics: bool = False
     # focus is at the beam's eucentric height, give or take this (m): each
     # beam's own seeded error, which an autofocus takes out
     focus_fuzz: float = 15e-6
@@ -2394,6 +2395,7 @@ class SampleScene:
         if unknown:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
+        kwargs.setdefault("beam_optics", True)
         for key in (
             "cells_per_cluster",
             "cell_size",
@@ -2507,7 +2509,7 @@ class SampleScene:
                 rng,
                 charge,
                 sim_solid.canvas if self.renderer == "solid" else None,
-                optics if self.beam_optics else None,
+                self._optics_here(optics, stage_position, projection, frame),
             )
 
         # where the world anchor appears in the CURRENT view. Asked this way
@@ -3294,6 +3296,36 @@ class SampleScene:
                 float(v) for v in rng.normal(0, self.current_offset_scale, size=2)
             )
         return self._current_offsets[key]
+
+    def focus_depth(
+        self, stage_position: FibsemStagePosition, projection: BeamStageProjection
+    ) -> float:
+        """How much further along the beam than the eucentric point the
+        sample is at the view's centre (m): a surface that sits low is further
+        away, more so the more the beam grazes it."""
+        reference = self.reference_position
+        if reference is None:
+            return 0.0
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        height = (reference.z or 0.0) - (stage_position.z or 0.0)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        return float(-height / fs)
+
+    def _optics_here(self, optics, stage_position, projection, frame):
+        """The beam's optics on this view of the sample: focus goes by how
+        far the surface is, at the centre and across a tilted view."""
+        if optics is None or not self.beam_optics:
+            return None
+        # down the unrotated view the surface runs away from the beam (or
+        # toward it), by the view's tilt
+        slope = float(np.copysign(np.sqrt(max(0.0, 1 - frame.fs**2)), frame.k))
+        slope /= max(frame.fs, MIN_FORESHORTENING)
+        return replace(
+            optics,
+            defocus=optics.defocus - self.focus_depth(stage_position, projection),
+            tilt=(slope * np.sin(frame.theta), -slope * np.cos(frame.theta)),
+        )
 
     def focus_offset(self, beam_type: BeamType) -> float:
         """How far the beam's focus is from its eucentric height (m): drawn

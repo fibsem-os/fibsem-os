@@ -494,6 +494,7 @@ class DemoSimulator:
                 - self.scene_focus(effective_beam_type),
                 stigmation=(float(stigmation.x), float(stigmation.y)),
                 current=current,
+                dwell=effective_image_settings.dwell_time,
             )
             image.data = self.sample_scene.render(
                 beam_type=effective_beam_type,
@@ -773,7 +774,8 @@ class DemoSimulator:
             self._warn_if_channel_moved(beam_type, "auto_focus")
             if self.sample_scene is not None and self.sample_scene.beam_optics:
                 # the sample has a true focus, and the routine finds it
-                new_wd = self.scene_focus(beam_type) + random.uniform(-2e-6, 2e-6)
+                new_wd = self.scene_focus(beam_type, here=True)
+                new_wd += random.uniform(-2e-6, 2e-6)
             else:
                 new_wd = wd + random.uniform(-100e-6, 100e-6)
             self.microscope.set_working_distance(new_wd, beam_type)
@@ -782,13 +784,25 @@ class DemoSimulator:
             self.microscope.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
 
-    def scene_focus(self, beam_type: BeamType) -> float:
+    def scene_focus(self, beam_type: BeamType, here: bool = False) -> float:
         """The working distance at which the sample scene is in focus (m):
-        the beam's eucentric height, off by the scene's own small error."""
+        the beam's eucentric height, off by the scene's own small error.
+        `here` is for the sample where the stage has it now, at the view's
+        centre, not at the eucentric point."""
         height = self.microscope._beam_config(
             "eucentric_height", beam_type
         ).eucentric_height
-        return float(height) + self.sample_scene.focus_offset(beam_type)
+        focus = float(height) + self.sample_scene.focus_offset(beam_type)
+        if here:
+            from fibsem.geometry.projection import BeamStageProjection
+
+            focus += self.sample_scene.focus_depth(
+                self.scene_stage_position(),
+                BeamStageProjection.from_microscope(
+                    self.microscope, beam_type=beam_type
+                ),
+            )
+        return focus
 
     def setup_sample_scene(self) -> None:
         """Opt-in synthetic-sample imaging, default off.
@@ -818,6 +832,15 @@ class DemoSimulator:
         self.sample_scene = SampleScene.from_config(
             {k: v for k, v in config.items() if k != "enabled"}
         )
+        if self.sample_scene.beam_optics:
+            # a session starts in focus on a sample at the eucentric height,
+            # near enough: the scene's own focus error is left for an autofocus
+            for beam_type in self.microscope.beams:
+                self.microscope.beams[beam_type].sim_beam.working_distance = float(
+                    self.microscope._beam_config(
+                        "eucentric_height", beam_type
+                    ).eucentric_height
+                )
         try:
             # anchor the world NOW, at the connect pose - so moving straight
             # to a saved position and acquiring shows that position's
@@ -1005,8 +1028,7 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         blanked=False,
         beam=BeamSettings(
             beam_type=BeamType.ELECTRON,
-            # in focus on a sample at the eucentric height
-            working_distance=system.electron.eucentric_height,
+            working_distance=4.0e-3,
             beam_current=100e-12,
             voltage=2000,
             hfw=150e-6,
@@ -1030,7 +1052,7 @@ def initial_demo_parts(system: SystemSettings) -> DemoParts:
         blanked=False,
         beam=BeamSettings(
             beam_type=BeamType.ION,
-            working_distance=system.ion.eucentric_height,
+            working_distance=16.5e-3,
             beam_current=20e-12,
             voltage=30000,
             hfw=150e-6,

@@ -116,14 +116,21 @@ The SEM and FIB images answer to the beam's settings, as the instrument's do
   (`focus_fuzz`). A working distance away from that blurs the image, more the further
   it is and more at a small field of view. The Demo starts at the eucentric height, and
   its autofocus finds the true focus.
+- **Sample height.** Focus is where the sample is. A stage moved in z, or a sample that
+  sits off the eucentric height (`coincidence_offset`), is that much nearer or further
+  along the beam, so it needs its own working distance: autofocus after the move. Across
+  a view the beam grazes, one edge is nearer than the other, so at a large field of view
+  the top and bottom are a little softer than the middle.
 - **Stigmation.** Off zero, the blur is stretched one way; through focus it turns to the
   other way, as astigmatism does. Zero is right.
 - **Beam current.** A higher current is a bigger probe, so a softer image with less
   noise; a lower one is sharper and noisier.
+- **Dwell time.** A longer dwell is less noise, a shorter one more, between half and
+  four times the counts of a 1 us dwell.
 - **Beam shift** moves the image, as it always has.
 
-Focus does not follow the stage height or the sample's own height, and voltage and
-dwell time do not change the noise.
+Voltage changes nothing, and the height of a cell or the depth of a trench is too
+little to change focus.
 
 ## Milling leaves marks
 
