@@ -35,6 +35,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.hub import Hub
+from fibsem.gateway.hub_agents import HubAgents
 from fibsem.server.operator_token import read_operator_token
 from fibsem.unreleased import refuse
 
@@ -131,6 +132,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     # Reads the instruments in this gateway's list, when it has one.
     hub = Hub()
     hub.start()
+    hub_agents = HubAgents(hub)
+    gateway.watchers.append(hub_agents.poll)
     # Set by the quit route; *again* starts a new one.
     stopping = threading.Event()
     again = threading.Event()
@@ -152,7 +155,14 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     server = Server(
         uvicorn.Config(
             build_gateway_app(
-                gateway, auth, agent, microscope, on_quit, on_show, hub=hub
+                gateway,
+                auth,
+                agent,
+                microscope,
+                on_quit,
+                on_show,
+                hub=hub,
+                hub_agents=hub_agents,
             ),
             host="127.0.0.1",
             port=port,

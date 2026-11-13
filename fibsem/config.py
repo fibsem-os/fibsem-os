@@ -319,6 +319,9 @@ class AppServerPreferences:
     # Allow an agent on this PC that asks to connect without the operator's
     # click (fibsem.server.connections). Off by default.
     allow_local_agents: bool = False
+    # The highest agent level a hub may set on this PC ("watch", "assist" or
+    # "drive"); None for no limit. A level above it is set at the PC.
+    hub_max_level: Optional[str] = None
 
 
 @dataclass

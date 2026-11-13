@@ -35,6 +35,7 @@ from fibsem.ai.agent.manager import (
     AgentSessionManager,
     read_json,
 )
+from fibsem.config import load_user_preferences
 from fibsem.gateway.gateway import RUNNING, Gateway, GatewayRefused
 from fibsem.gateway.host import call_host
 from fibsem.keystore import stored_secret
@@ -48,6 +49,8 @@ API_KEY = "ANTHROPIC_API_KEY"
 KEY_KEPT_S = 30.0
 # The agent's pairing, as the App Server's list of paired computers shows it.
 AGENT_NAME = "fibsem-agent (gateway)"
+# An agent a hub runs on its own PC, paired here for it (`GatewayAgent.lend`).
+HUB_AGENT_NAME = "fibsem-agent (hub)"
 SESSIONS_SHOWN = 5
 
 
@@ -93,6 +96,16 @@ def set_level(url: str, level: str) -> None:
         if refusal.error_type == "no_app":
             raise
         raise GatewayRefused(409, "level_refused", str(refusal)) from None
+
+
+def read_hub_max_level() -> Optional[AgentLevel]:
+    """The highest level a hub may set on this PC, from its preferences; None
+    for no limit, or a value that isn't a level."""
+    value = load_user_preferences().install.app_server.hub_max_level
+    try:
+        return AgentLevel(str(value).lower()) if value else None
+    except ValueError:
+        return None
 
 
 def answers(url: str) -> bool:
@@ -212,6 +225,7 @@ class GatewayAgent:
         stored: Callable[[str], Optional[str]] = stored_secret,
         platform: str = sys.platform,
         microscope: Optional[str] = None,
+        hub_max_level: Callable[[], Optional[AgentLevel]] = read_hub_max_level,
     ) -> None:
         self._gateway = gateway
         self._tokens = tokens
@@ -226,6 +240,7 @@ class GatewayAgent:
         # Whether there is a key, and when that was read (the page's state).
         self._key_seen: Optional[Tuple[float, bool]] = None
         self._platform = platform
+        self._hub_max_level = hub_max_level
         self.microscope = microscope or socket.gethostname()
         self._lock = threading.Lock()
         self._manager = AgentSessionManager(
@@ -425,9 +440,12 @@ class GatewayAgent:
         playbook: Optional[str],
         replace: bool,
         mode: Optional[str] = None,
+        own: str = AGENT_NAME,
     ) -> Tuple[str, str]:
         """Start's and Resume's checks, before anything is done: the level
-        and the App Server's url. *mode* is a resumed session's own."""
+        and the App Server's url. *mode* is a resumed session's own. *own* is
+        the pairing this start replaces without asking; for a hub's agent,
+        which runs on the hub's PC, this PC's key and playbooks are not read."""
         try:
             level = AgentLevel(str(level).lower()).value
         except ValueError:
@@ -447,7 +465,7 @@ class GatewayAgent:
             raise GatewayRefused(
                 409, "agent_running", "The agent is already running: end it first."
             )
-        if not self._api_key():
+        if own == AGENT_NAME and not self._api_key():
             raise GatewayRefused(
                 409,
                 "no_api_key",
@@ -462,7 +480,7 @@ class GatewayAgent:
                 "pick a playbook without code.",
             )
         paired = self._tokens.agent()
-        if paired is not None and paired.name != AGENT_NAME and not replace:
+        if paired is not None and paired.name != own and not replace:
             raise GatewayRefused(
                 409,
                 "agent_paired",
@@ -470,6 +488,69 @@ class GatewayAgent:
                 "Starting this agent disconnects it.",
             )
         return level, url
+
+    # -- a hub's agent, which runs on the hub's PC -----------------------------
+
+    def _hub_level(self, level: str, limited: bool = True) -> str:
+        """*level* as a hub may set it here: refused above this PC's limit
+        (`AppServerPreferences.hub_max_level`), when it has one. The operator
+        is not *limited*."""
+        try:
+            wanted = AgentLevel(str(level).lower())
+        except ValueError:
+            names = ", ".join(lvl.value for lvl in AgentLevel)
+            raise GatewayRefused(422, "bad_level", f"The level is one of {names}.")
+        limit = self._hub_max_level() if limited else None
+        order = list(AgentLevel)
+        if limit is not None and order.index(wanted) > order.index(limit):
+            raise GatewayRefused(
+                403,
+                "level_above_limit",
+                f"This PC lets a hub set the level up to {limit.value}: "
+                f"set {wanted.value} at the PC.",
+            )
+        return wanted.value
+
+    def lend(self, level: str, who: str, replace: bool = False) -> Dict[str, str]:
+        """Pair an agent the hub *who* runs on its own PC, and set the level:
+        ``{token, level}``. Checks as Start does; the token replaces any agent
+        paired before. Raises `GatewayRefused`."""
+        with self._lock:
+            level = self._hub_level(level)
+            level, url = self._ready(level, None, replace, own=HUB_AGENT_NAME)
+            _, token = self._tokens.add(HUB_AGENT_NAME, role=AGENT)
+            try:
+                self._level(url, level)
+            except GatewayRefused:
+                self._unpair(HUB_AGENT_NAME)
+                raise
+            logging.info("Gateway paired the agent of hub %s (%s)", who, level)
+            return {"token": token, "level": level}
+
+    def take_back(self, who: str) -> None:
+        """Unpair the hub's agent and put the level back to Watch."""
+        with self._lock:
+            paired = self._tokens.agent()
+            if paired is None or paired.name != HUB_AGENT_NAME:
+                return
+            self._unpair(HUB_AGENT_NAME)
+            url = self._url()
+            if url is not None:
+                try:
+                    self._level(url, AgentLevel.WATCH.value)
+                except GatewayRefused:
+                    pass
+            logging.info("Gateway unpaired the agent of hub %s", who)
+
+    def hub_level(self, level: str, who: str, limited: bool = True) -> Dict[str, str]:
+        """Set the level for *who*: a hub within this PC's limit."""
+        level = self._hub_level(level, limited)
+        url = self._url()
+        if url is None:
+            raise GatewayRefused(409, "no_app", "Run the app first.")
+        self._level(url, level)
+        logging.info("%s set the agent's level to %s", who, level)
+        return {"level": level}
 
     def end(
         self,
@@ -537,9 +618,9 @@ class GatewayAgent:
             env[API_KEY] = key
         return env
 
-    def _unpair(self) -> None:
+    def _unpair(self, name: str = AGENT_NAME) -> None:
         paired = self._tokens.agent()
-        if paired is not None and paired.name == AGENT_NAME:
+        if paired is not None and paired.name == name:
             self._tokens.remove(paired.id)
 
     def _undo(self, url: str) -> None:

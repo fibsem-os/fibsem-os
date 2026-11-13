@@ -36,6 +36,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.gateway.hub import Hub, HubState
+from fibsem.gateway.hub_agents import HubAgents
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
@@ -120,6 +121,7 @@ def build_gateway_app(
     on_quit: Optional[Callable[[bool], None]] = None,
     on_show: Optional[Callable[[], bool]] = None,
     hub: Optional[Hub] = None,
+    hub_agents: Optional[HubAgents] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
     refuse_invalid_requests(app)
@@ -397,6 +399,96 @@ def build_gateway_app(
             if not code:
                 raise _refused(422, "no_code", "Give the code its gateway shows.")
             return _act(found, {}, lambda force, via: hub.pair(name, code))
+
+    if hub is not None and hub_agents is not None:
+
+        @app.post("/hub/instruments/{name}/agent/start", response_model=HubState)
+        def start_hub_agent(
+            name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)
+        ):
+            """``{playbook, goal, level, budget_usd, replace}``: pair an agent
+            at the instrument's gateway and start it on this PC."""
+            budget = body.get("budget_usd")
+            try:
+                budget = float(budget) if budget not in (None, "") else None
+            except (TypeError, ValueError):
+                raise _refused(422, "bad_budget", "The budget is a number of dollars.")
+            if budget is not None and budget <= 0:
+                raise _refused(422, "bad_budget", "The budget is above $0.")
+
+            def act(force, via):
+                hub_agents.start(
+                    name,
+                    str(body.get("playbook") or DEFAULT_PLAYBOOK),
+                    str(body.get("goal") or "").strip() or None,
+                    str(body.get("level") or "watch"),
+                    who=found.who,
+                    budget_usd=budget,
+                    replace=bool(body.get("replace", False)),
+                )
+                return hub.state()
+
+            return _act(found, {}, act)
+
+        @app.post("/hub/instruments/{name}/agent/end", response_model=HubState)
+        def end_hub_agent(name: str, found: Caller = Depends(hub_operator)):
+            """End the agent this hub runs for the instrument, and unpair it."""
+
+            def act(force, via):
+                hub_agents.end(name, found.who)
+                return hub.state()
+
+            return _act(found, {}, act)
+
+        @app.put("/hub/instruments/{name}/level")
+        def set_instrument_level(
+            name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)
+        ) -> dict:
+            """``{level}``: set the agent's level at the instrument, which may
+            refuse one above its own limit."""
+            return _act(
+                found,
+                {},
+                lambda force, via: hub_agents.level(name, str(body.get("level") or "")),
+            )
+
+    if agent is not None:
+
+        @app.post("/gateway/agent/token")
+        def lend_agent(body: Dict[str, Any], found: Caller = Depends(switcher)) -> dict:
+            """``{level, replace}``: pair an agent the hub runs on its own PC
+            and set the level; ``{token, level}``. A hub only."""
+            if found.operator:
+                raise _refused(403, "hub_only", "Only a hub pairs its own agent.")
+            return _act(
+                found,
+                {},
+                lambda force, via: agent.lend(
+                    str(body.get("level") or "watch"),
+                    found.who,
+                    bool(body.get("replace", False)),
+                ),
+            )
+
+        @app.delete("/gateway/agent/token")
+        def take_back_agent(found: Caller = Depends(switcher)) -> dict:
+            """Unpair the hub's agent; the level goes back to Watch."""
+            agent.take_back(found.who)
+            return {"paired": False}
+
+        @app.put("/gateway/agent/level")
+        def set_agent_level(
+            body: Dict[str, Any], found: Caller = Depends(switcher)
+        ) -> dict:
+            """``{level}``: set the agent's level, up to this PC's limit for a
+            hub."""
+            return _act(
+                found,
+                {},
+                lambda force, via: agent.hub_level(
+                    str(body.get("level") or ""), found.who, not found.operator
+                ),
+            )
 
     if on_quit is not None:
 

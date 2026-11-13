@@ -20,7 +20,7 @@ import socket
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
@@ -51,6 +51,8 @@ CHECK_EVERY_S = 5.0
 # One instrument's read: a PC that is off answers nothing, and the others
 # are read beside it, not after it.
 TIMEOUT_S = 3.0
+# A call that acts there (pairing an agent, setting the level).
+CALL_TIMEOUT_S = 15.0
 MAX_INSTRUMENTS = 32
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$")
 # What the hub keeps of an instrument's ``GET /gateway``.
@@ -92,6 +94,8 @@ class InstrumentState:
     """Off or running, the app and its experiment, the gateway's version."""
     agent: Optional[Dict[str, Any]] = None
     """The agent running there, if one is."""
+    session: Optional[Dict[str, Any]] = None
+    """The agent this hub runs for it on this PC, if it does."""
 
 
 @dataclass
@@ -102,15 +106,22 @@ class HubState:
 
 
 def _fetch(
-    url: str, route: str, token: Optional[str], timeout: float
+    url: str,
+    route: str,
+    token: Optional[str],
+    timeout: float,
+    method: str = "GET",
+    body: Optional[dict] = None,
 ) -> Tuple[int, Any]:
-    """``GET route`` at *url*: its status and JSON answer. A gateway that
+    """``method route`` at *url*: its status and JSON answer. A gateway that
     doesn't answer raises ``OSError``."""
     import httpx
 
     try:
-        response = httpx.get(
+        response = httpx.request(
+            method,
             f"{url}{route}",
+            json=body,
             headers={"Authorization": f"Bearer {token}"} if token else {},
             timeout=timeout,
         )
@@ -154,7 +165,7 @@ class Hub:
         self,
         file: Optional[Path] = None,
         tokens: Optional[Path] = None,
-        fetch: Callable[[str, str, Optional[str], float], Tuple[int, Any]] = _fetch,
+        fetch: Callable[..., Tuple[int, Any]] = _fetch,
         pair: Callable[[str, str, str], Tuple[str, str]] = _pair,
         clock: Callable[[], float] = time.time,
         every_s: float = CHECK_EVERY_S,
@@ -171,6 +182,8 @@ class Hub:
         self._read: Dict[str, InstrumentState] = {}
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        # The agent this hub runs for an instrument (`HubAgents.session`).
+        self.session: Callable[[str], Optional[Dict[str, Any]]] = lambda name: None
 
     # -- the list ------------------------------------------------------------
 
@@ -193,7 +206,8 @@ class Hub:
                 found.append(Instrument(name, url, ssh))
         return found[:MAX_INSTRUMENTS]
 
-    def _instrument(self, name: str) -> Instrument:
+    def instrument(self, name: str) -> Instrument:
+        """The instrument named *name*, or `GatewayRefused`."""
         for instrument in self.instruments():
             if instrument.name == name:
                 return instrument
@@ -261,7 +275,7 @@ class Hub:
 
     def remove(self, name: str) -> HubState:
         """Take *name* off the list, and drop this hub's token for it."""
-        self._instrument(name)
+        self.instrument(name)
         self._write([i for i in self.instruments() if i.name != name])
         try:
             self._token_file(name).unlink()
@@ -287,7 +301,7 @@ class Hub:
     def pair(self, name: str, code: str) -> HubState:
         """Pair this hub with *name*'s gateway using the *code* it shows, and
         keep the token."""
-        instrument = self._instrument(name)
+        instrument = self.instrument(name)
         try:
             token, role = self._pair(
                 self.reach(instrument), str(code).strip(), socket.gethostname()
@@ -355,6 +369,42 @@ class Hub:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 write_atomic(path, json.dumps(kept, indent=2))
         return tunnel
+
+    def call(
+        self, name: str, method: str, route: str, body: Optional[dict] = None
+    ) -> Any:
+        """``method route`` on *name*'s gateway as this hub: its answer, or
+        its refusal in its own words as a `GatewayRefused`."""
+        instrument = self.instrument(name)
+        token = self.token(name)
+        if token is None:
+            raise GatewayRefused(
+                409, "not_paired", f"Pair this hub with {name}'s gateway first."
+            )
+        try:
+            status, answer = self._fetch(
+                self.reach(instrument), route, token, CALL_TIMEOUT_S, method, body
+            )
+        except OSError as error:
+            raise GatewayRefused(
+                503, "unreachable", f"{name}'s gateway didn't answer: {error}"
+            ) from None
+        if 200 <= status < 300:
+            return answer
+        try:
+            detail = answer["detail"]
+            raise GatewayRefused(status, detail["error_type"], detail["message"])
+        except (KeyError, TypeError):
+            raise GatewayRefused(
+                status, "refused", f"{name}'s gateway answered {status}."
+            ) from None
+
+    def answers(self, url: str) -> bool:
+        """Whether the server at *url* answers its ``/health``."""
+        try:
+            return self._fetch(url, "/health", None, TIMEOUT_S)[0] == 200
+        except OSError:
+            return False
 
     def _tunnel(self, instrument: Instrument) -> Optional[Dict[str, Any]]:
         tunnel = self._tunnels.get(instrument.name) if instrument.ssh else None
@@ -451,6 +501,7 @@ class Hub:
             )
             for i in instruments
         ]
+        rows = [replace(row, session=self.session(row.name)) for row in rows]
         return HubState(hub=bool(instruments), instruments=rows)
 
     # -- the background read -----------------------------------------------------

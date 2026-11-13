@@ -41,11 +41,11 @@ class Instruments:
         self.client = TestClient(build_gateway_app(FakeGateway(), self.auth))
         self.up = {URL}
 
-    def fetch(self, url, route, token, timeout):
+    def fetch(self, url, route, token, timeout, method="GET", body=None):
         if url not in self.up:
             raise OSError("connection refused")
         headers = {"Authorization": f"Bearer {token}"} if token else {}
-        response = self.client.get(route, headers=headers)
+        response = self.client.request(method, route, json=body, headers=headers)
         return response.status_code, response.json()
 
     def pair(self, url, code, name):
