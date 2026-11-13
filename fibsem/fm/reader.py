@@ -418,9 +418,20 @@ def assumed_geometry(microscope):
 
 
 def assumed_pose(microscope):
-    """The stage rotation and tilt an imported image is taken at: the FM
-    orientation when the system has one, else the SEM's."""
-    for name in ("FM", "SEM"):
+    """The stage rotation and tilt an imported image is taken at, matching
+    `assumed_geometry`: with an FM camera, the pose the FM images from -- its own
+    orientation where the stage re-poses for it, else the first its device names
+    (an offset FM beside the FIB images in the FIB pose); without one, the SEM's."""
+    try:
+        return microscope.get_orientation("FM")
+    except ValueError:
+        pass
+    try:
+        microscope.fm_image_geometry()
+        orientations = microscope.system.stage.devices["FM"].available_orientations
+    except (ValueError, AttributeError, KeyError):
+        orientations = None
+    for name in [*(orientations or [])[:1], "SEM"]:
         try:
             return microscope.get_orientation(name)
         except ValueError:
