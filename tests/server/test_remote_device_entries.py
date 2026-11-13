@@ -8,7 +8,6 @@ leaves the device out with a warning, or fails connect when the entry is require
 """
 
 import logging
-import socket
 
 import pytest
 import yaml
@@ -33,6 +32,7 @@ from fibsem.server.devices import (
 )
 from fibsem.structures.settings import BeamType
 from fibsem.structures.system import DeviceEntry
+from tests.waiting import free_port
 
 
 @pytest.fixture
@@ -40,12 +40,6 @@ def server():
     server = DeviceServer([*demo_devices(), *bind_demo_fm().values()]).start()
     yield server
     server.stop()
-
-
-def _free_port():
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 def _build(*entries, microscope=None):
@@ -110,7 +104,7 @@ def test_a_device_the_server_does_not_have_is_left_out(server, caplog):
 
 
 def test_a_server_that_does_not_answer_leaves_its_devices_out(caplog):
-    at = {"driver": "remote", "address": "127.0.0.1", "port": _free_port()}
+    at = {"driver": "remote", "address": "127.0.0.1", "port": free_port()}
     with caplog.at_level(logging.WARNING):
         built = _build(
             {"name": "electron", "required": False, **at},
@@ -122,7 +116,7 @@ def test_a_server_that_does_not_answer_leaves_its_devices_out(caplog):
 
 
 def test_a_configured_device_on_a_server_that_does_not_answer_fails_connect():
-    at = {"driver": "remote", "address": "127.0.0.1", "port": _free_port()}
+    at = {"driver": "remote", "address": "127.0.0.1", "port": free_port()}
     with pytest.raises(DeviceBuildError, match="'electron' was not built"):
         _build({"name": "electron", **at})
 

@@ -46,6 +46,7 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.status import HoldKind
 from tests.fixtures.main_window import main_window
 from tests.run_state import Stopped
+from tests.waiting import qt_wait_for
 
 ROUGH = "Rough Milling"
 MSG = "Mill the lamella."
@@ -148,27 +149,19 @@ def _start(ui, qapp, config=None, milling_enabled=True, wait_for=FIRST):
 
 
 def _wait_for_prompt(ui, qapp, text, timeout_s=10.0):
-    _wait(
-        qapp,
+    assert qt_wait_for(
         lambda: (
             ui.panel.prompt_bar.message.text() == text
             and ui.panel.prompt_bar.yes.isEnabled()
         ),
-        timeout_s,
-        f"the prompt {text!r} never appeared",
-    )
-
-
-def _wait(qapp, ready, timeout_s=10.0, why="timed out"):
-    deadline = time.monotonic() + timeout_s
-    while not ready():
-        assert time.monotonic() < deadline, why
-        qapp.processEvents()
-        time.sleep(0.01)
+        timeout=timeout_s,
+    ), f"the prompt {text!r} never appeared"
 
 
 def _finish(thread, qapp, timeout_s=10.0):
-    _wait(qapp, lambda: not thread.is_alive(), timeout_s, "the asker never returned")
+    assert qt_wait_for(lambda: not thread.is_alive(), timeout=timeout_s), (
+        "the asker never returned"
+    )
     thread.join(timeout=1.0)
 
 
@@ -223,7 +216,7 @@ def test_mill_again_runs_a_second_pass(ui, qapp):
     ui.panel.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN)
     ui.panel.prompt_bar.yes.click()  # Mill Again
-    _wait(qapp, lambda: len(ui._mills) == 2)
+    assert qt_wait_for(lambda: len(ui._mills) == 2)
     _wait_for_prompt(ui, qapp, AGAIN)
     assert _pass(ui).provenance["passes"] == 2
     ui.panel.prompt_bar.no.click()
@@ -372,12 +365,11 @@ def test_an_agents_edit_lands_in_the_editor_and_asks_again(ui, qapp):
         ),
     )
     assert result.applied, result.reason
-    _wait(
-        qapp,
+    assert qt_wait_for(
         lambda: (
             ui.proposals._loop_proposal
             and ui.proposals._loop_proposal[2].id != asked.id
-        ),
+        )
     )
     assert ui._mills == []
     shown = ui.panel.milling_task_config_widget.get_config()
@@ -531,7 +523,7 @@ def test_a_mill_run_by_hand_is_not_the_task_s(ui, qapp, monkeypatch):
     monkeypatch.setattr(Milling, "run_task", by_hand)
     widget = ui.ui_responder._milling_widget().milling_widget
     widget.run_milling(_config("by-hand"))
-    _wait(qapp, lambda: runs and not widget.is_milling)
+    assert qt_wait_for(lambda: runs and not widget.is_milling)
     _settle(qapp, 0.1)  # its finished signal, before the window goes
 
     assert runs == [(None, None)]
