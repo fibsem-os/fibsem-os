@@ -107,7 +107,7 @@ app or has restarted.
 - **If the app restarts,** the agent waits for it and resumes the same session. That's at
   most 3 times an hour after the app restarts, and once an hour after a crash. The gateway
   sets the Start level again each time, because the app starts at Watch.
-- **End** stops the agent and keeps the app.
+- **End** asks first, then stops the agent and keeps the app.
 - **Stopping the app** from the gateway (Stop, a new start, or Quit) ends the agent first.
 
 The page has **End** while one runs. A hub with "may start and stop apps" can start and

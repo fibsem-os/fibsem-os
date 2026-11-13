@@ -3,6 +3,7 @@ import { Loader } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle, Facts } from "@/components/ui/card";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -444,10 +445,12 @@ function Run({ running }: { running: Running }) {
     enabled: running.state === "running",
     retry: false,
   });
+  const [confirm, setConfirm] = useState(false);
   const end = useMutation({
     mutationFn: () =>
       api<AgentState>("/gateway/agent/end", { method: "POST", body: "{}" }),
     onSuccess: (answer) => {
+      setConfirm(false);
       client.setQueryData(["gateway/agent"], answer);
       client.invalidateQueries({ queryKey: ["gateway"] });
     },
@@ -496,7 +499,6 @@ function Run({ running }: { running: Running }) {
       <div className="flex flex-wrap items-center justify-end gap-2.5">
         {page.data && (
           <Button
-            variant="primary"
             onClick={() => window.open(page.data.url, "_blank", "noopener")}
           >
             Open the Agent page
@@ -505,11 +507,45 @@ function Run({ running }: { running: Running }) {
         <Button
           variant="danger"
           disabled={end.isPending}
-          onClick={() => end.mutate()}
+          onClick={() => setConfirm(true)}
         >
           {end.isPending ? "Ending…" : "End"}
         </Button>
       </div>
+      <Dialog
+        open={confirm}
+        onOpenChange={(open) => {
+          setConfirm(open);
+          if (!open) end.reset();
+        }}
+      >
+        <DialogContent
+          title="End the agent?"
+          className="w-[min(460px,calc(100vw-32px))]"
+        >
+          <div className="flex flex-col gap-2 px-4 py-3.5 text-[13px]">
+            <p className="m-0">
+              The agent stops now. The app keeps running, and the session
+              stays in History.
+            </p>
+            {end.error && (
+              <p className="m-0 text-destructive">
+                {(end.error as Error).message}
+              </p>
+            )}
+            <div className="flex justify-end gap-2.5 pt-2">
+              <Button onClick={() => setConfirm(false)}>Cancel</Button>
+              <Button
+                variant="danger"
+                disabled={end.isPending}
+                onClick={() => end.mutate()}
+              >
+                {end.isPending ? "Ending…" : "End the agent"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
