@@ -46,6 +46,7 @@ fibsem is installed, without the [mcp] extra.
 import argparse
 import sys
 import time
+from urllib.parse import quote
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
@@ -171,12 +172,14 @@ def report_read(client, ids) -> None:
         pass
 
 
-def _poll(client, since, timeout):
-    """One long-poll: (payload, None), or (None, why it failed)."""
+def _poll(client, since, timeout, after=None):
+    """One long-poll: (payload, None), or (None, why it failed). *after* is an
+    event id, in place of *since*."""
+    cursor = f"after={quote(after)}" if after else f"since={since}"
     try:
         response = client.request(
             "GET",
-            f"/app/events?since={since}&timeout={timeout}",
+            f"/app/events?{cursor}&timeout={timeout}",
             timeout=timeout + 10.0,
         )
     except (OSError, ValueError) as error:
@@ -728,12 +731,15 @@ def watch(
     quiet_s=QUIET_S,
     report_reads=True,
     on_seeded=None,
+    after=None,
 ):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
 
     ``since`` resumes after that event seq, so a watch restarted after the
     last one returned misses nothing in between; None starts at the tail.
+    ``after`` resumes after that event id instead, across an app restart too:
+    a ``GAP`` line first when the server no longer has all of what followed.
 
     ``client`` is httpx-style (``request(method, path, timeout=...)``), in
     practice a `Transport`: a 401 or a refused connection re-reads the
@@ -771,12 +777,12 @@ def watch(
     # Seed the cursor at the tail: the buffer outlives workflows, so starting at
     # 0 would replay history -- stale PROPOSAL lines, and a previous workflow's
     # end reported as news.
-    snapshot, failure = _poll(client, since=0, timeout=0.0)
+    snapshot, failure = _poll(client, since=0, timeout=0.0, after=after)
     if failure == AGENT_OFF:
         out(AGENT_OFF_LINE)
         while failure == AGENT_OFF:
             sleep_fn(RETRY_DELAY_S)
-            snapshot, failure = _poll(client, since=0, timeout=0.0)
+            snapshot, failure = _poll(client, since=0, timeout=0.0, after=after)
         if failure is None:
             seeded(snapshot)
             out(AGENT_BACK_LINE)
@@ -802,9 +808,15 @@ def watch(
     stream = snapshot.get("stream")
     # Started at the tail, a proposal asked before this watch began is behind
     # the cursor: said below, first, while a run is live.
-    held_before = since is None
+    held_before = since is None and after is None
     marked = {}
-    if since is None:
+    if after is not None:
+        # Everything after it is news, from whichever stream it was in.
+        if not snapshot.get("resumed"):
+            out(GAP_LINE)
+        _print_events(snapshot.get("events", []), 0, out, marked)
+        since = snapshot.get("latest_seq") or 0
+    elif since is None:
         since = snapshot.get("latest_seq") or 0
     elif (snapshot.get("latest_seq") or 0) < since:
         # Resumed with a seq from before the app restarted.
@@ -941,6 +953,12 @@ def main(argv=None):
         help="Print events after this seq (default: only new ones)",
     )
     parser.add_argument(
+        "--after",
+        default=None,
+        metavar="ID",
+        help="Print events after this event id, across an app restart too",
+    )
+    parser.add_argument(
         "--quiet-after",
         type=float,
         default=QUIET_S / 60,
@@ -962,7 +980,12 @@ def main(argv=None):
         _print_line(f"NO SERVER: {_NO_SERVER_MSG}")
         return 1
     try:
-        return watch(client, since=args.since, quiet_s=args.quiet_after * 60)
+        return watch(
+            client,
+            since=args.since,
+            quiet_s=args.quiet_after * 60,
+            after=args.after,
+        )
     except KeyboardInterrupt:
         return 1
     finally:
