@@ -994,6 +994,14 @@ class Harness:
     def _put(self, watcher, item) -> None:
         """An item for the next turn, on the loop; an urgent line from the
         current watch cuts the turn going on short."""
+        if isinstance(item, _Cursor) and self._items.empty():
+            # Its lines come before it and have all been taken, by the turn
+            # going on or an earlier one: it is that turn's to keep. Queued, it
+            # would wait for the next turn, and a stop before then would give
+            # those lines again on a resume.
+            if watcher is self._watcher:
+                self._cursor_given = item.event_id
+            return
         self._items.put_nowait((watcher, item))
         if watcher is self._watcher and is_urgent(item):
             self._urgent.set()
