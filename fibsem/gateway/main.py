@@ -26,6 +26,7 @@ from typing import Callable, List, Optional, Sequence
 
 from fibsem import diagnostics
 from fibsem.gateway.agent import GatewayAgent
+from fibsem.gateway.copies import Copies
 from fibsem.gateway.gateway import (
     GATEWAY_FILE,
     GATEWAY_PORT,
@@ -127,6 +128,8 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
     auth = GatewayAuth.from_disk()
     agent = GatewayAgent(gateway, auth.pairing.tokens)
     microscope = HostMicroscope()
+    copies = Copies(gateway.run_going)
+    gateway.watchers.append(copies.poll)
     # Set by the quit route; *again* starts a new one.
     stopping = threading.Event()
     again = threading.Event()
@@ -147,7 +150,9 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
 
     server = Server(
         uvicorn.Config(
-            build_gateway_app(gateway, auth, agent, microscope, on_quit, on_show),
+            build_gateway_app(
+                gateway, auth, agent, microscope, on_quit, on_show, copies=copies
+            ),
             host="127.0.0.1",
             port=port,
             log_level="warning",
@@ -186,6 +191,7 @@ def run(port: int, window: bool, connection: List[str], minimised: bool = False)
         # A restart leaves the app running for the next gateway to take back.
         if not again.is_set():
             quit_gateway(gateway)
+        copies.stop()
         gateway.close()
         server.should_exit = True
         GATEWAY_FILE.unlink(missing_ok=True)
