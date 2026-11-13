@@ -467,10 +467,21 @@ def polishing(client: LiveClient, work: Path) -> Dict[str, Any]:
     }
 
 
+def coincidence_milling(client: LiveClient, work: Path) -> Dict[str, Any]:
+    """The polishing baseline with no FM: it polishes the lamella where it
+    was placed and never looks for the cilium, so it says the cilium is kept
+    on trust. On a lamella placed off the cilium it should lose it."""
+    answer = polishing(client, work)
+    answer["cilium_kept"] = True
+    answer["reason"] += "; the cilium was not checked (no FM in this baseline)"
+    return answer
+
+
 AGENTS: Dict[str, Callable[[LiveClient, Path], Dict[str, Any]]] = {
     "live_site_selection": site_selection,
     "live_coincidence_correction": coincidence,
     "live_polishing": polishing,
+    "live_coincidence_milling": coincidence_milling,
 }
 
 
