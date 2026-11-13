@@ -18,15 +18,16 @@ starts, ``fibsem-mcp watch`` as it prints them for any other agent.
 """
 
 import logging
-import math
 import re
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.report import SessionReport, plain
 from fibsem.ai.agent.session import budget_low
+from fibsem.codec import decode
 from fibsem.server.auth import AuthConfig, refusal_error, require_level
 from fibsem.server.responses import AgentSession
 
@@ -39,216 +40,20 @@ MESSAGES_READ = "agent_messages_read"
 _MESSAGE_ID = re.compile(r"^[0-9a-f]{1,32}$")
 MAX_READ = 50
 
-MAX_TEXT = 500
-_TEXT = (
-    "session_id",
-    "model",
-    "goal",
-    "reason",
-    "harness",
-    "effort",
-    "workdir",
-)
-_NUMBERS = ("budget_usd", "spent_usd")
-# Counts of tokens: what its model calls used, and how full its context is.
-_COUNTS = {
-    "tokens": ("input", "output", "cache_read", "cache_write"),
-    "context": ("used", "window", "compact_at"),
-}
-MAX_SKILLS = 20
-MAX_ITEM = 200
-MAX_CHECKLIST = 50
-MAX_HOOKS = 20
-CHECK_STATES = ("open", "done", "always")
-
 
 def _invalid(message: str) -> HTTPException:
     return refusal_error(422, "invalid", message)
 
 
 def _checked(body: Dict[str, Any]) -> Dict[str, Any]:
-    """The report's fields, each checked; anything else refused."""
-    known = (
-        set(_TEXT)
-        | set(_NUMBERS)
-        | {
-            "turns",
-            "ended",
-            "code",
-            "files",
-            "resumed",
-            "skills",
-            "checklist",
-            "hooks",
-            "playbook",
-        }
-        | set(_COUNTS)
-    )
-    unknown = sorted(set(body) - known)
-    if unknown:
-        raise _invalid(f"Unknown fields {unknown}; the fields are {sorted(known)}.")
-    report: Dict[str, Any] = {}
-    for key in _TEXT:
-        value = body.get(key)
-        if value is None:
-            continue
-        if not isinstance(value, str) or len(value) > MAX_TEXT:
-            raise _invalid(f"{key} is a string of at most {MAX_TEXT} characters.")
-        report[key] = value.strip()
-    for key in _NUMBERS:
-        value = body.get(key)
-        if value is None:
-            continue
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or not math.isfinite(value)
-            or value < 0
-        ):
-            raise _invalid(f"{key} is a number of US dollars, 0 or more.")
-        report[key] = float(value)
-    turns = body.get("turns")
-    if turns is not None:
-        if isinstance(turns, bool) or not isinstance(turns, int) or turns < 0:
-            raise _invalid("turns is a whole number, 0 or more.")
-        report["turns"] = turns
-    for key, names in _COUNTS.items():
-        if body.get(key) is not None:
-            report[key] = _counts(key, body[key], names)
-    for key in ("code", "files", "resumed"):
-        value = body.get(key)
-        if value is not None:
-            if not isinstance(value, bool):
-                raise _invalid(f"{key} is true or false.")
-            report[key] = value
-    skills = body.get("skills")
-    if skills is not None:
-        if (
-            not isinstance(skills, list)
-            or len(skills) > MAX_SKILLS
-            or not all(isinstance(s, str) and len(s) <= 100 for s in skills)
-        ):
-            raise _invalid(
-                f"skills is a list of at most {MAX_SKILLS} names, each at most "
-                "100 characters."
-            )
-        report["skills"] = [s.strip() for s in skills]
-    if body.get("checklist") is not None:
-        report["checklist"] = _checklist(body["checklist"])
-    if body.get("hooks") is not None:
-        report["hooks"] = _hooks(body["hooks"])
-    if body.get("playbook") is not None:
-        report["playbook"] = _playbook(body["playbook"])
-    ended = body.get("ended")
-    if ended is not None and not isinstance(ended, bool):
-        raise _invalid("ended is true or false.")
-    report["ended"] = bool(ended)
-    return report
-
-
-def _counts(key: str, value: Any, names: tuple) -> Dict[str, int]:
-    """{name: whole number, 0 or more}, each name one of *names*."""
-    if (
-        not isinstance(value, dict)
-        or not set(value) <= set(names)
-        or not all(
-            isinstance(n, int) and not isinstance(n, bool) and n >= 0
-            for n in value.values()
-        )
-    ):
-        raise _invalid(
-            f"{key} is {{{', '.join(names)}}}, each a whole number of tokens, "
-            "0 or more."
-        )
-    return dict(value)
-
-
-def _text(item: Any, what: str) -> str:
-    text = item.get("text") if isinstance(item, dict) else None
-    if not isinstance(text, str) or not text.strip() or len(text) > MAX_ITEM:
-        raise _invalid(f"Each {what} has a text of at most {MAX_ITEM} characters.")
-    return text.strip()
-
-
-def _checklist(items: Any) -> List[Dict[str, str]]:
-    """Each item {text, state}: open (the default), done, or always for a
-    standing rule."""
-    if not isinstance(items, list) or len(items) > MAX_CHECKLIST:
-        raise _invalid(f"checklist is a list of at most {MAX_CHECKLIST} items.")
-    checked = []
-    for item in items:
-        state = item.get("state", "open") if isinstance(item, dict) else None
-        if state not in CHECK_STATES:
-            raise _invalid(f"An item's state is one of {list(CHECK_STATES)}.")
-        checked.append({"text": _text(item, "item"), "state": state})
-    return checked
-
-
-def _hooks(items: Any) -> List[Dict[str, str]]:
-    """The reminders on now, each {when, label, say}."""
-    if (
-        not isinstance(items, list)
-        or len(items) > MAX_HOOKS
-        or not all(
-            isinstance(item, dict)
-            and set(item) == {"when", "label", "say"}
-            and all(isinstance(v, str) and len(v) <= MAX_TEXT for v in item.values())
-            for item in items
-        )
-    ):
-        raise _invalid(
-            f"hooks is a list of at most {MAX_HOOKS} reminders, each {{when, "
-            f"label, say}} of at most {MAX_TEXT} characters."
-        )
-    return [
-        {key: item[key].strip() for key in ("when", "label", "say")} for item in items
-    ]
-
-
-PLAYBOOK_SKILL_STATES = ("not loaded", "loaded", "done")
-
-
-def _playbook(value: Any) -> Dict[str, Any]:
-    """The session's playbook: {name, hash, chosen_by, skills: [{skill, state,
-    summary?}]}; {} for none."""
-    if value == {}:
-        return {}
-    shape = (
-        "playbook is {name, hash, chosen_by, skills: [{skill, state, summary?}]}, "
-        "or {} for none."
-    )
-    if not isinstance(value, dict) or not set(value) <= {
-        "name",
-        "hash",
-        "chosen_by",
-        "skills",
-    }:
-        raise _invalid(shape)
-    checked: Dict[str, Any] = {}
-    for key in ("name", "hash", "chosen_by"):
-        text = value.get(key)
-        if text is not None:
-            if not isinstance(text, str) or len(text) > MAX_TEXT:
-                raise _invalid(shape)
-            checked[key] = text.strip()
-    if not checked.get("name"):
-        raise _invalid(shape)
-    skills = value.get("skills") or []
-    if not isinstance(skills, list) or len(skills) > MAX_SKILLS:
-        raise _invalid(shape)
-    checked["skills"] = []
-    for row in skills:
-        if (
-            not isinstance(row, dict)
-            or not set(row) <= {"skill", "state", "summary"}
-            or not isinstance(row.get("skill"), str)
-            or row.get("state") not in PLAYBOOK_SKILL_STATES
-            or not isinstance(row.get("summary", ""), str)
-            or len(row.get("summary", "")) > MAX_TEXT
-        ):
-            raise _invalid(shape)
-        checked["skills"].append(dict(row))
-    return checked
+    """The report's fields that it gives, read as a `SessionReport`; anything
+    else refused."""
+    try:
+        fields = plain(decode(SessionReport, body, strict=True))
+    except ValueError as exc:
+        raise _invalid(f"The report did not read: {exc}") from exc
+    fields["ended"] = bool(fields.get("ended"))
+    return fields
 
 
 def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
@@ -273,6 +78,7 @@ def report(auth: AuthConfig, body: Dict[str, Any]) -> tuple:
     if starts:
         started = datetime.now().astimezone().isoformat(timespec="seconds")
         session = {"client": auth.agent_client, "started": started, **fields}
+        session = {key: value for key, value in session.items() if value is not None}
         kinds.append(SESSION_STARTED)
     else:
         session = {**previous, **fields}
@@ -310,7 +116,9 @@ def build_agent_session_router(
             session = {**session, "deadlines": deadlines}
         return session
 
-    @router.post("/session", response_model=AgentSession)
+    @router.post(
+        "/session", response_model=AgentSession, response_model_exclude_none=True
+    )
     def report_session(request: Request, body: Dict[str, Any]):
         auth: AuthConfig = request.app.state.auth
         session, kinds = report(auth, body)
@@ -340,7 +148,9 @@ def build_agent_session_router(
             emit(MESSAGES_READ, {"ids": ids})
         return {"read": ids}
 
-    @router.get("/session", response_model=AgentSession)
+    @router.get(
+        "/session", response_model=AgentSession, response_model_exclude_none=True
+    )
     def get_session(request: Request):
         auth: AuthConfig = request.app.state.auth
         return {"session": with_plan(request, auth.agent_session)}
