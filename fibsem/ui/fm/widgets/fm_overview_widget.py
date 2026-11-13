@@ -10,11 +10,13 @@ actions along the bottom.
 
 import logging
 import os
+import weakref
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import qtpy
 from qtpy.QtCore import QPoint, Qt, Signal
 from qtpy.QtWidgets import (
     QDialog,
@@ -28,7 +30,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem import constants
 from fibsem.fm.progress import (
@@ -70,6 +71,7 @@ from fibsem.ui.fm.widgets.fm_overview_confirmation_dialog import (
     FMOverviewConfirmationDialog,
 )
 from fibsem.ui.fm.widgets.fm_overview_settings_widget import FMOverviewSettingsWidget
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.widgets.canvas.fm_canvas import FMRealSpaceCanvasWidget
 from fibsem.ui.widgets.canvas.overlay_controls import (
@@ -351,9 +353,16 @@ class FMOverviewWidget(OverviewWidgetBase):
         # worst a click that toggles a tile you meant to select, which greys out visibly
         # and undoes with one more click. A wrong action that announces itself beats a
         # dead end that does not.
-        self.tile_grid_overlay.set_reserved(
-            lambda x, y: self._position_at(x, y, crosshair_only=True) is not None
-        )
+        # On PySide a closure over self here keeps a dropped widget alive, so it holds
+        # the widget weakly. PyQt5 keeps the plain closure (both connections below
+        # weak segfault its garbage collector). Goes with PyQt5.
+        if qtpy.PYSIDE6:
+            reserved = weakref.WeakMethod(self._is_reserved)
+            self.tile_grid_overlay.set_reserved(
+                lambda x, y: (method := reserved()) is not None and method(x, y)
+            )
+        else:
+            self.tile_grid_overlay.set_reserved(lambda x, y: self._is_reserved(x, y))
         self.canvas.canvas.add_overlay(self.tile_grid_overlay)
 
         # The same three switches the beam tab offers, over the same three shapes, from
@@ -363,7 +372,13 @@ class FMOverviewWidget(OverviewWidgetBase):
         self.overlay_controls = CanvasOverlayControls(
             stage_context.context_overlay_entries(self.microscope)
         )
-        self.overlay_controls.toggled.connect(lambda *_: self._refresh_stage_metadata())
+        # The same split: PySide holds a lambda strongly, so it gets the bound method.
+        if qtpy.PYSIDE6:
+            self.overlay_controls.toggled.connect(self._on_overlays_toggled)
+        else:
+            self.overlay_controls.toggled.connect(
+                lambda *_: self._on_overlays_toggled()
+            )
         self._context_defaults_for_calibrated = stage_context.holder_is_calibrated(
             self.microscope
         )
@@ -1410,6 +1425,12 @@ class FMOverviewWidget(OverviewWidgetBase):
             t=current.t,
             coordinate_system=origin.coordinate_system,
         )
+
+    def _is_reserved(self, x: float, y: float) -> bool:
+        return self._position_at(x, y, crosshair_only=True) is not None
+
+    def _on_overlays_toggled(self, *_) -> None:
+        self._refresh_stage_metadata()
 
     def _refresh_stage_metadata(self) -> None:
         """Draw where the sample and the stage can physically go.

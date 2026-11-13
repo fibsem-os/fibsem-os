@@ -42,7 +42,6 @@ from qtpy.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem import config as cfg
 from fibsem import conversions
@@ -55,6 +54,7 @@ from fibsem.structures.system import (
 )
 from fibsem.ui import notification_service
 from fibsem.ui.control import control_of
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.qt.threading import thread_worker
 from fibsem.ui.stylesheets import (
     LABEL_INSTRUCTIONS_STYLE,

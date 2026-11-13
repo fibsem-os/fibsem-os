@@ -39,6 +39,7 @@ from fibsem.applications.autolamella.structures import (
     AutoLamellaTaskConfig,  # noqa: E402
 )
 from fibsem.structures.params import Display, RangeLimit, param
+from fibsem.ui.qt.sip import receivers
 from fibsem.ui.widgets.custom_widgets import (  # noqa: E402
     IntegerValueSpinBox,
     ValueComboBox,
@@ -267,8 +268,8 @@ def test_no_signal_is_connected_to_an_uneditable_field(qapp, form_cls):
     nested_box = _control(form, "nested").widget
     editable_box = _control(form, "a_string").widget
 
-    assert nested_box.receivers(nested_box.editingFinished) == 0
-    assert editable_box.receivers(editable_box.editingFinished) == 1
+    assert receivers(nested_box, nested_box.editingFinished) == 0
+    assert receivers(editable_box, editable_box.editingFinished) == 1
 
 
 @pytest.mark.parametrize("form_cls", FORMS, ids=FORM_IDS)

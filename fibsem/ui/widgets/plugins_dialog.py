@@ -20,6 +20,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QDialog,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QTableWidget,
     QTableWidgetItem,
@@ -242,7 +243,7 @@ class PluginsDialog(QDialog):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
         header.setStretchLastSection(False)
-        header.setSectionResizeMode(0, header.Stretch)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table.setColumnWidth(2, _group_column_width())
         return table
 

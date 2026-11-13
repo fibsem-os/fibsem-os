@@ -1,6 +1,6 @@
-"""`isdeleted` and `delete` for whichever Qt binding qtpy loaded.
+"""`isdeleted`, `delete` and `receivers` for whichever Qt binding qtpy loaded.
 
-PyQt has these in `sip`; PySide has them in `shiboken` under other names.
+PyQt has the first two in `sip`; PySide has them in `shiboken` under other names.
 """
 
 from __future__ import annotations
@@ -19,4 +19,17 @@ if qtpy.PYSIDE6:
 else:
     from qtpy.sip import delete, isdeleted  # noqa: F401
 
-__all__ = ["delete", "isdeleted"]
+__all__ = ["delete", "isdeleted", "receivers"]
+
+
+def receivers(obj, signal) -> int:
+    """How many slots are connected to *signal* of *obj*.
+
+    PySide takes the signal's signature as a string, not the bound signal.
+    """
+    if not qtpy.PYSIDE6:
+        return obj.receivers(signal)
+    from qtpy.QtCore import SIGNAL, QMetaMethod
+
+    signature = bytes(QMetaMethod.fromSignal(signal).methodSignature()).decode()
+    return obj.receivers(SIGNAL(signature))

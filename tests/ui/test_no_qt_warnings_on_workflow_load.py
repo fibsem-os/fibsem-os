@@ -43,7 +43,7 @@ pytest.importorskip("qtpy.QtWidgets")
 
 from qtpy.QtCore import (  # noqa: E402
     Qt,
-    QtWarningMsg,
+    QtMsgType,
     qInstallMessageHandler,
 )
 from qtpy.QtGui import QPixmap  # noqa: E402
@@ -154,6 +154,11 @@ def _drag_handle_label(row) -> QLabel:
     return handles[0]
 
 
+def _level(mode) -> int:
+    # QtMsgType is an int in PyQt5 and a Python enum in PySide6.
+    return int(getattr(mode, "value", mode))
+
+
 def test_populating_the_workflow_emits_no_qt_warning(qapp):
     """One warning per task row is what an experiment load used to print."""
     widget = LamellaWorkflowWidget()
@@ -161,7 +166,11 @@ def test_populating_the_workflow_emits_no_qt_warning(qapp):
     with captured_qt_messages() as messages:
         widget.set_workflow_config(_workflow_config())
 
-    warnings = [text for mode, text in messages if mode >= QtWarningMsg]
+    warnings = [
+        text
+        for mode, text in messages
+        if _level(mode) >= _level(QtMsgType.QtWarningMsg)
+    ]
     assert warnings == []
 
     widget.close()

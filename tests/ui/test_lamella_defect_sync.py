@@ -248,7 +248,9 @@ def test_every_refresh_stays_marshalled(module, widget):
 
     src = Path(importlib.import_module(module).__file__).read_text(encoding="utf-8")
 
-    assert "from superqt import ensure_main_thread" in src, f"{widget} lost the import"
+    assert "from fibsem.ui.qt.main_thread import ensure_main_thread" in src, (
+        f"{widget} lost the import"
+    )
     assert "    @ensure_main_thread\n    def refresh(self)" in src, (
         f"{widget}.refresh is not marshalled (FIB-565)"
     )

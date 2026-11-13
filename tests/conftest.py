@@ -1,6 +1,7 @@
 import gc
 import logging
 import os
+import sys
 import tempfile
 
 import pytest
@@ -329,3 +330,24 @@ def odemis_microscope_cls():
 
     stubs.remove_odemis_stubs()
     sys.modules.update(saved)
+
+
+def pytest_unconfigure(config):
+    """On PySide, delete the widgets still alive and shut the QApplication down
+    before the interpreter exits. Left to interpreter exit, PySide tears Qt down in
+    an order that segfaults after every test has passed."""
+    qtpy = sys.modules.get("qtpy")
+    if qtpy is None or not getattr(qtpy, "PYSIDE6", False):
+        return
+    from qtpy.QtCore import QEvent
+    from qtpy.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        return
+    # Deleted, not closed: closing runs each window's closeEvent, and a widget a
+    # test left half-built has nothing to close.
+    for widget in app.topLevelWidgets():
+        widget.deleteLater()
+    QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    app.shutdown()

@@ -8,7 +8,6 @@ from qtpy.QtWidgets import (
     QPushButton,
     QWidget,
 )
-from superqt import ensure_main_thread
 
 from fibsem.devices.runs import RUNNING
 from fibsem.microscope import FibsemMicroscope
@@ -21,6 +20,7 @@ from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.structures.settings import MillingState
 from fibsem.ui import stylesheets
 from fibsem.ui.control import control_of
+from fibsem.ui.qt.main_thread import ensure_main_thread
 from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.util.durations import format_duration_precise
 from fibsem.workflows.actions import record_operator_action
