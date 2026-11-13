@@ -414,8 +414,7 @@ class BaseTaskManager:
                     self.run(task_names, names)
                 finally:
                     if self.experiment.turns_beams_off:
-                        self.microscope.turn_off(BeamType.ELECTRON)
-                        self.microscope.turn_off(BeamType.ION)
+                        self._turn_beams_off()
         except MicroscopeBusy as e:
             logger.warning(f"Workflow not started: {e}")
             self._end_unstarted_quietly(e)
@@ -585,6 +584,20 @@ class BaseTaskManager:
         """A line for the workflow-information label or the status bar, that
         gets out after a Stop too: the closing "cancelled" line is the point."""
         post_status(self, "", workflow_info=workflow_info, status_bar=status_bar)
+
+    def _turn_beams_off(self) -> None:
+        """Turn both beams off as a run ends. Each is tried, so one that will
+        not go off does not leave the other on; the first failure is raised
+        once both were asked."""
+        failed: Optional[BaseException] = None
+        for beam in (BeamType.ELECTRON, BeamType.ION):
+            try:
+                self.microscope.turn_off(beam)
+            except Exception as e:
+                logger.error(f"Could not turn the {beam.name.lower()} beam off: {e}")
+                failed = failed or e
+        if failed is not None:
+            raise failed
 
     def _end_unstarted_quietly(self, error: BaseException) -> None:
         try:

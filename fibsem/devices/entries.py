@@ -115,13 +115,14 @@ def resolve_device_entries(
         if entry.enabled is False:
             logger.info(f"Device '{entry.name}' is disabled in the configuration.")
             continue
-        resolved.append(
-            ResolvedEntry(
-                entry,
-                _driver_name(entry.driver, manufacturer),
-                listed=entry.name in configured,
-            )
+        # A device on another computer is reached through its Device Server,
+        # whichever driver builds it there.
+        driver = (
+            REMOTE_DRIVER
+            if entry.is_remote
+            else _driver_name(entry.driver, manufacturer)
         )
+        resolved.append(ResolvedEntry(entry, driver, listed=entry.name in configured))
     return resolved
 
 

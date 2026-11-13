@@ -17,7 +17,7 @@ from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import EXPERIMENT_FILENAME, BaseExperiment
 from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.saved_format import check_app
-from fibsem.workflows.status import TaskStatus
+from fibsem.workflows.status import INTERRUPTED, TaskStatus
 from fibsem.workflows.task_config import TaskConfig
 
 logger = logging.getLogger(__name__)
@@ -260,4 +260,5 @@ class VolumeExperiment(ProposalDecisions, BaseExperiment):
             VolumePosition.from_dict(p) for p in ddict.get("positions", [])
         ]
         experiment.withdraw_what_was_asked("the app closed before it was answered")
+        experiment.end_what_was_running(INTERRUPTED)
         return experiment

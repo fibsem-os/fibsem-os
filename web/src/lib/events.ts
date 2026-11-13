@@ -44,6 +44,7 @@ const PROGRESS = new Set([
   "tiled_acquisition",
   "fib_acquisition",
   "fm_acquisition",
+  "agent_transcript",
 ]);
 
 // What an item's news makes stale: its record, its History and its thumbnail,
@@ -103,7 +104,7 @@ export function useEventLoop() {
     (async () => {
       while (!stopped && getToken()) {
         try {
-          const answer = await api<EventsAnswer>(`/app/events?since=${since}&timeout=${wait}`);
+          const answer = await api<EventsAnswer>(`/app/events?since=${since}&timeout=${wait}&text=true`);
           // Back after a failure: what was read before it may be stale.
           if (wait === 0) void client.invalidateQueries();
           setReachable(true);

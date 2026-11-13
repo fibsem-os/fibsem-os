@@ -1,8 +1,9 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowDown, BookOpen, ChevronDown, ChevronRight, ListChecks, ListFilter } from "lucide-react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowDown, BookOpen, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
+import { onEvents } from "@/lib/events";
 import { Markdown } from "@/lib/markdown";
 import type { AgentPlan, AgentState, RecentRow, ReportedSession, TranscriptLine } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -15,10 +16,18 @@ import { EvidenceImage } from "./agent/Pictures";
 import { PlanDialog } from "./agent/PlanDialog";
 import { hasPanel, SidePanel } from "./agent/SidePanel";
 
-// Last heard moves with no events, so the agent is read again on a clock.
-const AGENT_EVERY_MS = 10000;
-// fibsem-agent sends its transcript every 10 s while it works.
-const TRANSCRIPT_EVERY_MS = 5000;
+// The agent's news (lib/events.ts) reads it, its session and its plan again at once.
+// Last heard, spend and the transcript move with no news, so they are also read on one
+// clock: every 10 s while the agent works, every minute while none is heard.
+const WORKING_EVERY_MS = 10000;
+const IDLE_EVERY_MS = 60000;
+// Heard this recently: working (fibsem.ai.agent.levels.AGENT_LISTENING_S).
+const WORKING_S = 120;
+// While it works, the app's events also read the transcript, at most this often;
+// fibsem-agent's own agent_transcript event reads it at once.
+const TRANSCRIPT_GAP_MS = 3000;
+
+const working = (agent: AgentState | undefined) => agent?.last_heard_s != null && agent.last_heard_s < WORKING_S;
 
 const SHOWS = [
   ["all", "Everything"],
@@ -153,22 +162,50 @@ function Actions({ rows, folded }: { rows: RecentRow[]; folded: boolean }) {
   );
 }
 
+/** How long a step took, when it took long enough to say: "12 s", "3 min 5 s". */
+function took(s: number | undefined): string | null {
+  if (s == null || s < 2) return null;
+  if (s < 60) return `${Math.round(s)} s`;
+  const m = Math.floor(s / 60);
+  const rest = Math.round(s - m * 60);
+  return rest ? `${m} min ${rest} s` : `${m} min`;
+}
+
+/** A step's answer, done or failed, by its session and number. */
+type Answers = Map<string, TranscriptLine>;
+const stepKey = (session: string, seq: number | undefined) => `${session}|${seq}`;
+/** A line that answers a step: shown on the step, never on its own. */
+const answers = (l: TranscriptLine) => (l.kind === "done" || l.kind === "failed") && l.step != null;
+
 /** What fibsem-agent printed between two rows, in one line, "Working · 6 steps".
  * Open while the agent still adds to it, and it stays open when the agent moves
- * on, as a run of actions does; the reader folds it. */
-function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boolean; live: boolean }) {
+ * on, as a run of actions does; the reader folds it. *answered* holds every
+ * step's answer, which may come after the next row; a done step says how long
+ * it took. *running* says whether a step still runs (`Record`). */
+function Working({
+  lines,
+  folded,
+  live,
+  answered,
+  running,
+}: {
+  lines: TranscriptLine[];
+  folded: boolean;
+  live: boolean;
+  answered: Answers;
+  running: (step: TranscriptLine) => boolean;
+}) {
   const [open, setOpen] = useState(live);
   useEffect(() => {
     if (live) setOpen(true);
   }, [live]);
   const shown = !folded || open;
-  const why = new Map<string, string>();
-  for (const l of lines) if (l.kind === "failed" && l.step != null) why.set(`${l.session_id}|${l.step}`, l.text);
+  const answerOf = (l: TranscriptLine) => (l.kind === "step" ? answered.get(stepKey(l.session_id, l.seq)) : undefined);
   const steps = lines.filter((l) => l.kind === "step").length;
-  const failed = lines.filter((l) => l.kind === "failed").length;
-  const summary = [`Working · ${steps} ${steps === 1 ? "step" : "steps"}`, ...(failed ? [`${failed} failed`] : [])].join(
-    " · ",
-  );
+  const failed = lines.filter((l) => l.kind === "failed" || answerOf(l)?.kind === "failed").length;
+  // A block of the agent's words alone is "Working", not "Working · 0 steps".
+  const count = steps ? [`${steps} ${steps === 1 ? "step" : "steps"}`] : [];
+  const summary = ["Working", ...count, ...(failed ? [`${failed} failed`] : [])].join(" · ");
   return (
     <div className="flex gap-2 py-1.5 pl-2.5">
       <Time when={lines[0].t.split("T")[1]?.slice(0, 5) ?? ""} />
@@ -201,15 +238,24 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
                   </div>
                 );
               }
-              const reason = l.kind === "failed" ? l.text : why.get(`${l.session_id}|${l.seq}`);
-              if (l.kind === "failed" && l.step != null) return null;
+              const answer = answerOf(l);
+              const reason = l.kind === "failed" ? l.text : answer?.kind === "failed" ? answer.text : undefined;
+              const runs = l.kind === "step" && !answer && running(l);
+              const duration = took(answer?.took_s);
               return (
                 <div key={i} className="contents">
-                  <span className={reason != null ? "text-destructive" : "text-muted-foreground"}>
+                  <span
+                    className={cn(
+                      "flex items-center gap-1",
+                      reason != null ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  >
                     {l.kind === "failed" ? "Failed" : l.verb}
+                    {runs && <Loader size={11} className="shrink-0 animate-spin" aria-label="running" />}
                   </span>
                   <span className="min-w-0 break-words">
                     {l.kind === "step" && <span className="font-mono text-[12px]">{l.text}</span>}
+                    {duration && reason == null && <span className="text-muted-foreground"> · {duration}</span>}
                     {reason != null && (
                       <span className="text-muted-foreground">
                         {l.kind === "step" ? " · failed: " : ""}
@@ -230,10 +276,38 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
 const time = (t: string) => Date.parse(t);
 const LIVE_FOR_MS = 60_000;
 
-function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLine[]; show: Show }) {
+/** *heard*: the agent was heard from lately, so a step it started may still run
+ * with no lines coming (a long milling call). A step runs until its answer
+ * comes, while the agent is heard from and no later step of its session has
+ * been answered (a call cut short never answers). An agent that never says a
+ * step is done shows only its newest step as running. */
+function Record({
+  rows,
+  lines,
+  show,
+  heard,
+}: {
+  rows: RecentRow[];
+  lines: TranscriptLine[];
+  show: Show;
+  heard: boolean;
+}) {
   const out: JSX.Element[] = [];
   let run: RecentRow[] = [];
   let working: TranscriptLine[] = [];
+  const answered: Answers = new Map();
+  const lastAnswered = new Map<string, number>();
+  for (const l of lines) {
+    if (!answers(l)) continue;
+    answered.set(stepKey(l.session_id, l.step), l);
+    lastAnswered.set(l.session_id, Math.max(lastAnswered.get(l.session_id) ?? 0, l.step ?? 0));
+  }
+  const saysDone = lines.some((l) => l.kind === "done");
+  const lastStep = [...lines].reverse().find((l) => l.kind === "step");
+  const running = (step: TranscriptLine) =>
+    heard && (saysDone ? (step.seq ?? 0) > (lastAnswered.get(step.session_id) ?? 0) : step === lastStep);
+  // The answers show on their steps, not as lines of their own.
+  lines = lines.filter((l) => !answers(l));
   // Keyed by what a row says, not where it sits: the oldest rows drop off the
   // window, and a run keyed by position would lose whether the reader opened it.
   const seen = new Map<string, number>();
@@ -256,6 +330,8 @@ function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLin
           lines={working}
           folded={show === "all"}
           live={live}
+          answered={answered}
+          running={running}
         />,
       );
     }
@@ -278,35 +354,36 @@ function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLin
   end();
   if (transcript) {
     working.push(...lines.slice(next));
-    // The newest block is live while its lines still arrive (every 10 s).
+    // The newest block is live, and open, while its lines still arrive or a
+    // step in it still runs.
     const last = working[working.length - 1];
-    endWorking(!!last && Date.now() - time(last.t) < LIVE_FOR_MS);
+    const runs = working.some((l) => l.kind === "step" && !answered.has(stepKey(l.session_id, l.seq)) && running(l));
+    endWorking(!!last && (runs || Date.now() - time(last.t) < LIVE_FOR_MS));
   }
   return <>{out}</>;
 }
 
 export function AgentPage() {
+  const client = useQueryClient();
   const agent = useQuery({
     queryKey: ["app/agent"],
     queryFn: () => api<AgentState>("/app/agent"),
-    refetchInterval: AGENT_EVERY_MS,
+    refetchInterval: (query) => (working(query.state.data) ? WORKING_EVERY_MS : IDLE_EVERY_MS),
   });
+  const isWorking = working(agent.data);
   const recent = useQuery({
     queryKey: ["app/agent/recent"],
     queryFn: () => api<{ rows: RecentRow[] }>("/app/agent/recent"),
   });
-  // Under "app/agent", so news about the agent reads it again; the checklist
-  // changes without news, so it is also read on the agent's clock.
+  // Under "app/agent", so news about the agent reads it again.
   const reported = useQuery({
     queryKey: ["app/agent", "session"],
     queryFn: () => api<{ session: ReportedSession | null }>("/app/agent/session"),
-    refetchInterval: AGENT_EVERY_MS,
   });
-  // plan.md: the side panel's steps and the plan dialog.
+  // plan.md: the side panel's steps and the plan dialog. Every edit is news.
   const plan = useQuery({
     queryKey: ["app/agent", "plan"],
     queryFn: () => api<AgentPlan>("/app/agent/plan"),
-    refetchInterval: AGENT_EVERY_MS,
   });
   const [planOpen, setPlanOpen] = useState(false);
   const rowsNow = recent.data?.rows ?? [];
@@ -314,14 +391,28 @@ export function AgentPage() {
   const transcript = useQuery({
     queryKey: ["app/agent/transcript", since],
     queryFn: () =>
-      api<{ entries: TranscriptLine[] }>(
-        `/app/agent/transcript${since ? `?since=${encodeURIComponent(since)}` : ""}`,
-      ),
-    refetchInterval: TRANSCRIPT_EVERY_MS,
+      api<{ entries: TranscriptLine[] }>(`/app/agent/transcript${since ? `?since=${encodeURIComponent(since)}` : ""}`),
     // A new oldest row starts a new read: keep the lines shown until it answers,
     // so the blocks don't vanish, fold and jump.
     placeholderData: keepPreviousData,
   });
+  // Each read of the agent while it works reads its spend and transcript too.
+  useEffect(() => {
+    if (!isWorking) return;
+    void client.invalidateQueries({ queryKey: ["app/agent", "session"], exact: true }, { cancelRefetch: false });
+    void client.invalidateQueries({ queryKey: ["app/agent/transcript"] }, { cancelRefetch: false });
+  }, [agent.dataUpdatedAt, isWorking, client]);
+  // What it does shows in the app's events before its transcript is read again.
+  useEffect(() => {
+    if (!isWorking) return;
+    return onEvents((events) => {
+      const read = client.getQueryState(["app/agent/transcript", since])?.dataUpdatedAt ?? 0;
+      const sent = events.some((e) => e.kind === "agent_transcript");
+      if (sent || Date.now() - read > TRANSCRIPT_GAP_MS) {
+        void client.invalidateQueries({ queryKey: ["app/agent/transcript"] }, { cancelRefetch: false });
+      }
+    });
+  }, [isWorking, since, client]);
   const [show, setShow] = useState<Show>("all");
   const [knowledge, setKnowledge] = useState(false);
   const list = useRef<HTMLDivElement>(null);
@@ -478,7 +569,12 @@ export function AgentPage() {
             <div>
               {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
               {all.length ? (
-                <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
+                <Record
+                  rows={rows}
+                  lines={transcript.data?.entries ?? []}
+                  show={show}
+                  heard={isWorking && !agent.data?.stopped}
+                />
               ) : (
                 <div className="py-8 text-center text-[13px] text-muted-foreground">
                   No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one

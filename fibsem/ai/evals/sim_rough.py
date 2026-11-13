@@ -25,7 +25,6 @@ import yaml
 from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.sim_cases import PLAYBOOK, TIER, _demo_microscope
 from fibsem.ai.evals.sim_polishing import (
-    DEPTH,
     DWELL,
     HFW,
     MILLING_ANGLE,
@@ -50,10 +49,13 @@ GAPS = (3.0e-6, 1.0e-6)  # m: the lamella after rough 1, then rough 2
 ROUGH_HEIGHT = 8e-6  # m, each rough 1 trench
 RELIEF = (1.0e-6, 14e-6)  # m: each stress relief cut's width and height
 RELIEF_OUT = 3e-6  # m: the cuts' distance out from the lamella's ends
-SHALLOW = (0.08, 0.15)  # a shallow step's depth, as a fraction of DEPTH
+SHALLOW = (0.06, 0.1)  # a shallow step's depth, as a fraction of ROUGH_DEPTH
 THROUGH = 0.8  # the fraction of a step's floor cut away to count as through
 FLOOR = 0.2e-6  # m above the film: where a step's floor is tested
 BREAK = 3  # passes of damage a break shows when it happens
+# m: a step's depth, deep enough to cut through the tallest cell and its ice
+ROUGH_DEPTH = 10e-6
+REACH = 40e-6  # m: a cut this deep reaches every floor its beam can
 
 BRIEF = (
     "This lamella was rough milled in the steps listed below, on a {angle:g} "
@@ -108,8 +110,8 @@ def _patterns(step: str, depth: float) -> List[FibsemRectangleSettings]:
 
 
 def _through(scene, regions) -> float:
-    """How much of a step's floor its cuts reached, against the same cuts at
-    full depth (1: all the way down). Each column a cut passes through is cut
+    """How much of a step's floor its cuts reached, against the same cuts
+    made as deep as the beam can reach (1: all the way down). Each column a cut passes through is cut
     from its top down to the pattern's depth; the floor is reached where the
     cut goes below FLOOR over the film."""
     um = sim_view.UM
@@ -125,7 +127,7 @@ def _through(scene, regions) -> float:
         X, Y = np.meshgrid(x, y)
         a, b = sim_view._cut_range(scene, region, X, Y, surface)
         hit = (b > a) & (surface > floor)
-        for depth, count in ((region.depth, "reached"), (DEPTH, "full")):
+        for depth, count in ((region.depth, "reached"), (REACH, "full")):
             bottom = np.maximum(a, np.minimum(surface, level - depth * um))
             n = int((hit & (bottom <= floor)).sum())
             if count == "reached":
@@ -157,7 +159,7 @@ def mill_steps(
         folder.mkdir(parents=True, exist_ok=True)
         entries, records = [], []
         for n, step in enumerate(STEPS):
-            depth = DEPTH * (rng.uniform(*SHALLOW) if n == shallow else 1.0)
+            depth = ROUGH_DEPTH * (rng.uniform(*SHALLOW) if n == shallow else 1.0)
             start = len(scene.milled)
             if step == "rough-2" and fault(seed) == "broken":
                 # a lamella that breaks in rough milling breaks badly: start

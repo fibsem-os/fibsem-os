@@ -306,3 +306,23 @@ def test_a_built_fm_puts_its_devices_in_the_microscopes_devices():
     assert microscope.fm is not None
     for name in ("fm", "camera", "light_source", "filter_set", "objective"):
         assert microscope.devices[name] is microscope.fm.devices[name]
+
+
+@pytest.mark.parametrize("driver", [None, "Odemis"])
+def test_an_fm_with_remote_is_not_looked_for_on_the_beams_connection(tmp_path, driver):
+    from fibsem.drivers.demo.microscope import DemoFluorescenceMicroscope
+
+    settings = utils.load_yaml(IFLM_CONFIG)
+    fm = utils.configuration_device(settings, "fm")
+    fm.update(remote="127.0.0.1:1")
+    if driver is not None:
+        fm["driver"] = driver
+
+    microscope = _from(settings, tmp_path)
+
+    assert microscope.system.fm.remote == "127.0.0.1:1"
+    assert microscope._fluorescence_uses_own_driver() is False
+    assert not isinstance(microscope.fm, DemoFluorescenceMicroscope)
+    if microscope.fm is not None:
+        assert not microscope.fm.online
+        microscope.fm.client.close()

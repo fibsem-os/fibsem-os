@@ -37,6 +37,7 @@ from contextvars import ContextVar
 from typing import Annotated, Dict, List, Optional, Tuple, Union
 from urllib.parse import quote, unquote
 
+from fibsem import diagnostics
 from fibsem.ai.agent import instruments, sources
 from fibsem.ai.agent.calls import headers_for
 from fibsem.ai.agent.catalog import (
@@ -134,8 +135,7 @@ def _connect_with_retry(
             if transport is None:
                 raise ServerUnreachable(_NO_SERVER_MSG)
             raise ServerUnreachable(
-                f"fibsem-mcp: cannot reach the server at {transport.url} — "
-                "is it running, and is the token current?"
+                f"fibsem-mcp: cannot reach the server at {transport.url}: {err}"
             )
         if not waiting_reported:
             print(
@@ -1498,6 +1498,7 @@ def _pair(argv) -> int:
 
 def main(argv=None):
     refuse("fibsem-mcp")
+    diagnostics.install("fibsem-mcp")
     argv = sys.argv[1:] if argv is None else list(argv)
     if argv[:1] == ["pair"]:
         sys.exit(_pair(argv[1:]))

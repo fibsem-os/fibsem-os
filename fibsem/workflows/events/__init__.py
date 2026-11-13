@@ -25,6 +25,10 @@ Sequence numbers make polling honest: a client asks for everything after seq
 N, and if eviction has eaten past N the response's ``oldest_available`` says
 so — a visible gap instead of silent continuity.
 
+Each record also has an ``id``, ``<stream>-<seq>``, unique for good: seqs start
+again with every buffer, ids do not. A record can point at another by its id,
+and a reader can carry on after the last one it saw across an app restart.
+
 Wiring that deliberately does NOT live here: constructing the buffer when a
 microscope connects, attaching the taps, and re-registering the lifecycle hook
 inside ``WorkflowRunner.run_hooks()`` — the app rebuilds its hook set every run, so a
@@ -38,7 +42,7 @@ import secrets
 import threading
 import time
 from collections import deque
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from fibsem.devices.wire import to_wire
 from fibsem.structures.settings import BeamType
@@ -49,8 +53,10 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "EventBuffer",
+    "event_id",
     "attach_microscope_taps",
     "make_lifecycle_hook",
+    "split_event_id",
     "to_plain",
 ]
 
@@ -77,21 +83,48 @@ def iso_time(timestamp: float) -> str:
     return iso_from_posix(timestamp)
 
 
+def event_id(record: Dict[str, Any]) -> Optional[str]:
+    """*record*'s id: its own, or for one written before records had ids, the
+    same made from its session and seq. None when it has neither."""
+    if record.get("id"):
+        return str(record["id"])
+    session, seq = record.get("session"), record.get("seq")
+    if session and isinstance(seq, int):
+        return f"{session}-{seq}"
+    return None
+
+
+def split_event_id(value: str) -> Optional[Tuple[str, int]]:
+    """(stream, seq) of an event id; None when *value* is not one."""
+    stream, _, seq = str(value).rpartition("-")
+    if not stream or not seq.isdigit():
+        return None
+    return stream, int(seq)
+
+
 class EventBuffer:
     """Bounded, sequence-numbered, thread-safe event log with long-poll wait.
 
-    Every record has ``seq``, ``timestamp`` (epoch seconds), ``t`` (the same
-    moment as :func:`iso_time`), ``kind`` and ``payload``. A ``stamp`` adds
+    Every record has ``id``, ``seq``, ``timestamp`` (epoch seconds), ``t`` (the
+    same moment as :func:`iso_time`), ``kind`` and ``payload``. A ``stamp`` adds
     fields of its own -- where in the run the event happened -- and must not
-    use those five names.
+    use those six names.
+
+    ``stream`` names this buffer, and starts every id in it: the event
+    recorder passes its session id, so the two are the same.
     """
 
-    def __init__(self, maxlen: int = 1000, stamp: Optional[Stamp] = None):
+    def __init__(
+        self,
+        maxlen: int = 1000,
+        stamp: Optional[Stamp] = None,
+        stream: Optional[str] = None,
+    ):
         self._events: "deque[Dict[str, Any]]" = deque(maxlen=maxlen)
         self._seq = 0
         # Names this buffer, so a reader can tell a restarted app's stream,
         # whose seqs start again, from this one.
-        self.stream = secrets.token_hex(4)
+        self.stream = stream or secrets.token_hex(16)
         self._cond = threading.Condition()
         self._stamp = stamp
         self._subscribers: List[Callable[[Dict[str, Any]], None]] = []
@@ -120,6 +153,7 @@ class EventBuffer:
             self._seq += 1
             record = {
                 **extra,
+                "id": f"{self.stream}-{self._seq}",
                 "seq": self._seq,
                 "timestamp": now,
                 "t": iso_time(now),

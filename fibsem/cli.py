@@ -965,6 +965,58 @@ def _add_notify_parser(sub) -> None:
     p.set_defaults(func=cmd_notify, needs_server=False)
 
 
+def cmd_report(args) -> int:
+    """Make a bug report bundle on this PC and say where it is. Nothing is sent."""
+    from fibsem.tools import bug_report
+
+    experiment = None
+    if args.experiment is not None:
+        experiment = os.path.abspath(args.experiment)
+        if not os.path.isfile(os.path.join(experiment, "experiment.yaml")):
+            print(f"error: no experiment at {experiment}.")
+            return 1
+    content = bug_report.BugReportContent(
+        title=args.title,
+        description=args.description,
+        include_screenshots=args.screenshots,
+        include_images=args.images,
+        include_agent_log=args.agent_log,
+        system_context=bug_report.collect_system_context(),
+    )
+    path = bug_report.build_bug_report_bundle(content, experiment, args.output)
+    print(f"Bundle created: {path}")
+    print(f"Email it to {bug_report.SUPPORT_EMAIL}. Nothing was sent.")
+    return 0
+
+
+def _add_report_parser(sub) -> None:
+    """Takes no connection arguments: the files are this PC's."""
+    p = sub.add_parser(
+        "report",
+        help="Make a bug report bundle to email to the maintainers",
+        description="Zip this PC's error records and settings, and an experiment's "
+        "log, events, experiment and protocol files, with folder locations, the "
+        "login, the computer name and the operator's details removed. Nothing is "
+        "sent: the bundle is a file to email.",
+    )
+    p.add_argument(
+        "experiment", nargs="?", metavar="EXPERIMENT", help="An experiment's folder"
+    )
+    p.add_argument("--title", default="", help="A short summary of the problem")
+    p.add_argument("--description", default="", help="What happened")
+    p.add_argument(
+        "--screenshots", action="store_true", help="Add the experiment's .png files"
+    )
+    p.add_argument(
+        "--images", action="store_true", help="Add the experiment's .tiff images"
+    )
+    p.add_argument(
+        "--agent-log", action="store_true", help="Add the latest agent session's log"
+    )
+    p.add_argument("-o", "--output", metavar="FOLDER", help="Where to write the bundle")
+    p.set_defaults(func=cmd_report, needs_server=False)
+
+
 def _add_key_parser(sub) -> None:
     """Takes no connection arguments: the keys are this PC's."""
     names = ", ".join(f"{name} ({what})" for name, what in keystore.KEYS.items())
@@ -1050,6 +1102,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_pair_device_parser(sub)
     _add_notify_parser(sub)
     _add_key_parser(sub)
+    _add_report_parser(sub)
     _add_plugins_parser(sub)
     return root
 

@@ -10,6 +10,7 @@ announcing, and announced once an edit settles rather than per slider step.
 import os
 
 from tests.fixtures.microscopes import demo_microscope
+from tests.waiting import qt_wait_for
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -105,16 +106,6 @@ def _add(widget, label="fm"):
 
 def _record(widget, key):
     return widget.aligned_images.get(key)
-
-
-def _wait_until(condition, timeout_ms=2000):
-    from qtpy.QtTest import QTest
-
-    waited = 0
-    while not condition() and waited < timeout_ms:
-        QTest.qWait(20)
-        waited += 20
-    return condition()
 
 
 def _wait(ms):
@@ -275,7 +266,7 @@ class TestEditsAreAnnouncedOnceTheySettle:
             panel.slider_opacity.setValue(value)
         panel.check_signal_only.setChecked(False)
         assert heard == []  # not per step
-        assert _wait_until(lambda: heard == [key])
+        assert qt_wait_for(lambda: heard == [key])
         _wait(600)
         assert heard == [key]
 
@@ -316,8 +307,8 @@ class TestTheChannelControls:
         panel.colormap.setCurrentText("cyan")
         record = _record(widget, key)
         assert record.layers[0].color == "cyan"
-        assert _wait_until(lambda: tuple(record.rgb[GREEN_SPOT]) == (0, 255, 255))
-        assert _wait_until(lambda: heard == [key])
+        assert qt_wait_for(lambda: tuple(record.rgb[GREEN_SPOT]) == (0, 255, 255))
+        assert qt_wait_for(lambda: heard == [key])
 
     def test_edits_that_queue_up_are_blended_once(self, widget, monkeypatch):
         key = _add(widget)
@@ -332,7 +323,7 @@ class TestTheChannelControls:
         panel = widget._channels_panel
         for value in (90, 80, 70, 60):
             panel.opacity.setValue(value)  # the selected channel's opacity
-        assert _wait_until(lambda: blends == [key])
+        assert qt_wait_for(lambda: blends == [key])
         _wait(50)
         assert blends == [key]
         assert _record(widget, key).layers[0].opacity == pytest.approx(0.6)

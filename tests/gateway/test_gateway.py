@@ -19,6 +19,7 @@ from fibsem.gateway.gateway import (
     RecentExperiment,
 )
 from fibsem.tools.apps import App
+from tests.waiting import wait_for
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -69,19 +70,10 @@ def _gateway(tmp_path, fakes, serve="serve", stop_wait_s=20.0, connection=None):
         recent=lambda: [RecentExperiment("grid3", "/experiments/grid3", "AutoLamella")],
         new_folder=lambda: "/experiments",
         discovery=lambda: fakes.found,
-        running=lambda url, token: fakes.running,
+        running=lambda url: fakes.running,
         configurations=lambda: CONFIGURATIONS,
         stop_wait_s=stop_wait_s,
     )
-
-
-def _wait_for(check, timeout=20.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if check():
-            return True
-        time.sleep(0.05)
-    return False
 
 
 def _log(state):
@@ -238,7 +230,7 @@ def test_a_running_workflow_refuses_a_stop_unless_forced(tmp_path, fakes):
 def test_a_host_it_didnt_start_blocks_a_start(tmp_path, fakes):
     gateway = _gateway(tmp_path, fakes)
     fakes.found = {"pid": 424242, "url": "http://127.0.0.1:8001"}
-    assert gateway.state().holder.pid == 424242
+    assert gateway.state().other_host.pid == 424242
     with pytest.raises(GatewayRefused) as refused:
         _headless(gateway, last=True)
     assert refused.value.error_type == "held"
@@ -261,7 +253,9 @@ def test_bad_starts_are_refused(tmp_path, fakes, kwargs, error):
 def test_an_app_that_ends_on_its_own_goes_back_to_off(tmp_path, fakes):
     gateway = _gateway(tmp_path, fakes, serve="quits")
     _headless(gateway, last=True)
-    assert _wait_for(lambda: (gateway.poll(), gateway.state().mode)[1] == OFF)
+    assert wait_for(
+        lambda: (gateway.poll(), gateway.state().mode)[1] == OFF, timeout=20
+    )
     assert gateway.state().last_exit.code == 3
     assert gateway.history().switches[0].result == "exited (3)"
 
@@ -273,7 +267,7 @@ def test_a_claimed_window_is_closed_only_by_the_operator(tmp_path, fakes):
         state = gateway.claim(window.pid, "stand-in", "operator", "desktop launch")
         assert (state.mode, state.window, state.pid) == (RUNNING, True, window.pid)
         fakes.found = {"pid": window.pid, "url": "http://127.0.0.1:8001"}
-        assert gateway.state().holder is None  # its own App Server
+        assert gateway.state().other_host is None  # its own App Server
         for act in (
             lambda: gateway.stop("mac-mini", "hub", force=True),
             lambda: _headless(gateway, "mac-mini", "hub", last=True),
@@ -287,7 +281,9 @@ def test_a_claimed_window_is_closed_only_by_the_operator(tmp_path, fakes):
         window.kill()
         window.wait()
     fakes.found = None
-    assert _wait_for(lambda: (gateway.poll(), gateway.state().mode)[1] == OFF)
+    assert wait_for(
+        lambda: (gateway.poll(), gateway.state().mode)[1] == OFF, timeout=20
+    )
     assert gateway.history().switches[0].result == "closed"
 
 
@@ -305,7 +301,7 @@ def test_with_the_window_it_opens_the_apps_desktop_launch(tmp_path, fakes):
     try:
         assert (state.mode, state.window) == (RUNNING, True)
         # The shell creates the file before it writes the line.
-        assert _wait_for(lambda: seen.exists() and seen.read_text().strip())
+        assert wait_for(lambda: seen.exists() and seen.read_text().strip(), timeout=20)
         assert seen.read_text().split() == [
             "-m",
             "fibsem.tools.desktop_launch",
@@ -318,7 +314,7 @@ def test_with_the_window_it_opens_the_apps_desktop_launch(tmp_path, fakes):
         ]
     finally:
         os.kill(state.pid, 9)
-        _wait_for(lambda: (gateway.poll(), gateway.state().mode)[1] == OFF)
+        wait_for(lambda: (gateway.poll(), gateway.state().mode)[1] == OFF, timeout=20)
 
 
 def test_the_state_names_newer_code(tmp_path, fakes):
@@ -499,13 +495,15 @@ def test_a_new_gateway_takes_back_the_app_and_stops_it(tmp_path, fakes):
     state = again.adopt()
     assert (state.mode, state.app, state.pid) == (RUNNING, "stand-in", started.pid)
     assert (state.experiment, state.who) == (exp, "operator")
-    assert state.holder is None
+    assert state.other_host is None
     assert again.history().switches[0].result == "taken back"
     fakes.found = None
     state = again.stop("operator", "page")
     assert state.mode == OFF and not state.last_exit.killed
     assert not again.run_file.exists()
-    assert _wait_for(lambda: f"serving {exp}" in Path(state.last_exit.log).read_text())
+    assert wait_for(
+        lambda: f"serving {exp}" in Path(state.last_exit.log).read_text(), timeout=20
+    )
 
 
 def test_a_taken_back_app_that_wont_stop_is_killed(tmp_path, fakes):
@@ -515,7 +513,7 @@ def test_a_taken_back_app_that_wont_stop_is_killed(tmp_path, fakes):
     again = _gateway(tmp_path, fakes, stop_wait_s=1.0)
     assert again.adopt().pid == started.pid
     assert again.stop("operator", "page").last_exit.killed
-    assert _wait_for(lambda: first._proc.poll() is not None)
+    assert wait_for(lambda: first._proc.poll() is not None, timeout=20)
 
 
 def test_a_claimed_window_is_taken_back(tmp_path, fakes):

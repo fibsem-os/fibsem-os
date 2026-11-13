@@ -1849,10 +1849,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         def preview(pairs, fix_scale):
             from fibsem.geometry.similarity import fit_similarity
 
-            image_pixels, targets = to_canvas(pairs)
-            placed = [
-                self.aligned_images.pixel_to_canvas(key, *p) for p in image_pixels
-            ]
+            placed, targets = self.aligned_images.on_sample(key, *to_canvas(pairs))
             return fit_similarity(placed, targets, fix_scale=fix_scale, scale=1.0)
 
         per_px = (self.canvas.reference_pixel_size or 0.0) * constants.SI_TO_MICRO
@@ -1860,10 +1857,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         def hint(pairs, fix_scale):
             from fibsem.geometry.similarity import looks_mirrored
 
-            image_pixels, targets = to_canvas(pairs)
-            placed = [
-                self.aligned_images.pixel_to_canvas(key, *p) for p in image_pixels
-            ]
+            placed, targets = self.aligned_images.on_sample(key, *to_canvas(pairs))
             found = looks_mirrored(placed, targets, fix_scale=fix_scale, scale=1.0)
             if found is None:
                 return None
@@ -2517,9 +2511,7 @@ class FibsemOverviewWidget(OverviewWidgetBase):
         except Exception as e:
             logger.debug(f"Could not place an image: {e}")
             return None
-        if key is not None:
-            self._extents[key] = (centre, tile.covers)
-        return self.canvas.add_image(
+        placed = self.canvas.add_image(
             self._for_display(tile),
             centre=centre,
             pixel_size=tile.pixel_size,
@@ -2533,6 +2525,11 @@ class FibsemOverviewWidget(OverviewWidgetBase):
             # tile with it, which a dictionary kept alongside had to be told to do.
             detail=lambda region, max_px, tile=tile: self._patch(tile, region, max_px),
         )
+        # by the key the canvas gave, so a view shown again can be fitted and
+        # clicked on as when first placed
+        if placed is not None:
+            self._extents[placed] = (centre, tile.covers)
+        return placed
 
     def set_image(self, image: FibsemImage) -> Optional[str]:
         """Place a whole overview as one image, and record it as one.

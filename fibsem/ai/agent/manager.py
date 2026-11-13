@@ -28,6 +28,7 @@ from typing import Callable, Dict, List, Optional
 from fibsem import paths
 from fibsem.util import timestamps
 from fibsem.util.files import write_atomic
+from fibsem.util.process import kill_pid, pid_alive, watch_stop_file
 
 log = logging.getLogger("fibsem.agent.manager")
 
@@ -37,6 +38,8 @@ LOG = "fibsem-agent.log"
 # fibsem-agent's console: what it says before its log opens, such as a refusal.
 OUTPUT = "fibsem-agent-output.txt"
 STOP = "stop"
+# In the record: the newest event id the agent was given, for a resume.
+EVENT_AFTER = "event_after"
 # The agent's own files, when it was given no folder.
 WORK = "work"
 # Without a work folder a session runs in run/, which holds only its skills.
@@ -186,6 +189,13 @@ class SessionFolder:
         record["playbook"] = state.get("playbook")
         self._write(record)
 
+    def keep_event_cursor(self, event_id: str) -> None:
+        """The id of the newest event the agent has been given, so a resume
+        watches from after it (`watch.watch` ``after``)."""
+        record = self.record()
+        record[EVENT_AFTER] = event_id
+        self._write(record)
+
     def _write(self, record: dict) -> None:
         try:
             write_json(self.folder / RECORD, record)
@@ -199,20 +209,9 @@ def watch_for_stop(
     """Call *stop* once a ``stop`` file appears in the session's folder, on a
     daemon thread."""
 
-    def run():
-        while not session.stop_requested():
-            time.sleep(poll_s)
-        stop()
-
-    thread = threading.Thread(target=run, name="fibsem-agent-stop", daemon=True)
-    thread.start()
-    return thread
-
-
-def _pid_alive(pid) -> bool:
-    from fibsem.server.discovery import _pid_alive as alive
-
-    return alive(pid)
+    return watch_stop_file(
+        session.folder / STOP, stop, poll_s=poll_s, name="fibsem-agent-stop"
+    )
 
 
 class AgentRunning(Exception):
@@ -431,7 +430,7 @@ class AgentSessionManager:
         if agent.process is not None:
             return agent.process.poll() is None
         runs = read_json(agent.folder / RECORD).get("runs") or [{}]
-        return "ended" not in runs[-1] and _pid_alive(runs[-1].get("pid"))
+        return "ended" not in runs[-1] and pid_alive(runs[-1].get("pid"))
 
     def _kill(self, agent: Agent) -> None:
         if agent.process is not None:
@@ -439,16 +438,8 @@ class AgentSessionManager:
             agent.process.wait(10)
             return
         pid = (read_json(agent.folder / RECORD).get("runs") or [{}])[-1].get("pid")
-        if _pid_alive(pid):
-            try:
-                if sys.platform == "win32":
-                    subprocess.run(["taskkill", "/F", "/PID", str(pid)], check=False)
-                else:
-                    import signal
-
-                    os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
+        if pid_alive(pid):
+            kill_pid(pid)
 
     def _exited(self, agent: Agent) -> None:
         """The agent's process ended on its own: what its record says decides

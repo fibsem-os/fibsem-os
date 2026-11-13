@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar
 
 from fibsem.ai.agent.library import Item as LibraryItem
 from fibsem.ai.agent.recent import RecentRow
+from fibsem.ai.agent.report import ReportedSession
 from fibsem.codec import encode, saved
 from fibsem.config import NotificationPreferences
 from fibsem.control import InControl
@@ -970,6 +971,8 @@ class Events:
     latest_seq: Optional[int] = None
     stream: Optional[str] = None
     oldest_available: Optional[int] = None
+    # asked with `after`: whether every event after that one is here
+    resumed: Optional[bool] = None
 
 
 @dataclass
@@ -1609,7 +1612,7 @@ class RequestDecided:
 @dataclass
 class AgentSession:
     # what the agent reported of its session, None before it has
-    session: Optional[Dict[str, Any]] = None
+    session: Optional[ReportedSession] = None
 
 
 @dataclass

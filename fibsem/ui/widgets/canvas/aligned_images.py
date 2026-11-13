@@ -470,6 +470,21 @@ class AlignedImages(QObject):
         v = ((y + 0.5) / height - 0.5) * fh
         return record.overlay.to_canvas(u, v)
 
+    @staticmethod
+    def _unsquash(record, points: np.ndarray) -> np.ndarray:
+        out = np.array(points, dtype=float).reshape(-1, 2)
+        ay = record.anchor[1]
+        out[:, 1] = ay + (out[:, 1] - ay) / (record.squash or 1.0)
+        return out
+
+    def on_sample(self, key: str, image_pixels, reference_points):
+        """Where *image_pixels* are placed and the *reference_points*, both unsquashed
+        by the view's foreshortening: the points a fit is made on, so a preview of
+        the fit agrees with the fit."""
+        record = self._images[key]
+        placed = [self.pixel_to_canvas(key, x, y) for x, y in image_pixels]
+        return self._unsquash(record, placed), self._unsquash(record, reference_points)
+
     def fit_to_points(
         self,
         key: str,
@@ -491,22 +506,13 @@ class AlignedImages(QObject):
         record = self._images[key]
         pixels = np.asarray(image_pixels, dtype=float).reshape(-1, 2)
         targets = np.asarray(reference_points, dtype=float).reshape(-1, 2)
-        placed = np.array([self.pixel_to_canvas(key, x, y) for x, y in pixels])
-        squash = record.squash or 1.0
+        placed, on_sample = self.on_sample(key, pixels, targets)
         ay = record.anchor[1]
-
-        def unsquash(points):
-            out = points.copy()
-            out[:, 1] = ay + (out[:, 1] - ay) / squash
-            return out
-
-        fit = fit_similarity(
-            unsquash(placed), unsquash(targets), fix_scale=fix_scale, scale=1.0
-        )
+        fit = fit_similarity(placed, on_sample, fix_scale=fix_scale, scale=1.0)
         # The composed map is still a similarity, and the placement is about the
         # image's centre: send the centre through the fit, add the turn and scale.
-        centre = np.array(record.overlay.centre, dtype=float)
-        new_centre = fit.apply(unsquash(centre.reshape(1, 2)))[0]
+        centre = self._unsquash(record, np.array([record.overlay.centre], dtype=float))
+        new_centre = fit.apply(centre)[0]
         record.dx = float((new_centre[0] - record.anchor[0]) / record.per_metre)
         record.dy = float((new_centre[1] - ay) / record.per_metre)
         record.rotation = float(record.rotation + fit.rotation)

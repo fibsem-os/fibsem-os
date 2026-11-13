@@ -92,6 +92,8 @@ def test_the_wheel_ships_skills_subagents_and_playbooks(checkout, tmp_path):
     assert (shipped / "fibsem-agent" / "instruments" / "fibsem" / "prompt.md").is_file()
     assert not list(shipped.rglob("__pycache__"))
     assert not (shipped / "settings.json").exists(), "only the agent's files"
+    for name in sources.DEVELOPER_SKILLS:
+        assert not (shipped / "skills" / name).exists()
     # A pip install has no checkout: the shipped copy is found instead.
     assert sources.find_root(str(tmp_path)) == tmp_path.resolve()
 
@@ -109,3 +111,11 @@ def test_a_session_without_a_work_folder_runs_in_its_own_run_folder(tmp_path, ch
     assert manager.last_session(None, tmp_path, own=manager.RUN) == "def"
     assert manager.last_session(None, tmp_path) is None, "work/ is another mode"
     assert manager.last_session(checkout, tmp_path) == "abc"
+
+
+def test_every_skill_is_named_by_a_playbook_or_is_for_developers(checkout):
+    named = set()
+    for name in playbooks.available(checkout):
+        named |= set(playbooks.load(name, checkout).all_skills())
+    found = {p.name for p in (checkout / ".claude" / "skills").iterdir() if p.is_dir()}
+    assert found - named <= set(sources.DEVELOPER_SKILLS)

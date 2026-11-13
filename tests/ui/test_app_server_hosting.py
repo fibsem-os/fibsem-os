@@ -2,7 +2,8 @@
 with or without a microscope, serving whatever the session connects."""
 
 import os
-import socket
+
+from tests.waiting import free_port
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -15,13 +16,8 @@ from fibsem import config as fibsem_cfg
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.server import hosting
 from fibsem.workflows.event_recording import recorder_for
+from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @pytest.fixture
@@ -45,7 +41,7 @@ def app_server_enabled(monkeypatch, tmp_path):
     monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: preferences)
 
     real_host = hosting.AppServerHost
-    port = _free_port()
+    port = free_port()
 
     def confined(session, app_context, **kwargs):
         return real_host(
@@ -80,7 +76,7 @@ def test_the_server_starts_before_a_microscope_and_follows_the_connect(
     assert body["connected"] is False
     assert _get(host, "/microscope").status_code == 409
 
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
 
     assert ui.session.app_server is host and host.running
     assert _get(host, "/capabilities").json()["connected"] is True
@@ -91,7 +87,7 @@ def test_the_server_starts_before_a_microscope_and_follows_the_connect(
     hooks = ui.session.runner.run_hooks("autolamella")._hooks
     assert ui.session.recorder.lifecycle_hook not in hooks
 
-    ui.system_widget.connect_to_microscope()  # connected: disconnects
+    connect_and_wait(ui.system_widget)  # connected: disconnects
     assert ui.microscope is None and host.running
     assert _get(host, "/microscope").status_code == 409
 
@@ -117,7 +113,7 @@ def _confine_and_control_preferences(monkeypatch, tmp_path):
     preferences = fibsem_cfg.UserPreferences()
     monkeypatch.setattr(fibsem_cfg, "load_user_preferences", lambda: preferences)
     real_host = hosting.AppServerHost
-    port = _free_port()
+    port = free_port()
     monkeypatch.setattr(
         hosting,
         "AppServerHost",
@@ -218,7 +214,7 @@ def test_default_preference_hosts_nothing(ui, monkeypatch):
     monkeypatch.setattr(
         fibsem_cfg, "load_user_preferences", lambda: fibsem_cfg.UserPreferences()
     )
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     assert ui.session.app_server is None
     manager = ui.session.runner.run_hooks("autolamella")
     assert manager is not None  # and built without any agent involvement
@@ -229,7 +225,7 @@ def test_the_event_stream_runs_without_the_app_server(ui, monkeypatch):
     monkeypatch.setattr(
         fibsem_cfg, "load_user_preferences", lambda: fibsem_cfg.UserPreferences()
     )
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     recorder = ui.session.recorder
     assert recorder is not None and ui.session.app_server is None
     # A run finds this recorder and registers its lifecycle hook (FIB-1044).
@@ -237,7 +233,7 @@ def test_the_event_stream_runs_without_the_app_server(ui, monkeypatch):
     # In the app, a call no task or agent marked is the operator's (FIB-1062).
     assert recorder.default_actor == "operator"
 
-    ui.system_widget.connect_to_microscope()  # connected: disconnects
+    connect_and_wait(ui.system_widget)  # connected: disconnects
     assert ui.session.recorder is None
     assert recorder_for(recorder.microscope) is None
     assert not recorder.writer.alive
@@ -245,7 +241,7 @@ def test_the_event_stream_runs_without_the_app_server(ui, monkeypatch):
 
 def test_the_app_server_reads_the_session_stream(ui, app_server_enabled):
     ui.sync_app_server_with_preference()
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     host, recorder = ui.session.app_server, ui.session.recorder
     assert host.running
     assert host.event_buffer is recorder.buffer

@@ -471,3 +471,25 @@ def test_the_demo_microscope_hands_the_fm_entry_to_its_fm(tmp_path):
 
     assert microscope.fm.devices["camera"].mount_transform.get_value() == "flip-xy"
     assert microscope.fm.mount_transform is CameraImageTransform.FLIP_XY
+
+
+def test_remote_is_kept_on_save_with_or_without_a_driver():
+    config = {
+        "hardware": {
+            "devices": [
+                {"name": "electron", "remote": "10.0.0.2:8765"},
+                {"name": "stage", "driver": "Demo", "remote": "10.0.0.2:8765"},
+                {"name": "fm", "driver": "Odemis", "remote": "10.0.0.3:8765"},
+            ]
+        }
+    }
+
+    written = SystemSettings.from_dict(config).to_dict()
+
+    for name in ("electron", "stage"):
+        assert utils.configuration_device(written, name)["remote"] == "10.0.0.2:8765"
+    fm = utils.configuration_device(written, "fm")
+    assert (fm["driver"], fm["remote"]) == ("Odemis", "10.0.0.3:8765")
+    assert "remote" not in utils.configuration_device(written, "ion")
+    assert utils.unrecognised_configuration_keys(written) == []
+    assert SystemSettings.from_dict(written).to_dict() == written

@@ -12,14 +12,6 @@ application's workflow. An application registers its own kinds
 (``register_proposal_kind``) and, for each value they carry, how it is stored
 (``register_value_type``) and how confirming writes it to an item
 (``register_value_writer``).
-
-What a loop's pass says on the prompt bar: a mill's, a spot burn's.
-
-A pass is a ``milling`` or ``spot_burn`` proposal (one per pass, see
-``fibsem.workflows.proposals``) whose allowed actions depend on where the loop
-is: before any pass it is run or skip, after one run again or accept, with
-running off only accept. The prompt bar has two buttons, so each pass names
-what they do here, and the words come from the kind.
 """
 
 from __future__ import annotations
@@ -994,8 +986,15 @@ LOOP_KINDS = tuple(_WORDS)
 
 @dataclass(frozen=True)
 class LoopPrompt:
-    """The prompt bar for one pass: its text, its buttons, and the action each
-    button decides (None: no such button)."""
+    """The prompt bar for one pass of a loop (a mill's, a spot burn's): its
+    text, its buttons, and the action each button decides (None: no such
+    button).
+
+    A pass is a ``milling`` or ``spot_burn`` proposal, one per pass, whose
+    allowed actions depend on where the loop is: before any pass it is run or
+    skip, after one run again or accept, with running off only accept. The
+    prompt bar has two buttons, so each pass names what they do here, and the
+    words come from the kind."""
 
     message: str
     positive: str

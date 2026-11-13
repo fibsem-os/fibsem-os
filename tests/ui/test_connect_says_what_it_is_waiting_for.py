@@ -1,105 +1,137 @@
-"""Connecting says which step it is on while it waits (FIB-1153).
+"""Connecting runs on a worker thread, says which step it is on, and can be
+cancelled (FIB-1153).
 
-Connecting runs on the GUI thread on purpose: the window takes no input while it
-does, so nothing can be started against a half-made session. But a ThermoFisher
-column turning on at connect takes a while, and with nothing repainted the
-application looked dead. Each step is now put on screen as it starts -- and painted,
-with user input held back so that still nothing can be pressed.
+A ThermoFisher column turning on at connect takes a while. Connecting used to run
+on the GUI thread, so the whole application stopped answering until it was done.
+Now the window keeps painting, the connect controls are held while it runs, each
+step is shown as it starts, and Cancel stops it at the next step.
 
-`setup_session` is replaced only to look at the window mid-connect; what it returns
-is a real Demo session.
+`setup_session` is replaced only to hold the connect mid-way; what it returns is a
+real Demo session.
 """
+
+import threading
+import time
 
 import pytest
 
 pytest.importorskip("qtpy.QtWidgets")
 
-from qtpy.QtCore import QEventLoop  # noqa: E402
 from qtpy.QtWidgets import QApplication, QDialog  # noqa: E402
 
 from fibsem import utils  # noqa: E402
 from fibsem.ui import notification_service  # noqa: E402
 from fibsem.ui.FibsemSystemSetupWidget import FibsemSystemSetupWidget  # noqa: E402
 from fibsem.ui.widgets.connection_dialog import ConnectionDialog  # noqa: E402
+from fibsem.workflows.session import AppSession  # noqa: E402
+from tests.fixtures.connecting import wait_connected  # noqa: E402
 
 real_setup_session = utils.setup_session
 
 
 class Midway:
-    """A `setup_session` that reports a step and notes what the window shows then."""
+    """A `setup_session` that reports a step, then waits to be let go."""
 
-    def __init__(self, look, fail: str = ""):
-        self.look = look
-        self.seen = None
+    def __init__(self, fail: str = ""):
         self.fail = fail
+        self.reported = threading.Event()
+        self.go = threading.Event()
 
-    def __call__(self, *args, progress=None, **kwargs):
+    def __call__(self, *args, progress=None, cancel=None, **kwargs):
         progress("Turning the beams on…")
-        self.seen = self.look()
+        self.reported.set()
+        assert self.go.wait(10)
         if self.fail:
             raise RuntimeError(self.fail)
-        return real_setup_session(manufacturer="Demo", setup_logging=False)
+        return real_setup_session(
+            manufacturer="Demo", setup_logging=False, cancel=cancel
+        )
+
+
+def _until(condition, timeout=10.0):
+    deadline = time.monotonic() + timeout
+    while not condition():
+        assert time.monotonic() < deadline, "timed out"
+        QApplication.processEvents()
+        time.sleep(0.002)
 
 
 @pytest.fixture
-def paints(monkeypatch):
-    """Each repaint's flags. A repaint that let user input through would let a
-    second connect, or a close, start mid-connect."""
-    flags = []
-    original = QApplication.processEvents
-
-    def spy(*args):
-        flags.append(args[0] if args else None)
-        return original(*args)
-
-    monkeypatch.setattr(QApplication, "processEvents", spy)
-    return flags
+def toasts(monkeypatch):
+    said = []
+    monkeypatch.setattr(
+        notification_service, "show_toast", lambda msg, *a, **k: said.append(msg)
+    )
+    return said
 
 
 @pytest.fixture
-def tab(qapp, monkeypatch):
-    monkeypatch.setattr(notification_service, "show_toast", lambda *a, **k: None)
+def tab(qapp, toasts, monkeypatch):
     widget = FibsemSystemSetupWidget()
     monkeypatch.setattr(widget, "load_configuration", lambda *a, **k: "/a/site.yaml")
     yield widget
-    if widget.microscope is not None:
-        widget.microscope.disconnect()
+    widget.session.disconnect()
     widget.deleteLater()
 
 
-def _card(tab):
-    return (
-        tab._label_status_title.text(),
-        tab._label_status_subtitle.text(),
-        tab.pushButton_connect_to_microscope.isEnabled(),
-    )
-
-
-def test_the_tab_shows_each_step_while_it_connects(tab, monkeypatch, paints):
-    midway = Midway(lambda: _card(tab))
+def test_the_tab_shows_each_step_while_it_connects(tab, monkeypatch):
+    midway = Midway()
     monkeypatch.setattr(utils, "setup_session", midway)
 
     tab.connect_to_microscope()
+    assert midway.reported.wait(10)
+    _until(lambda: tab._label_status_subtitle.text() == "Turning the beams on…")
 
-    assert midway.seen == ("Connecting", "Turning the beams on…", False)
+    # The GUI thread is free, and the connect controls are held.
+    assert tab.is_connecting
+    assert tab._label_status_title.text() == "Connecting"
+    assert not tab.pushButton_connect_to_microscope.isEnabled()
+    assert not tab.comboBox_configuration.isEnabled()
+    assert tab._button_cancel_connect.isVisibleTo(tab)
+
+    midway.go.set()
+    wait_connected(tab)
     assert tab.microscope is not None
     assert tab._label_status_title.text() == "Microscope Connected"
-    assert paints and all(
-        f == QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents for f in paints
-    )
+    assert not tab._button_cancel_connect.isVisibleTo(tab)
 
 
-def test_a_failed_connect_gives_the_button_back(tab, monkeypatch, paints):
-    monkeypatch.setattr(
-        utils, "setup_session", Midway(lambda: None, fail="no route to 192.168.0.1")
-    )
+def test_a_failed_connect_gives_the_button_back(tab, monkeypatch):
+    midway = Midway(fail="no route to 192.168.0.1")
+    midway.go.set()
+    monkeypatch.setattr(utils, "setup_session", midway)
 
     tab.connect_to_microscope()
+    wait_connected(tab)
 
     assert tab.microscope is None
     assert tab._label_status_title.text() == "Connection Failed"
+    assert "no route" in tab._label_status_subtitle.text()
     assert tab.pushButton_connect_to_microscope.isEnabled()
     assert tab.pushButton_connect_to_microscope.text() == "Connect to Microscope"
+
+
+def test_cancel_on_the_tab_lets_the_microscope_go(tab, monkeypatch, toasts):
+    midway = Midway()
+    monkeypatch.setattr(utils, "setup_session", midway)
+
+    tab.connect_to_microscope()
+    assert midway.reported.wait(10)
+    tab._button_cancel_connect.click()
+    # Given back at once, while the step under way is still running.
+    assert tab._label_status_title.text() == "Cancelled"
+    assert not tab._button_cancel_connect.isVisibleTo(tab)
+    assert tab.comboBox_configuration.isEnabled()
+    assert not tab.pushButton_connect_to_microscope.isEnabled()
+    midway.go.set()
+    wait_connected(tab)
+
+    assert tab.microscope is None
+    assert tab.session.instrument is None
+    assert "Connecting was cancelled." in toasts
+    # Cancelled is not failed.
+    assert tab._label_status_title.text() == "Not Connected"
+    assert tab.pushButton_connect_to_microscope.isEnabled()
 
 
 @pytest.fixture
@@ -107,24 +139,64 @@ def dialog(qapp):
     d = ConnectionDialog()
     d.show()
     yield d
-    if d.microscope is not None:
-        d.microscope.disconnect()
+    d.session.disconnect()
     d.deleteLater()
 
 
-def test_the_dialog_shows_each_step_while_it_connects(dialog, monkeypatch, paints):
-    midway = Midway(
-        lambda: (dialog.message_label.text(), dialog.connect_button.isEnabled())
-    )
+def test_the_dialog_shows_each_step_while_it_connects(dialog, monkeypatch):
+    midway = Midway()
     monkeypatch.setattr(utils, "setup_session", midway)
 
     dialog.connect_to_microscope()
+    assert midway.reported.wait(10)
+    _until(lambda: dialog.message_label.text() == "Turning the beams on…")
 
-    assert midway.seen == ("Turning the beams on…", False)
+    assert not dialog.connect_button.isEnabled()
+    assert not dialog.configuration_combo.isEnabled()
+    assert dialog.cancel_button.isVisible()
+    assert not dialog.offline_button.isVisible()
+
+    midway.go.set()
+    wait_connected(dialog)
     assert dialog.result() == QDialog.DialogCode.Accepted
-    assert paints and all(
-        f == QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents for f in paints
-    )
+
+
+def test_escape_mid_connect_cancels_and_keeps_the_dialog(dialog, monkeypatch):
+    """Closing would leave a connect running that nobody is watching."""
+    midway = Midway()
+    monkeypatch.setattr(utils, "setup_session", midway)
+
+    dialog.connect_to_microscope()
+    assert midway.reported.wait(10)
+    dialog.reject()
+    # Given back at once, while the step under way is still running.
+    assert dialog.isVisible()
+    assert dialog.offline_button.isVisible() and dialog.offline_button.isEnabled()
+    assert not dialog.cancel_button.isVisible()
+    assert not dialog.connect_button.isEnabled()
+    midway.go.set()
+    wait_connected(dialog)
+
+    assert dialog.isVisible()
+    assert dialog.result() != QDialog.DialogCode.Accepted
+    assert dialog.session.instrument is None
+    assert dialog.message_label.text() == "Connecting was cancelled."
+    assert dialog.connect_button.isEnabled()
+    assert dialog.offline_button.isVisible()
+
+
+def test_a_second_escape_closes_the_dialog_while_it_lets_go(dialog, monkeypatch):
+    midway = Midway()
+    monkeypatch.setattr(utils, "setup_session", midway)
+
+    dialog.connect_to_microscope()
+    assert midway.reported.wait(10)
+    dialog.reject()
+    dialog.reject()
+    assert dialog.result() == QDialog.DialogCode.Rejected
+    midway.go.set()
+    wait_connected(dialog)
+    assert dialog.session.instrument is None
 
 
 def test_the_steps_are_reported_in_order():
@@ -154,3 +226,67 @@ def test_a_progress_callback_that_fails_does_not_fail_the_connection():
         manufacturer="Demo", setup_logging=False, progress=broken
     )
     microscope.disconnect()
+
+
+def test_a_cancelled_connect_stops_before_the_next_step():
+    cancel = threading.Event()
+    steps = []
+
+    def progress(step):
+        steps.append(step)
+        cancel.set()  # pressed while the vendor connect runs
+
+    with pytest.raises(utils.ConnectCancelled):
+        real_setup_session(
+            manufacturer="Demo",
+            setup_logging=False,
+            beams_on=True,
+            progress=progress,
+            cancel=cancel,
+        )
+    assert "Turning the beams on…" not in steps
+
+
+def test_a_cancelled_session_connect_holds_nothing(monkeypatch):
+    cancel = threading.Event()
+    cancel.set()
+    session = AppSession()
+    with pytest.raises(utils.ConnectCancelled):
+        session.connect(None, cancel=cancel, manufacturer="Demo")
+    assert session.instrument is None
+    assert session.connecting is None
+
+
+def test_cancel_goes_once_the_connect_is_done(tab, monkeypatch):
+    """The tabs are built on the GUI thread right after; a Cancel still on
+    screen then looked like one that did not answer."""
+    from fibsem.workflows.session import CONNECTED_STEP
+
+    seen = []
+    tab._connect_step.connect(
+        lambda step: seen.append((step, tab._button_cancel_connect.isVisibleTo(tab)))
+    )
+    monkeypatch.setattr(
+        utils,
+        "setup_session",
+        lambda *a, progress=None, cancel=None, **k: real_setup_session(
+            manufacturer="Demo", setup_logging=False, progress=progress
+        ),
+    )
+    tab.connect_to_microscope()
+    wait_connected(tab)
+
+    assert tab.microscope is not None
+    assert seen[-1] == (CONNECTED_STEP, False)
+
+
+def test_a_session_connect_ends_on_the_connected_step():
+    from fibsem.workflows.session import CONNECTED_STEP
+
+    steps = []
+    session = AppSession()
+    session.connect(None, progress=steps.append, manufacturer="Demo")
+    try:
+        assert steps[-1] == CONNECTED_STEP
+    finally:
+        session.disconnect()

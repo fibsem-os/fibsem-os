@@ -41,6 +41,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# The status message of a task found InProgress when its experiment is read.
+INTERRUPTED = "The app closed while this task was running."
+
+
 class TaskStatus(NamedEnum, Enum):
     NotStarted = auto()
     InProgress = auto()

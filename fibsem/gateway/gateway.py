@@ -17,7 +17,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import signal
 import subprocess
 import sys
 import threading
@@ -27,10 +26,10 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import fibsem
-from fibsem.server.discovery import DISCOVERY_DIR, _pid_alive, read_discovery_file
-from fibsem.server.operator_token import read_operator_token
+from fibsem.server.discovery import DISCOVERY_DIR, read_discovery_file
 from fibsem.tools.apps import App, apps
 from fibsem.update_check import Newer, check_newer
+from fibsem.util.process import kill_pid, pid_alive
 
 logger = logging.getLogger(__name__)
 
@@ -81,7 +80,7 @@ class GatewayRefused(Exception):
 
 
 @dataclass
-class Holder:
+class OtherHost:
     """An App Server the gateway didn't start."""
 
     pid: int
@@ -129,7 +128,7 @@ class GatewayState:
     """Whether the gateway is starting or stopping the app now."""
     switch: Optional[str] = None
     """Which: "starting" (a restart too) or "stopping"; None between switches."""
-    holder: Optional[Holder] = None
+    other_host: Optional[OtherHost] = None
     last_exit: Optional[LastExit] = None
     apps: List[GatewayApp] = field(default_factory=list)
     last_experiment: Optional[str] = None
@@ -190,7 +189,7 @@ def read_gateway_file(path: Optional[Path] = None) -> Optional[dict]:
         return None
     if not isinstance(data, dict) or "url" not in data:
         return None
-    return data if _pid_alive(data.get("pid")) else None
+    return data if pid_alive(data.get("pid")) else None
 
 
 def saved_configurations() -> List[dict]:
@@ -284,19 +283,16 @@ def _python() -> str:
     return str(exe)
 
 
-def workflow_running(url: str, token: Optional[str]) -> bool:
+def workflow_running(url: str) -> bool:
     """Whether the App Server at *url* is running a workflow. One that doesn't
     answer isn't."""
-    import httpx
+    # Here, not at the top: host.py imports GatewayRefused from this module.
+    from fibsem.gateway.host import call_host
 
     try:
-        r = httpx.get(
-            f"{url}/app/workflow/status",
-            headers={"Authorization": f"Bearer {token}"} if token else {},
-            timeout=3.0,
-        )
-        return bool(r.json()["workflow"]["running"]) if r.status_code == 200 else False
-    except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        status = call_host(url, "GET", "/app/workflow/status", timeout=3.0)
+        return bool(status["workflow"]["running"])
+    except (GatewayRefused, ValueError, KeyError, TypeError):
         return False
 
 
@@ -317,7 +313,7 @@ class Gateway:
         new_folder: Callable[[], str] = experiments_folder,
         configurations: Callable[[], List[dict]] = saved_configurations,
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
-        running: Callable[[str, Optional[str]], bool] = workflow_running,
+        running: Callable[[str], bool] = workflow_running,
         python: Optional[str] = None,
         stop_wait_s: float = STOP_WAIT_S,
         newer: Callable[[], Optional[Newer]] = check_newer,
@@ -373,7 +369,7 @@ class Gateway:
             state = replace(self._state)
             state.switch = self._switch
             state.switching = self._switch is not None
-        state.holder = self._holder()
+        state.other_host = self._other_host()
         facts = self._facts if self._facts is not None else self.refresh_facts()
         state.apps = [
             GatewayApp(key=key, name=app.name, headless=app.serve is not None)
@@ -432,18 +428,18 @@ class Gateway:
                 continue
         return History(switches=switches)
 
-    def _holder(self) -> Optional[Holder]:
+    def _other_host(self) -> Optional[OtherHost]:
         found = self._discovery()
         if found is None:
             return None
         pid = found.get("pid")
         with self._lock:
             ours = {self._state.pid, self._claimed}
-        return None if pid in ours else Holder(pid=pid, url=found["url"])
+        return None if pid in ours else OtherHost(pid=pid, url=found["url"])
 
     def _run_going(self) -> bool:
         found = self._discovery()
-        return found is not None and self._running(found["url"], read_operator_token())
+        return found is not None and self._running(found["url"])
 
     # -- starting and stopping ---------------------------------------------
 
@@ -472,12 +468,12 @@ class Gateway:
         with self._take(who, via, RUNNING, app, experiment, window):
             if self._state.mode != OFF:
                 self._stop_current(force)
-            holder = self._holder()
-            if holder is not None:
+            other = self._other_host()
+            if other is not None:
                 raise GatewayRefused(
                     409,
                     "held",
-                    f"Another fibsem host (pid {holder.pid}) holds the microscope: "
+                    f"Another fibsem host (pid {other.pid}) has control of the microscope: "
                     "close it at the PC first.",
                 )
             self._start(app, chosen, window, experiment, last, connection, create)
@@ -564,7 +560,7 @@ class Gateway:
         with self._lock:
             if self._state.mode != OFF:
                 return self.state()
-        if not _pid_alive(pid):
+        if not pid_alive(pid):
             self.run_file.unlink(missing_ok=True)
             return self.state()
         found = self._discovery()
@@ -772,17 +768,14 @@ class Gateway:
         if stop_file is not None:
             stop_file.touch()
         end = time.monotonic() + self._stop_wait_s
-        while _pid_alive(pid) and stop_file is not None:
+        while pid_alive(pid) and stop_file is not None:
             if time.monotonic() > end:
                 break
             time.sleep(0.2)
-        if not _pid_alive(pid):
+        if not pid_alive(pid):
             return False
         logger.warning("Gateway: pid %d didn't stop; killing it", pid)
-        try:
-            os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
-        except OSError:
-            pass
+        kill_pid(pid)
         return True
 
     def _close_window(self) -> None:
@@ -795,7 +788,7 @@ class Gateway:
         end = time.monotonic() + self._stop_wait_s
 
         def gone() -> bool:
-            return proc.poll() is not None if proc is not None else not _pid_alive(pid)
+            return proc.poll() is not None if proc is not None else not pid_alive(pid)
 
         try:
             while not gone():
@@ -870,7 +863,7 @@ class Gateway:
             code = proc.poll()
             if code is None:
                 return
-        elif claimed is not None and _pid_alive(claimed):
+        elif claimed is not None and pid_alive(claimed):
             return
         else:
             code = None

@@ -9,7 +9,6 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import sys
-import time
 
 import numpy as np
 import pytest
@@ -38,20 +37,13 @@ from fibsem.ui.widgets.image_viewer_dialog import (  # noqa: E402
     open_image_viewer,
 )
 from tests.fixtures.info_bar import visible_fields  # noqa: E402
+from tests.waiting import qt_wait_for
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
 
-def _wait_until(condition, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while not condition() and time.monotonic() < deadline:
-        _app.processEvents()
-        time.sleep(0.01)
-
-
 def _loaded(viewer: ImageViewer, path: str) -> None:
-    _wait_until(lambda: viewer.path == path)
-    assert viewer.path == path, "the image never arrived"
+    assert qt_wait_for(lambda: viewer.path == path), "the image never arrived"
 
 
 @pytest.fixture
@@ -150,8 +142,7 @@ def test_a_later_click_wins_over_a_slow_read(beam_path, fm_path, monkeypatch):
     viewer.show_path(fm_path)
     _loaded(viewer, fm_path)
     second_shown.set()
-    _wait_until(lambda: not viewer._loaders)
-    assert not viewer._loaders, "the slow read never finished"
+    assert qt_wait_for(lambda: not viewer._loaders), "the slow read never finished"
     assert viewer.path == fm_path, "a late read replaced the image clicked after it"
 
 
@@ -160,7 +151,7 @@ def test_a_file_that_cannot_be_read_says_so(tmp_path):
     bad.write_bytes(b"not a tiff")
     viewer = ImageViewer()
     viewer.show_path(str(bad))
-    _wait_until(lambda: "Couldn't open" in viewer.loading_label.text())
+    assert qt_wait_for(lambda: "Couldn't open" in viewer.loading_label.text())
     assert "broken.tif" in viewer.loading_label.text()
     assert viewer.image is None
 
@@ -451,5 +442,6 @@ def test_a_viewer_closed_while_it_reads_does_not_take_the_app_down(
     del viewer
     gc.collect()
     release.set()
-    _wait_until(lambda: read not in image_viewer_dialog._RUNNING)
-    assert read not in image_viewer_dialog._RUNNING, "the read never finished"
+    assert qt_wait_for(lambda: read not in image_viewer_dialog._RUNNING), (
+        "the read never finished"
+    )

@@ -35,6 +35,7 @@ from fibsem.workflows.site_tasks.reference_image import (
     AcquireReferenceImageTask,
 )
 from fibsem.workflows.status import HoldKind, TaskStatus
+from tests.fixtures.connecting import connect_and_wait
 from tests.protocols import planned, task_protocol
 
 REF = "Acquire Reference Image"
@@ -45,7 +46,7 @@ def window(qapp, tmp_path):
     from fibsem.applications.autolamella.ui import window as module
 
     win = module.AutoLamellaWindow()
-    win.system_widget.connect_to_microscope()
+    connect_and_wait(win.system_widget)
     ui = win
     experiment = Experiment(path=tmp_path, name="state-exp")
     os.makedirs(experiment.path, exist_ok=True)

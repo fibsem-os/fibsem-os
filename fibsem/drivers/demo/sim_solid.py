@@ -90,16 +90,19 @@ YIELD = {
 INSIDE = {
     ICE: (0.62, 0.6),
     CELL: (0.86, 0.8),
-    NUCLEUS: (0.5, 0.48),
+    # what is in a cell is only a little off the cell's own grey: a cryo
+    # lamella's face shows a nucleus or an organelle faintly, if at all
+    NUCLEUS: (0.74, 0.7),
     FILM: (1.0, 0.9),
     BAR: (1.3, 1.2),
     PARTICLE: (0.4, 0.2),
     COAT: (1.9, 2.0),  # edge-on, the metal in it is the brightest band on a face
-    DROPLET: (0.34, 0.4),  # lipid: the darkest thing on a face
-    VESICLE: (1.08, 0.95),
+    DROPLET: (0.62, 0.6),  # lipid: the darkest thing in a cell
+    VESICLE: (0.95, 0.86),
 }
 NOTHING = (0.1, 0.04)
 FLOOR = 1.3  # how much brighter a milled floor is than a cut face
+FRESH = 0.05  # um; a floor this far down has lost the look of the top
 TILT = (0.5, 0.42)  # how strongly a slope changes the yield
 BAR_UNDER = (0.22, 0.12)  # how much a bar under thin ice adds
 BAR_DEPTH = 5.0  # the ice over which a bar fades
@@ -544,7 +547,7 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
                 "span": float(edges.min()),
                 "view": None if cut is None else (cut.turn, cut.fs, cut.k),
                 "halo": region.halo * UM,
-                "rim": pieces is None,
+                "rim": pieces is None and not getattr(region, "scan", False),
                 "hard": hard,
             }
         )
@@ -900,7 +903,10 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     span = hit["floor"]
     floor = span > 0
     sunk = 1 / (1 + (depth / np.where(floor, 0.5 * span, 1.0)) ** 2)
-    level = FLOOR * mat_in * np.clip(sunk, 0.2, 1.0)
+    # the first of it off the top still looks like the top
+    fresh = np.exp(-depth / FRESH)
+    level = fresh * mat_top + (1 - fresh) * FLOOR * mat_in
+    level = level * np.clip(sunk, 0.2, 1.0)
     inside = np.where(floor, level, inside)
     opening = np.where(floor, 1.0, hit["opening"])
     removed, x = hit["removed"], hit["x"]
@@ -1154,10 +1160,15 @@ class Plan:
             out[cut["box"]] |= (cut["from"] <= zz) & (zz <= cut["to"])
         return out
 
-    def fraction(self, lo: float, hi: float, n: int = 24) -> np.ndarray:
-        """How much of each column between two heights was milled away."""
+    def fraction(
+        self, lo: float, hi: float, n: int = 24, lean: float = 0.0
+    ) -> np.ndarray:
+        """How much of each column between two heights was milled away. A
+        view that looks along a tilted line (`lean`, rows it crosses per um
+        of height) sees through each height where that line meets it."""
         heights = np.linspace(lo, hi, n)
-        return np.mean([self.gone(z) for z in heights], axis=0).astype(np.float32)
+        gone = [_rows(self.gone(z), lean * z) for z in heights]
+        return np.mean(gone, axis=0).astype(np.float32)
 
     def gone_at(self, x, y, z) -> np.ndarray:
         """Whether loose points (um) were milled away, by the sample nearest
@@ -1234,14 +1245,16 @@ REFLECTANCE = {PARTICLE: 1.15, COAT: 0.8, BAR: 1.0, FILM: 0.5}
 FRINGE = 0.42  # um; the height of ice between two fringes seen (550 nm light)
 
 
-def reflectance(scene: "SampleScene", view: Plan) -> np.ndarray:
+def reflectance(scene: "SampleScene", view: Plan, lean: float = 0.0) -> np.ndarray:
     """What the FM sees in reflected light, relative to a grid bar. The film
     is an uneven grey, with a bright dot where ice spans a hole. A cell's
     dome has a bright ring round its foot and fine broken fringes up its
     flank, each a step in the ice's height, fading to a soft grey middle.
     Bars are bright through the ice over them, particles brighter. A milled
     face is rough and dim with a bright ragged edge, and where the sample
-    was milled through there is nothing."""
+    was milled through there is nothing. A view along a tilted line (`lean`,
+    rows it crosses per um of height) sees each of these where that line
+    first meets the sample, as the fluorescence does."""
     z, mat = view.top()
     col = view.col
     sx, sy = view.step
@@ -1292,17 +1305,79 @@ def reflectance(scene: "SampleScene", view: Plan) -> np.ndarray:
     edge = np.clip(near * 2.5, 0, 1) * whole
     out = out + 1.1 * edge * np.clip(0.6 + 0.9 * noise(1.2, 306), 0, 1.5)
     out[~solid] = 0.0
-    return out.astype(np.float32)
+    out = out.astype(np.float32)
+    return _along(out, z, solid, lean, FILM_TOP) if lean else out
 
 
-def cell_depth(view: Plan, levels: int = 12) -> tuple:
+SIDE = 0.6  # um; a line of sight that comes in this far under a top hit its side
+
+
+def _along(
+    values: np.ndarray, z: np.ndarray, solid: np.ndarray, lean: float, floor: float
+):
+    """`values` on a surface of height `z` (um), seen along a line that
+    crosses `lean` rows per um of height: at each place in the view, the
+    first of the surface the line meets coming down to `floor`, the
+    sample's underside. Where it comes in under
+    a top it meets a wall, which is dim; where it meets nothing there is
+    nothing."""
+    if not solid.any():
+        return values
+    step = min(0.25, 0.5 / abs(lean))
+    top, bottom = float(z[solid].max()), min(float(z[solid].min()), floor)
+    out = np.zeros_like(values)
+    done = np.zeros(values.shape, dtype=bool)
+    for level in np.arange(top, bottom - step, -step):
+        rows = lean * level
+        zs = _rows(z, rows)
+        hit = _rows(solid, rows) & (zs >= level) & ~done
+        if not hit.any():
+            continue
+        seen = _rows(values, rows)
+        out[hit] = np.where(zs > level + SIDE, 0.12 * seen, seen)[hit]
+        done |= hit
+    return out
+
+
+def _rows(a: np.ndarray, rows: float) -> np.ndarray:
+    """`a` moved down by a whole number of rows, nothing coming in."""
+    n = int(round(rows))
+    if n == 0:
+        return a
+    out = np.zeros_like(a)
+    if abs(n) < len(a):
+        if n > 0:
+            out[n:] = a[:-n]
+        else:
+            out[:n] = a[-n:]
+    return out
+
+
+def cell_depth(view: Plan, levels: int = 12, lean: float = 0.0, dye=None) -> tuple:
     """How much cell is left in each column after milling (um), and which
     cell it is: what a dye through the whole cell shows from above. The
-    nucleus keeps the dye out of part of it."""
+    nucleus keeps the dye out of part of it. With `dye` (how strongly each
+    column is dyed) the depth is weighted by it, and with `lean` (rows a
+    tilted line of sight crosses per um of height) it is what lies along
+    each such line."""
     col = view.col
     top = col["cell"][1]
     there = top > NONE / 2
     tall = np.where(there, top - FILM_TOP, 0.0).astype(np.float32)
+    if lean:
+        n_lo, n_hi = col["nucleus"]
+        nucleus = np.where(n_hi > NONE / 2, np.clip(n_hi - n_lo, 0, None), 0.0)
+        share = np.clip(1 - 0.45 * nucleus / np.maximum(tall, 1e-6), 0, 1)
+        share = share * (1.0 if dye is None else dye)
+        n = 2 * levels
+        dz = float(tall.max()) / n if there.any() else 0.0
+        depth = np.zeros(tall.shape, dtype=np.float32)
+        for z in FILM_TOP + (np.arange(n) + 0.5) * dz:
+            here = there & (z < top)
+            if view.removed:
+                here &= ~view.gone(float(z))
+            depth += _rows(here * share, lean * z) * dz
+        return depth.astype(np.float32), col["cell_id"]
     kept = np.ones(tall.shape, dtype=np.float32)
     if view.removed:
         gone = np.zeros(tall.shape, dtype=np.float32)
@@ -1312,6 +1387,8 @@ def cell_depth(view: Plan, levels: int = 12) -> tuple:
     n_lo, n_hi = col["nucleus"]
     nucleus = np.where(n_hi > NONE / 2, np.clip(n_hi - n_lo, 0, None), 0.0)
     depth = np.clip(tall - 0.45 * nucleus, 0, None) * kept
+    if dye is not None:
+        depth = depth * dye
     return depth.astype(np.float32), col["cell_id"]
 
 

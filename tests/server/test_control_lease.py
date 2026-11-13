@@ -16,6 +16,7 @@ from fibsem.server import AuthConfig, build_server
 from fibsem.server.leases import LEASE_HEADER, Leases
 from fibsem.structures.settings import FibsemStagePosition
 from tests.fixtures.app_server import serving
+from tests.waiting import wait_for
 
 TOKEN = "test-token"
 OPERATOR_TOKEN = "operator-token"
@@ -240,15 +241,6 @@ def test_a_click_on_a_remote_microscope_holds_its_lease_in_the_worker_only(
     assert lease is not None and by == OPERATOR
     assert transport._lease.get() is None
     assert wait_for(lambda: microscope.control.current is None)
-
-
-def wait_for(condition, timeout=5.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(0.02)
-    return condition()
 
 
 def test_a_remote_click_during_another_shares_its_lease(remote, microscope):

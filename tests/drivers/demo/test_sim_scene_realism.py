@@ -312,8 +312,10 @@ def test_the_fm_dyes_the_nucleus_and_the_cytoplasm_differently(microscope):
     # and they sit in cytoplasm: the GFP there is well above the bare film
     # (large adherent cells cover most of the field, so the film is the
     # dim tail of the GFP image, not its median)
-    film = np.percentile(gfp_smooth, 2)
-    assert gfp_smooth[nuclei].mean() > 2 * film
+    # measured where the tilted sample is in focus: the band across the middle
+    band = slice(res[1] // 2 - 60, res[1] // 2 + 60)
+    film = np.percentile(gfp_smooth[band], 2)
+    assert gfp_smooth[band][nuclei[band]].mean() > 2 * film
 
 
 def _world_grid(hfw=300e-6, shape=(1024, 1024)):

@@ -98,12 +98,15 @@ class AppServerHost:
         port: int = 8001,
         discovery_path=None,
         serve_microscope: bool = True,
+        agent: bool = True,
     ):
         self._session = session
         self._app_context = app_context
         # Whether the /microscope routes are served. Fixed for the
         # host's life; a change builds a new one.
         self.serve_microscope = serve_microscope
+        # False for the microscope server: no agent level, pairing or routes.
+        self.agent = agent
         self._host = host
         self._port = port
         self._discovery_path = discovery_path
@@ -303,7 +306,7 @@ class AppServerHost:
         # never written to disk. The override is Drive.
         # Where the agent is not released, it stays Off: no level, no agent
         # pairing, no asks to connect.
-        agent_allowed = unreleased.enabled()
+        agent_allowed = self.agent and unreleased.enabled()
         session = self._session
         if session.agent_auth is None:
             session.agent_auth = AuthConfig.generate(
@@ -330,7 +333,7 @@ class AppServerHost:
             auth=self.auth,
             serve_microscope=self.serve_microscope,
             services=session.analysis_services,
-            operator=getattr(session, "agent", None),
+            operator=getattr(session, "agent", None) if self.agent else None,
         )
         self._app = app
         config = uvicorn.Config(

@@ -79,33 +79,85 @@ jobs:
               fh.write(f"prerelease={str(tagged.is_prerelease).lower()}\n")
           PY
 
-  test:
+  # Built once: the wheel the smoke job installs is the one publish uploads.
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+      - run: pip install build
+      - run: python -m build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+
+  # The microscopes run Windows, so the suite runs there too: the ends of the
+  # supported range, as in the nightly run.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python-version: "3.11" }
+          - { os: windows-latest, python-version: "3.10" }
+          - { os: windows-latest, python-version: "3.13" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - run: pip install ".[test]"
       - name: Test with pytest
         run: pytest tests/ -n auto --dist worksteal --timeout=300
 
+  # Installs the built wheel the way INSTALLATION.md does, outside the checkout,
+  # and starts it. The versions it installed become the release's constraints
+  # file, attached to the GitHub Release below.
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, name: linux }
+          - { os: windows-latest, name: windows }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Install the wheel outside the repository and start it
+        shell: bash
+        run: >-
+          python .github/scripts/wheel_smoke.py dist/*.whl --extras ui
+          --freeze "constraints-${{ github.ref_name }}-${{ matrix.name }}.txt"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: constraints-${{ matrix.name }}
+          path: constraints-*.txt
+
   publish:
-    needs: [check-version, test]
+    needs: [check-version, test, smoke]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write
 
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/download-artifact@v8
         with:
-          python-version: "3.11"
-          cache: pip
-      - run: pip install build
-      - run: python -m build
+          name: dist
+          path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
 
   # The Release page is how Early Access finds out a candidate exists, and its
@@ -121,6 +173,13 @@ jobs:
     permissions:
       contents: write
     steps:
+      # The versions the release was installed and started with, one file per
+      # platform, for `pip install -c` (INSTALLATION.md).
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: constraints-*
+          path: constraints/
+          merge-multiple: true
       - name: Create the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -129,7 +188,8 @@ jobs:
           PRERELEASE: ${{ needs.check-version.outputs.prerelease }}
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "release $TAG already exists, leaving it alone"
+            echo "release $TAG already exists; adding the constraints files only"
+            gh release upload "$TAG" constraints/*.txt --clobber
             exit 0
           fi
 
@@ -141,6 +201,6 @@ jobs:
 
           # Generated notes over a whole minor release can pass GitHub's 125k
           # limit, so fall back to pointing at the changelog.
-          gh release create "$TAG" "${args[@]}" --generate-notes ||
-            gh release create "$TAG" "${args[@]}" \
+          gh release create "$TAG" "${args[@]}" --generate-notes constraints/*.txt ||
+            gh release create "$TAG" "${args[@]}" constraints/*.txt \
               --notes "See [CHANGES.md](https://github.com/$GH_REPO/blob/$TAG/CHANGES.md) for what changed."

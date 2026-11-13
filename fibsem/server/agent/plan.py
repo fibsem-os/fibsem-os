@@ -43,6 +43,7 @@ from fibsem.server.auth import (
     refusal_error,
     require_level,
 )
+from fibsem.server.bodies import PlanBody, PlanSectionBody
 
 logger = logging.getLogger(__name__)
 
@@ -406,8 +407,8 @@ def build_agent_plan_router(
         return {**store.answer(), "playbook": name or None}
 
     @router.post("/plan/section")
-    def set_section(request: Request, body: Dict[str, Any]):
-        name, text = _name(body.get("section")), _text(body.get("text"))
+    def set_section(request: Request, body: PlanSectionBody):
+        name, text = _name(body.section), _text(body.text)
         store = _store(request)
         sections = dict(store.current(_session_id(request.app.state.auth)))
         if text:
@@ -417,9 +418,9 @@ def build_agent_plan_router(
         return _save(request, sections)
 
     @router.put("/plan")
-    def put_plan(request: Request, body: Dict[str, Any]):
-        markdown = body.get("markdown")
-        if not isinstance(markdown, str) or len(markdown) > MAX_SECTION * MAX_SECTIONS:
+    def put_plan(request: Request, body: PlanBody):
+        markdown = body.markdown
+        if len(markdown) > MAX_SECTION * MAX_SECTIONS:
             raise _invalid(
                 "markdown is the whole plan, its sections under ## headings."
             )

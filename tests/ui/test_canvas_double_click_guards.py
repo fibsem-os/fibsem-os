@@ -45,6 +45,7 @@ from fibsem.ui.FibsemMovementWidget import ACQUIRING_IMAGES  # noqa: E402
 from fibsem.ui.widgets.stage_control_widget import (  # noqa: E402
     StageControlWidget,
 )
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 
 
 def _pump(ms: int = 150) -> None:
@@ -265,7 +266,7 @@ def test_the_guard_finds_the_real_milling_widget_on_a_real_host(qapp):
     from tests.fixtures.main_window import close_window
 
     ui = AutoLamellaWindow()
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     qapp.processEvents()
     try:
         control = ui.panel.movement_widget.control_widget

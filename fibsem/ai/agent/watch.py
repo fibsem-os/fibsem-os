@@ -17,7 +17,8 @@ with ``service_wait_for_run``, so has the end), ``MILL STAGE STARTED`` and
 ``MILL ENDED`` (every mill, whoever started it), ``MILL READING`` (a milling
 monitor's trigger or error), ``AUTOFOCUS`` and ``ALIGNMENT`` (every one, with
 its check: passed, doubtful and why, or unchecked), task ``EVENT`` lines,
-``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``QUIET`` (a workflow is running
+``WORKFLOW STARTED``, ``WORKFLOW ENDED``, ``STOPPED`` (the operator stopped
+the agent, a run or a mill), ``QUIET`` (a workflow is running
 and nothing has been said for a while), ``MESSAGE`` (the operator wrote to
 the agent from its card; one still unanswered when the watch starts
 is said first), ``NOTE`` (the operator kept a note on a
@@ -46,10 +47,15 @@ fibsem is installed, without the [mcp] extra.
 import argparse
 import sys
 import time
+from urllib.parse import quote
 
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.client.transport import Transport
-from fibsem.workflows.actions import is_message
+from fibsem.workflows.actions import ACTION, is_message
+from fibsem.workflows.actions import OPERATOR_STOP as STOPPED_NO_REASON
+from fibsem.workflows.events import event_id
+from fibsem.workflows.events import kinds as event_kinds
+from fibsem.workflows.events import payloads as typed
 
 # Kinds that end a workflow: report it, and keep watching. A stalled workflow
 # drained with decisions pending; a failed one died outside a task (FIB-1037).
@@ -94,17 +100,27 @@ PROPOSAL_RELEASED = "proposal_released"
 SUGGESTION = "suggestion"
 REQUEST = "request"
 COMMAND_ENDED = "command_ended"
+COMMAND_FAILED = "command_failed"
 MILL_STAGE_STARTED = "mill_stage_started"
 MILL_ENDED = "mill_ended"
+MILL_FAILED = "mill_failed"
 MILL_READING = "mill_reading"
+# A milling monitor's stop rule fired (a MILL READING with a trigger).
+STOP_RULE = "stop_rule"
 AUTOFOCUS = "autofocus"
 ALIGNMENT = "alignment"
 NOTE = "note"
 MESSAGE = "message"
 PLAN_EDITED = "plan_edited"
 LEVEL = "level"
+LEVEL_LOWERED = "level_lowered"
+# The operator stopped the agent, a run or a mill.
+OPERATOR_STOP = "operator_stop"
 WORKFLOW_STARTED = "workflow_started"
 WORKFLOW_ENDED = "workflow_ended"
+# A workflow failed, or ended without an end event. One the operator stopped
+# is their STOPPED line; one the agent stopped is no news to it.
+WORKFLOW_FAILED = "workflow_failed"
 QUIET = "quiet"
 GAP = "gap"
 RESTARTED = "restarted"
@@ -112,11 +128,13 @@ AGENT_BACK = "agent_back"
 SERVER_UNAVAILABLE = "server_unavailable"
 SERVER_GONE = "server_gone"
 NO_EVENTS = "no_events"
+# A poll's failure when nothing answered: the failure says what to check.
+UNREACHABLE = "unreachable"
 # What the watch says just before it gives up.
 LAST_KINDS = {SERVER_UNAVAILABLE, SERVER_GONE, NO_EVENTS}
 
 ENDED = "WORKFLOW ENDED"
-NO_END_EVENT_LINE = Wake(WORKFLOW_ENDED, f"{ENDED} (stopped without an end event)")
+NO_END_EVENT_LINE = Wake(WORKFLOW_FAILED, f"{ENDED} (stopped without an end event)")
 
 POLL_S = 25.0  # the server caps a park at 30 s
 RETRY_DELAY_S = 5.0
@@ -171,16 +189,18 @@ def report_read(client, ids) -> None:
         pass
 
 
-def _poll(client, since, timeout):
-    """One long-poll: (payload, None), or (None, why it failed)."""
+def _poll(client, since, timeout, after=None):
+    """One long-poll: (payload, None), or (None, why it failed). *after* is an
+    event id, in place of *since*."""
+    cursor = f"after={quote(after)}" if after else f"since={since}"
     try:
         response = client.request(
             "GET",
-            f"/app/events?since={since}&timeout={timeout}",
+            f"/app/events?{cursor}&timeout={timeout}",
             timeout=timeout + 10.0,
         )
     except (OSError, ValueError) as error:
-        return None, f"unreachable ({error})"
+        return None, f"{UNREACHABLE} ({error})"
     if response.status_code >= 400:
         if _error_type(response) == AGENT_OFF:
             return None, AGENT_OFF
@@ -216,55 +236,60 @@ def _print_events(events, since, say, marked=None):
     for event in events:
         kind = event.get("kind", "")
         data = event.get("payload") or {}
+        # The kinds typed in `payloads`, read as their type.
+        p = typed.read_payload(event)
         since = max(since, event.get("seq", since))
         _keep_marked(event, marked)
-        if kind == "proposal_held":
-            say(_proposal_line(data.get("item_name"), data.get("task_name")))
-        elif kind == "proposal_released":
+        if kind == event_kinds.PROPOSAL_HELD:
+            say(_proposal_line(p.item_name, p.task_name))
+        elif kind == event_kinds.PROPOSAL_RELEASED:
             out(
                 PROPOSAL_RELEASED,
-                f"PROPOSAL RELEASED item={data.get('item_name')} "
-                f"task={data.get('task_name')}",
+                f"PROPOSAL RELEASED item={p.item_name} task={p.task_name}",
             )
-        elif kind == "suggestion_declined":
-            reason = " ".join(str(data.get("reason") or "").split())
-            line = f"SUGGESTION DECLINED{_item_of(data)} task={data.get('task')}"
+        elif kind == event_kinds.SUGGESTION_DECLINED:
+            reason = " ".join(str(p.reason or "").split())
+            line = f"SUGGESTION DECLINED{_item_of(data)} task={p.task}"
             out(SUGGESTION, f"{line}: {reason}" if reason else line)
-        elif kind == "proposal_decided" and data.get("kind") == "actions":
-            out(REQUEST, _request_decided_line(data))
-        elif kind == "proposal_decided" and data.get("suggestion_id"):
-            out(
-                SUGGESTION,
-                f"SUGGESTION APPROVED{_item_of(data)} task={data.get('task')}",
-            )
-        elif kind in ("request_decided", "request_finished", "request_cancelled"):
+        elif kind == event_kinds.PROPOSAL_DECIDED and p.kind == "actions":
+            out(REQUEST, _request_decided_line(p))
+        elif kind == event_kinds.PROPOSAL_DECIDED and p.suggestion_id:
+            out(SUGGESTION, f"SUGGESTION APPROVED{_item_of(data)} task={p.task}")
+        elif kind in (
+            event_kinds.REQUEST_DECIDED,
+            event_kinds.REQUEST_FINISHED,
+            event_kinds.REQUEST_CANCELLED,
+        ):
             out(REQUEST, _request_line(kind, data))
-        elif kind == "command_ended" and data.get("waited"):
+        elif kind == event_kinds.COMMAND_ENDED and p.waited:
             pass  # a caller waiting for it (service_wait_for_run) has the end
-        elif kind == "command_ended":
+        elif kind == event_kinds.COMMAND_ENDED:
             # A long command the agent started (a mill, a spot burn) ended.
             line = (
-                f"COMMAND ENDED {data.get('service')}.{data.get('command')} "
-                f"run={data.get('run_id')} state={data.get('state')}"
+                f"COMMAND ENDED {p.service}.{p.command} run={p.run_id} state={p.state}"
             )
             out(
-                COMMAND_ENDED,
-                f"{line} ({data['error']})" if data.get("error") else line,
+                COMMAND_FAILED if p.state == "failed" else COMMAND_ENDED,
+                f"{line} ({p.error})" if p.error else line,
             )
-        elif kind == "milling_stage_started":
-            out(MILL_STAGE_STARTED, _mill_stage_line(event, data))
-        elif kind == "milling":
-            out(MILL_ENDED, _mill_ended_line(event, data))
-        elif kind == "milling_reading":
+        elif kind == event_kinds.MILLING_STAGE_STARTED:
+            out(MILL_STAGE_STARTED, _mill_stage_line(event, p))
+        elif kind == event_kinds.MILLING:
+            failed = p.status == "failed"
+            out(MILL_FAILED if failed else MILL_ENDED, _mill_ended_line(event, p))
+        elif kind == event_kinds.MILLING_READING:
             line = _reading_line(data)
             if line:
-                out(MILL_READING, line)
-        elif kind == "autofocus":
+                reading = data.get("reading") or {}
+                out(STOP_RULE if reading.get("trigger") else MILL_READING, line)
+        elif kind == ACTION and event.get("actor") == "operator" and data.get("stops"):
+            out(OPERATOR_STOP, _operator_stop_line(data))
+        elif kind == event_kinds.AUTOFOCUS:
             out(AUTOFOCUS, _autofocus_line(event, data))
-        elif kind == "alignment":
+        elif kind == event_kinds.ALIGNMENT:
             out(ALIGNMENT, _alignment_line(event, data))
         elif (
-            kind == "note"
+            kind == event_kinds.NOTE
             and event.get("actor") == "operator"
             and not is_message(event)
         ):
@@ -273,28 +298,30 @@ def _print_events(events, since, say, marked=None):
             out(NOTE, f"NOTE from the operator on {data.get('item_name')}: {text}")
         elif _is_message(event):
             say(_message_line(data, marked))
-        elif kind == "agent_plan_edited":
-            sections = ", ".join(str(s) for s in data.get("sections") or [])
+        elif kind == event_kinds.AGENT_PLAN_EDITED:
+            sections = ", ".join(str(s) for s in p.sections or [])
             out(PLAN_EDITED, f"PLAN EDITED by the operator: {sections}")
-        elif kind == "agent_level_set":
-            line = _level_line(data)
+        elif kind == event_kinds.AGENT_LEVEL_SET:
+            line = _level_line(p)
             if line:
-                out(LEVEL, line)
-        elif kind == "workflow_started":
+                out(LEVEL_LOWERED if _lowered(p) else LEVEL, line)
+        elif kind == event_kinds.WORKFLOW_STARTED:
             out(WORKFLOW_STARTED, "WORKFLOW STARTED")
             running = True
         elif kind in WORKFLOW_ENDS:
-            detail = data.get("error") or _counts(data.get("task_counts"))
+            detail = p.error or _counts(p.task_counts)
             out(
-                WORKFLOW_ENDED,
+                WORKFLOW_FAILED
+                if kind == event_kinds.WORKFLOW_FAILED
+                else WORKFLOW_ENDED,
                 f"{ENDED} ({kind}: {detail})" if detail else f"{ENDED} ({kind})",
             )
             running = False
         elif kind in INTERESTING:
-            task = data.get("task_name")
-            line = f"EVENT {kind} {data.get('item_name', '')}"
+            task = p.task_name
+            line = f"EVENT {kind} {p.item_name or ''}"
             line = f"{line} {task}" if task else line
-            reason = _skip_reason(data) if kind == "task_skipped" else None
+            reason = _skip_reason(p) if kind == event_kinds.TASK_SKIPPED else None
             out(kind, f"{line} ({reason})" if reason else line)
     return since, running
 
@@ -302,8 +329,10 @@ def _print_events(events, since, say, marked=None):
 def _is_message(event) -> bool:
     """Whether *event* is the operator's message to the agent."""
     kind = event.get("kind", "")
-    return kind == "operator_message" or (
-        kind == "note" and event.get("actor") == "operator" and is_message(event)
+    return kind == event_kinds.OPERATOR_MESSAGE or (
+        kind == event_kinds.NOTE
+        and event.get("actor") == "operator"
+        and is_message(event)
     )
 
 
@@ -337,7 +366,7 @@ def _keep_marked(event, marked) -> None:
     message citing it follows it on the record."""
     data = event.get("payload") or {}
     if (
-        event.get("kind") == "evidence"
+        event.get("kind") == event_kinds.EVIDENCE
         and event.get("actor") == "operator"
         and data.get("evidence_id")
     ):
@@ -484,19 +513,44 @@ def _unanswered(events):
     return waiting
 
 
-def _level_line(data):
+def _level_line(p: typed.LevelSet):
     """The operator changed the level. Off has no line here: the agent is
     refused, and the watch says AGENT OFF."""
     try:
-        level = AgentLevel(data.get("level"))
+        level = AgentLevel(p.level)
     except ValueError:
         return None
     if level is AgentLevel.OFF:
         return None
-    return (
-        f"LEVEL {level.value} (was {data.get('previous')}): the operator set the "
-        "agent level"
-    )
+    return f"LEVEL {level.value} (was {p.previous}): the operator set the agent level"
+
+
+# The levels from least to most the agent may do.
+_RANK = {level: rank for rank, level in enumerate(AgentLevel)}
+
+
+def _lowered(p: typed.LevelSet) -> bool:
+    """Whether the operator set the level lower than it was."""
+    try:
+        level = AgentLevel(p.level)
+        previous = AgentLevel(p.previous)
+    except ValueError:
+        return False
+    return _RANK[level] < _RANK[previous]
+
+
+def _operator_stop_line(data):
+    """The operator stopped something: the agent (down to Watch, its action
+    stopped), a run, a task or a mill."""
+    line = f"STOPPED by the operator: {data.get('what')}"
+    reason = " ".join(str(data.get("reason") or "").split())
+    if reason and reason != STOPPED_NO_REASON:
+        line += f" ({reason})"
+    if data.get("stops") == "agent":
+        line += f"; your level is now {data.get('level')}"
+        if data.get("stopped"):
+            line += f" and {data['stopped']} was stopped"
+    return line
 
 
 def _item_of(event):
@@ -506,15 +560,15 @@ def _item_of(event):
     return f" item={name}" if name else ""
 
 
-def _mill_stage_line(event, data):
+def _mill_stage_line(event, p: typed.MillingStageStarted):
     """A mill's stage started, from ``milling_stage_started``: which of how
     many, with the current and depth it mills at, to check against the plan."""
-    stage = data.get("stage") or {}
-    index, total = data.get("stage_index"), data.get("total_stages")
+    stage = p.stage if isinstance(p.stage, dict) else {}
+    index, total = p.stage_index, p.total_stages
     place = f"{index + 1}/{total}" if isinstance(index, int) else "?"
     line = (
         f"MILL STAGE STARTED {place} '{stage.get('name')}'{_item_of(event)} "
-        f"task='{data.get('milling_task_name')}'"
+        f"task='{p.milling_task_name}'"
     )
     current = (stage.get("milling") or {}).get("milling_current")
     if current is not None:
@@ -522,7 +576,7 @@ def _mill_stage_line(event, data):
     depth = (stage.get("pattern") or {}).get("depth")
     if depth is not None:
         line += f" depth={_si(depth)}m"
-    return f"{line} run={data.get('milling_run_id')}"
+    return f"{line} run={p.milling_run_id}"
 
 
 def _si(value):
@@ -533,20 +587,20 @@ def _si(value):
         return str(value)
 
 
-def _mill_ended_line(event, data):
+def _mill_ended_line(event, p: typed.Milling):
     """A mill ended, from its ``milling`` event: its status, how each stage
     ended, and the error of a failed one."""
-    status = data.get("status")
-    if data.get("reason"):
-        status = f"{status} ({data['reason']})"
+    status = p.status
+    if p.reason:
+        status = f"{status} ({p.reason})"
     line = (
-        f"MILL ENDED '{data.get('milling_task_name')}'{_item_of(event)} "
-        f"status={status} run={data.get('milling_run_id')}"
+        f"MILL ENDED '{p.milling_task_name}'{_item_of(event)} "
+        f"status={status} run={p.milling_run_id}"
     )
-    stages = [_stage_part(stage) for stage in data.get("stages") or []]
+    stages = [_stage_part(stage) for stage in p.stages or []]
     if stages:
         line += " stages: " + ", ".join(stages)
-    return f"{line} ({data['error']})" if data.get("error") else line
+    return f"{line} ({p.error})" if p.error else line
 
 
 def _check_part(data):
@@ -629,12 +683,12 @@ def _reading_line(data):
     return line
 
 
-def _request_decided_line(data):
+def _request_decided_line(p: typed.ProposalDecided):
     """The operator approved or rejected the agent's request, or it was
     withdrawn: its proposal's decision."""
-    head = f"REQUEST {data.get('proposal_id')}"
-    reason = " ".join(str(data.get("reason") or "").split())
-    outcome = data.get("outcome")
+    head = f"REQUEST {p.proposal_id}"
+    reason = " ".join(str(p.reason or "").split())
+    outcome = p.outcome
     if outcome == "Confirmed":
         return f"{head} approved"
     if outcome == "Rejected":
@@ -645,9 +699,9 @@ def _request_decided_line(data):
 def _request_line(kind, data):
     """The agent's request moved on (FIB-1283): decided, finished, cancelled."""
     head = f"REQUEST {data.get('request_id')}"
-    if kind == "request_cancelled":
+    if kind == event_kinds.REQUEST_CANCELLED:
         return f"{head} cancelled: {data.get('why')}"
-    if kind == "request_finished":
+    if kind == event_kinds.REQUEST_FINISHED:
         counts = f"{data.get('applied')} of {data.get('of')}"
         # An applied action stopped part way, a mill say (FIB-1398).
         if data.get("cancelled"):
@@ -659,11 +713,11 @@ def _request_line(kind, data):
     return f"{head} approved"
 
 
-def _skip_reason(data):
+def _skip_reason(p: typed.TaskEvent):
     """``missing_prereqs: Mill Fiducial``: why a task was skipped, and for a
     missing requirement which one (FIB-1357)."""
-    reason = data.get("skip_reason")
-    missing = data.get("missing_prereqs")
+    reason = p.skip_reason
+    missing = p.missing_prereqs
     if reason and missing:
         return f"{reason}: {', '.join(str(name) for name in missing)}"
     return reason
@@ -728,12 +782,16 @@ def watch(
     quiet_s=QUIET_S,
     report_reads=True,
     on_seeded=None,
+    after=None,
+    on_cursor=None,
 ):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
 
     ``since`` resumes after that event seq, so a watch restarted after the
     last one returned misses nothing in between; None starts at the tail.
+    ``after`` resumes after that event id instead, across an app restart too:
+    a ``GAP`` line first when the server no longer has all of what followed.
 
     ``client`` is httpx-style (``request(method, path, timeout=...)``), in
     practice a `Transport`: a 401 or a refused connection re-reads the
@@ -749,6 +807,9 @@ def watch(
 
     Each line said is a `Wake`. ``on_seeded`` is called once the event stream
     first answers: from there on, no line is missed.
+
+    ``on_cursor`` is called with the id of the newest event read, after the
+    lines it made were said: a later ``after=`` that id picks up from there.
     """
     say = out or _print_line
     sleep_fn = sleep_fn or time.sleep
@@ -764,6 +825,12 @@ def watch(
         if report_reads:
             report_read(client, list(getattr(line, "message_ids", ())))
 
+    def moved(events):
+        if on_cursor is not None and events:
+            last = event_id(events[-1])
+            if last:
+                on_cursor(last)
+
     def seeded(snapshot):
         if on_seeded is not None and snapshot.get("available"):
             on_seeded()
@@ -771,12 +838,12 @@ def watch(
     # Seed the cursor at the tail: the buffer outlives workflows, so starting at
     # 0 would replay history -- stale PROPOSAL lines, and a previous workflow's
     # end reported as news.
-    snapshot, failure = _poll(client, since=0, timeout=0.0)
+    snapshot, failure = _poll(client, since=0, timeout=0.0, after=after)
     if failure == AGENT_OFF:
         out(AGENT_OFF_LINE)
         while failure == AGENT_OFF:
             sleep_fn(RETRY_DELAY_S)
-            snapshot, failure = _poll(client, since=0, timeout=0.0)
+            snapshot, failure = _poll(client, since=0, timeout=0.0, after=after)
         if failure is None:
             seeded(snapshot)
             out(AGENT_BACK_LINE)
@@ -786,7 +853,8 @@ def watch(
         out(
             Wake(
                 SERVER_UNAVAILABLE,
-                f"SERVER UNAVAILABLE: /app/events gave {failure}. Is the app running?",
+                f"SERVER UNAVAILABLE: /app/events gave {failure}."
+                + ("" if failure.startswith(UNREACHABLE) else " Is the app running?"),
             )
         )
         return 1
@@ -802,9 +870,15 @@ def watch(
     stream = snapshot.get("stream")
     # Started at the tail, a proposal asked before this watch began is behind
     # the cursor: said below, first, while a run is live.
-    held_before = since is None
+    held_before = since is None and after is None
     marked = {}
-    if since is None:
+    if after is not None:
+        # Everything after it is news, from whichever stream it was in.
+        if not snapshot.get("resumed"):
+            out(GAP_LINE)
+        _print_events(snapshot.get("events", []), 0, out, marked)
+        since = snapshot.get("latest_seq") or 0
+    elif since is None:
         since = snapshot.get("latest_seq") or 0
     elif (snapshot.get("latest_seq") or 0) < since:
         # Resumed with a seq from before the app restarted.
@@ -824,6 +898,11 @@ def watch(
             _keep_marked(event, marked)
         for data in _unanswered(snapshot.get("events", [])):
             out(_message_line(data, marked))
+    if held_before or after is not None:
+        # Everything up to the snapshot's newest event has been said (or was
+        # history before this watch began). A watch resumed by seq has not
+        # said the events after that seq yet.
+        moved(snapshot.get("events", []))
     checked_at = clock()
 
     failures = 0
@@ -847,7 +926,12 @@ def watch(
                 out(
                     Wake(
                         SERVER_GONE,
-                        f"SERVER GONE: /app/events gave {failure}. The app has stopped.",
+                        f"SERVER GONE: /app/events gave {failure}."
+                        + (
+                            ""
+                            if failure.startswith(UNREACHABLE)
+                            else " The app has stopped."
+                        ),
                     )
                 )
                 return 1
@@ -885,6 +969,7 @@ def watch(
 
         events = payload.get("events", [])
         since, running = _print_events(events, since, out, marked)
+        moved(events)
         since = max(since, latest)
         if running is not None:
             workflow_live = running
@@ -902,6 +987,7 @@ def watch(
                     since, running = _print_events(
                         last.get("events", []), since, out, marked
                     )
+                    moved(last.get("events", []))
                 if running is None:
                     out(NO_END_EVENT_LINE)
                     running = False
@@ -941,6 +1027,12 @@ def main(argv=None):
         help="Print events after this seq (default: only new ones)",
     )
     parser.add_argument(
+        "--after",
+        default=None,
+        metavar="ID",
+        help="Print events after this event id, across an app restart too",
+    )
+    parser.add_argument(
         "--quiet-after",
         type=float,
         default=QUIET_S / 60,
@@ -962,7 +1054,12 @@ def main(argv=None):
         _print_line(f"NO SERVER: {_NO_SERVER_MSG}")
         return 1
     try:
-        return watch(client, since=args.since, quiet_s=args.quiet_after * 60)
+        return watch(
+            client,
+            since=args.since,
+            quiet_s=args.quiet_after * 60,
+            after=args.after,
+        )
     except KeyboardInterrupt:
         return 1
     finally:

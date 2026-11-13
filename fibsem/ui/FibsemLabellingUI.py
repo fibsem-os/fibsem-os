@@ -385,7 +385,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
                 self.lineEdit_data_config.setText(path)
 
                 with open(path) as f:
-                    CLASS_CONFIG = yaml.load(f, Loader=yaml.FullLoader)
+                    CLASS_CONFIG = yaml.safe_load(f)
 
                 CONFIGURATION["LABELS"]["COLOR_MAP"] = CLASS_CONFIG["CLASS_COLORS"]
                 CONFIGURATION["LABELS"]["LABEL_MAP"] = CLASS_CONFIG["CLASS_LABELS"]

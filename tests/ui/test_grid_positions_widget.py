@@ -40,6 +40,7 @@ from fibsem.structures.settings import BeamType, FibsemStagePosition, ImageSetti
 from fibsem.ui.widgets.stored_overview_canvas import VIEW_FM
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
 
 _app = QApplication.instance() or QApplication([])
@@ -64,7 +65,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "load_configuration",
         lambda configuration_name=None: _ARCTIS,
     )
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
     experiment = Experiment(path=tmp_path, name="positions")
     os.makedirs(str(experiment.path), exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol()

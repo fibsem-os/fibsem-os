@@ -316,7 +316,7 @@ export function History({ name, filter, setFilter }: { name: string; filter: His
       </div>
       {history.error && <div className="text-[13px] text-destructive">{history.error.message}</div>}
       {history.data && !history.data.total && <div className="text-[13px] text-muted-foreground">No task runs yet.</div>}
-      {history.data && history.data.total > 0 && !shown && (
+      {history.data && (history.data.total ?? 0) > 0 && !shown && (
         <div className="text-[13px] text-muted-foreground">
           No runs match the filter.{" "}
           <button className="cursor-pointer border-0 bg-transparent p-0 text-link" onClick={() => setFilter(NO_FILTER)}>

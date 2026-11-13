@@ -1170,24 +1170,33 @@ class AutoLamellaWindow(AppWindow):
         has moved should still leave the ordinary window -- the one where the user can
         pick a different configuration -- rather than a half-started application.
         """
-        if self.system_widget.microscope is None:
-            try:
-                self.system_widget.connect_to_microscope()
-            except Exception as e:
-                logger.warning(f"Quickstart: unable to connect to the microscope: {e}")
-                notification_service.show_toast(
-                    f"Quickstart: could not connect to the microscope: {e}", "error"
-                )
-                return
-
-        # connect_to_microscope reports its own failures and returns without a
-        # microscope (an unselectable configuration, say). Nothing below works
-        # without one, so stop here rather than reporting a second failure.
-        if self.system_widget.microscope is None:
+        if self.system_widget.microscope is not None:
+            if load_experiment:
+                self.quickload_experiment()
             return
 
+        tab = self.system_widget
+
+        def _then_load() -> None:
+            tab.connect_finished.disconnect(_then_load)
+            if tab.microscope is not None:
+                self.quickload_experiment()
+
+        # Heard once the connect, on its worker, is done and the tabs are built.
         if load_experiment:
-            self.quickload_experiment()
+            tab.connect_finished.connect(_then_load)
+        try:
+            worker = tab.connect_to_microscope()
+        except Exception as e:
+            logger.warning(f"Quickstart: unable to connect to the microscope: {e}")
+            notification_service.show_toast(
+                f"Quickstart: could not connect to the microscope: {e}", "error"
+            )
+            worker = None
+        # None: no connect started (an unselectable configuration, say), and
+        # connect_to_microscope has said why.
+        if worker is None and load_experiment:
+            tab.connect_finished.disconnect(_then_load)
 
     def quickload_experiment(self) -> None:
         """Reopen the most recent experiment, skipping the load dialog (``--quickload``).

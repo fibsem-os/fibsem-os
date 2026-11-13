@@ -50,8 +50,10 @@ from fibsem.workflows.site_tasks.spot_burn import (
     SpotBurnFiducialTaskConfig,
 )
 from fibsem.workflows.status import HoldKind
+from tests.fixtures.connecting import connect_and_wait
 from tests.protocols import planned, task_protocol
 from tests.run_state import Stopped
+from tests.waiting import qt_wait_for
 
 SPOT = "Spot Burn Fiducial"
 FIRST_HINT = "Press Run Spot Burn to burn, or Skip to go on without burning."
@@ -89,7 +91,7 @@ def window(qapp, tmp_path_factory):
 
     window = module.AutoLamellaWindow()
     ui = window
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     # Read unconditionally by the main window's workflow update; the window
     # sets it when a run starts.
     window.run_border.set_state("idle")
@@ -172,27 +174,19 @@ def _start(ui, qapp, points=((0.5, 0.5),), wait_for=FIRST_HINT):
 
 
 def _wait_for_prompt(ui, qapp, hint, timeout_s=10.0):
-    _wait(
-        qapp,
+    assert qt_wait_for(
         lambda: (
             ui.panel.prompt_bar.message.text().endswith(hint)
             and ui.panel.prompt_bar.yes.isEnabled()
         ),
-        timeout_s,
-        f"the prompt {hint!r} never appeared",
-    )
-
-
-def _wait(qapp, ready, timeout_s=10.0, why="timed out"):
-    deadline = time.monotonic() + timeout_s
-    while not ready():
-        assert time.monotonic() < deadline, why
-        qapp.processEvents()
-        time.sleep(0.01)
+        timeout=timeout_s,
+    ), f"the prompt {hint!r} never appeared"
 
 
 def _finish(thread, qapp, timeout_s=10.0):
-    _wait(qapp, lambda: not thread.is_alive(), timeout_s, "the asker never returned")
+    assert qt_wait_for(lambda: not thread.is_alive(), timeout=timeout_s), (
+        "the asker never returned"
+    )
     thread.join(timeout=1.0)
 
 
@@ -233,7 +227,7 @@ def _decide(ui, qapp, action, settings=None, asks_again=True):
     )
     assert result.applied, result.reason
     if asks_again:
-        _wait(qapp, lambda: (_current_pass(ui) or asked).id != asked.id)
+        assert qt_wait_for(lambda: (_current_pass(ui) or asked).id != asked.id)
 
 
 def _points(settings):
@@ -275,13 +269,12 @@ def test_burn_again_runs_a_second_pass(ui, qapp):
     ui.panel.prompt_bar.yes.click()
     _wait_for_prompt(ui, qapp, AGAIN_HINT)
     ui.panel.prompt_bar.yes.click()  # burn again
-    _wait(
-        qapp,
+    assert qt_wait_for(
         lambda: (
             _current_pass(ui) is not None
             and _current_pass(ui).provenance["passes"] == 2
             and ui.panel.prompt_bar.no.isEnabled()
-        ),
+        )
     )
     ui.panel.prompt_bar.no.click()
     _finish(thread, qapp)
@@ -319,13 +312,12 @@ def test_a_run_with_no_points_burns_nothing_and_asks_again(ui, qapp):
     task, thread, outcome = _start(ui, qapp, points=())
 
     ui.panel.prompt_bar.yes.click()  # run, with nothing placed
-    _wait(
-        qapp,
+    assert qt_wait_for(
         lambda: (
             _current_pass(ui) is not None
             and _current_pass(ui).provenance["last_error"] is not None
             and ui.panel.prompt_bar.no.isEnabled()
-        ),
+        )
     )
     asked = _current_pass(ui)
     assert asked.provenance["passes"] == 0
@@ -454,14 +446,12 @@ def test_no_spot_burn_widget_still_asks_on_the_prompt_bar(window, ui, qapp):
     ui.panel.spot_burn_widget = None
     try:
         task, thread, outcome = _start(ui, qapp, wait_for=None)
-        _wait(
-            qapp,
+        assert qt_wait_for(
             lambda: (
                 _current_pass(ui) is not None
                 and ui.proposals._loop_proposal is not None
-            ),
-            why="the pass was not put on the prompt bar",
-        )
+            )
+        ), "the pass was not put on the prompt bar"
         assert ui.panel.prompt_bar.no.text() == "Skip"
         ui.panel.prompt_bar.no.click()
         _finish(thread, qapp)

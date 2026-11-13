@@ -186,6 +186,32 @@ def test_since_resumes_where_the_last_watch_left_off(app):
     assert lines == ["REQUEST ab12 approved", "WORKFLOW ENDED (workflow_completed)"]
 
 
+def test_after_an_id_resumes_after_that_event(app):
+    app.buffer.append("proposal_held", {"item_name": "01", "task_name": "Setup"})
+    app.buffer.append("request_decided", {"request_id": "ab12", "outcome": "approved"})
+    app.buffer.append("workflow_completed", {})
+    first = app.buffer.events_since(0)["events"][0]["id"]
+
+    code, lines = _watch({}, after=first)
+
+    assert code is None
+    assert lines == ["REQUEST ab12 approved", "WORKFLOW ENDED (workflow_completed)"]
+
+
+def test_after_an_id_the_app_no_longer_has_is_a_gap(app):
+    app.buffer.append("task_started", {"item_name": "l3"})
+    app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({}, after="an-app-long-gone-7")
+
+    assert code is None
+    assert lines == [
+        watch_mod.GAP_LINE,
+        "EVENT task_started l3",
+        "WORKFLOW ENDED (workflow_completed)",
+    ]
+
+
 def test_the_operator_s_message_is_a_line_that_says_how_to_answer(app):
     # FIB-1423: the operator wrote from the card.
     def run():
@@ -1184,10 +1210,122 @@ def test_each_line_says_its_kind_and_the_messages_it_carries():
         "task_completed",
         watch_mod.MESSAGE,
         watch_mod.PROPOSAL,
-        watch_mod.WORKFLOW_ENDED,
+        watch_mod.WORKFLOW_FAILED,
     ]
     assert [line.message_ids for line in lines] == [(), (), ("ab12",), (), ()]
     assert watch_mod.kinds(lines + ["a plain line"]) == {line.kind for line in lines}
+
+
+def _kinds_of(*events):
+    lines = []
+    events = [{"seq": i + 1, **event} for i, event in enumerate(events)]
+    watch_mod._print_events(events, 0, lines.append)
+    return [(line.kind, str(line)) for line in lines]
+
+
+def test_a_failed_run_has_its_own_kind():
+    said = _kinds_of(
+        {"kind": "workflow_completed"},
+        {"kind": "workflow_stalled"},
+        {"kind": "workflow_cancelled"},
+        {"kind": "workflow_failed"},
+    )
+    # A stopped run is no news to whoever stopped it; the operator's stop
+    # has its own line.
+    assert [kind for kind, _ in said] == [
+        watch_mod.WORKFLOW_ENDED,
+        watch_mod.WORKFLOW_ENDED,
+        watch_mod.WORKFLOW_ENDED,
+        watch_mod.WORKFLOW_FAILED,
+    ]
+    assert watch_mod.NO_END_EVENT_LINE.kind == watch_mod.WORKFLOW_FAILED
+
+
+def test_a_failed_command_or_mill_has_its_own_kind():
+    said = _kinds_of(
+        {"kind": "command_ended", "payload": {"state": "done"}},
+        {"kind": "command_ended", "payload": {"state": "cancelled"}},
+        {"kind": "command_ended", "payload": {"state": "failed", "error": "beam"}},
+        {"kind": "milling", "payload": {"status": "completed"}},
+        {"kind": "milling", "payload": {"status": "failed", "error": "beam"}},
+    )
+    assert [kind for kind, _ in said] == [
+        watch_mod.COMMAND_ENDED,
+        watch_mod.COMMAND_ENDED,
+        watch_mod.COMMAND_FAILED,
+        watch_mod.MILL_ENDED,
+        watch_mod.MILL_FAILED,
+    ]
+    assert said[2][1].startswith("COMMAND ENDED") and said[2][1].endswith("(beam)")
+
+
+def test_a_stop_rule_firing_has_its_own_kind_and_a_monitor_error_does_not():
+    said = _kinds_of(
+        {
+            "kind": "milling_reading",
+            "payload": {"monitor": "current", "reading": {"trigger": "drop"}},
+        },
+        {
+            "kind": "milling_reading",
+            "payload": {"monitor": "current", "reading": {"error": "no signal"}},
+        },
+    )
+    assert [kind for kind, _ in said] == [watch_mod.STOP_RULE, watch_mod.MILL_READING]
+
+
+def test_a_level_going_down_is_told_from_one_going_up():
+    said = _kinds_of(
+        {"kind": "agent_level_set", "payload": {"previous": "watch", "level": "drive"}},
+        {
+            "kind": "agent_level_set",
+            "payload": {"previous": "drive", "level": "assist"},
+        },
+        {
+            "kind": "agent_level_set",
+            "payload": {"previous": "assist", "level": "assist"},
+        },
+    )
+    assert [kind for kind, _ in said] == [
+        watch_mod.LEVEL,
+        watch_mod.LEVEL_LOWERED,
+        watch_mod.LEVEL,
+    ]
+    assert said[1][1].startswith("LEVEL assist (was drive)")
+
+
+def test_the_operator_s_stop_is_a_line_and_the_agent_s_own_is_not():
+    said = _kinds_of(
+        {
+            "kind": "action",
+            "actor": "operator",
+            "payload": {
+                "what": "Stop the agent",
+                "stops": "agent",
+                "reason": "Stopped by the operator",
+                "level": "watch",
+                "stopped": "Move the stage",
+            },
+        },
+        {
+            "kind": "action",
+            "actor": "operator",
+            "payload": {"what": "Stop the mill", "stops": "milling", "reason": "drift"},
+        },
+        {
+            "kind": "action",
+            "actor": "agent",
+            "payload": {"what": "Stop the mill", "stops": "milling", "reason": "done"},
+        },
+        {"kind": "action", "actor": "operator", "payload": {"what": "Move the stage"}},
+    )
+    assert said == [
+        (
+            watch_mod.OPERATOR_STOP,
+            "STOPPED by the operator: Stop the agent; your level is now watch "
+            "and Move the stage was stopped",
+        ),
+        (watch_mod.OPERATOR_STOP, "STOPPED by the operator: Stop the mill (drift)"),
+    ]
 
 
 def test_a_message_quoting_a_line_is_a_message():
@@ -1210,3 +1348,54 @@ def test_the_watch_says_when_it_holds_its_place(app):
     _code, lines = _watch({2: run}, on_seeded=lambda: said.append("seeded"))
     assert said == ["seeded"]
     assert lines[-1].kind == watch_mod.WORKFLOW_ENDED
+
+
+def test_the_cursor_is_the_newest_event_once_its_lines_are_said(app):
+    app.buffer.append("workflow_completed", {})
+    tail = app.buffer.events_since(0)["events"][-1]["id"]
+    heard, said = [], []
+
+    def run():
+        app.buffer.append("task_started", {"item_name": "l3"})
+        app.buffer.append("workflow_completed", {})
+
+    def cursor(event_id):
+        said.append((event_id, list(heard)))
+        if len(heard) == 2:
+            raise _Seen
+
+    def until(lines):
+        heard[:] = lines
+        return False
+
+    code, lines = _watch({2: run}, until=until, on_cursor=cursor)
+
+    ended = app.buffer.events_since(0)["events"][-1]["id"]
+    assert code is None
+    # The tail first, then the newest event read, once the lines it made are said.
+    assert said[0] == (tail, [])
+    assert said[-1] == (
+        ended,
+        ["EVENT task_started l3", "WORKFLOW ENDED (workflow_completed)"],
+    )
+
+
+def test_a_watch_after_the_cursor_says_only_what_came_since(app):
+    def run():
+        app.buffer.append("task_started", {"item_name": "l1"})
+        app.buffer.append("workflow_completed", {})
+
+    said = []
+
+    def cursor(event_id):
+        # An empty buffer has no tail: the first cursor is the run's last event.
+        said.append(event_id)
+        raise _Seen
+
+    _watch({2: run}, until=lambda lines: False, on_cursor=cursor)
+    app.buffer.append("task_started", {"item_name": "l2"})
+    app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({}, after=said[-1])
+
+    assert lines == ["EVENT task_started l2", "WORKFLOW ENDED (workflow_completed)"]

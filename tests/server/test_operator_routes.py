@@ -4,7 +4,6 @@ from the web page or a script, and nothing the agent's token can reach."""
 import base64
 import os
 import re
-import socket
 import time
 from pathlib import Path
 
@@ -31,14 +30,9 @@ from tests.autolamella.test_select_position_asks import (  # noqa: F401
     _experiment,
     microscope,
 )
+from tests.waiting import free_port
 
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 def _bearer(token: str) -> dict:
@@ -56,7 +50,7 @@ def server(microscope, tmp_path):  # noqa: F811
     session.app_server = AppServerHost(
         session,
         lambda: AutoLamellaAppContext(session),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "app-server.json",
         serve_microscope=False,
     )
@@ -159,7 +153,7 @@ def test_the_operator_reads_what_the_microscope_is(microscope, tmp_path):  # noq
     host = AppServerHost(
         session,
         lambda: AutoLamellaAppContext(session),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "app-server.json",
         serve_microscope=True,
     )
@@ -763,6 +757,31 @@ def test_a_cleared_lamella_verdict_names_nobody(server):
         )
         assert answer.status_code == 200, answer.text
     assert lamella.defect.actor == ""
+
+
+def test_the_operator_downloads_a_bug_report_bundle(server):
+    import io
+    import zipfile
+
+    root = Path(server.session.experiment.path)
+    (root / "logfile.log").write_text("the run stopped")
+
+    answer = server.post(
+        "/app/report",
+        json={"title": "it stopped", "description": "after the second lamella"},
+        headers=server.operator,
+    )
+
+    assert answer.status_code == 200, answer.text
+    assert answer.headers["content-type"] == "application/zip"
+    assert "bug-report-fibsem-" in answer.headers["content-disposition"]
+    with zipfile.ZipFile(io.BytesIO(answer.content)) as bundle:
+        names = bundle.namelist()
+        report = bundle.read("report.md").decode()
+    assert "it stopped" in report and "after the second lamella" in report
+    assert f"{root.name}/logfile.log" in names
+    assert not any(name.endswith((".tif", ".tiff")) for name in names)
+    assert server.post("/app/report", headers=server.agent).status_code == 403
 
 
 def test_the_operator_adds_a_file_to_the_experiment(server):

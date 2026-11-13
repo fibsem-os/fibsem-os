@@ -32,6 +32,7 @@ from fibsem.workflows.grid.manager import (  # noqa: E402
 )
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 from fibsem.workflows.runner import GRIDS
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.run_state import hold_runs
 
@@ -54,7 +55,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "load_configuration",
         lambda configuration_name=None: arctis_config,
     )
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
 
     experiment = Experiment(path=tmp_path, name="grid-start")
     experiment.task_protocol = AutoLamellaTaskProtocol()
@@ -259,11 +260,11 @@ def test_grid_start_requires_control_and_a_valid_body(ui, qapp):
             == task["overview"]["nrows"] * task["overview"]["ncols"]
         )
     with _client(ui, arm_control=True) as client:
-        for body in (
-            {},
-            {"task_names": []},
-            {"task_names": ["x"], "screen_all": "yes"},
+        for body, error_type in (
+            ({}, "missing_field"),
+            ({"task_names": []}, "missing_field"),
+            ({"task_names": ["x"], "screen_all": "yes"}, "invalid"),
         ):
             rejected = client.post("/app/workflow/grids/start", headers=AUTH, json=body)
             assert rejected.status_code == 422, body
-            assert rejected.json()["detail"]["error_type"] == "missing_field"
+            assert rejected.json()["detail"]["error_type"] == error_type

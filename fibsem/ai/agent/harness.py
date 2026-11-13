@@ -39,6 +39,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from fibsem import diagnostics
 from fibsem.ai.agent import (
     code_mode,
     instruments,
@@ -52,7 +53,14 @@ from fibsem.ai.agent import (
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
-from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
+from fibsem.ai.agent.report import SessionReport, plain
+from fibsem.client.transport import (
+    SERVER_TOKEN_ENV,
+    SERVER_URL_ENV,
+    server_env,
+    unreachable_why,
+)
+from fibsem.codec import decode
 from fibsem.extras import missing_extra_message
 from fibsem.keystore import get_secret
 from fibsem.logo import print_fibsem_logo
@@ -128,9 +136,11 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 SERVER_WAIT_S = 600.0
 # How long the CLI has to say how full the context is, after a turn.
 CONTEXT_WAIT_S = 10.0
-# The transcript (`Harness._send_transcript`): sent this often while a turn
-# runs and as it ends, at most this many lines at once, at most this many kept
-# while the server can't take them.
+# The transcript (`Harness._send_transcript`): sent this soon after a line is
+# printed, so a burst goes together, and again this often while the server
+# can't take it; at most this many lines at once, at most this many kept while
+# the server can't take them.
+TRANSCRIPT_SOON_S = 1.0
 TRANSCRIPT_EVERY_S = 10.0
 TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
@@ -279,7 +289,13 @@ def turn_prompt(
     said = watch_mod.kinds(lines)
     if watch_mod.GAP in said:
         prompt += "\n\n" + words.reread_proposals
-    if said & {watch_mod.AGENT_BACK, watch_mod.RESTARTED, watch_mod.LEVEL}:
+    if said & {
+        watch_mod.AGENT_BACK,
+        watch_mod.RESTARTED,
+        watch_mod.LEVEL,
+        watch_mod.LEVEL_LOWERED,
+        watch_mod.OPERATOR_STOP,
+    }:
         prompt += "\n\n" + words.reread_level
     if said & {ALARM, watch_mod.PLAN_EDITED}:
         prompt += "\n\n" + words.reread_plan
@@ -289,6 +305,46 @@ def turn_prompt(
 # The kinds of the harness's own wake-ups: the agent's timer, and a deadline.
 ALARM = "alarm"
 DEADLINE = "deadline"
+
+# The wake-ups that cut the agent's turn short: news that makes the turn's
+# work wrong, not news that is only new. Everything else waits for the turn
+# to end.
+URGENT = frozenset(
+    {
+        # The operator wrote to the agent.
+        watch_mod.MESSAGE,
+        # The level went down, or the operator took control back.
+        watch_mod.LEVEL_LOWERED,
+        watch_mod.AGENT_OFF,
+        watch_mod.OPERATOR_STOP,
+        # A run stopped or failed, or the hardware failed. The operator's
+        # stop is OPERATOR_STOP above.
+        watch_mod.WORKFLOW_FAILED,
+        "task_failed",
+        watch_mod.COMMAND_FAILED,
+        watch_mod.MILL_FAILED,
+        # A milling monitor's stop rule fired.
+        watch_mod.STOP_RULE,
+    }
+)
+
+# Said first in the turn after one cut short. A call cut short is not undone:
+# the sidecar finishes its request and the App Server the action, but the
+# agent never sees the answer.
+INTERRUPTED = (
+    "Your last turn was cut short by a line below. A call you were waiting on "
+    "then may have finished on the instrument after you stopped waiting, and "
+    "its answer was lost: read where things stand (the stage's position, "
+    "app_get_status, service_wait_for_run with wait=0 for a long command you "
+    "started) before you act. Never repeat a relative move, or any call that "
+    "changes something by an amount, until you have checked it did not "
+    "already happen."
+)
+
+
+def is_urgent(line) -> bool:
+    """Whether *line* cuts the agent's turn short (`URGENT`)."""
+    return getattr(line, "kind", None) in URGENT
 
 
 class Wakes:
@@ -646,6 +702,15 @@ class _WatchEnded:
     code: int
 
 
+@dataclass
+class _Cursor:
+    """The id of the newest event the watch has read: its lines came before
+    this. Kept once the turn carrying them is over, so a resumed session
+    watches from there (`watch.watch` ``after``)."""
+
+    event_id: str
+
+
 def _last_line(batch) -> bool:
     """Whether the watch said it is giving up (`watch.LAST_KINDS`)."""
     return bool(watch_mod.kinds(batch) & watch_mod.LAST_KINDS)
@@ -676,9 +741,12 @@ class Watcher:
         poll_s: float = watch_mod.POLL_S,
         retry_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
+        after: Optional[str] = None,
     ) -> None:
         self._client = client
         self._deliver = deliver
+        # An event id to watch from, for a resumed session; None starts at the tail.
+        self._after = after
         self._poll_s = poll_s
         self._retry_s = retry_s
         # A running workflow quiet this long wakes the agent, once.
@@ -719,6 +787,8 @@ class Watcher:
                 quiet_s=self._quiet_s,
                 report_reads=False,
                 on_seeded=lambda: self._deliver(_Seeded()),
+                after=self._after,
+                on_cursor=lambda event_id: self._deliver(_Cursor(event_id)),
             )
         except _Stopped:
             return
@@ -791,8 +861,21 @@ class Harness:
         words: Optional[instruments.Texts] = None,
         deadline_warn_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
+        url: Optional[str] = None,
+        after: Optional[str] = None,
+        keep_cursor: Optional[Callable[[str], None]] = None,
     ) -> None:
         self._agent = agent
+        # The App Server's address when given (--url): a waiting line says
+        # what to check there, such as an SSH tunnel.
+        self._url = url
+        # A resumed session's first watch starts after the last event its
+        # agent was given (*after*); *keep_cursor* stores that id after each
+        # turn, for the next resume.
+        self._after = after
+        self._keep_cursor = keep_cursor
+        self._cursor_given: Optional[str] = None
+        self._cursor_kept: Optional[str] = after
         # What the agent is told, for the session's instrument kind.
         self._words = words or texts()
         self._quiet_s = quiet_s
@@ -802,6 +885,8 @@ class Harness:
         # The agent's wake-up timer: it rings into the watcher's lines.
         self._alarm = alarm
         self._deadlines = Deadlines(deadline_warn_s)
+        # The transcript's sends go one at a time: (its loop, the lock).
+        self._sending: Optional[Tuple[Any, asyncio.Lock]] = None
         self._goal = goal
         self._goal_sent = False
         # The skills read, as last reported: sent again when the agent reads one.
@@ -828,6 +913,10 @@ class Harness:
         # (watch, item): an item from a watch that has been replaced is dropped.
         self._items: Optional[asyncio.Queue] = None
         self._watcher: Optional[Watcher] = None
+        # Set when an urgent line arrives; cleared as the lines are taken.
+        self._urgent: Optional[asyncio.Event] = None
+        # The last turn was cut short by an urgent line.
+        self._cut_short = False
         self._wakes = self._new_wakes()
         self._code = 0
         self._stop_requested = False
@@ -860,10 +949,11 @@ class Harness:
     async def run(self) -> int:
         self._loop = asyncio.get_running_loop()
         self._stopping = asyncio.Event()
+        self._urgent = asyncio.Event()
         self._items = asyncio.Queue()
 
         def ring(line: str) -> None:
-            self._items.put_nowait((self._watcher, line))
+            self._put(self._watcher, line)
 
         if self._alarm is not None:
             self._alarm.bind(self._loop, ring)
@@ -901,15 +991,30 @@ class Harness:
                 log.debug("Closing the session failed.", exc_info=True)
         return self._code
 
+    def _put(self, watcher, item) -> None:
+        """An item for the next turn, on the loop; an urgent line from the
+        current watch cuts the turn going on short."""
+        if isinstance(item, _Cursor) and self._items.empty():
+            # Its lines come before it and have all been taken, by the turn
+            # going on or an earlier one: it is that turn's to keep. Queued, it
+            # would wait for the next turn, and a stop before then would give
+            # those lines again on a resume.
+            if watcher is self._watcher:
+                self._cursor_given = item.event_id
+            return
+        self._items.put_nowait((watcher, item))
+        if watcher is self._watcher and is_urgent(item):
+            self._urgent.set()
+
     def _start_watcher(self, client) -> None:
-        loop, items = self._loop, self._items
+        loop = self._loop
         if self._watcher is not None:
             self._watcher.stop()
         watcher = None
 
         def deliver(item):
             try:
-                loop.call_soon_threadsafe(items.put_nowait, (watcher, item))
+                loop.call_soon_threadsafe(self._put, watcher, item)
             except RuntimeError:  # the loop has closed
                 raise _Stopped from None
 
@@ -919,6 +1024,7 @@ class Harness:
             poll_s=self._poll_s,
             retry_s=self._retry_s,
             quiet_s=self._quiet_s,
+            after=self._after,
         )
         self._watcher = watcher
         watcher.start()
@@ -940,6 +1046,8 @@ class Harness:
                 if item is None:
                     return False
                 if isinstance(item, _Seeded):
+                    # Only the first watch resumes: a later one starts at the tail.
+                    self._after = None
                     return True
                 if isinstance(item, _WatchEnded):
                     break
@@ -969,13 +1077,16 @@ class Harness:
             self._agent.compacted = False
             prompt += "\n\nYour context was compacted. " + self._words.reread_plan
         interrupter = asyncio.ensure_future(self._interrupt_on_stop())
+        cutter = asyncio.ensure_future(self._interrupt_on_urgent())
         sender = asyncio.ensure_future(self._send_transcript_every())
         try:
             end = await self._agent.turn(prompt)
         finally:
             interrupter.cancel()
+            cutter.cancel()
             sender.cancel()
         self._turns += 1
+        self._keep_given_cursor()
         if end.cost_usd is not None:
             self._spent_usd = end.cost_usd
         if end.tokens is not None:
@@ -1054,9 +1165,13 @@ class Harness:
                 body["playbook"] = state["playbook"] or {}
                 body["hooks"] = self._playbook.hooks()
                 self._playbook_sent = state
-        body = {key: value for key, value in body.items() if value is not None}
         if ended:
             body.update(ended=True, reason=self._end_reason)
+        try:
+            body = plain(decode(SessionReport, body, strict=True))
+        except ValueError:
+            log.warning("The session report did not read.", exc_info=True)
+            return
         self._goal_sent = True
 
         def post():
@@ -1088,7 +1203,21 @@ class Harness:
         """The lines printed since the last send, to the App Server for the web
         page (``POST /app/agent/transcript``). Kept for the next send when it
         can't take them (no experiment open); the oldest go past
-        `TRANSCRIPT_KEEP`."""
+        `TRANSCRIPT_KEEP`. One send at a time, and a send that has started
+        finishes even when the turn ends under it: the lines it took are not
+        sent twice."""
+        loop = asyncio.get_running_loop()
+        if self._sending is None or self._sending[0] is not loop:
+            self._sending = (loop, asyncio.Lock())
+        lock = self._sending[1]
+
+        async def send() -> None:
+            async with lock:
+                await self._send_transcript_now()
+
+        await asyncio.shield(send())
+
+    async def _send_transcript_now(self) -> None:
         client, lines = self._client, getattr(self._agent, "transcript", None)
         session_id = getattr(self._agent, "session_id", None)
         if client is None or not lines or not session_id:
@@ -1118,9 +1247,26 @@ class Harness:
         del lines[:-TRANSCRIPT_KEEP]
 
     async def _send_transcript_every(self) -> None:
-        while True:
-            await asyncio.sleep(TRANSCRIPT_EVERY_S)
-            await self._send_transcript()
+        """While a turn runs: the transcript `TRANSCRIPT_SOON_S` after a line
+        is printed, and every `TRANSCRIPT_EVERY_S` for what the server could not
+        take, so the web page shows a step while it runs."""
+        printed = asyncio.Event()
+        agent = self._agent
+        listens = hasattr(agent, "on_line")
+        if listens:
+            agent.on_line = printed.set
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(printed.wait(), TRANSCRIPT_EVERY_S)
+                    await asyncio.sleep(TRANSCRIPT_SOON_S)
+                except asyncio.TimeoutError:
+                    pass
+                printed.clear()
+                await self._send_transcript()
+        finally:
+            if listens:
+                agent.on_line = None
 
     async def _interrupt_on_stop(self) -> None:
         await self._stopping.wait()
@@ -1129,6 +1275,17 @@ class Harness:
             await self._agent.interrupt()
         except Exception:
             # The CLI may have had the Ctrl-C too, and be gone.
+            log.debug("Interrupting the turn failed.", exc_info=True)
+
+    async def _interrupt_on_urgent(self) -> None:
+        await self._urgent.wait()
+        if self._stopping.is_set():
+            return
+        log.info("An urgent line: interrupting the agent's turn.")
+        self._cut_short = True
+        try:
+            await self._agent.interrupt()
+        except Exception:
             log.debug("Interrupting the turn failed.", exc_info=True)
 
     async def _pause(self, seconds: float) -> bool:
@@ -1156,6 +1313,18 @@ class Harness:
                 return item
         return None
 
+    def _keep_given_cursor(self) -> None:
+        """Store the newest event id whose lines a finished turn carried."""
+        given = self._cursor_given
+        if self._keep_cursor is None or given is None or given == self._cursor_kept:
+            return
+        try:
+            self._keep_cursor(given)
+        except Exception:
+            log.debug("Keeping the event cursor failed.", exc_info=True)
+            return
+        self._cursor_kept = given
+
     def _drain(self) -> list:
         items = []
         while not self._items.empty():
@@ -1171,6 +1340,9 @@ class Harness:
             item = await self._get()
             if item is None:
                 return None
+            # Everything waiting is taken now: an urgent line after this
+            # cuts the next turn short.
+            self._urgent.clear()
             batch = [item] + self._drain()
             ended = any(isinstance(line, _WatchEnded) for line in batch)
             if not ended and _last_line(batch):
@@ -1181,12 +1353,18 @@ class Harness:
                 batch.append(item)
                 ended = isinstance(item, _WatchEnded)
             lines = [line for line in batch if isinstance(line, str)]
+            for item in batch:
+                if isinstance(item, _Cursor):
+                    self._cursor_given = item.event_id
             prompt = self._wakes.add(lines)
             if ended:
                 prompt = await self._rewatch(prompt)
                 if prompt is None:
                     return None
             if prompt is not None:
+                if self._cut_short:
+                    self._cut_short = False
+                    prompt = f"{INTERRUPTED}\n\n{prompt}"
                 return prompt
 
     async def _rewatch(self, prompt: Optional[str]) -> Optional[str]:
@@ -1227,19 +1405,22 @@ class Harness:
                     return client
                 _close(client)
             remaining = deadline - time.monotonic()
+            check = (
+                unreachable_why(self._url)
+                if self._url
+                else "Start the host (Tools -> Host in AutoLamella)."
+            )
             if remaining <= 0:
                 log.error(
-                    "No fibsem host answered within %.0f s; fibsem-agent stops. "
-                    "Start it again once the host is serving.",
+                    "No fibsem host answered within %.0f s; fibsem-agent stops. %s",
                     self._server_wait_s,
+                    check,
                 )
                 self._code = 1
                 return None
             if not said:
-                log.info(
-                    "Waiting up to %.0f s for the App Server (Tools -> App "
-                    "Server in AutoLamella).",
-                    remaining,
+                log.warning(
+                    "Waiting up to %.0f s for the App Server. %s", remaining, check
                 )
                 said = True
             if not await self._pause(min(delay, remaining)):
@@ -1267,8 +1448,11 @@ class SdkAgent:
         # The lines printed, until the harness sends them (`Harness._send_transcript`).
         self.transcript: List[dict] = []
         self._seq = 0
-        # A tool call's line, by the call's id: its result may say it failed.
+        # A tool call's line and when it was made, by the call's id: its
+        # result says it is done, or that it failed.
         self._steps: dict = {}
+        # Called after each line is kept (`Harness._send_transcript_every`).
+        self.on_line: Optional[Callable[[], None]] = None
         self.cwd = Path(options.cwd) if options.cwd else None
 
     def line(self, kind: str, text: str, **extra) -> int:
@@ -1283,6 +1467,8 @@ class SdkAgent:
                 **extra,
             }
         )
+        if self.on_line is not None:
+            self.on_line()
         return self._seq
 
     async def start(self) -> None:
@@ -1509,14 +1695,22 @@ def _show(message, agent: SdkAgent) -> None:
                 log.info("%s %s", verb, text)
                 seq = _line(agent, "step", text, verb=verb)
                 if seq is not None:
-                    agent._steps[block.id] = seq
+                    agent._steps[block.id] = (seq, time.monotonic())
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
         for block in message.content:
-            if isinstance(block, ToolResultBlock) and block.is_error:
+            if not isinstance(block, ToolResultBlock):
+                continue
+            seq, took = None, None
+            made = getattr(agent, "_steps", {}).pop(block.tool_use_id, None)
+            if made is not None:
+                seq, took = made[0], round(time.monotonic() - made[1], 1)
+            if block.is_error:
                 why = _clip(_result_text(block.content))
                 log.warning("failed: %s", why)
-                seq = getattr(agent, "_steps", {}).get(block.tool_use_id)
-                _line(agent, "failed", _clip(why, 160), step=seq)
+                _line(agent, "failed", _clip(why, 160), step=seq, took_s=took)
+            elif seq is not None:
+                # The step is done: the web page stops showing it as running.
+                _line(agent, "done", "", step=seq, took_s=took)
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
@@ -1707,8 +1901,13 @@ def _skills_line(checkout: Path) -> str:
     return f"{checkout}; the lab's own: {', '.join(lab)}"
 
 
-def main(argv=None) -> int:
-    refuse("fibsem-agent")
+NO_CHECKOUT = (
+    "fibsem-agent found no skills: this fibsem has none shipped and "
+    "isn't a checkout; pass --checkout <path to a fibsem-os checkout>."
+)
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fibsem-agent",
         description="Run the fibsem agent through the App Server, with no "
@@ -1825,47 +2024,45 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--json", action="store_true", help="with --show-config or --list-*: JSON"
     )
-    args = parser.parse_args(argv)
-    if args.code and args.files:
-        parser.error("--code already gives the agent its files: use one of them")
-    if args.session_id and args.resume:
-        parser.error("--session-id starts a new session: --resume carries one on")
-    if args.list_hooks:
-        return _print(reminders.hook_rows(), args.json, _hook_text)
+    return parser
 
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError, ValueError):
-        pass
-    checkout = find_checkout(args.checkout)
-    if checkout is None:
-        print(
-            "fibsem-agent found no skills: this fibsem has none shipped and "
-            "isn't a checkout; pass --checkout <path to a fibsem-os checkout>.",
-            file=sys.stderr,
-        )
-        return 1
-    if args.list_playbooks:
-        return _print(_playbook_rows(checkout), args.json, _playbook_text)
+
+class SetupRefused(Exception):
+    """Why fibsem-agent can't run with what it was given."""
+
+
+@dataclass
+class Setup:
+    """What a session runs with, from its command line and its playbook."""
+
+    playbook: playbooks.Playbook
+    words: instruments.Texts
+    loaded: Loaded
+    work: Optional[Path]
+    code: bool
+    session_id: str
+    folder: Path
+    run: Optional[Path]
+
+
+def _setup(args, checkout: Path) -> Setup:
+    """Read the playbook and settle the session's folders; fills what *args*
+    left out from the playbook. Raises `SetupRefused`."""
     try:
         playbook = playbooks.load(args.playbook or playbooks.DEFAULT, checkout, EFFORTS)
     except playbooks.PlaybookError as error:
-        print(f"{error} (fibsem-agent --list-playbooks).", file=sys.stderr)
-        return 1
+        raise SetupRefused(f"{error} (fibsem-agent --list-playbooks).") from None
     _resolve(args, playbook.session)
     unset = [key for key in REQUIRED if getattr(playbook.session, key) is None]
     if unset:
-        print(
+        raise SetupRefused(
             f"The {playbook.name} playbook has no {', '.join(unset)}, and the "
-            f"shipped {playbooks.DEFAULT} playbook gives none: is it missing?",
-            file=sys.stderr,
+            f"shipped {playbooks.DEFAULT} playbook gives none: is it missing?"
         )
-        return 1
     try:
         words = instruments.load(playbook.instrument, checkout)
     except instruments.InstrumentError as error:
-        print(error, file=sys.stderr)
-        return 1
+        raise SetupRefused(str(error)) from None
     # What it loads is fixed for the session: a playbook named at launch
     # narrows it (`session_names`).
     loaded = session_names(checkout, playbook if args.playbook else None)
@@ -1873,8 +2070,7 @@ def main(argv=None) -> int:
         for name in loaded.agents:
             subagents.check_file(name, checkout, EFFORTS)
     except subagents.SubagentError as error:
-        print(error, file=sys.stderr)
-        return 1
+        raise SetupRefused(str(error)) from None
     work = None
     code = bool(args.code)
     given = args.code or args.files
@@ -1889,12 +2085,10 @@ def main(argv=None) -> int:
             args.resume = sessions.last_session(checkout)
         if args.resume is None:
             where = work or "its own folder"
-            print(
+            raise SetupRefused(
                 f"No earlier fibsem-agent session in {where} to resume: pass "
-                "its id (the Session line of its log).",
-                file=sys.stderr,
+                "its id (the Session line of its log)."
             )
-            return 1
     # A new session's id is chosen here, so the status can name it.
     session_id = args.resume or args.session_id or str(uuid.uuid4())
     folder = sessions.session_folder(session_id)
@@ -1906,8 +2100,68 @@ def main(argv=None) -> int:
     if work is not None:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
-            print(refused, file=sys.stderr)
-            return 1
+            raise SetupRefused(refused)
+    return Setup(playbook, words, loaded, work, code, session_id, folder, run)
+
+
+def playbook_list() -> List[dict]:
+    """What ``fibsem-agent --list-playbooks`` prints. Raises `SetupRefused`."""
+    checkout = find_checkout(None)
+    if checkout is None:
+        raise SetupRefused(NO_CHECKOUT)
+    return _playbook_rows(checkout)
+
+
+def playbook_configuration(name: str) -> dict:
+    """What ``fibsem-agent --playbook NAME --show-config`` prints. Raises
+    `SetupRefused`."""
+    args = _parser().parse_args(["--playbook", name])
+    checkout = find_checkout(None)
+    if checkout is None:
+        raise SetupRefused(NO_CHECKOUT)
+    setup = _setup(args, checkout)
+    return show_config(
+        args,
+        checkout,
+        setup.work,
+        setup.code,
+        setup.playbook,
+        setup.loaded,
+        setup.words,
+    )
+
+
+def main(argv=None) -> int:
+    refuse("fibsem-agent")
+    diagnostics.install("fibsem-agent")
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.code and args.files:
+        parser.error("--code already gives the agent its files: use one of them")
+    if args.session_id and args.resume:
+        parser.error("--session-id starts a new session: --resume carries one on")
+    if args.list_hooks:
+        return _print(reminders.hook_rows(), args.json, _hook_text)
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass
+    checkout = find_checkout(args.checkout)
+    if checkout is None:
+        print(NO_CHECKOUT, file=sys.stderr)
+        return 1
+    if args.list_playbooks:
+        return _print(_playbook_rows(checkout), args.json, _playbook_text)
+
+    try:
+        setup = _setup(args, checkout)
+    except SetupRefused as refused:
+        print(refused, file=sys.stderr)
+        return 1
+    playbook, words, loaded = setup.playbook, setup.words, setup.loaded
+    work, code, session_id = setup.work, setup.code, setup.session_id
+    folder, run = setup.folder, setup.run
     if args.show_config:
         config = show_config(args, checkout, work, code, playbook, loaded, words)
         return _print(config, args.json, _config_text)
@@ -1985,6 +2239,7 @@ def main(argv=None) -> int:
     harness = Harness(
         agent,
         lambda: watch_mod.connect(args.url, token),
+        url=args.url,
         resumed=args.resume is not None,
         server_wait_s=args.server_wait,
         goal=args.goal,
@@ -1993,6 +2248,8 @@ def main(argv=None) -> int:
         words=words,
         deadline_warn_s=playbook.session.deadline_warn_min * 60,
         quiet_s=playbook.session.quiet_min * 60,
+        after=record.get(sessions.EVENT_AFTER),
+        keep_cursor=session.keep_event_cursor,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,

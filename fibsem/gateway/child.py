@@ -9,16 +9,7 @@ import threading
 from pathlib import Path
 from typing import List, Optional
 
-POLL_S = 0.5
-
-
-def watch(stop_file: Path, stop: threading.Event) -> None:
-    """Set *stop* once *stop_file* exists."""
-    while not stop.is_set():
-        if stop_file.exists():
-            stop.set()
-            return
-        stop.wait(POLL_S)
+from fibsem.util.process import watch_stop_file
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -26,7 +17,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     stop_file, target, args = Path(argv[0]), argv[1], argv[2:]
     module, function = target.split(":")
     stop = threading.Event()
-    threading.Thread(target=watch, args=(stop_file, stop), daemon=True).start()
+    watch_stop_file(stop_file, stop.set)
     serve = getattr(importlib.import_module(module), function)
     return serve(args, stop=stop) or 0
 

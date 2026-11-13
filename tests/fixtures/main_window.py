@@ -14,6 +14,7 @@ from typing import Dict, Iterator, Optional, Sequence
 import pytest
 from psygnal.containers import EventedDict
 
+from tests.fixtures.connecting import connect_and_wait
 from tests.protocols import planned, task_protocol
 
 
@@ -35,7 +36,7 @@ def main_window(
 
     win = module.AutoLamellaWindow()
     ui = win
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     experiment = Experiment(path=tmp_path, name=name)
     os.makedirs(experiment.path, exist_ok=True)
     experiment.task_protocol = task_protocol(
@@ -117,7 +118,7 @@ def main_window_fixture(
                     lambda configuration_name=None: path,
                 )
             if connect:
-                window.system_widget.connect_to_microscope()
+                connect_and_wait(window.system_widget)
             yield window
             if window.microscope is not None:
                 window.microscope.disconnect()

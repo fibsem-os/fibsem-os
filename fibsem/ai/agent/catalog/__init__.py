@@ -2,8 +2,8 @@
 
 The sidecar (``fibsem-mcp``) builds its MCP tool list from this module, and a
 contract test asserts every entry maps onto a real route on the server app —
-so the two surfaces cannot drift apart. Importable everywhere, including the
-py3.8 floor: what a tool needs from the rest of fibsem it imports when called.
+so the two surfaces cannot drift apart. Importable everywhere: what a tool needs
+from the rest of fibsem it imports when called.
 
 A tool lives in the module of its group (stage and beam tools in microscope and
 imaging, item tools in items, ...), with its route call (``call``) and the line
@@ -98,6 +98,7 @@ NOT_TOOLS: Dict[str, str] = {
     "DELETE /pairing/computers/{computer_id}": "The operator unpairs a computer (operator token only).",
     "PATCH /pairing/computers/{computer_id}": "The operator sets what a paired hub may do (operator token only).",
     "PUT /pairing/always_allow_local": "The operator's setting to allow agents logged in to this PC without a click (operator token only).",
+    "POST /app/report": "The operator's Report an Issue from the web page (operator token only): a bundle for them to save and email.",
     "POST /app/experiment/upload": "The operator adding a file from the web page (operator token only); the agent reads it with experiment_read_file.",
     "GET /app/experiment/planes/{path}": "Raw pixel planes the web viewer draws; the agent reads images as pictures with experiment_read_file.",
     "POST /app/experiment/evidence": "Every acting tool's evidence argument: the sidecar keeps it here first, then the call cites it.",

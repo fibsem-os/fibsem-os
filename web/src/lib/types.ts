@@ -1,7 +1,14 @@
-// The answers the pages read, typed by hand until the routes declare response
-// models and the types are generated from openapi.json.
+// The answers the pages read. Each is the server's class from schema.ts, which
+// `bun run types` writes from /openapi.json; where the class says less than the
+// page needs (a dict, or text that is one of a few words), the field is narrowed
+// here. Routes that declare no class yet are typed by hand.
 
 import type { Marks } from "./marks";
+import type { components } from "./schema";
+
+type S = components["schemas"];
+/** *T* with the fields of *K* as *K* types them. */
+type Narrow<T, K> = Omit<T, keyof K> & K;
 
 export interface Capabilities {
   api_version: string;
@@ -19,83 +26,38 @@ export interface Capabilities {
 }
 
 /** The microscope connection, as the operator sees it (`/microscope/connection`). */
-export interface Connection {
-  connected: boolean;
-  connecting: string | null;
-  error: string | null;
-  configuration: {
-    name: string | null;
-    path: string | null;
-    manufacturer: string | null;
-    model: string | null;
-    address: string | null;
-  } | null;
-  configurations: { name: string; default: boolean }[];
-  run: { state: string; error: { message?: string } | null } | null;
-}
+export type Connection = Narrow<
+  S["ConnectionView"],
+  { run: Narrow<S["RunAnswer"], { error: { message?: string } | null }> | null }
+>;
 
 /** Measurable progress on the microscope, as the Qt status bar says it. */
-export interface ProgressLine {
-  label: string;
-  step: string | null;
-  fraction: number | null;
-  numbers: string | null;
-  outcome: boolean;
-  failed: boolean;
-}
+export type ProgressLine = S["ProgressLine"];
 
-export interface WorkflowStatus {
-  microscope_connected: boolean;
-  experiment: { name: string; path: string; num_items: number; sample?: string } | null;
-  workflow: {
-    running: boolean;
-    /** Where the run is: idle, starting, running, waiting, held or stopping. */
-    phase?: "idle" | "starting" | "running" | "waiting" | "held" | "stopping";
-    current_task: string | null;
-    current_item: string | null;
-    queue_position: number | null;
-    queue_total: number | null;
-    iteration: number | null;
-    step: string | null;
-    waiting_on: string | null;
-    waiting_since: string | null;
-    /** The run's last failed task, or why it stalled, until the next run. */
-    failed: { what: string; message: string; at: string | null; count: number } | null;
-    /** How the last run ended, until the next starts. */
-    last_run?: { ended: "completed" | "cancelled" | "stalled" | "failed"; why: string } | null;
-  };
-  progress: ProgressLine | null;
-  /** Who holds the microscope, when it is not the run. */
-  in_control: { by: string; action: string; since: number } | null;
-}
+export type WorkflowStatus = Narrow<
+  S["AppStatus"],
+  {
+    workflow: Narrow<
+      S["WorkflowState"],
+      {
+        /** Where the run is. */
+        phase: "idle" | "starting" | "running" | "waiting" | "held" | "stopping";
+        last_run: Narrow<S["RunEnded"], { ended: "completed" | "cancelled" | "stalled" | "failed" }> | null;
+      }
+    >;
+  }
+>;
 
-export interface SystemInfo {
-  name: string;
-  ip_address: string;
-  manufacturer: string;
-  model: string;
-  serial_number: string;
-  hardware_version: string;
-  software_version: string;
-  fibsem_version: string;
-  fibsem_revision: string | null;
-  port: number | null;
-}
+export type SystemInfo = S["SystemInfo"];
 
-export interface MicroscopeInfo {
-  manufacturer: string;
-  model: string;
-  serial_number: string;
-  software_version: string;
-  system: { info: SystemInfo };
-}
+export type MicroscopeInfo = Narrow<S["MicroscopeInfo"], { system: { info: SystemInfo } }>;
 
-export interface ParameterSpec {
-  type: string;
-  unit: string | null;
-  display?: { label?: string; scale?: number; unit?: string; decimals?: number; advanced?: boolean };
-}
+export type ParameterSpec = Narrow<
+  S["ParameterDescription"],
+  { display: { label?: string; scale?: number; unit?: string; decimals?: number; advanced?: boolean } | null }
+>;
 
+// /microscope/devices writes its class inline in /openapi.json, so it has no name in schema.ts.
 export interface DeviceSpec {
   name: string;
   class: string;
@@ -106,30 +68,14 @@ export interface DeviceSpec {
 
 export type DeviceListing = Record<string, DeviceSpec>;
 
-export interface DeviceValues {
-  values: Record<string, unknown>;
-  unavailable: string[];
-}
+export type DeviceValues = S["Values"];
 
-export interface ImagePayload {
-  image_b64_jpeg: string;
-  width: number;
-  height: number;
-  /** The source image's size in pixels, which the preview is a copy of. */
-  full_width?: number;
-  full_height?: number;
-  hfw?: number;
-  beam_type?: string;
-  acquired_at?: string | null;
-  info?: ImageInfo | null;
-}
+export type ImagePayload = Narrow<S["ImagePayload"], { info: ImageInfo | null }>;
 
-export interface DisplayImages {
-  sem: ImagePayload | null;
-  fib: ImagePayload | null;
-  fm?: ImagePayload | null;
-  fm_available?: boolean;
-}
+export type DisplayImages = Narrow<
+  S["DisplayImages"],
+  { sem: ImagePayload | null; fib: ImagePayload | null; fm: ImagePayload | null }
+>;
 
 export interface PairedComputer {
   id: string;
@@ -154,110 +100,48 @@ export interface Pairing {
 
 export type AgentLevel = "off" | "watch" | "assist" | "drive";
 
-export interface LevelChoice {
-  level: AgentLevel;
-  name: string;
-  word: string;
-  tip: string;
-}
+export type LevelChoice = Narrow<S["LevelOption"], { level: AgentLevel }>;
 
 export interface Evidence {
   evidence_id: string;
   [key: string]: unknown;
 }
 
-export interface RequestAction {
-  tool: string;
-  what?: string;
-  change?: string;
-  details?: { columns?: string[]; rows?: string[][] } | null;
-}
+export type RequestAction = Narrow<S["ActionView"], { details: { columns?: string[]; rows?: string[][] } | null }>;
 
-export interface AgentRequest {
-  request_id: string;
-  status: string;
-  reason: string;
-  actions: RequestAction[];
-  results: { ok?: boolean }[];
-  evidence?: Evidence | null;
-}
+export type AgentRequest = Narrow<
+  S["AgentRequestView"],
+  { actions: RequestAction[]; results: { ok?: boolean }[]; evidence: Evidence | null }
+>;
 
-export interface Suggestion {
-  proposal_id: string;
-  proposal: string;
-  decision: string;
-  reason: string;
-  evidence: Evidence | null;
-  no_evidence?: string;
-}
+export type Suggestion = Narrow<S["SuggestionCard"], { evidence: Evidence | null }>;
+
+/** An agent on this PC asking to connect, on GET /app/agent. */
+export type ConnectAsk = S["ConnectAskView"];
 
 /** GET /app/agent: the agent as the chip and card show it. */
-/** An agent on this PC asking to connect, on GET /app/agent. */
-export interface ConnectAsk {
-  id: string;
-  /** As it names itself. */
-  client: string;
-  /** "this PC", or an address over SSH. */
-  origin: string;
-  /** The PC user it runs as. */
-  user: string;
-  asked_at: number;
-  /** What the allowed agents' list will call it. */
-  name: string;
-  /** What allowing it means at the level now. */
-  if_allowed: string;
-  /** The allowed agent that allowing this one unpairs: one per microscope. */
-  replaces: string | null;
-}
+export type AgentState = Narrow<
+  S["AgentView"],
+  {
+    level: AgentLevel | null;
+    request: AgentRequest | null;
+    suggestion: Suggestion | null;
+    pictures: Partial<Record<"request" | "suggestion", S["PictureInfo"]>>;
+    levels: LevelChoice[];
+    /** What the agent said it can do, as [name, value] rows. */
+    facts: [string, string][];
+  }
+>;
 
-export interface AgentState {
-  experiment: string | null;
-  level: AgentLevel | null;
-  stopped: boolean;
-  last_heard_s: number | null;
-  client: string | null;
-  session: string | null;
-  request: AgentRequest | null;
-  suggestion: Suggestion | null;
-  now: string | null;
-  waiting: { proposal: string; who: string } | null;
-  pictures: Partial<Record<"request" | "suggestion", { caption?: string; image: boolean; version: number }>>;
-  levels: LevelChoice[];
-  asking: ConnectAsk | null;
-  /** What the agent said it can do, as [name, value] rows. */
-  facts: [string, string][];
-  /** The agent has spent most of its budget: the side panel warns. */
-  budget_low: boolean;
-  /** The chip's words: the level, or what the agent asks for. */
-  chip: string;
-}
-
-/** GET /app/agent/session: what the agent reported of its session. */
 /** One of the agent's tools, as GET /app/agent/customisation lists it. */
-export interface ToolRow {
-  name: string;
-  description: string;
-  level: "watch" | "assist" | "drive";
-  category: string;
-  group: string;
-  /** Commands or changes the microscope. */
-  hardware: boolean;
-}
+export type ToolRow = Narrow<S["ToolRow"], { level: "watch" | "assist" | "drive" }>;
 
-export interface SkillRow {
-  name: string;
-  description: string;
-}
+export type SkillRow = S["SkillRow"];
 
 /** GET /app/agent/customisation: what the agent runs with. */
-export interface AgentCustomisation {
-  tools: ToolRow[];
-  categories: string[];
-  skills: SkillRow[];
-  specialists: SkillRow[];
-  never: { device: string; blocked: string; why: string }[];
-}
+export type AgentCustomisation = Narrow<S["AgentCustomisation"], { tools: ToolRow[] }>;
 
+/** GET /app/agent/session: what the agent reported of its session. */
 export interface ReportedSession {
   /** The reminders on now. */
   hooks?: { when: string; label: string; say: string }[];
@@ -299,84 +183,50 @@ export interface AgentPlan {
 }
 
 /** One row of GET /app/agent/recent. */
-export interface RecentRow {
-  when: string;
-  text: string;
-  outcome: string;
-  tone: "waiting" | "running" | "ok" | "error" | "muted" | string;
-  level: string;
-  evidence: Evidence | null;
-  why: string;
-  kind: "you" | "message" | "note" | "action";
-  /** When, as an ISO time with its offset; where the agent read it, for an operator's message read later. */
-  at: string;
-  /** An operator's message: its id, and when the agent read it ("" not yet). */
-  message_id: string;
-  read: string;
-}
+export type RecentRow = Narrow<
+  S["RecentRow"],
+  { evidence: Evidence | null; kind: "you" | "message" | "note" | "action" }
+>;
 
 /** One line of GET /app/agent/transcript: what fibsem-agent printed. */
 export interface TranscriptLine {
   t: string;
-  /** context: what fibsem-agent says of the session, "Playbook set: autolamella, ...". */
-  kind: "said" | "step" | "failed" | "context";
+  /** context: what fibsem-agent says of the session, "Playbook set: autolamella, ...".
+   * done: the step it names finished, so it no longer shows as running. */
+  kind: "said" | "step" | "done" | "failed" | "context";
   text: string;
   verb?: string;
   seq?: number;
-  /** For "failed": the step it was. */
+  /** For "done" and "failed": the step it was. */
   step?: number;
+  /** For "done" and "failed": how long the step took, in seconds. */
+  took_s?: number;
   session_id: string;
 }
 
-export interface EvidenceAnswer {
-  preview: ImagePayload | null;
-  marks: Marks | null;
-  path: string;
-  by?: "operator" | "agent";
-  channels?: string[] | null;
-  plane?: number | null;
-  /** The experiment image to mark in reply, when there is one. */
-  source?: string | null;
-  /** The marks drawn on *source*, when it is not this image. */
-  source_marks?: Marks | null;
-  /** Feedback: the picture this answers, good or bad of it, and of its marks. */
-  answers?: string | null;
-  verdict?: "good" | "bad" | null;
-  judged?:
-    | { kind: string; index: number; label?: string; verdict?: "good" | "bad"; moved_to?: { x: number; y: number } }[]
-    | null;
-  /** What the operator last said of this whole picture. */
-  said?: "good" | "bad" | null;
-}
+export type EvidenceAnswer = Narrow<
+  S["EvidenceView"],
+  {
+    preview: ImagePayload | null;
+    marks: Marks | null;
+    by: "operator" | "agent";
+    /** The marks drawn on *source*, when it is not this image. */
+    source_marks: Marks | null;
+    verdict: "good" | "bad" | null;
+    judged:
+      | { kind: string; index: number; label?: string; verdict?: "good" | "bad"; moved_to?: { x: number; y: number } }[]
+      | null;
+    /** What the operator last said of this whole picture. */
+    said: "good" | "bad" | null;
+  }
+>;
 
 /** One experiment in /app/experiment/recent. */
-export interface ExperimentEntry {
-  name: string;
-  path: string;
-  app: string | null;
-  created_at: string | null;
-  num_items: number;
-  available: boolean;
-  instrument_model: string | null;
-  instrument_serial: string | null;
-  operator: string | null;
-  software_version: string | null;
-}
+export type ExperimentEntry = S["ExperimentEntry"];
 
-export interface FileEntry {
-  name: string;
-  path: string;
-  kind: "folder" | "text" | "image" | "other";
-  size: number | null;
-  modified: string;
-  images?: number;
-}
+export type FileEntry = Narrow<S["FileEntry"], { kind: "folder" | "text" | "image" | "other" }>;
 
-export interface FolderListing {
-  root: string;
-  dir: string;
-  entries: FileEntry[];
-}
+export type FolderListing = Narrow<S["FolderListing"], { entries: FileEntry[] }>;
 
 export interface StackFacts {
   channels: {
@@ -421,38 +271,14 @@ export interface ImageInfo {
   scalebar: { length: number; label: string; fraction: number } | null;
 }
 
-/** GET /app/experiment: one row per item. */
-export interface ItemSummary {
-  item_name: string;
-  item_id: string;
-  last_completed_task: string | null;
-  last_completed_at: string | null;
-  is_completed: boolean;
-  is_failure: boolean;
-  // Volume's positions: slices planned and cut.
-  iterations?: number;
-  slices_cut?: number;
-}
+/** GET /app/experiment: one row per item; Volume's positions add the slices planned and cut. */
+export type ItemSummary = S["LamellaRow"] & { iterations?: number; slices_cut?: number };
 
 /** One image of an item's stack: a slice, by the iteration that cut it. */
-export interface StackSlice {
-  iteration: number;
-  filename: string;
-  acquired_at: string | null;
-  z: number | null;
-  pixel_size: number | null;
-  hfw: number | null;
-  /** The file, relative to the experiment folder. */
-  path?: string | null;
-}
+export type StackSlice = S["StackSlice"];
 
 /** GET /app/experiment/items/{name}/stack?role=: the item's images of one role, in iteration order. */
-export interface ItemStack {
-  item_name: string;
-  item_id: string;
-  role: string;
-  slices: StackSlice[];
-}
+export type ItemStack = S["ItemStack"];
 
 export interface Defect {
   verdict: string;
@@ -462,12 +288,7 @@ export interface Defect {
 }
 
 /** GET /app/experiment/items/{name}: the facts the cards use. */
-export interface ItemDetail {
-  item_name: string;
-  is_failure: boolean;
-  defect?: Defect;
-  milling_angle?: number | null;
-}
+export type ItemDetail = Narrow<S["LamellaDetail"], { defect: Defect | null }>;
 
 export interface HistoryOperation {
   kind: string;
@@ -515,145 +336,48 @@ export interface HistoryFilter {
 }
 
 /** GET /app/experiment/items/{name}/history */
-export interface ItemHistory {
-  item_name: string;
-  filter: HistoryFilter;
-  tasks: string[];
-  total: number;
-  runs: HistoryRun[];
-}
+export type ItemHistory = Narrow<S["ItemHistory"], { filter: HistoryFilter; runs: HistoryRun[] }>;
 
 /** GET /app/experiment/grids: one row per grid. */
-export interface GridSummary {
-  name: string;
-  id: string;
-  description: string;
-  quality: string;
-  status: string;
-  current_task: string | null;
-  is_failure: boolean;
-  last_completed_task: string | null;
-  num_items: number;
-  overviews: Record<string, string>;
-  /** The same overviews' paths in the experiment, for the image viewer. */
-  overview_paths: Record<string, string>;
-}
+export type GridSummary = S["GridSummary"];
 
 /** GET /app/experiment/grids/{name} */
-export type GridDetail = GridSummary & {
-  tasks: { name: string; status: string; files: Record<string, string[]> }[];
-  items: string[];
-};
+export type GridDetail = S["GridDetail"];
 
 /** GET /app/experiment/grids/{name}/outputs/{file}/markers */
-export interface GridMarkers {
-  image?: { width: number; height: number; pixel_size?: number | null; hfw?: number | null; beam_type?: string };
-  markers: { item_name: string; x: number; y: number; inside: boolean; is_completed: boolean; is_failure: boolean }[];
-  unplaced: { item_name: string; reason: string }[];
-  linked?: boolean;
-  reason?: string;
-}
+export type GridMarkers = Narrow<
+  S["GridMarkers"],
+  {
+    image: {
+      width: number;
+      height: number;
+      pixel_size?: number | null;
+      hfw?: number | null;
+      beam_type?: string;
+    } | null;
+  }
+>;
 
 /** One recorded action of the experiment replay. */
-export interface ReplayRow {
-  index: number;
-  time: string;
-  kind: string;
-  summary: string;
-  item: string | null;
-  item_type: string | null;
-  task: string | null;
-  step: string | null;
-  // "task", "agent" or "operator"; null when the record doesn't say
-  actor: string | null;
-  duration: number | null;
-}
+export type ReplayRow = S["ReplayRow"];
 
 /** GET /app/experiment/replay: every recorded action, in time order. */
-export interface ReplayTimeline {
-  source: string | null;
-  start: string | null;
-  end: string | null;
-  counts: Record<string, number>;
-  events: ReplayRow[];
-}
+export type ReplayTimeline = S["ReplayTimeline"];
 
 /** A replay image and what is drawn over it, in fractions of the image (+y down). */
-export interface ReplayImage {
-  path: string;
-  time: string;
-  item: string | null;
-  unsaved_since: number;
-  milling: { name: string; current: boolean; outlines: number[][][] }[];
-  spots: number[][];
-  proposed: number[][];
-  decided: number[][];
-  areas_proposed: number[][];
-  areas_decided: number[][];
-}
+export type ReplayImage = S["ReplayImage"];
 
 /** GET /app/experiment/replay/{index}: the instrument at one recorded action. */
-export interface ReplayView {
-  index: number;
-  event: ReplayRow | null;
-  sem: ReplayImage | null;
-  fib: ReplayImage | null;
-  fm: string | null;
-  stage_position: Record<string, number | string | null> | null;
-  stage: StageDrawing | null;
-}
+export type ReplayView = Narrow<S["ReplayView"], { stage_position: Record<string, number | string | null> | null }>;
 
 /** A named place on a stage map, in metres on the map's plane (+y down). */
-export interface MapPlace {
-  name: string;
-  x: number;
-  y: number;
-}
+export type MapPlace = S["MapPlace"];
 
 /** What a stage map draws (fibsem.geometry.stage_places.StageMapPlaces). */
-export interface StageMapPlaces {
-  stage: number[] | null;
-  // [left, top, right, bottom]
-  limits: number[] | null;
-  slots: MapPlace[];
-  // a grid boundary's radii, across and down
-  boundary: number[];
-  // [centre x, centre y, side]
-  holder: number[] | null;
-  stations: MapPlace[];
-  positions: MapPlace[];
-  here: string[];
-  slot: string | null;
-}
+export type StageMapPlaces = S["StageMapPlaces"];
 
-/** The stage at a moment, as the stage card draws it (ReplayStage); angles in degrees. */
-export interface StageDrawing {
-  orientation: string | null;
-  grid: string | null;
-  milling_angle: number | null;
-  stage_tilt: number | null;
-  pre_tilt: number;
-  column_tilt: number;
-  mirrored: boolean;
-  objective_below: boolean;
-  objective_inserted: boolean;
-  map: StageMapPlaces | null;
-}
+/** The stage at a moment, as the stage card draws it; angles in degrees. */
+export type StageDrawing = S["ReplayStage"];
 
 /** This instrument's Slack notifications (`/app/notifications`); the token is never served. */
-export interface NotificationSettings {
-  settings: {
-    enabled: boolean;
-    channel: string;
-    channel_id: string;
-    wait_minutes: number;
-    answers: boolean;
-    messages: boolean;
-    failures: boolean;
-    run_finished: boolean;
-    images: boolean;
-    link: string;
-  };
-  token_set: boolean;
-  token_from: string;
-}
+export type NotificationSettings = S["NotificationSettings"];

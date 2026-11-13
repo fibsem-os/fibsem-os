@@ -22,16 +22,7 @@ import pytest
 pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.qt.coalesce import Coalescer
-
-
-def _wait_for(qapp, condition, timeout=5.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        qapp.processEvents()
-        if condition():
-            return True
-        time.sleep(0.01)
-    return False
+from tests.waiting import qt_wait_for
 
 
 class TestTheCoalescer:
@@ -63,7 +54,7 @@ class TestTheCoalescer:
         worker = threading.Thread(target=coalescer.put, args=(1,))
         worker.start()
         worker.join()
-        assert _wait_for(qapp, lambda: bool(threads))
+        assert qt_wait_for(lambda: bool(threads))
         assert threads == [threading.main_thread()]
         coalescer.stop()
 

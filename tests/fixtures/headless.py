@@ -3,7 +3,6 @@
 discovery file under tmp, and a wait until the command is serving."""
 
 import json
-import socket
 import threading
 import time
 from pathlib import Path
@@ -13,18 +12,13 @@ import httpx
 
 from fibsem.client.pairing import ask_to_connect
 from fibsem.server import hosting
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
+from tests.waiting import free_port
 
 
 def confine_host(monkeypatch, tmp_path: Path) -> Path:
     """Every AppServerHost on a free port, its discovery file (and so the
     operator token beside it) under *tmp_path*. The discovery file's path."""
-    real_host, port = hosting.AppServerHost, _free_port()
+    real_host, port = hosting.AppServerHost, free_port()
     path = tmp_path / "app-server.json"
 
     def confined(session, app_context, **kwargs):
@@ -34,6 +28,7 @@ def confine_host(monkeypatch, tmp_path: Path) -> Path:
             port=port,
             discovery_path=path,
             serve_microscope=kwargs.get("serve_microscope", False),
+            agent=kwargs.get("agent", True),
         )
 
     monkeypatch.setattr(hosting, "AppServerHost", confined)

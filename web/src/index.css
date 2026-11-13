@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "./theme.css";
+/* Generated from the server schema; its comments are not class names. */
+@source not "./lib/schema.ts";
 
 /* shadcn's names over the Qt palette. */
 :root {

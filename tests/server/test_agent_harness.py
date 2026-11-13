@@ -9,7 +9,6 @@ import asyncio
 import logging
 import os
 import re
-import socket
 import sys
 import threading
 import time
@@ -30,12 +29,14 @@ from fibsem.applications.autolamella.server.context import (
 from fibsem.server import AuthConfig
 from fibsem.server.hosting import AppServerHost
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.events import split_event_id
 from fibsem.workflows.session import AppSession
 from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
     _experiment,
     microscope,
 )
+from tests.waiting import free_port, wait_for
 
 os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
 
@@ -46,12 +47,6 @@ RETRY_S = 0.05
 def _all():
     """What a session started on no particular playbook loads."""
     return harness_mod.session_names(harness_mod.find_checkout())
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @pytest.fixture
@@ -71,7 +66,7 @@ def session(microscope, tmp_path, monkeypatch, caplog):  # noqa: F811
     session.app_server = AppServerHost(
         session,
         lambda: AutoLamellaAppContext(session),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
     assert session.app_server.start()
@@ -155,15 +150,6 @@ def _harness(session, agent, **kwargs):
     kwargs.setdefault("poll_s", POLL_S)
     kwargs.setdefault("retry_s", RETRY_S)
     return Running(Harness(agent, _connect(session), **kwargs))
-
-
-def _until(predicate, timeout=20.0, what="it"):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.05)
-    raise AssertionError(f"timed out waiting for {what}")
 
 
 def _heard(caplog, start):
@@ -281,7 +267,9 @@ def test_the_harness_keeps_the_deadlines_in_the_agents_plan(session):
 
     agent = ScriptedAgent(reply)
     running = _harness(session, agent)
-    _until(lambda: running.harness._deadlines.times, what="the deadline")
+    assert wait_for(lambda: running.harness._deadlines.times, timeout=20), (
+        "timed out waiting for the deadline"
+    )
     assert running.harness._deadlines.times == [by.isoformat(timespec="minutes")]
     running.stop()
     assert running.harness._deadlines.times == []
@@ -301,7 +289,9 @@ def test_the_first_turn_can_write_the_plan(session):
         return TurnEnd(session_id="scripted")
 
     running = _harness(session, ScriptedAgent(reply))
-    _until(lambda: written, what="the first turn's plan")
+    assert wait_for(lambda: written, timeout=20), (
+        "timed out waiting for the first turn's plan"
+    )
     running.stop()
     assert written == [200]
 
@@ -309,9 +299,13 @@ def test_the_first_turn_can_write_the_plan(session):
 def test_a_message_is_read_as_the_turn_carrying_it_starts(session):
     agent = ScriptedAgent()
     running = _harness(session, agent)
-    _until(lambda: len(agent.prompts) >= 1, what="the kickoff")
+    assert wait_for(lambda: len(agent.prompts) >= 1, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
     message_id = AgentSession(session).message("Skip 04.")
-    _until(lambda: len(agent.prompts) >= 2, what="the message's turn")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the message's turn"
+    )
     assert f"MESSAGE id={message_id}" in agent.prompts[1]
     running.stop()
     read = [
@@ -326,9 +320,13 @@ def test_a_message_is_read_as_the_turn_carrying_it_starts(session):
 def test_a_wake_up_rings_into_the_next_turn(session):
     agent = ScriptedAgent()
     running = _harness(session, agent, alarm=(alarm := harness_mod.Alarm()))
-    _until(lambda: len(agent.prompts) >= 1, what="the kickoff")
+    assert wait_for(lambda: len(agent.prompts) >= 1, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
     running.harness._loop.call_soon_threadsafe(alarm.set, 0.001, "look at 03 again")
-    _until(lambda: len(agent.prompts) >= 2, what="the wake-up turn")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the wake-up turn"
+    )
     assert "WAKE look at 03 again" in agent.prompts[1]
     running.stop()
 
@@ -900,11 +898,13 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
 
     agent = ScriptedAgent(reply)
     running = _harness(session, agent)
-    _until(lambda: agent.prompts, what="the kickoff")
+    assert wait_for(lambda: agent.prompts, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
     assert agent.started and agent.prompts[0] == kickoff()
 
     message_id = AgentSession(session).message("is 01 ok?")
-    _until(answered.is_set, what="the answer")
+    assert wait_for(answered.is_set, timeout=20), "timed out waiting for the answer"
     assert running.stop() == 0
     assert agent.closed
 
@@ -919,48 +919,113 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
     assert [n["payload"].get("reply_to") for n in notes] == [message_id]
 
 
+def test_an_event_id_after_lines_already_taken_is_the_current_turn_s():
+    # The watch says a poll's lines, then the id of its newest event: two
+    # items. A turn can take the lines before the id arrives.
+    async def main():
+        harness = Harness(ScriptedAgent(), lambda: None, keep_cursor=kept.append)
+        harness._items, harness._urgent = asyncio.Queue(), asyncio.Event()
+        harness._watcher = watcher = object()
+        harness._put(watcher, watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab"))
+        assert len(harness._drain()) == 1  # the turn starts with the line
+        harness._put(watcher, harness_mod._Cursor("s-5"))
+        harness._keep_given_cursor()  # the turn is over
+        # With lines still waiting, the id waits behind them.
+        harness._put(watcher, watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=cd"))
+        harness._put(watcher, harness_mod._Cursor("s-6"))
+        harness._keep_given_cursor()
+
+    kept = []
+    asyncio.run(main())
+    assert kept == ["s-5"]
+
+
+def test_a_resumed_session_hears_what_it_missed_while_it_was_down(session):
+    kept = []
+
+    async def reply(prompt):
+        return None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, keep_cursor=kept.append)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    first = AgentSession(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    # The id is kept once the turn carrying the message is over, not as it
+    # starts: an id kept before then (the kickoff's) is from before the message.
+    (sent,) = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if (e.get("payload") or {}).get("id") == first
+    ]
+    assert wait_for(
+        lambda: any(split_event_id(k)[1] >= sent["seq"] for k in kept), timeout=20
+    ), "the message's event id was not kept after its turn"
+    assert running.stop() == 0
+    assert first in agent.prompts[1]
+
+    # Sent while no agent watched.
+    missed = AgentSession(session).message("and 02?")
+
+    again = ScriptedAgent(reply)
+    running = _harness(session, again, resumed=True, after=kept[-1])
+    assert wait_for(lambda: len(again.prompts) >= 2, timeout=20), (
+        "the resumed session did not hear the message it missed"
+    )
+    assert running.stop() == 0
+    assert missed in again.prompts[1]
+    assert first not in again.prompts[1], "a message it had already heard came again"
+
+
 def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
     async def reply(prompt):
         if prompt.startswith("You are"):
-            for text in ("first", "second"):
-                AgentSession(session).message(text)
+            # Raising the level is news, but not urgent.
+            for level in (AgentLevel.ASSIST, AgentLevel.DRIVE):
+                assert AgentSession(session).set_level(level) is None
             # The turn goes on while the watcher hears both.
-            while len(_heard(caplog, "MESSAGE")) < 2:
+            while len(_heard(caplog, "LEVEL")) < 2:
                 await asyncio.sleep(0.05)
 
     agent = ScriptedAgent(reply)
     running = _harness(session, agent)
-    _until(lambda: len(agent.prompts) >= 2, what="the second turn")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the second turn"
+    )
     time.sleep(2 * POLL_S)
     assert running.stop() == 0
 
     assert len(agent.prompts) == 2, "both lines came as one turn"
+    assert agent.interrupts == 0, "a line that is not urgent interrupted"
     lines = agent.prompts[1].splitlines()
-    assert lines[0] == "The watcher printed:"
-    assert [line.split(": ")[1].split(" --")[0] for line in lines[1:]] == [
-        "first",
-        "second",
+    assert lines[:3] == [
+        "The watcher printed:",
+        "LEVEL assist (was watch): the operator set the agent level",
+        "LEVEL drive (was assist): the operator set the agent level",
     ]
 
 
 def test_no_turns_while_the_agent_is_off(session, caplog):
     agent = ScriptedAgent()
     running = _harness(session, agent)
-    _until(lambda: agent.prompts, what="the kickoff")
+    assert wait_for(lambda: agent.prompts, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
     operator = AgentSession(session)
 
     assert operator.set_level(AgentLevel.OFF) is None
-    _until(lambda: _heard(caplog, "AGENT OFF"), what="AGENT OFF")
+    assert wait_for(lambda: _heard(caplog, "AGENT OFF"), timeout=20), (
+        "timed out waiting for AGENT OFF"
+    )
     message_id = operator.message("still there?")
     time.sleep(5 * POLL_S)
     assert len(agent.prompts) == 1, "a turn while the agent was Off"
 
     assert operator.set_level(AgentLevel.WATCH) is None
     # The message may come with AGENT BACK or as the turn after it.
-    _until(
-        lambda: any(f"MESSAGE id={message_id}" in p for p in agent.prompts),
-        what="the message after AGENT BACK",
-    )
+    assert wait_for(
+        lambda: any(f"MESSAGE id={message_id}" in p for p in agent.prompts), timeout=20
+    ), "timed out waiting for the message after AGENT BACK"
     assert running.stop() == 0
 
     back = agent.prompts[1]
@@ -1000,7 +1065,7 @@ def test_the_agent_answers_a_supervised_run_through_the_harness(session):
 
     agent = ScriptedAgent(reply)
     running = _harness(session, agent)
-    _until(ended.is_set, timeout=90, what="the run's end")
+    assert wait_for(ended.is_set, timeout=90), "timed out waiting for the run's end"
     assert running.stop() == 0
 
     assert session.runner.join(30), "the run did not end"
@@ -1022,12 +1087,14 @@ def test_the_session_is_reported_to_the_app_after_each_turn_and_at_the_end(sessi
     agent = ScriptedAgent(reply)
     agent.model = "a-model"
     running = _harness(session, agent, goal="Mill 01 and 02", budget_usd=5.0)
-    _until(lambda: agent.prompts, what="the kickoff")
-    assert "Mill 01 and 02" in agent.prompts[0]
-    _until(
-        lambda: (AgentSession(session).reported_session() or {}).get("turns") == 1,
-        what="the report",
+    assert wait_for(lambda: agent.prompts, timeout=20), (
+        "timed out waiting for the kickoff"
     )
+    assert "Mill 01 and 02" in agent.prompts[0]
+    assert wait_for(
+        lambda: (AgentSession(session).reported_session() or {}).get("turns") == 1,
+        timeout=20,
+    ), "timed out waiting for the report"
     reported = AgentSession(session).reported_session()
     assert reported["session_id"] == "scripted"
     assert reported["model"] == "a-model"
@@ -1136,6 +1203,33 @@ def test_the_agent_keeps_what_it_prints_and_a_failed_step_names_it():
     assert (ran["verb"], ran["text"]) == ("Ran", "python a.py")
     assert failed["kind"] == "failed" and failed["step"] == ran["seq"]
     assert "cv2" in failed["text"]
+    assert failed["took_s"] >= 0
+
+
+def test_a_step_that_answers_is_done_and_says_how_long_it_took():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    printed = []
+    agent.on_line = lambda: printed.append(len(agent.transcript))
+    call = ToolUseBlock("t1", "mcp__fibsem__milling_run", {"stage": "Rough"})
+    _show(AssistantMessage(content=[call], model="m"), agent)
+    _show(UserMessage(content=[ToolResultBlock("t1", "done", False)]), agent)
+    # An answer to a call it never saw makes no line.
+    _show(UserMessage(content=[ToolResultBlock("t9", "done", False)]), agent)
+    ran, done = agent.transcript
+    assert ran["kind"] == "step" and ran["verb"] == "Called"
+    assert done["kind"] == "done" and done["step"] == ran["seq"]
+    assert done["took_s"] >= 0 and done["text"] == ""
+    assert printed == [1, 2], "each line tells the harness at once"
 
 
 def test_the_skills_the_agent_reads_are_reported_when_it_reads_one():
@@ -1197,13 +1291,200 @@ def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():
     assert entry["verb"] == "Ran" and "at" not in entry and entry["age_s"] >= 0
 
 
+def test_the_transcript_goes_soon_after_a_line_not_on_the_ten_second_clock(
+    monkeypatch,
+):
+    monkeypatch.setattr(harness_mod, "TRANSCRIPT_SOON_S", 0.01)
+    monkeypatch.setattr(harness_mod, "TRANSCRIPT_EVERY_S", 3600)
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            self.bodies.append(json)
+
+    class Agent(ScriptedAgent):
+        on_line = None
+        transcript: list = []
+
+    agent = Agent()
+    agent.transcript = []
+    harness = Harness(agent, lambda: None)
+    harness._client = client = Client()
+
+    async def main():
+        sender = asyncio.ensure_future(harness._send_transcript_every())
+        await asyncio.sleep(0)
+        assert agent.on_line is not None
+        agent.transcript.append(
+            {
+                "seq": 1,
+                "kind": "step",
+                "verb": "Ran",
+                "text": "x",
+                "at": time.monotonic(),
+            }
+        )
+        agent.on_line()
+        await wait_until(lambda: client.bodies)
+        sender.cancel()
+        await asyncio.gather(sender, return_exceptions=True)
+
+    async def wait_until(done, timeout=2.0):
+        end = time.monotonic() + timeout
+        while not done() and time.monotonic() < end:
+            await asyncio.sleep(0.01)
+
+    asyncio.run(main())
+    ((body),) = client.bodies
+    assert [e["seq"] for e in body["entries"]] == [1]
+    assert agent.transcript == [] and agent.on_line is None
+
+
+# --- urgent lines --------------------------------------------------------------
+
+
+def test_the_urgent_lines_are_the_four_the_operator_chose():
+    assert harness_mod.URGENT == {
+        # an operator message
+        watch_mod.MESSAGE,
+        # the level lowered, or control taken back
+        watch_mod.LEVEL_LOWERED,
+        watch_mod.AGENT_OFF,
+        watch_mod.OPERATOR_STOP,
+        # a run that stops or fails, or a hardware error
+        watch_mod.WORKFLOW_FAILED,
+        "task_failed",
+        watch_mod.COMMAND_FAILED,
+        watch_mod.MILL_FAILED,
+        # a stop rule firing
+        watch_mod.STOP_RULE,
+    }
+    assert harness_mod.is_urgent(watch_mod.NO_END_EVENT_LINE)
+    for line in (
+        watch_mod.Wake(watch_mod.LEVEL, "LEVEL drive (was watch)"),
+        watch_mod.Wake(watch_mod.WORKFLOW_ENDED, "WORKFLOW ENDED (completed)"),
+        watch_mod.Wake(watch_mod.WORKFLOW_ENDED, "WORKFLOW ENDED (cancelled)"),
+        watch_mod.Wake(watch_mod.PROPOSAL, "PROPOSAL item=01"),
+        watch_mod.Wake(harness_mod.ALARM, "WAKE check drift"),
+        "MESSAGE id=ab12 from the operator: a plain string is never urgent",
+    ):
+        assert not harness_mod.is_urgent(line), line
+
+
+def test_a_lowered_level_or_a_stop_asks_the_agent_to_re_read_its_level():
+    for kind in (watch_mod.LEVEL_LOWERED, watch_mod.OPERATOR_STOP):
+        prompt = Wakes().add([watch_mod.Wake(kind, "...")])
+        assert harness_mod.texts().reread_level in prompt
+
+
+def test_an_urgent_line_cuts_the_turn_short_and_others_wait(session, caplog):
+    operator = AgentSession(session)
+
+    async def reply(prompt):
+        if prompt.startswith("You are"):
+            # Not urgent: the turn goes on through it.
+            assert operator.set_level(AgentLevel.ASSIST) is None
+            while not _heard(caplog, "LEVEL assist"):
+                await asyncio.sleep(0.05)
+            await asyncio.sleep(3 * POLL_S)
+            assert agent.interrupts == 0
+            operator.message("stop and look at 01")
+            return await agent.until_interrupted()
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+        "timed out waiting for the turn after the interrupt"
+    )
+    assert running.stop() == 0
+
+    assert agent.interrupts == 1
+    after = agent.prompts[1]
+    assert after.startswith(harness_mod.INTERRUPTED + "\n\nThe watcher printed:\n")
+    assert "LEVEL assist (was watch)" in after
+    assert "from the operator: stop and look at 01" in after
+
+
+def test_a_stage_move_cut_short_finishes_once_and_lets_go_of_control(session):
+    """The operator takes control back during the agent's stage move: the turn
+    is cut short and the agent stops waiting, but the move is not undone or
+    left half done. It finishes, once, and control is free; the next turn
+    says to read where the stage is rather than move again."""
+    pytest.importorskip("mcp")
+    from fibsem.ai.agent.mcp.sidecar import build_sidecar
+
+    operator = AgentSession(session)
+    assert operator.set_level(AgentLevel.DRIVE) is None
+    microscope = session.microscope
+    stage = microscope.stage
+    before = microscope.get_stage_position()
+    moving, release = threading.Event(), threading.Event()
+    move_relative = stage.move_relative
+
+    def slow_move(delta):
+        moving.set()
+        assert release.wait(30), "the move was never let go"
+        return move_relative(delta)
+
+    stage.move_relative = slow_move
+    answers = []
+
+    def call_the_sidecar():
+        # Its own process in fibsem-agent: the CLI stops waiting for it, but
+        # its request runs on.
+        with _http(session) as http:
+            sidecar = build_sidecar(http, http.get("/capabilities").json())
+            answers.append(
+                asyncio.run(sidecar.call_tool("stage_move_relative", {"dx": 2e-6}))
+            )
+
+    async def reply(prompt):
+        if prompt.startswith("You are"):
+            threading.Thread(target=call_the_sidecar, daemon=True).start()
+            while not moving.is_set():
+                await asyncio.sleep(0.05)
+            assert microscope.control.current.by == "agent"
+            operator.stop()
+            return await agent.until_interrupted()
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent)
+    try:
+        assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), (
+            "timed out waiting for the turn after the stop"
+        )
+        assert not answers, "the move answered before it was let go"
+    finally:
+        release.set()
+    assert wait_for(lambda: answers, timeout=20), (
+        "timed out waiting for the move's answer"
+    )
+    assert running.stop() == 0
+    assert not answers[0].is_error, answers[0]
+
+    after = agent.prompts[1]
+    assert after.startswith(harness_mod.INTERRUPTED)
+    assert "STOPPED by the operator: Stop the agent; your level is now watch" in after
+    assert harness_mod.texts().reread_level in after
+    moved = microscope.get_stage_position()
+    assert moved.x == pytest.approx(before.x + 2e-6)
+    assert moved.y == pytest.approx(before.y)
+    control = microscope.control
+    assert control.current is None, "the move kept control"
+    assert session.agent_auth.level is AgentLevel.WATCH
+
+
 # --- ending -------------------------------------------------------------------
 
 
 def test_stopping_interrupts_the_turn_and_closes_the_session(session):
     agent = ScriptedAgent(lambda prompt: agent.until_interrupted())
     running = _harness(session, agent)
-    _until(lambda: agent.prompts, what="the kickoff")
+    assert wait_for(lambda: agent.prompts, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
 
     assert running.stop() == 0
     assert agent.interrupts == 1
@@ -1247,7 +1528,9 @@ def test_a_cli_that_dies_on_the_ctrl_c_still_stops_cleanly(session):
 
     agent = ScriptedAgent(reply)
     running = _harness(session, agent)
-    _until(lambda: agent.prompts, what="the kickoff")
+    assert wait_for(lambda: agent.prompts, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
     assert running.stop() == 0
     assert agent.closed
 
@@ -1257,12 +1540,16 @@ def test_the_kickoff_waits_while_the_agent_is_off(session, caplog):
     assert operator.set_level(AgentLevel.OFF) is None
     agent = ScriptedAgent()
     running = _harness(session, agent)
-    _until(lambda: _heard(caplog, "AGENT OFF"), what="AGENT OFF")
+    assert wait_for(lambda: _heard(caplog, "AGENT OFF"), timeout=20), (
+        "timed out waiting for AGENT OFF"
+    )
     time.sleep(5 * POLL_S)
     assert not agent.prompts, "a kickoff the server would refuse"
 
     assert operator.set_level(AgentLevel.WATCH) is None
-    _until(lambda: agent.prompts, what="the kickoff")
+    assert wait_for(lambda: agent.prompts, timeout=20), (
+        "timed out waiting for the kickoff"
+    )
     assert running.stop() == 0
     assert agent.prompts == [kickoff()]
 

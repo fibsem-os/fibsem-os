@@ -936,6 +936,9 @@ class SystemInfo:
 # The one FM driver a configuration names today; see `FluorescenceSystemSettings.driver`.
 FM_DRIVER_REMOTE = "remote"
 
+# A device entry's key naming the Device Server it runs behind (`DeviceEntry.is_remote`).
+REMOTE_KEY = "remote"
+
 
 @dataclass
 class FluorescenceSystemSettings:
@@ -973,6 +976,9 @@ class FluorescenceSystemSettings:
     driver: Optional[str] = None
     address: Optional[str] = None
     port: Optional[int] = None
+    # ``<address>:<port>`` of the Device Server it runs behind, where `driver` is
+    # the FM's own (`DeviceEntry.is_remote`).
+    remote: Optional[str] = None
 
     # A remote FM whose server isn't answering at connect is built offline and comes
     # online by itself, so the beams are never held up by the FM's PC.
@@ -1019,6 +1025,8 @@ class FluorescenceSystemSettings:
             data["mount_transform"] = self.mount_transform.value
         if self.camera_tilt is None:
             del data["camera_tilt"]
+        if self.remote is None:
+            del data["remote"]
         return data
 
     def objective_to_dict(self) -> dict:
@@ -1115,6 +1123,29 @@ class DeviceEntry:
 
     # Which entry it is, rather than anything about the device.
     IDENTITY_KEYS = ("name", "type")
+
+    @property
+    def is_remote(self) -> bool:
+        """Whether the device runs on another computer, behind its Device Server:
+        a `remote:` key (``remote: meteor-pc:8765``), or the older ``driver:
+        remote`` with `address` and `port`."""
+        return self.options.get(REMOTE_KEY) is not None or self.driver == REMOTE_KEY
+
+    def remote_address(self) -> Tuple[Optional[str], Optional[int]]:
+        """Where the Device Server serving it is, as (address, port): from
+        ``remote: <address>:<port>``, else the `address` and `port` keys. Either
+        is None when the entry does not say."""
+        where = self.options.get(REMOTE_KEY)
+        if where is None:
+            port = self.options.get("port")
+            return self.options.get("address"), int(port) if port is not None else None
+        address, _, port = str(where).rpartition(":")
+        if not address or not port.isdigit():
+            raise ValueError(
+                f"'{self.name}': remote is <address>:<port> (meteor-pc:8765), not "
+                f"{where!r}"
+            )
+        return address, int(port)
 
     def to_dict(self) -> dict:
         entry: Dict[str, Any] = {"name": self.name, "type": self.type}
@@ -1423,7 +1454,7 @@ class SystemSettings:
                 kept["driver"] = entry.driver
             if entry.required is not None:
                 kept["required"] = entry.required
-            if entry.driver is not None:
+            if entry.driver is not None or entry.is_remote:
                 kept.update(
                     (key, value)
                     for key, value in entry.options.items()

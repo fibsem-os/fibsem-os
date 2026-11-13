@@ -49,13 +49,16 @@ function indexOf(stack: StackSlice[], iteration: number | null) {
   if (iteration === null) return stack.length - 1;
   let at = 0;
   stack.forEach((s, i) => {
-    if (s.iteration <= iteration) at = i;
+    if (s.iteration !== null && s.iteration <= iteration) at = i;
   });
   return at;
 }
 
+/** A slice's number from 1; a file saved outside a slice has none. */
+const number = (slice: StackSlice) => (slice.iteration === null ? "–" : slice.iteration + 1);
+
 function readout(slice: StackSlice, planned: number | undefined) {
-  const parts = [`Slice ${slice.iteration + 1}${planned ? ` of ${planned}` : ""}`];
+  const parts = [`Slice ${number(slice)}${planned ? ` of ${planned}` : ""}`];
   if (slice.z != null) parts.push(`z ${(slice.z * 1e6).toFixed(1)} µm`);
   if (slice.acquired_at) parts.push(fmt.clock(slice.acquired_at));
   return parts.join(" · ");
@@ -66,7 +69,7 @@ function Thumb({ name, slice, on, pick }: { name: string; slice: StackSlice; on:
   return (
     <button
       onClick={pick}
-      aria-label={`Slice ${slice.iteration + 1}`}
+      aria-label={`Slice ${number(slice)}`}
       aria-current={on || undefined}
       className={cn(
         "relative h-16 w-24 shrink-0 cursor-pointer overflow-hidden rounded border-2 bg-black p-0",
@@ -75,7 +78,7 @@ function Thumb({ name, slice, on, pick }: { name: string; slice: StackSlice; on:
     >
       {src && <img className="block size-full object-cover" alt="" src={src} />}
       <span className="absolute bottom-0.5 left-1 text-[11px] text-white [text-shadow:0_0_3px_#000]">
-        {slice.iteration + 1}
+        {number(slice)}
       </span>
     </button>
   );

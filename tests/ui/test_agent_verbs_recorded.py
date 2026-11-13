@@ -38,9 +38,11 @@ from fibsem.workflows.grid.imaging import (  # noqa: E402
 )
 from fibsem.workflows.grids import GridRecord  # noqa: E402
 from fibsem.workflows.runner import GRIDS, ITEMS, RunRequest
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 from tests.fixtures.main_window import close_window  # noqa: E402
 from tests.protocols import add_planned, planned
 from tests.run_state import hold_runs
+from tests.waiting import wait_for
 
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
@@ -62,7 +64,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "load_configuration",
         lambda configuration_name=None: arctis_config,
     )
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
 
     experiment = Experiment(path=tmp_path, name="agent-verbs")
     experiment.task_protocol = AutoLamellaTaskProtocol()
@@ -138,12 +140,6 @@ def _runs_that_announce_themselves(monkeypatch, kind, recorder, seen):
     return hold_runs(monkeypatch, kind, on_execute=announce)
 
 
-def _wait_for(seen, timeout_s=5.0):
-    deadline = time.monotonic() + timeout_s
-    while not seen and time.monotonic() < deadline:
-        time.sleep(0.01)
-
-
 def test_a_workflow_the_agent_starts_is_the_agent_s(ui, recorder, qapp, monkeypatch):
     seen = []
     held = _runs_that_announce_themselves(monkeypatch, ITEMS, recorder, seen)
@@ -152,7 +148,7 @@ def test_a_workflow_the_agent_starts_is_the_agent_s(ui, recorder, qapp, monkeypa
             qapp, client, "/app/workflow/start", {"task_names": [TASK_NAME]}
         ).json()
     assert started["started"] is True
-    _wait_for(seen)
+    assert wait_for(lambda: seen)
     held.end(ui.session.runner)
     assert seen == ["agent"]
     assert _actors(recorder, "workflow_started") == ["agent"]
@@ -165,7 +161,7 @@ def test_a_grid_run_the_agent_starts_is_the_agent_s(ui, recorder, qapp, monkeypa
         _post(
             qapp, client, "/app/workflow/grids/start", {"task_names": ["overview_sem"]}
         )
-    _wait_for(seen)
+    assert wait_for(lambda: seen)
     held.end(ui.session.runner)
     assert seen == ["agent"]
     assert _actors(recorder, "workflow_started") == ["agent"]
@@ -180,7 +176,7 @@ def test_a_workflow_the_operator_starts_is_still_the_operator_s(
     ui.session.runner.start(
         ui.experiment, RunRequest(kind=ITEMS, task_names=(TASK_NAME,))
     )
-    _wait_for(seen)
+    assert wait_for(lambda: seen)
     held.end(ui.session.runner)
     assert seen == [None]
     assert _actors(recorder, "workflow_started") == ["operator"]

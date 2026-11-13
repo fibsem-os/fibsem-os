@@ -129,8 +129,9 @@ def test_stopping_closes_the_stream(session, microscope):
 class _FakeHost:
     """The App Server host's surface the session uses."""
 
-    def __init__(self, session, app_context, serve_microscope=False):
+    def __init__(self, session, app_context, serve_microscope=False, agent=True):
         self.serve_microscope = serve_microscope
+        self.agent = agent
         self.running = False
         self.starts = 0
         self.url = "http://127.0.0.1:8001"

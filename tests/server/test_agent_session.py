@@ -199,3 +199,13 @@ def test_the_tokens_and_the_context_are_kept(server):
     client.post("/app/agent/session", json={"tokens": tokens, "context": context})
     session = client.get("/app/agent/session").json()["session"]
     assert (session["tokens"], session["context"]) == (tokens, context)
+
+
+def test_a_report_the_harness_writes_reads_and_unset_fields_stay_out(server):
+    from fibsem.ai.agent.report import SessionReport, Tokens, plain
+
+    _, client, _ = server
+    body = plain(SessionReport(session_id="s1", tokens=Tokens(input=3)))
+    assert body == {"session_id": "s1", "tokens": {"input": 3}}
+    session = client.post("/app/agent/session", json=body).json()["session"]
+    assert session["tokens"] == {"input": 3} and "goal" not in session

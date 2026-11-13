@@ -42,7 +42,7 @@ from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import zoom as ndi_zoom
 
 from fibsem.devices.fm import mount_transform_from_name
-from fibsem.drivers.demo import sim_optics, sim_solid, sim_view
+from fibsem.drivers.demo import sim_faults, sim_optics, sim_solid, sim_view
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -105,6 +105,7 @@ FM_INTENSITY = 90.0
 FM_CELL_DEPTH = 9.0  # um; the cell thickness that glows at FM_INTENSITY
 FM_GLOW_HAZE = 2.5e-6  # m; how far out-of-focus light from a cell spreads
 FM_PSF_SIGMA = 0.13e-6  # m; an in-focus point source
+FM_FOCUS_LEVELS = 5  # the most different blurs drawn across one tilted view
 CILIUM_SIGMA = 0.09e-6  # m; a ~250 nm wide cilium, under the PSF
 # a source spread dimmer than this (canvas scale; the camera's noise is ~0.3)
 # is not drawn: far from focus it would cover the frame for nothing
@@ -284,8 +285,13 @@ class MilledRegion:
     # damage: convex pieces on the sample plane (um);
     # when given, only what lies under one of them is removed
     face: Optional[list] = None
+    # what imaging wore away over a field of view, not a pattern: no rim
+    scan: bool = False
 
 
+DAMAGE_CURRENT = 60e-12  # A; a usual polishing current
+ION_YIELD = 10.0  # um^3 of ice a nC of ions takes away
+IMAGING_STEP = 20e-9  # m; what imaging wears away shows in steps this deep
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
 # A spot burn: what a 60 pA, 10 s exposure leaves on a real grid. The mark is
 # a dark disc like any milled region, with a bright rim round it.
@@ -416,6 +422,10 @@ class SampleScene:
     # a crack across, a piece broken out), which grows with each pass after
     damage_below: Tuple[float, float] = (150e-9, 300e-9)
     damage_chance: float = 0.4
+    # the milling current (A) `damage_below` is given at: a pass at a higher
+    # current can damage a thicker lamella, by the square root of the ratio
+    # (0 = the current makes no difference)
+    damage_current: float = 0.0
     # the coat on the grid, laid down by the GIS and the sputter coater (or
     # set for a grid that comes in coated); m
     gis_thickness: float = 0.0
@@ -449,6 +459,9 @@ class SampleScene:
     # size and the noise (see sim_optics). False draws every image sharp.
     # On for a scene from the configuration; a scene built in code asks
     beam_optics: bool = False
+    # how fast FIB imaging wears the sample away, against ION_YIELD (0 = never):
+    # every frame is a shallow mill over its field of view
+    imaging_damage: float = 0.0
     # focus is at the beam's eucentric height, give or take this (m): each
     # beam's own seeded error, which an autofocus takes out
     focus_fuzz: float = 15e-6
@@ -459,6 +472,8 @@ class SampleScene:
     # flipped until the camera's mount transform is set to match
     scan_rotation_at_start: Dict[str, float] = field(default_factory=dict)
     fm_camera_mount: Optional[str] = None
+    # what goes wrong, and when: see sim_faults
+    faults: List[dict] = field(default_factory=list)
     _current_offsets: Dict[Tuple[str, float], Tuple[float, float]] = field(
         default_factory=dict, repr=False
     )
@@ -477,6 +492,9 @@ class SampleScene:
     mill_passes: List[dict] = field(default_factory=list)
     # where a thin lamella's damage started: {"pass", "kind"}, or None
     damage_started: Optional[dict] = None
+    # what ion imaging has put down, per field of view imaged: its outline,
+    # frames, dose (nC/um^2) and the depth worn away (m); see `expose`
+    exposures: Dict[tuple, dict] = field(default_factory=dict, repr=False)
     _cuts: List[np.ndarray] = field(default_factory=list, repr=False)
     # the grids on the holder. With no calibrated, occupied slot handed in
     # (`holder_slots`, set by the simulator from its sample holder before
@@ -960,6 +978,7 @@ class SampleScene:
         # trenches were cut in grids that are no longer where they were
         self.milled = []
         self.mill_passes, self._cuts, self.damage_started = [], [], None
+        self.exposures = {}
         logger.debug(
             {
                 "msg": "sample_scene_grids_placed",
@@ -1066,6 +1085,7 @@ class SampleScene:
         projection: BeamStageProjection,
         beam_shift: Tuple[float, float] = (0.0, 0.0),
         beam_current: Optional[float] = None,
+        extra_drift: Tuple[float, float] = (0.0, 0.0),
     ) -> List[MilledRegion]:
         """Commit milling patterns to the world.
 
@@ -1105,6 +1125,8 @@ class SampleScene:
         n_pass = len(self.mill_passes)
         rng = np.random.default_rng([int(self.seed) & 0x7FFFFFFF, 47, n_pass])
         drift = rng.normal(0.0, self.mill_drift, 2) if self.mill_drift > 0 else (0, 0)
+        # a fault's drift, on top (pattern coordinates, m)
+        drift = (drift[0] + extra_drift[0], drift[1] + extra_drift[1])
         kerf = 0.0
         if self.mill_kerf and beam_current:
             # half the spot: ~15 nm at 100 pA, ~110 nm at 15 nA
@@ -1185,6 +1207,85 @@ class SampleScene:
         )
         return regions
 
+    def expose(
+        self,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        hfw: float,
+        resolution: Tuple[int, int],
+        beam_current: Optional[float],
+        dwell_time: Optional[float],
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+    ) -> Optional[dict]:
+        """An ion beam frame wears the sample: the charge it puts down, over
+        its field of view, takes that much ice off the top. Nothing shows at
+        an imaging current; at a milling current and a small field of view a
+        few frames leave a rectangle. Returns the field of view's running
+        record (in `exposures`), or None when imaging does no damage."""
+        if self.imaging_damage <= 0 or not beam_current or not dwell_time:
+            return None
+        if beam_type is not BeamType.ION:
+            return None
+        width, height = float(hfw), float(hfw) * resolution[1] / resolution[0]
+        charge = abs(beam_current) * dwell_time * resolution[0] * resolution[1]
+        dose = charge * 1e9 / (width * height * 1e12)  # nC per um^2
+        hw, hh = width / 2, height / 2
+        corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
+        args = (beam_type, stage_position, projection)
+        points = np.array(
+            [
+                self.view_to_world(*args, x, -y, beam_shift, beam_current)
+                for x, y in corners
+            ]
+        )
+        key = tuple(np.round(points * 2e6).astype(int).ravel())  # to 0.5 um
+        seen = self.exposures.setdefault(
+            key,
+            {
+                "beam": beam_type.name.lower(),
+                "points": points,
+                "frames": 0,
+                "dose": 0.0,
+                "depth": 0.0,
+                "region": None,
+            },
+        )
+        seen["frames"] += 1
+        seen["dose"] += dose
+        depth = seen["dose"] * ION_YIELD * self.imaging_damage * 1e-6  # m
+        if depth - seen["depth"] >= IMAGING_STEP:
+            # enough since it last showed: a deeper floor over the field of view
+            frame = self.view_frame(*args, beam_shift, beam_current)
+            region = MilledRegion(
+                points=points,
+                depth=depth,
+                beam_cut=self._beam_cut(frame, corners),
+                scan=True,
+            )
+            self.milled = [r for r in self.milled if r is not seen["region"]]
+            self.milled.append(region)
+            seen["depth"], seen["region"] = depth, region
+        return seen
+
+    @staticmethod
+    def _beam_cut(frame, corners) -> "sim_view.BeamCut":
+        """A shape drawn in a beam's view (m from its centre, y up), for a
+        cut along that beam."""
+        c, s_ = np.cos(frame.theta), np.sin(frame.theta)
+        polygon = np.array(
+            [
+                (
+                    (x * c - y * s_) * 1e6 - frame.anchor[0],
+                    (-x * s_ - y * c) * 1e6 - frame.anchor[1],
+                )
+                for x, y in corners
+            ]
+        )
+        return sim_view.BeamCut(
+            polygon=polygon, turn=frame.turn, fs=frame.fs, k=frame.k
+        )
+
     def _solid_damage(self, record, frame, world, cut, rng) -> MilledRegion:
         """A damaged lamella: irregular shapes on the
         lamella's face (see sim_solid.damage), cut through its thickness."""
@@ -1247,12 +1348,30 @@ class SampleScene:
                 *self.damage_below
             )
         )
+        current = record.get("current")
+        usual = threshold
+        if self.damage_current > 0 and current:
+            threshold *= (abs(float(current)) / self.damage_current) ** 0.5
+        # the full chance below the usual thickness; over it, where only a
+        # high current reaches, less the thicker the lamella is
+        chance = self.damage_chance
+        if record["gap"] > usual and threshold > usual:
+            chance *= max(0.0, (threshold - record["gap"]) / (threshold - usual))
+        record["damage_below"] = threshold
+        record["damage_chance"] = float(chance) if record["gap"] < threshold else 0.0
         started = self.damage_started
         if started is None:
-            if record["gap"] >= threshold or rng.uniform() >= self.damage_chance:
+            if record["gap"] >= threshold or rng.uniform() >= chance:
                 return []
             kind = str(rng.choice(["ragged", "crack", "broken"]))
-            self.damage_started = started = {"pass": record["pass"], "kind": kind}
+            self.damage_started = started = {
+                "pass": record["pass"],
+                "kind": kind,
+                "gap": float(record["gap"]),
+                "below": threshold,
+                "chance": float(chance),
+                "current": current,
+            }
         severity = record["pass"] - started["pass"] + 1
         record["damage"] = {"kind": started["kind"], "severity": severity}
         x0, x1, lo, hi = record["band"]
@@ -2016,9 +2135,11 @@ class SampleScene:
         "beam_offset",  # {electron: [dx, dy], ion: [dx, dy]} m
         "current_offset_scale",  # m, sigma of the per-current beam offset
         "beam_optics",  # focus, stigmation and current show in the image
+        "imaging_damage",  # how fast FIB imaging wears the sample (1 = ice, 0 = never)
         "focus_fuzz",  # m, how far focus is from the eucentric height, at most
         "scan_rotation_at_start",  # {electron: deg, ion: deg} the beams boot at
         "fm_camera_mount",  # the mount transform the FM camera really has
+        "faults",  # what goes wrong and when, see sim_faults
         "film",  # continuous | holey
         "hole_diameter",  # m
         "hole_pitch",  # m
@@ -2039,6 +2160,7 @@ class SampleScene:
         "curtaining",  # strength of the stripes down a cut face (0 = none)
         "damage_below",  # [min, max] m, the seeded thickness damage can start below
         "damage_chance",  # per polishing pass below it
+        "damage_current",  # A, the current damage_below is given at (0 = any)
         "fm_target_fraction",  # cells with a centrin pool and centriole pair
         "fm_no_target_chance",  # chance a grid carries no pair at all
         "fm_axial_range",  # m, how far from its height an FM spot stays sharp
@@ -2062,8 +2184,11 @@ class SampleScene:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
         kwargs.setdefault("beam_optics", True)
+        kwargs.setdefault("imaging_damage", 1.0)
+        kwargs.setdefault("damage_current", DAMAGE_CURRENT)
         if kwargs.get("fm_camera_mount") is not None:
             mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
+        sim_faults.Faults(kwargs.get("faults"))  # or it raises
         for key in (
             "cells_per_cluster",
             "cell_size",
@@ -2224,6 +2349,14 @@ class SampleScene:
         ax, ay = projection.to_plane(reference, stage_position)
         fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
         turn = self._turn(stage_position)
+        # a tilted view: a height shifts a point down the view the way a
+        # stage raise does, and the plane is nearer the objective at one edge
+        lift = 0.0
+        if fs < 0.9995:
+            raised = replace(stage_position, z=(stage_position.z or 0.0) + 1e-6)
+            _, ay_up = projection.to_plane(reference, raised)
+            lift = float(np.copysign(np.sqrt(1 - fs * fs), ay_up - ay))
+        self._fm_tilt = (float(fs), lift, pixel_size)
 
         bars, cells, red, fiducial = weights[:4]
         far_red = weights[4] if len(weights) > 4 else 0.0
@@ -2247,7 +2380,7 @@ class SampleScene:
         if bars > 0:
             # a little reflected light leaks into a fluorescence channel
             plan, step = self._plan
-            leak = sim_solid.reflectance(self, plan)
+            leak = sim_solid.reflectance(self, plan, self._fm_lean(step))
             canvas += (
                 0.3
                 * bars
@@ -2317,26 +2450,26 @@ class SampleScene:
             # a cell is a column of dye a few um tall: a cut along the
             # milling beam takes away the part of each column it passes
             # through, so from above a trench reaches as far as the SEM sees
-            canvas *= 1.0 - self.milled_fraction(xs_world, ys_world)
+            gone = self.milled_fraction(xs_world, ys_world)
+            canvas *= 1.0 - gone
         if dyed:
             canvas += self._fm_glow(dyed, xs_world, ys_world, pixel_size)
         if bars > 0 and self.milled:
-            canvas[self.milled_mask(xs_world, ys_world)] = -bars * MILL_DEPTH
+            # the leaked reflection is dark where the view passes through
+            # nothing but a cut, and in a burn's pit: not over what a slanted
+            # cut left standing
+            dark = gone > 0.98
+            for region in self.milled:
+                if region.halo > 0:
+                    dark |= self._polygon_mask(region.points, xs_world, ys_world)
+            canvas[dark] = -bars * MILL_DEPTH
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
             if halo is not None:
                 canvas[halo] += bars * FM_HALO
         canvas[rim] = 0.0
         canvas[beyond] = 0.0
 
-        if defocus:
-            # a retracted objective is millimetres from focus: cap the blur so
-            # the frame reads as "out of focus" without costing more than the
-            # rest of the render. A wide blur is done on a decimated frame and
-            # scaled back - what a 40 px gaussian removes, decimating by 8
-            # already removed
-            sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
-            if sigma_px > 0.3:
-                canvas = _blur(canvas, sigma_px)
+        canvas = self._fm_focus(canvas, defocus)
 
         view = (ax, ay, cx, cy, pixel_size, fs, turn)
         if getattr(self, "fm_spots", None):
@@ -2372,7 +2505,7 @@ class SampleScene:
         lamella or trench where the milling left it. Worked out on at most
         ~512 samples a side and scaled up: the optics blur finer detail."""
         plan, step = self._plan
-        r = sim_solid.reflectance(self, plan)
+        r = sim_solid.reflectance(self, plan, self._fm_lean(step))
         return self._fm_reflected(r, step, xs_world, ys_world, defocus, rng)
 
     def _fm_plan(self, xs_world, ys_world):
@@ -2403,11 +2536,13 @@ class SampleScene:
         thickest, gone where it was milled away, with the haze a widefield
         FM adds from above and below the focal plane."""
         plan, step = self._plan
-        depth, cell_id = sim_solid.cell_depth(plan)
+        cell_id = plan.col["cell_id"]
         ids = np.array(sorted(dyed), dtype=np.int64)
         level = np.array([dyed[i] for i in ids], dtype=np.float32)
         at = np.clip(np.searchsorted(ids, cell_id), 0, len(ids) - 1)
-        glow = np.where(ids[at] == cell_id, level[at], 0.0) * depth / FM_CELL_DEPTH
+        dye = np.where(ids[at] == cell_id, level[at], 0.0)
+        depth, _ = sim_solid.cell_depth(plan, lean=self._fm_lean(step), dye=dye)
+        glow = depth / FM_CELL_DEPTH
         height, width = ys_world.shape[0], xs_world.shape[1]
         glow = self._fm_full(glow.astype(np.float32), step, height, width)
         sharp = _blur(glow, max(FM_PSF_SIGMA / pixel_size, 0.6))
@@ -2428,11 +2563,42 @@ class SampleScene:
             halo = self.halo_mask(xs_world, ys_world, pixel)
             if halo is not None:
                 canvas[halo] += FM_HALO
-        if defocus:
-            sigma_px = min(abs(defocus) * 1e6 * self.fm_blur_px_per_um, 40.0)
-            if sigma_px > 0.3:
-                canvas = _blur(canvas, sigma_px)
-        return self._fm_camera(canvas, rng)
+        return self._fm_camera(self._fm_focus(canvas, defocus), rng)
+
+    def _fm_seen(self, w, h):
+        """A point as the FM sees it: from where the plane under it shows
+        down the view (`w`, m from the centre) and its height over the plane
+        (`h`, m), where it shows down the view and its height along the
+        objective's axis. Looking straight at the plane these are w and h."""
+        fs, lift, _ = getattr(self, "_fm_tilt", (1.0, 0.0, 1.0))
+        return w + lift * h, fs * h - lift * w / fs
+
+    def _fm_focus(self, canvas: np.ndarray, defocus: float) -> np.ndarray:
+        """The canvas blurred for the objective's distance from focus. A
+        retracted objective is millimetres from focus: the blur is capped, so
+        the frame reads as out of focus without costing more than the rest of
+        the render. On a tilted sample the plane is in focus along one line
+        across the view and blurs away from it either side."""
+        fs, lift, pix = getattr(self, "_fm_tilt", (1.0, 0.0, 1.0))
+        defocus = float(defocus or 0.0)
+
+        def blurred(d):
+            sigma_px = min(abs(d) * 1e6 * self.fm_blur_px_per_um, 40.0)
+            return _blur(canvas, sigma_px) if sigma_px > 0.3 else canvas
+
+        height = canvas.shape[0]
+        reach = abs(lift) / fs * 0.5 * height * pix
+        if reach * 1e6 * self.fm_blur_px_per_um < 0.3:
+            return blurred(defocus)
+        levels = defocus + np.linspace(-reach, reach, FM_FOCUS_LEVELS)
+        rows = defocus + lift * (np.arange(height) - height / 2) * pix / fs
+        at = np.clip((rows - levels[0]) / (levels[1] - levels[0]), 0, len(levels) - 1)
+        out = np.zeros_like(canvas)
+        for j, level in enumerate(levels):
+            weight = np.clip(1 - np.abs(at - j), 0, 1)[:, None]
+            if weight.any():
+                out += weight * blurred(float(level))
+        return out
 
     def _fm_camera(self, canvas: np.ndarray, rng) -> np.ndarray:
         """The canvas as the camera reads it."""
@@ -2481,14 +2647,15 @@ class SampleScene:
         def stamp(x, y, z, sigma0, peak):
             # the point spread widens away from focus; a wide source (the
             # pool) barely changes, a point (a centriole) spreads and dims
-            dz = (z_plane - z - self._fm_film()) / z_r
+            w, along = self._fm_seen(turn * y * fs + ay, z + self._fm_film())
+            dz = (z_plane - along) / z_r
             sigma_m = float(np.hypot(sigma0, FM_PSF_SIGMA * abs(dz)))
             amp = weight * peak * (sigma0 / sigma_m) ** 2
             if amp < FM_FAINT:
                 return  # spread so far it is lost in the camera noise
             sigma = max(sigma_m / pix, 0.6)
             u = cx + (turn * x + ax) / pix
-            v = cy + (turn * y * fs + ay) / pix
+            v = cy + w / pix
             r = int(np.ceil(4 * sigma))
             u0, u1 = max(int(u) - r, 0), min(int(u) + r + 2, width)
             v0, v1 = max(int(v) - r, 0), min(int(v) + r + 2, height)
@@ -2675,8 +2842,11 @@ class SampleScene:
         ax, ay, cx, cy, pix, fs, turn = view
         height, width = canvas.shape
         u = cx + (turn * pts[:, 0] + ax) / pix
-        v = cy + (turn * pts[:, 1] * fs + ay) / pix
-        dz = float(defocus or 0.0) - pts[:, 2] - self._fm_film()
+        w, along = self._fm_seen(
+            turn * pts[:, 1] * fs + ay, pts[:, 2] + self._fm_film()
+        )
+        v = cy + w / pix
+        dz = float(defocus or 0.0) - along
         dz = dz / max(self.fm_axial_range, 1e-9)
         sigma_m = np.hypot(sigma0, FM_PSF_SIGMA * np.abs(dz))
         amp = peak * (sigma0 / sigma_m) ** 2
@@ -2731,7 +2901,9 @@ class SampleScene:
         ):
             # the solid sample: its cells stand taller, from the film up
             film = sim_solid.FILM_TOP
-            gone = plan[0].fraction(film + 0.05, film + 2 * top * um)
+            gone = plan[0].fraction(
+                film + 0.05, film + 2 * top * um, lean=self._fm_lean(plan[1])
+            )
             return self._fm_full(gone, plan[1], ys_world.shape[0], xs_world.shape[1])
         xs, ys = np.broadcast_arrays(xs_world * um, ys_world * um)
         heights = np.linspace(0.05, top * um, 24)
@@ -2759,6 +2931,23 @@ class SampleScene:
         near = np.arange(-16, 17) * 0.25  # wide enough to level a floor
         here = sim_solid.Plan(self, x * um + near, y * um + near)
         return bool(here.gone_at(x * um, y * um, (z + self._fm_film()) * um)[0])
+
+    def due(self, event: str, beam_type: Optional[BeamType] = None) -> dict:
+        """Count one event (see sim_faults) and give the faults that fire on
+        it, by kind."""
+        if not self.faults:
+            return {}
+        schedule = getattr(self, "_fault_schedule", None)
+        if schedule is None:
+            schedule = sim_faults.Faults(self.faults, self.seed)
+            object.__setattr__(self, "_fault_schedule", schedule)
+        beam = None if beam_type is None else beam_type.name.lower()
+        return {fault.kind: fault for fault in schedule.due(event, beam)}
+
+    def faults_fired(self) -> List[dict]:
+        """The faults that have fired, in order: kind, event, count, time."""
+        schedule = getattr(self, "_fault_schedule", None)
+        return [] if schedule is None else [dict(entry) for entry in schedule.log]
 
     def record(self, points: Optional[Dict[str, tuple]] = None) -> dict:
         """What was done to the sample, as plain values that go straight to
@@ -2793,6 +2982,11 @@ class SampleScene:
                 "seed": self.seed,
                 "passes": self.mill_passes,
                 "damage_started": self.damage_started,
+                "faults": self.faults_fired(),
+                "exposures": [
+                    {k: v for k, v in seen.items() if k != "region"}
+                    for seen in self.exposures.values()
+                ],
                 "regions": [
                     {
                         "points": r.points,
@@ -2809,6 +3003,12 @@ class SampleScene:
                 },
             }
         )
+
+    def _fm_lean(self, step: int) -> float:
+        """How many rows of the FM's plan (every `step`-th pixel) its line of
+        sight crosses per um of height: none looking straight at the plane."""
+        _, lift, pix = getattr(self, "_fm_tilt", (1.0, 0.0, 1.0))
+        return lift * 1e-6 / (pix * step)
 
     def _fm_film(self) -> float:
         """The height (m) of the film in the focal frame: heights in the FM
