@@ -26,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from fibsem.ai.agent.levels import AgentLevel
+from fibsem.ai.agent.levels import AGENT_LISTENING_S, AgentLevel
 from fibsem.ai.agent.manager import (
     END_WAIT_S,
     MANAGED,
@@ -60,6 +60,9 @@ class AgentState:
     """The agent the gateway runs, or none, and the latest sessions."""
 
     running: Optional[Dict[str, Any]] = None
+    # An agent the gateway didn't start, connected to the app: its name, when
+    # the app last heard from it, and what to check when that was long ago.
+    connected: Optional[Dict[str, Any]] = None
     sessions: List[Dict[str, Any]] = field(default_factory=list)
     api_key: bool = False
     microscope: str = ""
@@ -123,6 +126,25 @@ def answers(url: str) -> bool:
         return httpx.get(f"{url}/health", timeout=3.0).status_code == 200
     except httpx.HTTPError:
         return False
+
+
+def heard(url: str) -> dict:
+    """The App Server's ``/app/agent``, as the operator: when it last heard
+    from the agent."""
+    return call_host(url, "GET", "/app/agent", timeout=3.0)
+
+
+def quiet_note(seconds: Optional[float]) -> Optional[str]:
+    """What the page says about an agent the app hasn't heard from in a
+    while, None while it is listening."""
+    if seconds is None:
+        return "Not heard from since the app started."
+    if seconds < AGENT_LISTENING_S:
+        return None
+    return (
+        f"Not heard from for {int(seconds // 60)} min. If it runs on another "
+        "computer, its SSH tunnel may be down."
+    )
 
 
 def _spent(record: dict) -> Optional[float]:
@@ -208,6 +230,7 @@ class GatewayAgent:
         discovery: Callable[[], Optional[dict]] = read_discovery_file,
         level: Callable[[str, str], None] = set_level,
         reachable: Callable[[str], bool] = answers,
+        last_heard: Callable[[str], dict] = heard,
         agent_json: Callable[[List[str]], Any] = fibsem_agent_json,
         stamp: Callable[[], Any] = knowledge_stamp,
         environ: Optional[Dict[str, str]] = None,
@@ -220,6 +243,7 @@ class GatewayAgent:
         self._discovery = discovery
         self._level = level
         self._answers = reachable
+        self._heard = last_heard
         self._agent_json = agent_json
         self._stamp = stamp
         # fibsem-agent's answers by flags, while the files they come from
@@ -270,10 +294,31 @@ class GatewayAgent:
             rows = [r for r in rows if r["session_id"] != agent.session_id]
         return AgentState(
             running=running,
+            connected=None if running is not None else self._connected(),
             sessions=rows[:SESSIONS_SHOWN],
             api_key=self._has_key(),
             microscope=self.microscope,
         )
+
+    def _connected(self) -> Optional[Dict[str, Any]]:
+        """The agent paired with the app that the gateway didn't start, as
+        the app last heard from it; None when there is none or the app isn't
+        running."""
+        paired = self._tokens.agent()
+        if paired is None or paired.name == AGENT_NAME:
+            return None
+        url = self._url()
+        if url is None:
+            return None
+        try:
+            seconds = self._heard(url).get("last_heard_s")
+        except (GatewayRefused, AttributeError):
+            return None
+        return {
+            "name": paired.name,
+            "last_heard_s": seconds,
+            "quiet": quiet_note(seconds),
+        }
 
     def playbooks(self) -> List[dict]:
         return self._kept(["--list-playbooks"])

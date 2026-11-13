@@ -30,8 +30,17 @@ interface Running extends Session {
   restarts: { at: number; kind: "app" | "crash" }[];
 }
 
+// An agent the gateway didn't start, connected to the app.
+interface Connected {
+  name: string;
+  last_heard_s: number | null;
+  // What to check when the app hasn't heard from it in a while.
+  quiet: string | null;
+}
+
 interface AgentState {
   running: Running | null;
+  connected: Connected | null;
   sessions: Session[];
   api_key: boolean;
   microscope: string;
@@ -253,10 +262,14 @@ function Start({
 
   return (
     <>
-      <p className="m-0 text-[13px] text-muted-foreground">
-        No agent is running.
-        {last?.ended && ` Last session (${day(last.started)}): ${last.ended}.`}
-      </p>
+      {state.connected ? (
+        <ConnectedAgent connected={state.connected} />
+      ) : (
+        <p className="m-0 text-[13px] text-muted-foreground">
+          No agent is running.
+          {last?.ended && ` Last session (${day(last.started)}): ${last.ended}.`}
+        </p>
+      )}
       {!state.api_key && (
         <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
           No API key on this PC, so the agent can't start. Run fibsem-cli key
@@ -489,6 +502,29 @@ function Run({ running }: { running: Running }) {
         </Button>
       </div>
     </>
+  );
+}
+
+/** An agent connected to the app from elsewhere, and when it was last heard. */
+function ConnectedAgent({ connected }: { connected: Connected }) {
+  const seconds = connected.last_heard_s;
+  const heard =
+    seconds == null
+      ? ""
+      : seconds < 60
+        ? ` · last heard ${Math.round(seconds)} s ago`
+        : ` · last heard ${Math.floor(seconds / 60)} min ago`;
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="m-0 text-[13px]">
+        {connected.name} is connected{heard}
+      </p>
+      {connected.quiet && (
+        <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+          {connected.quiet}
+        </p>
+      )}
+    </div>
   );
 }
 
