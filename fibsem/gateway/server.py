@@ -12,7 +12,9 @@ operator, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
 the same rules as starting the app. ``/gateway/defaults`` is what the page
 fills in for the next start (the operator saves it), and ``/gateway/secrets``
-says which keys this PC has, never what they are.
+says which keys this PC has, never what they are. ``/hub`` lists the
+instruments this gateway is the hub for (`fibsem.gateway.hub`); the operator
+changes the list.
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
 role, and the page is the web app's ``/ui/gateway``.
 """
@@ -39,6 +41,7 @@ from fibsem.gateway.gateway import (
     History,
 )
 from fibsem.gateway.host import HostMicroscope
+from fibsem.gateway.hub import Hub, HubState
 from fibsem.server.auth import _bearer_token, _matches
 from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
@@ -123,6 +126,7 @@ def build_gateway_app(
     on_quit: Optional[Callable[[bool], None]] = None,
     on_show: Optional[Callable[[], bool]] = None,
     defaults_file: Optional[Path] = None,
+    hub: Optional[Hub] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
     refuse_invalid_requests(app)
@@ -354,6 +358,52 @@ def build_gateway_app(
                     window=found.operator,
                 ),
             )
+
+    if hub is not None:
+
+        def hub_operator(request: HTTPConnection) -> Caller:
+            found = caller(request)
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator changes the hub's list."
+                )
+            return found
+
+        @app.get("/hub", response_model=HubState)
+        def get_hub(found: Caller = Depends(caller)):
+            """Whether this gateway is a hub, and each instrument in its list
+            as it was last read."""
+            return hub.state()
+
+        @app.post("/hub/instruments", response_model=HubState)
+        def add_instrument(body: Dict[str, Any], found: Caller = Depends(hub_operator)):
+            """``{name, ssh | url}``: add an instrument, or change how the one
+            with that name is reached: *ssh* is where a tunnel to it connects
+            (``user@host``), *url* its gateway's address to use as it is."""
+            return _act(
+                found,
+                {},
+                lambda force, via: hub.add(
+                    str(body.get("name") or ""),
+                    str(body.get("url") or "") or None,
+                    str(body.get("ssh") or "") or None,
+                ),
+            )
+
+        @app.delete("/hub/instruments/{name}", response_model=HubState)
+        def remove_instrument(name: str, found: Caller = Depends(hub_operator)):
+            return _act(found, {}, lambda force, via: hub.remove(name))
+
+        @app.post("/hub/instruments/{name}/pair", response_model=HubState)
+        def pair_instrument(
+            name: str, body: Dict[str, Any], found: Caller = Depends(hub_operator)
+        ):
+            """``{code}``: pair this hub with the instrument's gateway, using
+            the code ``fibsem-gateway pair --hub`` shows there."""
+            code = str(body.get("code") or "")
+            if not code:
+                raise _refused(422, "no_code", "Give the code its gateway shows.")
+            return _act(found, {}, lambda force, via: hub.pair(name, code))
 
     if on_quit is not None:
 
