@@ -37,14 +37,13 @@ def wait_for(
 def qt_wait_for(condition: Callable[[], object], timeout: float = WAIT_S) -> bool:
     """`wait_for` that runs the Qt event loop while it waits, for conditions
     met by queued signals, timers or work handed back to the GUI thread."""
-    from qtpy.QtCore import QCoreApplication
+    from qtpy.QtCore import QEventLoop, QTimer
 
-    app = QCoreApplication.instance()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        app.processEvents()
         if condition():
             return True
-        time.sleep(0.01)
-    app.processEvents()
+        loop = QEventLoop()
+        QTimer.singleShot(10, loop.quit)
+        loop.exec()
     return bool(condition())
