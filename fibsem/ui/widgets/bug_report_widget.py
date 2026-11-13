@@ -255,7 +255,8 @@ class BugReportDialog(QDialog):
         size_str = f"{size / 1e6:.1f} MB" if size else "0 MB"
         self.label_preview.setText(
             f"Bundle size (approx): {size_str}. "
-            f"Text is scrubbed of your home directory / username before sending. "
+            f"Folder locations, the login, the computer name and the operator's "
+            f"details are removed from text files. Images are included as they are. "
             f"Included environment info: {env}"
         )
 

@@ -25,6 +25,7 @@ import logging
 import os
 import platform
 import re
+import socket
 import webbrowser
 import zipfile
 from dataclasses import dataclass, field
@@ -67,6 +68,33 @@ _IMAGE_GLOBS = ("**/*.tif", "**/*.tiff")
 
 # Matches a home-directory prefix (group 1) followed by the username segment.
 _HOME_PATH_RE = re.compile(r"([/\\](?:Users|home)[/\\])[^/\\\s]+")
+
+# An absolute path with at least three parts: the folders before the last two
+# (group 1) say where a site keeps its data, the last two (group 2) are enough
+# to tell which file it was.
+_PATH_PART = r"[^/\\\s:\"'<>|]+"
+_SEP = r"[/\\]+"
+_ABSOLUTE_PATH_RE = re.compile(
+    rf"(?<![\w<>/\\.:])((?:[A-Za-z]:)?(?:{_SEP}{_PATH_PART})+?)"
+    rf"((?:{_SEP}{_PATH_PART}){{2}})(?![^\s:\"'<>|])"
+)
+
+# Wherever Python's packages are installed: a traceback keeps the path inside.
+_SITE_PACKAGES_RE = re.compile(
+    rf"(?<![\w<>/\\.:])(?:[A-Za-z]:)?(?:{_SEP}{_PATH_PART})*?{_SEP}(?:site|dist)-packages"
+)
+
+# Keys of a saved experiment that name a person, a place or a machine.
+_IDENTITY_KEYS_RE = re.compile(
+    r"^(\s*[\"']?(?:user|email|organisation|organization|project|hostname)[\"']?"
+    r"\s*:[ \t]*)(?!null\b|~|[\"']{2})\S.*$",
+    re.MULTILINE,
+)
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+# Machine names that are also ordinary words: replacing them would hide more of
+# a log than it protects.
+_GENERIC_HOSTNAMES = {"localhost", "hostname", "microscope", "desktop", "support"}
 
 
 @dataclass
@@ -153,32 +181,98 @@ def collect_system_context(
     return {k: v for k, v in ctx.items() if v}
 
 
-def scrub_text(text: str) -> str:
-    """Best-effort removal of the user's home directory / username from text."""
+def _hostname() -> str:
+    try:
+        return os.environ.get("COMPUTERNAME") or socket.gethostname()
+    except Exception:
+        return ""
+
+
+def _known_folders(experiment_path: Optional[str]) -> List[Tuple[str, str]]:
+    """Folders whose location is private but whose contents are worth keeping,
+    with what each is replaced by. Longest first, so a folder inside another is
+    replaced before its parent."""
+    folders: List[Tuple[str, str]] = []
+    if experiment_path:
+        # Either separator: a Windows path is scrubbed on any platform.
+        parent = re.sub(r"[/\\]+[^/\\]*[/\\]*$", "", str(experiment_path))
+        if len(parent) > 3:
+            folders.append((parent, "<data>"))
+    try:
+        folders.append((os.path.dirname(os.path.dirname(fibsem.__file__)), "<install>"))
+    except Exception:
+        pass
+    try:
+        folders.append((os.path.expanduser("~"), "<home>"))
+    except Exception:
+        pass
+    return sorted(folders, key=lambda pair: len(pair[0]), reverse=True)
+
+
+def _replace_folder(text: str, folder: str, placeholder: str) -> str:
+    """Replace ``folder`` with either kind of separator, whatever its case."""
+    parts = [re.escape(part) for part in re.split(r"[/\\]", folder)]
+    pattern = r"[/\\]+".join(parts) + r"(?![\w.-])"
+    return re.sub(pattern, lambda m: placeholder, text, flags=re.IGNORECASE)
+
+
+def scrub_text(text: str, experiment_path: Optional[str] = None) -> str:
+    """Best-effort removal of what names the person, the site or the machine.
+
+    Folders are cut down, not blanked: the experiment keeps its own folder name
+    and a traceback keeps its path inside the package, because that is what a
+    report is read for. The login is removed only where it is a folder name, so
+    an account called ``user`` does not blank the word everywhere.
+    """
     if not text:
         return text
 
-    replacements: List[str] = []
-    try:
-        replacements.append(os.path.expanduser("~"))
-    except Exception:
-        pass
-    try:
-        replacements.append(getpass.getuser())
-    except Exception:
-        pass
-
     scrubbed = text
-    for value in replacements:
-        if value and len(value) > 2:
-            scrubbed = scrubbed.replace(value, "<redacted>")
+    for folder, placeholder in _known_folders(experiment_path):
+        scrubbed = _replace_folder(scrubbed, folder, placeholder)
 
-    # Generic home-directory prefixes for the common platforms. The username is
-    # the path segment following the prefix, up to the next separator or
-    # whitespace (so trailing usernames without a separator are still redacted).
+    # The username is the path segment following the prefix, up to the next
+    # separator or whitespace (so a trailing username is still redacted).
     scrubbed = _HOME_PATH_RE.sub(lambda m: m.group(1) + "<user>", scrubbed)
 
+    try:
+        login = getpass.getuser()
+    except Exception:
+        login = ""
+    if len(login) > 2:
+        scrubbed = re.sub(
+            rf"(?<=[/\\=]){re.escape(login)}(?![\w.-])", "<user>", scrubbed
+        )
+
+    scrubbed = _SITE_PACKAGES_RE.sub("<packages>", scrubbed)
+    scrubbed = _ABSOLUTE_PATH_RE.sub(lambda m: "<path>" + m.group(2), scrubbed)
+
+    hostname = _hostname()
+    if len(hostname) > 3 and hostname.lower() not in _GENERIC_HOSTNAMES:
+        scrubbed = re.sub(
+            rf"(?<![\w-]){re.escape(hostname)}(?![\w-])",
+            "<host>",
+            scrubbed,
+            flags=re.IGNORECASE,
+        )
+
     return scrubbed
+
+
+def _redact_value(match: "re.Match[str]") -> str:
+    """The key with its value redacted, still valid where the file is JSON."""
+    value = match.group(0)[len(match.group(1)) :]
+    if value[:1] == '"':
+        return match.group(1) + '"<redacted>"' + ("," if value.endswith(",") else "")
+    return match.group(1) + "<redacted>"
+
+
+def scrub_file_text(text: str, experiment_path: Optional[str] = None) -> str:
+    """:func:`scrub_text` for a file out of the experiment, which also names the
+    operator, their organisation and project, and may hold email addresses."""
+    scrubbed = _IDENTITY_KEYS_RE.sub(_redact_value, text)
+    scrubbed = _EMAIL_RE.sub("<email>", scrubbed)
+    return scrub_text(scrubbed, experiment_path)
 
 
 def _collect_files(experiment_path: str, content: BugReportContent) -> List[str]:
@@ -291,9 +385,9 @@ def build_bug_report_bundle(
 ) -> str:
     """Build a scrubbed ``.zip`` bundle for the bug report and return its path.
 
-    Text artifacts (logs, yaml, json, ...) are scrubbed of the user's home
-    directory / username before being written. Binary artifacts (images) are
-    included verbatim only when explicitly selected.
+    Text artifacts (logs, yaml, json, ...) go through :func:`scrub_file_text`
+    before being written. Binary artifacts (images) are included verbatim, and
+    only when explicitly selected.
     """
     timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     zip_name = f"bug-report-autolamella-{timestamp}.zip"
@@ -322,7 +416,7 @@ def build_bug_report_bundle(
                 try:
                     if ext in _SCRUBBED_EXTENSIONS:
                         with open(path, encoding="utf-8", errors="replace") as f:
-                            zf.writestr(arcname, scrub_text(f.read()))
+                            zf.writestr(arcname, scrub_file_text(f.read(), exp_path))
                     else:
                         zf.write(path, arcname)
                 except OSError as e:
@@ -362,8 +456,9 @@ def open_github_issue(content: BugReportContent) -> SubmitResult:
     :data:`GITHUB_MAX_URL_LENGTH`; the result carries the full text so the
     caller can offer it on the clipboard instead.
     """
-    body = _github_issue_body(content)
-    title = (content.title or "AutoLamella issue")[:_TITLE_MAX_LENGTH]
+    # A public page: what the user typed or pasted is scrubbed like the bundle.
+    body = scrub_text(_github_issue_body(content))
+    title = scrub_text(content.title or "AutoLamella issue")[:_TITLE_MAX_LENGTH]
 
     def _build(text: str) -> str:
         return f"{GITHUB_NEW_ISSUE_URL}?{urlencode({'title': title, 'body': text})}"

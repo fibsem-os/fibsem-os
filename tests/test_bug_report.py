@@ -1,6 +1,7 @@
 """Tests for the bug report bundle builder and its helpers."""
 
 import getpass
+import json
 import os
 import zipfile
 
@@ -68,7 +69,7 @@ def test_bundle_includes_selected_text_files_scrubbed(tmp_path):
     assert not any(n.endswith(".tiff") for n in names)
     # home directory scrubbed out of text artifacts
     assert os.path.expanduser("~") not in log_text
-    assert "<redacted>" in log_text
+    assert "<home>" in log_text
 
 
 def test_bundle_excludes_text_files_when_unselected(tmp_path):
@@ -267,3 +268,124 @@ def test_a_runaway_title_still_leaves_room_for_the_body(monkeypatch):
 
     assert len(seen["url"]) <= bug_report.GITHUB_MAX_URL_LENGTH
     assert "the trench collapsed" in _body_of(seen["url"])
+
+
+# --- scrubbing: what names the person, the site or the machine ----------
+
+
+def test_a_login_that_is_an_ordinary_word_is_not_blanked_everywhere(monkeypatch):
+    monkeypatch.setattr(bug_report.getpass, "getuser", lambda: "user")
+
+    scrubbed = bug_report.scrub_text("The user moved the stage. user_preferences ok")
+
+    assert scrubbed == "The user moved the stage. user_preferences ok"
+
+
+def test_the_data_folder_goes_and_the_experiment_folder_stays():
+    text = r"saved D:\Data\some-lab\yeast-01\01-lam\ref.tif"
+
+    scrubbed = bug_report.scrub_text(text, r"D:\Data\some-lab\yeast-01")
+
+    assert "some-lab" not in scrubbed
+    assert r"<data>\yeast-01\01-lam\ref.tif" in scrubbed
+
+
+def test_a_path_written_with_doubled_separators_is_scrubbed_too():
+    text = r'"path": "D:\\Data\\some-lab\\yeast-01\\ref.tif"'
+
+    scrubbed = bug_report.scrub_text(text, r"D:\Data\some-lab\yeast-01")
+
+    assert "some-lab" not in scrubbed
+    assert "ref.tif" in scrubbed
+
+
+def test_any_other_absolute_path_keeps_only_its_last_two_parts():
+    scrubbed = bug_report.scrub_text(r"read E:\facility\some-lab\grids\map.tif")
+
+    assert "some-lab" not in scrubbed and "facility" not in scrubbed
+    assert r"<path>\grids\map.tif" in scrubbed
+
+
+def test_a_traceback_keeps_its_path_inside_the_package():
+    scrubbed = bug_report.scrub_text(f'File "{bug_report.__file__}", line 1')
+
+    assert os.path.join("<install>", "fibsem", "tools", "bug_report.py") in scrubbed
+
+
+def test_a_traceback_keeps_its_path_inside_another_package():
+    text = 'File "/opt/env/lib/python3.11/site-packages/numpy/core/numeric.py"'
+
+    scrubbed = bug_report.scrub_text(text)
+
+    assert scrubbed == 'File "<packages>/numpy/core/numeric.py"'
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "see https://github.com/fibsem-os/fibsem-os/issues/new",
+        "in fibsem/ui/widgets/thing.py",
+        "ratio 3/4/5 on 2026/11/13",
+    ],
+)
+def test_what_is_not_an_absolute_path_is_left_alone(text):
+    """A link, a path inside the repository, a fraction and a date."""
+    assert bug_report.scrub_text(text) == text
+
+
+def test_the_computer_name_is_removed(monkeypatch):
+    monkeypatch.setenv("COMPUTERNAME", "FIB-PC-07")
+
+    scrubbed = bug_report.scrub_text("connected from fib-pc-07 to FIB-PC-07:8000")
+
+    assert "pc-07" not in scrubbed.lower()
+    assert scrubbed.count("<host>") == 2
+
+
+def test_a_file_from_the_experiment_loses_who_and_where():
+    text = (
+        "metadata:\n  user: A Person\n  organisation: Some Lab\n  sample: yeast\n"
+        "  project: null\ncontact: a.person@example.org\n"
+    )
+
+    scrubbed = bug_report.scrub_file_text(text)
+
+    assert "A Person" not in scrubbed and "Some Lab" not in scrubbed
+    assert "example.org" not in scrubbed
+    assert "sample: yeast" in scrubbed
+    assert "project: null" in scrubbed
+
+
+def test_a_redacted_json_value_is_still_json():
+    scrubbed = bug_report.scrub_file_text('{\n  "user": "A Person",\n  "n": 1\n}')
+
+    assert json.loads(scrubbed) == {"user": "<redacted>", "n": 1}
+
+
+def test_the_bundle_scrubs_the_experiment_file(tmp_path):
+    experiment_path = _make_experiment_dir(tmp_path)
+    with open(os.path.join(experiment_path, "experiment.yaml"), "w") as f:
+        f.write(f"path: {experiment_path}\nmetadata:\n  user: A Person\n")
+
+    zip_path = bug_report.build_bug_report_bundle(
+        BugReportContent(title="t"), experiment_path, output_dir=str(tmp_path)
+    )
+
+    with zipfile.ZipFile(zip_path) as zf:
+        saved = zf.read("AutoLamella-test/experiment.yaml").decode()
+    assert "A Person" not in saved
+    assert str(tmp_path) not in saved
+    assert "AutoLamella-test" in saved
+
+
+def test_the_public_issue_is_scrubbed(monkeypatch):
+    seen = _capture_url(monkeypatch)
+    home = os.path.expanduser("~")
+    content = BugReportContent(
+        title=f"crash in {home}/data", description=f"open {home}/data/a/b.yaml"
+    )
+
+    result = bug_report.open_github_issue(content)
+
+    assert home not in seen["url"] and home not in _body_of(seen["url"])
+    assert home not in result.full_text
