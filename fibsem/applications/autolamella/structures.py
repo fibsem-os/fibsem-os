@@ -43,6 +43,7 @@ from fibsem.structures.settings import (
     Point,
 )
 from fibsem.structures.system import SessionInfo
+from fibsem.util import fast_yaml
 from fibsem.util.timestamps import now
 from fibsem.workflows.deciding import ProposalDecisions
 from fibsem.workflows.experiment import BaseExperiment
@@ -55,7 +56,7 @@ from fibsem.workflows.proposals import (
 from fibsem.workflows.quality import QualityRecord, Verdict
 from fibsem.workflows.saved_format import check_app
 from fibsem.workflows.site_task import SiteTaskConfig
-from fibsem.workflows.status import TaskState
+from fibsem.workflows.status import INTERRUPTED, TaskState
 from fibsem.workflows.task_config import (
     RunPlan,
     TaskProtocol,
@@ -750,7 +751,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         if not os.path.exists(path):
             raise FileNotFoundError(f"No file with name {path} found.")
         with open(path) as f:
-            ddict = yaml.safe_load(f)
+            ddict = fast_yaml.safe_load(f)
         check_app(ddict, Experiment.app, path)
 
         # create experiment from dict
@@ -759,6 +760,7 @@ class Experiment(ExperimentGrids, ProposalDecisions, BaseExperiment):
         # a question the task was waiting on when the app closed: nothing is
         # waiting on it now
         experiment.withdraw_what_was_asked("the app closed before it was answered")
+        experiment.end_what_was_running(INTERRUPTED)
 
         # lamella paths are stored as-created, so re-point them at wherever the
         # experiment actually is now. otherwise a moved or copied experiment

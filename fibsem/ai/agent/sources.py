@@ -29,6 +29,15 @@ SKILL_FILE = "SKILL.md"
 # The entry point group a plugin names its agent folder in: a path, or a
 # function that answers one, to a folder holding ``.claude/``.
 PLUGIN_GROUP = "fibsem.agent"
+# Skills for working on fibsemOS in Claude Code, not for the agent: the
+# wheel leaves them out. Every other skill is named by a playbook.
+DEVELOPER_SKILLS = (
+    "getting-started-dev",
+    "linear",
+    "new-widget",
+    "review-changes",
+    "review-widget",
+)
 
 
 def lab_folder(kind: str) -> Path:
@@ -146,14 +155,16 @@ def assemble(
 
 
 def ship(source: Path, target: Path) -> None:
-    """Copy a checkout's skills, subagents and playbooks to *target*'s
-    ``.claude``: what the wheel ships (setup.py's build step)."""
+    """Copy a checkout's skills (not `DEVELOPER_SKILLS`), subagents and
+    playbooks to *target*'s ``.claude``: what the wheel ships (setup.py's
+    build step)."""
     for kind in ("skills", "agents", "fibsem-agent"):
         found = source / CLAUDE / kind
+        left_out = DEVELOPER_SKILLS if kind == "skills" else ()
         if found.is_dir():
             shutil.copytree(
                 found,
                 target / CLAUDE / kind,
                 dirs_exist_ok=True,
-                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+                ignore=shutil.ignore_patterns("__pycache__", "*.pyc", *left_out),
             )

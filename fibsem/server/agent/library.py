@@ -5,12 +5,13 @@ shipped one makes the lab's copy) and removing are the operator's only. The
 agent never edits them.
 """
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends
 
 from fibsem.ai.agent import library
 from fibsem.server.auth import refusal_error, require_monitoring, require_operator
+from fibsem.server.bodies import LibraryFileBody
 from fibsem.server.responses import LibraryIndex, LibraryItem, answer
 
 
@@ -44,11 +45,11 @@ def build_library_router() -> APIRouter:
             raise _refused(error)
 
     @router.put("/{kind}/{name}", response_model=library.File, dependencies=operator)
-    def library_save(kind: str, name: str, body: Dict[str, Any]):
+    def library_save(kind: str, name: str, body: LibraryFileBody):
         try:
-            text = body.get("text")
-            if "data" in body:
-                text = library.dump(kind, body["data"])
+            text = body.text
+            if body.data is not None:
+                text = library.dump(kind, body.data)
             return answer(library.save(kind, name, text))
         except library.LibraryError as error:
             raise _refused(error)

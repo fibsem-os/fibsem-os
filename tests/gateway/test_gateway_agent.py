@@ -53,6 +53,10 @@ class App:
         self.up = True
         self.levels = []
         self.refuse = None
+        self.last_heard_s = None
+
+    def heard(self, url):
+        return {"last_heard_s": self.last_heard_s}
 
     def discovery(self):
         return {"url": URL, "pid": 1} if self.up else None
@@ -96,6 +100,7 @@ def made(tmp_path, monkeypatch):
             discovery=app.discovery,
             level=app.level,
             reachable=lambda url: app.up,
+            last_heard=app.heard,
             playbooks=lambda: [{"name": name} for name in configs],
             configuration=configuration,
             environ={API_KEY: key} if key else {},
@@ -253,6 +258,23 @@ def test_an_agent_paired_another_way_is_replaced_only_when_confirmed(made, tmp_p
     assert tokens.agent().name == "Claude Code on lab-mac"
     agent.start("default", None, "watch", "operator", "page", replace=True)
     assert tokens.agent().name == AGENT_NAME
+
+
+def test_an_agent_from_another_computer_shows_when_it_was_last_heard(made, tmp_path):
+    agent, _, app = made()
+    assert agent.state().connected is None
+    PairedTokens(tmp_path / "paired.json").add("agent-laptop", role=AGENT)
+    app.last_heard_s = 4.0
+    assert agent.state().connected == {
+        "name": "agent-laptop",
+        "last_heard_s": 4.0,
+        "quiet": None,
+    }
+    app.last_heard_s = 300.0
+    quiet = agent.state().connected["quiet"]
+    assert "5 min" in quiet and "SSH tunnel" in quiet
+    app.up = False
+    assert agent.state().connected is None
 
 
 def test_a_refused_level_unpairs_and_starts_nothing(made, tmp_path):

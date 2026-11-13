@@ -35,6 +35,7 @@ from fibsem.gateway.gateway import (
 )
 from fibsem.gateway.host import HostMicroscope
 from fibsem.server.auth import _bearer_token, _matches
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.operator_token import load_operator_token
 from fibsem.server.pairing import (
     HUB,
@@ -118,6 +119,7 @@ def build_gateway_app(
     on_show: Optional[Callable[[], bool]] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
+    refuse_invalid_requests(app)
     app.state.auth = auth
 
     def caller(request: HTTPConnection) -> Caller:
@@ -163,8 +165,8 @@ def build_gateway_app(
 
     @app.get("/gateway", response_model=GatewayState)
     def get_gateway(found: Caller = Depends(caller)):
-        """Off or running, the app and its process, a holder the gateway
-        didn't start, and the last exit."""
+        """Off or running, the app and its process, another host the
+        gateway didn't start, and the last exit."""
         return gateway.state()
 
     @app.get("/gateway/history", response_model=History)

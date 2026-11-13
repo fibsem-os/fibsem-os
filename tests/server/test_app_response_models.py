@@ -429,8 +429,9 @@ def test_with_no_experiment_the_reads_are_refused(client):
 
 
 def test_every_app_route_declares_its_answer(client):
-    """A route answers a declared class, or an image."""
+    """A route answers a declared class, or a file (an image, a bundle)."""
     images = {
+        "/app/report",
         "/app/experiment/items/{item_name}/outputs/{filename}",
         "/app/experiment/grids/{grid_name}/outputs/{filename}",
         "/app/experiment/planes/{path:path}",

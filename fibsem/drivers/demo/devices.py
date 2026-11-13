@@ -55,6 +55,7 @@ from fibsem.devices.stage import (
     flip_stage_device_at_pose,
     flip_stage_poses,
 )
+from fibsem.drivers.demo.sim_faults import SimulatedFault
 from fibsem.drivers.demo.simulator import (
     BINNING_VALUES,
     EMISSION_WAVELENGTHS,
@@ -410,6 +411,8 @@ class DemoStage(Stage):
         )
         if self.sim_error is not None:
             self.sim_error.start_at(self.sim_position)
+        # m in x a sample fault has left the stage off by (sim_faults: stage_off)
+        self.sim_fault_offset = 0.0
 
     # -- position ----------------------------------------------------------------
 
@@ -419,10 +422,14 @@ class DemoStage(Stage):
 
     def sim_actual(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Where the stage really is when it reads back `position`: the same, unless
-        the stage error is on. The sample scene renders here."""
-        if self.sim_error is None:
-            return position
-        return self.sim_error.actual(position)
+        the stage error is on or a fault landed it off. The sample scene renders
+        here."""
+        if self.sim_error is not None:
+            position = self.sim_error.actual(position)
+        if self.sim_fault_offset and position.x is not None:
+            position = deepcopy(position)
+            position.x += self.sim_fault_offset
+        return position
 
     def sim_calibrated(self, position: FibsemStagePosition) -> FibsemStagePosition:
         """Where a position saved on this stage really is, without a move's jitter."""
@@ -493,6 +500,13 @@ class DemoStage(Stage):
         logging.debug({"msg": "move_stage_relative", "position": delta.to_dict()})
 
     def _moved(self, before: FibsemStagePosition) -> None:
+        scene = _sample_scene(self.parent)
+        fired = {} if scene is None else scene.due("move")
+        if "stage_fails" in fired:
+            self.sim_position = before
+            raise SimulatedFault("The stage did not complete its move.")
+        if "stage_off" in fired:
+            self.sim_fault_offset += fired["stage_off"].amount
         if self.sim_error is None:
             return
         self.sim_error.moved(before, self.sim_position)
@@ -932,6 +946,9 @@ class DemoGasInjector(GasInjector):
 
     def _open(self) -> None:
         logging.info(f"Opening the {self.name} valve")
+        scene = _sample_scene(self.parent)
+        if scene is not None and "gis_closed" in scene.due("gis"):
+            return  # a fault: the valve stays shut and reads closed
         self.sim_opened = True
         self.sim_opened_at = time.monotonic()
         self.sim_open_seconds = 0.0
