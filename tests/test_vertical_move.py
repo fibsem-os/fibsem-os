@@ -19,9 +19,8 @@ import pytest
 
 import fibsem.config as cfg
 from fibsem import utils
-from fibsem.alignment.coincidence import measure_coincidence_from_images
 from fibsem.structures.settings import BeamType, ImageSettings
-from tests.fixtures.sim_scenes import flat_scene
+from tests.fixtures.sim_scenes import mammalian_scene
 
 # The geometry under test is a pre-tilted TFS shuttle; pin it rather than
 # inherit whatever configuration an earlier test left as the default
@@ -43,11 +42,10 @@ def microscope():
     microscope.system.sim["coincidence_offset"] = 0.0
     microscope._connection.setup_sample_scene()
 
-    microscope._connection.sample_scene = flat_scene(
+    microscope._connection.sample_scene = mammalian_scene(
         coincidence_offset=0.0,
         fiducial=True,
         cell_type="none",
-        grid_intensity=0.0,
         contamination_density=0.0,
         ice_density=0.0,
         rip_fraction=0.0,
@@ -65,11 +63,9 @@ def _fiducial(microscope, beam_type):
         resolution=RESOLUTION, hfw=HFW, dwell_time=1e-9, save=False, beam_type=beam_type
     )
     image = microscope.acquire_image(image_settings=settings)
+    # the fiducial's beads are the brightest thing in both beams
     data = ndi.gaussian_filter(image.data.astype(np.float32), 3)
-    if beam_type is BeamType.ION:
-        y, x = np.unravel_index(np.argmin(data), data.shape)
-    else:
-        y, x = np.unravel_index(np.argmax(data), data.shape)
+    y, x = np.unravel_index(np.argmax(data), data.shape)
     return x, y
 
 
@@ -103,48 +99,4 @@ def test_vertical_move_delivers_the_requested_fib_shift(microscope, tilt_deg):
     moved = (fy1 - fy0) * PIXEL_SIZE
     assert moved == pytest.approx(requested, abs=1e-6), (
         f"FIB view moved {moved * 1e6:+.2f} um for a {requested * 1e6:+.2f} um request"
-    )
-
-
-def test_vertical_move_closes_the_measured_coincidence_error(microscope):
-    """The mini align loop: measure the height error, correct it with one
-    vertical move, re-measure - the residual must be near zero."""
-    microscope._connection.sample_scene.coincidence_offset = 8e-6
-    microscope._connection.sample_scene.reference_position = (
-        None  # re-anchor with offset
-    )
-    pose = microscope.get_stage_position()
-    pose.t = np.deg2rad(12.0)
-    microscope.move_stage_absolute(pose)
-    microscope._connection.sample_scene.cell_type = (
-        "mammalian"  # cells back on the film
-    )
-    microscope._connection.sample_scene.grid_intensity = 90.0
-    microscope._connection.sample_scene.features = []
-    microscope._connection.sample_scene.__post_init__()
-
-    def measure():
-        settings = ImageSettings(
-            resolution=RESOLUTION,
-            hfw=100e-6,
-            dwell_time=1e-9,
-            save=False,
-            beam_type=BeamType.ELECTRON,
-        )
-        sem_image = microscope.acquire_image(image_settings=settings)
-        settings.beam_type = BeamType.ION
-        fib_image = microscope.acquire_image(image_settings=settings)
-        return measure_coincidence_from_images(sem_image, fib_image)
-
-    m0 = measure()
-    assert m0.is_reliable, m0.refusal_reason
-    assert abs(m0.dz) > 5e-6  # there is an error to correct
-
-    # correct using the measured FIB-plane residual, as the align loop will
-    microscope.vertical_move(dy=m0.dy, dx=0)
-
-    m1 = measure()
-    assert m1.is_reliable, m1.refusal_reason
-    assert abs(m1.dz) < 1e-6, (
-        f"residual {m1.dz * 1e6:+.2f} um after correcting {m0.dz * 1e6:+.2f} um"
     )

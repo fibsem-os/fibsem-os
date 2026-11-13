@@ -30,7 +30,7 @@ from fibsem.structures.settings import (
     Point,
 )
 from tests.fixtures.microscopes import demo_microscope
-from tests.fixtures.sim_scenes import flat_scene
+from tests.fixtures.sim_scenes import mammalian_scene
 
 COINCIDENCE_OFFSET = 8e-6
 MILLING_POSE_TILT = np.deg2rad(12.0)
@@ -47,7 +47,7 @@ def _enable_projection(microscope, offset: float = COINCIDENCE_OFFSET, **scene_k
     microscope._connection.setup_sample_scene()
 
     # the fiducial is the landmark these tests navigate by
-    microscope._connection.sample_scene = flat_scene(
+    microscope._connection.sample_scene = mammalian_scene(
         coincidence_offset=offset, **{"fiducial": True, **scene_kwargs}
     )
     # a realistic milling pose: stage tilt 12 deg -> milling angle 15 deg
@@ -195,7 +195,7 @@ def test_views_share_the_scene_but_not_the_contrast():
     from fibsem.geometry.projection import BeamStageProjection
     from fibsem.structures.system import FibsemHardwareGeometry
 
-    scene = flat_scene(
+    scene = mammalian_scene(
         coincidence_offset=0.0, fiducial=True, noise_sigma=0.0, noise_fraction=0.0
     )
     geometry = FibsemHardwareGeometry(
@@ -220,9 +220,12 @@ def test_measures_configured_offset(microscope):
     """The measurement and the scene now share BeamStageProjection, so the
     configured boot offset is recovered exactly. Noise off: the oracle is
     about geometry, and per-acquisition random noise made it flake near the
-    band-agreement tolerance on some CI platforms."""
-    _enable_projection(microscope, noise_sigma=0.0, noise_fraction=0.0)
-    settings = _image_settings(BeamType.ELECTRON, hfw=100e-6)
+    band-agreement tolerance on some CI platforms. No cells: on the 3D sample
+    they bias the matcher by about a micron."""
+    _enable_projection(
+        microscope, cell_type="none", noise_sigma=0.0, noise_fraction=0.0
+    )
+    settings = _image_settings(BeamType.ELECTRON, hfw=150e-6)
     sem_image = microscope.acquire_image(image_settings=settings)
     settings.beam_type = BeamType.ION
     fib_image = microscope.acquire_image(image_settings=settings)
@@ -236,10 +239,12 @@ def test_known_z_move_changes_measurement_by_that_amount(microscope):
     """The offline oracle: apply a known stage-z move, the measured dz must
     change by exactly that amount. Noise off - see
     test_measures_configured_offset."""
-    _enable_projection(microscope, noise_sigma=0.0, noise_fraction=0.0)
+    _enable_projection(
+        microscope, cell_type="none", noise_sigma=0.0, noise_fraction=0.0
+    )
 
     def measure():
-        settings = _image_settings(BeamType.ELECTRON, hfw=100e-6)
+        settings = _image_settings(BeamType.ELECTRON, hfw=150e-6)
         sem_image = microscope.acquire_image(image_settings=settings)
         settings.beam_type = BeamType.ION
         fib_image = microscope.acquire_image(image_settings=settings)

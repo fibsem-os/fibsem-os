@@ -61,7 +61,6 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
     options: Dict[str, Any] = {
         "cell_type": "rpe",
         "coincidence_offset": 0.0,
-        "renderer": "solid",
         "rip_fraction": 0.0,
         "gis_thickness": 0.5e-6,
         "rpe_density": 3.0,

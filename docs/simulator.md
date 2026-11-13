@@ -37,33 +37,27 @@ view is foreshortened by the beam's angle to the surface, a height error shows a
 vertical displacement between the views (what the coincidence alignment measures), scan
 rotation turns the content, and a beam shift moves it.
 
-Contrast is per beam, not one image inverted for the other: holes, rips and trenches are
-dark in both (no material, no signal); cell bodies are bright mounds in the SEM and read
-slightly darker than the film in the FIB with a bright outline (the edge effect); the film
-brightens at grazing incidence.
+Contrast is per beam, not one image inverted for the other: cell bodies are bright mounds
+in the SEM and read slightly darker than the film in the FIB with a bright outline (the
+edge effect).
 
-### Renderers
+### The 3D sample
 
-`renderer` picks how the beams see the scene:
-
-- `flat` paints the scene onto the sample plane.
-- `relief` gives everything a height and looks along the beam: tall things hide what is
-  behind them, and a pattern is cut along the milling beam.
-- `solid` (default) builds the sample from objects that can lie under one another: grid bars, the
-  film, cells with a nucleus, one sheet of ice over them (standing up in a broad ridge over
-  each bar), and clumps of particles resting on the ice. A cut face shows what it was cut
-  from (ice, cell, nucleus). Milled edges have a bright rim, cut faces are curtained, a GIS
-  coat is a real layer that shows as a bright band along the top of a cut, and a damaged
-  lamella has jagged bites, wandering cracks or a torn hole in its face. The FM looks at
-  the same sample from above. In reflection a cell's dome has a bright ring round its foot
-  and broken fringes up its flank, ice across a film hole is a bright dot, and a milled
-  edge is bright and ragged. A dye through the whole cell is a soft glow that follows how
-  much cell there is, so a lamella is a bright band between its trenches, and fluorescence
-  is lost exactly where a cut removed it. Every cell type stands under
-  its own ice, a holey film has ice across its holes (none where one broke), and a crack
-  is a groove. No two cells are alike inside: nuclei differ in size and height and some are
-  lobed, and the cytoplasm holds the cell's lipid droplets (the ones the FM labels) and
-  anything from a few vesicles to a face full of them.
+The beams see a sample built from objects that can lie under one another: grid bars, the
+film, cells with a nucleus, one sheet of ice over them (standing up in a broad ridge over
+each bar), and clumps of particles resting on the ice. A cut face shows what it was cut
+from (ice, cell, nucleus). Milled edges have a bright rim, cut faces are curtained, a GIS
+coat is a real layer that shows as a bright band along the top of a cut, and a damaged
+lamella has jagged bites, wandering cracks or a torn hole in its face. The FM looks at
+the same sample from above. In reflection a cell's dome has a bright ring round its foot
+and broken fringes up its flank, ice across a film hole is a bright dot, and a milled
+edge is bright and ragged. A dye through the whole cell is a soft glow that follows how
+much cell there is, so a lamella is a bright band between its trenches, and fluorescence
+is lost exactly where a cut removed it. Every cell type stands under
+its own ice, a holey film has ice across its holes (none where one broke), and a crack
+is a groove. No two cells are alike inside: nuclei differ in size and height and some are
+lobed, and the cytoplasm holds the cell's lipid droplets (the ones the FM labels) and
+anything from a few vesicles to a face full of them.
 
 ## Cell types
 
@@ -85,8 +79,7 @@ Cell bodies are opaque: they hide the film, holes and bars under them.
 - **Rips**: a seeded fraction of squares (`rip_fraction`) has the film torn away. Each rip
   is its own tear (size, orientation, where it starts, how ragged), a square beside a
   ripped one rips more readily, and a bright curled edge rings each rip.
-- **Ice** (`ice_density`): flat bright plates with an irregular outline (hexagons in the
-  relief renderer).
+- **Ice** (`ice_density`): flat bright plates with an irregular outline.
 - **Frost** (`frost_density`): patches of small bright grains.
 - **Spheres** (`sphere_density`, `sphere_size`): dark round balls standing on the film.
 - **Cracks** (`crack_density`): hairline cracks in the film, a dark wandering line (some
@@ -168,7 +161,7 @@ bodies; an mCherry-like line a seeded subset of cells (`red_fraction`). Anything
 renders dark. The objective's distance from focus blurs the frame. The panels are shown
 in the false colour a viewer gives each channel, and composited the way a CLEM overlay is.
 
-With the relief renderer, reflection comes from the same 3D sample the beams see. The bars
+Reflection comes from the same 3D sample the beams see. The bars
 are brightest. The ice is a mid grey with fringes where its thickness changes, as a thin
 film does. Cells read dark and textured, because their steep, rough surface scatters the
 light away. Milling shows where the cut left material: a trench milled through is dark,
@@ -266,7 +259,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | -- | -- | -- |
 | `grid_pitch` | 0.000125 | mesh pitch (m); 125 um is a 200 mesh |
 | `grid_bar_width` | 3.5e-05 | bar width (m) |
-| `grid_intensity` | 90 | how bright the bars read in the SEM (0-255 scale) |
+| `grid_intensity` | 90 | how much reflected light from the bars leaks into a fluorescence channel |
 | `grid_radius` | 0.0014 | usable film radius (m); past it the rim, then the holder |
 | `grid_rim_width` | 0.00015 | the metal rim's width (m) |
 | `grid_rotation` | unset | the grid's rotation (deg); random within the range when unset |
@@ -358,9 +351,9 @@ are in degrees, ranges are two-element lists, lengths in metres.
   frame somewhere new costs 0.4-2 s (the world is stamped into cached tiles, then sampled
   per view). The fluorescence view is stamped per frame, about 0.4 s.
 - The SEM to FIB coincidence measurement (an option, off in the workflow by default) was
-  calibrated on the `flat` renderer with a continuous film. On the 3D sample its gates
-  refuse many correct measurements, and the holey film's 4 um lattice can alias it; its
-  tests ask for the flat scene by name until the gates are recalibrated on real image pairs.
+  calibrated on an older, flat renderer. On the 3D sample its gates refuse many correct
+  measurements, cells bias it by about a micron, and the holey film's 4 um lattice can
+  alias it. Its simulator tests measure on a scene without cells.
 - The scene is generated fresh from its seed on every connect. The same seed gives the
   same grid; milled trenches do not survive a reconnect.
 

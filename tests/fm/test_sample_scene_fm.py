@@ -193,7 +193,6 @@ def test_the_solid_sample_shows_in_the_fm_and_loses_what_is_milled(microscope):
 
     microscope.move_to_device("FIBSEM")
     scene = SampleScene(
-        renderer="solid",
         cell_type="rpe",
         coincidence_offset=0.0,
         rip_fraction=0.0,

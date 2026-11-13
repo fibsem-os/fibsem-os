@@ -1,7 +1,6 @@
-"""Render a SampleScene as solid objects: the `solid` renderer.
+"""Render a SampleScene as solid objects.
 
-The relief renderer keeps one height, one material and one bottom per point,
-so nothing can lie under anything else. Here the sample is a set of objects -
+The sample is a set of objects -
 grid bars, the film, cells with a nucleus, one sheet of ice over them,
 particles resting on top - and at each point of the sample plane they stack up
 as solid pieces, each with a bottom, a top and a material. A beam shows the
@@ -10,8 +9,8 @@ the milling beam, so the face it leaves shows what the sample is made of
 there (ice, cell, nucleus), a particle has an underside and a lamella has
 whatever was under it.
 
-Positions come from the projection the other renderers use (see
-sim_relief.ViewFrame): a point at height 0 lands on the same pixel.
+Positions come from the view's projection (see sim_view.ViewFrame): a point
+at height 0 lands where the stage's projection puts it.
 
 Internally in micrometres. z = 0 is the top of the ice on the open film, the
 plane the stage brings to the beams; the film lies ICE_THICKNESS under it.
@@ -25,8 +24,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 from scipy import ndimage as ndi
 
-from fibsem.drivers.demo import sim_relief
-from fibsem.drivers.demo.sim_relief import (
+from fibsem.drivers.demo import sim_view
+from fibsem.drivers.demo.sim_view import (
     UM,
     ViewFrame,
     _gauss,
@@ -37,6 +36,7 @@ from fibsem.drivers.demo.sim_relief import (
 if TYPE_CHECKING:
     from fibsem.drivers.demo.sim_scene import SampleScene, SceneFeature
 
+FLOOR_SMOOTH = 3.0  # um; a milled floor is flat over this scale
 VOID, ICE, CELL, NUCLEUS, FILM, BAR, PARTICLE, COAT = 0, 1, 2, 3, 4, 5, 6, 7
 DROPLET, VESICLE = 8, 9  # what lies in a cell's cytoplasm
 # the pieces of a stack, in the order a point is tested: the first that holds
@@ -409,17 +409,17 @@ def columns(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> dict:
     for a in (ice, cell, n_hi, o_hi, p_hi):
         a[gone] = NONE
     surface = np.maximum(ice, p_hi)
-    level = sim_relief._smooth_top(
-        np.where(gone, sim_relief.VOID, ice),
-        (sim_relief.FLOOR_SMOOTH / sy, sim_relief.FLOOR_SMOOTH / sx),
+    level = sim_view._smooth_top(
+        np.where(gone, sim_view.VOID, ice),
+        (FLOOR_SMOOTH / sy, FLOOR_SMOOTH / sx),
     )
     gis = scene.gis_thickness * UM
     coat = np.full(shape, NONE, dtype=f32)
     if gis > 0:
         # the GIS lays a coat over everything, filling the fine detail in
         soft = max(gis, 0.3)
-        smooth = sim_relief._smooth_top(
-            np.where(gone, sim_relief.VOID, surface), (soft / sy, soft / sx)
+        smooth = sim_view._smooth_top(
+            np.where(gone, sim_view.VOID, surface), (soft / sy, soft / sx)
         )
         coat = np.where(gone, NONE, np.maximum(surface, smooth) + gis).astype(f32)
         level = level + gis
@@ -480,13 +480,13 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
         pieces = getattr(region, "face", None)
         if pieces is not None:
             # damage: shapes on the lamella's face, through its thickness
-            a, b = sim_relief._cut_range(scene, region, X, Y)
+            a, b = sim_view._cut_range(scene, region, X, Y)
             inside = np.zeros(X.shape, dtype=bool)
             for piece in pieces:
                 inside |= scene._polygon_mask(piece, X, Y)
             b = np.where(inside, b, a - 1.0)
         else:
-            a, b = sim_relief._cut_range(scene, region, X, Y, surface)
+            a, b = sim_view._cut_range(scene, region, X, Y, surface)
             # a pattern cuts only as deep as it was set to
             a = np.maximum(a, np.minimum(surface, level - region.depth * UM))
             if amp > 0 and cut is not None and abs(cut.k) > 0.05:
@@ -830,7 +830,7 @@ def trace(scene: "SampleScene", frame: ViewFrame, u, w, pix) -> dict:
 def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     """The view over content columns `u` and rows `w` (um, rows increasing
     down the image), shaded, and how much each pixel charges - what
-    sim_relief.render lays out and finishes."""
+    sim_view.render lays out and finishes."""
     which = 0 if beam == "SEM" else 1
     hit = trace(scene, frame, u, w, pix)
     hit_m, kind, z_hit = hit["material"], hit["kind"], hit["z"]
@@ -887,7 +887,7 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     charge = (charge + 0.7 * (particle & top)) * (1 - 0.5 * bar)
     charge = ndi.gaussian_filter(np.clip(charge, 0, 1).astype(np.float32), 1.0 / pix)
     charge[~top] = 0
-    shade *= BRIGHTNESS[which] / sim_relief.BRIGHTNESS
+    shade *= BRIGHTNESS[which] / sim_view.BRIGHTNESS
     if hit["flip"]:
         shade, charge = shade[::-1], charge[::-1]
     return shade, charge
@@ -932,7 +932,7 @@ def top(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step) -> np.ndarray:
     """The height of the sample's top at a grid of world points (um), far
     below where there is nothing."""
     surface = columns(scene, x, y, step)["surface"]
-    return np.where(surface > NONE / 2, surface, sim_relief.VOID)
+    return np.where(surface > NONE / 2, surface, sim_view.VOID)
 
 
 def surface(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step=None):
@@ -944,7 +944,7 @@ def surface(scene: "SampleScene", x: np.ndarray, y: np.ndarray, step=None):
     z, mat = view.top()
     cell = view.col["cell"][1]
     mat = np.where((mat == ICE) & (cell > NONE / 2) & (cell < z), CELL, mat)
-    return np.where(mat == VOID, sim_relief.VOID, z).astype(np.float32), mat
+    return np.where(mat == VOID, sim_view.VOID, z).astype(np.float32), mat
 
 
 def damage(scene, kind: str, severity: int, ends, slope: float, rng) -> list:
@@ -1205,7 +1205,7 @@ def reflectance(scene: "SampleScene", view: Plan) -> np.ndarray:
     whole = solid & (z >= col["surface"] - 0.05)
 
     def noise(scale, k):
-        return sim_relief.value_noise(X, Y, scale, seed + k)
+        return sim_view.value_noise(X, Y, scale, seed + k)
 
     # the open film: uneven, in slow patches and finer mottle
     out = 0.3 * np.clip(1 + 0.45 * noise(22.0, 301) + 0.2 * noise(5.0, 302), 0.3, 2.0)

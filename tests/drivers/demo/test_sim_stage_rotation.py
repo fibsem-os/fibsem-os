@@ -14,11 +14,10 @@ carry random noise and the periodic mesh fools correlation.
 import numpy as np
 import pytest
 
-from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures.settings import BeamType, FibsemRectangleSettings
 from tests.fixtures.microscopes import demo_microscope
-from tests.fixtures.sim_scenes import flat_scene
+from tests.fixtures.sim_scenes import mammalian_scene
 
 microscope = demo_microscope("sim-iflm-configuration.yaml", scope="function")
 
@@ -29,7 +28,7 @@ SITE = (200e-6, 150e-6)
 
 @pytest.fixture
 def scene(microscope):
-    scene = flat_scene(cell_type="none")
+    scene = mammalian_scene(cell_type="none")
     scene.anchor(microscope._connection.scene_stage_position())
     microscope._connection.sample_scene = scene
     return scene
@@ -90,7 +89,9 @@ def test_mark_milled_in_sem_orientation_is_centred_in_the_fm(microscope, scene):
         microscope._connection.scene_stage_position_at_fm(),
         (width, height),
         projection,
-        weights=fm_channel_weights(None),
+        # a fluorescence channel with a little reflection: the reflection
+        # channel itself comes from the 3D sample and draws no mask
+        weights=(0.5, 1.0, 0.0, 0.0),
     )
 
     rows, cols = np.nonzero(masks[0])
