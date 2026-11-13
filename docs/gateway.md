@@ -52,7 +52,7 @@ on the left has four pages:
   the default first, and **Connect when the app starts**) and the **App** (an app, an
   experiment folder and **Show the window on this PC**), with **Start the app**. While it
   runs: one row for the microscope, with Connect or Disconnect, and one for the app, with
-  **Open the app** and **Stop** (with its window, Stop asks first, then closes the window).
+  **Open the app** and **Stop** (Stop asks first in a dialog; with its window, it closes the window).
   Under them, the **Agent** card (below).
 - **History.** Every start and stop of the app, with who made it and from where, and the
   latest agent sessions, newest first. **All**, **App** and **Agent** filter it. A session

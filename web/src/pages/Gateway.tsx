@@ -3,14 +3,21 @@ import { type ReactNode, useEffect, useState } from "react";
 import { Loader, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, getToken } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { Connections } from "@/shell/Settings";
 import { cn } from "@/lib/utils";
 import type { Connection } from "@/lib/types";
-import { AgentCard, type AgentState, notReady } from "@/pages/gateway/AgentCard";
+import {
+  AgentCard,
+  type AgentState,
+  notReady,
+} from "@/pages/gateway/AgentCard";
 import { History } from "@/pages/gateway/History";
 import { type Defaults, Settings } from "@/pages/gateway/Settings";
+// The same icon as the gateway's window and its Desktop shortcut.
+import gatewayIcon from "../../../fibsem/ui/icons/gateway.svg?raw";
 
 type Mode = "off" | "running";
 
@@ -239,7 +246,6 @@ function Starting({
   );
 }
 
-
 /** While the app starts: what it is waiting for, and for how long. */
 function StartingLine({ state }: { state: GatewayState }) {
   const [now, setNow] = useState(() => Date.now());
@@ -280,7 +286,13 @@ function Dot({ colour }: { colour: "ok" | "warn" | "off" }) {
   );
 }
 
-function SubHeading({ first, children }: { first?: boolean; children: string }) {
+function SubHeading({
+  first,
+  children,
+}: {
+  first?: boolean;
+  children: string;
+}) {
   return (
     <h3
       className={cn(
@@ -382,7 +394,9 @@ function MicroscopeRow({
         ),
       }),
     onSettled: () =>
-      client.invalidateQueries({ queryKey: ["/gateway/microscope/connection"] }),
+      client.invalidateQueries({
+        queryKey: ["/gateway/microscope/connection"],
+      }),
   });
   const c = connection?.configuration;
   const busy =
@@ -485,7 +499,7 @@ function AppRow({
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(tick);
   }, []);
-  const [confirmClose, setConfirmClose] = useState(false);
+  const [confirm, setConfirm] = useState(false);
   const app = state.apps.find((a) => a.key === state.app)?.name ?? state.app;
   const stopping = state.switch === "stopping";
   const facts = [
@@ -500,61 +514,78 @@ function AppRow({
           <Dot colour={starting || stopping ? "warn" : "ok"} />
           <span className="min-w-0 break-words">
             {app ?? "The app"}, {state.window ? "with its window" : "no window"}
-            <span className="text-muted-foreground" title={state.experiment ?? ""}>
+            <span
+              className="text-muted-foreground"
+              title={state.experiment ?? ""}
+            >
               {facts.map((t) => ` · ${t}`)}
             </span>
           </span>
         </span>
-        {!confirmClose && (
-          <span className="flex gap-2.5">
-            {up && state.app_url && (
-              <Button
-                onClick={() =>
-                  window.open(
-                    `${state.app_url}/ui/#token=${getToken() ?? ""}`,
-                    "_blank",
-                    "noopener",
-                  )
-                }
-              >
-                Open the app
-              </Button>
-            )}
+        <span className="flex gap-2.5">
+          {up && state.app_url && (
             <Button
-              variant="danger"
-              disabled={busy}
-              onClick={state.window ? () => setConfirmClose(true) : stop}
+              onClick={() =>
+                window.open(
+                  `${state.app_url}/ui/#token=${getToken() ?? ""}`,
+                  "_blank",
+                  "noopener",
+                )
+              }
             >
-              {busy && stopping
-                ? "Stopping…"
-                : state.window
-                  ? "Close the window"
-                  : "Stop"}
+              Open the app
             </Button>
-          </span>
-        )}
+          )}
+          <Button
+            variant="danger"
+            disabled={busy}
+            onClick={() => setConfirm(true)}
+          >
+            {busy && stopping
+              ? "Stopping…"
+              : state.window
+                ? "Close the window"
+                : "Stop"}
+          </Button>
+        </span>
       </div>
       {starting && <StartingLine state={state} />}
-      {confirmClose && (
-        <div className="flex flex-col gap-2">
-          <p className={cn("m-0 text-[13px]", WARN)}>
-            Close the app's window on this PC? Anyone at the PC sees it close.
-          </p>
-          <div className="flex justify-end gap-2.5">
-            <Button onClick={() => setConfirmClose(false)}>Cancel</Button>
-            <Button
-              variant="danger"
-              disabled={busy}
-              onClick={() => {
-                setConfirmClose(false);
-                stop();
-              }}
-            >
-              Close the window
-            </Button>
+      <Dialog open={confirm} onOpenChange={setConfirm}>
+        <DialogContent
+          title={
+            state.window
+              ? `Close ${app ?? "the app"}'s window?`
+              : `Stop ${app ?? "the app"}?`
+          }
+          className="w-[min(460px,calc(100vw-32px))]"
+        >
+          <div className="flex flex-col gap-2 px-4 py-3.5 text-[13px]">
+            <p className="m-0">
+              {state.window
+                ? "This closes the app's window on this PC, and anything it is running stops with it."
+                : "This stops the app on this PC, and anything it is running stops with it."}
+            </p>
+            {state.window && (
+              <p className={cn("m-0", WARN)}>
+                Anyone at the PC sees the window close.
+              </p>
+            )}
+            <div className="flex justify-end gap-2.5 pt-2">
+              <Button onClick={() => setConfirm(false)}>Cancel</Button>
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() => {
+                  setConfirm(false);
+                  stop();
+                }}
+              >
+                {state.window ? "Close the window" : "Stop the app"}
+              </Button>
+            </div>
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -612,7 +643,11 @@ function AppCard({
             <CardTitle>Nothing is running</CardTitle>
           </div>
           <SubHeading first>Microscope</SubHeading>
-          <MicroscopeStart state={state} choice={choice} setChoice={setChoice} />
+          <MicroscopeStart
+            state={state}
+            choice={choice}
+            setChoice={setChoice}
+          />
           <SubHeading>App</SubHeading>
           <Starting
             state={state}
@@ -669,8 +704,8 @@ function Stopped({ at }: { at: number }) {
           The gateway has stopped
         </h1>
         <p className="m-0 text-[13px] text-muted-foreground">
-          Stopped at {fmt.clock(at)} from this page. The app and any agent
-          run stopped with it.
+          Stopped at {fmt.clock(at)} from this page. The app and any agent run
+          stopped with it.
         </p>
         <p className="m-0 mt-2 text-[13px]">
           Start it again at the computer: the{" "}
@@ -740,7 +775,24 @@ const TABS: [Tab, string][] = [
 /** The gateway's own page: a launcher for the app and the agent on this PC,
  * what happened, who is paired, and its settings. What a running agent is
  * doing is on the app's Agent page. */
+/** The tab says which page this is: the gateway's name and icon, not the
+ * app's. */
+function useGatewayTab() {
+  useEffect(() => {
+    document.title = "Agent Gateway";
+    let icon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (!icon) {
+      icon = document.createElement("link");
+      icon.rel = "icon";
+      document.head.appendChild(icon);
+    }
+    icon.type = "image/svg+xml";
+    icon.href = `data:image/svg+xml,${encodeURIComponent(gatewayIcon)}`;
+  }, []);
+}
+
 export function GatewayPage() {
+  useGatewayTab();
   const [tab, setTab] = useState<Tab>("overview");
   const [quit, setQuit] = useState<{ restart: boolean; at: number } | null>(
     null,
