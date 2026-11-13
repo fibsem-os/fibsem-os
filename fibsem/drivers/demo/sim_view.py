@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Callable, Optional, Tuple
 import numpy as np
 from scipy import ndimage as ndi
 
+from fibsem.drivers.demo import sim_optics
+
 if TYPE_CHECKING:
     from fibsem.drivers.demo.sim_scene import SampleScene
 
@@ -210,6 +212,7 @@ def render(
     rng: Optional[np.random.Generator] = None,
     charge: float = 0.0,
     canvas: Callable = None,
+    optics=None,
 ) -> np.ndarray:
     """One beam's view of the scene as a uint8 image (height, width);
     `charge` is how strongly the (SEM) beam charges it. `canvas(scene, beam,
@@ -249,12 +252,20 @@ def render(
             )
     else:
         img = canvas
-    return _finish(scene, img, rng, q if charge > 0 else None, charge)
+    if optics is not None:
+        # the beam's focus, stigmation, current and dwell (see sim_optics)
+        optics = (optics, 0 if beam == "SEM" else 1, pix)
+    return _finish(scene, img, rng, q if charge > 0 else None, charge, optics)
 
 
-def _finish(scene, img, rng, q=None, charge=0.0):
+def _finish(scene, img, rng, q=None, charge=0.0, optics=None):
     """Probe blur, charging, scan-line jitter, per-line gain and shot noise,
-    as grey levels."""
+    as grey levels. `optics` is (the beam's Optics, 0 SEM or 1 FIB, um a
+    pixel): what its focus, stigmation, current and dwell add."""
+    dose = 1.0
+    if optics is not None:
+        img = sim_optics.blur(img, *optics)
+        dose = optics[0].dose(optics[1])
     img = ndi.gaussian_filter(img, 0.7)
     if q is not None and charge > 0:
         img = scene.charge_up(img * BRIGHTNESS, q, charge) / BRIGHTNESS
@@ -270,7 +281,7 @@ def _finish(scene, img, rng, q=None, charge=0.0):
         r = np.arange(height)[:, None]
         img = img[r, c0] * (1 - f) + img[r, c1] * f
         img = img * (1 + rng.normal(0, 0.012, height))[:, None]
-        counts = 30.0 * (12.0 / max(scene.noise_sigma, 1.0)) ** 2
+        counts = dose * 30.0 * (12.0 / max(scene.noise_sigma, 1.0)) ** 2
         img = rng.poisson(np.clip(img, 0, None) * counts) / counts
     return np.clip(img * BRIGHTNESS, 0, 255).astype(np.uint8)
 

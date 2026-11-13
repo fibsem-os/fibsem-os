@@ -41,7 +41,7 @@ from scipy.ndimage import binary_dilation as ndi_binary_dilation
 from scipy.ndimage import gaussian_filter as ndi_gaussian
 from scipy.ndimage import zoom as ndi_zoom
 
-from fibsem.drivers.demo import sim_solid, sim_view
+from fibsem.drivers.demo import sim_optics, sim_solid, sim_view
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -441,6 +441,14 @@ class SampleScene:
     # Opt-in (0 = off): on, every acquisition carries a current-dependent
     # lateral offset, which tests with exact expectations must account for
     current_offset_scale: float = 0.0
+    # the beams' settings show in the image: a working distance away from
+    # focus and stigmation off zero blur it, and the current sets the probe
+    # size and the noise (see sim_optics). False draws every image sharp.
+    # On for a scene from the configuration; a scene built in code asks
+    beam_optics: bool = False
+    # focus is at the beam's eucentric height, give or take this (m): each
+    # beam's own seeded error, which an autofocus takes out
+    focus_fuzz: float = 15e-6
     _current_offsets: Dict[Tuple[str, float], Tuple[float, float]] = field(
         default_factory=dict, repr=False
     )
@@ -1996,6 +2004,8 @@ class SampleScene:
         "contamination_size",  # [min, max] m
         "beam_offset",  # {electron: [dx, dy], ion: [dx, dy]} m
         "current_offset_scale",  # m, sigma of the per-current beam offset
+        "beam_optics",  # focus, stigmation and current show in the image
+        "focus_fuzz",  # m, how far focus is from the eucentric height, at most
         "film",  # continuous | holey
         "hole_diameter",  # m
         "hole_pitch",  # m
@@ -2038,6 +2048,7 @@ class SampleScene:
         if unknown:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
+        kwargs.setdefault("beam_optics", True)
         for key in (
             "cells_per_cluster",
             "cell_size",
@@ -2100,6 +2111,7 @@ class SampleScene:
         beam_shift: Tuple[float, float] = (0.0, 0.0),
         beam_current: Optional[float] = None,
         dwell_time: Optional[float] = None,
+        optics: Optional[sim_optics.Optics] = None,
     ) -> np.ndarray:
         """Render one beam's view of the scene at the current stage position.
 
@@ -2120,6 +2132,8 @@ class SampleScene:
                 `beam_offset` for the beam is added to it.
             beam_current: the beam current (A); each distinct current carries
                 its own seeded offset (see current_offset_scale).
+            optics: the beam's focus, stigmation and current, which blur the
+                image and set its noise; None draws it sharp.
 
         Returns:
             uint8 image of shape (height, width).
@@ -2144,6 +2158,7 @@ class SampleScene:
             rng,
             charge,
             sim_solid.canvas,
+            self._optics_here(optics, stage_position, projection, frame),
         )
 
     def render_fm(
@@ -2761,6 +2776,46 @@ class SampleScene:
                 float(v) for v in rng.normal(0, self.current_offset_scale, size=2)
             )
         return self._current_offsets[key]
+
+    def focus_depth(
+        self, stage_position: FibsemStagePosition, projection: BeamStageProjection
+    ) -> float:
+        """How much further along the beam than the eucentric point the
+        sample is at the view's centre (m): a surface that sits low is further
+        away, more so the more the beam grazes it."""
+        reference = self.reference_position
+        if reference is None:
+            return 0.0
+        if self.tilt_axis_offset:
+            reference = self._non_eucentric_reference(stage_position, projection)
+        height = (reference.z or 0.0) - (stage_position.z or 0.0)
+        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
+        return float(-height / fs)
+
+    def _optics_here(self, optics, stage_position, projection, frame):
+        """The beam's optics on this view of the sample: focus goes by how
+        far the surface is, at the centre and across a tilted view."""
+        if optics is None or not self.beam_optics:
+            return None
+        # down the unrotated view the surface runs away from the beam (or
+        # toward it), by the view's tilt
+        slope = float(np.copysign(np.sqrt(max(0.0, 1 - frame.fs**2)), frame.k))
+        slope /= max(frame.fs, MIN_FORESHORTENING)
+        return replace(
+            optics,
+            defocus=optics.defocus - self.focus_depth(stage_position, projection),
+            tilt=(slope * np.sin(frame.theta), -slope * np.cos(frame.theta)),
+        )
+
+    def focus_offset(self, beam_type: BeamType) -> float:
+        """How far the beam's focus is from its eucentric height (m): drawn
+        once per beam from the scene's seed, within `focus_fuzz`."""
+        if self.focus_fuzz <= 0:
+            return 0.0
+        rng = np.random.default_rng(
+            [self.seed, zlib.crc32(beam_type.name.lower().encode()), 77]
+        )
+        return float(rng.uniform(-self.focus_fuzz, self.focus_fuzz))
 
     def _turn(self, stage_position: FibsemStagePosition) -> float:
         """-1 when the stage is half a turn from the anchor, else 1.

@@ -15,12 +15,13 @@ import numpy as np
 from skimage.transform import resize
 
 from fibsem._timing import sim_sleep
+from fibsem.drivers.demo.sim_optics import Optics
 from fibsem.drivers.demo.sim_scene import fm_channel_weights
 from fibsem.fm.microscope import (
     FluorescenceMicroscope,
 )
 from fibsem.fm.structures import REFLECTION
-from fibsem.geometry.projection import FMStageProjection
+from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.params import RangeLimit
 from fibsem.structures.settings import (
@@ -487,6 +488,14 @@ class DemoSimulator:
             except Exception:
                 current = None
             self.sample_scene.holder_slots = self.scene_holder_slots()
+            stigmation = self.microscope.get_stigmation(effective_beam_type)
+            optics = Optics(
+                defocus=self.microscope.get_working_distance(effective_beam_type)
+                - self.scene_focus(effective_beam_type),
+                stigmation=(float(stigmation.x), float(stigmation.y)),
+                current=current,
+                dwell=effective_image_settings.dwell_time,
+            )
             image.data = self.sample_scene.render(
                 beam_type=effective_beam_type,
                 stage_position=self.scene_stage_position(),
@@ -496,6 +505,7 @@ class DemoSimulator:
                 beam_shift=(float(shift.x), float(shift.y)),
                 beam_current=current,
                 dwell_time=effective_image_settings.dwell_time,
+                optics=optics,
             )
         # generate the next image from the sequence iterator
         elif self.use_image_sequence:
@@ -762,13 +772,35 @@ class DemoSimulator:
                 random.uniform(0.5, 1.0)
             )  # simulate time taken to calculate auto-focus
             self._warn_if_channel_moved(beam_type, "auto_focus")
-            focus_adjustment = random.uniform(-100e-6, 100e-6)
-            new_wd = wd + focus_adjustment
+            if self.sample_scene is not None and self.sample_scene.beam_optics:
+                # the sample has a true focus, and the routine finds it
+                new_wd = self.scene_focus(beam_type, here=True)
+                new_wd += random.uniform(-2e-6, 2e-6)
+            else:
+                new_wd = wd + random.uniform(-100e-6, 100e-6)
             self.microscope.set_working_distance(new_wd, beam_type)
 
         if reduced_area:
             self.microscope.set_full_frame_scanning_mode(beam_type)
         logging.debug({"msg": "auto_focus", "beam_type": beam_type.name})
+
+    def scene_focus(self, beam_type: BeamType, here: bool = False) -> float:
+        """The working distance at which the sample scene is in focus (m):
+        the beam's eucentric height, off by the scene's own small error.
+        `here` is for the sample where the stage has it now, at the view's
+        centre, not at the eucentric point."""
+        height = self.microscope._beam_config(
+            "eucentric_height", beam_type
+        ).eucentric_height
+        focus = float(height) + self.sample_scene.focus_offset(beam_type)
+        if here:
+            focus += self.sample_scene.focus_depth(
+                self.scene_stage_position(),
+                BeamStageProjection.from_microscope(
+                    self.microscope, beam_type=beam_type
+                ),
+            )
+        return focus
 
     def setup_sample_scene(self) -> None:
         """Opt-in synthetic-sample imaging, default off.
@@ -798,6 +830,15 @@ class DemoSimulator:
         self.sample_scene = SampleScene.from_config(
             {k: v for k, v in config.items() if k != "enabled"}
         )
+        if self.sample_scene.beam_optics:
+            # a session starts in focus on a sample at the eucentric height,
+            # near enough: the scene's own focus error is left for an autofocus
+            for beam_type in self.microscope.beams:
+                self.microscope.beams[beam_type].sim_beam.working_distance = float(
+                    self.microscope._beam_config(
+                        "eucentric_height", beam_type
+                    ).eucentric_height
+                )
         try:
             # anchor the world NOW, at the connect pose - so moving straight
             # to a saved position and acquiring shows that position's
