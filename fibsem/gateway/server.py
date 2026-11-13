@@ -10,14 +10,18 @@ its Agent page, ``/gateway/show`` brings the gateway's window to the front,
 ``/gateway/quit`` stops (or restarts) the gateway for the
 operator, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
-the same rules as starting the app. ``/hub`` lists the instruments this
-gateway is the hub for (`fibsem.gateway.hub`); the operator changes the list.
+the same rules as starting the app. ``/gateway/defaults`` is what the page
+fills in for the next start (the operator saves it), and ``/gateway/secrets``
+says which keys this PC has, never what they are. ``/hub`` lists the
+instruments this gateway is the hub for (`fibsem.gateway.hub`); the operator
+changes the list.
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
 role, and the page is the web app's ``/ui/gateway``.
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -26,8 +30,10 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.requests import HTTPConnection
 from fastapi.responses import RedirectResponse
 
+from fibsem import keystore
 from fibsem.ai.agent.playbooks import DEFAULT as DEFAULT_PLAYBOOK
 from fibsem.gateway.agent import AgentState, GatewayAgent
+from fibsem.gateway.defaults import GatewayDefaults, read_defaults, save_defaults
 from fibsem.gateway.gateway import (
     Gateway,
     GatewayRefused,
@@ -120,6 +126,7 @@ def build_gateway_app(
     microscope: Optional[HostMicroscope] = None,
     on_quit: Optional[Callable[[bool], None]] = None,
     on_show: Optional[Callable[[], bool]] = None,
+    defaults_file: Optional[Path] = None,
     hub: Optional[Hub] = None,
     hub_agents: Optional[HubAgents] = None,
 ) -> FastAPI:
@@ -505,6 +512,47 @@ def build_gateway_app(
             restart = bool((body or {}).get("restart", False))
             on_quit(restart)
             return {"stopping": True, "restart": restart}
+
+    @app.get("/gateway/defaults", response_model=GatewayDefaults)
+    def get_defaults(found: Caller = Depends(caller)):
+        """What the page fills in for the next start."""
+        return read_defaults(defaults_file)
+
+    @app.put("/gateway/defaults", response_model=GatewayDefaults)
+    def put_defaults(body: Dict[str, Any], found: Caller = Depends(caller)):
+        """``{configuration, connect, app, window, playbook, level,
+        budget_usd}``: the operator only."""
+        if not found.operator:
+            raise _refused(403, "operator_only", "Only the operator sets defaults.")
+        try:
+            defaults = GatewayDefaults.checked(body)
+        except GatewayRefused as refusal:
+            raise _refused(refusal.status, refusal.error_type, str(refusal)) from None
+        save_defaults(defaults, defaults_file)
+        return defaults
+
+    @app.get("/gateway/secrets")
+    def get_secrets(found: Caller = Depends(caller)) -> List[dict]:
+        """Each key fibsemOS reads: whether it is set here and where from.
+        The key itself never leaves this PC."""
+        store = keystore.store_name()
+        rows = []
+        for name, about in keystore.KEYS.items():
+            if os.environ.get(name):
+                source = "environment"
+            elif keystore.stored_secret(name):
+                source = store or "key store"
+            else:
+                source = None
+            rows.append(
+                {
+                    "name": name,
+                    "about": about,
+                    "set": source is not None,
+                    "source": source,
+                }
+            )
+        return rows
 
     @app.post("/gateway/show")
     def show_window(found: Caller = Depends(caller)) -> dict:

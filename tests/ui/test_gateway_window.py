@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("qtpy.QtWidgets")
 
-from qtpy.QtWidgets import QMessageBox  # noqa: E402
+from qtpy.QtWidgets import QApplication, QLabel, QMessageBox  # noqa: E402
 
 from fibsem.gateway.gateway import (  # noqa: E402
     OFF,
@@ -213,3 +213,17 @@ def test_restart_asks_then_restarts(made, monkeypatch):
     _answer(monkeypatch, QMessageBox.StandardButton.Yes, asked)
     window.restart_gateway()
     assert restarts == [1] and "starts again" in asked[0]
+
+
+def test_a_long_goal_stays_on_one_line_with_the_rest_in_the_tooltip(made):
+    window = made.window
+    window.resize(420, 400)
+    window.show()
+    goal = "Testing session, do some stuff, demo microscope. " * 6
+    window._show_read({"state": "running", "level": "drive", "goal": goal}, None)
+    QApplication.processEvents()
+    detail = window.agent.detail
+    assert detail.text() == goal and detail.toolTip() == goal
+    drawn = QLabel.text(detail)
+    assert drawn != goal and drawn.endswith("…")
+    assert detail.height() <= detail.fontMetrics().lineSpacing() + 4

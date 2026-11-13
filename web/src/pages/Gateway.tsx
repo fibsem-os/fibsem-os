@@ -1,16 +1,24 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
-import { Loader } from "lucide-react";
+import { Loader, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardTitle, Facts } from "@/components/ui/card";
+import { Card, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { api, getToken } from "@/lib/api";
 import * as fmt from "@/lib/format";
 import { Connections } from "@/shell/Settings";
 import { cn } from "@/lib/utils";
 import type { Connection } from "@/lib/types";
-import { AgentCard, AgentSessions } from "@/pages/gateway/AgentCard";
+import {
+  AgentCard,
+  type AgentState,
+  notReady,
+} from "@/pages/gateway/AgentCard";
+import { History } from "@/pages/gateway/History";
 import { Instruments } from "@/pages/gateway/Instruments";
-import { ConnectionCard } from "@/pages/Microscope";
+import { type Defaults, Settings } from "@/pages/gateway/Settings";
+// The same icon as the gateway's window and its Desktop shortcut.
+import gatewayIcon from "../../../fibsem/ui/icons/gateway.svg?raw";
 
 type Mode = "off" | "running";
 
@@ -57,19 +65,6 @@ interface MicroscopeChoice {
   configuration: string;
 }
 
-interface Switch {
-  at: number;
-  // older lines name the modes before the app had one start: window, headless
-  to_mode: string;
-  from_mode: string;
-  who: string;
-  via: string;
-  result: string;
-  app: string | null;
-  experiment: string | null;
-  window?: boolean | null;
-}
-
 const FIELD =
   "rounded border border-input bg-background px-2 py-1.5 text-[13px] text-foreground";
 
@@ -90,85 +85,6 @@ function newerLabel(
   return null;
 }
 
-function Status({ state }: { state: GatewayState }) {
-  const app = state.apps.find((a) => a.key === state.app)?.name ?? state.app;
-  const rows: [string, ReactNode][] = [
-    ["App", app ?? "–"],
-    ["Window", state.window ? "On this PC" : "None"],
-  ];
-  if (!state.window || state.experiment)
-    rows.push(["Experiment", state.experiment ?? "None open"]);
-  if (state.since)
-    rows.push([
-      "Started",
-      `${fmt.when(state.since)} by ${state.who ?? "–"}, from the ${state.via ?? "–"}`,
-    ]);
-  return <Facts className="[&_dd]:text-left" rows={rows} />;
-}
-
-/** Before the app starts: which configuration it connects as it starts. Once
- * it runs, the Connection card takes this place. */
-function MicroscopeStart({
-  state,
-  choice,
-  setChoice,
-}: {
-  state: GatewayState;
-  choice: MicroscopeChoice;
-  setChoice: (choice: MicroscopeChoice) => void;
-}) {
-  const fallback =
-    state.configurations.find((c) => c.default)?.name ??
-    state.configurations[0]?.name ??
-    "";
-  const configuration = choice.configuration || fallback;
-  return (
-    <Card className="flex flex-col gap-3">
-      <CardTitle>Microscope</CardTitle>
-      {state.connection.length > 0 ? (
-        <p className="m-0 text-[13px] text-muted-foreground">
-          The app connects as it starts, with this gateway's flags:{" "}
-          {state.connection.join(" ")}.
-        </p>
-      ) : (
-        <>
-          <label className="flex max-w-[320px] flex-col gap-1 text-xs text-muted-foreground">
-            Configuration
-            <select
-              value={configuration}
-              onChange={(event) =>
-                setChoice({ ...choice, configuration: event.target.value })
-              }
-              className={FIELD}
-            >
-              {state.configurations.map((c) => (
-                <option key={c.name} value={c.name}>
-                  {c.default ? `${c.name} (default)` : c.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex items-center gap-2 text-[13px]">
-            <input
-              type="checkbox"
-              checked={choice.connect}
-              onChange={(event) =>
-                setChoice({ ...choice, connect: event.target.checked })
-              }
-            />
-            Connect when the app starts
-          </label>
-          {!choice.connect && (
-            <p className="m-0 text-xs text-muted-foreground">
-              The app starts with no microscope: connect one once it is up.
-            </p>
-          )}
-        </>
-      )}
-    </Card>
-  );
-}
-
 /** The name the app's own New dialog suggests: the app and the time,
  * e.g. AutoLamella-2026-11-06-12-30. */
 function defaultName(app: string): string {
@@ -183,14 +99,20 @@ function Starting({
   start,
   busy,
   microscope,
+  defaults,
 }: {
   state: GatewayState;
   start: (body: unknown) => void;
   busy: boolean;
   microscope: Record<string, unknown>;
+  defaults?: Defaults;
 }) {
-  const [app, setApp] = useState(state.apps[0]?.key ?? "");
-  const [window, setWindow] = useState(true);
+  const [app, setApp] = useState(
+    state.apps.find((a) => a.key === defaults?.app)?.key ??
+      state.apps[0]?.key ??
+      "",
+  );
+  const [window, setWindow] = useState(defaults?.window ?? true);
   const [creating, setCreating] = useState(false);
   const [experiment, setExperiment] = useState(state.last_experiment ?? "");
   const [name, setName] = useState("");
@@ -318,7 +240,7 @@ function Starting({
             start({ app, window, ...microscope, ...experimentBody })
           }
         >
-          {busy ? "Starting…" : "Start"}
+          {busy ? "Starting…" : "Start the app"}
         </Button>
       </div>
     </>
@@ -347,17 +269,342 @@ function StartingLine({ state }: { state: GatewayState }) {
   );
 }
 
-function AppSection({
+const WARN = "text-[var(--fibsem-semantic-warning-color)]";
+
+function Dot({ colour }: { colour: "ok" | "warn" | "off" }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block size-2 shrink-0 rounded-full",
+        colour === "ok"
+          ? "bg-[var(--fibsem-ok-color)]"
+          : colour === "warn"
+            ? "bg-[var(--fibsem-semantic-warning-color)]"
+            : "bg-[var(--fibsem-pending-color)]",
+      )}
+    />
+  );
+}
+
+function SubHeading({
+  first,
+  children,
+}: {
+  first?: boolean;
+  children: string;
+}) {
+  return (
+    <h3
+      className={cn(
+        "m-0 text-sm font-semibold text-foreground",
+        !first && "mt-1 border-t border-border pt-3",
+      )}
+    >
+      {children}
+    </h3>
+  );
+}
+
+/** Before the app starts: which configuration it connects as it starts. */
+function MicroscopeStart({
   state,
-  microscope,
-  starting = false,
-  up = false,
+  choice,
+  setChoice,
 }: {
   state: GatewayState;
-  microscope: Record<string, unknown>;
-  starting?: boolean;
-  /** Whether the app answers, so its pages open. */
-  up?: boolean;
+  choice: MicroscopeChoice;
+  setChoice: (choice: MicroscopeChoice) => void;
+}) {
+  const fallback =
+    state.configurations.find((c) => c.default)?.name ??
+    state.configurations[0]?.name ??
+    "";
+  const configuration = choice.configuration || fallback;
+  if (state.connection.length > 0)
+    return (
+      <p className="m-0 text-[13px] text-muted-foreground">
+        The app connects as it starts, with this gateway's flags:{" "}
+        {state.connection.join(" ")}.
+      </p>
+    );
+  return (
+    <>
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+        <label className="flex w-full max-w-[320px] flex-col gap-1 text-xs text-muted-foreground">
+          Configuration
+          <select
+            value={configuration}
+            onChange={(event) =>
+              setChoice({ ...choice, configuration: event.target.value })
+            }
+            className={FIELD}
+          >
+            {state.configurations.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.default ? `${c.name} (default)` : c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-2 pb-1.5 text-[13px]">
+          <input
+            type="checkbox"
+            checked={choice.connect}
+            onChange={(event) =>
+              setChoice({ ...choice, connect: event.target.checked })
+            }
+          />
+          Connect when the app starts
+        </label>
+      </div>
+      {!choice.connect && (
+        <p className="m-0 text-xs text-muted-foreground">
+          The app starts with no microscope: connect one once it is up.
+        </p>
+      )}
+    </>
+  );
+}
+
+/** How long the app has been up: "up 2 h 14 min". */
+function uptime(since: number | null, now: number): string | null {
+  if (!since) return null;
+  const minutes = Math.max(0, Math.floor((now / 1000 - since) / 60));
+  if (minutes < 60) return `up ${minutes} min`;
+  return `up ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+}
+
+/** The running app's microscope in one row: connected or not, and Connect
+ * or Disconnect through the gateway. */
+function MicroscopeRow({
+  connection,
+  starting,
+}: {
+  connection: Connection | undefined;
+  starting: boolean;
+}) {
+  const client = useQueryClient();
+  const [chosen, setChosen] = useState<string | null>(null);
+  const act = useMutation({
+    mutationFn: (path: string) =>
+      api<Connection>(`/gateway/microscope/${path}`, {
+        method: "POST",
+        body: JSON.stringify(
+          path === "connect" ? { configuration: chosen ?? undefined } : {},
+        ),
+      }),
+    onSettled: () =>
+      client.invalidateQueries({
+        queryKey: ["/gateway/microscope/connection"],
+      }),
+  });
+  const c = connection?.configuration;
+  const busy =
+    act.isPending ||
+    !!connection?.connecting ||
+    connection?.run?.state === "running";
+  const fallback =
+    connection?.configurations.find((o) => o.default)?.name ??
+    connection?.configurations[0]?.name ??
+    "";
+  const failed =
+    (act.error as Error | null)?.message ??
+    (connection && !connection.connected && !busy ? connection.error : null);
+  let line: ReactNode;
+  let colour: "ok" | "warn" | "off" = "off";
+  let action: ReactNode = null;
+  if (!connection) {
+    line = (
+      <span className="text-muted-foreground">
+        {starting ? "Waiting for the app…" : "The app doesn't answer"}
+      </span>
+    );
+  } else if (connection.connected && c) {
+    colour = "ok";
+    const name = [c.manufacturer, c.model].filter(Boolean).join(" ");
+    line = (
+      <>
+        {name || "Microscope"} connected
+        <span className="text-muted-foreground">
+          {[c.name ?? c.path, c.address].filter(Boolean).map((t) => ` · ${t}`)}
+        </span>
+      </>
+    );
+    action = (
+      <Button disabled={busy} onClick={() => act.mutate("disconnect")}>
+        Disconnect
+      </Button>
+    );
+  } else if (busy) {
+    colour = "warn";
+    line = <>{connection.connecting ?? "Connecting…"}</>;
+  } else {
+    line = <span className="text-muted-foreground">Not connected</span>;
+    action = (
+      <span className="flex items-center gap-2">
+        <select
+          value={chosen ?? fallback}
+          onChange={(event) => setChosen(event.target.value)}
+          aria-label="Configuration"
+          className={FIELD}
+        >
+          {connection.configurations.map((o) => (
+            <option key={o.name} value={o.name}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+        <Button
+          variant="primary"
+          disabled={!(chosen ?? fallback)}
+          onClick={() => act.mutate("connect")}
+        >
+          Connect
+        </Button>
+      </span>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-1.5 py-2.5">
+      <div className="grid grid-cols-1 items-center gap-2 text-[13px] sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3">
+        <span className="text-muted-foreground">Microscope</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <Dot colour={colour} />
+          <span className="min-w-0 break-words">{line}</span>
+        </span>
+        {action}
+      </div>
+      {failed && <p className="m-0 text-[13px] text-destructive">{failed}</p>}
+    </div>
+  );
+}
+
+/** The running app in one row: which app, its window and experiment, how
+ * long it has been up; Open the app, and Stop (or Close the window). */
+function AppRow({
+  state,
+  starting,
+  up,
+  stop,
+  busy,
+}: {
+  state: GatewayState;
+  starting: boolean;
+  up: boolean;
+  stop: () => void;
+  busy: boolean;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(tick);
+  }, []);
+  const [confirm, setConfirm] = useState(false);
+  const app = state.apps.find((a) => a.key === state.app)?.name ?? state.app;
+  const stopping = state.switch === "stopping";
+  const facts = [
+    state.experiment && state.experiment.split(/[\\/]/).filter(Boolean).pop(),
+    !starting && uptime(state.since, now),
+  ].filter(Boolean);
+  return (
+    <div className="flex flex-col gap-2 border-t border-border py-2.5">
+      <div className="grid grid-cols-1 items-center gap-2 text-[13px] sm:grid-cols-[96px_minmax(0,1fr)_auto] sm:gap-3">
+        <span className="text-muted-foreground">App</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <Dot colour={starting || stopping ? "warn" : "ok"} />
+          <span className="min-w-0 break-words">
+            {app ?? "The app"}, {state.window ? "with its window" : "no window"}
+            <span
+              className="text-muted-foreground"
+              title={state.experiment ?? ""}
+            >
+              {facts.map((t) => ` · ${t}`)}
+            </span>
+          </span>
+        </span>
+        <span className="flex gap-2.5">
+          {up && state.app_url && (
+            <Button
+              onClick={() =>
+                window.open(
+                  `${state.app_url}/ui/#token=${getToken() ?? ""}`,
+                  "_blank",
+                  "noopener",
+                )
+              }
+            >
+              Open the app
+            </Button>
+          )}
+          <Button
+            variant="danger"
+            disabled={busy}
+            onClick={() => setConfirm(true)}
+          >
+            {busy && stopping
+              ? "Stopping…"
+              : state.window
+                ? "Close the window"
+                : "Stop"}
+          </Button>
+        </span>
+      </div>
+      {starting && <StartingLine state={state} />}
+      <Dialog open={confirm} onOpenChange={setConfirm}>
+        <DialogContent
+          title={
+            state.window
+              ? `Close ${app ?? "the app"}'s window?`
+              : `Stop ${app ?? "the app"}?`
+          }
+          className="w-[min(460px,calc(100vw-32px))]"
+        >
+          <div className="flex flex-col gap-2 px-4 py-3.5 text-[13px]">
+            <p className="m-0">
+              {state.window
+                ? "This closes the app's window on this PC, and anything it is running stops with it."
+                : "This stops the app on this PC, and anything it is running stops with it."}
+            </p>
+            {state.window && (
+              <p className={cn("m-0", WARN)}>
+                Anyone at the PC sees the window close.
+              </p>
+            )}
+            <div className="flex justify-end gap-2.5 pt-2">
+              <Button onClick={() => setConfirm(false)}>Cancel</Button>
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() => {
+                  setConfirm(false);
+                  stop();
+                }}
+              >
+                {state.window ? "Close the window" : "Stop the app"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+/** The microscope and the app: the start form while nothing runs, else one
+ * row each. */
+function AppCard({
+  state,
+  defaults,
+  connection,
+  starting,
+  up,
+}: {
+  state: GatewayState;
+  defaults: Defaults | undefined;
+  connection: Connection | undefined;
+  starting: boolean;
+  up: boolean;
 }) {
   const client = useQueryClient();
   const act = useMutation({
@@ -369,80 +616,72 @@ function AppSection({
     },
   });
   const busy = state.switching || act.isPending;
-  const [confirmClose, setConfirmClose] = useState(false);
-  const stop = () => {
-    setConfirmClose(false);
-    act.mutate({ path: "/gateway/stop", body: {} });
-  };
+  const [choice, setChoice] = useState<MicroscopeChoice>({
+    connect: defaults?.connect ?? true,
+    configuration:
+      state.configurations.find((c) => c.name === defaults?.configuration)
+        ?.name ?? "",
+  });
+  // The gateway's own flags stand when it has some; else the page's choice.
+  const microscope: Record<string, unknown> =
+    state.connection.length > 0
+      ? {}
+      : choice.connect
+        ? {
+            connect: true,
+            ...(choice.configuration
+              ? { configuration: choice.configuration }
+              : {}),
+          }
+        : { connect: false };
+  const off = state.mode === "off";
   return (
-    <Card className="flex flex-col gap-3">
-      <CardTitle>App</CardTitle>
-      {state.mode === "off" ? (
-        <Starting
-          state={state}
-          busy={busy}
-          microscope={microscope}
-          start={(body) => act.mutate({ path: "/gateway/start", body })}
-        />
+    <Card className={cn("flex flex-col", off ? "gap-3" : "gap-0 py-1")}>
+      {off ? (
+        <>
+          <div className="flex items-center gap-2">
+            <Dot colour="off" />
+            <CardTitle>Nothing is running</CardTitle>
+          </div>
+          <SubHeading first>Microscope</SubHeading>
+          <MicroscopeStart
+            state={state}
+            choice={choice}
+            setChoice={setChoice}
+          />
+          <SubHeading>App</SubHeading>
+          <Starting
+            state={state}
+            busy={busy}
+            microscope={microscope}
+            defaults={defaults}
+            start={(body) => act.mutate({ path: "/gateway/start", body })}
+          />
+        </>
       ) : (
         <>
-          <Status state={state} />
-          {starting && <StartingLine state={state} />}
-          {confirmClose ? (
-            <>
-              <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
-                Close the app's window on this PC? Anyone at the PC sees it
-                close.
-              </p>
-              <div className="flex justify-end gap-2.5">
-                <Button onClick={() => setConfirmClose(false)}>Cancel</Button>
-                <Button variant="danger" disabled={busy} onClick={stop}>
-                  Close the window
-                </Button>
-              </div>
-            </>
-          ) : (
-            <div className="flex justify-end gap-2.5">
-              {up && state.app_url && (
-                <Button
-                  onClick={() =>
-                    window.open(
-                      `${state.app_url}/ui/#token=${getToken() ?? ""}`,
-                      "_blank",
-                      "noopener",
-                    )
-                  }
-                >
-                  Open the app
-                </Button>
-              )}
-              <Button
-                variant="danger"
-                disabled={busy}
-                onClick={state.window ? () => setConfirmClose(true) : stop}
-              >
-                {act.isPending || state.switch === "stopping"
-                  ? "Stopping…"
-                  : state.window
-                    ? "Close the window"
-                    : "Stop"}
-              </Button>
-            </div>
-          )}
+          <MicroscopeRow connection={connection} starting={starting} />
+          <AppRow
+            state={state}
+            starting={starting}
+            up={up}
+            busy={busy}
+            stop={() => act.mutate({ path: "/gateway/stop", body: {} })}
+          />
         </>
       )}
       {state.other_host && (
-        <p className="m-0 text-[13px] text-[var(--fibsem-semantic-warning-color)]">
+        <p className={cn("m-0 pb-2 text-[13px]", WARN)}>
           Another fibsem host runs here (pid {state.other_host.pid}) that the
           gateway didn't start: close it at the PC before starting the app.
         </p>
       )}
       {act.error && (
-        <p className="m-0 text-[13px] text-destructive">
+        <p className="m-0 pb-2 text-[13px] text-destructive">
           {(act.error as Error).message}
         </p>
       )}
-      {state.last_exit && (
+      {off && state.last_exit && (
         <p className="m-0 text-xs text-muted-foreground">
           Last ended: {state.last_exit.app ?? "the app"},{" "}
           {state.last_exit.killed
@@ -456,165 +695,254 @@ function AppSection({
   );
 }
 
-/** One line of the history in words: what happened to which app. */
-function happened(s: Switch, name: string): string {
-  if (s.result.startsWith("refused"))
-    return `Refused: ${s.result.replace(/^refused:\s*/, "")}`;
-  if (s.result === "started")
-    return `Started ${name}${s.window === true ? " with its window" : s.window === false ? " without a window" : ""}`;
-  if (s.result === "stopped")
-    return s.window ? `Closed ${name}'s window` : `Stopped ${name}`;
-  if (s.result === "closed") return `${name}'s window was closed at the PC`;
-  const exit = s.result.match(/^exited \((.*)\)$/);
-  if (exit) return `${name} ended on its own (exit ${exit[1]})`;
-  return s.result;
-}
-
-function Recent({ apps }: { apps: GatewayState["apps"] }) {
-  const history = useQuery({
-    queryKey: ["gateway/history"],
-    queryFn: () => api<{ switches: Switch[] }>("/gateway/history"),
-    refetchInterval: 5000,
-  });
-  const switches = history.data?.switches ?? [];
+/** After Stop: the page still shows, but the gateway is gone. */
+function Stopped({ at }: { at: number }) {
   return (
-    <Card className="flex flex-col gap-2">
-      <CardTitle>Recent</CardTitle>
-      {switches.length === 0 && (
+    <div className="flex h-full items-center justify-center px-4">
+      <div className="flex max-w-[460px] flex-col items-center gap-2 text-center">
+        <Square size={28} className="mb-2 text-muted-foreground" />
+        <h1 className="m-0 text-[17px] font-semibold">
+          The gateway has stopped
+        </h1>
         <p className="m-0 text-[13px] text-muted-foreground">
-          No starts or stops yet.
+          Stopped at {fmt.clock(at)} from this page. The app and any agent run
+          stopped with it.
         </p>
-      )}
-      {switches.map((s, i) => (
-        <div
-          key={i}
-          className="grid grid-cols-1 gap-0.5 border-t border-border py-2 text-[13px] sm:grid-cols-[150px_minmax(0,1fr)_auto] sm:gap-3"
-        >
-          <span className="text-muted-foreground tabular-nums">
-            {fmt.when(s.at)}
-          </span>
-          <span
-            className={cn(
-              "min-w-0 break-words",
-              s.result.startsWith("refused") &&
-                "text-[var(--fibsem-semantic-warning-color)]",
-            )}
-          >
-            {happened(
-              s,
-              apps.find((a) => a.key === s.app)?.name ?? s.app ?? "the app",
-            )}
-            {s.experiment && (
-              <span className="text-muted-foreground" title={s.experiment}>
-                {" "}
-                · {s.experiment.split(/[\\/]/).filter(Boolean).pop()}
-              </span>
-            )}
-          </span>
-          <span className="text-muted-foreground">
-            {s.who} · {s.via}
-          </span>
-        </div>
-      ))}
-    </Card>
+        <p className="m-0 mt-2 text-[13px]">
+          Start it again at the computer: the{" "}
+          <b className="text-foreground">fibsemOS Gateway</b> shortcut, or{" "}
+          <span className="font-mono text-xs">fibsem-gateway open</span>.
+        </p>
+      </div>
+    </div>
   );
 }
 
-/** The gateway's own page: the app, its microscope, the agent, who is paired,
- * and what started and stopped. */
+const RESTART_WAIT_MS = 120_000;
+
+/** After Restart: wait for the gateway to answer again, then reload. */
+function Restarting() {
+  const [late, setLate] = useState(false);
+  useEffect(() => {
+    let done = false;
+    const began = Date.now();
+    const poll = async () => {
+      // Give the gateway a moment to go down before asking whether it is back.
+      await new Promise((r) => setTimeout(r, 2000));
+      while (!done) {
+        try {
+          const r = await fetch("/health", { cache: "no-store" });
+          if (r.ok) {
+            location.reload();
+            return;
+          }
+        } catch {
+          // still down
+        }
+        if (Date.now() - began > RESTART_WAIT_MS) setLate(true);
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    };
+    void poll();
+    return () => {
+      done = true;
+    };
+  }, []);
+  return (
+    <div className="flex h-full items-center justify-center px-4">
+      <div className="flex max-w-[460px] flex-col items-center gap-2 text-center">
+        <Loader size={24} className="mb-2 animate-spin text-muted-foreground" />
+        <h1 className="m-0 text-[17px] font-semibold">
+          Restarting the gateway…
+        </h1>
+        <p className="m-0 text-[13px] text-muted-foreground">
+          {late
+            ? "It hasn't come back yet. If it doesn't, start it again at the computer."
+            : "This page reloads when it is back."}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+type Tab = "overview" | "instruments" | "history" | "pairing" | "settings";
+const TABS: [Tab, string][] = [
+  ["overview", "Overview"],
+  ["instruments", "Instruments"],
+  ["history", "History"],
+  ["pairing", "Pairing"],
+  ["settings", "Settings"],
+];
+
+/** The gateway's own page: a launcher for the app and the agent on this PC,
+ * what happened, who is paired, and its settings. What a running agent is
+ * doing is on the app's Agent page. */
+/** The tab says which page this is: the gateway's name and icon, not the
+ * app's. */
+function useGatewayTab() {
+  useEffect(() => {
+    document.title = "Agent Gateway";
+    let icon = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+    if (!icon) {
+      icon = document.createElement("link");
+      icon.rel = "icon";
+      document.head.appendChild(icon);
+    }
+    icon.type = "image/svg+xml";
+    icon.href = `data:image/svg+xml,${encodeURIComponent(gatewayIcon)}`;
+  }, []);
+}
+
 export function GatewayPage() {
+  useGatewayTab();
+  const [tab, setTab] = useState<Tab>("overview");
+  const [quit, setQuit] = useState<{ restart: boolean; at: number } | null>(
+    null,
+  );
+  if (quit)
+    return quit.restart ? <Restarting /> : <Stopped at={quit.at / 1000} />;
+  return (
+    <Gateway
+      tab={tab}
+      setTab={setTab}
+      onQuit={(restart) => setQuit({ restart, at: Date.now() })}
+    />
+  );
+}
+
+function Gateway({
+  tab,
+  setTab,
+  onQuit,
+}: {
+  tab: Tab;
+  setTab: (tab: Tab) => void;
+  onQuit: (restart: boolean) => void;
+}) {
   const gateway = useQuery({
     queryKey: ["gateway"],
     queryFn: () => api<GatewayState>("/gateway"),
     refetchInterval: 2000,
   });
+  const defaults = useQuery({
+    queryKey: ["gateway/defaults"],
+    queryFn: () => api<Defaults>("/gateway/defaults"),
+    retry: false,
+  });
+  const agent = useQuery({
+    queryKey: ["gateway/agent"],
+    queryFn: () => api<AgentState>("/gateway/agent"),
+    refetchInterval: 2000,
+  });
   const state = gateway.data;
   const running = state?.mode === "running";
   const newer = state ? newerLabel(state.newer) : null;
-  const [choice, setChoice] = useState<MicroscopeChoice>({
-    connect: true,
-    configuration: "",
-  });
-  // The gateway's own flags stand when it has some; else the page's choice.
-  const microscope: Record<string, unknown> =
-    !state || state.connection.length > 0
-      ? {}
-      : choice.connect
-        ? {
-            connect: true,
-            ...(choice.configuration
-              ? { configuration: choice.configuration }
-              : {}),
-          }
-        : { connect: false };
   const connection = useQuery({
     queryKey: ["/gateway/microscope/connection"],
     queryFn: () => api<Connection>("/gateway/microscope/connection"),
     enabled: running,
     retry: false,
-    // Often while the app starts, to say so as soon as it answers.
-    refetchInterval: (query) => (query.state.data ? 5000 : 1000),
+    // Often while the app starts or connects, to say so as soon as it answers.
+    refetchInterval: (query) =>
+      query.state.data && !query.state.data.connecting ? 5000 : 1000,
   });
   // The app is up once its server answers; until then it is starting.
   const appUp = running && !!connection.data;
   // Only an app with a host has a server to wait for.
   const hosted = !!state?.apps.find((a) => a.key === state.app)?.headless;
   const appStarting = running && hosted && !connection.data;
+  const appName = running
+    ? (state?.apps.find((a) => a.key === state.app)?.name ?? "the app")
+    : null;
+  const agentOn = !!agent.data?.running;
+  const settled = !defaults.isPending;
   return (
-    <div className="h-full overflow-auto">
-      <div className="mx-auto flex max-w-[1100px] flex-col gap-4 px-4 py-5">
-        <div className="flex items-baseline gap-3">
-          <h1 className="m-0 text-[17px] font-semibold">Agent Gateway</h1>
-          <span className="text-[13px] text-muted-foreground">
-            {location.host}
-            {state && ` · fibsemOS ${state.version}`}
-          </span>
-          {newer && (
-            <span
-              className="ml-auto text-[13px] text-muted-foreground"
-              title={newer.detail}
+    <div className="flex h-full flex-col overflow-hidden sm:flex-row">
+      <nav className="flex shrink-0 flex-col gap-0.5 border-b border-border px-3 py-3 sm:w-52 sm:border-r sm:border-b-0 sm:py-5">
+        <div className="px-3 pb-3">
+          <div className="text-[15px] font-semibold">Agent Gateway</div>
+          <div className="text-xs text-muted-foreground">{location.host}</div>
+        </div>
+        <div className="flex gap-0.5 overflow-x-auto sm:flex-col">
+          {TABS.map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              aria-current={tab === key ? "page" : undefined}
+              className={cn(
+                "flex cursor-pointer items-center justify-between gap-3 rounded border-0 px-3 py-1.5 text-left text-[13px]",
+                tab === key
+                  ? "bg-accent text-foreground"
+                  : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
             >
+              {label}
+              {key === "overview" && (
+                <Dot colour={running || agentOn ? "ok" : "off"} />
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="mt-auto hidden px-3 pt-4 text-xs text-muted-foreground sm:block">
+          {state && <div>fibsemOS {state.version}</div>}
+          {newer && (
+            <div className="text-foreground" title={newer.detail}>
               {newer.text}
-            </span>
+            </div>
           )}
         </div>
-        {gateway.error && (
-          <p className="m-0 text-[13px] text-destructive">
-            {(gateway.error as Error).message}
-          </p>
-        )}
-        {running && <ConnectionCard base="/gateway" title="Microscope" />}
-        {state && !running && (
-          <MicroscopeStart
-            state={state}
-            choice={choice}
-            setChoice={setChoice}
-          />
-        )}
-        {state && (
-          <AppSection
-            state={state}
-            microscope={microscope}
-            starting={appStarting}
-            up={appUp}
-          />
-        )}
-        {state && (
-          <AgentCard
-            appRunning={appUp}
-            appStarting={appStarting}
-          />
-        )}
-        <Instruments />
-        <Card>
-          <Connections roles={["operator", "hub"]} />
-        </Card>
-        <Recent apps={state?.apps ?? []} />
-        <AgentSessions
-          appRunning={appUp}
-          appStarting={appStarting}
-        />
-      </div>
+      </nav>
+      <main className="min-w-0 flex-1 overflow-auto">
+        <div className="flex max-w-[860px] flex-col gap-3 px-4 py-5 sm:px-6">
+          <h1 className="m-0 text-[17px] font-semibold">
+            {TABS.find(([key]) => key === tab)?.[1]}
+          </h1>
+          {gateway.error && (
+            <p className="m-0 text-[13px] text-destructive">
+              {(gateway.error as Error).message}
+            </p>
+          )}
+          {tab === "overview" && state && settled && (
+            <>
+              <AppCard
+                key={state.mode}
+                state={state}
+                defaults={defaults.data}
+                connection={connection.data}
+                starting={appStarting}
+                up={appUp}
+              />
+              <AgentCard
+                appRunning={appUp}
+                appStarting={appStarting}
+                defaults={defaults.data}
+              />
+            </>
+          )}
+          {tab === "instruments" && <Instruments />}
+          {tab === "history" && (
+            <History
+              apps={state?.apps ?? []}
+              ready={notReady(agent.data, appUp, appStarting)}
+            />
+          )}
+          {tab === "pairing" && (
+            <Card>
+              <Connections roles={["operator", "hub"]} />
+            </Card>
+          )}
+          {tab === "settings" && state && (
+            <Settings
+              apps={state.apps}
+              configurations={state.configurations}
+              version={state.version}
+              newer={newer}
+              running={appName}
+              onQuit={onQuit}
+            />
+          )}
+        </div>
+      </main>
     </div>
   );
 }

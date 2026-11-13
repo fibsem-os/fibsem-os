@@ -621,3 +621,83 @@ def test_show_brings_the_window_forward_for_the_operator_only(tmp_path):
     bare = TestClient(build_gateway_app(Gateway(home=tmp_path), auth))
     r = bare.post("/gateway/show", headers={"Authorization": f"Bearer {auth.token}"})
     assert r.json() == {"shown": False}
+
+
+@pytest.fixture
+def with_defaults(tmp_path):
+    token_file = tmp_path / "operator-token.json"
+    token_file.write_text(json.dumps({"token": OPERATOR_TOKEN}))
+    auth = GatewayAuth.from_disk(token_file, tmp_path / "gateway-paired.json")
+    path = tmp_path / "gateway-defaults.json"
+    app = build_gateway_app(FakeGateway(), auth, defaults_file=path)
+    return TestClient(app), path
+
+
+def test_the_operator_saves_the_pages_defaults(with_defaults):
+    client, path = with_defaults
+    first = client.get("/gateway/defaults", headers=_as(OPERATOR_TOKEN)).json()
+    assert first["configuration"] is None and first["connect"] is True
+    assert first["level"] is None and first["budget_usd"] is None
+    saved = {
+        "configuration": "arctis.yaml",
+        "connect": False,
+        "app": "autolamella",
+        "window": False,
+        "playbook": "autolamella-lead",
+        "level": "drive",
+        "budget_usd": "20",
+    }
+    r = client.put("/gateway/defaults", json=saved, headers=_as(OPERATOR_TOKEN))
+    assert r.status_code == 200 and r.json()["budget_usd"] == 20.0
+    read = client.get("/gateway/defaults", headers=_as(OPERATOR_TOKEN)).json()
+    assert read == {**saved, "budget_usd": 20.0}
+    assert json.loads(path.read_text())["level"] == "drive"
+
+
+def test_defaults_refuse_what_the_page_could_not_use(with_defaults):
+    client, path = with_defaults
+    for body, kind in (
+        ({"level": "off"}, "bad_level"),
+        ({"budget_usd": "-1"}, "bad_budget"),
+        ({"budget_usd": "lots"}, "bad_budget"),
+        ({"colour": "blue"}, "bad_defaults"),
+    ):
+        r = client.put("/gateway/defaults", json=body, headers=_as(OPERATOR_TOKEN))
+        assert (r.status_code, r.json()["detail"]["error_type"]) == (422, kind)
+    assert not path.exists()
+
+
+def test_only_the_operator_saves_defaults(with_defaults):
+    client, path = with_defaults
+    hub = _pair_hub(client, [SWITCH_MODES])
+    assert client.get("/gateway/defaults", headers=_as(hub["token"])).status_code == 200
+    r = client.put("/gateway/defaults", json={}, headers=_as(hub["token"]))
+    assert r.status_code == 403 and not path.exists()
+
+
+def test_a_broken_defaults_file_reads_as_none_saved(with_defaults):
+    client, path = with_defaults
+    path.write_text("{not json")
+    r = client.get("/gateway/defaults", headers=_as(OPERATOR_TOKEN))
+    assert r.status_code == 200 and r.json()["app"] is None
+
+
+def test_secrets_say_where_a_key_is_never_what(with_defaults, monkeypatch):
+    from fibsem import keystore
+
+    client, _ = with_defaults
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-not-a-real-key")
+    monkeypatch.delenv("FIBSEM_SLACK_TOKEN", raising=False)
+    monkeypatch.setattr(keystore, "stored_secret", lambda name: None)
+    r = client.get("/gateway/secrets", headers=_as(OPERATOR_TOKEN))
+    assert "sk-not-a-real-key" not in r.text
+    rows = {row["name"]: row for row in r.json()}
+    assert rows["ANTHROPIC_API_KEY"]["set"] is True
+    assert rows["ANTHROPIC_API_KEY"]["source"] == "environment"
+    assert rows["FIBSEM_SLACK_TOKEN"] == {
+        "name": "FIBSEM_SLACK_TOKEN",
+        "about": keystore.KEYS["FIBSEM_SLACK_TOKEN"],
+        "set": False,
+        "source": None,
+    }
+    assert client.get("/gateway/secrets").status_code == 401
