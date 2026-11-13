@@ -54,8 +54,8 @@ def test_every_hook_option_fires_on_a_tool_that_exists(when):
     """A renamed tool fails here rather than quietly turning a reminder off."""
     option = HOOK_OPTIONS[when]
     if option.event == reminders.WATCHER:
-        # The watcher prints "EVENT <kind> ..." for the kinds it watches.
-        assert any(option.on_lines([f"EVENT {k} 01 Task"]) for k in watch.INTERESTING)
+        # A task event's wake-up has the event's kind.
+        assert option.wake in watch.INTERESTING
         return
     for part in option.tools.split("|"):
         assert any(re.fullmatch(part, tool) for tool in TOOLS), (when, part)

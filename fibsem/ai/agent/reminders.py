@@ -28,8 +28,8 @@ class HookOption:
     answer_has: str = ""
     # Only when these arguments match (a pattern, searched, any case).
     input_matches: Tuple[Tuple[str, str], ...] = ()
-    # For event WATCHER: a pattern on the watcher's lines, said with that turn.
-    line: str = ""
+    # For event WATCHER: the kind of wake-up (`watch.Wake.kind`) it is said with.
+    wake: str = ""
     # The instrument kind whose tools it fires on, or "" for any kind.
     instrument: str = ""
     # For one app's workflow: off until a playbook's ``hooks`` switches it on.
@@ -40,7 +40,9 @@ class HookOption:
         return not self.instrument or self.instrument == kind
 
     def on_lines(self, lines: List[str]) -> bool:
-        return bool(self.line) and any(re.search(self.line, x) for x in lines)
+        return bool(self.wake) and any(
+            getattr(line, "kind", None) == self.wake for line in lines
+        )
 
     def applies(self, hook_input: dict, server: str) -> bool:
         name = str(hook_input.get("tool_name", ""))
@@ -112,7 +114,7 @@ HOOK_OPTIONS: Dict[str, HookOption] = {
     ),
     # A task finished: the watcher's line, not a tool call.
     "after_task": HookOption(
-        "After a task finishes", WATCHER, "", line=r"^EVENT task_completed\b"
+        "After a task finishes", WATCHER, "", wake="task_completed"
     ),
     "hardware_error": HookOption(
         "On a hardware error", "PostToolUseFailure", ".*", server_errors_only=True
@@ -197,7 +199,7 @@ def hook_rows() -> List[dict]:
                 "when": key,
                 "label": option.label,
                 "fires": timing,
-                "tools": option.tools or option.line,
+                "tools": option.tools or option.wake,
                 "instrument": option.instrument or "any",
                 "by_playbook": option.by_playbook,
             }

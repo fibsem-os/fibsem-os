@@ -10,6 +10,7 @@ import pytest
 from fibsem.ai.agent import harness as harness_mod
 from fibsem.ai.agent import playbooks
 from fibsem.ai.agent import reminders as reminder_mod
+from fibsem.ai.agent import watch as watch_mod
 
 SERVER = harness_mod.SERVER
 
@@ -226,17 +227,18 @@ def test_session_settings_add_up_along_extends_the_child_winning(lab, checkout):
 
 def test_a_finished_task_reminds_with_the_watchers_turn(lab, checkout):
     after = reminder_mod.HOOK_OPTIONS["after_task"]
-    assert after.on_lines(["EVENT task_completed 01 Rough Mill"])
-    assert not after.on_lines(["EVENT task_started 01 Rough Mill"])
+    done = [watch_mod.Wake("task_completed", "EVENT task_completed 01 Rough Mill")]
+    started = [watch_mod.Wake("task_started", "EVENT task_started 01 Polishing")]
+    assert after.on_lines(done)
+    assert not after.on_lines(started)
     reminders = playbooks.Reminders()
     reminders.set(playbooks.load("autolamella", checkout), "the operator")
     wakes = harness_mod.Wakes(reminders.for_lines)
-    done = ["EVENT task_completed 01 Rough Mill"]
     assert "Reminder:" not in wakes.add(done), "only while autolamella-lead is read"
     reminders.loaded("autolamella-lead")
     prompt = wakes.add(done)
     assert prompt.endswith(reminder_mod.reminder(reminders.texts("after_task")))
-    assert "Reminder:" not in wakes.add(["EVENT task_started 01 Polishing"])
+    assert "Reminder:" not in wakes.add(started)
     # Never an SDK hook: no tool call means a task finished.
     pytest.importorskip("claude_agent_sdk")
     matchers = reminders.sdk_hooks(SERVER)

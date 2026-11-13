@@ -276,13 +276,19 @@ def turn_prompt(
     prompt = "The watcher printed:\n" + "\n".join(lines)
     if remind:
         prompt += "\n\n" + reminders.reminder(remind)
-    if any(line.startswith("GAP") for line in lines):
+    said = watch_mod.kinds(lines)
+    if watch_mod.GAP in said:
         prompt += "\n\n" + words.reread_proposals
-    if any(line.startswith(("AGENT BACK", "RESTARTED", "LEVEL")) for line in lines):
+    if said & {watch_mod.AGENT_BACK, watch_mod.RESTARTED, watch_mod.LEVEL}:
         prompt += "\n\n" + words.reread_level
-    if any(line.startswith(("WAKE ", "PLAN EDITED")) for line in lines):
+    if said & {ALARM, watch_mod.PLAN_EDITED}:
         prompt += "\n\n" + words.reread_plan
     return prompt
+
+
+# The kinds of the harness's own wake-ups: the agent's timer, and a deadline.
+ALARM = "alarm"
+DEADLINE = "deadline"
 
 
 class Wakes:
@@ -296,6 +302,8 @@ class Wakes:
     ) -> None:
         self.off = False
         self._held: List[str] = []
+        # The operator's messages in the turns given, until they are read.
+        self.unread: List[str] = []
         # The reminders a turn's lines call for (`playbooks.Reminders.for_lines`).
         self._remind = remind
         self._words = words
@@ -303,9 +311,10 @@ class Wakes:
     def add(self, lines: List[str]) -> Optional[str]:
         """The next turn's prompt, or None when there is nothing to say yet."""
         for line in lines:
-            if line.startswith("AGENT OFF"):
+            kind = getattr(line, "kind", None)
+            if kind == watch_mod.AGENT_OFF:
                 self.off = True
-            elif line.startswith("AGENT BACK"):
+            elif kind == watch_mod.AGENT_BACK:
                 if not self.off:
                     # The level came back before the agent heard it go.
                     continue
@@ -314,8 +323,16 @@ class Wakes:
         if self.off or not self._held:
             return None
         lines, self._held = self._held, []
+        for line in lines:
+            self.unread += getattr(line, "message_ids", ())
         remind = self._remind(lines) if self._remind else None
         return turn_prompt(lines, remind, self._words)
+
+    def read(self) -> List[str]:
+        """The ids of the operator's messages in the turns given since the
+        last call: read, once their turn starts."""
+        ids, self.unread = self.unread, []
+        return ids
 
 
 class Alarm:
@@ -344,7 +361,9 @@ class Alarm:
             return "The harness can't wake you yet; the watcher's lines still will."
         minutes = min(float(minutes), self.max_min)
         self.reason = reason.strip() or "you asked to be woken"
-        line = f"WAKE {self.reason} (you asked {minutes:g} min ago)"
+        line = watch_mod.Wake(
+            ALARM, f"WAKE {self.reason} (you asked {minutes:g} min ago)"
+        )
         self._timer = self._loop.call_later(minutes * 60, self._rang, line)
         log.info("Wake-up in %g min: %s", minutes, self.reason)
         return (
@@ -400,9 +419,12 @@ class Deadlines:
             lines = (
                 (
                     self.warn_s,
-                    f"DEADLINE in {self.warn_s / 60:g} min: {text} (by {at})",
+                    watch_mod.Wake(
+                        DEADLINE,
+                        f"DEADLINE in {self.warn_s / 60:g} min: {text} (by {at})",
+                    ),
                 ),
-                (0.0, f"DEADLINE now: {text} (by {at})"),
+                (0.0, watch_mod.Wake(DEADLINE, f"DEADLINE now: {text} (by {at})")),
             )
             self._timers[(text, by)] = [
                 self._loop.call_later(delay, self._ring, line)
@@ -624,42 +646,22 @@ class _WatchEnded:
     code: int
 
 
-# What the watch prints just before it gives up.
-LAST_LINES = ("SERVER GONE", "SERVER UNAVAILABLE", "NO EVENTS")
-
-
 def _last_line(batch) -> bool:
-    return any(isinstance(item, str) and item.startswith(LAST_LINES) for item in batch)
-
-
-def _has_events(response) -> bool:
-    if response.status_code != 200:
-        return False
-    try:
-        return bool(response.json().get("available"))
-    except (ValueError, AttributeError):
-        return False
+    """Whether the watch said it is giving up (`watch.LAST_KINDS`)."""
+    return bool(watch_mod.kinds(batch) & watch_mod.LAST_KINDS)
 
 
 class _WatchClient:
-    """The watch's client: it refuses another request once stopped, and
-    calls ``on_seeded`` when the event stream first answers."""
+    """The watch's client: it refuses another request once stopped."""
 
-    def __init__(self, client, stopping: threading.Event, on_seeded) -> None:
+    def __init__(self, client, stopping: threading.Event) -> None:
         self._client = client
         self._stopping = stopping
-        self._on_seeded = on_seeded
-        self._seeded = False
 
     def request(self, method, path, *args, **kwargs):
         if self._stopping.is_set():
             raise _Stopped
-        response = self._client.request(method, path, *args, **kwargs)
-        if not self._seeded and path.startswith("/app/events"):
-            if _has_events(response):
-                self._seeded = True
-                self._on_seeded()
-        return response
+        return self._client.request(method, path, *args, **kwargs)
 
 
 class Watcher:
@@ -706,9 +708,7 @@ class Watcher:
         self._stopping.wait(seconds)
 
     def _run(self) -> None:
-        client = _WatchClient(
-            self._client, self._stopping, lambda: self._deliver(_Seeded())
-        )
+        client = _WatchClient(self._client, self._stopping)
         try:
             # The harness marks a message read when the turn carrying it starts.
             code = watch_mod.watch(
@@ -718,6 +718,7 @@ class Watcher:
                 poll_s=self._poll_s,
                 quiet_s=self._quiet_s,
                 report_reads=False,
+                on_seeded=lambda: self._deliver(_Seeded()),
             )
         except _Stopped:
             return
@@ -961,7 +962,7 @@ class Harness:
         over."""
         if self._stopping.is_set():
             return False
-        await self._report_read(prompt)
+        await self._report_read()
         if getattr(self._agent, "compacted", False):
             # The context was compacted during the last turn: the plan and the
             # playbook's rules may be all that is left of the intake.
@@ -1074,10 +1075,10 @@ class Harness:
             self._deadlines.set(reported.get("deadlines"))
         await self._send_transcript()
 
-    async def _report_read(self, prompt: str) -> None:
+    async def _report_read(self) -> None:
         """The operator's messages this turn carries are read: the web page
         stops showing them as waiting."""
-        ids, client = watch_mod.message_ids(prompt), self._client
+        ids, client = self._wakes.read(), self._client
         if ids and client is not None:
             await asyncio.get_running_loop().run_in_executor(
                 None, watch_mod.report_read, client, ids
@@ -1198,8 +1199,11 @@ class Harness:
         if not await self._watch():
             return None
         self._end_reason = "stopped at fibsem-agent"
-        # A restarted app starts its own session, at Watch.
+        # A restarted app starts its own session, at Watch. The messages in
+        # *prompt* are still to be read.
+        unread = self._wakes.read()
         self._wakes = self._new_wakes()
+        self._wakes.unread = unread
         back = (
             f"The app could not be watched for {time.monotonic() - started:.0f} s "
             "and the harness is watching it again: events in between were not "
