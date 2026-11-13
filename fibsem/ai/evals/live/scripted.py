@@ -52,8 +52,10 @@ POLISH_IMAGE_HFW = 30e-6  # m, the FIB image a pass is judged on
 POLISH_SCHEDULE = (1.0e-6, 0.6e-6, 0.4e-6, 0.3e-6, 0.25e-6, 0.22e-6, 0.2e-6)
 POLISH_STOP_NM = 250
 FULL_FRAME_BELOW = 80e-12  # A: passes under this align on the full frame
-BROKEN_SHARE = 0.2
-WIDER = 1.3  # a band this much wider than before a pass is broken  # a band missing in this share of its columns is broken
+BROKEN_SHARE = 0.2  # a band missing in this share of its columns is broken
+WIDER = 1.3  # a band this much wider than before a pass is broken
+# warnings that make a reading no use to stop on or to compare with
+UNSURE = ("several_bands", "low_contrast")
 CLAIM_M = 1e-6  # a last check this near the centre: say it is coincident
 FIB_TILE_HFW = 300e-6  # m, a FIB overview's tiles at the SEM orientation
 RECENTRE_M = 20e-6  # a cell this near a site's centre is the one meant
@@ -410,6 +412,9 @@ def _measure(client: LiveClient, item: str, n: int) -> Dict[str, Any]:
     return {
         "nm": median,
         "broken": dropped > BROKEN_SHARE or "no_band" in codes,
+        "sure": median is not None
+        and dropped <= BROKEN_SHARE
+        and not any(c in codes for c in UNSURE),
     }
 
 
@@ -422,28 +427,36 @@ def polishing(client: LiveClient, work: Path) -> Dict[str, Any]:
     config = client.call("item_get_task_config", item_name=item, task_name="Polishing")
     task = config["config"]["milling"]["mill_polishing"]
     task["alignment"]["full_frame_below"] = FULL_FRAME_BELOW
+    # the reading as rough milled is often wrong, with or without a warning
+    # (the trenches' far walls read as bands): it is kept for the record, but
+    # neither stops the polishing nor is compared with
     measured = _measure(client, item, 0)
+    sure = None
     passes, damage = 0, False
     for spacing in POLISH_SCHEDULE:
-        if measured["nm"] is not None and measured["nm"] <= POLISH_STOP_NM:
+        if sure is not None and sure["nm"] <= POLISH_STOP_NM:
             break
         this = json.loads(json.dumps(task))
         this["stages"][0]["pattern"]["spacing"] = spacing
         client.call("milling_run_task", config=this, path=item)
         passes += 1
-        before, measured = measured, _measure(client, item, passes)
-        # a band that reads much wider after a pass has come apart
+        measured = _measure(client, item, passes)
+        # a band that reads much wider than the last sure reading has come apart
         wider = (
-            before["nm"] is not None
+            sure is not None
             and measured["nm"] is not None
-            and measured["nm"] > before["nm"] * WIDER
+            and measured["nm"] > sure["nm"] * WIDER
         )
         if measured["broken"] or wider:
             damage = True
             break
+        if measured["sure"]:
+            sure = measured
     return {
         "item": item,
-        "thickness_nm": round(measured["nm"] or 0),
+        "thickness_nm": round(
+            (measured if damage or sure is None else sure)["nm"] or 0
+        ),
         "passes": passes,
         "damage_seen": damage,
         "reason": (
