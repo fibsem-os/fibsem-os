@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generic, List, Optional, TypeVar
 
 from fibsem.ai.agent.library import Item as LibraryItem
 from fibsem.ai.agent.recent import RecentRow
+from fibsem.ai.agent.report import ReportedSession
 from fibsem.codec import encode, saved
 from fibsem.config import NotificationPreferences
 from fibsem.control import InControl
@@ -1609,7 +1610,7 @@ class RequestDecided:
 @dataclass
 class AgentSession:
     # what the agent reported of its session, None before it has
-    session: Optional[Dict[str, Any]] = None
+    session: Optional[ReportedSession] = None
 
 
 @dataclass
