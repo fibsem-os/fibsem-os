@@ -142,18 +142,18 @@ def _centre(microscope, beam_type) -> np.ndarray:
     )
 
 
-def optics_key(microscope) -> Dict[str, Any]:
+def optics_key(microscope, x: float = 0.0, y: float = 0.0) -> Dict[str, Any]:
     """What the key needs to say whether a site was focused and made
     coincident, at the SEM orientation: the working distance the SEM is in
     focus at for a stage z (m, linear in z), and the stage z at which the
     SEM's and the FIB's view centres meet, with how far apart they are for
-    each metre of z away from it."""
+    each metre of z away from it; at stage *x*, *y* (m)."""
 
     connection = microscope._connection
     zs = (0.0, -20e-6)
     focus, gap = [], []
     for z in zs:
-        microscope.move_stage_absolute(FibsemStagePosition(x=0, y=0, z=z, r=0, t=0))
+        microscope.move_stage_absolute(FibsemStagePosition(x=x, y=y, z=z, r=0, t=0))
         focus.append(connection.scene_focus(BeamType.ELECTRON, here=True))
         gap.append(
             _centre(microscope, BeamType.ION) - _centre(microscope, BeamType.ELECTRON)
