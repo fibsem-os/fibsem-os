@@ -36,6 +36,7 @@ from urllib.parse import urlencode
 import fibsem
 import fibsem.config as fibsem_cfg
 from fibsem.ai.agent import manager as agent_sessions
+from fibsem.util import app_log
 from fibsem.versioning import get_revision
 
 if TYPE_CHECKING:
@@ -366,6 +367,12 @@ def _files_from_this_pc(content: BugReportContent) -> List[Tuple[str, str]]:
         if path and os.path.isfile(path):
             files.append((str(path), f"{folder}/{os.path.basename(path)}"))
 
+    if content.include_logfile:
+        # What each program logged, from before an experiment was open.
+        logs = app_log.folder()
+        if logs.is_dir():
+            for path in sorted(logs.iterdir()):
+                _add(path, "app-log")
     if content.include_crash_records:
         crashes = diagnostics.crash_folder()
         if crashes.is_dir():
