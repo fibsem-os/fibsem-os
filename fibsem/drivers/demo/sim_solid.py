@@ -100,6 +100,7 @@ INSIDE = {
 }
 NOTHING = (0.1, 0.04)
 FLOOR = 1.3  # how much brighter a milled floor is than a cut face
+FRESH = 0.05  # um; a floor this far down has lost the look of the top
 TILT = (0.5, 0.42)  # how strongly a slope changes the yield
 BAR_UNDER = (0.22, 0.12)  # how much a bar under thin ice adds
 BAR_DEPTH = 5.0  # the ice over which a bar fades
@@ -544,7 +545,7 @@ def _removed(scene: "SampleScene", X, Y, col: dict) -> list:
                 "span": float(edges.min()),
                 "view": None if cut is None else (cut.turn, cut.fs, cut.k),
                 "halo": region.halo * UM,
-                "rim": pieces is None,
+                "rim": pieces is None and not getattr(region, "scan", False),
                 "hard": hard,
             }
         )
@@ -900,7 +901,10 @@ def canvas(scene: "SampleScene", beam: str, frame: ViewFrame, u, w, pix):
     span = hit["floor"]
     floor = span > 0
     sunk = 1 / (1 + (depth / np.where(floor, 0.5 * span, 1.0)) ** 2)
-    level = FLOOR * mat_in * np.clip(sunk, 0.2, 1.0)
+    # the first of it off the top still looks like the top
+    fresh = np.exp(-depth / FRESH)
+    level = fresh * mat_top + (1 - fresh) * FLOOR * mat_in
+    level = level * np.clip(sunk, 0.2, 1.0)
     inside = np.where(floor, level, inside)
     opening = np.where(floor, 1.0, hit["opening"])
     removed, x = hit["removed"], hit["x"]

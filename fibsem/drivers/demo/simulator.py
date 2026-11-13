@@ -521,6 +521,17 @@ class DemoSimulator:
                 )
             finally:
                 scene.charging = charging
+            # the frame's own dose: it shows from the next image on
+            scene.expose(
+                effective_beam_type,
+                self.scene_stage_position(),
+                projection,
+                effective_image_settings.hfw,
+                effective_image_settings.resolution,
+                current,
+                effective_image_settings.dwell_time,
+                beam_shift=(float(shift.x), float(shift.y)),
+            )
             if "noisy_image" in fired:
                 sigma = fired["noisy_image"].amount * max(scene.noise_sigma, 4.0)
                 noise = np.random.default_rng().normal(0.0, sigma, image.data.shape)

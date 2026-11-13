@@ -283,8 +283,12 @@ class MilledRegion:
     # damage: convex pieces on the sample plane (um);
     # when given, only what lies under one of them is removed
     face: Optional[list] = None
+    # what imaging wore away over a field of view, not a pattern: no rim
+    scan: bool = False
 
 
+ION_YIELD = 10.0  # um^3 of ice a nC of ions takes away
+IMAGING_STEP = 20e-9  # m; what imaging wears away shows in steps this deep
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
 # A spot burn: what a 60 pA, 10 s exposure leaves on a real grid. The mark is
 # a dark disc like any milled region, with a bright rim round it.
@@ -448,6 +452,9 @@ class SampleScene:
     # size and the noise (see sim_optics). False draws every image sharp.
     # On for a scene from the configuration; a scene built in code asks
     beam_optics: bool = False
+    # how fast FIB imaging wears the sample away, against ION_YIELD (0 = never):
+    # every frame is a shallow mill over its field of view
+    imaging_damage: float = 0.0
     # focus is at the beam's eucentric height, give or take this (m): each
     # beam's own seeded error, which an autofocus takes out
     focus_fuzz: float = 15e-6
@@ -478,6 +485,9 @@ class SampleScene:
     mill_passes: List[dict] = field(default_factory=list)
     # where a thin lamella's damage started: {"pass", "kind"}, or None
     damage_started: Optional[dict] = None
+    # what ion imaging has put down, per field of view imaged: its outline,
+    # frames, dose (nC/um^2) and the depth worn away (m); see `expose`
+    exposures: Dict[tuple, dict] = field(default_factory=dict, repr=False)
     _cuts: List[np.ndarray] = field(default_factory=list, repr=False)
     # the grids on the holder. With no calibrated, occupied slot handed in
     # (`holder_slots`, set by the simulator from its sample holder before
@@ -961,6 +971,7 @@ class SampleScene:
         # trenches were cut in grids that are no longer where they were
         self.milled = []
         self.mill_passes, self._cuts, self.damage_started = [], [], None
+        self.exposures = {}
         logging.debug(
             {
                 "msg": "sample_scene_grids_placed",
@@ -1188,6 +1199,85 @@ class SampleScene:
             }
         )
         return regions
+
+    def expose(
+        self,
+        beam_type: BeamType,
+        stage_position: FibsemStagePosition,
+        projection: BeamStageProjection,
+        hfw: float,
+        resolution: Tuple[int, int],
+        beam_current: Optional[float],
+        dwell_time: Optional[float],
+        beam_shift: Tuple[float, float] = (0.0, 0.0),
+    ) -> Optional[dict]:
+        """An ion beam frame wears the sample: the charge it puts down, over
+        its field of view, takes that much ice off the top. Nothing shows at
+        an imaging current; at a milling current and a small field of view a
+        few frames leave a rectangle. Returns the field of view's running
+        record (in `exposures`), or None when imaging does no damage."""
+        if self.imaging_damage <= 0 or not beam_current or not dwell_time:
+            return None
+        if beam_type is not BeamType.ION:
+            return None
+        width, height = float(hfw), float(hfw) * resolution[1] / resolution[0]
+        charge = abs(beam_current) * dwell_time * resolution[0] * resolution[1]
+        dose = charge * 1e9 / (width * height * 1e12)  # nC per um^2
+        hw, hh = width / 2, height / 2
+        corners = [(-hw, -hh), (hw, -hh), (hw, hh), (-hw, hh)]
+        args = (beam_type, stage_position, projection)
+        points = np.array(
+            [
+                self.view_to_world(*args, x, -y, beam_shift, beam_current)
+                for x, y in corners
+            ]
+        )
+        key = tuple(np.round(points * 2e6).astype(int).ravel())  # to 0.5 um
+        seen = self.exposures.setdefault(
+            key,
+            {
+                "beam": beam_type.name.lower(),
+                "points": points,
+                "frames": 0,
+                "dose": 0.0,
+                "depth": 0.0,
+                "region": None,
+            },
+        )
+        seen["frames"] += 1
+        seen["dose"] += dose
+        depth = seen["dose"] * ION_YIELD * self.imaging_damage * 1e-6  # m
+        if depth - seen["depth"] >= IMAGING_STEP:
+            # enough since it last showed: a deeper floor over the field of view
+            frame = self.view_frame(*args, beam_shift, beam_current)
+            region = MilledRegion(
+                points=points,
+                depth=depth,
+                beam_cut=self._beam_cut(frame, corners),
+                scan=True,
+            )
+            self.milled = [r for r in self.milled if r is not seen["region"]]
+            self.milled.append(region)
+            seen["depth"], seen["region"] = depth, region
+        return seen
+
+    @staticmethod
+    def _beam_cut(frame, corners) -> "sim_view.BeamCut":
+        """A shape drawn in a beam's view (m from its centre, y up), for a
+        cut along that beam."""
+        c, s_ = np.cos(frame.theta), np.sin(frame.theta)
+        polygon = np.array(
+            [
+                (
+                    (x * c - y * s_) * 1e6 - frame.anchor[0],
+                    (-x * s_ - y * c) * 1e6 - frame.anchor[1],
+                )
+                for x, y in corners
+            ]
+        )
+        return sim_view.BeamCut(
+            polygon=polygon, turn=frame.turn, fs=frame.fs, k=frame.k
+        )
 
     def _solid_damage(self, record, frame, world, cut, rng) -> MilledRegion:
         """A damaged lamella: irregular shapes on the
@@ -2020,6 +2110,7 @@ class SampleScene:
         "beam_offset",  # {electron: [dx, dy], ion: [dx, dy]} m
         "current_offset_scale",  # m, sigma of the per-current beam offset
         "beam_optics",  # focus, stigmation and current show in the image
+        "imaging_damage",  # how fast FIB imaging wears the sample (1 = ice, 0 = never)
         "focus_fuzz",  # m, how far focus is from the eucentric height, at most
         "scan_rotation_at_start",  # {electron: deg, ion: deg} the beams boot at
         "fm_camera_mount",  # the mount transform the FM camera really has
@@ -2067,6 +2158,7 @@ class SampleScene:
             raise ValueError(f"Unknown sim.sample keys: {sorted(unknown)}")
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
         kwargs.setdefault("beam_optics", True)
+        kwargs.setdefault("imaging_damage", 1.0)
         if kwargs.get("fm_camera_mount") is not None:
             mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
         sim_faults.Faults(kwargs.get("faults"))  # or it raises
@@ -2864,6 +2956,10 @@ class SampleScene:
                 "passes": self.mill_passes,
                 "damage_started": self.damage_started,
                 "faults": self.faults_fired(),
+                "exposures": [
+                    {k: v for k, v in seen.items() if k != "region"}
+                    for seen in self.exposures.values()
+                ],
                 "regions": [
                     {
                         "points": r.points,

@@ -195,8 +195,20 @@ after.
 A lamella that breaks while it is still thick breaks more coarsely: its cracks gape
 wider, so a break in rough milling shows at a 50 um field of view.
 
+### Imaging wears the sample
+
+An ion beam image mills a little too. Each FIB frame puts down a dose, its current times
+its dwell time times its pixels over its field of view, and takes that much ice off the
+top (`imaging_damage`, 1 is ice at about 10 um3 per nC). At an imaging current it never
+shows: a 20 pA frame at 40 um takes a fraction of a nanometre. At a milling current and
+a small field of view it does: a 1 nA frame at 10 um takes about 0.2 um, and a few of
+them leave a rectangle the size of the image. `scene.exposures` keeps the frames, the
+dose (nC per um2) and the depth worn away for each field of view. The electron beam does
+no damage.
+
 `scene.record()` gives all of this as plain values for `json.dump`: the passes, every
-milled region (its outline, depth, and whether it is a spot burn or damage), and for
+milled region (its outline, depth, and whether it is a spot burn or damage), what
+imaging wore away (`exposures`), and for
 each fluorescence target whether it was milled away. Pass it points of your own,
 `scene.record({"name": (x, y, z)})` (world metres, z above the film), to ask the same of
 them.
@@ -310,6 +322,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `focus_fuzz` | 15e-6 | how far a beam's focus is from its eucentric height, at most (m) |
 | `scan_rotation_at_start` | {} | the scan rotation each beam boots at, `{electron: deg, ion: deg}` |
 | `fm_camera_mount` | null | the mount transform the FM camera really has; null is as configured |
+| `imaging_damage` | 1 | how fast FIB imaging wears the sample away (1 is ice, 0 is never) |
 | `faults` | [] | things that go wrong and when, see "Things going wrong" |
 
 ### Grid and film
