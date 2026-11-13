@@ -1348,3 +1348,54 @@ def test_the_watch_says_when_it_holds_its_place(app):
     _code, lines = _watch({2: run}, on_seeded=lambda: said.append("seeded"))
     assert said == ["seeded"]
     assert lines[-1].kind == watch_mod.WORKFLOW_ENDED
+
+
+def test_the_cursor_is_the_newest_event_once_its_lines_are_said(app):
+    app.buffer.append("workflow_completed", {})
+    tail = app.buffer.events_since(0)["events"][-1]["id"]
+    heard, said = [], []
+
+    def run():
+        app.buffer.append("task_started", {"item_name": "l3"})
+        app.buffer.append("workflow_completed", {})
+
+    def cursor(event_id):
+        said.append((event_id, list(heard)))
+        if len(heard) == 2:
+            raise _Seen
+
+    def until(lines):
+        heard[:] = lines
+        return False
+
+    code, lines = _watch({2: run}, until=until, on_cursor=cursor)
+
+    ended = app.buffer.events_since(0)["events"][-1]["id"]
+    assert code is None
+    # The tail first, then the newest event read, once the lines it made are said.
+    assert said[0] == (tail, [])
+    assert said[-1] == (
+        ended,
+        ["EVENT task_started l3", "WORKFLOW ENDED (workflow_completed)"],
+    )
+
+
+def test_a_watch_after_the_cursor_says_only_what_came_since(app):
+    def run():
+        app.buffer.append("task_started", {"item_name": "l1"})
+        app.buffer.append("workflow_completed", {})
+
+    said = []
+
+    def cursor(event_id):
+        # An empty buffer has no tail: the first cursor is the run's last event.
+        said.append(event_id)
+        raise _Seen
+
+    _watch({2: run}, until=lambda lines: False, on_cursor=cursor)
+    app.buffer.append("task_started", {"item_name": "l2"})
+    app.buffer.append("workflow_completed", {})
+
+    code, lines = _watch({}, after=said[-1])
+
+    assert lines == ["EVENT task_started l2", "WORKFLOW ENDED (workflow_completed)"]

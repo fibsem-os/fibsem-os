@@ -136,9 +136,11 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 SERVER_WAIT_S = 600.0
 # How long the CLI has to say how full the context is, after a turn.
 CONTEXT_WAIT_S = 10.0
-# The transcript (`Harness._send_transcript`): sent this often while a turn
-# runs and as it ends, at most this many lines at once, at most this many kept
-# while the server can't take them.
+# The transcript (`Harness._send_transcript`): sent this soon after a line is
+# printed, so a burst goes together, and again this often while the server
+# can't take it; at most this many lines at once, at most this many kept while
+# the server can't take them.
+TRANSCRIPT_SOON_S = 1.0
 TRANSCRIPT_EVERY_S = 10.0
 TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
@@ -700,6 +702,15 @@ class _WatchEnded:
     code: int
 
 
+@dataclass
+class _Cursor:
+    """The id of the newest event the watch has read: its lines came before
+    this. Kept once the turn carrying them is over, so a resumed session
+    watches from there (`watch.watch` ``after``)."""
+
+    event_id: str
+
+
 def _last_line(batch) -> bool:
     """Whether the watch said it is giving up (`watch.LAST_KINDS`)."""
     return bool(watch_mod.kinds(batch) & watch_mod.LAST_KINDS)
@@ -730,9 +741,12 @@ class Watcher:
         poll_s: float = watch_mod.POLL_S,
         retry_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
+        after: Optional[str] = None,
     ) -> None:
         self._client = client
         self._deliver = deliver
+        # An event id to watch from, for a resumed session; None starts at the tail.
+        self._after = after
         self._poll_s = poll_s
         self._retry_s = retry_s
         # A running workflow quiet this long wakes the agent, once.
@@ -773,6 +787,8 @@ class Watcher:
                 quiet_s=self._quiet_s,
                 report_reads=False,
                 on_seeded=lambda: self._deliver(_Seeded()),
+                after=self._after,
+                on_cursor=lambda event_id: self._deliver(_Cursor(event_id)),
             )
         except _Stopped:
             return
@@ -846,11 +862,20 @@ class Harness:
         deadline_warn_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
         url: Optional[str] = None,
+        after: Optional[str] = None,
+        keep_cursor: Optional[Callable[[str], None]] = None,
     ) -> None:
         self._agent = agent
         # The App Server's address when given (--url): a waiting line says
         # what to check there, such as an SSH tunnel.
         self._url = url
+        # A resumed session's first watch starts after the last event its
+        # agent was given (*after*); *keep_cursor* stores that id after each
+        # turn, for the next resume.
+        self._after = after
+        self._keep_cursor = keep_cursor
+        self._cursor_given: Optional[str] = None
+        self._cursor_kept: Optional[str] = after
         # What the agent is told, for the session's instrument kind.
         self._words = words or texts()
         self._quiet_s = quiet_s
@@ -860,6 +885,8 @@ class Harness:
         # The agent's wake-up timer: it rings into the watcher's lines.
         self._alarm = alarm
         self._deadlines = Deadlines(deadline_warn_s)
+        # The transcript's sends go one at a time: (its loop, the lock).
+        self._sending: Optional[Tuple[Any, asyncio.Lock]] = None
         self._goal = goal
         self._goal_sent = False
         # The skills read, as last reported: sent again when the agent reads one.
@@ -967,6 +994,14 @@ class Harness:
     def _put(self, watcher, item) -> None:
         """An item for the next turn, on the loop; an urgent line from the
         current watch cuts the turn going on short."""
+        if isinstance(item, _Cursor) and self._items.empty():
+            # Its lines come before it and have all been taken, by the turn
+            # going on or an earlier one: it is that turn's to keep. Queued, it
+            # would wait for the next turn, and a stop before then would give
+            # those lines again on a resume.
+            if watcher is self._watcher:
+                self._cursor_given = item.event_id
+            return
         self._items.put_nowait((watcher, item))
         if watcher is self._watcher and is_urgent(item):
             self._urgent.set()
@@ -989,6 +1024,7 @@ class Harness:
             poll_s=self._poll_s,
             retry_s=self._retry_s,
             quiet_s=self._quiet_s,
+            after=self._after,
         )
         self._watcher = watcher
         watcher.start()
@@ -1010,6 +1046,8 @@ class Harness:
                 if item is None:
                     return False
                 if isinstance(item, _Seeded):
+                    # Only the first watch resumes: a later one starts at the tail.
+                    self._after = None
                     return True
                 if isinstance(item, _WatchEnded):
                     break
@@ -1048,6 +1086,7 @@ class Harness:
             cutter.cancel()
             sender.cancel()
         self._turns += 1
+        self._keep_given_cursor()
         if end.cost_usd is not None:
             self._spent_usd = end.cost_usd
         if end.tokens is not None:
@@ -1164,7 +1203,21 @@ class Harness:
         """The lines printed since the last send, to the App Server for the web
         page (``POST /app/agent/transcript``). Kept for the next send when it
         can't take them (no experiment open); the oldest go past
-        `TRANSCRIPT_KEEP`."""
+        `TRANSCRIPT_KEEP`. One send at a time, and a send that has started
+        finishes even when the turn ends under it: the lines it took are not
+        sent twice."""
+        loop = asyncio.get_running_loop()
+        if self._sending is None or self._sending[0] is not loop:
+            self._sending = (loop, asyncio.Lock())
+        lock = self._sending[1]
+
+        async def send() -> None:
+            async with lock:
+                await self._send_transcript_now()
+
+        await asyncio.shield(send())
+
+    async def _send_transcript_now(self) -> None:
         client, lines = self._client, getattr(self._agent, "transcript", None)
         session_id = getattr(self._agent, "session_id", None)
         if client is None or not lines or not session_id:
@@ -1194,9 +1247,26 @@ class Harness:
         del lines[:-TRANSCRIPT_KEEP]
 
     async def _send_transcript_every(self) -> None:
-        while True:
-            await asyncio.sleep(TRANSCRIPT_EVERY_S)
-            await self._send_transcript()
+        """While a turn runs: the transcript `TRANSCRIPT_SOON_S` after a line
+        is printed, and every `TRANSCRIPT_EVERY_S` for what the server could not
+        take, so the web page shows a step while it runs."""
+        printed = asyncio.Event()
+        agent = self._agent
+        listens = hasattr(agent, "on_line")
+        if listens:
+            agent.on_line = printed.set
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(printed.wait(), TRANSCRIPT_EVERY_S)
+                    await asyncio.sleep(TRANSCRIPT_SOON_S)
+                except asyncio.TimeoutError:
+                    pass
+                printed.clear()
+                await self._send_transcript()
+        finally:
+            if listens:
+                agent.on_line = None
 
     async def _interrupt_on_stop(self) -> None:
         await self._stopping.wait()
@@ -1243,6 +1313,18 @@ class Harness:
                 return item
         return None
 
+    def _keep_given_cursor(self) -> None:
+        """Store the newest event id whose lines a finished turn carried."""
+        given = self._cursor_given
+        if self._keep_cursor is None or given is None or given == self._cursor_kept:
+            return
+        try:
+            self._keep_cursor(given)
+        except Exception:
+            log.debug("Keeping the event cursor failed.", exc_info=True)
+            return
+        self._cursor_kept = given
+
     def _drain(self) -> list:
         items = []
         while not self._items.empty():
@@ -1271,6 +1353,9 @@ class Harness:
                 batch.append(item)
                 ended = isinstance(item, _WatchEnded)
             lines = [line for line in batch if isinstance(line, str)]
+            for item in batch:
+                if isinstance(item, _Cursor):
+                    self._cursor_given = item.event_id
             prompt = self._wakes.add(lines)
             if ended:
                 prompt = await self._rewatch(prompt)
@@ -1363,8 +1448,11 @@ class SdkAgent:
         # The lines printed, until the harness sends them (`Harness._send_transcript`).
         self.transcript: List[dict] = []
         self._seq = 0
-        # A tool call's line, by the call's id: its result may say it failed.
+        # A tool call's line and when it was made, by the call's id: its
+        # result says it is done, or that it failed.
         self._steps: dict = {}
+        # Called after each line is kept (`Harness._send_transcript_every`).
+        self.on_line: Optional[Callable[[], None]] = None
         self.cwd = Path(options.cwd) if options.cwd else None
 
     def line(self, kind: str, text: str, **extra) -> int:
@@ -1379,6 +1467,8 @@ class SdkAgent:
                 **extra,
             }
         )
+        if self.on_line is not None:
+            self.on_line()
         return self._seq
 
     async def start(self) -> None:
@@ -1605,14 +1695,22 @@ def _show(message, agent: SdkAgent) -> None:
                 log.info("%s %s", verb, text)
                 seq = _line(agent, "step", text, verb=verb)
                 if seq is not None:
-                    agent._steps[block.id] = seq
+                    agent._steps[block.id] = (seq, time.monotonic())
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
         for block in message.content:
-            if isinstance(block, ToolResultBlock) and block.is_error:
+            if not isinstance(block, ToolResultBlock):
+                continue
+            seq, took = None, None
+            made = getattr(agent, "_steps", {}).pop(block.tool_use_id, None)
+            if made is not None:
+                seq, took = made[0], round(time.monotonic() - made[1], 1)
+            if block.is_error:
                 why = _clip(_result_text(block.content))
                 log.warning("failed: %s", why)
-                seq = getattr(agent, "_steps", {}).get(block.tool_use_id)
-                _line(agent, "failed", _clip(why, 160), step=seq)
+                _line(agent, "failed", _clip(why, 160), step=seq, took_s=took)
+            elif seq is not None:
+                # The step is done: the web page stops showing it as running.
+                _line(agent, "done", "", step=seq, took_s=took)
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:
@@ -2150,6 +2248,8 @@ def main(argv=None) -> int:
         words=words,
         deadline_warn_s=playbook.session.deadline_warn_min * 60,
         quiet_s=playbook.session.quiet_min * 60,
+        after=record.get(sessions.EVENT_AFTER),
+        keep_cursor=session.keep_event_cursor,
         about={
             "harness": "fibsem-agent",
             "code": work is not None and code,

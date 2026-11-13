@@ -101,6 +101,9 @@ PROPOSAL_HELD = _kind("proposal_held", PROPOSALS, "The run waits on a proposal."
 PROPOSAL_RELEASED = _kind(
     "proposal_released", PROPOSALS, "The run no longer waits on a proposal."
 )
+PROPOSAL_WAITING = _kind(
+    "proposal_waiting", PROPOSALS, "A held proposal still waits; who may decide it."
+)
 PROMPT_RAISED = _kind("prompt_raised", PROPOSALS, "A question.", legacy=True)
 PROMPT_ANSWERED = _kind("prompt_answered", PROPOSALS, "An answer.", legacy=True)
 PROMPT_SUGGESTED = _kind("prompt_suggested", PROPOSALS, "A suggestion.", legacy=True)
@@ -204,5 +207,8 @@ STAGE_POSITION_CHANGED = _kind(
 )
 SEM_ACQUISITION = _kind("sem_acquisition", LIVE, "A live SEM frame.", live=True)
 FIB_ACQUISITION = _kind("fib_acquisition", LIVE, "A live FIB frame.", live=True)
+AGENT_TRANSCRIPT = _kind(
+    "agent_transcript", LIVE, "fibsem-agent sent transcript lines.", live=True
+)
 
 LIVE_KINDS: FrozenSet[str] = frozenset(k.name for k in KINDS.values() if k.live)

@@ -38,6 +38,8 @@ LOG = "fibsem-agent.log"
 # fibsem-agent's console: what it says before its log opens, such as a refusal.
 OUTPUT = "fibsem-agent-output.txt"
 STOP = "stop"
+# In the record: the newest event id the agent was given, for a resume.
+EVENT_AFTER = "event_after"
 # The agent's own files, when it was given no folder.
 WORK = "work"
 # Without a work folder a session runs in run/, which holds only its skills.
@@ -185,6 +187,13 @@ class SessionFolder:
         (`playbooks.Reminders.state`), so a resume picks them up."""
         record = self.record()
         record["playbook"] = state.get("playbook")
+        self._write(record)
+
+    def keep_event_cursor(self, event_id: str) -> None:
+        """The id of the newest event the agent has been given, so a resume
+        watches from after it (`watch.watch` ``after``)."""
+        record = self.record()
+        record[EVENT_AFTER] = event_id
         self._write(record)
 
     def _write(self, record: dict) -> None:

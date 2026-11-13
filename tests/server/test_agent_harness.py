@@ -29,6 +29,7 @@ from fibsem.applications.autolamella.server.context import (
 from fibsem.server import AuthConfig
 from fibsem.server.hosting import AppServerHost
 from fibsem.workflows.attention import Attention
+from fibsem.workflows.events import split_event_id
 from fibsem.workflows.session import AppSession
 from tests.autolamella.test_select_position_asks import (  # noqa: F401
     SETUP,
@@ -918,6 +919,64 @@ def test_an_operator_message_wakes_the_agent_and_it_answers(session):
     assert [n["payload"].get("reply_to") for n in notes] == [message_id]
 
 
+def test_an_event_id_after_lines_already_taken_is_the_current_turn_s():
+    # The watch says a poll's lines, then the id of its newest event: two
+    # items. A turn can take the lines before the id arrives.
+    async def main():
+        harness = Harness(ScriptedAgent(), lambda: None, keep_cursor=kept.append)
+        harness._items, harness._urgent = asyncio.Queue(), asyncio.Event()
+        harness._watcher = watcher = object()
+        harness._put(watcher, watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=ab"))
+        assert len(harness._drain()) == 1  # the turn starts with the line
+        harness._put(watcher, harness_mod._Cursor("s-5"))
+        harness._keep_given_cursor()  # the turn is over
+        # With lines still waiting, the id waits behind them.
+        harness._put(watcher, watch_mod.Wake(watch_mod.MESSAGE, "MESSAGE id=cd"))
+        harness._put(watcher, harness_mod._Cursor("s-6"))
+        harness._keep_given_cursor()
+
+    kept = []
+    asyncio.run(main())
+    assert kept == ["s-5"]
+
+
+def test_a_resumed_session_hears_what_it_missed_while_it_was_down(session):
+    kept = []
+
+    async def reply(prompt):
+        return None
+
+    agent = ScriptedAgent(reply)
+    running = _harness(session, agent, keep_cursor=kept.append)
+    assert wait_for(lambda: agent.prompts, timeout=20), "no kickoff"
+    first = AgentSession(session).message("is 01 ok?")
+    assert wait_for(lambda: len(agent.prompts) >= 2, timeout=20), "no second turn"
+    # The id is kept once the turn carrying the message is over, not as it
+    # starts: an id kept before then (the kickoff's) is from before the message.
+    (sent,) = [
+        e
+        for e in session.recorder.buffer.events_since(0)["events"]
+        if (e.get("payload") or {}).get("id") == first
+    ]
+    assert wait_for(
+        lambda: any(split_event_id(k)[1] >= sent["seq"] for k in kept), timeout=20
+    ), "the message's event id was not kept after its turn"
+    assert running.stop() == 0
+    assert first in agent.prompts[1]
+
+    # Sent while no agent watched.
+    missed = AgentSession(session).message("and 02?")
+
+    again = ScriptedAgent(reply)
+    running = _harness(session, again, resumed=True, after=kept[-1])
+    assert wait_for(lambda: len(again.prompts) >= 2, timeout=20), (
+        "the resumed session did not hear the message it missed"
+    )
+    assert running.stop() == 0
+    assert missed in again.prompts[1]
+    assert first not in again.prompts[1], "a message it had already heard came again"
+
+
 def test_lines_that_arrive_during_a_turn_are_the_next_turn(session, caplog):
     async def reply(prompt):
         if prompt.startswith("You are"):
@@ -1144,6 +1203,33 @@ def test_the_agent_keeps_what_it_prints_and_a_failed_step_names_it():
     assert (ran["verb"], ran["text"]) == ("Ran", "python a.py")
     assert failed["kind"] == "failed" and failed["step"] == ran["seq"]
     assert "cv2" in failed["text"]
+    assert failed["took_s"] >= 0
+
+
+def test_a_step_that_answers_is_done_and_says_how_long_it_took():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    printed = []
+    agent.on_line = lambda: printed.append(len(agent.transcript))
+    call = ToolUseBlock("t1", "mcp__fibsem__milling_run", {"stage": "Rough"})
+    _show(AssistantMessage(content=[call], model="m"), agent)
+    _show(UserMessage(content=[ToolResultBlock("t1", "done", False)]), agent)
+    # An answer to a call it never saw makes no line.
+    _show(UserMessage(content=[ToolResultBlock("t9", "done", False)]), agent)
+    ran, done = agent.transcript
+    assert ran["kind"] == "step" and ran["verb"] == "Called"
+    assert done["kind"] == "done" and done["step"] == ran["seq"]
+    assert done["took_s"] >= 0 and done["text"] == ""
+    assert printed == [1, 2], "each line tells the harness at once"
 
 
 def test_the_skills_the_agent_reads_are_reported_when_it_reads_one():
@@ -1203,6 +1289,57 @@ def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():
     assert path == "/app/agent/transcript" and body["session_id"] == "scripted"
     (entry,) = body["entries"]
     assert entry["verb"] == "Ran" and "at" not in entry and entry["age_s"] >= 0
+
+
+def test_the_transcript_goes_soon_after_a_line_not_on_the_ten_second_clock(
+    monkeypatch,
+):
+    monkeypatch.setattr(harness_mod, "TRANSCRIPT_SOON_S", 0.01)
+    monkeypatch.setattr(harness_mod, "TRANSCRIPT_EVERY_S", 3600)
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            self.bodies.append(json)
+
+    class Agent(ScriptedAgent):
+        on_line = None
+        transcript: list = []
+
+    agent = Agent()
+    agent.transcript = []
+    harness = Harness(agent, lambda: None)
+    harness._client = client = Client()
+
+    async def main():
+        sender = asyncio.ensure_future(harness._send_transcript_every())
+        await asyncio.sleep(0)
+        assert agent.on_line is not None
+        agent.transcript.append(
+            {
+                "seq": 1,
+                "kind": "step",
+                "verb": "Ran",
+                "text": "x",
+                "at": time.monotonic(),
+            }
+        )
+        agent.on_line()
+        await wait_until(lambda: client.bodies)
+        sender.cancel()
+        await asyncio.gather(sender, return_exceptions=True)
+
+    async def wait_until(done, timeout=2.0):
+        end = time.monotonic() + timeout
+        while not done() and time.monotonic() < end:
+            await asyncio.sleep(0.01)
+
+    asyncio.run(main())
+    ((body),) = client.bodies
+    assert [e["seq"] for e in body["entries"]] == [1]
+    assert agent.transcript == [] and agent.on_line is None
 
 
 # --- urgent lines --------------------------------------------------------------
