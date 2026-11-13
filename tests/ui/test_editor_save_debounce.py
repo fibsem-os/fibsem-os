@@ -48,6 +48,7 @@ from fibsem.applications.autolamella.ui.protocol.lamella_editor import (
     AutoLamellaProtocolEditorWidget,
 )
 from fibsem.ui.edit_recording import SETTLE_MS
+from tests.fixtures.connecting import connect_and_wait
 
 _app = QApplication.instance() or QApplication(sys.argv)
 
@@ -68,7 +69,7 @@ def connected_ui():
     from tests.fixtures.main_window import close_window
 
     ui = AutoLamellaWindow()
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     assert ui.microscope is not None, "Demo connect failed; the editor cannot be built"
     yield ui
     close_window(ui)

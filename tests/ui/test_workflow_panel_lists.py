@@ -30,6 +30,7 @@ from fibsem.ui.widgets.workflow.task_list import (
 )
 from fibsem.workflows.status import TaskState  # noqa: E402
 from fibsem.workflows.task_config import TaskPlan
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 from tests.protocols import planned, task_protocol
 
 
@@ -155,7 +156,7 @@ def test_the_status_line_says_what_the_selection_allows(no_quit, qapp, tmp_path)
 
     window = module.AutoLamellaWindow()
     ui = window
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     experiment = Experiment(path=str(tmp_path), name="panel")
     experiment.positions.append(
         Lamella(petname="01-test", path=str(tmp_path / "01-test"), number=1)

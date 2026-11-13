@@ -11,6 +11,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
 
+from tests.fixtures.connecting import connect_and_wait
+
 pytest.importorskip("qtpy.QtWidgets")
 
 
@@ -18,7 +20,7 @@ def test_closing_the_window_twice(no_quit, qapp):
     from fibsem.applications.autolamella.ui import window as module
 
     window = module.AutoLamellaWindow()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     microscope = window.microscope
     window.show()
     try:

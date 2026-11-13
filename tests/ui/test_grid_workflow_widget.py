@@ -49,6 +49,7 @@ from fibsem.workflows.grid.manager import (
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.outputs import item_outputs
 from fibsem.workflows.status import TaskState, TaskStatus
+from tests.fixtures.connecting import connect_and_wait
 
 
 def _small_settings(beam=BeamType.ELECTRON) -> OverviewAcquisitionSettings:
@@ -473,7 +474,7 @@ def test_an_inventory_on_the_grids_tab_reaches_the_run_view(main_ui, tmp_path):
     """The Grids tab creates the records; the Workflow view's rows must follow
     without a reload."""
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     microscope = ui.microscope
     microscope.stage_device.compustage = False
     microscope.sample_handling = bind_sample_handling(microscope)
@@ -517,7 +518,7 @@ def test_an_inventory_on_the_sample_view_reaches_the_grids_tab_and_run_view(
     monkeypatch.setattr(
         ui.system_widget, "load_configuration", lambda configuration_name=None: config
     )
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     main_ui._refresh_grids_tab_microscope()
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
@@ -556,7 +557,7 @@ def test_a_grid_run_from_the_window_on_a_fixed_holder(main_ui, tmp_path, monkeyp
             return 0
 
     monkeypatch.setattr(run_view_module, "WorkflowSummaryDialog", _NoDialog)
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     microscope = ui.microscope
     microscope.stage_device.compustage = False
     microscope.sample_handling = bind_sample_handling(microscope)
@@ -632,7 +633,7 @@ def test_adding_grids_to_a_running_queue_appends_their_blocks(
     )
 
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     microscope = ui.microscope
     microscope.stage_device.compustage = False
     microscope.sample_handling = bind_sample_handling(microscope)
@@ -712,7 +713,7 @@ def test_run_and_screen_all_name_the_grids_running_for_the_first_time(
     from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
 
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     microscope = ui.microscope
     microscope.stage_device.compustage = False
     microscope.sample_handling = bind_sample_handling(microscope)
@@ -867,7 +868,7 @@ def test_the_window_prices_a_grid_run_for_the_confirmation_and_the_timeline(
     from fibsem.applications.autolamella.ui.workflow import tab as workflow_tab
 
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     microscope = ui.microscope
     microscope.stage_device.compustage = False
     microscope.sample_handling = bind_sample_handling(microscope)

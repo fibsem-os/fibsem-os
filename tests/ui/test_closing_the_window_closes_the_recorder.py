@@ -31,6 +31,7 @@ from fibsem.workflows.event_recording import (  # noqa: E402
     read_events,
     recorder_for,
 )
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 
 TASK = "Rough Milling"
 
@@ -40,7 +41,7 @@ def window(qapp):
     from fibsem.applications.autolamella.ui import window as module
 
     win = module.AutoLamellaWindow()
-    win.system_widget.connect_to_microscope()
+    connect_and_wait(win.system_widget)
     microscope = win.microscope
     with quit_stubbed(qapp):
         yield win

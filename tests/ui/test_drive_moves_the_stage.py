@@ -23,6 +23,7 @@ from qtpy.QtCore import QCoreApplication, QEvent
 from fibsem.ai.agent.levels import AgentLevel
 from fibsem.applications.autolamella.structures import Experiment
 from fibsem.server import AuthConfig, build_server
+from tests.fixtures.connecting import connect_and_wait
 
 AGENT = {"Authorization": "Bearer agent"}
 STEP = 20e-6  # metres: shows on the mm readout
@@ -35,7 +36,7 @@ def window(qapp, tmp_path, request):
     from fibsem.applications.autolamella.ui import window as module
 
     win = module.AutoLamellaWindow()
-    win.system_widget.connect_to_microscope()
+    connect_and_wait(win.system_widget)
     ui = win
     if request.param:
         experiment = Experiment(path=tmp_path, name="drive-exp")

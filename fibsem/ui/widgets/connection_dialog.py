@@ -14,11 +14,11 @@ a modal that cannot be closed turns those into a reason not to open it at all.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Optional, Tuple
 
-from qtpy.QtCore import QEventLoop, Qt
+from qtpy.QtCore import Qt, Signal
 from qtpy.QtWidgets import (
-    QApplication,
     QComboBox,
     QDialog,
     QFrame,
@@ -45,9 +45,14 @@ from fibsem.theme.tokens import (
     TEXT_STRONG_COLOR,
 )
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.stylesheets import PRIMARY_BUTTON_STYLESHEET, SECONDARY_BUTTON_STYLESHEET
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
-from fibsem.workflows.session import AppSession, devices_configuration
+from fibsem.workflows.session import (
+    CONNECTED_STEP,
+    AppSession,
+    devices_configuration,
+)
 
 DIALOG_WIDTH = 400
 
@@ -60,6 +65,9 @@ class ConnectionDialog(QDialog):
     because the alternative is closing onto an application that cannot do
     anything.
     """
+
+    # A connect step, from the worker thread; heard on the GUI thread.
+    _connect_step = Signal(str)
 
     def __init__(
         self,
@@ -84,6 +92,11 @@ class ConnectionDialog(QDialog):
         # Whether this dialog connected or disconnected: tells "closed without
         # touching anything" from "disconnected".
         self.changed = False
+        # The connect under way, and how to stop it between steps.
+        self._connect_worker: Optional[FunctionWorker] = None
+        self._cancel = threading.Event()
+        self._connect_address = ""
+        self._connect_step.connect(self._show_step)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -326,6 +339,16 @@ class ConnectionDialog(QDialog):
         self.offline_button.clicked.connect(self.reject)
         buttons.addWidget(self.offline_button)
 
+        # In the same place, shown only while connecting.
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setStyleSheet(SECONDARY_BUTTON_STYLESHEET)
+        self.cancel_button.setToolTip(
+            "Stop connecting. A step already under way finishes first."
+        )
+        self.cancel_button.clicked.connect(self.cancel_connect)
+        self.cancel_button.setVisible(False)
+        buttons.addWidget(self.cancel_button)
+
         buttons.addStretch(1)
 
         self.disconnect_button = QPushButton("Disconnect")
@@ -518,6 +541,8 @@ class ConnectionDialog(QDialog):
         return message_box_ui(title=f"{verb} microscope?", text=text, parent=self)
 
     def connect_to_microscope(self) -> None:
+        if self.is_connecting:
+            return
         path = self.configuration_path()
         if path is None:
             self._show_message(
@@ -543,27 +568,82 @@ class ConnectionDialog(QDialog):
                 return
             self.changed = True
 
-        try:
-            self.session.connect(path, progress=lambda step: self._set_busy(True, step))
-        except Exception as e:
-            logging.warning(f"Could not connect to microscope at {address}: {e}")
-            self._set_busy(False)
-            self._show_message(f"Could not reach {address}.\n{e}", is_error=True)
-            self.connect_button.setText("Retry")
-            return
+        self._connect_address = address
+        self._cancel = threading.Event()
+        worker = self._connect_worker = FunctionWorker(
+            self.session.connect_unless_cancelled,
+            path,
+            progress=self._connect_step.emit,
+            cancel=self._cancel,
+        )
+        worker.returned.connect(self._on_connected)
+        worker.errored.connect(self._on_connect_failed)
+        worker.finished.connect(self._on_connect_finished)
+        worker.start()
 
-        logging.info(f"Connected to microscope at {address}")
+    @property
+    def is_connecting(self) -> bool:
+        return self._connect_worker is not None
+
+    def cancel_connect(self) -> None:
+        """Give the dialog back now. The step under way (a vendor connect cannot
+        be interrupted) finishes in the background, and what it connected is let
+        go; Connect comes back once it has."""
+        if self._connect_worker is None or self._cancel.is_set():
+            return
+        self._cancel.set()
+        self._set_busy(False)
+        self.connect_button.setEnabled(False)
+        self._show_message(
+            "Cancelled. Letting go of the step still under way…", is_error=False
+        )
+
+    def reject(self) -> None:
+        """Escape and the window's close button cancel a connect first; once it
+        is cancelled they close the dialog."""
+        if self.is_connecting and not self._cancel.is_set():
+            self.cancel_connect()
+            return
+        super().reject()
+
+    def _show_step(self, step: str) -> None:
+        if self.is_connecting and not self._cancel.is_set():
+            self._show_message(step, is_error=False)
+            if step == CONNECTED_STEP:  # past cancelling
+                self.cancel_button.setEnabled(False)
+                self.repaint()  # before the tabs are built on this thread
+
+    def _on_connected(self, instrument: object) -> None:
+        if instrument is None:  # cancelled
+            return
+        if self._cancel.is_set():  # finished after its last check: let it go
+            self.session.disconnect()
+            return
+        logging.info(f"Connected to microscope at {self._connect_address}")
         self.changed = True
         self.accept()
 
-    def _set_busy(self, busy: bool, message: str = "") -> None:
-        """Say what is happening, then let Qt paint it before the call that blocks.
+    def _on_connect_failed(self, error: Exception) -> None:
+        self._set_busy(False)
+        if isinstance(error, utils.ConnectCancelled):
+            self._show_message("Connecting was cancelled.", is_error=False)
+            return
+        address = self._connect_address
+        logging.warning(f"Could not connect to microscope at {address}: {error}")
+        self._show_message(f"Could not reach {address}.\n{error}", is_error=True)
+        self.connect_button.setText("Retry")
 
-        `setup_session` runs on this thread, so the window cannot repaint by itself
-        until it is done; this is called before it and at each step it reports, so
-        the window says what it is waiting for -- a column turning on can take a
-        while. User input is held back while it paints, so nothing can be
-        pressed, or the dialog closed, mid-connect.
+    def _on_connect_finished(self) -> None:
+        self._connect_worker = None
+        if self._cancel.is_set():
+            self._set_busy(False)
+            self._show_message("Connecting was cancelled.", is_error=False)
+
+    def _set_busy(self, busy: bool, message: str = "") -> None:
+        """Hold the controls while connecting, and offer Cancel in their place.
+
+        The connect runs on a worker thread, so the window keeps painting and the
+        rest of the application stays responsive.
         """
         for widget in (
             self.connect_button,
@@ -573,11 +653,11 @@ class ConnectionDialog(QDialog):
             self.import_button,
         ):
             widget.setEnabled(not busy)
+        self.offline_button.setVisible(not busy)
+        self.cancel_button.setVisible(busy)
+        self.cancel_button.setEnabled(busy)
         if busy:
             self._show_message(message, is_error=False)
-            QApplication.processEvents(
-                QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
-            )
 
     def _show_message(self, message: str, is_error: bool) -> None:
         colour = ERROR_COLOR if is_error else TEXT_MUTED_COLOR

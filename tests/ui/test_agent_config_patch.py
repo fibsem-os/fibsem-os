@@ -30,6 +30,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures.settings import MicroscopeState
 from fibsem.workflows.event_recording import EventRecorder
+from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
 
 TOKEN = "test-token"
@@ -53,7 +54,7 @@ def ui(qapp, monkeypatch, tmp_path):
         "load_configuration",
         lambda configuration_name=None: arctis_config,
     )
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
     exp = Experiment(path=tmp_path / "exp", name="config-patch-exp")
     exp.task_protocol = AutoLamellaTaskProtocol()
     (tmp_path / "exp").mkdir(parents=True, exist_ok=True)

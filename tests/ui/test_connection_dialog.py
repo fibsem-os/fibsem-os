@@ -27,6 +27,7 @@ from fibsem import utils  # noqa: E402
 from fibsem.ui.widgets import connection_dialog  # noqa: E402
 from fibsem.ui.widgets.connection_dialog import ConnectionDialog  # noqa: E402
 from fibsem.workflows.session import AppSession  # noqa: E402
+from tests.fixtures.connecting import connect_and_wait, wait_connected  # noqa: E402
 
 
 @pytest.fixture
@@ -80,7 +81,7 @@ def test_dismissing_leaves_the_session_empty(dialog):
 
 
 def test_connecting_holds_the_session_and_accepts(dialog):
-    dialog.connect_to_microscope()
+    connect_and_wait(dialog)
 
     assert dialog.result() == QDialog.DialogCode.Accepted
     assert dialog.microscope is not None
@@ -95,7 +96,7 @@ def test_a_configuration_that_resolves_nowhere_is_reported(dialog):
     assert dialog.configuration_path() is None
     assert not dialog.connect_button.isEnabled()
 
-    dialog.connect_to_microscope()
+    connect_and_wait(dialog)
 
     assert dialog.message_label.isVisible()
     assert "could not be found" in dialog.message_label.text()
@@ -110,7 +111,7 @@ def test_a_failure_stays_in_the_dialog(dialog, monkeypatch):
 
     monkeypatch.setattr(utils, "setup_session", _refuse)
 
-    dialog.connect_to_microscope()
+    connect_and_wait(dialog)
 
     assert dialog.isVisible() or dialog.result() != QDialog.DialogCode.Accepted
     assert dialog.microscope is None
@@ -198,7 +199,7 @@ def test_reconnecting_replaces_the_session(connected_dialog, monkeypatch):
     _answer_disconnect(monkeypatch, True)
     original = connected_dialog.microscope
 
-    connected_dialog.connect_to_microscope()
+    connect_and_wait(connected_dialog)
 
     assert connected_dialog.changed is True
     assert connected_dialog.microscope is not None
@@ -233,7 +234,7 @@ def test_declining_a_reconnect_keeps_the_session(connected_dialog, monkeypatch):
     _answer_disconnect(monkeypatch, False)
     original = connected_dialog.microscope
 
-    connected_dialog.connect_to_microscope()
+    connect_and_wait(connected_dialog)
 
     assert connected_dialog.microscope is original
     assert connected_dialog.changed is False
@@ -306,6 +307,7 @@ def test_a_devices_configuration_connects_and_shows_its_devices(
     assert "Devices only" in devices_dialog.details_subtitle.text()
 
     devices_dialog.connect_button.click()
+    wait_connected(devices_dialog)
 
     assert devices_dialog.session.microscope is None
     assert devices_dialog.session.instrument is not None

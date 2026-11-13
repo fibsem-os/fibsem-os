@@ -41,6 +41,9 @@ SESSIONS_PATH = os.path.join(cfg.LOG_PATH, "sessions")
 # What `AppSession.changed` names. The last three are the open experiment
 # edited where no widget drew the edit (the App Server): whoever draws it redraws.
 MICROSCOPE = "microscope"
+# The last step `AppSession.connect` reports: connected, past cancelling, and the
+# window's tabs are built next (on the GUI thread, which is busy until they are).
+CONNECTED_STEP = "Connected. Opening the microscope's tabs…"
 EXPERIMENT = "experiment"
 PROTOCOL = "protocol"
 GRID_RECORDS = "grid_records"
@@ -236,13 +239,15 @@ class AppSession:
         self,
         configuration_path: Optional[str] = None,
         progress: Optional[Callable[[str], None]] = None,
+        cancel: Optional[threading.Event] = None,
         **options: Any,
     ) -> Any:
         """Connect the instrument *configuration_path* names (the default
         configuration when None), record its events, and say so on
         ``changed``: a microscope, or with ``info.instrument: devices`` only the
         devices the file lists, remote ones included. Runs on the calling
-        thread; *progress* hears each step. *options* go to
+        thread; *progress* hears each step, and setting *cancel* stops it
+        between steps (`utils.ConnectCancelled`). *options* go to
         `utils.setup_session` (``manufacturer``, ``ip_address``, ``debug``).
         Raises ValueError while something is connected or another connect is
         under way, and whatever connecting raised."""
@@ -262,15 +267,22 @@ class AppSession:
             try:
                 devices = devices_configuration(configuration_path)
                 if devices is not None:
-                    return self._connect_devices(devices, configuration_path, step)
+                    return self._connect_devices(
+                        devices, configuration_path, step, cancel
+                    )
                 microscope, settings = utils.setup_session(
-                    config_path=configuration_path, progress=step, **options
+                    config_path=configuration_path,
+                    progress=step,
+                    cancel=cancel,
+                    **options,
                 )
             except Exception as error:
                 self.connect_error = str(error) or type(error).__name__
                 raise
             finally:
                 self.connecting = None
+            if progress is not None:
+                utils._report(progress, CONNECTED_STEP)
             # Heard once everything here is the new microscope's.
             with self.changed.paused():
                 self.settings = settings
@@ -283,11 +295,21 @@ class AppSession:
         finally:
             self._connect_lock.release()
 
+    def connect_unless_cancelled(self, *args: Any, **kwargs: Any) -> Any:
+        """`connect`, returning None when it was cancelled rather than raising:
+        a cancel is the operator's choice, not a failure to log."""
+        try:
+            return self.connect(*args, **kwargs)
+        except utils.ConnectCancelled:
+            logging.info("Connecting was cancelled.")
+            return None
+
     def _connect_devices(
         self,
         settings: Dict[str, Any],
         configuration_path: Optional[str],
         step: Callable[[str], None],
+        cancel: Optional[threading.Event] = None,
     ) -> Any:
         """Build the devices a ``devices`` configuration lists and keep them as
         what is connected. Called by `connect`, under its lock."""
@@ -295,6 +317,8 @@ class AppSession:
 
         step("Connecting the devices…")
         instrument = device_instrument(settings, allow_remote=True)
+        utils.stop_if_cancelled(cancel, instrument)
+        step(CONNECTED_STEP)
         with self.changed.paused():
             self.settings = None
             self.configuration_path = str(

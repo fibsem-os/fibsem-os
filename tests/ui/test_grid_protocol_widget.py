@@ -35,6 +35,7 @@ from fibsem.workflows.grid import (
     BeamOverviewGridTaskConfig,
     FluorescenceOverviewGridTaskConfig,
 )
+from tests.fixtures.connecting import connect_and_wait
 
 BEAM = BeamOverviewGridTaskConfig.task_type
 FM = FluorescenceOverviewGridTaskConfig.task_type
@@ -285,7 +286,7 @@ class _NoMinimap:
 
 def test_the_protocol_tab_hosts_it_under_the_selector(main_ui, tmp_path):
     ui = main_ui
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     exp = Experiment(path=tmp_path, name="exp")
     (tmp_path / "exp").mkdir()
     exp.task_protocol = AutoLamellaTaskProtocol.load(TASK_PROTOCOL_PATH)

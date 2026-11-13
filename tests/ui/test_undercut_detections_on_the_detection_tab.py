@@ -46,6 +46,7 @@ from fibsem.structures.settings import Point
 from fibsem.workflows.attention import Attention
 from fibsem.workflows.proposals import DETECTION, Decision, DecisionOutcome
 from fibsem.workflows.status import HoldKind, TaskStatus
+from tests.fixtures.connecting import connect_and_wait
 from tests.protocols import planned, task_protocol
 
 UNDERCUT = "Mill Undercut"
@@ -76,7 +77,7 @@ def window(qapp, tmp_path, checkpoint):
     from fibsem.applications.autolamella.ui import window as module
 
     win = module.AutoLamellaWindow()
-    win.system_widget.connect_to_microscope()
+    connect_and_wait(win.system_widget)
     ui = win
     experiment = Experiment(path=tmp_path, name="undercut-exp")
     os.makedirs(experiment.path, exist_ok=True)
