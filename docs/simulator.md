@@ -194,9 +194,11 @@ a ragged front face, a crack across, or a piece broken out. It grows with every 
 after.
 `damage_below` is the thickness at risk at a polishing current (`damage_current`, 60 pA).
 A pass at a higher current puts a thicker lamella at risk, by the square root of the
-ratio: at 1 nA a lamella four times as thick can break. Each pass records the thickness
-that was at risk at its current (`damage_below`), and `scene.damage_started` keeps the
-thickness, that limit and the current of the pass that broke it.
+ratio: at 1 nA a lamella four times as thick can break. It is less likely to the thicker
+it is: the full chance holds below the usual thickness and falls to nothing at the limit
+the current sets. Each pass records that limit and its chance (`damage_below`,
+`damage_chance`), and `scene.damage_started` keeps the thickness, the limit, the chance
+and the current of the pass that broke it.
 A lamella that breaks while it is still thick breaks more coarsely: its cracks gape
 wider, so a break in rough milling shows at a 50 um field of view.
 

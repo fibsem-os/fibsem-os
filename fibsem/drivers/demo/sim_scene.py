@@ -1347,12 +1347,19 @@ class SampleScene:
             )
         )
         current = record.get("current")
+        usual = threshold
         if self.damage_current > 0 and current:
             threshold *= (abs(float(current)) / self.damage_current) ** 0.5
+        # the full chance below the usual thickness; over it, where only a
+        # high current reaches, less the thicker the lamella is
+        chance = self.damage_chance
+        if record["gap"] > usual and threshold > usual:
+            chance *= max(0.0, (threshold - record["gap"]) / (threshold - usual))
         record["damage_below"] = threshold
+        record["damage_chance"] = float(chance) if record["gap"] < threshold else 0.0
         started = self.damage_started
         if started is None:
-            if record["gap"] >= threshold or rng.uniform() >= self.damage_chance:
+            if record["gap"] >= threshold or rng.uniform() >= chance:
                 return []
             kind = str(rng.choice(["ragged", "crack", "broken"]))
             self.damage_started = started = {
@@ -1360,6 +1367,7 @@ class SampleScene:
                 "kind": kind,
                 "gap": float(record["gap"]),
                 "below": threshold,
+                "chance": float(chance),
                 "current": current,
             }
         severity = record["pass"] - started["pass"] + 1
