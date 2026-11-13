@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import time
 
-from qtpy.QtWidgets import QApplication
-
 
 def wait_connected(widget, timeout: float = 60.0) -> None:
     """Pump the event loop until *widget* (the tab or the dialog) has no
     connect under way and its finished slots have run."""
+    # Here, not at the top: Qt-less jobs import this through tests/ui/conftest.py.
+    from qtpy.QtWidgets import QApplication
+
     deadline = time.monotonic() + timeout
     while widget.is_connecting:
         if time.monotonic() > deadline:
