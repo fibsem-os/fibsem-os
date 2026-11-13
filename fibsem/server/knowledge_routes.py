@@ -25,6 +25,7 @@ from fibsem.server.auth import (
     require_monitoring,
     require_operator,
 )
+from fibsem.server.bodies import KnowledgeBody
 from fibsem.server.images import preview_jpeg_bytes
 from fibsem.server.responses import (
     KnowledgeEntry,
@@ -56,13 +57,6 @@ def _picture(path: str) -> Dict[str, Any]:
         "width": width,
         "height": height,
     }
-
-
-def _optional_text(body: Dict[str, Any], key: str) -> Optional[str]:
-    value = body.get(key)
-    if value is not None and not isinstance(value, str):
-        raise _invalid(f"{key} is a string.")
-    return value or None
 
 
 def _instrument(request: Request) -> Optional[str]:
@@ -171,7 +165,7 @@ def build_knowledge_router(
         return FileResponse(str(path), media_type="image/png")
 
     @router.post("", response_model=KnowledgeEntry)
-    def knowledge_write(request: Request, body: Dict[str, Any]):
+    def knowledge_write(request: Request, body: KnowledgeBody):
         by = (
             knowledge.OPERATOR
             if is_operator_token(
@@ -179,25 +173,17 @@ def build_knowledge_router(
             )
             else knowledge.AGENT
         )
-        section = _optional_text(body, "section")
-        title, text = body.get("title"), body.get("text", "")
-        if not isinstance(title, str) or not isinstance(text, str):
-            raise _invalid("title and text are strings.")
-        sample = _optional_text(body, "sample")
+        section = body.section or None
+        title, text = body.title, body.text
+        sample = body.sample or None
         if sample is None and experiment_sample is not None:
             sample = experiment_sample() or None
-        playbook = _optional_text(body, "playbook")
-        lasts = _optional_text(body, "lasts")
-        remind = body.get("remind")
-        if remind is not None and not isinstance(remind, str):
-            raise _invalid("remind is a string.")
-        entry_id = _optional_text(body, "id")
-        item = _optional_text(body, "item")
-        images = body.get("images") or []
-        if not isinstance(images, list) or not all(
-            isinstance(path, str) for path in images
-        ):
-            raise _invalid("images is a list of paths in the open experiment.")
+        playbook = body.playbook or None
+        lasts = body.lasts or None
+        remind = body.remind
+        entry_id = body.id or None
+        item = body.item or None
+        images = body.images
         experiment = experiment_path()
         if experiment and not os.path.isdir(experiment):
             experiment = None

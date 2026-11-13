@@ -49,6 +49,7 @@ from fibsem.server.bodies import (
     GridRequirementsBody,
     GridRunBody,
     ImageExportBody,
+    ImagePairBody,
     IntensityBody,
     MarkersBody,
     MillingDrawnBody,
@@ -58,7 +59,6 @@ from fibsem.server.bodies import (
     NewTaskBody,
     NoteBody,
     OperatorMessageBody,
-    PairBody,
     PatchBody,
     PixelsBody,
     PlaceBody,
@@ -650,7 +650,7 @@ def build_app_router(context: Any) -> APIRouter:
         )
 
     @router.post("/experiment/images/pair", response_model=ImagePairDrawn)
-    def draw_pair(body: PairBody):
+    def draw_pair(body: ImagePairBody):
         before = _required_text(body, "before", "a saved image inside the experiment")
         after = _required_text(body, "after", "a saved image inside the experiment")
         options = _draw_options(body, "before_plane", "after_plane")

@@ -20,7 +20,6 @@ from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 from fastapi import APIRouter, Depends, FastAPI, Request, WebSocket
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from fastapi.routing import APIRoute
 from starlette.concurrency import run_in_threadpool
@@ -60,7 +59,7 @@ from fibsem.server.auth import (
     require_token,
     take_control,
 )
-from fibsem.server.bodies import invalid_body
+from fibsem.server.bodies import refuse_invalid_requests
 from fibsem.server.connection import ServedInstrument, build_connection_router
 from fibsem.server.devices import (
     ERROR_STATUS,
@@ -585,10 +584,7 @@ def build_server(
         _record_refusal(request, exc)
         return await http_exception_handler(request, exc)
 
-    @app.exception_handler(RequestValidationError)
-    async def _invalid(request: Request, exc: RequestValidationError) -> Response:
-        # A body, path or query that doesn't read, said as every refusal is.
-        return await http_exception_handler(request, invalid_body(exc.errors()))
+    refuse_invalid_requests(app)
 
     @app.exception_handler(Exception)
     def _unhandled(request: Request, exc: Exception) -> JSONResponse:

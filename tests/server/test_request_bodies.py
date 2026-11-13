@@ -6,7 +6,12 @@ from fastapi.testclient import TestClient
 
 from fibsem.ai.agent.catalog import CATALOG
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
+from fibsem.codec import decode
 from fibsem.server import AuthConfig, build_server
+from fibsem.server.bodies import ConnectBody, PairBody
+from fibsem.server.device_auth import DeviceAuth
+from fibsem.server.devices import build_device_app
+from fibsem.server.pairing import PairedTokens, Pairing
 from tests.run_state import stub_session
 
 # The routes with a typed body, by method and path (the operator's are
@@ -52,6 +57,12 @@ TYPED = [
     ("post", "/app/experiment/notes"),
     ("post", "/app/experiment/messages"),
     ("post", "/app/experiment/evidence"),
+    ("post", "/app/knowledge"),
+    ("post", "/pair"),
+    ("post", "/connect"),
+    ("post", "/pairing"),
+    ("put", "/pairing/always_allow_local"),
+    ("patch", "/pairing/computers/{computer_id}"),
 ]
 
 
@@ -149,3 +160,40 @@ def test_each_tool_sends_only_what_its_route_takes(client):
         if extra:
             wrong[tool.name] = sorted(extra)
     assert wrong == {}
+
+
+def test_a_pairing_ask_from_another_version_is_not_refused_for_its_keys():
+    # /pair and /connect are where a client of another version first meets
+    # this one: a key this version doesn't know is ignored there.
+    assert decode(PairBody, {"code": "123456", "colour": "red"}).code == "123456"
+    assert decode(ConnectBody, {"wait_s": 1, "later": True}).wait_s == 1.0
+
+
+def test_the_device_server_refuses_the_same_way(tmp_path):
+    # It shares the pairing routes, so it answers their refusals alike.
+    auth = DeviceAuth("install", Pairing(PairedTokens(tmp_path / "paired.json")))
+    with TestClient(build_device_app([], auth)) as http:
+        refused = http.put(
+            "/pairing/always_allow_local",
+            json={"on": "yes"},
+            headers={"Authorization": f"Bearer {auth.token}"},
+        )
+    assert refused.status_code == 422
+    assert refused.json()["detail"]["error_type"] == "invalid"
+
+
+def test_no_body_shares_a_name_with_an_answer():
+    # /openapi.json names its schemas by class name: two classes of one name
+    # describe one of them wrongly.
+    import dataclasses
+
+    from fibsem.server import bodies, responses
+
+    def names(module):
+        return {
+            name
+            for name, value in vars(module).items()
+            if dataclasses.is_dataclass(value) and value.__module__ == module.__name__
+        }
+
+    assert names(bodies) & names(responses) == set()

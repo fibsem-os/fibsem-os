@@ -15,7 +15,9 @@ blank) stay in the route, with their own messages.
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exception_handlers import http_exception_handler
+from fastapi.exceptions import RequestValidationError
 from pydantic import ConfigDict, Field, Strict
 
 from fibsem.server.auth import refusal_error
@@ -50,6 +52,15 @@ def invalid_body(errors: Sequence[Mapping[str, Any]]) -> HTTPException:
             said.append(f"{where}: {message}.")
     missing = all(error.get("type") == "missing" for error in errors)
     return refusal_error(422, "missing_field" if missing else "invalid", " ".join(said))
+
+
+def refuse_invalid_requests(app: FastAPI) -> None:
+    """Answer a body, path or query of *app*'s that doesn't read as every
+    refusal is (`invalid_body`), not as FastAPI's list of errors."""
+
+    @app.exception_handler(RequestValidationError)
+    async def _invalid(request: Request, exc: RequestValidationError) -> Response:
+        return await http_exception_handler(request, invalid_body(exc.errors()))
 
 
 # --- the agent's own routes (`fibsem.server.agent`) ---------------------------
@@ -576,7 +587,7 @@ class DrawBody(DrawOptions):
 
 
 @dataclass(kw_only=True)
-class PairBody(DrawOptions):
+class ImagePairBody(DrawOptions):
     """POST /app/experiment/images/pair: two saved images side by side."""
 
     before: str
@@ -695,3 +706,75 @@ class EvidenceBody:
     marks: Optional[Any] = None
     source: Optional[str] = None
     item_name: Optional[str] = None
+
+
+# --- knowledge and pairing ----------------------------------------------------
+
+
+@dataclass
+class KnowledgeBody:
+    """POST /app/knowledge: an entry, new or (with ``id``) replacing one.
+    ``images`` are paths in the open experiment."""
+
+    __pydantic_config__ = STRICT
+
+    title: str
+    text: str = ""
+    section: Optional[str] = None
+    sample: Optional[str] = None
+    playbook: Optional[str] = None
+    lasts: Optional[str] = None
+    remind: Optional[str] = None
+    id: Optional[str] = None
+    item: Optional[str] = None
+    images: List[str] = field(default_factory=list)
+
+
+@dataclass
+class PairBody:
+    """POST /pair: the code shown, and what to call this computer. Unknown
+    keys are ignored: a client of another version pairs here too."""
+
+    code: str = ""
+    name: str = ""
+    browser: str = ""
+
+
+@dataclass
+class ConnectBody:
+    """POST /connect: an agent asking to connect, waiting up to ``wait_s``.
+    Unknown keys are ignored, as for pairing."""
+
+    wait_s: Optional[float] = None
+    client: str = ""
+    origin: str = ""
+    user: str = ""
+
+
+@dataclass
+class OpenPairingBody:
+    """POST /pairing: for the operator's app, or ``agent`` (``hub`` on a
+    gateway, with ``grants``)."""
+
+    __pydantic_config__ = STRICT
+
+    role: str = "operator"
+    grants: List[str] = field(default_factory=list)
+
+
+@dataclass
+class GrantsBody:
+    """PATCH /pairing/computers/{id}: the computer's grants, replaced."""
+
+    __pydantic_config__ = STRICT
+
+    grants: List[str] = field(default_factory=list)
+
+
+@dataclass
+class SwitchBody:
+    """A setting turned on or off."""
+
+    __pydantic_config__ = STRICT
+
+    on: Flag
