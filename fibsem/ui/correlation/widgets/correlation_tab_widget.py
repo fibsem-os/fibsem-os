@@ -4296,7 +4296,7 @@ class CorrelationTabWidget(QWidget):
 
         def _fail(exc) -> None:
             _finish()
-            logger.exception("FM z-interpolation failed")
+            logger.error("FM z-interpolation failed", exc_info=exc)
             notification_service.show("Z-interpolation failed.", "error")
             QMessageBox.warning(
                 self, "Interpolation failed", f"Could not interpolate:\n{exc}"

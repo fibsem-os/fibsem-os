@@ -40,9 +40,6 @@ from fibsem.versioning import get_version_string
 
 logger = logging.getLogger(__name__)
 
-# setup a basic logger
-logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-
 _DEBUG = False
 
 # new line char in html
@@ -797,6 +794,7 @@ class FibsemLabellingUI(QtWidgets.QDialog):
 
 
 def main():
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
     viewer = napari.Viewer(ndisplay=2)
     fibsem_labelling_ui = FibsemLabellingUI(viewer=viewer)
     viewer.window.add_dock_widget(
