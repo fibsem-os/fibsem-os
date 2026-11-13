@@ -84,7 +84,9 @@ def main() -> int:
         print("error: fibsem was imported from the checkout, not the wheel")
         return 1
 
-    _run([bin_dir / "fibsem-cli", "--help"], cwd=root, env=env, stdout=subprocess.DEVNULL)
+    _run(
+        [bin_dir / "fibsem-cli", "--help"], cwd=root, env=env, stdout=subprocess.DEVNULL
+    )
 
     port = _free_port()
     log = root / "server.log"
@@ -131,7 +133,7 @@ def main() -> int:
         header = (
             f"# Versions fibsemOS was installed and started with on {sys.platform}, "
             f"Python {sys.version_info.major}.{sys.version_info.minor}.\n"
-            "#   pip install \"fibsem[ui]==VERSION\" -c THIS_FILE\n"
+            '#   pip install "fibsem[ui]==VERSION" -c THIS_FILE\n'
         )
         args.freeze.write_text(header + frozen)
         print(f"wrote {args.freeze}")
