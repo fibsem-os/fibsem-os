@@ -351,12 +351,13 @@ class Harness:
         for cell in sorted(cells, key=lambda f: -f.sigma):
             if abs(cell.x) > reach or abs(cell.y) > reach * 0.7:
                 continue
-            # the cell and a ring 20 um round it must all be plain film
+            # the cell and a ring 20 um round it must be on film: off the bars,
+            # rips and rim (a holey film's holes are under every cell)
             ring = 20e-6
             xs = np.array([cell.x, cell.x - ring, cell.x + ring, cell.x, cell.x])
             ys = np.array([cell.y, cell.y, cell.y, cell.y - ring, cell.y + ring])
             bars, holes, rips, rim, beyond = scene.film_masks(xs, ys)
-            if bars.any() or holes.any() or rips.any() or rim.any() or beyond.any():
+            if bars.any() or rips.any() or rim.any() or beyond.any():
                 continue
             if any(
                 (cell.x - c.x) ** 2 + (cell.y - c.y) ** 2 < (80e-6) ** 2 for c in chosen
