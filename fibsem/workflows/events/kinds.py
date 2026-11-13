@@ -185,6 +185,9 @@ MILLING_STAGE_STARTED = _kind(
     "milling_stage_started", MILLING, "A milling stage started."
 )
 SPOT_BURN_STARTED = _kind("spot_burn_started", MILLING, "A spot burn started.")
+MILLING_READING = _kind(
+    "milling_reading", MILLING, "A milling monitor's notable reading: a trigger."
+)
 
 # --- live progress ---------------------------------------------------------------------
 MILLING_PROGRESS = _kind("milling_progress", LIVE, "Milling progress.", live=True)
