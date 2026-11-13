@@ -21,7 +21,7 @@ from fibsem.fm.microscope import (
     FluorescenceMicroscope,
 )
 from fibsem.fm.structures import REFLECTION
-from fibsem.geometry.projection import FMStageProjection
+from fibsem.geometry.projection import BeamStageProjection, FMStageProjection
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.params import RangeLimit
 from fibsem.structures.settings import (
@@ -794,8 +794,6 @@ class DemoSimulator:
         ).eucentric_height
         focus = float(height) + self.sample_scene.focus_offset(beam_type)
         if here:
-            from fibsem.geometry.projection import BeamStageProjection
-
             focus += self.sample_scene.focus_depth(
                 self.scene_stage_position(),
                 BeamStageProjection.from_microscope(
