@@ -66,9 +66,7 @@ export interface components {
             status: string;
         };
         AgentSession: {
-            session: {
-                [key: string]: unknown;
-            } | null;
+            session: components["schemas"]["ReportedSession"] | null;
         };
         AgentStopped: {
             level: string | null;
@@ -192,6 +190,14 @@ export interface components {
             old: unknown;
             path: string;
         };
+        ChecklistItem: {
+            /**
+             * @default open
+             * @enum {string}
+             */
+            state: "open" | "done" | "always";
+            text: string;
+        };
         CommandDescription: {
             agent: boolean | null;
             arguments: {
@@ -278,6 +284,12 @@ export interface components {
             error: string | null;
             run: components["schemas"]["RunAnswer"] | null;
         };
+        /** @description How full its context is, in tokens. */
+        ContextUse: {
+            compact_at: number | null;
+            used: number | null;
+            window: number | null;
+        };
         /** @description Take control of the microscope: what for, as the operator reads it. */
         ControlRequest: {
             /** @default remote run */
@@ -291,6 +303,11 @@ export interface components {
          *     correlation_correlate. */
         CorrelationRunBody: {
             run_path: string;
+        };
+        /** @description A plan Rule that gives a time. */
+        Deadline: {
+            by: string;
+            text: string;
         };
         /** @description POST /app/workflow/decide: a decision on a proposal, by its id (or the
          *     run it came from, ``task_id``), as GET /app/workflow/proposals lists it. */
@@ -801,6 +818,12 @@ export interface components {
             task_status: string;
             task_status_message: string;
             task_type: string;
+        };
+        /** @description A reminder on now. */
+        Hook: {
+            label: string;
+            say: string;
+            when: string;
         };
         ImageDrawn: {
             image: string;
@@ -1574,6 +1597,19 @@ export interface components {
             grid: string;
             step: string;
         };
+        PlaybookSkill: {
+            skill: string;
+            /** @enum {string} */
+            state: "not loaded" | "loaded" | "done";
+            summary: string | null;
+        };
+        /** @description The session's playbook; every field None (``{}``) for none. */
+        PlaybookState: {
+            chosen_by: string | null;
+            hash: string | null;
+            name: string | null;
+            skills: components["schemas"]["PlaybookSkill"][] | null;
+        };
         Point: {
             name: string | null;
             /** @default 0 */
@@ -1830,6 +1866,32 @@ export interface components {
             stage_position: {
                 [key: string]: unknown;
             } | null;
+        };
+        /** @description The session as the server holds it. */
+        ReportedSession: {
+            budget_usd: number | null;
+            checklist: components["schemas"]["ChecklistItem"][] | null;
+            client: string | null;
+            code: boolean | null;
+            context: components["schemas"]["ContextUse"] | null;
+            deadlines: components["schemas"]["Deadline"][] | null;
+            effort: string | null;
+            ended: boolean | null;
+            files: boolean | null;
+            goal: string | null;
+            harness: string | null;
+            hooks: components["schemas"]["Hook"][] | null;
+            model: string | null;
+            playbook: components["schemas"]["PlaybookState"] | null;
+            reason: string | null;
+            resumed: boolean | null;
+            session_id: string | null;
+            skills: string[] | null;
+            spent_usd: number | null;
+            started: string | null;
+            tokens: components["schemas"]["Tokens"] | null;
+            turns: number | null;
+            workdir: string | null;
         };
         RequestDecided: {
             approved: boolean;
@@ -2351,6 +2413,13 @@ export interface components {
             height_um?: number | null;
             path: string;
             width_um?: number | null;
+        };
+        /** @description Tokens its model calls used. */
+        Tokens: {
+            cache_read: number | null;
+            cache_write: number | null;
+            input: number | null;
+            output: number | null;
         };
         ToolRow: {
             category: string;
