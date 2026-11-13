@@ -8,7 +8,9 @@ pass by pass, whether the target is still in the lamella.
 The target is a cilium on odd seeds and a centriole pair on even ones. On
 most seeds the lamella is centred on the target, so it stays to the end. On
 seeds 3, 6, 9, ... the lamella sits off it, so a pass mills it away. The key
-is read from the scene: whether the target's midpoint has been milled away.
+is read from the scene: a cilium is gone once its midpoint is milled away, a
+centriole pair once both centrioles are. The stacks are taken at the milling
+pose, the FM seeing the sample tilted from below.
 """
 
 import logging
@@ -79,6 +81,27 @@ def _milled(scene, x: float, y: float, z: float) -> bool:
     xs = x * um + np.arange(-2.0, 2.05, 0.05)
     ys = y * um + np.arange(-2.0, 2.05, 0.05)
     return bool(sim_solid.Plan(scene, xs, ys).gone_at(x * um, y * um, z * um)[0])
+
+
+def _present(scene, target: dict, kind: str, tz: float) -> bool:
+    """Whether the target is still in the sample: a cilium while its
+    midpoint is, a centriole pair while either centriole is."""
+    if kind == "cilium" or not target.get("pair"):
+        tx, ty = target["midpoint"][:2]
+        return not _milled(scene, tx, ty, tz)
+    film = scene._fm_film()
+    return any(not _milled(scene, x, y, z + film) for x, y, z in target["pair"])
+
+
+def _fm_seen(microscope, scene, x: float, y: float, z: float):
+    """Where the FM shows a point (x, y world m, z m in the focal frame) on
+    a tilted sample, as render_fm draws it: its camera px, and its height
+    along the objective's axis (m), the depth a z-stack finds it at."""
+    u, v = _fm_px(microscope, scene, x, y)
+    height = microscope.fm.camera.resolution[1]
+    pix = float(microscope.fm.camera.pixel_size[0])
+    w, along = scene._fm_seen((v - height / 2) * pix, z)
+    return (u, height / 2 + w / pix), float(along)
 
 
 def _patterns(
@@ -159,7 +182,8 @@ def write_case(
                 )
             )
             image.save(str(experiment / f"{name}-fib.tif"))
-            microscope.move_to_device("FM")
+            # the FM and FIB look at the same point: the stack is taken at
+            # the milling pose, the FM seeing the sample tilted from below
             fm = microscope.fm
             focus = fm.objective.focus_position
             fm.objective.move_absolute(focus)
@@ -167,10 +191,8 @@ def write_case(
             stack = acquire_z_stack(fm, channels, zparams)
             stack.save(str(experiment / f"{name}-fm.ome.tiff"))
             if target_fm is None:
-                target_fm = _fm_px(microscope, scene, tx, ty)
+                target_fm, seen_z = _fm_seen(microscope, scene, tx, ty, tz)
                 fm_pixel = float(fm.camera.pixel_size[0])
-            microscope.move_to_device("FIBSEM")
-            microscope.move_to_milling_angle(MILLING_ANGLE)
             passes.append(
                 {
                     "name": name,
@@ -178,14 +200,14 @@ def write_case(
                     "fm": f"experiment/{name}-fm.ome.tiff",
                 }
             )
-            present[name] = not _milled(scene, tx, ty, tz)
+            present[name] = _present(scene, target, kind, tz)
             record = scene.mill_passes[-1] if gap is not None else {}
             gaps[name] = record.get("gap")
     finally:
         microscope.disconnect()
 
     offsets = np.array(z_positions) - focus
-    fz = float(np.interp(tz, offsets, np.arange(len(offsets))))
+    fz = float(np.interp(seen_z, offsets, np.arange(len(offsets))))
     with tifffile.TiffFile(folder / passes[0]["fm"]) as tif:
         axes, shape = tif.series[0].axes, [int(n) for n in tif.series[0].shape]
     names = [p["name"] for p in passes]
@@ -235,6 +257,9 @@ def write_case(
             "still thick.",
             "A cilium milled from one end shrinks pass by pass; it counts as "
             "gone once its midpoint is milled away.",
+            "A centriole pair counts as in the lamella while either centriole "
+            "is: one bright spot left is still the target. A soft glow with "
+            "no spot in it is the centrin round the pair, not the pair.",
         ],
     }
     reference = folder / "reference"
