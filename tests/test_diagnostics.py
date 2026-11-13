@@ -28,6 +28,11 @@ def fresh(tmp_path, monkeypatch):
         diagnostics._fault_file.close()
 
 
+def _recorded(error: str):
+    """The records of *error*: a thread another test left running may add its own."""
+    return [record for record in diagnostics.records() if record.error == error]
+
+
 def _raise_into_hook(error: Exception) -> None:
     try:
         raise error
@@ -40,7 +45,7 @@ def test_an_uncaught_error_is_saved_and_logged(fresh, caplog):
 
     _raise_into_hook(ValueError("the stage is elsewhere"))
 
-    (record,) = diagnostics.records()
+    (record,) = _recorded("ValueError")
     assert record.app == "test-app"
     assert record.error == "ValueError"
     assert record.summary == "ValueError: the stage is elsewhere"
@@ -56,7 +61,7 @@ def test_the_saved_traceback_is_scrubbed(fresh):
 
     _raise_into_hook(FileNotFoundError(os.path.expanduser("~/data/lamella.tif")))
 
-    (record,) = diagnostics.records()
+    (record,) = _recorded("FileNotFoundError")
     assert os.path.expanduser("~") not in record.traceback
     assert os.path.expanduser("~") not in Path(record.path).read_text()
 
@@ -73,7 +78,7 @@ def test_an_error_on_a_thread_is_saved_with_the_threads_name(fresh):
     thread.start()
     thread.join()
 
-    (record,) = diagnostics.records()
+    (record,) = _recorded("RuntimeError")
     assert record.thread == "acquire-worker"
     assert record.error == "RuntimeError"
 
