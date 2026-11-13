@@ -4,18 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
 import {
-  describe,
   GROUPS,
   groupOf,
   itemOf,
   keyOf,
-  noteAsked,
   taskOf,
+  textOf,
   timeOf,
   WHO,
   whoOf,
   type AppEvent,
-  type Asked,
   type Group,
   type Who,
 } from "@/lib/eventText";
@@ -77,10 +75,8 @@ function useRecords() {
   // The events file's offset for the page before; null before the first read, 0 at its start.
   const [start, setStart] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const asked = useRef<Asked>(new Map());
 
   const add = useCallback((batch: AppEvent[], where: "newer" | "older", missed = 0) => {
-    batch.forEach((e) => noteAsked(asked.current, e));
     setRows((rows) => {
       const seen = new Set(rows.map(rowKey));
       const fresh: Row[] = batch.filter((e) => !seen.has(keyOf(e)));
@@ -99,7 +95,7 @@ function useRecords() {
     try {
       const before = start === null ? "" : `&before=${start}`;
       const page = await api<{ available: boolean; events?: AppEvent[]; start?: number | null }>(
-        `/app/events/history?limit=${HISTORY_PAGE}${before}`,
+        `/app/events/history?text=true&limit=${HISTORY_PAGE}${before}`,
       );
       if (!page.available) setStart(0);
       else {
@@ -118,7 +114,7 @@ function useRecords() {
     let gone = false;
     (async () => {
       try {
-        const seed = await api<EventsAnswer>("/app/events?since=0&timeout=0");
+        const seed = await api<EventsAnswer>("/app/events?since=0&timeout=0&text=true");
         if (gone) return;
         if (seed.available === false) return setUnavailable(true);
         add(seed.events ?? [], "newer");
@@ -140,7 +136,7 @@ function useRecords() {
     void earlier();
   }, [earlier]);
 
-  return { rows, unavailable, atStart: start === 0, loading, earlier, asked: asked.current };
+  return { rows, unavailable, atStart: start === 0, loading, earlier };
 }
 
 function Choice({ on, label, count, toggle }: { on: boolean; label: string; count?: number; toggle: () => void }) {
@@ -219,8 +215,8 @@ function FilterMenu({
   );
 }
 
-function EventRow({ e, asked, open, toggle }: { e: AppEvent; asked: Asked; open: boolean; toggle: () => void }) {
-  const text = describe(e, asked);
+function EventRow({ e, open, toggle }: { e: AppEvent; open: boolean; toggle: () => void }) {
+  const text = textOf(e);
   const who = whoOf(e);
   const { payload, seq, t, kind, actor, item, task, session } = e;
   return (
@@ -269,7 +265,7 @@ function EventRow({ e, asked, open, toggle }: { e: AppEvent; asked: Asked; open:
 /** The session's event record as one table, newest first: what the run, the agent and the
  * operator did. It only reads, so the read-only link the Qt app opens shows it whole. */
 export function EventsPage() {
-  const { rows, unavailable, atStart, loading, earlier, asked } = useRecords();
+  const { rows, unavailable, atStart, loading, earlier } = useRecords();
   const [filters, setFilters] = useFilters();
   const [item, setItem] = useState("");
   const [text, setText] = useState("");
@@ -281,7 +277,7 @@ export function EventsPage() {
   const records = useMemo(() => all.filter((r): r is AppEvent => !isGap(r)), [all]);
   const counts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const e of records) counts[groupOf(e.kind)] = (counts[groupOf(e.kind)] ?? 0) + 1;
+    for (const e of records) counts[groupOf(e)] = (counts[groupOf(e)] ?? 0) + 1;
     return counts;
   }, [records]);
   const items = useMemo(() => [...new Set(records.map(itemOf).filter(Boolean))].sort(), [records]);
@@ -289,7 +285,7 @@ export function EventsPage() {
     const needle = text.trim().toLowerCase();
     const matches = (e: AppEvent) =>
       filters.who.includes(whoOf(e)) &&
-      filters.groups.includes(groupOf(e.kind)) &&
+      filters.groups.includes(groupOf(e)) &&
       (!item || itemOf(e) === item) &&
       (!needle ||
         `${e.kind} ${itemOf(e)} ${taskOf(e)} ${JSON.stringify(e.payload ?? {})}`.toLowerCase().includes(needle));
@@ -363,7 +359,6 @@ export function EventsPage() {
                 <EventRow
                   key={rowKey(row)}
                   e={row}
-                  asked={asked}
                   open={open.has(rowKey(row))}
                   toggle={() => toggle(rowKey(row))}
                 />
