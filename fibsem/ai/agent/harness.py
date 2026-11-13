@@ -52,7 +52,12 @@ from fibsem.ai.agent import (
 from fibsem.ai.agent import manager as sessions
 from fibsem.ai.agent import watch as watch_mod
 from fibsem.ai.agent.catalog import INSTRUMENT_ENV
-from fibsem.client.transport import SERVER_TOKEN_ENV, SERVER_URL_ENV, server_env
+from fibsem.client.transport import (
+    SERVER_TOKEN_ENV,
+    SERVER_URL_ENV,
+    server_env,
+    unreachable_why,
+)
 from fibsem.extras import missing_extra_message
 from fibsem.keystore import get_secret
 from fibsem.logo import print_fibsem_logo
@@ -837,8 +842,12 @@ class Harness:
         words: Optional[instruments.Texts] = None,
         deadline_warn_s: Optional[float] = None,
         quiet_s: Optional[float] = None,
+        url: Optional[str] = None,
     ) -> None:
         self._agent = agent
+        # The App Server's address when given (--url): a waiting line says
+        # what to check there, such as an SSH tunnel.
+        self._url = url
         # What the agent is told, for the session's instrument kind.
         self._words = words or texts()
         self._quiet_s = quiet_s
@@ -1304,19 +1313,22 @@ class Harness:
                     return client
                 _close(client)
             remaining = deadline - time.monotonic()
+            check = (
+                unreachable_why(self._url)
+                if self._url
+                else "Start the host (Tools -> Host in AutoLamella)."
+            )
             if remaining <= 0:
                 log.error(
-                    "No fibsem host answered within %.0f s; fibsem-agent stops. "
-                    "Start it again once the host is serving.",
+                    "No fibsem host answered within %.0f s; fibsem-agent stops. %s",
                     self._server_wait_s,
+                    check,
                 )
                 self._code = 1
                 return None
             if not said:
-                log.info(
-                    "Waiting up to %.0f s for the App Server (Tools -> App "
-                    "Server in AutoLamella).",
-                    remaining,
+                log.warning(
+                    "Waiting up to %.0f s for the App Server. %s", remaining, check
                 )
                 said = True
             if not await self._pause(min(delay, remaining)):
@@ -2121,6 +2133,7 @@ def main(argv=None) -> int:
     harness = Harness(
         agent,
         lambda: watch_mod.connect(args.url, token),
+        url=args.url,
         resumed=args.resume is not None,
         server_wait_s=args.server_wait,
         goal=args.goal,

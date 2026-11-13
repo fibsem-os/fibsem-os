@@ -254,18 +254,18 @@ claude mcp add -s user fibsem -- fibsem-mcp
 `-s user` registers it for all your projects; without it, `claude mcp add`
 covers only the current directory's project.
 
-**From another machine** — show a code in the web app's *Settings → Paired
-computers*, run `fibsem-mcp pair <code>` on that machine with it, and
-point the sidecar at the microscope PC:
+**From another machine**, go through an SSH tunnel to the microscope PC:
+[Running the agent on another computer](ssh-tunnel.md) sets it up. Show a code
+in the web app's *Settings → Paired computers*, run `fibsem-mcp pair <code>` on
+that machine, and point the sidecar at the tunnel's end:
 
 ```bash
-claude mcp add -s user fibsem -- fibsem-mcp --url http://<microscope-pc>:8001
+claude mcp add -s user fibsem -- fibsem-mcp --url http://localhost:8001
 ```
 
-(Or set `FIBSEM_SERVER_URL`.) The server binds to
-localhost by default; reaching it from another machine means running it on a
-reachable address — do that only on a network you trust, because the
-connection is plain HTTP: anyone who can read the traffic can read the token.
+(Or set `FIBSEM_SERVER_URL`.) The server binds to localhost by default and
+speaks plain HTTP: anyone who can read the traffic can read the token, so
+don't serve it on a network address instead of using the tunnel.
 
 Any MCP-speaking agent works, and so does anything that can send HTTP with a
 bearer token — the sidecar is convenience, not a requirement.
