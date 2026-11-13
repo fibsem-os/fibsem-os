@@ -22,7 +22,7 @@ from tests.run_state import StubRunner
 @pytest.fixture
 def recorder(main_ui):
     from fibsem import utils
-    from fibsem.workflows.event_recording import EventRecorder
+    from fibsem.workflows.events.recording import EventRecorder
 
     os.environ.setdefault("FIBSEM_SIM_NO_DELAY", "1")
     microscope, _ = utils.setup_session(manufacturer="Demo", ip_address="localhost")

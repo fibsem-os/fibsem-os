@@ -57,7 +57,7 @@ from fibsem.ui.widgets.custom_widgets import ElidedLabel
 from fibsem.ui.widgets.image_viewer_dialog import ViewerItem, open_image_viewer
 from fibsem.ui.widgets.task_summary_formatting import STATUS_BADGE_COLORS
 from fibsem.util.timestamps import format_time
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     read_new_events,
 )

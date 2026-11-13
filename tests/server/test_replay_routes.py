@@ -183,7 +183,7 @@ def test_the_grid_and_the_objective_are_the_last_recorded(tmp_path):
         _objective_inserted,
     )
     from fibsem.applications.autolamella.tools.replay import load_replay
-    from fibsem.workflows.event_recording import EVENTS_FILENAME
+    from fibsem.workflows.events.recording import EVENTS_FILENAME
 
     records = [
         ("grid_loaded", {"grid": "Grid-01", "slot": "Slot-01"}),

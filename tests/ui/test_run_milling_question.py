@@ -555,7 +555,7 @@ def test_a_mill_that_ends_after_its_widget_is_gone_calls_nothing(ui, qapp, monke
 
 def test_the_question_is_the_task_s_and_the_answer_the_operator_s(ui, qapp, tmp_path):
     from fibsem.acting import OPERATOR
-    from fibsem.workflows.event_recording import (
+    from fibsem.workflows.events.recording import (
         EVENTS_FILENAME,
         EventRecorder,
         read_events,

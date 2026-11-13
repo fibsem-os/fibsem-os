@@ -24,7 +24,7 @@ from fibsem.detection.decided import (
 )
 from fibsem.detection.detection import DetectedFeatures, LamellaCentre
 from fibsem.structures.settings import FibsemStagePosition, MicroscopeState, Point
-from fibsem.workflows.event_recording import EventRecorder
+from fibsem.workflows.events.recording import EventRecorder
 from fibsem.workflows.proposals import (
     DETECTION,
     POINT_OF_INTEREST,
@@ -291,12 +291,12 @@ def test_the_experiment_watched_is_the_one_set(microscope, experiment, tmp_path)
 def test_a_decision_that_cannot_be_recorded_is_still_made(
     experiment, recorder, monkeypatch
 ):
-    from fibsem.workflows import event_recording
+    from fibsem.workflows.events import recording
 
     def fail(values):
         raise RuntimeError("cannot encode")
 
-    monkeypatch.setattr(event_recording, "_encode_values", fail)
+    monkeypatch.setattr(recording, "_encode_values", fail)
     lamella = experiment.positions[0]
     proposal = _poi_proposal(lamella)
 

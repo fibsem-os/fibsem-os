@@ -1984,6 +1984,20 @@ export interface components {
         RunEnvelope: {
             run: components["schemas"]["RunAnswer"];
         };
+        /** @description A lamella run's steps in queue order and its estimate, or for an
+         *     addition to the running queue what it adds and delays. */
+        RunEstimateView: {
+            add: boolean | null;
+            addition: {
+                [key: string]: unknown;
+            } | null;
+            already_queued: string[];
+            estimate: {
+                [key: string]: unknown;
+            } | null;
+            run_next: boolean | null;
+            steps: components["schemas"]["RunStep"][];
+        };
         /** @description The run's last failed task, or why it stalled: kept until the next run. */
         RunFailed: {
             at: string | null;
@@ -2005,20 +2019,6 @@ export interface components {
             show_run_summary: boolean;
             /** @default false */
             turn_beams_off: boolean;
-        };
-        /** @description A lamella run's steps in queue order and its estimate, or for an
-         *     addition to the running queue what it adds and delays. */
-        RunPlan: {
-            add: boolean | null;
-            addition: {
-                [key: string]: unknown;
-            } | null;
-            already_queued: string[];
-            estimate: {
-                [key: string]: unknown;
-            } | null;
-            run_next: boolean | null;
-            steps: components["schemas"]["RunStep"][];
         };
         /** @description POST /app/workflow/plan: a run's confirmation, or for adding to the
          *     running queue (``add``); computes, never acts. */

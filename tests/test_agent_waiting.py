@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from fibsem.acting import OPERATOR
 from fibsem.ai.agent.levels import AgentLevel
-from fibsem.ai.agent.session import AgentSession
+from fibsem.ai.agent.session import AgentControl
 from fibsem.workflows.proposals import ALIGNMENT_AREA, STATE, Proposal, Suggestion
 
 
@@ -19,7 +19,7 @@ def _agent(level, pending=(), deciders=(), experiment=True):
     session = SimpleNamespace(
         experiment=experiment, app_server=host, deciders=lambda: set(deciders)
     )
-    return AgentSession(session)
+    return AgentControl(session)
 
 
 def test_the_waiting_decision_and_who_can_make_it():

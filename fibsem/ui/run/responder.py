@@ -22,11 +22,11 @@ from fibsem.structures.settings import BeamType
 from fibsem.workflows.interaction import (
     ClearMillingConfig,
     ClearSpotBurn,
-    Request,
     SetFluorescenceChannels,
     SetImages,
     SetMillingConfig,
     ShowDetection,
+    ShowRequest,
 )
 
 if TYPE_CHECKING:
@@ -40,12 +40,12 @@ __all__ = ["QtResponder"]
 class QtResponder(QObject):
     """Acts on workflow instructions by driving the panel's widgets, on the GUI thread."""
 
-    _submitted = Signal(object, object)  # (Request, Future)
+    _submitted = Signal(object, object)  # (ShowRequest, Future)
 
     def __init__(self, panel: "MicroscopePanel"):
         super().__init__()
         self._panel = panel
-        self._handlers: Dict[Type[Request], Callable] = {
+        self._handlers: Dict[Type[ShowRequest], Callable] = {
             SetImages: self._set_images,
             SetMillingConfig: self._set_milling_config,
             ClearMillingConfig: self._clear_milling_config,
@@ -55,11 +55,11 @@ class QtResponder(QObject):
         }
         self._submitted.connect(self._dispatch)
 
-    def submit(self, request: "Request", future: "Future") -> None:
+    def submit(self, request: "ShowRequest", future: "Future") -> None:
         """Hand ``request`` to the GUI thread; never blocks. Any thread."""
         self._submitted.emit(request, future)
 
-    def _dispatch(self, request: "Request", future: "Future") -> None:
+    def _dispatch(self, request: "ShowRequest", future: "Future") -> None:
         """GUI thread. Complete the future, whatever happens in the handler."""
         handler = self._handlers.get(type(request))
         try:

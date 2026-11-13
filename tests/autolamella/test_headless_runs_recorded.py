@@ -23,7 +23,7 @@ from fibsem.applications.autolamella.workflows.tasks.select_position import (
     SelectMillingPositionTaskConfig,
 )
 from fibsem.hooks import HookManager
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     EventRecorder,
     read_events,

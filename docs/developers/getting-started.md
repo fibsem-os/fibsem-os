@@ -41,7 +41,7 @@ fibsem/                     the instrument library (no application logic)
   server/                   the App Server for agents (build_server)
   ai/agent/                 the agent: levels, blocklist, tool catalog
                             (each tool with its request line),
-                            AgentSession (session.agent),
+                            AgentControl (session.agent),
                             and mcp/, the fibsem-mcp sidecar (MCP to HTTP)
   ui/agent/                 the agent's Qt UI: level chip and card,
                             previews, App Server and Connect dialogs

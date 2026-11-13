@@ -20,7 +20,7 @@ from fibsem.autofunctions.autofocus import (
 )
 from fibsem.cancellation import OperationCancelledError
 from fibsem.structures.settings import BeamType, ImageSettings
-from fibsem.workflows.event_recording import (
+from fibsem.workflows.events.recording import (
     EVENTS_FILENAME,
     EventRecorder,
     read_events,
