@@ -171,32 +171,41 @@ function took(s: number | undefined): string | null {
   return rest ? `${m} min ${rest} s` : `${m} min`;
 }
 
+/** A step's answer, done or failed, by its session and number. */
+type Answers = Map<string, TranscriptLine>;
+const stepKey = (session: string, seq: number | undefined) => `${session}|${seq}`;
+/** A line that answers a step: shown on the step, never on its own. */
+const answers = (l: TranscriptLine) => (l.kind === "done" || l.kind === "failed") && l.step != null;
+
 /** What fibsem-agent printed between two rows, in one line, "Working · 6 steps".
  * Open while the agent still adds to it, and it stays open when the agent moves
- * on, as a run of actions does; the reader folds it. A step with no answer yet
- * in a live block is running; a done step says how long it took. */
-function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boolean; live: boolean }) {
+ * on, as a run of actions does; the reader folds it. *answered* holds every
+ * step's answer, which may come after the next row; a done step says how long
+ * it took. *running* says whether a step still runs (`Record`). */
+function Working({
+  lines,
+  folded,
+  live,
+  answered,
+  running,
+}: {
+  lines: TranscriptLine[];
+  folded: boolean;
+  live: boolean;
+  answered: Answers;
+  running: (step: TranscriptLine) => boolean;
+}) {
   const [open, setOpen] = useState(live);
   useEffect(() => {
     if (live) setOpen(true);
   }, [live]);
   const shown = !folded || open;
-  const why = new Map<string, string>();
-  // Each step's answer, done or failed, by `${session}|${seq}`.
-  const answered = new Map<string, TranscriptLine>();
-  for (const l of lines) {
-    if (l.kind === "failed" && l.step != null) why.set(`${l.session_id}|${l.step}`, l.text);
-    if ((l.kind === "done" || l.kind === "failed") && l.step != null) answered.set(`${l.session_id}|${l.step}`, l);
-  }
-  // An agent that says when a step is done; an older one never does, and then
-  // only its newest step shows as running.
-  const saysDone = lines.some((l) => l.kind === "done");
-  const lastStep = [...lines].reverse().find((l) => l.kind === "step");
+  const answerOf = (l: TranscriptLine) => (l.kind === "step" ? answered.get(stepKey(l.session_id, l.seq)) : undefined);
   const steps = lines.filter((l) => l.kind === "step").length;
-  const failed = lines.filter((l) => l.kind === "failed").length;
-  const summary = [`Working · ${steps} ${steps === 1 ? "step" : "steps"}`, ...(failed ? [`${failed} failed`] : [])].join(
-    " · ",
-  );
+  const failed = lines.filter((l) => l.kind === "failed" || answerOf(l)?.kind === "failed").length;
+  // A block of the agent's words alone is "Working", not "Working · 0 steps".
+  const count = steps ? [`${steps} ${steps === 1 ? "step" : "steps"}`] : [];
+  const summary = ["Working", ...count, ...(failed ? [`${failed} failed`] : [])].join(" · ");
   return (
     <div className="flex gap-2 py-1.5 pl-2.5">
       <Time when={lines[0].t.split("T")[1]?.slice(0, 5) ?? ""} />
@@ -229,11 +238,9 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
                   </div>
                 );
               }
-              if (l.kind === "done") return null;
-              const reason = l.kind === "failed" ? l.text : why.get(`${l.session_id}|${l.seq}`);
-              if (l.kind === "failed" && l.step != null) return null;
-              const answer = l.kind === "step" ? answered.get(`${l.session_id}|${l.seq}`) : undefined;
-              const running = l.kind === "step" && live && !answer && (saysDone || l === lastStep);
+              const answer = answerOf(l);
+              const reason = l.kind === "failed" ? l.text : answer?.kind === "failed" ? answer.text : undefined;
+              const runs = l.kind === "step" && !answer && running(l);
               const duration = took(answer?.took_s);
               return (
                 <div key={i} className="contents">
@@ -244,7 +251,7 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
                     )}
                   >
                     {l.kind === "failed" ? "Failed" : l.verb}
-                    {running && <Loader size={11} className="shrink-0 animate-spin" aria-label="running" />}
+                    {runs && <Loader size={11} className="shrink-0 animate-spin" aria-label="running" />}
                   </span>
                   <span className="min-w-0 break-words">
                     {l.kind === "step" && <span className="font-mono text-[12px]">{l.text}</span>}
@@ -270,7 +277,10 @@ const time = (t: string) => Date.parse(t);
 const LIVE_FOR_MS = 60_000;
 
 /** *heard*: the agent was heard from lately, so a step it started may still run
- * with no lines coming (a long milling call). */
+ * with no lines coming (a long milling call). A step runs until its answer
+ * comes, while the agent is heard from and no later step of its session has
+ * been answered (a call cut short never answers). An agent that never says a
+ * step is done shows only its newest step as running. */
 function Record({
   rows,
   lines,
@@ -285,6 +295,19 @@ function Record({
   const out: JSX.Element[] = [];
   let run: RecentRow[] = [];
   let working: TranscriptLine[] = [];
+  const answered: Answers = new Map();
+  const lastAnswered = new Map<string, number>();
+  for (const l of lines) {
+    if (!answers(l)) continue;
+    answered.set(stepKey(l.session_id, l.step), l);
+    lastAnswered.set(l.session_id, Math.max(lastAnswered.get(l.session_id) ?? 0, l.step ?? 0));
+  }
+  const saysDone = lines.some((l) => l.kind === "done");
+  const lastStep = [...lines].reverse().find((l) => l.kind === "step");
+  const running = (step: TranscriptLine) =>
+    heard && (saysDone ? (step.seq ?? 0) > (lastAnswered.get(step.session_id) ?? 0) : step === lastStep);
+  // The answers show on their steps, not as lines of their own.
+  lines = lines.filter((l) => !answers(l));
   // Keyed by what a row says, not where it sits: the oldest rows drop off the
   // window, and a run keyed by position would lose whether the reader opened it.
   const seen = new Map<string, number>();
@@ -307,6 +330,8 @@ function Record({
           lines={working}
           folded={show === "all"}
           live={live}
+          answered={answered}
+          running={running}
         />,
       );
     }
@@ -329,13 +354,11 @@ function Record({
   end();
   if (transcript) {
     working.push(...lines.slice(next));
-    // The newest block is live while its lines still arrive, or while its last
-    // step has no answer and the agent is still heard from.
+    // The newest block is live, and open, while its lines still arrive or a
+    // step in it still runs.
     const last = working[working.length - 1];
-    const answered = (step: TranscriptLine) =>
-      working.some((l) => l.step === step.seq && l.session_id === step.session_id);
-    const waiting = !!last && last.kind === "step" && heard && !answered(last);
-    endWorking(!!last && (waiting || Date.now() - time(last.t) < LIVE_FOR_MS));
+    const runs = working.some((l) => l.kind === "step" && !answered.has(stepKey(l.session_id, l.seq)) && running(l));
+    endWorking(!!last && (runs || Date.now() - time(last.t) < LIVE_FOR_MS));
   }
   return <>{out}</>;
 }
