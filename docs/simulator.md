@@ -96,7 +96,9 @@ the sample: a sputter coat (`sputter_thickness`, 0.5 nm/s) takes most of the cha
 away and brightens the SEM a little; a GIS coat (`gis_thickness`, 0.04 um/s with the
 valve open) smooths the detail, reads brighter in the FIB, takes some charging away, and
 is milled through like the rest. Set either thickness in the config for a grid that comes
-in coated. The coat is laid over everything, so a trench milled before a deposition is
+in coated. The coat follows what is under it, so bars and cells keep their relief. It
+grows in over a broken hole or a rip in the film, by about half its thickness from each
+edge: a small hole closes, a large rip narrows. A trench milled before a deposition is
 not filled in.
 
 ## Beam settings
@@ -125,6 +127,17 @@ The SEM and FIB images answer to the beam's settings, as the instrument's do
 Voltage changes nothing, and the height of a cell or the depth of a trench is too
 little to change focus.
 
+## Starting wrong
+
+A session can start with something set wrong, to practise noticing it:
+
+- `scan_rotation_at_start: {electron: 180}` boots a beam at that scan rotation (degrees)
+  whatever the configuration's default is. An overview taken then, and looked at after
+  the rotation is put right, has its positions point-reflected.
+- `fm_camera_mount: flip-x` (or `flip-y`, `flip-xy`) is how the FM camera is really
+  mounted. Unless the camera's `mount_transform` in the configuration says the same, the
+  FM image is flipped and a click on it sends the stage the wrong way.
+
 ## Milling leaves marks
 
 ![Milled trench](img/simulator/milling.png)
@@ -150,6 +163,14 @@ damage. Below a seeded thickness (`damage_below`) each pass has a chance
 (`damage_chance`) of starting damage, recorded in `scene.damage_started` (pass and kind):
 a ragged front face, a crack across, or a piece broken out. It grows with every pass
 after.
+A lamella that breaks while it is still thick breaks more coarsely: its cracks gape
+wider, so a break in rough milling shows at a 50 um field of view.
+
+`scene.record()` gives all of this as plain values for `json.dump`: the passes, every
+milled region (its outline, depth, and whether it is a spot burn or damage), and for
+each fluorescence target whether it was milled away. Pass it points of your own,
+`scene.record({"name": (x, y, z)})` (world metres, z above the film), to ask the same of
+them.
 ## The fluorescence view
 
 ![Fluorescence channels](img/simulator/fluorescence.png)
@@ -252,6 +273,8 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `current_offset_scale` | 0 | sigma (m) of a seeded per-(beam, current) offset; 0 is off |
 | `beam_optics` | true | working distance, stigmation and current show in the image (see Beam settings) |
 | `focus_fuzz` | 15e-6 | how far a beam's focus is from its eucentric height, at most (m) |
+| `scan_rotation_at_start` | {} | the scan rotation each beam boots at, `{electron: deg, ion: deg}` |
+| `fm_camera_mount` | null | the mount transform the FM camera really has; null is as configured |
 
 ### Grid and film
 
