@@ -30,16 +30,22 @@ from fibsem.cancellation import CANCELLED, COMPLETED, FAILED, SKIPPED
 from fibsem.codec import decode, encode
 from fibsem.fm.preview import is_fluorescence_image
 from fibsem.util.timestamps import to_datetime
+from fibsem.workflows.events import kinds as event_kinds
 from fibsem.workflows.status import TaskState, TaskStatus
 
 # The event kinds that are a run's operations. A record written before
 # operations said how they ended has no status: it was only ever written for a
 # run that completed.
-OPERATION_KINDS = ("alignment", "autofocus", "fm_autofocus", "milling")
+OPERATION_KINDS = (
+    event_kinds.ALIGNMENT,
+    event_kinds.AUTOFOCUS,
+    event_kinds.FM_AUTOFOCUS,
+    event_kinds.MILLING,
+)
 
 # The event kinds that name a saved image. In a task the run's outputs list its
 # images; outside one, these are how a session's row finds them.
-IMAGE_KINDS = ("image_acquired", "fm_image_acquired")
+IMAGE_KINDS = (event_kinds.IMAGE_ACQUIRED, event_kinds.FM_IMAGE_ACQUIRED)
 # What a History reads from the events file.
 HISTORY_KINDS = OPERATION_KINDS + IMAGE_KINDS
 
@@ -385,7 +391,7 @@ def operations_need_a_look(run: HistoryRun) -> bool:
     coincidence mill's time limit) does not count."""
     for operation in run.operations:
         alignments = [r for runs in operation.drift.values() for r in runs]
-        if operation.kind == "alignment":
+        if operation.kind == event_kinds.ALIGNMENT:
             alignments.append(operation)
         if operation.status != COMPLETED or any(
             a.status != COMPLETED
@@ -445,7 +451,7 @@ def _operation(record: Dict[str, Any], lamella_name: str) -> HistoryOperation:
     payload = record.get("payload") or {}
     status = payload.get("status") or COMPLETED
     label = _LABELS.get(kind, kind)
-    if kind == "alignment":
+    if kind == event_kinds.ALIGNMENT:
         label = _alignment_label(payload, lamella_name)
     return HistoryOperation(
         kind=kind,
@@ -484,7 +490,7 @@ def _fold_drift(operations: List[HistoryOperation]) -> List[HistoryOperation]:
     order they started; what no stage claims stays as it is."""
     claimed = set()
     for mill in operations:
-        if mill.kind != "milling":
+        if mill.kind != event_kinds.MILLING:
             continue
         windows = []
         for position, stage in enumerate(_stages(mill.payload)):
@@ -494,7 +500,7 @@ def _fold_drift(operations: List[HistoryOperation]) -> List[HistoryOperation]:
                 windows.append((position, start.timestamp(), end.timestamp()))
         for index, op in enumerate(operations):
             when = op.started_at or op.ended_at
-            if op.kind != "alignment" or index in claimed or when is None:
+            if op.kind != event_kinds.ALIGNMENT or index in claimed or when is None:
                 continue
             inside = [
                 p for p, start, end in windows if start <= when.timestamp() <= end
@@ -565,11 +571,11 @@ def operation_facts(operation: HistoryOperation) -> List[Tuple[str, str]]:
         facts.append(("Beam", _BEAM.get(beam, str(beam))))
     if payload.get("method"):
         facts.append(("Method", str(payload["method"])))
-    if operation.kind == "alignment":
+    if operation.kind == event_kinds.ALIGNMENT:
         facts.extend(_alignment_facts(payload))
-    elif operation.kind == "autofocus":
+    elif operation.kind == event_kinds.AUTOFOCUS:
         facts.extend(_autofocus_facts(payload))
-    elif operation.kind == "milling":
+    elif operation.kind == event_kinds.MILLING:
         pass  # its stages are milling_stages(), each with its drift corrections
     else:
         facts.extend(_fm_autofocus_facts(payload))
@@ -731,15 +737,15 @@ def _detail(kind: str, status: str, payload: Dict[str, Any]) -> str:
     """The operation's one line."""
     if status == SKIPPED:
         return f"skipped: {payload.get('reason') or 'no reason recorded'}"
-    if kind == "milling":
+    if kind == event_kinds.MILLING:
         return _milling_detail(status, payload)
     if status == FAILED:
         return f"failed: {payload.get('error') or 'no error recorded'}"
     if status == CANCELLED and not payload.get("results"):
         return "cancelled"
-    if kind == "alignment":
+    if kind == event_kinds.ALIGNMENT:
         return _alignment_detail(payload, cancelled=status == CANCELLED)
-    if kind == "autofocus":
+    if kind == event_kinds.AUTOFOCUS:
         return _autofocus_detail(payload)
     return _fm_autofocus_detail(payload)
 
@@ -861,7 +867,7 @@ def run_record(run: HistoryRun, root: str) -> Dict[str, Any]:
             "figure": where(op.plot),
             "stages": [],
         }
-        if op.kind == "milling":
+        if op.kind == event_kinds.MILLING:
             record["stages"] = [
                 {
                     "name": stage.name,

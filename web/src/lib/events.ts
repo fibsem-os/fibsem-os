@@ -103,7 +103,7 @@ export function useEventLoop() {
     (async () => {
       while (!stopped && getToken()) {
         try {
-          const answer = await api<EventsAnswer>(`/app/events?since=${since}&timeout=${wait}`);
+          const answer = await api<EventsAnswer>(`/app/events?since=${since}&timeout=${wait}&text=true`);
           // Back after a failure: what was read before it may be stale.
           if (wait === 0) void client.invalidateQueries();
           setReachable(true);

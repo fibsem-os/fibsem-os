@@ -179,7 +179,7 @@ fibsem/versioning.py 1
 fibsem/workflows/config_patch.py 1
 fibsem/workflows/estimate.py 3
 fibsem/workflows/event_recording.py 2
-fibsem/workflows/events.py 2
+fibsem/workflows/events/__init__.py 2
 fibsem/workflows/evidence.py 10
 fibsem/workflows/experiment.py 3
 fibsem/workflows/grid/manager.py 1

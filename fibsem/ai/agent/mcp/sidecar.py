@@ -134,8 +134,7 @@ def _connect_with_retry(
             if transport is None:
                 raise ServerUnreachable(_NO_SERVER_MSG)
             raise ServerUnreachable(
-                f"fibsem-mcp: cannot reach the server at {transport.url} — "
-                "is it running, and is the token current?"
+                f"fibsem-mcp: cannot reach the server at {transport.url}: {err}"
             )
         if not waiting_reported:
             print(

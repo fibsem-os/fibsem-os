@@ -38,6 +38,7 @@ from fibsem.workflows.events import (
     attach_microscope_taps,
     make_lifecycle_hook,
 )
+from fibsem.workflows.events.kinds import LIVE_KINDS  # noqa: F401 - read from here too
 from fibsem.workflows.proposals import _encode_values
 
 EVENTS_FILENAME = "events.jsonl"
@@ -251,22 +252,6 @@ def read_new_events(
             records.append(record)
     return records, offset + end + 1
 
-
-# The records that report a moment rather than a step: progress and live
-# acquisition, several a second while milling or imaging. A run's history
-# leaves them out.
-LIVE_KINDS = frozenset(
-    {
-        "milling_progress",
-        "spot_burn_progress",
-        "fm_acquisition_progress",
-        "fm_acquisition",
-        "tiled_acquisition",
-        "stage_position_changed",
-        "sem_acquisition",
-        "fib_acquisition",
-    }
-)
 
 _CHUNK = 1 << 20
 
