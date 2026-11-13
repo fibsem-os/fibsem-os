@@ -136,9 +136,11 @@ MAX_BUFFER_SIZE = 32 * 1024 * 1024
 SERVER_WAIT_S = 600.0
 # How long the CLI has to say how full the context is, after a turn.
 CONTEXT_WAIT_S = 10.0
-# The transcript (`Harness._send_transcript`): sent this often while a turn
-# runs and as it ends, at most this many lines at once, at most this many kept
-# while the server can't take them.
+# The transcript (`Harness._send_transcript`): sent this soon after a line is
+# printed, so a burst goes together, and again this often while the server
+# can't take it; at most this many lines at once, at most this many kept while
+# the server can't take them.
+TRANSCRIPT_SOON_S = 1.0
 TRANSCRIPT_EVERY_S = 10.0
 TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
@@ -860,6 +862,8 @@ class Harness:
         # The agent's wake-up timer: it rings into the watcher's lines.
         self._alarm = alarm
         self._deadlines = Deadlines(deadline_warn_s)
+        # The transcript's sends go one at a time: (its loop, the lock).
+        self._sending: Optional[Tuple[Any, asyncio.Lock]] = None
         self._goal = goal
         self._goal_sent = False
         # The skills read, as last reported: sent again when the agent reads one.
@@ -1164,7 +1168,21 @@ class Harness:
         """The lines printed since the last send, to the App Server for the web
         page (``POST /app/agent/transcript``). Kept for the next send when it
         can't take them (no experiment open); the oldest go past
-        `TRANSCRIPT_KEEP`."""
+        `TRANSCRIPT_KEEP`. One send at a time, and a send that has started
+        finishes even when the turn ends under it: the lines it took are not
+        sent twice."""
+        loop = asyncio.get_running_loop()
+        if self._sending is None or self._sending[0] is not loop:
+            self._sending = (loop, asyncio.Lock())
+        lock = self._sending[1]
+
+        async def send() -> None:
+            async with lock:
+                await self._send_transcript_now()
+
+        await asyncio.shield(send())
+
+    async def _send_transcript_now(self) -> None:
         client, lines = self._client, getattr(self._agent, "transcript", None)
         session_id = getattr(self._agent, "session_id", None)
         if client is None or not lines or not session_id:
@@ -1194,9 +1212,26 @@ class Harness:
         del lines[:-TRANSCRIPT_KEEP]
 
     async def _send_transcript_every(self) -> None:
-        while True:
-            await asyncio.sleep(TRANSCRIPT_EVERY_S)
-            await self._send_transcript()
+        """While a turn runs: the transcript `TRANSCRIPT_SOON_S` after a line
+        is printed, and every `TRANSCRIPT_EVERY_S` for what the server could not
+        take, so the web page shows a step while it runs."""
+        printed = asyncio.Event()
+        agent = self._agent
+        listens = hasattr(agent, "on_line")
+        if listens:
+            agent.on_line = printed.set
+        try:
+            while True:
+                try:
+                    await asyncio.wait_for(printed.wait(), TRANSCRIPT_EVERY_S)
+                    await asyncio.sleep(TRANSCRIPT_SOON_S)
+                except asyncio.TimeoutError:
+                    pass
+                printed.clear()
+                await self._send_transcript()
+        finally:
+            if listens:
+                agent.on_line = None
 
     async def _interrupt_on_stop(self) -> None:
         await self._stopping.wait()
@@ -1363,8 +1398,11 @@ class SdkAgent:
         # The lines printed, until the harness sends them (`Harness._send_transcript`).
         self.transcript: List[dict] = []
         self._seq = 0
-        # A tool call's line, by the call's id: its result may say it failed.
+        # A tool call's line and when it was made, by the call's id: its
+        # result says it is done, or that it failed.
         self._steps: dict = {}
+        # Called after each line is kept (`Harness._send_transcript_every`).
+        self.on_line: Optional[Callable[[], None]] = None
         self.cwd = Path(options.cwd) if options.cwd else None
 
     def line(self, kind: str, text: str, **extra) -> int:
@@ -1379,6 +1417,8 @@ class SdkAgent:
                 **extra,
             }
         )
+        if self.on_line is not None:
+            self.on_line()
         return self._seq
 
     async def start(self) -> None:
@@ -1605,14 +1645,22 @@ def _show(message, agent: SdkAgent) -> None:
                 log.info("%s %s", verb, text)
                 seq = _line(agent, "step", text, verb=verb)
                 if seq is not None:
-                    agent._steps[block.id] = seq
+                    agent._steps[block.id] = (seq, time.monotonic())
     elif isinstance(message, UserMessage) and isinstance(message.content, list):
         for block in message.content:
-            if isinstance(block, ToolResultBlock) and block.is_error:
+            if not isinstance(block, ToolResultBlock):
+                continue
+            seq, took = None, None
+            made = getattr(agent, "_steps", {}).pop(block.tool_use_id, None)
+            if made is not None:
+                seq, took = made[0], round(time.monotonic() - made[1], 1)
+            if block.is_error:
                 why = _clip(_result_text(block.content))
                 log.warning("failed: %s", why)
-                seq = getattr(agent, "_steps", {}).get(block.tool_use_id)
-                _line(agent, "failed", _clip(why, 160), step=seq)
+                _line(agent, "failed", _clip(why, 160), step=seq, took_s=took)
+            elif seq is not None:
+                # The step is done: the web page stops showing it as running.
+                _line(agent, "done", "", step=seq, took_s=took)
 
 
 def find_checkout(given: Optional[str] = None) -> Optional[Path]:

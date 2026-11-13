@@ -1144,6 +1144,33 @@ def test_the_agent_keeps_what_it_prints_and_a_failed_step_names_it():
     assert (ran["verb"], ran["text"]) == ("Ran", "python a.py")
     assert failed["kind"] == "failed" and failed["step"] == ran["seq"]
     assert "cv2" in failed["text"]
+    assert failed["took_s"] >= 0
+
+
+def test_a_step_that_answers_is_done_and_says_how_long_it_took():
+    pytest.importorskip("claude_agent_sdk")
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
+
+    from fibsem.ai.agent.harness import SdkAgent, _show
+
+    agent = SdkAgent(harness_mod.build_options(harness_mod.find_checkout()))
+    printed = []
+    agent.on_line = lambda: printed.append(len(agent.transcript))
+    call = ToolUseBlock("t1", "mcp__fibsem__milling_run", {"stage": "Rough"})
+    _show(AssistantMessage(content=[call], model="m"), agent)
+    _show(UserMessage(content=[ToolResultBlock("t1", "done", False)]), agent)
+    # An answer to a call it never saw makes no line.
+    _show(UserMessage(content=[ToolResultBlock("t9", "done", False)]), agent)
+    ran, done = agent.transcript
+    assert ran["kind"] == "step" and ran["verb"] == "Called"
+    assert done["kind"] == "done" and done["step"] == ran["seq"]
+    assert done["took_s"] >= 0 and done["text"] == ""
+    assert printed == [1, 2], "each line tells the harness at once"
 
 
 def test_the_skills_the_agent_reads_are_reported_when_it_reads_one():
@@ -1203,6 +1230,57 @@ def test_the_transcript_is_sent_and_kept_while_the_server_cant_take_it():
     assert path == "/app/agent/transcript" and body["session_id"] == "scripted"
     (entry,) = body["entries"]
     assert entry["verb"] == "Ran" and "at" not in entry and entry["age_s"] >= 0
+
+
+def test_the_transcript_goes_soon_after_a_line_not_on_the_ten_second_clock(
+    monkeypatch,
+):
+    monkeypatch.setattr(harness_mod, "TRANSCRIPT_SOON_S", 0.01)
+    monkeypatch.setattr(harness_mod, "TRANSCRIPT_EVERY_S", 3600)
+
+    class Client:
+        def __init__(self):
+            self.bodies = []
+
+        def request(self, method, path, json=None, timeout=None):
+            self.bodies.append(json)
+
+    class Agent(ScriptedAgent):
+        on_line = None
+        transcript: list = []
+
+    agent = Agent()
+    agent.transcript = []
+    harness = Harness(agent, lambda: None)
+    harness._client = client = Client()
+
+    async def main():
+        sender = asyncio.ensure_future(harness._send_transcript_every())
+        await asyncio.sleep(0)
+        assert agent.on_line is not None
+        agent.transcript.append(
+            {
+                "seq": 1,
+                "kind": "step",
+                "verb": "Ran",
+                "text": "x",
+                "at": time.monotonic(),
+            }
+        )
+        agent.on_line()
+        await wait_until(lambda: client.bodies)
+        sender.cancel()
+        await asyncio.gather(sender, return_exceptions=True)
+
+    async def wait_until(done, timeout=2.0):
+        end = time.monotonic() + timeout
+        while not done() and time.monotonic() < end:
+            await asyncio.sleep(0.01)
+
+    asyncio.run(main())
+    ((body),) = client.bodies
+    assert [e["seq"] for e in body["entries"]] == [1]
+    assert agent.transcript == [] and agent.on_line is None
 
 
 # --- urgent lines --------------------------------------------------------------

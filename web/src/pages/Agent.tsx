@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowDown, BookOpen, ChevronDown, ChevronRight, ListChecks, ListFilter } from "lucide-react";
+import { ArrowDown, BookOpen, ChevronDown, ChevronRight, ListChecks, ListFilter, Loader } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Popup } from "@/components/ui/popup";
 import { api } from "@/lib/api";
@@ -17,8 +17,9 @@ import { hasPanel, SidePanel } from "./agent/SidePanel";
 
 // Last heard moves with no events, so the agent is read again on a clock.
 const AGENT_EVERY_MS = 10000;
-// fibsem-agent sends its transcript every 10 s while it works.
-const TRANSCRIPT_EVERY_MS = 5000;
+// fibsem-agent sends its transcript about a second after it prints a line, and
+// the page reads it on the agent_transcript event; this clock is the fallback.
+const TRANSCRIPT_EVERY_MS = 15000;
 
 const SHOWS = [
   ["all", "Everything"],
@@ -153,9 +154,19 @@ function Actions({ rows, folded }: { rows: RecentRow[]; folded: boolean }) {
   );
 }
 
+/** How long a step took, when it took long enough to say: "12 s", "3 min 5 s". */
+function took(s: number | undefined): string | null {
+  if (s == null || s < 2) return null;
+  if (s < 60) return `${Math.round(s)} s`;
+  const m = Math.floor(s / 60);
+  const rest = Math.round(s - m * 60);
+  return rest ? `${m} min ${rest} s` : `${m} min`;
+}
+
 /** What fibsem-agent printed between two rows, in one line, "Working · 6 steps".
  * Open while the agent still adds to it, and it stays open when the agent moves
- * on, as a run of actions does; the reader folds it. */
+ * on, as a run of actions does; the reader folds it. A step with no answer yet
+ * in a live block is running; a done step says how long it took. */
 function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boolean; live: boolean }) {
   const [open, setOpen] = useState(live);
   useEffect(() => {
@@ -163,7 +174,16 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
   }, [live]);
   const shown = !folded || open;
   const why = new Map<string, string>();
-  for (const l of lines) if (l.kind === "failed" && l.step != null) why.set(`${l.session_id}|${l.step}`, l.text);
+  // Each step's answer, done or failed, by `${session}|${seq}`.
+  const answered = new Map<string, TranscriptLine>();
+  for (const l of lines) {
+    if (l.kind === "failed" && l.step != null) why.set(`${l.session_id}|${l.step}`, l.text);
+    if ((l.kind === "done" || l.kind === "failed") && l.step != null) answered.set(`${l.session_id}|${l.step}`, l);
+  }
+  // An agent that says when a step is done; an older one never does, and then
+  // only its newest step shows as running.
+  const saysDone = lines.some((l) => l.kind === "done");
+  const lastStep = [...lines].reverse().find((l) => l.kind === "step");
   const steps = lines.filter((l) => l.kind === "step").length;
   const failed = lines.filter((l) => l.kind === "failed").length;
   const summary = [`Working · ${steps} ${steps === 1 ? "step" : "steps"}`, ...(failed ? [`${failed} failed`] : [])].join(
@@ -201,15 +221,26 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
                   </div>
                 );
               }
+              if (l.kind === "done") return null;
               const reason = l.kind === "failed" ? l.text : why.get(`${l.session_id}|${l.seq}`);
               if (l.kind === "failed" && l.step != null) return null;
+              const answer = l.kind === "step" ? answered.get(`${l.session_id}|${l.seq}`) : undefined;
+              const running = l.kind === "step" && live && !answer && (saysDone || l === lastStep);
+              const duration = took(answer?.took_s);
               return (
                 <div key={i} className="contents">
-                  <span className={reason != null ? "text-destructive" : "text-muted-foreground"}>
+                  <span
+                    className={cn(
+                      "flex items-center gap-1",
+                      reason != null ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  >
                     {l.kind === "failed" ? "Failed" : l.verb}
+                    {running && <Loader size={11} className="shrink-0 animate-spin" aria-label="running" />}
                   </span>
                   <span className="min-w-0 break-words">
                     {l.kind === "step" && <span className="font-mono text-[12px]">{l.text}</span>}
+                    {duration && reason == null && <span className="text-muted-foreground"> · {duration}</span>}
                     {reason != null && (
                       <span className="text-muted-foreground">
                         {l.kind === "step" ? " · failed: " : ""}
@@ -229,8 +260,23 @@ function Working({ lines, folded, live }: { lines: TranscriptLine[]; folded: boo
 
 const time = (t: string) => Date.parse(t);
 const LIVE_FOR_MS = 60_000;
+// The agent counts as still there when heard from this recently (its watcher
+// asks every 25 s or so).
+const HEARD_FOR_S = 120;
 
-function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLine[]; show: Show }) {
+/** *heard*: the agent was heard from lately, so a step it started may still run
+ * with no lines coming (a long milling call). */
+function Record({
+  rows,
+  lines,
+  show,
+  heard,
+}: {
+  rows: RecentRow[];
+  lines: TranscriptLine[];
+  show: Show;
+  heard: boolean;
+}) {
   const out: JSX.Element[] = [];
   let run: RecentRow[] = [];
   let working: TranscriptLine[] = [];
@@ -278,9 +324,13 @@ function Record({ rows, lines, show }: { rows: RecentRow[]; lines: TranscriptLin
   end();
   if (transcript) {
     working.push(...lines.slice(next));
-    // The newest block is live while its lines still arrive (every 10 s).
+    // The newest block is live while its lines still arrive, or while its last
+    // step has no answer and the agent is still heard from.
     const last = working[working.length - 1];
-    endWorking(!!last && Date.now() - time(last.t) < LIVE_FOR_MS);
+    const answered = (step: TranscriptLine) =>
+      working.some((l) => l.step === step.seq && l.session_id === step.session_id);
+    const waiting = !!last && last.kind === "step" && heard && !answered(last);
+    endWorking(!!last && (waiting || Date.now() - time(last.t) < LIVE_FOR_MS));
   }
   return <>{out}</>;
 }
@@ -478,7 +528,12 @@ export function AgentPage() {
             <div>
               {a.session && <div className="py-1.5 pl-2.5 text-[13px] text-muted-foreground">{a.session}</div>}
               {all.length ? (
-                <Record rows={rows} lines={transcript.data?.entries ?? []} show={show} />
+                <Record
+                  rows={rows}
+                  lines={transcript.data?.entries ?? []}
+                  show={show}
+                  heard={!agent.data?.stopped && (agent.data?.last_heard_s ?? Infinity) < HEARD_FOR_S}
+                />
               ) : (
                 <div className="py-8 text-center text-[13px] text-muted-foreground">
                   No messages yet. What you write here waits for the agent: it reads it on its next turn, or when one

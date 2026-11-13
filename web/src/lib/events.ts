@@ -44,6 +44,7 @@ const PROGRESS = new Set([
   "tiled_acquisition",
   "fib_acquisition",
   "fm_acquisition",
+  "agent_transcript",
 ]);
 
 // What an item's news makes stale: its record, its History and its thumbnail,
@@ -55,10 +56,12 @@ const RECORDS = new Set([
   "grid markers",
 ]);
 
-function stale(query: Query, items: Set<string>, records: boolean, grids: boolean): boolean {
+function stale(query: Query, items: Set<string>, records: boolean, grids: boolean, transcript: boolean): boolean {
   const [root, second, third] = query.queryKey as unknown[];
   const key = String(root);
   if (LIVE.has(key)) return true;
+  // Read only when fibsem-agent sent lines, not on every frame of a run.
+  if (key === "app/agent/transcript") return transcript;
   if (key === "microscope/devices") return third === "values";
   if (records && RECORDS.has(key)) return true;
   if (grids && key === "grid image") return true;
@@ -127,7 +130,10 @@ export function useEventLoop() {
           // A gap in what the buffer held: treat it as news about everything.
           const records = news.length > 0 || events.length === 0;
           const grids = news.some((e) => e.kind.startsWith("grid"));
-          await client.invalidateQueries({ predicate: (query) => stale(query, items, records, grids) });
+          const transcript = events.length === 0 || events.some((e) => e.kind === "agent_transcript");
+          await client.invalidateQueries({
+            predicate: (query) => stale(query, items, records, grids, transcript),
+          });
         } catch (error) {
           // An answer, even a refusal, is the server reached.
           setReachable(error instanceof ApiError && error.status > 0);

@@ -319,12 +319,15 @@ export interface RecentRow {
 export interface TranscriptLine {
   t: string;
   /** context: what fibsem-agent says of the session, "Playbook set: autolamella, ...". */
-  kind: "said" | "step" | "failed" | "context";
+  /** done: the step it names finished, so it no longer shows as running. */
+  kind: "said" | "step" | "done" | "failed" | "context";
   text: string;
   verb?: string;
   seq?: number;
-  /** For "failed": the step it was. */
+  /** For "done" and "failed": the step it was. */
   step?: number;
+  /** For "done" and "failed": how long the step took, in seconds. */
+  took_s?: number;
   session_id: string;
 }
 

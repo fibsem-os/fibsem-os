@@ -1,7 +1,9 @@
-"""What the agent did in each repeat of a run folder, from its log: the
-skills it read, what it looked at, the tools it called, what it said and its
-answer. ``python -m fibsem.ai.evals trace <out>`` prints it, to see why a
-repeat missed or which skill it never read."""
+"""What the agent did in each repeat of a run folder: the skills it read, what
+it looked at, the tools it called, what it said and its answer. Read from the
+session's transcript (``session/transcript.jsonl``, Claude Code's own record of
+each message and tool call), or from the agent's log for a run that kept none.
+``python -m fibsem.ai.evals trace <out>`` prints it, to see why a repeat missed
+or which skill it never read."""
 
 import json
 import re
@@ -14,6 +16,8 @@ from fibsem.ai.evals import visual
 
 AGENT_LOG = "agent.log"
 TRANSCRIPT = "session/transcript.jsonl"
+# The agent's folder in a run: what it reads there is named from it.
+WORK = "work"
 _STAMP = re.compile(r"^\d\d:\d\d:\d\d (.*)$")
 _SKILL = re.compile(r"^Read the (\S+) skill$")
 _READ = re.compile(r"^Read (\S+)$")
@@ -45,57 +49,86 @@ def log_lines(text: str) -> List[str]:
     return entries
 
 
+def _take(trace: Trace, entry: str) -> None:
+    """One step as the harness says it ("Read the x skill", "Called y {...}")."""
+    skill, read, call = _SKILL.match(entry), _READ.match(entry), _CALL.match(entry)
+    if skill:
+        trace.skills.append(skill.group(1))
+    elif read:
+        trace.looked_at.append(read.group(1))
+    elif call:
+        name = call.group(1).removeprefix("mcp__fibsem__")
+        trace.tools[name] += 1
+        if name.startswith(("experiment_read", "item_get_output_image")):
+            found = _PATH.search(call.group(2) or "")
+            if found:
+                trace.looked_at.append(found.group(1))
+
+
 def read_log(text: str) -> Trace:
+    """From the agent's log: each step's line, matched by its words."""
     trace = Trace()
     for entry in log_lines(text):
-        skill, read, call = _SKILL.match(entry), _READ.match(entry), _CALL.match(entry)
-        if skill:
-            trace.skills.append(skill.group(1))
-        elif read:
-            trace.looked_at.append(read.group(1))
-        elif call:
-            name = call.group(1).removeprefix("mcp__fibsem__")
-            trace.tools[name] += 1
-            if name.startswith(("experiment_read", "item_get_output_image")):
-                found = _PATH.search(call.group(2) or "")
-                if found:
-                    trace.looked_at.append(found.group(1))
-        elif entry.startswith("agent: "):
+        if entry.startswith("agent: "):
             trace.said.append(entry[len("agent: ") :])
         elif entry.startswith("failed: "):
             trace.failed.append(entry[len("failed: ") :])
+        else:
+            _take(trace, entry)
     return trace
 
 
-def transcript_text(path: Path) -> List[str]:
-    """The agent's own words in the session's transcript, in full, when the
-    run kept it."""
-    said = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+def _messages(path: Path):
+    """The transcript's main-session messages, (type, content blocks, the
+    folder the agent ran in)."""
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
         try:
             entry = json.loads(line)
         except ValueError:
             continue
-        message = entry.get("message") if isinstance(entry, dict) else None
-        if entry.get("type") != "assistant" or not isinstance(message, dict):
+        if not isinstance(entry, dict) or entry.get("isSidechain"):
             continue
-        for block in message.get("content") or []:
-            if isinstance(block, dict) and block.get("type") == "text":
-                if block.get("text", "").strip():
-                    said.append(block["text"].strip())
-    return said
+        message = entry.get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, list):
+            cwd = entry.get("cwd")
+            blocks = [b for b in content if isinstance(b, dict)]
+            yield entry.get("type"), blocks, Path(cwd) if isinstance(cwd, str) else None
+
+
+def read_transcript(path: Path, cwd: Optional[Path] = None) -> Trace:
+    """From the session's transcript: each tool call by its name and arguments,
+    put in the harness's words (`harness.step`), so a run reads the same from
+    either source; a tool result marked as an error is a failure. A file read
+    in the agent's folder is named from it: the folder each line says it ran in,
+    else *cwd*."""
+    from fibsem.ai.agent.harness import _clip, _result_text, step
+
+    trace = Trace()
+    for kind, blocks, ran_in in _messages(path):
+        for block in blocks:
+            if kind == "assistant" and block.get("type") == "text":
+                if str(block.get("text", "")).strip():
+                    trace.said.append(block["text"].strip())
+            elif kind == "assistant" and block.get("type") == "tool_use":
+                name, arguments = str(block.get("name", "")), block.get("input")
+                verb, text = step(name, arguments, ran_in or cwd)
+                _take(trace, f"{verb} {text}")
+            elif kind == "user" and block.get("type") == "tool_result":
+                if block.get("is_error"):
+                    trace.failed.append(_clip(_result_text(block.get("content"))))
+    return trace
 
 
 def read_run(folder: Path) -> Trace:
-    log = folder / AGENT_LOG
-    trace = (
-        read_log(log.read_text(encoding="utf-8", errors="replace"))
-        if log.is_file()
-        else Trace()
-    )
+    """A repeat's trace: from its transcript when it kept one, else its log."""
     if (folder / TRANSCRIPT).is_file():
-        trace.said = transcript_text(folder / TRANSCRIPT) or trace.said
-    return trace
+        work = folder / WORK
+        return read_transcript(folder / TRANSCRIPT, work if work.is_dir() else None)
+    log = folder / AGENT_LOG
+    if log.is_file():
+        return read_log(log.read_text(encoding="utf-8", errors="replace"))
+    return Trace()
 
 
 def _cut(text: str) -> str:
