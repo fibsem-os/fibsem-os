@@ -258,6 +258,8 @@ angle) the FM looks along a slanted line. A point over the plane shows further a
 view by its height, a cut dims only what lies along each line of sight, so a target a
 slanted cut left standing is not hidden under the trench's outline, and the plane is in
 focus along one line across the view, blurring away from it either side.
+Every channel takes the same line: in reflection a trench and a raised top show where
+that line first meets them, so the channels of one stack line up.
 
 `scene.fm_targets()` lists each target: the pair's midpoint (x, y and height, m), its
 two spots, its pool and its cilium's base and tip (or None). With `fm_red: cilia` it

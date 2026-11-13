@@ -1243,14 +1243,16 @@ REFLECTANCE = {PARTICLE: 1.15, COAT: 0.8, BAR: 1.0, FILM: 0.5}
 FRINGE = 0.42  # um; the height of ice between two fringes seen (550 nm light)
 
 
-def reflectance(scene: "SampleScene", view: Plan) -> np.ndarray:
+def reflectance(scene: "SampleScene", view: Plan, lean: float = 0.0) -> np.ndarray:
     """What the FM sees in reflected light, relative to a grid bar. The film
     is an uneven grey, with a bright dot where ice spans a hole. A cell's
     dome has a bright ring round its foot and fine broken fringes up its
     flank, each a step in the ice's height, fading to a soft grey middle.
     Bars are bright through the ice over them, particles brighter. A milled
     face is rough and dim with a bright ragged edge, and where the sample
-    was milled through there is nothing."""
+    was milled through there is nothing. A view along a tilted line (`lean`,
+    rows it crosses per um of height) sees each of these where that line
+    first meets the sample, as the fluorescence does."""
     z, mat = view.top()
     col = view.col
     sx, sy = view.step
@@ -1301,7 +1303,38 @@ def reflectance(scene: "SampleScene", view: Plan) -> np.ndarray:
     edge = np.clip(near * 2.5, 0, 1) * whole
     out = out + 1.1 * edge * np.clip(0.6 + 0.9 * noise(1.2, 306), 0, 1.5)
     out[~solid] = 0.0
-    return out.astype(np.float32)
+    out = out.astype(np.float32)
+    return _along(out, z, solid, lean, FILM_TOP) if lean else out
+
+
+SIDE = 0.6  # um; a line of sight that comes in this far under a top hit its side
+
+
+def _along(
+    values: np.ndarray, z: np.ndarray, solid: np.ndarray, lean: float, floor: float
+):
+    """`values` on a surface of height `z` (um), seen along a line that
+    crosses `lean` rows per um of height: at each place in the view, the
+    first of the surface the line meets coming down to `floor`, the
+    sample's underside. Where it comes in under
+    a top it meets a wall, which is dim; where it meets nothing there is
+    nothing."""
+    if not solid.any():
+        return values
+    step = min(0.25, 0.5 / abs(lean))
+    top, bottom = float(z[solid].max()), min(float(z[solid].min()), floor)
+    out = np.zeros_like(values)
+    done = np.zeros(values.shape, dtype=bool)
+    for level in np.arange(top, bottom - step, -step):
+        rows = lean * level
+        zs = _rows(z, rows)
+        hit = _rows(solid, rows) & (zs >= level) & ~done
+        if not hit.any():
+            continue
+        seen = _rows(values, rows)
+        out[hit] = np.where(zs > level + SIDE, 0.12 * seen, seen)[hit]
+        done |= hit
+    return out
 
 
 def _rows(a: np.ndarray, rows: float) -> np.ndarray:

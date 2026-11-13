@@ -62,3 +62,27 @@ def test_a_cut_is_seen_through_along_the_line_of_sight():
     assert np.argmax(sim_solid._rows(layer, -3.4)[:, 0]) == 7
     assert sim_solid._rows(layer, 0.2) is layer
     assert not sim_solid._rows(layer, 40).any()
+
+
+def test_the_reflection_sees_a_surface_along_the_same_line():
+    """Reflected light takes the line of sight the fluorescence does: a top
+    over the plane shows further along by its height, a trench shows the
+    wall the line comes in under, and looking straight down nothing moves."""
+    z = np.zeros((40, 4), dtype=np.float32)
+    values = np.full(z.shape, 0.3, dtype=np.float32)
+    solid = np.ones(z.shape, dtype=bool)
+    z[10:14], values[10:14] = 4.0, 1.0  # a raised block
+    z[24:30], solid[24:30] = -2.0, False  # a trench milled through
+    lean = 1.0  # a row per um
+    out = sim_solid._along(values, z, solid, lean, floor=-2.0)[:, 0]
+    # the block's top, 4 um up, shows 4 rows on
+    assert np.allclose(out[14:18], 1.0)
+    # in front of it the line comes in under the top: its wall, dim
+    assert np.allclose(out[10:14], 0.12, atol=0.01)
+    # the trench: nothing where the line passes through it, then the far
+    # wall under the ice top (2 um of it: two rows), then the top again
+    assert not out[24:28].any()
+    assert np.allclose(out[28:30], 0.12 * 0.3, atol=0.01)
+    assert out[30] == pytest.approx(0.3)
+    # the plane itself, at height 0, stays where it is
+    assert out[5] == pytest.approx(0.3) and out[20] == pytest.approx(0.3)

@@ -2353,7 +2353,7 @@ class SampleScene:
         if bars > 0:
             # a little reflected light leaks into a fluorescence channel
             plan, step = self._plan
-            leak = sim_solid.reflectance(self, plan)
+            leak = sim_solid.reflectance(self, plan, self._fm_lean(step))
             canvas += (
                 0.3
                 * bars
@@ -2478,7 +2478,7 @@ class SampleScene:
         lamella or trench where the milling left it. Worked out on at most
         ~512 samples a side and scaled up: the optics blur finer detail."""
         plan, step = self._plan
-        r = sim_solid.reflectance(self, plan)
+        r = sim_solid.reflectance(self, plan, self._fm_lean(step))
         return self._fm_reflected(r, step, xs_world, ys_world, defocus, rng)
 
     def _fm_plan(self, xs_world, ys_world):
