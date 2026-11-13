@@ -5,9 +5,11 @@ import { App } from "./App";
 import { ApiError } from "./lib/api";
 import "./index.css";
 
-// A 4xx is an answer, not a hiccup: asking again gets the same one.
+// A 4xx is an answer, not a hiccup: asking again gets the same one. A busy
+// microscope is read again on the page's own clock, not at once.
 const retry = (failures: number, error: unknown) =>
-  failures < 1 && !(error instanceof ApiError && error.status >= 400 && error.status < 500);
+  failures < 1 &&
+  !(error instanceof ApiError && ((error.status >= 400 && error.status < 500) || error.errorType === "busy"));
 
 const client = new QueryClient({
   defaultOptions: { queries: { retry, refetchOnWindowFocus: false, staleTime: 2000 } },

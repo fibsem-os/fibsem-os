@@ -90,21 +90,53 @@ async function answer<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     const detail = body?.detail;
-    const message =
-      (typeof detail === "string" && detail) || detail?.message || detail?.error || response.statusText;
+    const message = (typeof detail === "string" && detail) || detail?.message || detail?.error || response.statusText;
     throw new ApiError(response.status, message, detail?.error_type);
   }
   return body as T;
 }
 
+// A read of the instrument waits behind whatever it is doing. The server is
+// asked to answer its last value after READ_WAIT_S (with its age), and a read
+// that still has no answer after READ_TIMEOUT_MS is given up as busy.
+const READ_WAIT_S = 1;
+const READ_TIMEOUT_MS = 10000;
+export const BUSY_MESSAGE = "The microscope is busy. Readings resume when it is free.";
+
+const isInstrumentRead = (path: string, init: RequestInit) =>
+  (init.method ?? "GET") === "GET" && /^\/microscope(\/|$|\?)/.test(path);
+
+async function call(path: string, init: RequestInit): Promise<Response> {
+  const read = isInstrumentRead(path, init);
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  if (read) headers["X-Fibsem-Read-Wait"] = String(READ_WAIT_S);
+  const timeout = read && !init.signal ? AbortSignal.timeout(READ_TIMEOUT_MS) : undefined;
+  try {
+    const response = await reach(path, { ...init, headers, signal: init.signal ?? timeout });
+    if (response.status === 401) forgetToken();
+    return response;
+  } catch (error) {
+    if (timeout?.aborted) throw new ApiError(0, BUSY_MESSAGE, "busy");
+    throw error;
+  }
+}
+
 /** A call with this browser's token. A 401 forgets the token, so the app asks to pair again. */
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await reach(path, {
-    ...init,
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-  });
-  if (response.status === 401) forgetToken();
-  return answer<T>(response);
+  return answer<T>(await call(path, init));
+}
+
+/** An instrument read, with how old its value is: null when read just now,
+ * else the seconds since, while the microscope is busy. */
+export interface Reading<T> {
+  value: T;
+  age: number | null;
+}
+
+export async function reading<T>(path: string): Promise<Reading<T>> {
+  const response = await call(path, {});
+  const age = response.headers.get("X-Fibsem-Read-Age");
+  return { value: await answer<T>(response), age: age === null ? null : Number(age) };
 }
 
 /** An image route's bytes as an object URL, for an <img> that can't send the token. */
