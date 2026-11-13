@@ -972,17 +972,21 @@ def remote_class(entry_type: str, description: Mapping[str, Any]) -> Optional[ty
 
 
 def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device:
-    """The device a ``driver: remote`` entry names, on the device server at its
-    ``address`` and ``port``, made with `remote_class`.
+    """The device a remote entry names (``remote: <address>:<port>``, or the
+    older ``driver: remote`` with ``address`` and ``port``), on that Device
+    Server, made with `remote_class`. An entry that names its own driver
+    expects the server's device to be that driver's.
 
     The entry's name is the device's name on the server. Entries at one address share
     one ``DeviceClient``, and the server is asked what it has once. A server that does
     not answer, or has no device of that name, fails the build: the device is left out
     with a warning, or connect fails when the entry is ``required``.
     """
-    address, port = entry.options.get("address"), entry.options.get("port")
+    address, port = entry.remote_address()
     if address is None or port is None:
-        raise ValueError("a remote device needs an `address` and a `port`")
+        raise ValueError(
+            "a remote device needs an `address` and a `port` (remote: <address>:<port>)"
+        )
     client, descriptions = _server(context, str(address), int(port), entry.options)
     description = descriptions.get(entry.name)
     if description is None:
@@ -990,6 +994,7 @@ def build_remote_device(entry: "DeviceEntry", context: "BuildContext") -> Device
             f"the device server at {address}:{port} has no device '{entry.name}' "
             f"(it has {', '.join(descriptions) or 'none'})"
         )
+    _check_driver(entry, description, f"{address}:{port}")
     device_class = remote_class(entry.type, description)
     if device_class is None:
         raise ValueError(f"the remote driver has no '{entry.type}' device")
@@ -1028,10 +1033,11 @@ def build_remote_fm(
             "remote: its Device Server's fm entry states its own, and that is "
             "what is used."
         )
-    address, port = entry.options.get("address"), entry.options.get("port")
+    address, port = entry.remote_address()
     if address is None or port is None:
         raise ValueError(
-            "the FM is configured as remote but has no `address` and `port`"
+            "the FM is configured as remote but has no `address` and `port` "
+            "(remote: <address>:<port>)"
         )
     microscope = context.microscope
     try:
@@ -1051,6 +1057,21 @@ def build_remote_fm(
     if apply_calibration is not None:
         fm.client.reconnected.connect(apply_calibration)
     return fm
+
+
+def _check_driver(entry: "DeviceEntry", description: Mapping[str, Any], where: str):
+    """Warn when an entry names its own driver and the server's device is another
+    driver's: the file says one thing, the server has another."""
+    from fibsem.drivers.registry import normalize_name
+
+    stated, served = entry.driver, description.get("driver")
+    if not stated or stated == REMOTE_DRIVER or not served:
+        return
+    if normalize_name(stated) != normalize_name(served):
+        logging.warning(
+            f"'{entry.name}' names driver {stated}, but the Device Server at {where} "
+            f"serves it with driver {served}; using the server's."
+        )
 
 
 def not_paired(host: str, port: int) -> str:
