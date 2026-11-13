@@ -43,7 +43,6 @@ from fibsem.server.parts import (
     served_parts,
 )
 from fibsem.server.responses import (
-    REFUSAL_STATUS,
     AnimationFrames,
     AppStatus,
     ConfigEdit,
@@ -279,27 +278,10 @@ def _run_body(body: Dict[str, Any]) -> Tuple[List[str], Optional[List[str]]]:
 
 
 def _answer_or_refusal(result: Any) -> Any:
-    """A context answer, or its refusal as an HTTP error: a `Refusal`, or a dict
-    whose ``error_type`` picks the status, ``error`` is the message, and any
-    lists of valid names ride along."""
+    """A context answer, or its `Refusal` as an HTTP error."""
     if isinstance(result, Refusal):
         raise _refusal_error(result)
-    if not isinstance(result, dict):
-        return result
-    error_type = result.get("error_type")
-    if error_type is None:
-        return result
-    names = {
-        key: value
-        for key, value in result.items()
-        if key.endswith(("_names", "_paths")) or key == "filenames"
-    }
-    raise refusal_error(
-        REFUSAL_STATUS.get(error_type, 422),
-        error_type,
-        result.get("error", result.get("message", "")),
-        **names,
-    )
+    return result
 
 
 def _typed(result: Any) -> Response:
@@ -1382,7 +1364,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     )
     def patch_protocol_task_config(task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
-        return _refused_or(
+        return _answer_or_refusal(
             context.apply_protocol_task_config_patch(task_name, patch, version)
         )
 
@@ -1393,7 +1375,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     )
     def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
-        return _refused_or(
+        return _answer_or_refusal(
             context.apply_item_task_config_patch(item_name, task_name, patch, version)
         )
 
@@ -1495,7 +1477,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     def patch_grid_task_config(task_name: str, body: Dict[str, Any]):
         patch, version = _validated(body)
         result = context.apply_grid_task_config_patch(task_name, patch, version)
-        return _refused_or(_answer_or_refusal(result))
+        return _answer_or_refusal(result)
 
     @router.post(
         "/experiment/grid_protocol/tasks/reorder", response_model=TaskEdit, tags=[GRIDS]
@@ -1540,7 +1522,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     )
     def reorder_item_stages(item_name: str, task_name: str, body: Dict[str, Any]):
         milling_key, order, version = _validated_reorder(body)
-        return _refused_or(
+        return _answer_or_refusal(
             context.reorder_milling_stages(
                 "item", item_name, task_name, milling_key, order, version
             )
@@ -1553,7 +1535,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     )
     def reorder_protocol_stages(task_name: str, body: Dict[str, Any]):
         milling_key, order, version = _validated_reorder(body)
-        return _refused_or(
+        return _answer_or_refusal(
             context.reorder_milling_stages(
                 "protocol", "", task_name, milling_key, order, version
             )
@@ -1566,7 +1548,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     )
     def apply_protocol_to_item(item_name: str, body: Dict[str, Any]):
         # Wholesale by design — the verb IS "replace with the protocol
-        # defaults" — so no version field; refusals ride _refused_or.
+        # defaults" — so no version field; a refusal is the context's.
         task_names = body.get("task_names")
         if task_names is not None and not (
             isinstance(task_names, list) and all(isinstance(t, str) for t in task_names)
@@ -1576,7 +1558,7 @@ def build_app_config_router(context: Any) -> APIRouter:
                 "name strings; omitted means every task the protocol "
                 "defines."
             )
-        return _refused_or(context.apply_protocol_to_item(item_name, task_names))
+        return _answer_or_refusal(context.apply_protocol_to_item(item_name, task_names))
 
     # -- experiments and protocols: kept to known places -----------------------
 
@@ -1762,7 +1744,7 @@ def build_app_config_router(context: Any) -> APIRouter:
         # mirror of GET /app/experiment/items/{item_name}, whose payload carries the
         # version this patch must echo.
         patch, version = _validated(body)
-        return _refused_or(context.apply_item_patch(item_name, patch, version))
+        return _answer_or_refusal(context.apply_item_patch(item_name, patch, version))
 
     @router.post(
         "/experiment/items/{item_name}/correlation",
@@ -1777,38 +1759,6 @@ def build_app_config_router(context: Any) -> APIRouter:
             raise _missing_field(
                 "Pass run_path, a run folder from correlation_correlate."
             )
-        return _refused_or(
-            _answer_or_refusal(context.apply_item_correlation(item_name, run_path))
-        )
-
-    def _refused_or(result: Any):
-        result = _answer_or_refusal(result)
-        if result.get("stale"):
-            raise refusal_error(
-                409,
-                "stale_config",
-                "The config changed since your read; re-read "
-                "it and write the patch against the current version.",
-            )
-        if result.get("error_type") == "task_running":
-            raise refusal_error(
-                409, "task_running", result.get("error", "That task is running.")
-            )
-        if result.get("invalid_patch"):
-            raise refusal_error(
-                422, "invalid_patch", result["invalid_patch"], path=result.get("path")
-            )
-        if not result.get("applied") and result.get("error"):
-            # a refusal says what it is (volume's "not served" is invalid); a
-            # bare error is a name that is not there
-            error_type = result.get("error_type") or "not_found"
-            names = {k: result[k] for k in ("item_names", "task_names") if k in result}
-            raise refusal_error(
-                REFUSAL_STATUS.get(error_type, 404),
-                error_type,
-                result["error"],
-                **names,
-            )
-        return result
+        return _answer_or_refusal(context.apply_item_correlation(item_name, run_path))
 
     return _served(router, context)

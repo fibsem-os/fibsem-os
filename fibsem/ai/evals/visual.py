@@ -13,26 +13,20 @@ import json
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
-from fibsem.ai.evals import report
+from fibsem.ai.evals import report, tasks
 from fibsem.ai.evals.cases import (
     Case,
     find_cases,
     load_case,
-    pass_names,
-    square_call,
-    stop_passes,
 )
 from fibsem.ai.evals.runner import ANSWER, RESULT
 from fibsem.ai.evals.scoring import (
-    InvalidAnswer,
-    match_squares,
     score_case,
     score_live,
-    yes_no,
 )
 
 log = logging.getLogger(__name__)
@@ -147,155 +141,6 @@ def _input(case: Case, name: str) -> Path:
 # --- one figure per task ----------------------------------------------------
 
 
-def draw_site_selection(case: Case, runs: List[Run]):
-    image, step = _shrink(_read_image(_input(case, "overview")))
-    fig, ax = _figure(12, 5.5)
-    h, w = image.shape
-    _show(ax, image, extent=(0, w * step, h * step, 0))
-    radius = float(case.key.get("hit_radius_px", 100))
-    from matplotlib.patches import Circle
-
-    for square in case.key.get("good") or []:
-        ax.add_patch(
-            Circle(
-                (square["x_px"], square["y_px"]), radius, fill=False, color=KEY, lw=1.5
-            )
-        )
-    for square in case.key.get("bad") or []:
-        ax.add_patch(
-            Circle((square["x_px"], square["y_px"]), radius, fill=False, color="red")
-        )
-    for n, (_, answer) in enumerate(runs):
-        for i, pick in enumerate((answer or {}).get("picks") or []):
-            try:
-                x, y = float(pick["x_px"]), float(pick["y_px"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            ax.plot(x, y, "x", color=_colour(n), ms=7, mew=2)
-            ax.annotate(
-                str(i + 1),
-                (x, y),
-                (4, 4),
-                textcoords="offset points",
-                color=_colour(n),
-                fontsize=7,
-            )
-    _legend(ax, runs, "keyed good square")
-    return fig
-
-
-def draw_square_finding(case: Case, runs: List[Run]):
-    image, step = _shrink(_read_image(_input(case, "overview")))
-    h, w = image.shape
-    fig, axes = _figure(
-        12, 4.8 * len(runs) or 4.8, nrows=max(1, len(runs)), squeeze=False
-    )
-    squares = case.key["squares"]
-    radius = float(case.scoring.get("match_radius_px", float(case.key["pitch_px"]) / 3))
-    for ax, (result, answer) in zip(axes[:, 0], runs):
-        _show(ax, image, extent=(0, w * step, h * step, 0))
-        points = []
-        for p in (answer or {}).get("squares") or []:
-            try:
-                points.append((float(p["x_px"]), float(p["y_px"])))
-            except (KeyError, TypeError, ValueError):
-                pass
-        matched = match_squares(points, squares, radius)
-        found = set(matched.values())
-        for j, sq in enumerate(squares):
-            colour = KEY if j in found else ("#999999" if sq.get("optional") else "red")
-            ax.plot(sq["x_px"], sq["y_px"], "o", mfc="none", mec=colour, ms=9, mew=1.5)
-        for i, (x, y) in enumerate(points):
-            ax.plot(
-                x, y, "+", color="#1f77b4" if i in matched else "orange", ms=8, mew=2
-            )
-        score = (result.get("scores") or [{}])[0]
-        d = score.get("details", {})
-        ax.set_title(
-            f"r{result['repeat']}: {score.get('result')}  recall {d.get('recall')}  "
-            f"precision {d.get('precision')}  pitch {(answer or {}).get('pitch_px')} "
-            f"(key {case.key['pitch_px']})  angle {(answer or {}).get('angle_deg')} "
-            f"(key {case.key['angle_deg']})",
-            fontsize=9,
-        )
-    axes[0, 0].text(
-        0.01,
-        0.01,
-        "circles: key (green found, red missed, grey optional); "
-        "+: agent (blue matched, orange extra)",
-        transform=axes[0, 0].transAxes,
-        fontsize=8,
-        color="white",
-        bbox=dict(facecolor="black", alpha=0.6),
-    )
-    return fig
-
-
-def draw_square_quality(case: Case, runs: List[Run]):
-    image = _read_image(_input(case, "overview"))
-    squares = case.data.get("squares") or []
-    labels = case.key.get("labels") or {}
-    cols = 6
-    rows = int(np.ceil(len(squares) / cols)) or 1
-    fig, axes = _figure(cols * 2.2, rows * 2.6, nrows=rows, ncols=cols, squeeze=False)
-    half = 200
-    for ax in axes.ravel():
-        ax.axis("off")
-    for ax, sq in zip(axes.ravel(), squares):
-        x, y = int(sq["x_px"]), int(sq["y_px"])
-        crop = image[max(0, y - half) : y + half, max(0, x - half) : x + half]
-        _show(ax, crop)
-        name = str(sq["square"])
-        want = square_call(labels.get(name, "?"))
-        said = []
-        for result, answer in runs:
-            value = ((answer or {}).get("labels") or {}).get(name)
-            said.append(square_call(value)["sites"][0] if value else "-")
-        wrong = any(s not in want["sites"] for s in said)
-        why = ", ".join(r.replace("_", " ") for r in want["reasons"])
-        ax.set_title(
-            f"{name}: {' | '.join(want['sites'])}"
-            + (f" ({why})" if why else "")
-            + "\n"
-            + " ".join(said),
-            fontsize=7,
-            color="red" if wrong else "black",
-        )
-    return fig
-
-
-def draw_fm_target(case: Case, runs: List[Run]):
-    target = case.key.get("target") or {}
-    x, y = target.get("x_px"), target.get("y_px")
-    if x is None:
-        pts = [a for _, a in runs if a and "x_px" in a]
-        if not pts:
-            return None
-        x, y = pts[0]["x_px"], pts[0]["y_px"]
-    crop, extent = _stack_crop(case, float(x), float(y), 400)
-    fig, ax = _figure(7, 7)
-    _show(ax, crop, extent=extent)
-    if "x_px" in target:
-        ax.plot(target["x_px"], target["y_px"], "o", mfc="none", mec=KEY, ms=14, mew=2)
-    for n, (_, answer) in enumerate(runs):
-        try:
-            ax.plot(
-                float(answer["x_px"]),
-                float(answer["y_px"]),
-                "x",
-                color=_colour(n),
-                ms=10,
-                mew=2,
-            )
-        except (KeyError, TypeError, ValueError):
-            pass
-    ax.set_xlim(extent[0], extent[1])
-    ax.set_ylim(extent[2], extent[3])
-    ax.set_title(f"max projection, key usable: {case.key.get('usable')}", fontsize=9)
-    _legend(ax, runs)
-    return fig
-
-
 def _fm_overview(path: Path, step: int = 4) -> np.ndarray:
     """An FM stack as an RGB max projection over z, shrunk by *step*: the
     first channel (reflection) in magenta, the last (the label) in green."""
@@ -326,86 +171,6 @@ def _mark_points(ax, points, colour, marker, size, numbered=True):
             )
 
 
-def _pairs(answer: Dict[str, Any], side: str) -> List[Tuple[float, float]]:
-    points = []
-    for f in answer.get("fiducials") or []:
-        try:
-            points.append((float(f[side][0]), float(f[side][1])))
-        except (KeyError, IndexError, TypeError, ValueError):
-            points.append((np.nan, np.nan))
-    return points
-
-
-def draw_correlation(case: Case, runs: List[Run]):
-    """The FM stack (when it can be read) beside the FIB image: the key's
-    target and fiducials in green, each repeat's in its colour, fiducial
-    pairs numbered alike on both sides."""
-    fib = _read_image(_input(case, "fib_image"))
-    key = case.key
-    fm = None
-    if case.data.get("inputs", {}).get("fm_stack"):
-        try:
-            step = 4
-            fm = (_fm_overview(_input(case, "fm_stack"), step), step)
-        except Exception as e:  # the FIB side still says most of it
-            log.warning("No FM panel for %s: %s", case.id, e)
-    fig, axes = _figure(16 if fm else 10, 7, ncols=2 if fm else 1, squeeze=False)
-    axes = axes[0]
-    if fm:
-        image, step = fm
-        ax = axes[0]
-        h, w = image.shape[:2]
-        ax.imshow(image, extent=(0, w * step, h * step, 0))
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_title(
-            "FM max projection (green: label, magenta: reflection)", fontsize=9
-        )
-        _mark_points(ax, [p[:2] for p in key.get("fiducials_fm_px") or []], KEY, "s", 9)
-        target = key.get("target_fm") or {}
-        if "x_px" in target:
-            ax.plot(
-                target["x_px"], target["y_px"], "o", mfc="none", mec=KEY, ms=16, mew=2.5
-            )
-        for n, (_, answer) in enumerate(runs):
-            _mark_points(ax, _pairs(answer or {}, "fm_px"), _colour(n), "s", 7)
-    ax = axes[-1]
-    _show(ax, fib, extent=(0, fib.shape[1], fib.shape[0], 0))
-    _mark_points(ax, key.get("fiducials_fib_px") or [], KEY, "s", 9)
-    target = key["target_fib_px"]
-    ax.plot(target["x"], target["y"], "o", mfc="none", mec=KEY, ms=16, mew=2.5)
-    for n, (_, answer) in enumerate(runs):
-        answer = answer or {}
-        _mark_points(ax, _pairs(answer, "fib_px"), _colour(n), "s", 7)
-        try:
-            ax.plot(
-                float(answer["x_px"]),
-                float(answer["y_px"]),
-                "x",
-                color=_colour(n),
-                ms=14,
-                mew=3,
-            )
-        except (KeyError, TypeError, ValueError):
-            pass
-    errors = []
-    for result, answer in runs:
-        d = score_case(case, answer or {})[0].details
-        if "across_um" in d:
-            errors.append(
-                f"r{result['repeat']} across {d['across_um']}, along {d['along_um']}"
-            )
-        elif "error_um" in d:
-            errors.append(f"r{result['repeat']} {d['error_um']}")
-    ax.set_title(
-        "FIB image. circle/x: target; squares: fiducial pairs, numbered"
-        + (f"\nerror (um): {'; '.join(errors)}" if errors else ""),
-        fontsize=9,
-    )
-    _legend(ax, runs)
-    return fig
-
-
 def _stops(answer: Optional[Dict[str, Any]], names: List[str]) -> Optional[int]:
     stops = [
         names.index(p.get("name"))
@@ -426,162 +191,6 @@ def _pass_strip(case: Case, axes) -> None:
         ax.set_title(entry["name"], fontsize=6)
 
 
-def draw_polishing_stop(case: Case, runs: List[Run], key=None, part=None):
-    key = key or case.key
-    names = pass_names(case)
-    passes = case.data.get("passes") or []
-    import matplotlib.pyplot as plt
-
-    fig = plt.figure(figsize=(max(8, 1.1 * len(names)), 6))
-    grid = fig.add_gridspec(2, len(names), height_ratios=(1, 2))
-    _pass_strip(case, [fig.add_subplot(grid[0, i]) for i in range(len(names))])
-    ax = fig.add_subplot(grid[1, :])
-    xs = np.arange(len(names))
-    med = [p.get("measured", {}).get("median_nm", np.nan) for p in passes]
-    lo = [p.get("measured", {}).get("min_nm", np.nan) for p in passes]
-    hi = [p.get("measured", {}).get("max_nm", np.nan) for p in passes]
-    ax.fill_between(xs, lo, hi, color="#cccccc", label="min-max")
-    ax.plot(xs, med, "k.-", label="median")
-    wanted = [names.index(name) for name in stop_passes(key)]
-    ax.axvspan(
-        min(wanted) - 0.08,
-        max(wanted) + 0.08,
-        color=KEY,
-        alpha=0.4,
-        label="key: stop after " + " or ".join(stop_passes(key)),
-    )
-    for n, (result, answer) in enumerate(runs):
-        stop = _stops(
-            answer if part is None else ((answer or {}).get("parts") or {}).get(part),
-            names,
-        )
-        if stop is not None:
-            ax.axvline(
-                stop + 0.04 * (n + 1),
-                color=_colour(n),
-                ls="--",
-                label=f"r{result['repeat']} stops after {names[stop]}",
-            )
-        else:
-            ax.text(
-                len(names) - 1,
-                np.nanmax(hi),
-                f"r{result['repeat']}: never stops",
-                color=_colour(n),
-                ha="right",
-                va="top",
-                fontsize=8,
-            )
-    ax.set_xticks(xs, names, rotation=45, ha="right", fontsize=7)
-    ax.set_ylabel("thickness, nm")
-    ax.legend(fontsize=7)
-    return fig
-
-
-def draw_target_present(case: Case, runs: List[Run], key=None, part=None):
-    key = key or case.key
-    names = pass_names(case)
-    import matplotlib.pyplot as plt
-
-    fig = plt.figure(figsize=(max(8, 1.1 * len(names)), 2.5 + 0.4 * len(runs)))
-    grid = fig.add_gridspec(2, len(names), height_ratios=(1.4, 0.4 * (len(runs) + 1)))
-    _pass_strip(case, [fig.add_subplot(grid[0, i]) for i in range(len(names))])
-    ax = fig.add_subplot(grid[1, :])
-    rows = [("key", key)]
-    for result, answer in runs:
-        answer = (
-            answer if part is None else ((answer or {}).get("parts") or {}).get(part)
-        )
-        rows.append((f"r{result['repeat']}", (answer or {}).get("present") or {}))
-    for r, (label, said) in enumerate(rows):
-        for c, name in enumerate(names):
-            if name not in said:
-                continue
-            try:
-                value = yes_no(said[name])
-            except InvalidAnswer:
-                value = None
-            want = yes_no(key[name]) if name in key else None
-            colour = "#bbbbbb" if value is None else ("#2ca02c" if value else "#444444")
-            ax.add_patch(plt.Rectangle((c, r), 0.9, 0.9, color=colour))
-            text = {True: "yes", False: "no", None: "?"}[value]
-            ax.text(
-                c + 0.45,
-                r + 0.45,
-                text,
-                ha="center",
-                va="center",
-                fontsize=7,
-                color="red" if r and want is not None and value != want else "white",
-            )
-    ax.set_xlim(0, len(names))
-    ax.set_ylim(len(rows), 0)
-    ax.set_yticks(np.arange(len(rows)) + 0.45, [label for label, _ in rows])
-    ax.set_xticks([])
-    ax.set_title("target present (red text: differs from the key)", fontsize=9)
-    return fig
-
-
-def draw_setup_placement(case: Case, runs: List[Run]):
-    """The FIB image with the key's masks tinted (green: ok, red: bad) and
-    each repeat's lamella centre as an x."""
-    from PIL import Image
-
-    image = _read_image(_input(case, "fib_image"))
-    fig, ax = _figure(10, 7)
-    h, w = image.shape
-    _show(ax, image, extent=(0, w, h, 0))
-    for names, colour in (
-        (("ok_mask",), (0.17, 0.63, 0.17)),
-        (("bad_mask", "unsafe_mask"), (0.84, 0.15, 0.16)),
-    ):
-        path = next((case.key[n] for n in names if case.key.get(n)), None)
-        if not path or not (case.path / path).is_file():
-            continue
-        mask = np.array(Image.open(case.path / path)) > 0
-        tint = np.zeros((*mask.shape, 4))
-        tint[mask] = (*colour, 0.35)
-        ax.imshow(tint, extent=(0, w, h, 0))
-    target = case.key.get("target_px") or {}
-    if "x" in target:
-        ax.plot(target["x"], target["y"], "o", mfc="none", mec=KEY, ms=16, mew=2.5)
-    results = []
-    for n, (result, answer) in enumerate(runs):
-        try:
-            ax.plot(
-                float(answer["x_px"]),
-                float(answer["y_px"]),
-                "x",
-                color=_colour(n),
-                ms=14,
-                mew=3,
-            )
-        except (KeyError, TypeError, ValueError):
-            pass
-        results.append(
-            f"r{result['repeat']} {score_case(case, answer or {})[0].result}"
-        )
-    ax.set_title(
-        "FIB image. green: ok centres; red: a trench or the lamella on a bar"
-        + (f"\n{'; '.join(results)}" if results else ""),
-        fontsize=9,
-    )
-    _legend(ax, runs)
-    return fig
-
-
-DRAW: Dict[str, Callable] = {
-    "site_selection": draw_site_selection,
-    "square_finding": draw_square_finding,
-    "square_quality": draw_square_quality,
-    "fm_target": draw_fm_target,
-    "correlation": draw_correlation,
-    "polishing_stop": draw_polishing_stop,
-    "target_present": draw_target_present,
-    "setup_placement": draw_setup_placement,
-}
-
-
 def case_figures(case: Case, runs: List[Run]) -> List[Tuple[str, str]]:
     """(caption, base64 png) per figure of *case*: one, or one per part."""
     jobs = []
@@ -593,12 +202,11 @@ def case_figures(case: Case, runs: List[Run]) -> List[Tuple[str, str]]:
         jobs.append((case.task, case.task, None, None))
     figures = []
     for caption, task, key, part in jobs:
-        draw = DRAW.get(task)
-        if draw is None:
+        if tasks.get(task) is None:
             continue
         try:
             kw = {"key": key, "part": part} if part is not None else {}
-            fig = draw(case, runs, **kw)
+            fig = tasks.get(task).draw(case, runs, **kw)
         except Exception as e:  # a figure is a help, never a reason to fail
             log.warning("No figure for %s (%s): %s", case.id, caption, e)
             figures.append((f"{caption}: no figure ({e})", ""))

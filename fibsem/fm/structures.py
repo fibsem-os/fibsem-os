@@ -706,8 +706,9 @@ class FluorescenceImage:
             camera_gain = channel.gain
             camera_offset = channel.offset
 
-            # wavelengths are in nm
-            excitation_wavelength = int(channel.excitation_wavelength)
+            # wavelengths are in nm; OME takes none over a zero, which an imported
+            # file without one reads as
+            excitation_wavelength = int(channel.excitation_wavelength) or None
             emission_wavelength = ome_emission_wavelength(channel.emission_filter)
             emission_filter = ome_emission_filter(
                 channel.emission_filter, f"Filter:{id_str}"

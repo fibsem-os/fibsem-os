@@ -6,18 +6,10 @@ from typing import Any, Dict, Iterator, List, Optional
 
 import yaml
 
+from fibsem.ai.evals import tasks
+
 FORMAT = 0
 FILE = "case.yaml"
-TASKS = (
-    "site_selection",
-    "fm_target",
-    "correlation",
-    "polishing_stop",
-    "target_present",
-    "square_finding",
-    "square_quality",
-    "setup_placement",
-)
 # Where a case's images come from: a real session, or the simulator. Sim
 # cases are scored apart and never count towards the real scores.
 TIERS = ("real", "sim")
@@ -157,12 +149,12 @@ def check_case(case: Case) -> CaseCheck:
             check.problems.append(f"no {name}")
     if data.get("format") != FORMAT:
         check.problems.append(f"format {data.get('format')!r}, expected {FORMAT}")
-    if case.task not in TASKS:
+    if tasks.get(case.task) is None:
         check.problems.append(f"unknown task {case.task!r}")
     if case.tier not in TIERS:
         check.problems.append(f"unknown tier {case.tier!r}")
     for name, part in case.parts.items():
-        if part.get("task") not in TASKS:
+        if tasks.get(part.get("task")) is None:
             check.problems.append(f"part {name}: unknown task {part.get('task')!r}")
     playbook = data.get("playbook")
     if playbook is not None and not isinstance(playbook, str):
@@ -178,74 +170,13 @@ def check_case(case: Case) -> CaseCheck:
 
 
 def _key_problems(case: Case) -> List[str]:
-    key, problems = case.key, []
-    if case.task == "fm_target":
-        target = key.get("target") or {}
-        if "usable" not in key:
-            problems.append("key has no usable")
-        if key.get("usable") is True and not {"x_px", "y_px"} <= set(target):
-            problems.append("key target has no x_px, y_px")
-        if not pixel_size_um(case):
-            problems.append("no stack pixel_size_um")
-    elif case.task == "correlation":
-        if not {"x", "y"} <= set(key.get("target_fib_px") or {}):
-            problems.append("key has no target_fib_px x, y")
-        if not pixel_size_um(case):
-            problems.append("no inputs fib_pixel_size_um")
-    elif case.task == "polishing_stop":
-        names = pass_names(case)
-        stops = stop_passes(key)
-        if not stops or any(stop not in names for stop in stops):
-            problems.append(f"key stop_after {key.get('stop_after')!r} is not a pass")
-    elif case.task == "site_selection":
-        for square in key.get("good", []) + key.get("bad", []):
-            if not {"x_px", "y_px"} <= set(square):
-                problems.append(f"key square without x_px, y_px: {square}")
-    elif case.task == "square_finding":
-        squares = key.get("squares") or []
-        if not squares:
-            problems.append("key has no squares")
-        for square in squares:
-            if not {"x_px", "y_px"} <= set(square):
-                problems.append(f"key square without x_px, y_px: {square}")
-        for name in ("pitch_px", "angle_deg"):
-            if name not in key:
-                problems.append(f"key has no {name}")
-    elif case.task == "setup_placement":
-        for name in ("ok_mask", "bad_mask"):
-            rel = key.get(name) if name == "ok_mask" else bad_mask(key)
-            if not rel:
-                problems.append(f"key has no {name}")
-            elif not str(rel).startswith("reference/"):
-                problems.append(f"key {name} must sit under reference/, out of sight")
-            elif not (case.path / rel).is_file():
-                problems.append(f"key {name} {rel} is missing")
-        if not {"x", "y"} <= set(key.get("target_px") or {}):
-            problems.append("key has no target_px x, y")
-        if not pixel_size_um(case):
-            problems.append("no inputs fib_pixel_size_um")
-    elif case.task == "square_quality":
-        shown = {str(s.get("square")) for s in case.data.get("squares") or []}
-        labels = key.get("labels") or {}
-        if not labels:
-            problems.append("key has no labels")
-        for name, label in labels.items():
-            call = square_call(label)
-            for site in call["sites"]:
-                if site not in SITES:
-                    problems.append(f"square {name}: site {site!r} is not good or bad")
-            for reason in call["reasons"]:
-                if reason not in SQUARE_REASONS:
-                    problems.append(f"square {name}: unknown reason {reason!r}")
-            if str(name) not in shown:
-                problems.append(f"square {name} is keyed but not in squares")
+    """What is missing or wrong in the case's key, and in each part's own."""
+    task = tasks.get(case.task)
+    problems = list(task.check_key(case, case.key)) if task else []
     for name, part in case.parts.items():
-        if part.get("task") == "target_present":
-            unknown = set(part.get("key") or {}) - set(pass_names(case))
-            if unknown:
-                problems.append(
-                    f"part {name}: key names unknown passes {sorted(unknown)}"
-                )
+        if isinstance(part.get("key"), dict) and tasks.get(part.get("task")):
+            check = tasks.get(part["task"]).check_key(case, part["key"])
+            problems += [f"part {name}: {problem}" for problem in check]
     return problems
 
 
@@ -269,8 +200,5 @@ def pass_names(case: Case) -> List[str]:
 
 
 def pixel_size_um(case: Case) -> Optional[float]:
-    if case.task == "fm_target":
-        return (case.data.get("stack") or {}).get("pixel_size_um")
-    if case.task in ("correlation", "setup_placement"):
-        return (case.data.get("inputs") or {}).get("fib_pixel_size_um")
-    return None
+    task = tasks.get(case.task)
+    return task.pixel_size_um(case) if task and task.pixel_size_um else None

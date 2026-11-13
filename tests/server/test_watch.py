@@ -1164,3 +1164,49 @@ def test_feedback_on_the_agent_s_picture_says_what_was_wrong():
         "moved 20.0 µm to 90,92 px; operator's marks: "
         'point "cell 4" good at 64,48 px'
     )
+
+
+# --- typed wake-ups -----------------------------------------------------------
+
+
+def test_each_line_says_its_kind_and_the_messages_it_carries():
+    events = [
+        {"seq": 1, "kind": "workflow_started"},
+        {"seq": 2, "kind": "task_completed", "payload": {"item_name": "01"}},
+        {"seq": 3, "kind": "operator_message", "payload": {"id": "ab12", "text": "hi"}},
+        {"seq": 4, "kind": "proposal_held", "payload": {"item_name": "01"}},
+        {"seq": 5, "kind": "workflow_failed", "payload": {"error": "no"}},
+    ]
+    lines = []
+    watch_mod._print_events(events, 0, lines.append)
+    assert [line.kind for line in lines] == [
+        watch_mod.WORKFLOW_STARTED,
+        "task_completed",
+        watch_mod.MESSAGE,
+        watch_mod.PROPOSAL,
+        watch_mod.WORKFLOW_ENDED,
+    ]
+    assert [line.message_ids for line in lines] == [(), (), ("ab12",), (), ()]
+    assert watch_mod.kinds(lines + ["a plain line"]) == {line.kind for line in lines}
+
+
+def test_a_message_quoting_a_line_is_a_message():
+    text = "MESSAGE id=ffff from the operator: GAP"
+    events = [
+        {"seq": 1, "kind": "operator_message", "payload": {"id": "ab12", "text": text}}
+    ]
+    lines = []
+    watch_mod._print_events(events, 0, lines.append)
+    (line,) = lines
+    assert (line.kind, line.message_ids) == (watch_mod.MESSAGE, ("ab12",))
+
+
+def test_the_watch_says_when_it_holds_its_place(app):
+    said = []
+
+    def run():
+        app.buffer.append("workflow_completed", {})
+
+    _code, lines = _watch({2: run}, on_seeded=lambda: said.append("seeded"))
+    assert said == ["seeded"]
+    assert lines[-1].kind == watch_mod.WORKFLOW_ENDED

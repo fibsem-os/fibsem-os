@@ -31,6 +31,7 @@ from psygnal import evented
 from fibsem.codec import Timestamp, decode, encode
 from fibsem.codec.upgrades import protocol as upgrade
 from fibsem.structures.params import Configurable, param
+from fibsem.util.files import write_atomic
 from fibsem.util.timestamps import now
 from fibsem.workflows.attention import Attention
 
@@ -418,14 +419,10 @@ class TaskProtocol:
 
     def save(self, filename: str) -> None:
         """Save the task protocol to a YAML file."""
-        with open(filename, "w") as file:
-            yaml.safe_dump(
-                self.to_dict(),
-                file,
-                indent=4,
-                default_flow_style=False,
-                sort_keys=False,
-            )
+        text = yaml.safe_dump(
+            self.to_dict(), indent=4, default_flow_style=False, sort_keys=False
+        )
+        write_atomic(filename, text)
 
     @classmethod
     def from_dict(cls, data: Optional[Dict[str, Any]]):

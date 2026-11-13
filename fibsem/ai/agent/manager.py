@@ -27,6 +27,7 @@ from typing import Callable, Dict, List, Optional
 
 from fibsem import paths
 from fibsem.util import timestamps
+from fibsem.util.files import write_atomic
 
 log = logging.getLogger("fibsem.agent.manager")
 
@@ -48,9 +49,6 @@ STOPPED, GONE, BUDGET = 0, 1, 2
 RESTARTS_PER_HOUR = {"app": 3, "crash": 1}
 HOUR_S = 3600.0
 END_WAIT_S = 60.0
-# A record being read can't be replaced on Windows: tries, and the wait between.
-REPLACE_TRIES = 40
-REPLACE_WAIT_S = 0.05
 
 
 def sessions_dir() -> Path:
@@ -87,18 +85,7 @@ def read_json(path: Path) -> dict:
 def write_json(path: Path, data: dict) -> None:
     """Whole or not at all: a reader never sees half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    partial = path.with_name(path.name + ".partial")
-    partial.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    # On Windows a file open for reading can't be replaced: the gateway or a
-    # page reading the record at that moment. Readers are quick; try again.
-    for attempt in range(REPLACE_TRIES):
-        try:
-            os.replace(partial, path)
-            return
-        except PermissionError:
-            if attempt == REPLACE_TRIES - 1:
-                raise
-            time.sleep(REPLACE_WAIT_S)
+    write_atomic(path, json.dumps(data, indent=2))
 
 
 def folders(root: Optional[Path] = None) -> List[Path]:

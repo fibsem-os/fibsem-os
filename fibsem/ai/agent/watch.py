@@ -44,7 +44,6 @@ fibsem is installed, without the [mcp] extra.
 """
 
 import argparse
-import re
 import sys
 import time
 
@@ -69,8 +68,55 @@ INTERESTING = {
     "task_skipped",
 }
 
+
+class Wake(str):
+    """One wake-up: the line the agent reads, with its ``kind`` and the ids of
+    the operator's messages it carries, so nothing reads them back out of the
+    text. A task event's kind is the event's (``task_completed``)."""
+
+    kind: str
+    message_ids: tuple
+
+    def __new__(cls, kind: str, text: str, message_ids=()):
+        wake = super().__new__(cls, text)
+        wake.kind = kind
+        wake.message_ids = tuple(message_ids)
+        return wake
+
+
+def kinds(lines) -> set:
+    """The kinds of the wake-ups among *lines*."""
+    return {line.kind for line in lines if isinstance(line, Wake)}
+
+
+PROPOSAL = "proposal"
+PROPOSAL_RELEASED = "proposal_released"
+SUGGESTION = "suggestion"
+REQUEST = "request"
+COMMAND_ENDED = "command_ended"
+MILL_STAGE_STARTED = "mill_stage_started"
+MILL_ENDED = "mill_ended"
+MILL_READING = "mill_reading"
+AUTOFOCUS = "autofocus"
+ALIGNMENT = "alignment"
+NOTE = "note"
+MESSAGE = "message"
+PLAN_EDITED = "plan_edited"
+LEVEL = "level"
+WORKFLOW_STARTED = "workflow_started"
+WORKFLOW_ENDED = "workflow_ended"
+QUIET = "quiet"
+GAP = "gap"
+RESTARTED = "restarted"
+AGENT_BACK = "agent_back"
+SERVER_UNAVAILABLE = "server_unavailable"
+SERVER_GONE = "server_gone"
+NO_EVENTS = "no_events"
+# What the watch says just before it gives up.
+LAST_KINDS = {SERVER_UNAVAILABLE, SERVER_GONE, NO_EVENTS}
+
 ENDED = "WORKFLOW ENDED"
-NO_END_EVENT_LINE = f"{ENDED} (stopped without an end event)"
+NO_END_EVENT_LINE = Wake(WORKFLOW_ENDED, f"{ENDED} (stopped without an end event)")
 
 POLL_S = 25.0  # the server caps a park at 30 s
 RETRY_DELAY_S = 5.0
@@ -78,23 +124,27 @@ RETRY_DELAY_S = 5.0
 # than 20 s.
 FAILURES_BEFORE_GIVING_UP = 24
 
-GAP_LINE = (
+GAP_LINE = Wake(
+    GAP,
     "GAP: events were lost before they could be read -- re-read /app/workflow/proposals "
-    "and /app/workflow/status rather than assuming nothing happened."
+    "and /app/workflow/status rather than assuming nothing happened.",
 )
 # A new event stream: its seqs start again. Nothing was lost, and everything in
 # it is news (FIB-1421).
-RESTARTED_LINE = (
-    "RESTARTED: the app restarted (new session); following its events from the start."
+RESTARTED_LINE = Wake(
+    RESTARTED,
+    "RESTARTED: the app restarted (new session); following its events from the start.",
 )
 # The operator set the level to Off: the app is running but refuses the agent
 # (403 agent_off), so the watch waits for the level to come back (FIB-1429).
 AGENT_OFF = "agent_off"
-AGENT_OFF_LINE = (
-    "AGENT OFF: the operator set the agent level to Off; waiting for it to be raised."
+AGENT_OFF_LINE = Wake(
+    AGENT_OFF,
+    "AGENT OFF: the operator set the agent level to Off; waiting for it to be raised.",
 )
-AGENT_BACK_LINE = (
-    "AGENT BACK: the operator raised the agent level; following events again."
+AGENT_BACK_LINE = Wake(
+    AGENT_BACK,
+    "AGENT BACK: the operator raised the agent level; following events again.",
 )
 # How long a running workflow may go without a line before the watch wakes the
 # agent to look at it, once.
@@ -102,20 +152,12 @@ QUIET_S = 20 * 60.0
 
 
 def _quiet_line(quiet_s):
-    return (
+    return Wake(
+        QUIET,
         f"QUIET: the workflow is running and nothing has happened for "
         f"{quiet_s / 60:g} min -- check app_get_status, proposal_list and any "
-        "unanswered message, then end your turn. Said once until something happens"
+        "unanswered message, then end your turn. Said once until something happens",
     )
-
-
-# The operator's message ids a line or a turn carries (`_message_line`).
-_MESSAGE_ID = re.compile(r"\bMESSAGE id=([0-9a-f]+)")
-
-
-def message_ids(text: str) -> list:
-    """The ids of the operator's messages *text* carries, in order."""
-    return _MESSAGE_ID.findall(text)
 
 
 def report_read(client, ids) -> None:
@@ -158,8 +200,8 @@ def _error_type(response):
     return detail.get("error_type") if isinstance(detail, dict) else None
 
 
-def _print_events(events, since, out, marked=None):
-    """Print wake-up lines; returns (new_since, running).
+def _print_events(events, since, say, marked=None):
+    """Say the wake-ups (`Wake`) of *events*; returns (new_since, running).
 
     ``running`` is True when the last workflow event among them started one,
     False when it ended one, and None when there was neither. *marked* keeps
@@ -167,28 +209,36 @@ def _print_events(events, since, out, marked=None):
     them, across calls."""
     running = None
     marked = {} if marked is None else marked
+
+    def out(kind, line):
+        say(Wake(kind, line))
+
     for event in events:
         kind = event.get("kind", "")
         data = event.get("payload") or {}
         since = max(since, event.get("seq", since))
         _keep_marked(event, marked)
         if kind == "proposal_held":
-            out(_proposal_line(data.get("item_name"), data.get("task_name")))
+            say(_proposal_line(data.get("item_name"), data.get("task_name")))
         elif kind == "proposal_released":
             out(
+                PROPOSAL_RELEASED,
                 f"PROPOSAL RELEASED item={data.get('item_name')} "
-                f"task={data.get('task_name')}"
+                f"task={data.get('task_name')}",
             )
         elif kind == "suggestion_declined":
             reason = " ".join(str(data.get("reason") or "").split())
             line = f"SUGGESTION DECLINED{_item_of(data)} task={data.get('task')}"
-            out(f"{line}: {reason}" if reason else line)
+            out(SUGGESTION, f"{line}: {reason}" if reason else line)
         elif kind == "proposal_decided" and data.get("kind") == "actions":
-            out(_request_decided_line(data))
+            out(REQUEST, _request_decided_line(data))
         elif kind == "proposal_decided" and data.get("suggestion_id"):
-            out(f"SUGGESTION APPROVED{_item_of(data)} task={data.get('task')}")
+            out(
+                SUGGESTION,
+                f"SUGGESTION APPROVED{_item_of(data)} task={data.get('task')}",
+            )
         elif kind in ("request_decided", "request_finished", "request_cancelled"):
-            out(_request_line(kind, data))
+            out(REQUEST, _request_line(kind, data))
         elif kind == "command_ended" and data.get("waited"):
             pass  # a caller waiting for it (service_wait_for_run) has the end
         elif kind == "command_ended":
@@ -197,19 +247,22 @@ def _print_events(events, since, out, marked=None):
                 f"COMMAND ENDED {data.get('service')}.{data.get('command')} "
                 f"run={data.get('run_id')} state={data.get('state')}"
             )
-            out(f"{line} ({data['error']})" if data.get("error") else line)
+            out(
+                COMMAND_ENDED,
+                f"{line} ({data['error']})" if data.get("error") else line,
+            )
         elif kind == "milling_stage_started":
-            out(_mill_stage_line(event, data))
+            out(MILL_STAGE_STARTED, _mill_stage_line(event, data))
         elif kind == "milling":
-            out(_mill_ended_line(event, data))
+            out(MILL_ENDED, _mill_ended_line(event, data))
         elif kind == "milling_reading":
             line = _reading_line(data)
             if line:
-                out(line)
+                out(MILL_READING, line)
         elif kind == "autofocus":
-            out(_autofocus_line(event, data))
+            out(AUTOFOCUS, _autofocus_line(event, data))
         elif kind == "alignment":
-            out(_alignment_line(event, data))
+            out(ALIGNMENT, _alignment_line(event, data))
         elif (
             kind == "note"
             and event.get("actor") == "operator"
@@ -217,29 +270,32 @@ def _print_events(events, since, out, marked=None):
         ):
             # A note the operator kept on an item (a grid's note), not to the agent.
             text = " ".join(str(data.get("text", "")).split())
-            out(f"NOTE from the operator on {data.get('item_name')}: {text}")
+            out(NOTE, f"NOTE from the operator on {data.get('item_name')}: {text}")
         elif _is_message(event):
-            out(_message_line(data, marked))
+            say(_message_line(data, marked))
         elif kind == "agent_plan_edited":
             sections = ", ".join(str(s) for s in data.get("sections") or [])
-            out(f"PLAN EDITED by the operator: {sections}")
+            out(PLAN_EDITED, f"PLAN EDITED by the operator: {sections}")
         elif kind == "agent_level_set":
             line = _level_line(data)
             if line:
-                out(line)
+                out(LEVEL, line)
         elif kind == "workflow_started":
-            out("WORKFLOW STARTED")
+            out(WORKFLOW_STARTED, "WORKFLOW STARTED")
             running = True
         elif kind in WORKFLOW_ENDS:
             detail = data.get("error") or _counts(data.get("task_counts"))
-            out(f"{ENDED} ({kind}: {detail})" if detail else f"{ENDED} ({kind})")
+            out(
+                WORKFLOW_ENDED,
+                f"{ENDED} ({kind}: {detail})" if detail else f"{ENDED} ({kind})",
+            )
             running = False
         elif kind in INTERESTING:
             task = data.get("task_name")
             line = f"EVENT {kind} {data.get('item_name', '')}"
             line = f"{line} {task}" if task else line
             reason = _skip_reason(data) if kind == "task_skipped" else None
-            out(f"{line} ({reason})" if reason else line)
+            out(kind, f"{line} ({reason})" if reason else line)
     return since, running
 
 
@@ -251,18 +307,20 @@ def _is_message(event) -> bool:
     )
 
 
-def _message_line(data, marked=None) -> str:
+def _message_line(data, marked=None) -> Wake:
     message_id = data.get("id")
     # Its line breaks kept: a pasted list or table reaches the agent as written.
     text = "\n".join(
         line.rstrip() for line in str(data.get("text", "")).strip().splitlines()
     )
     marks = _marks_part((marked or {}).get(str(data.get("evidence"))))
-    return (
+    return Wake(
+        MESSAGE,
         f"MESSAGE id={message_id} from the operator:{' ' + text if text else ''}"
         f"{marks} -- answer with "
         f"experiment_message_operator (reply_to={message_id}). It is not an "
-        "approval: your level still decides what you may do"
+        "approval: your level still decides what you may do",
+        [message_id] if message_id else (),
     )
 
 
@@ -626,10 +684,11 @@ def _counts(counts):
 
 
 def _proposal_line(item_name, task_name):
-    return (
+    return Wake(
+        PROPOSAL,
         f"PROPOSAL item={item_name} task={task_name} "
         "-- the run is stopped on a proposal: find it in proposal_list; "
-        "decide it at Drive, suggest a decision at Assist"
+        "decide it at Drive, suggest a decision at Assist",
     )
 
 
@@ -668,6 +727,7 @@ def watch(
     since=None,
     quiet_s=QUIET_S,
     report_reads=True,
+    on_seeded=None,
 ):
     """Watch until the server cannot be watched (1). Workflows starting and
     ending are lines along the way, not the end of the watch (FIB-1431).
@@ -686,6 +746,9 @@ def watch(
     With ``report_reads``, a ``MESSAGE`` line marks its message read as it is
     printed: the agent reads it on the wake it makes. fibsem-agent turns it
     off and marks them as the turn carrying them starts.
+
+    Each line said is a `Wake`. ``on_seeded`` is called once the event stream
+    first answers: from there on, no line is missed.
     """
     say = out or _print_line
     sleep_fn = sleep_fn or time.sleep
@@ -699,7 +762,11 @@ def watch(
         nudged = False
         say(line)
         if report_reads:
-            report_read(client, message_ids(line))
+            report_read(client, list(getattr(line, "message_ids", ())))
+
+    def seeded(snapshot):
+        if on_seeded is not None and snapshot.get("available"):
+            on_seeded()
 
     # Seed the cursor at the tail: the buffer outlives workflows, so starting at
     # 0 would replay history -- stale PROPOSAL lines, and a previous workflow's
@@ -711,12 +778,26 @@ def watch(
             sleep_fn(RETRY_DELAY_S)
             snapshot, failure = _poll(client, since=0, timeout=0.0)
         if failure is None:
+            seeded(snapshot)
             out(AGENT_BACK_LINE)
+    elif failure is None:
+        seeded(snapshot)
     if failure is not None:
-        out(f"SERVER UNAVAILABLE: /app/events gave {failure}. Is the app running?")
+        out(
+            Wake(
+                SERVER_UNAVAILABLE,
+                f"SERVER UNAVAILABLE: /app/events gave {failure}. Is the app running?",
+            )
+        )
         return 1
     if not snapshot.get("available"):
-        out("NO EVENTS: the server has no event stream, so there is nothing to watch.")
+        out(
+            Wake(
+                NO_EVENTS,
+                "NO EVENTS: the server has no event stream, so there is nothing "
+                "to watch.",
+            )
+        )
         return 1
     stream = snapshot.get("stream")
     # Started at the tail, a proposal asked before this watch began is behind
@@ -763,7 +844,12 @@ def watch(
             # discovery file yet: the next request re-reads it.
             failures += 1
             if failures >= FAILURES_BEFORE_GIVING_UP:
-                out(f"SERVER GONE: /app/events gave {failure}. The app has stopped.")
+                out(
+                    Wake(
+                        SERVER_GONE,
+                        f"SERVER GONE: /app/events gave {failure}. The app has stopped.",
+                    )
+                )
                 return 1
             sleep_fn(RETRY_DELAY_S)
             continue
@@ -773,7 +859,12 @@ def watch(
             agent_off = False
 
         if not payload.get("available"):
-            out("NO EVENTS: the server's event stream went away. Stopping.")
+            out(
+                Wake(
+                    NO_EVENTS,
+                    "NO EVENTS: the server's event stream went away. Stopping.",
+                )
+            )
             return 1
 
         latest = payload.get("latest_seq") or 0

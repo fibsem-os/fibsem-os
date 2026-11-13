@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
+from fibsem.ai.evals import tasks
 from fibsem.ai.evals.cases import (
     Case,
     load_case,
@@ -27,19 +28,9 @@ from fibsem.ai.evals.cases import (
     square_call,
     stop_passes,
 )
-from fibsem.ai.evals.scoring import match_squares, score_case
+from fibsem.ai.evals.scoring import score_case
 
 LOG = Path("reference") / "review.jsonl"
-# The tasks whose disagreements can be settled here.
-SETTLED_TASKS = (
-    "site_selection",
-    "square_quality",
-    "polishing_stop",
-    "fm_target",
-    "correlation",
-    "square_finding",
-)
-
 # (result, answer) of one repeat, as visual.Run.
 Run = Tuple[Dict[str, Any], Optional[Dict[str, Any]]]
 
@@ -97,201 +88,6 @@ def last_settled(case: Case) -> Optional[Dict[str, Any]]:
 # --- disagreements -------------------------------------------------------------
 
 
-def _site_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
-    key = case.key
-    radius = float(key.get("hit_radius_px", case.scoring.get("hit_radius_px", 100)))
-    keyed = (key.get("good") or []) + (key.get("bad") or [])
-    most = int(case.scoring.get("max_picks", 10))
-    kept = [e for e in _kept(case) if e.get("kind") == "site"]
-
-    def near(x, y, points) -> bool:
-        return any(math.hypot(x - p["x_px"], y - p["y_px"]) <= radius for p in points)
-
-    groups: List[Dict[str, Any]] = []
-    for result, answer in runs:
-        for pick in ((answer or {}).get("picks") or [])[:most]:
-            try:
-                x, y = float(pick["x_px"]), float(pick["y_px"])
-            except (KeyError, TypeError, ValueError):
-                continue
-            if near(x, y, keyed) or near(x, y, kept):
-                continue
-            for group in groups:
-                if math.hypot(x - group["x_px"], y - group["y_px"]) <= radius:
-                    break
-            else:
-                group = {
-                    "x_px": x,
-                    "y_px": y,
-                    "points": [],
-                    "repeats": [],
-                    "reasons": [],
-                    "by": {},
-                }
-                groups.append(group)
-            group["points"].append((x, y))
-            if _repeat(result) not in group["repeats"]:
-                group["repeats"].append(_repeat(result))
-            reason = str(pick.get("reason") or "") if isinstance(pick, dict) else ""
-            if reason and reason not in group["reasons"]:
-                group["reasons"].append(reason)
-            group["by"].setdefault(_repeat(result), reason)
-    items = []
-    for group in groups:
-        xs, ys = zip(*group["points"])
-        x, y = round(sum(xs) / len(xs)), round(sum(ys) / len(ys))
-        items.append(
-            {
-                "id": f"site:{x},{y}",
-                "kind": "site",
-                "x_px": x,
-                "y_px": y,
-                "repeats": sorted(group["repeats"]),
-                "title": f"Site at ({x}, {y}) is not in the key",
-                "key_text": "Not in the key as good or bad",
-                "answers": [
-                    {
-                        "repeat": _repeat(result),
-                        "said": "picked it"
-                        if _repeat(result) in group["by"]
-                        else "did not pick it",
-                        "reason": group["by"].get(_repeat(result), ""),
-                    }
-                    for result, _ in runs
-                ],
-                "said": group["reasons"][:3],
-                "actions": [
-                    {"action": "good", "label": "Add as good"},
-                    {"action": "bad", "label": "Add as bad"},
-                ],
-            }
-        )
-    return sorted(items, key=lambda i: -len(i["repeats"]))
-
-
-def _square_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
-    """Squares where a repeat called the site (good or bad) other than the
-    key does. The reasons are shown beside it, not settled."""
-    labels = case.key.get("labels") or {}
-    kept = {e.get("id") for e in _kept(case)}
-    items = []
-    for name, value in labels.items():
-        name, want = str(name), square_call(value)
-        said: Dict[str, List[int]] = {}
-        answers = []
-        for result, answer in runs:
-            given = ((answer or {}).get("labels") or {}).get(name)
-            call = square_call(given) if given is not None else None
-            reason = given.get("reason", "") if isinstance(given, dict) else ""
-            site = call["sites"][0] if call and call["sites"] else "-"
-            answers.append(
-                {
-                    "repeat": _repeat(result),
-                    "said": site
-                    + (
-                        f" ({', '.join(call['reasons'])})"
-                        if call and call["reasons"]
-                        else ""
-                    ),
-                    "reason": str(reason or ""),
-                }
-            )
-            if call and call["sites"]:
-                said.setdefault(site, []).append(_repeat(result))
-        key_text = " or ".join(want["sites"]) + (
-            f" ({', '.join(want['reasons'])})" if want["reasons"] else ""
-        )
-        for site, repeats in sorted(said.items(), key=lambda kv: -len(kv[1])):
-            item_id = f"square:{name}:{site}"
-            if site in want["sites"] or item_id in kept:
-                continue
-            items.append(
-                {
-                    "id": item_id,
-                    "kind": "square",
-                    "square": name,
-                    "site": site,
-                    "key": want["sites"],
-                    "repeats": sorted(repeats),
-                    "title": f"Square {name}: agent called it a {site} site, the key says {' or '.join(want['sites'])}",
-                    "key_text": "Key: " + key_text,
-                    "answers": answers,
-                    "said": [],
-                    "actions": [
-                        {"action": "accept", "label": f"Accept {site} as well"},
-                        {"action": "replace", "label": f"Change the key to {site}"},
-                    ],
-                }
-            )
-    return sorted(items, key=lambda i: -len(i["repeats"]))
-
-
-def _stop(answer: Optional[Dict[str, Any]], names: List[str]) -> Optional[str]:
-    stops = [
-        names.index(p.get("name"))
-        for p in (answer or {}).get("passes") or []
-        if isinstance(p, dict)
-        and str(p.get("decision", "")).lower().replace(" ", "_") == "stop"
-        and p.get("name") in names
-    ]
-    return names[min(stops)] if stops else None
-
-
-def _stop_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
-    names = pass_names(case)
-    span = stop_passes(case.key)
-    kept = {e.get("id") for e in _kept(case)}
-    stops: Dict[str, Dict[str, Any]] = {}
-    answers = []
-    for result, answer in runs:
-        stop = _stop(answer, names)
-        reason = next(
-            (
-                str(p.get("reason") or "")
-                for p in (answer or {}).get("passes") or []
-                if isinstance(p, dict) and stop and p.get("name") == stop
-            ),
-            "",
-        )
-        answers.append(
-            {
-                "repeat": _repeat(result),
-                "said": f"stopped after {stop}" if stop else "never stopped",
-                "reason": reason,
-            }
-        )
-        if stop is None or stop in span:
-            continue
-        entry = stops.setdefault(stop, {"repeats": [], "reasons": []})
-        entry["repeats"].append(_repeat(result))
-        for p in (answer or {}).get("passes") or []:
-            reason = str(p.get("reason") or "") if isinstance(p, dict) else ""
-            if reason and p.get("name") == stop and reason not in entry["reasons"]:
-                entry["reasons"].append(reason)
-    items = []
-    for stop, entry in stops.items():
-        item_id = f"stop:{stop}"
-        if item_id in kept:
-            continue
-        early = span and names.index(stop) < min(names.index(s) for s in span)
-        items.append(
-            {
-                "id": item_id,
-                "kind": "stop",
-                "pass": stop,
-                "key": span,
-                "repeats": sorted(entry["repeats"]),
-                "title": f"Stopped after {stop}, the key's span is {', '.join(span)}"
-                + (" (early)" if early else " (late)"),
-                "key_text": "Key: stop after " + " or ".join(span),
-                "answers": answers,
-                "said": entry["reasons"][:3],
-                "actions": [{"action": "accept", "label": f"Widen the span to {stop}"}],
-            }
-        )
-    return sorted(items, key=lambda i: -len(i["repeats"]))
-
-
 def _xy(value: Any) -> Optional[Tuple[float, float]]:
     try:
         return float(value["x_px"]), float(value["y_px"])
@@ -324,18 +120,11 @@ def _cluster(points: List[Tuple[int, float, float, str]], radius: float) -> List
 
 def key_point(case: Case) -> Optional[Tuple[float, float]]:
     """The target the key names, in the image the task answers on."""
-    if case.task == "fm_target":
-        return _xy(case.key.get("target") or {})
-    if case.task == "correlation":
-        target = case.key.get("target_fib_px") or {}
-        try:
-            return float(target["x"]), float(target["y"])
-        except (KeyError, TypeError, ValueError):
-            return None
-    return None
+    task = tasks.get(case.task)
+    return task.key_point(case.key) if task and task.key_point else None
 
 
-def _point_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
+def point_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
     """A target the repeats placed away from the key's (or a usable call the
     key doesn't make): move the key to it, or click a better place."""
     kept = {e.get("id") for e in _kept(case)}
@@ -437,106 +226,18 @@ def _squares_found(answer: Optional[Dict[str, Any]]) -> List[Tuple[float, float]
     return [xy for xy in (_xy(p) for p in (answer or {}).get("squares") or []) if xy]
 
 
-def _square_finding_items(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
-    """Squares the repeats found that the key doesn't have, and key squares
-    a repeat didn't find."""
-    kept = {e.get("id") for e in _kept(case)}
-    squares = case.key.get("squares") or []
-    pitch = float(case.key.get("pitch_px") or 100)
-    radius = float(case.scoring.get("match_radius_px", pitch / 3))
-    extra, missed = [], {}
-    for result, answer in runs:
-        points = _squares_found(answer)
-        matched = match_squares(points, squares, radius)
-        extra += [
-            (_repeat(result), x, y, "")
-            for i, (x, y) in enumerate(points)
-            if i not in matched
-        ]
-        found = set(matched.values())
-        for j, sq in enumerate(squares):
-            if j not in found and not sq.get("optional"):
-                missed.setdefault(j, []).append(_repeat(result))
-    items = []
-    for group in _cluster(extra, radius):
-        item_id = f"extra:{group['x']},{group['y']}"
-        if item_id in kept:
-            continue
-        items.append(
-            {
-                "id": item_id,
-                "kind": "extra",
-                "x_px": group["x"],
-                "y_px": group["y"],
-                "repeats": sorted(group["by"]),
-                "title": f"A square at ({group['x']}, {group['y']}) is not in the key",
-                "key_text": "Not one of the key's squares",
-                "answers": [
-                    {
-                        "repeat": _repeat(r),
-                        "said": "found it" if _repeat(r) in group["by"] else "-",
-                        "reason": "",
-                    }
-                    for r, _ in runs
-                ],
-                "said": [],
-                "actions": [
-                    {"action": "add", "label": "Add it to the key"},
-                    {"action": "optional", "label": "Add it as optional"},
-                ],
-                "can_place": True,
-            }
-        )
-    for j, repeats in missed.items():
-        sq = squares[j]
-        x, y = round(float(sq["x_px"])), round(float(sq["y_px"]))
-        item_id = f"missed:{x},{y}"
-        if item_id in kept:
-            continue
-        items.append(
-            {
-                "id": item_id,
-                "kind": "missed",
-                "x_px": x,
-                "y_px": y,
-                "repeats": sorted(repeats),
-                "title": f"Key square at ({x}, {y}) was not found",
-                "key_text": "A required square in the key",
-                "answers": [
-                    {
-                        "repeat": _repeat(r),
-                        "said": "missed it" if _repeat(r) in repeats else "found it",
-                        "reason": "",
-                    }
-                    for r, _ in runs
-                ],
-                "said": [],
-                "actions": [
-                    {"action": "optional", "label": "Make it optional"},
-                    {"action": "remove", "label": "Remove it from the key"},
-                ],
-                "can_place": True,
-            }
-        )
-    return sorted(items, key=lambda i: -len(i["repeats"]))
-
-
 def disagreements(case: Case, runs: List[Run]) -> List[Dict[str, Any]]:
     """What the repeats said that the key doesn't accept, most repeats first.
     Empty for a task this page can't settle, or a case with parts."""
-    if case.parts:
+    task = tasks.get(case.task)
+    if case.parts or task is None or task.disagreements is None:
         return []
-    if case.task == "site_selection":
-        return _site_items(case, runs)
-    if case.task == "square_quality":
-        return _square_items(case, runs)
-    if case.task == "polishing_stop":
-        return _stop_items(case, runs)
-    if case.task in ("fm_target", "correlation"):
-        return _point_items(case, runs)
-    if case.task == "square_finding":
-        return _square_finding_items(case, runs)
-    return []
+    return task.disagreements(case, runs)
+
+
+def can_settle(case: Case) -> bool:
+    task = tasks.get(case.task)
+    return bool(task and task.disagreements) and not case.parts
 
 
 # --- settling ------------------------------------------------------------------
@@ -557,11 +258,7 @@ def _key_square(key: Dict[str, Any], item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _set_point(case: Case, key: Dict[str, Any], x: float, y: float) -> None:
-    x, y = round(float(x), 1), round(float(y), 1)
-    if case.task == "fm_target":
-        key.setdefault("target", {}).update(x_px=x, y_px=y)
-    else:
-        key.setdefault("target_fib_px", {}).update(x=x, y=y)
+    tasks.get(case.task).set_point(key, round(float(x), 1), round(float(y), 1))
 
 
 def _changed_key(

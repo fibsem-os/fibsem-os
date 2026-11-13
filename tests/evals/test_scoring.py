@@ -9,7 +9,8 @@ from PIL import Image
 
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import check_case, find_cases, load_case
-from fibsem.ai.evals.scoring import placed_scale, score_case
+from fibsem.ai.evals.scoring import score_case
+from fibsem.ai.evals.tasks.square_finding import placed_scale
 
 
 def make_case(root, name, data, files=()):

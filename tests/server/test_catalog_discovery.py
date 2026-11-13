@@ -378,3 +378,39 @@ def test_the_instrument_autofocus_refuses_the_sweep_arguments():
     spec = next(t for t in CATALOG if t.name == "beam_auto_focus")
     with pytest.raises(ValueError, match="are for method sweep"):
         route_call(spec, {"method": "instrument", "path": "experiment"})
+
+
+def _refused_for_level(response) -> bool:
+    if response.status_code != 403:
+        return False
+    body = response.json()
+    detail = body.get("detail", body)
+    return detail.get("error_type") in ("level", "ask_first")
+
+
+@pytest.mark.parametrize("level", ["watch", "assist"])
+def test_each_tool_s_level_is_its_route_s_gate(app, level):
+    # A tool's level is what its description tells the agent and what decides
+    # whether it goes in a request. Below it the route refuses for the level;
+    # at it the route answers something else (a 404 or 422 for these empty
+    # calls). Drive tools are only ever called below Drive, so nothing runs.
+    from fastapi.testclient import TestClient
+
+    from fibsem.ai.agent.levels import AgentLevel
+
+    rank = {"watch": 0, "assist": 1, "drive": 2}
+    auth = app.state.auth
+    before = auth.level
+    auth.set_level(AgentLevel(level))
+    try:
+        client = TestClient(app, raise_server_exceptions=False)
+        headers = {"Authorization": "Bearer t"}
+        wrong = [
+            (t.name, t.level, resp.status_code)
+            for t in CATALOG
+            for resp in [client.request(t.method, t.path, headers=headers)]
+            if _refused_for_level(resp) != (rank[t.level] > rank[level])
+        ]
+    finally:
+        auth.set_level(before)
+    assert wrong == []
