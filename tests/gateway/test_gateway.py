@@ -69,7 +69,7 @@ def _gateway(tmp_path, fakes, serve="serve", stop_wait_s=20.0, connection=None):
         recent=lambda: [RecentExperiment("grid3", "/experiments/grid3", "AutoLamella")],
         new_folder=lambda: "/experiments",
         discovery=lambda: fakes.found,
-        running=lambda url, token: fakes.running,
+        running=lambda url: fakes.running,
         configurations=lambda: CONFIGURATIONS,
         stop_wait_s=stop_wait_s,
     )
