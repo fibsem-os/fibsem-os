@@ -90,13 +90,15 @@ YIELD = {
 INSIDE = {
     ICE: (0.62, 0.6),
     CELL: (0.86, 0.8),
-    NUCLEUS: (0.5, 0.48),
+    # what is in a cell is only a little off the cell's own grey: a cryo
+    # lamella's face shows a nucleus or an organelle faintly, if at all
+    NUCLEUS: (0.74, 0.7),
     FILM: (1.0, 0.9),
     BAR: (1.3, 1.2),
     PARTICLE: (0.4, 0.2),
     COAT: (1.9, 2.0),  # edge-on, the metal in it is the brightest band on a face
-    DROPLET: (0.34, 0.4),  # lipid: the darkest thing on a face
-    VESICLE: (1.08, 0.95),
+    DROPLET: (0.62, 0.6),  # lipid: the darkest thing in a cell
+    VESICLE: (0.95, 0.86),
 }
 NOTHING = (0.1, 0.04)
 FLOOR = 1.3  # how much brighter a milled floor is than a cut face
