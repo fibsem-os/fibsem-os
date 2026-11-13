@@ -192,6 +192,11 @@ damage. Below a seeded thickness (`damage_below`) each pass has a chance
 (`damage_chance`) of starting damage, recorded in `scene.damage_started` (pass and kind):
 a ragged front face, a crack across, or a piece broken out. It grows with every pass
 after.
+`damage_below` is the thickness at risk at a polishing current (`damage_current`, 60 pA).
+A pass at a higher current puts a thicker lamella at risk, by the square root of the
+ratio: at 1 nA a lamella four times as thick can break. Each pass records the thickness
+that was at risk at its current (`damage_below`), and `scene.damage_started` keeps the
+thickness, that limit and the current of the pass that broke it.
 A lamella that breaks while it is still thick breaks more coarsely: its cracks gape
 wider, so a break in rough milling shows at a 50 um field of view.
 
@@ -380,6 +385,7 @@ are in degrees, ranges are two-element lists, lengths in metres.
 | `curtaining` | 1 | strength of the stripes down a cut face (0 = none) |
 | `damage_below` | [1.5e-07, 3e-07] | the seeded thickness below which damage can start (m) |
 | `damage_chance` | 0.4 | chance per pass below it that damage starts |
+| `damage_current` | 6e-11 | the milling current `damage_below` is given at (A); 0 and the current makes no difference |
 | `charging` | 1 | SEM charging strength on an uncoated grid (0 = never) |
 | `gis_thickness` | 0 | GIS coat the grid starts with (m) |
 | `sputter_thickness` | 0 | sputter coat the grid starts with (m) |

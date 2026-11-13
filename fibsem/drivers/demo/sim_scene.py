@@ -287,6 +287,7 @@ class MilledRegion:
     scan: bool = False
 
 
+DAMAGE_CURRENT = 60e-12  # A; a usual polishing current
 ION_YIELD = 10.0  # um^3 of ice a nC of ions takes away
 IMAGING_STEP = 20e-9  # m; what imaging wears away shows in steps this deep
 MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
@@ -419,6 +420,10 @@ class SampleScene:
     # a crack across, a piece broken out), which grows with each pass after
     damage_below: Tuple[float, float] = (150e-9, 300e-9)
     damage_chance: float = 0.4
+    # the milling current (A) `damage_below` is given at: a pass at a higher
+    # current can damage a thicker lamella, by the square root of the ratio
+    # (0 = the current makes no difference)
+    damage_current: float = 0.0
     # the coat on the grid, laid down by the GIS and the sputter coater (or
     # set for a grid that comes in coated); m
     gis_thickness: float = 0.0
@@ -1341,12 +1346,22 @@ class SampleScene:
                 *self.damage_below
             )
         )
+        current = record.get("current")
+        if self.damage_current > 0 and current:
+            threshold *= (abs(float(current)) / self.damage_current) ** 0.5
+        record["damage_below"] = threshold
         started = self.damage_started
         if started is None:
             if record["gap"] >= threshold or rng.uniform() >= self.damage_chance:
                 return []
             kind = str(rng.choice(["ragged", "crack", "broken"]))
-            self.damage_started = started = {"pass": record["pass"], "kind": kind}
+            self.damage_started = started = {
+                "pass": record["pass"],
+                "kind": kind,
+                "gap": float(record["gap"]),
+                "below": threshold,
+                "current": current,
+            }
         severity = record["pass"] - started["pass"] + 1
         record["damage"] = {"kind": started["kind"], "severity": severity}
         x0, x1, lo, hi = record["band"]
@@ -2135,6 +2150,7 @@ class SampleScene:
         "curtaining",  # strength of the stripes down a cut face (0 = none)
         "damage_below",  # [min, max] m, the seeded thickness damage can start below
         "damage_chance",  # per polishing pass below it
+        "damage_current",  # A, the current damage_below is given at (0 = any)
         "fm_target_fraction",  # cells with a centrin pool and centriole pair
         "fm_no_target_chance",  # chance a grid carries no pair at all
         "fm_axial_range",  # m, how far from its height an FM spot stays sharp
@@ -2159,6 +2175,7 @@ class SampleScene:
         kwargs = {k: v for k, v in config.items() if k in cls.CONFIG_KEYS}
         kwargs.setdefault("beam_optics", True)
         kwargs.setdefault("imaging_damage", 1.0)
+        kwargs.setdefault("damage_current", DAMAGE_CURRENT)
         if kwargs.get("fm_camera_mount") is not None:
             mount_transform_from_name(kwargs["fm_camera_mount"])  # or it raises
         sim_faults.Faults(kwargs.get("faults"))  # or it raises

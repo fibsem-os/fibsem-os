@@ -397,6 +397,33 @@ def test_damage_is_shapes_on_the_lamella_face(microscope):
     assert 0 < gone.sum() < 0.5 * gone.size
 
 
+@pytest.mark.parametrize("current, breaks", [(60e-12, False), (1e-9, True)])
+def test_a_high_current_damages_a_lamella_a_low_one_leaves(microscope, current, breaks):
+    """`damage_below` is the thickness at risk at `damage_current`; a pass at
+    a higher current puts a thicker lamella at risk, and says so."""
+    scene = _use(
+        microscope,
+        damage_chance=1.0,
+        damage_below=(0.3e-6, 0.3e-6),
+        damage_current=60e-12,
+        **PLAIN,
+    )
+    microscope.set_beam_current(current, BeamType.ION)
+    _mill(microscope, (12e-6, 4e-6, 2.4e-6), (12e-6, 4e-6, -2.4e-6))
+    record = scene.mill_passes[-1]
+    assert 0.6e-6 < record["gap"] < 0.9e-6
+    assert record["damage_below"] == pytest.approx(0.3e-6 * (current / 60e-12) ** 0.5)
+    assert (scene.damage_started is not None) == breaks
+    if breaks:
+        assert scene.damage_started["current"] == pytest.approx(current)
+        assert scene.damage_started["below"] > scene.damage_started["gap"]
+
+
+def test_the_current_matters_to_damage_only_where_a_sample_is_configured():
+    assert SampleScene().damage_current == 0.0
+    assert SampleScene.from_config({}).damage_current == pytest.approx(60e-12)
+
+
 def _columns(scene, x, y, half=20.0, step=0.1) -> dict:
     xa = x + np.arange(-half, half, step)
     ya = y + np.arange(-half, half, step)
