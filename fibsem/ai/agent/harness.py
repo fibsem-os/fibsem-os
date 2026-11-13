@@ -1707,8 +1707,13 @@ def _skills_line(checkout: Path) -> str:
     return f"{checkout}; the lab's own: {', '.join(lab)}"
 
 
-def main(argv=None) -> int:
-    refuse("fibsem-agent")
+NO_CHECKOUT = (
+    "fibsem-agent found no skills: this fibsem has none shipped and "
+    "isn't a checkout; pass --checkout <path to a fibsem-os checkout>."
+)
+
+
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fibsem-agent",
         description="Run the fibsem agent through the App Server, with no "
@@ -1825,47 +1830,45 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--json", action="store_true", help="with --show-config or --list-*: JSON"
     )
-    args = parser.parse_args(argv)
-    if args.code and args.files:
-        parser.error("--code already gives the agent its files: use one of them")
-    if args.session_id and args.resume:
-        parser.error("--session-id starts a new session: --resume carries one on")
-    if args.list_hooks:
-        return _print(reminders.hook_rows(), args.json, _hook_text)
+    return parser
 
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except (AttributeError, OSError, ValueError):
-        pass
-    checkout = find_checkout(args.checkout)
-    if checkout is None:
-        print(
-            "fibsem-agent found no skills: this fibsem has none shipped and "
-            "isn't a checkout; pass --checkout <path to a fibsem-os checkout>.",
-            file=sys.stderr,
-        )
-        return 1
-    if args.list_playbooks:
-        return _print(_playbook_rows(checkout), args.json, _playbook_text)
+
+class SetupRefused(Exception):
+    """Why fibsem-agent can't run with what it was given."""
+
+
+@dataclass
+class Setup:
+    """What a session runs with, from its command line and its playbook."""
+
+    playbook: playbooks.Playbook
+    words: instruments.Texts
+    loaded: Loaded
+    work: Optional[Path]
+    code: bool
+    session_id: str
+    folder: Path
+    run: Optional[Path]
+
+
+def _setup(args, checkout: Path) -> Setup:
+    """Read the playbook and settle the session's folders; fills what *args*
+    left out from the playbook. Raises `SetupRefused`."""
     try:
         playbook = playbooks.load(args.playbook or playbooks.DEFAULT, checkout, EFFORTS)
     except playbooks.PlaybookError as error:
-        print(f"{error} (fibsem-agent --list-playbooks).", file=sys.stderr)
-        return 1
+        raise SetupRefused(f"{error} (fibsem-agent --list-playbooks).") from None
     _resolve(args, playbook.session)
     unset = [key for key in REQUIRED if getattr(playbook.session, key) is None]
     if unset:
-        print(
+        raise SetupRefused(
             f"The {playbook.name} playbook has no {', '.join(unset)}, and the "
-            f"shipped {playbooks.DEFAULT} playbook gives none: is it missing?",
-            file=sys.stderr,
+            f"shipped {playbooks.DEFAULT} playbook gives none: is it missing?"
         )
-        return 1
     try:
         words = instruments.load(playbook.instrument, checkout)
     except instruments.InstrumentError as error:
-        print(error, file=sys.stderr)
-        return 1
+        raise SetupRefused(str(error)) from None
     # What it loads is fixed for the session: a playbook named at launch
     # narrows it (`session_names`).
     loaded = session_names(checkout, playbook if args.playbook else None)
@@ -1873,8 +1876,7 @@ def main(argv=None) -> int:
         for name in loaded.agents:
             subagents.check_file(name, checkout, EFFORTS)
     except subagents.SubagentError as error:
-        print(error, file=sys.stderr)
-        return 1
+        raise SetupRefused(str(error)) from None
     work = None
     code = bool(args.code)
     given = args.code or args.files
@@ -1889,12 +1891,10 @@ def main(argv=None) -> int:
             args.resume = sessions.last_session(checkout)
         if args.resume is None:
             where = work or "its own folder"
-            print(
+            raise SetupRefused(
                 f"No earlier fibsem-agent session in {where} to resume: pass "
-                "its id (the Session line of its log).",
-                file=sys.stderr,
+                "its id (the Session line of its log)."
             )
-            return 1
     # A new session's id is chosen here, so the status can name it.
     session_id = args.resume or args.session_id or str(uuid.uuid4())
     folder = sessions.session_folder(session_id)
@@ -1906,8 +1906,67 @@ def main(argv=None) -> int:
     if work is not None:
         refused = code_mode.refusal(work, checkout, code)
         if refused:
-            print(refused, file=sys.stderr)
-            return 1
+            raise SetupRefused(refused)
+    return Setup(playbook, words, loaded, work, code, session_id, folder, run)
+
+
+def playbook_list() -> List[dict]:
+    """What ``fibsem-agent --list-playbooks`` prints. Raises `SetupRefused`."""
+    checkout = find_checkout(None)
+    if checkout is None:
+        raise SetupRefused(NO_CHECKOUT)
+    return _playbook_rows(checkout)
+
+
+def playbook_configuration(name: str) -> dict:
+    """What ``fibsem-agent --playbook NAME --show-config`` prints. Raises
+    `SetupRefused`."""
+    args = _parser().parse_args(["--playbook", name])
+    checkout = find_checkout(None)
+    if checkout is None:
+        raise SetupRefused(NO_CHECKOUT)
+    setup = _setup(args, checkout)
+    return show_config(
+        args,
+        checkout,
+        setup.work,
+        setup.code,
+        setup.playbook,
+        setup.loaded,
+        setup.words,
+    )
+
+
+def main(argv=None) -> int:
+    refuse("fibsem-agent")
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.code and args.files:
+        parser.error("--code already gives the agent its files: use one of them")
+    if args.session_id and args.resume:
+        parser.error("--session-id starts a new session: --resume carries one on")
+    if args.list_hooks:
+        return _print(reminders.hook_rows(), args.json, _hook_text)
+
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, OSError, ValueError):
+        pass
+    checkout = find_checkout(args.checkout)
+    if checkout is None:
+        print(NO_CHECKOUT, file=sys.stderr)
+        return 1
+    if args.list_playbooks:
+        return _print(_playbook_rows(checkout), args.json, _playbook_text)
+
+    try:
+        setup = _setup(args, checkout)
+    except SetupRefused as refused:
+        print(refused, file=sys.stderr)
+        return 1
+    playbook, words, loaded = setup.playbook, setup.words, setup.loaded
+    work, code, session_id = setup.work, setup.code, setup.session_id
+    folder, run = setup.folder, setup.run
     if args.show_config:
         config = show_config(args, checkout, work, code, playbook, loaded, words)
         return _print(config, args.json, _config_text)

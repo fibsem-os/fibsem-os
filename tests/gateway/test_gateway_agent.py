@@ -77,20 +77,15 @@ def made(tmp_path, monkeypatch):
         platform="linux",
         key="sk-test",
         stored=None,
-        stamp=lambda: (),
     ):
         gateway = gateway or FakeGateway()
-        asked = []
         app = app or App()
         configs = configs if configs is not None else {"default": DEFAULT}
 
-        def agent_json(flags):
-            asked.append(list(flags))
-            if flags[0] == "--list-playbooks":
-                return [{"name": name} for name in configs]
-            if flags[1] not in configs:
-                raise GatewayRefused(422, "bad_playbook", f"No playbook {flags[1]!r}")
-            return configs[flags[1]]
+        def configuration(name):
+            if name not in configs:
+                raise GatewayRefused(422, "bad_playbook", f"No playbook {name!r}")
+            return configs[name]
 
         agent = GatewayAgent(
             gateway,
@@ -101,14 +96,13 @@ def made(tmp_path, monkeypatch):
             discovery=app.discovery,
             level=app.level,
             reachable=lambda url: app.up,
-            agent_json=agent_json,
-            stamp=stamp,
+            playbooks=lambda: [{"name": name} for name in configs],
+            configuration=configuration,
             environ={API_KEY: key} if key else {},
             stored=lambda name: stored if name == API_KEY else None,
             platform=platform,
             microscope="arctis-pc",
         )
-        agent.asked = asked
         built.append(agent)
         return agent, gateway, app
 
@@ -332,38 +326,6 @@ def test_a_restarted_gateway_takes_the_agent_back(made, tmp_path):
     assert PairedTokens(tmp_path / "paired.json").agent() is None
 
 
-def test_fibsem_agent_is_asked_again_only_when_a_playbook_file_changes(made):
-    stamp = [("a.yaml", 1, 10)]
-    agent, _, _ = made(stamp=lambda: tuple(stamp))
-    agent.playbooks()
-    agent.playbooks()
-    agent.configuration("default")
-    agent.configuration("default")
-    assert len(agent.asked) == 2
-    stamp[0] = ("a.yaml", 2, 10)
-    agent.playbooks()
-    assert len(agent.asked) == 3
-
-
-def test_a_refused_playbook_is_asked_again(made):
-    agent, _, _ = made()
-    for _ in range(2):
-        with pytest.raises(GatewayRefused):
-            agent.configuration("missing")
-    assert len(agent.asked) == 2
-
-
-def test_the_knowledge_stamp_changes_with_a_lab_playbook(tmp_path, monkeypatch):
-    from fibsem.gateway.agent import knowledge_stamp
-
-    monkeypatch.setattr("fibsem.paths.state_root", lambda: tmp_path)
-    folder = tmp_path / "knowledge" / "playbooks"
-    folder.mkdir(parents=True)
-    before = knowledge_stamp()
-    (folder / "lab.yaml").write_text("name: lab\n")
-    assert knowledge_stamp() != before
-
-
 def test_the_playbooks_and_a_configuration_come_from_fibsem_agent(made):
     agent, _, _ = made(configs={"default": DEFAULT, "overnight": DEFAULT})
     assert [row["name"] for row in agent.playbooks()] == ["default", "overnight"]
@@ -554,3 +516,15 @@ def test_a_sessions_working_folder_is_looked_at_once_a_minute(tmp_path, monkeypa
     assert module._why_not(record, "linux") == "Its working folder is gone."
     module._folders_seen[str(folder)] = (time.monotonic() - 61, True)
     assert module._row(record)["cannot_resume"] == "Its working folder is gone."
+
+
+def test_the_shipped_playbooks_and_a_configuration_read_in_process():
+    from fibsem.gateway.agent import read_configuration, read_playbooks
+
+    names = [row["name"] for row in read_playbooks()]
+    assert names
+    config = read_configuration(names[0])
+    assert config["playbook"]["name"] == names[0] and config["system_prompt"]
+    with pytest.raises(GatewayRefused) as refused:
+        read_configuration("no-such-playbook")
+    assert refused.value.error_type == "bad_playbook"
