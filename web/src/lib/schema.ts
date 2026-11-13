@@ -307,6 +307,7 @@ export interface components {
             }[];
             latest_seq: number | null;
             oldest_available: number | null;
+            resumed: boolean | null;
             stream: string | null;
         };
         EvidenceView: {
