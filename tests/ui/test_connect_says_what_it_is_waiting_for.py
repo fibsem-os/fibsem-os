@@ -118,7 +118,11 @@ def test_cancel_on_the_tab_lets_the_microscope_go(tab, monkeypatch, toasts):
     tab.connect_to_microscope()
     assert midway.reported.wait(10)
     tab._button_cancel_connect.click()
-    assert tab._label_status_title.text() == "Cancelling"
+    # Given back at once, while the step under way is still running.
+    assert tab._label_status_title.text() == "Cancelled"
+    assert not tab._button_cancel_connect.isVisibleTo(tab)
+    assert tab.comboBox_configuration.isEnabled()
+    assert not tab.pushButton_connect_to_microscope.isEnabled()
     midway.go.set()
     wait_connected(tab)
 
@@ -165,6 +169,11 @@ def test_escape_mid_connect_cancels_and_keeps_the_dialog(dialog, monkeypatch):
     dialog.connect_to_microscope()
     assert midway.reported.wait(10)
     dialog.reject()
+    # Given back at once, while the step under way is still running.
+    assert dialog.isVisible()
+    assert dialog.offline_button.isVisible() and dialog.offline_button.isEnabled()
+    assert not dialog.cancel_button.isVisible()
+    assert not dialog.connect_button.isEnabled()
     midway.go.set()
     wait_connected(dialog)
 
@@ -174,6 +183,20 @@ def test_escape_mid_connect_cancels_and_keeps_the_dialog(dialog, monkeypatch):
     assert dialog.message_label.text() == "Connecting was cancelled."
     assert dialog.connect_button.isEnabled()
     assert dialog.offline_button.isVisible()
+
+
+def test_a_second_escape_closes_the_dialog_while_it_lets_go(dialog, monkeypatch):
+    midway = Midway()
+    monkeypatch.setattr(utils, "setup_session", midway)
+
+    dialog.connect_to_microscope()
+    assert midway.reported.wait(10)
+    dialog.reject()
+    dialog.reject()
+    assert dialog.result() == QDialog.DialogCode.Rejected
+    midway.go.set()
+    wait_connected(dialog)
+    assert dialog.session.instrument is None
 
 
 def test_the_steps_are_reported_in_order():

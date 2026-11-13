@@ -563,15 +563,28 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         return self._connect_worker is not None
 
     def cancel_connect(self) -> None:
-        """Stop connecting at the next step; the step under way runs to its end."""
-        if self._connect_worker is None:
+        """Give the tab back now. The step under way (a vendor connect cannot be
+        interrupted) finishes in the background, and what it connected is let
+        go; Connect comes back once it has."""
+        if self._connect_worker is None or self._cancel.is_set():
             return
         self._cancel.set()
-        self._button_cancel_connect.setEnabled(False)
-        self._label_status_title.setText("Cancelling")
-        self._label_status_subtitle.setText("Waiting for the current step to finish…")
+        self._button_cancel_connect.setVisible(False)
+        self.comboBox_configuration.setEnabled(True)
+        self.action_add_configuration.setEnabled(True)
+        self.pushButton_connect_to_microscope.setText("Connect to Microscope")
+        self.pushButton_connect_to_microscope.setEnabled(False)
+        self._label_status_icon.setPixmap(
+            fibsem_icon("mdi:close-circle", color="#f44336").pixmap(20, 20)
+        )
+        self._label_status_title.setText("Cancelled")
+        self._label_status_subtitle.setText("Letting go of the step still under way…")
 
     def _on_connected(self, _instrument: object) -> None:
+        if self._cancel.is_set():  # finished after its last check: let it go
+            self.session.disconnect()
+            notification_service.show_toast("Connecting was cancelled.", "info")
+            return
         msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
         logging.info(msg)
         actions = getattr(self.microscope, "connect_actions", None) or {}

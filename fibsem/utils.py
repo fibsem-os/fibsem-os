@@ -387,6 +387,7 @@ def setup_session(
 
         settings.system.info.manufacturer = normalize_name(manufacturer)
 
+    stop_if_cancelled(cancel)
     _report(progress, f"Connecting to {settings.system.info.ip_address}…")
 
     from fibsem.drivers.registry import (
@@ -463,12 +464,14 @@ class ConnectCancelled(Exception):
     """Connecting was cancelled; what it had connected was let go."""
 
 
-def stop_if_cancelled(cancel: Optional[threading.Event], instrument) -> None:
-    """Disconnect *instrument* and raise `ConnectCancelled` once *cancel* is set."""
+def stop_if_cancelled(cancel: Optional[threading.Event], instrument=None) -> None:
+    """Disconnect *instrument* (if any) and raise `ConnectCancelled` once *cancel*
+    is set."""
     if cancel is None or not cancel.is_set():
         return
     try:
-        instrument.disconnect()
+        if instrument is not None:
+            instrument.disconnect()
     except Exception as e:  # noqa: BLE001 - cancelled either way
         logging.warning(f"Could not cleanly disconnect after a cancelled connect: {e}")
     raise ConnectCancelled("Connecting was cancelled.")

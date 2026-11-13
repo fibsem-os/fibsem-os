@@ -582,19 +582,22 @@ class ConnectionDialog(QDialog):
         return self._connect_worker is not None
 
     def cancel_connect(self) -> None:
-        """Stop connecting at the next step; the step under way runs to its end."""
-        if self._connect_worker is None:
+        """Give the dialog back now. The step under way (a vendor connect cannot
+        be interrupted) finishes in the background, and what it connected is let
+        go; Connect comes back once it has."""
+        if self._connect_worker is None or self._cancel.is_set():
             return
         self._cancel.set()
-        self.cancel_button.setEnabled(False)
+        self._set_busy(False)
+        self.connect_button.setEnabled(False)
         self._show_message(
-            "Cancelling… waiting for the current step to finish.", is_error=False
+            "Cancelled. Letting go of the step still under way…", is_error=False
         )
 
     def reject(self) -> None:
-        """Escape and the window's close button cancel a connect, not the dialog:
-        closing mid-connect would leave a session nobody is watching."""
-        if self.is_connecting:
+        """Escape and the window's close button cancel a connect first; once it
+        is cancelled they close the dialog."""
+        if self.is_connecting and not self._cancel.is_set():
             self.cancel_connect()
             return
         super().reject()
@@ -604,6 +607,9 @@ class ConnectionDialog(QDialog):
             self._show_message(step, is_error=False)
 
     def _on_connected(self, _instrument: object) -> None:
+        if self._cancel.is_set():  # finished after its last check: let it go
+            self.session.disconnect()
+            return
         logging.info(f"Connected to microscope at {self._connect_address}")
         self.changed = True
         self.accept()
@@ -620,6 +626,9 @@ class ConnectionDialog(QDialog):
 
     def _on_connect_finished(self) -> None:
         self._connect_worker = None
+        if self._cancel.is_set():
+            self._set_busy(False)
+            self._show_message("Connecting was cancelled.", is_error=False)
 
     def _set_busy(self, busy: bool, message: str = "") -> None:
         """Hold the controls while connecting, and offer Cancel in their place.
