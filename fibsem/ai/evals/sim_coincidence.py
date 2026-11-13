@@ -233,6 +233,8 @@ def write_case(
             "height before calling it lost.",
             "A target can be milled away from one side while the lamella is "
             "still thick.",
+            "A cilium milled from one end shrinks pass by pass; it counts as "
+            "gone once its midpoint is milled away.",
         ],
     }
     reference = folder / "reference"
