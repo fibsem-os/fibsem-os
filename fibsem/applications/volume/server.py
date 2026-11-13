@@ -26,8 +26,10 @@ from fibsem.server.responses import (
     ItemDetail,
     Refusal,
     SummaryRow,
+    invalid_patch,
     no_experiment,
     refused,
+    stale_config,
 )
 from fibsem.structures.settings import FibsemRectangle, FibsemStagePosition, Point
 from fibsem.util.records import content_hash
@@ -217,11 +219,7 @@ class VolumeAppContext(AppContext):
         """The position and microscope a pose route needs, or a refusal."""
         experiment = self._experiment
         if experiment is None:
-            return (
-                None,
-                None,
-                {"error_type": "not_found", "error": "No experiment is loaded."},
-            )
+            return None, None, refused("not_found", "No experiment is loaded.")
         refusal = self._no_microscope()
         if refusal:
             return None, None, refusal
@@ -239,7 +237,7 @@ class VolumeAppContext(AppContext):
             return refusal
         stage_position, why = pose_stage_position(position, pose_name)
         if why:
-            return {"error_type": "not_found", "error": why, "pose_names": list(POSES)}
+            return refused("not_found", why, pose_names=list(POSES))
         microscope.safe_absolute_stage_movement(stage_position)
         return {
             "applied": True,
@@ -261,7 +259,7 @@ class VolumeAppContext(AppContext):
             lambda: set_pose_now(self._experiment, microscope, item_name, pose_name)
         )
         if why:
-            return {"error_type": "invalid", "error": why, "pose_names": list(POSES)}
+            return refused("invalid", why, pose_names=list(POSES))
         return {
             "applied": True,
             "item_name": item_name,
@@ -279,14 +277,11 @@ class VolumeAppContext(AppContext):
         move. Refused once a slice is cut. Saved."""
         experiment = self._experiment
         if experiment is None:
-            return {"error_type": "not_found", "error": "No experiment is loaded."}
+            return refused("not_found", "No experiment is loaded.")
         if overview is not None:
             return _not_served("place positions from an overview")
         if stage_position is None:
-            return {
-                "error_type": "invalid",
-                "error": "Give stage_position: where to move it to.",
-            }
+            return refused("invalid", "Give stage_position: where to move it to.")
         _, refusal = find_item(experiment, item_name)
         if refusal:
             return refusal
@@ -296,12 +291,12 @@ class VolumeAppContext(AppContext):
         try:
             position = FibsemStagePosition.from_dict(stage_position)
         except (TypeError, ValueError, KeyError, AttributeError) as exc:
-            return {"error_type": "invalid", "error": f"Not a stage position: {exc}"}
+            return refused("invalid", f"Not a stage position: {exc}")
         why = self._agent_call(
             lambda: move_milling_pose(experiment, item_name, position)
         )
         if why:
-            return {"error_type": "invalid", "error": why}
+            return refused("invalid", why)
         return {"applied": True, "item": self.item_detail(item_name)}
 
     def set_item_objective_position(self, item_name: str) -> Dict[str, Any]:
@@ -332,11 +327,10 @@ class VolumeAppContext(AppContext):
             return refusal
         unknown = sorted(set(patch) - set(POSITION_PATCH_FIELDS))
         if unknown:
-            return {
-                "applied": False,
-                "invalid_patch": f"A position patch sets {', '.join(POSITION_PATCH_FIELDS)}; "
-                f"not {', '.join(unknown)}.",
-            }
+            return invalid_patch(
+                f"A position patch sets {', '.join(POSITION_PATCH_FIELDS)}; "
+                f"not {', '.join(unknown)}."
+            )
         refusal = self._busy(self._runner.busy_refusal([item_name], "edit it"))
         if refusal:
             return refusal
@@ -350,22 +344,23 @@ class VolumeAppContext(AppContext):
                 "description": patch.get("description"),
             }
         except (TypeError, ValueError, KeyError, AttributeError) as exc:
-            return {"applied": False, "invalid_patch": f"Not a position patch: {exc}"}
+            return invalid_patch(f"Not a position patch: {exc}")
 
         def edit():
             if str(version) != self._version(position):
-                return {"applied": False, "stale": True}
+                return stale_config()
             why = experiment.patch_position(item_name, **fields)
             if why:
-                return {"applied": False, "invalid_patch": why}
+                return invalid_patch(why)
             return {
                 "applied": True,
                 "fields": [f for f in POSITION_PATCH_FIELDS if f in patch],
             }
 
         result = self._agent_call(edit, timeout=timeout)
-        if result.get("applied"):
-            result["item"] = self.item_detail(position.name)
+        if isinstance(result, Refusal):
+            return result
+        result["item"] = self.item_detail(position.name)
         return result
 
 

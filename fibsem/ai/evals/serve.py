@@ -18,8 +18,8 @@ from fastapi.responses import RedirectResponse, Response
 from PIL import Image
 from pydantic import BaseModel
 
-from fibsem.ai.evals import review, trace, visual
-from fibsem.ai.evals.cases import Case, find_cases, pixel_size_um, stop_passes
+from fibsem.ai.evals import review, tasks, trace, visual
+from fibsem.ai.evals.cases import Case, find_cases, pixel_size_um
 from fibsem.ai.evals.runner import RESULT
 from fibsem.ai.evals.scoring import score_case
 from fibsem.server.web_app import web_app_router
@@ -157,7 +157,7 @@ class Reviewer:
         return {
             "id": case.id,
             "task": case.task,
-            "task_text": TASK_TEXT.get(case.task, case.task),
+            "task_text": getattr(tasks.get(case.task), "title", case.task),
             "key_text": _key_text(case),
             "brief": str(case.data.get("brief", "")),
             "figures": captions,
@@ -172,7 +172,7 @@ class Reviewer:
                 for e in review.read_log(case)
             ],
             "last": _last(case),
-            "can_settle": case.task in review.SETTLED_TASKS and not case.parts,
+            "can_settle": review.can_settle(case),
         }
 
     def figure(self, run: str, case_id: str, n: int) -> bytes:
@@ -244,48 +244,10 @@ def _last(case: Case) -> Optional[Dict[str, Any]]:
     return {k: last.get(k) for k in ("id", "action")} if last else None
 
 
-TASK_TEXT = {
-    "site_selection": "Pick sites for lamellae on a grid overview",
-    "square_finding": "Find every grid square on an overview",
-    "square_quality": "Label each numbered grid square",
-    "fm_target": "Find the target in an FM stack",
-    "correlation": "Place the FM target on the FIB image",
-    "polishing_stop": "Say when to stop polishing, pass by pass",
-    "target_present": "Say if the target is still in the lamella, pass by pass",
-}
-
-
 def did(score: Dict[str, Any]) -> str:
     """What one repeat did, in a few words, from its score's details."""
-    d, task = score.get("details") or {}, score.get("task")
-    if task == "site_selection" and "picks" in d:
-        on_good = sum(1 for p in d.get("per_pick", []) if "good" in p)
-        text = f"{on_good} of {d['picks']} picks on good squares"
-        if d.get("bad_picks"):
-            text += f", {d['bad_picks']} on bad"
-        return text
-    if task == "square_quality" and "total" in d:
-        text = f"{d['correct']} of {d['total']} labels right"
-        if d.get("bad_called_good"):
-            text += f", bad called good: {', '.join(d['bad_called_good'])}"
-        return text
-    if task == "polishing_stop" and "key" in d:
-        stop = d.get("stopped_after")
-        return f"stopped after {stop}" if stop else "never stopped"
-    if task == "square_finding" and "recall" in d:
-        return f"found {d['recall']:.0%} of squares, {d.get('extra', 0)} extra"
-    if task == "fm_target" and "usable" in d:
-        if "xy_error_um" in d:
-            return f"{d['xy_error_um']} um from the target"
-        return f"usable: {d['usable']}"
-    if task == "correlation":
-        if "across_um" in d:
-            return f"{d['across_um']} um across, {d['along_um']} um along"
-        if "error_um" in d:
-            return f"{d['error_um']} um off"
-    if task == "target_present" and "total" in d:
-        return f"{d['correct']} of {d['total']} passes right"
-    return ""
+    task = tasks.get(score.get("task"))
+    return task.summary(score.get("details") or {}) if task else ""
 
 
 def _now_scores(case: Case, answer: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -298,14 +260,8 @@ def _now(case: Case, answer: Optional[Dict[str, Any]]) -> List[str]:
 
 
 def _key_text(case: Case) -> str:
-    key = case.key
-    if case.task == "site_selection":
-        return f"{len(key.get('good') or [])} good squares, {len(key.get('bad') or [])} bad"
-    if case.task == "square_quality":
-        return f"{len(key.get('labels') or {})} squares labelled"
-    if case.task == "polishing_stop":
-        return "stop after " + " or ".join(stop_passes(key))
-    return ""
+    task = tasks.get(case.task)
+    return task.key_text(case.key) if task and task.key_text else ""
 
 
 # Disagreements drawn in the page: a plain crop, the marks laid over it in

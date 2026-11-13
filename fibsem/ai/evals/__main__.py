@@ -2,6 +2,7 @@
 on cases and report the results, and make cases from the simulator."""
 
 import argparse
+import importlib
 import json
 import os
 import shlex
@@ -15,6 +16,7 @@ from fibsem.ai.agent import playbooks, sources
 from fibsem.ai.evals import matrix as matrix_mod
 from fibsem.ai.evals import report as report_mod
 from fibsem.ai.evals import serve as serve_mod
+from fibsem.ai.evals import tasks as eval_tasks
 from fibsem.ai.evals import trace as trace_mod
 from fibsem.ai.evals import visual
 from fibsem.ai.evals.cases import check_case, find_cases, load_case
@@ -26,6 +28,12 @@ from fibsem.ai.evals.runner import (
     run_cases,
 )
 from fibsem.ai.evals.scoring import score_case
+
+
+def _sims() -> list:
+    """The simulator generators the tasks name, beside grid (which writes
+    square, label and site cases together)."""
+    return [sim for task in eval_tasks.all_tasks().values() for sim in task.sims]
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -138,13 +146,16 @@ def _parser() -> argparse.ArgumentParser:
     make_sim.add_argument(
         "--task",
         nargs="+",
-        choices=("grid", "polishing", "correlation", "placement", "fm-target"),
+        choices=["grid"] + sorted(sim.name for sim in _sims()),
         default=["grid"],
         help="grid: squares, labels and sites from an overview; polishing: a "
         "lamella milled pass by pass; correlation: spot burns round an FM "
         "target, with the FIB image and FM stack; placement: where the lamella "
         "goes on a FIB image at the milling angle; fm-target: whether an FM "
-        "stack has a target at the site, and where (default grid)",
+        "stack has a target at the site, and where; rough: a lamella rough "
+        "milled step by step, some steps shallow or the lamella broken; "
+        "coincidence: a lamella polished through an FM target with a stack "
+        "each pass, is the target still there (default grid)",
     )
     make_sim.add_argument(
         "--set",
@@ -213,31 +224,18 @@ def main(argv=None) -> int:
         return 0
 
     if args.command == "make-sim":
-        from fibsem.ai.evals import (
-            sim_cases,
-            sim_correlation,
-            sim_fm_target,
-            sim_placement,
-            sim_polishing,
-        )
+        from fibsem.ai.evals import sim_cases
 
         overrides = {}
         for item in args.set:
             name, _, value = item.partition("=")
             overrides[name.strip()] = yaml.safe_load(value)
         for seed in args.seeds:
-            if "polishing" in args.task:
-                folder = sim_polishing.write_case(seed, args.out, overrides)
-                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
-            if "correlation" in args.task:
-                folder = sim_correlation.write_case(seed, args.out, overrides)
-                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
-            if "placement" in args.task:
-                folder = sim_placement.write_case(seed, args.out, overrides)
-                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
-            if "fm-target" in args.task:
-                folder = sim_fm_target.write_case(seed, args.out, overrides)
-                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            for sim in _sims():
+                if sim.name in args.task:
+                    module = importlib.import_module(sim.module)
+                    folder = module.write_case(seed, args.out, overrides)
+                    print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
             for beam in args.beam if "grid" in args.task else []:
                 for folder in sim_cases.write_cases(
                     seed,

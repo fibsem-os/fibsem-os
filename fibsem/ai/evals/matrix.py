@@ -11,25 +11,13 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from fibsem.ai.evals import trace, visual
+from fibsem.ai.evals import tasks, trace, visual
 from fibsem.ai.evals.cases import Case
 from fibsem.ai.evals.runner import CASE_PLAYBOOK, RunConfig, run_cases
 
 MATRIX = "matrix.json"
 MODES = ("files", "code")
 PLAYBOOKS = ("base", CASE_PLAYBOOK)
-# The skill each task is decided by: a repeat that never read it decided
-# without it.
-TASK_SKILLS = {
-    "site_selection": "screen-grids",
-    "square_finding": "screen-grids",
-    "square_quality": "screen-grids",
-    "polishing_stop": "autolamella-polishing",
-    "target_present": "autolamella-coincidence-milling",
-    "fm_target": "autolamella-correlative",
-    "correlation": "autolamella-correlative",
-    "setup_placement": "autolamella",
-}
 
 
 @dataclass(frozen=True)
@@ -100,11 +88,11 @@ def run_matrix(
 
 
 def _task_skills(case_id: str, items) -> List[str]:
-    tasks = set()
+    names = set()
     for _, (result, _) in items:
-        tasks |= {s.get("task") for s in result.get("scores") or []}
-        tasks.add(result.get("task"))
-    return sorted({TASK_SKILLS[t] for t in tasks if t in TASK_SKILLS})
+        names |= {s.get("task") for s in result.get("scores") or []}
+        names.add(result.get("task"))
+    return sorted({tasks.get(n).skill for n in names if tasks.get(n)})
 
 
 def skills_table(folders: List[Path]) -> str:

@@ -68,6 +68,7 @@ REFUSAL_STATUS = {
     "not_running": 409,
     "already_queued": 409,
     "stale_config": 409,
+    "invalid_patch": 422,
     "stale_proposal": 409,
     "fixed": 409,
     "refused": 409,
@@ -103,10 +104,30 @@ def no_experiment() -> Refusal:
     return Refusal("no_experiment", "No experiment is loaded.")
 
 
-def refusal_of(result: Dict[str, Any], error_type: str = "not_found"):
-    """An engine edit's answer (``applied``, and ``error`` when it did nothing)
-    as its refusal; *result* itself when it applied. A refusal that names no
-    type is *error_type*; the names there are ride along."""
+def stale_config() -> Refusal:
+    return Refusal(
+        "stale_config",
+        "The config changed since your read; re-read "
+        "it and write the patch against the current version.",
+    )
+
+
+def invalid_patch(message: str, path: Optional[str] = None) -> Refusal:
+    """A patch that can't be applied, and the dotted *path* at fault."""
+    return Refusal("invalid_patch", message, {"path": path})
+
+
+def refusal_of(result: Any, error_type: str = "not_found"):
+    """An engine edit's answer as its refusal; *result* itself when it applied.
+    The engine says ``stale``, ``invalid_patch`` (with its ``path``), or
+    ``applied: False`` with an ``error``; a refusal that names no type is
+    *error_type*, and the names there are ride along."""
+    if isinstance(result, Refusal):
+        return result
+    if result.get("stale"):
+        return stale_config()
+    if result.get("invalid_patch"):
+        return invalid_patch(result["invalid_patch"], result.get("path"))
     if result.get("applied") or not result.get("error"):
         return result
     names = {k: v for k, v in result.items() if k.endswith(("_names", "_paths"))}

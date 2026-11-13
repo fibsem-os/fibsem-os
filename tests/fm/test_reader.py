@@ -527,3 +527,30 @@ def test_an_imported_image_records_no_acquisition_time(tmp_path):
 
     md = image.metadata
     assert md.acquisition_datetime is None
+
+
+def test_an_ome_tiff_with_no_wavelengths_imports_and_saves(tmp_path):
+    """Another program's OME may leave out the excitation wavelength. The import keeps
+    the file's channel records, so the copy saved has none either, rather than a 0 nm
+    that OME refuses."""
+    path = str(tmp_path / "foreign.ome.tif")
+    tifffile.imwrite(
+        path,
+        planes(2, 1),
+        ome=True,
+        photometric="minisblack",
+        metadata={
+            "axes": "CZYX",
+            "PhysicalSizeX": 0.1,
+            "PhysicalSizeY": 0.1,
+            "Channel": {"Name": ["Reflection", "EGFP"]},
+        },
+    )
+    source = read_source(path)
+    image = build_image(
+        source, source.roles, source.pixel_size, source.channel_names, ["gray", "green"]
+    )
+
+    copy = FluorescenceImage.load(image.save(str(tmp_path / "copy.ome.tiff")))
+
+    assert [c.name for c in copy.metadata.channels] == ["Reflection", "EGFP"]

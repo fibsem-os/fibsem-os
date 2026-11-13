@@ -325,6 +325,44 @@ class TestTheAssumedCamera:
         assert assumed_geometry(microscope) == microscope.fm_image_geometry()
         assert assumed_pose(microscope) == microscope.get_orientation("FM")
 
+    def test_an_offset_fm_images_from_the_pose_its_device_names(self, tmp_path):
+        """An offset FM beside the FIB has no FM orientation of its own: it images
+        in the FIB pose, and its camera is tilted to match. The SEM pose with that
+        camera would stretch an imported image 1.3x on the sample, which no fit
+        from points can take out."""
+        from fibsem import config as cfg
+        from fibsem import utils
+        from tests.fixtures.microscopes import demo_session
+
+        data = utils.load_yaml(
+            os.path.join(cfg.SHIPPED_CONFIG_PATH, "tfs-hydra-meteor-configuration.yaml")
+        )
+        for device in data["hardware"]["devices"]:
+            if device["name"] == "fm":
+                device["driver"] = "demo"
+                device.pop("address", None)
+                device.pop("port", None)
+        path = str(tmp_path / "meteor.yaml")
+        utils.save_yaml(path, data)
+        scope = demo_session(path)
+        try:
+            with pytest.raises(ValueError):
+                scope.get_orientation("FM")
+            assert assumed_pose(scope) == scope.get_orientation("FIB")
+            assert assumed_geometry(scope) == scope.fm_image_geometry()
+        finally:
+            scope.disconnect()
+
+    def test_without_an_fm_the_sem_pose_and_a_straight_down_camera(self):
+        from tests.fixtures.microscopes import demo_session
+
+        scope = demo_session("tfs-aquilos2-configuration.yaml")
+        try:
+            assert assumed_pose(scope) == scope.get_orientation("SEM")
+            assert assumed_geometry(scope).camera_tilt == 0.0
+        finally:
+            scope.disconnect()
+
 
 class TestTheHostPointsImportsAtTheGrid:
     def test_the_folder_is_the_grid_under_the_stage(self, tmp_path):

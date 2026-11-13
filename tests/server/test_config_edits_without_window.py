@@ -75,7 +75,7 @@ def test_a_stale_version_is_refused(tmp_path):
     result = context.apply_item_task_config_patch(
         experiment.positions[0].name, TASK, {DEPTH: 2.7e-6}, "stale"
     )
-    assert result == {"applied": False, "stale": True}
+    assert result.error_type == "stale_config"
     assert scope.events == []
 
 
@@ -179,15 +179,15 @@ def test_a_patch_naming_attention_or_requires_is_refused(tmp_path):
         refused = context.apply_protocol_task_config_patch(
             TASK, {field: value}, config_version(protocol_config)
         )
-        assert refused["applied"] is False and verb in refused["invalid_patch"]
-        assert refused["path"] == field
+        assert refused.error_type == "invalid_patch" and verb in refused.message
+        assert refused.names["path"] == field
         refused = context.apply_item_task_config_patch(
             lamella.name,
             TASK,
             {field: value},
             config_version(lamella.task_config[TASK]),
         )
-        assert refused["applied"] is False and verb in refused["invalid_patch"]
+        assert refused.error_type == "invalid_patch" and verb in refused.message
     assert experiment.task_protocol.get_attention(TASK) is Attention.automated
     assert experiment.task_protocol.requirements(TASK) == []
     assert scope.events == []
