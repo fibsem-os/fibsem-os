@@ -582,7 +582,10 @@ class Harness:
 
     def write_manifest(self) -> None:
         path = self.img_root / "manifest.json"
-        path.write_text(json.dumps(self.manifest, indent=2) + "\n")
+        # merged over what is there, so rendering one page keeps the others
+        manifest = json.loads(path.read_text()) if path.exists() else {}
+        manifest.update(self.manifest)
+        path.write_text(json.dumps(manifest, indent=2) + "\n")
         print(f"manifest: {path}")
 
     def close(self) -> None:
@@ -1743,6 +1746,8 @@ def render_overview(h: Harness) -> None:
     ctrl.move_to_orientation("SEM")
     h.wait_move(ctrl, iw)
 
+    render_external_fm_overview(h, ow, ctrl, iw)
+
     # the fluorescence overview tab, as it opens (Arctis only)
     container.set_modality(MODALITY_FM)
     h.pump(500)
@@ -1754,6 +1759,232 @@ def render_overview(h: Harness) -> None:
     )
     container.set_modality("FIBSEM")
     h.pump(300)
+
+
+def _external_fm_overview(h: Harness, ctrl, iw) -> Tuple[str, str]:
+    """A fluorescence overview of the grid centre as another program would save
+    it -- an OME-TIFF with pixel size, channel names and colours, and nothing
+    about the camera or the stage -- plus fibsemOS's own copy of the same
+    overview, which says where it was taken. Returns (external, own) paths."""
+    import numpy as np
+    import tifffile
+
+    from fibsem.drivers.demo.devices import REFLECTION, emission_filter_for
+    from fibsem.fm.acquisition import acquire_fm_tiled_overview
+    from fibsem.fm.structures import ChannelSettings, OverviewParameters
+
+    microscope = h.connection.microscope
+    microscope.move_to_device("FM")
+    microscope.fm.objective.insert()
+    microscope.fm.objective.move_absolute(microscope.fm.objective.focus_position)
+    channels = [
+        ChannelSettings(
+            name="Reflection",
+            excitation_wavelength=450,
+            emission_filter=REFLECTION,
+            power=0.5,
+            exposure_time=0.1,
+            color="gray",
+        ),
+        ChannelSettings(
+            name="EGFP",
+            excitation_wavelength=450,
+            emission_filter=emission_filter_for("Fluorescence", {}),
+            power=0.5,
+            exposure_time=0.1,
+            color="green",
+        ),
+    ]
+    result = acquire_fm_tiled_overview(
+        microscope, channels, OverviewParameters(rows=3, cols=3, overlap=0.1), None
+    )
+    microscope.fm.objective.retract()
+    microscope.move_to_device("FIBSEM")
+    ctrl.move_to_orientation("SEM")
+    h.wait_move(ctrl, iw)
+
+    folder = Path(h._tmp.name) / "external-fm"
+    folder.mkdir(exist_ok=True)
+    own = str(folder / "own-overview.ome.tiff")
+    result.image.save(own)
+    external = str(folder / "fm-overview.ome.tiff")
+    size_um = result.image.metadata.pixel_size_x * 1e6
+    tifffile.imwrite(
+        external,
+        # a quarter turn, as a camera mounted another way round would see it
+        np.rot90(np.asarray(result.image.data), axes=(-2, -1)).astype(np.uint16),
+        ome=True,
+        photometric="minisblack",
+        metadata={
+            "axes": "CZYX",
+            "PhysicalSizeX": size_um,
+            "PhysicalSizeY": size_um,
+            "Channel": {
+                "Name": ["Reflection", "EGFP"],
+                "ExcitationWavelength": [465.0, 465.0],
+                "Color": [-1, 16711935],  # white, green
+            },
+        },
+    )
+    return external, own
+
+
+def _frame_images(h: Harness, ow, keys, margin: float = 1.8) -> None:
+    """Zoom the canvas onto aligned images: an FM overview is a few hundred
+    microns, lost in a view framed for the whole stage."""
+    import numpy as np
+
+    corners = []
+    for key in keys:
+        height, width = ow.aligned_images.get(key).rgb.shape[:2]
+        corners += [
+            ow.aligned_images.pixel_to_canvas(key, x, y)
+            for x in (0, width)
+            for y in (0, height)
+        ]
+    xs, ys = np.array(corners).T
+    cx, cy = (xs.min() + xs.max()) / 2, (ys.min() + ys.max()) / 2
+    w, ht = ow.canvas.width(), ow.canvas.height()
+    half = max((xs.max() - xs.min()) / w, (ys.max() - ys.min()) / ht) * margin / 2
+    ow.canvas.auto_fit = False
+    ow.canvas._ax.set_xlim(cx - half * w, cx + half * w)
+    ow.canvas._ax.set_ylim(cy + half * ht, cy - half * ht)
+    ow.canvas.refresh_detail(force=True)
+    ow.canvas.draw()
+    h.pump(800)
+
+
+def _fit_external_image(h: Harness, ow, key: str, truth: str, name: str) -> None:
+    """Fit from points, with five pairs where a careful operator would click
+    them: each feature's true place, from fibsemOS's own copy, a pixel or two
+    off. The dialog is photographed with its pairs, then applied."""
+    import numpy as np
+
+    from fibsem.ui.widgets import image_fit_dialog
+
+    record = ow.aligned_images.get(key)
+    height, width = record.rgb.shape[:2]
+    pixels = [
+        (width * fx, height * fy)
+        for fx, fy in [(0.2, 0.2), (0.8, 0.25), (0.5, 0.5), (0.25, 0.8), (0.75, 0.75)]
+    ]
+    # the file is a quarter turn of fibsemOS's copy: its (x, y) is the copy's
+    # (width - y, x)
+    truth_width = ow.aligned_images.get(truth).rgb.shape[1]
+    rng = np.random.default_rng(1)
+    targets = [
+        np.array(ow.aligned_images.pixel_to_canvas(truth, truth_width - y, x))
+        + rng.normal(0, 1.5, 2)
+        for x, y in pixels
+    ]
+    # the dialog takes the overview's points in its tile's own pixels
+    canvas_key, tile = ow._reference_tile_for_fit(key)
+
+    def to_canvas(x, y):
+        return np.array(ow._tile_pixel_to_canvas(canvas_key, tile, x, y))
+
+    origin = to_canvas(0, 0)
+    inverse = np.linalg.inv(
+        np.column_stack([to_canvas(1, 0) - origin, to_canvas(0, 1) - origin])
+    )
+    references = [tuple(inverse @ (t - origin)) for t in targets]
+
+    def answer(dialog):
+        for p, r in zip(pixels, references):
+            dialog.add_pair(p, r)
+        dialog.resize(1300, 750)
+        dialog.show()
+        h.pump(800)
+        h.shot(name, target=dialog)
+        dialog.close()
+        return QDialog.DialogCode.Accepted
+
+    original = image_fit_dialog.ImageFitDialog.exec
+    image_fit_dialog.ImageFitDialog.exec = answer
+    try:
+        ow._fit_aligned_image(key)
+    finally:
+        image_fit_dialog.ImageFitDialog.exec = original
+    h.pump(800)
+
+
+def render_external_fm_overview(h: Harness, ow, ctrl, iw) -> None:
+    """An FM overview from another program (a METEOR's, say) laid over the SEM
+    overview and then the ion beam's at the milling angle, each lined up with
+    Fit from points: the Overview page's sections 6 and 7."""
+    from fibsem.structures.settings import BeamType
+    from fibsem.ui.widgets.fm_import_dialog import ImportImageDialog
+    from fibsem.ui.widgets.overview_widget import OverviewView
+
+    external, own = _external_fm_overview(h, ctrl, iw)
+    # an imported image is kept in the folder of the grid on the stage: load
+    # one, and give the experiment its record, as the Grids tab does
+    stage = h.connection.microscope.sample_handling
+    stage.ensure_loaded(stage.grid_inventory()[0].name)
+    h.ensure_experiment().sync_grids_from_inventory(stage)
+    sem = OverviewView(BeamType.ELECTRON, "SEM")
+    milling = OverviewView(BeamType.ION, "MILLING")
+    ow.show_view(sem)
+    h.pump(500)
+
+    # where Load... is: the Align panel, open
+    ow.btn_align.click()
+    h.pump(500)
+    h.shot(
+        "external-fm-align-panel",
+        callouts=[ow.btn_align, ow.aligned_image_panel.btn_load],
+        numbered=True,
+    )
+
+    def imported(shoot: bool) -> str:
+        def answer(dialog):
+            if shoot:
+                dialog.resize(900, 700)
+                dialog.show()
+                h.pump(800)
+                h.shot("external-fm-import-dialog", target=dialog)
+                dialog.close()
+            return QDialog.DialogCode.Accepted
+
+        original = ImportImageDialog.exec
+        ImportImageDialog.exec = answer
+        try:
+            key = ow.open_aligned_image(external)
+        finally:
+            ImportImageDialog.exec = original
+        if key is None:
+            raise RuntimeError("the external FM overview did not import")
+        h.pump(800)
+        return key
+
+    # fibsemOS's own copy, placed where it was taken: the answer the operator's
+    # clicks are made against, never shown
+    truth = ow.load_aligned_image(own)
+    if truth is None:
+        raise RuntimeError("fibsemOS's own FM overview could not be placed")
+    ow.aligned_images.set_visible(truth, False)
+    ow.btn_align.click()
+
+    key = imported(shoot=True)
+    _frame_images(h, ow, [key, truth])
+    h.shot("external-fm-sem-imported")
+    _fit_external_image(h, ow, key, truth, "external-fm-sem-fit-dialog")
+    h.shot("external-fm-sem-fitted")
+    ow.remove_aligned_image(key, announce=False)
+
+    # the same file on the ion beam's overview at the milling angle
+    ow.show_view(milling)
+    h.pump(800)
+    key = imported(shoot=False)
+    _frame_images(h, ow, [key, truth])
+    h.shot("external-fm-fib-imported")
+    _fit_external_image(h, ow, key, truth, "external-fm-fib-fit-dialog")
+    h.shot("external-fm-fib-fitted")
+    ow.remove_aligned_image(key, announce=False)
+    ow.remove_aligned_image(truth, announce=False)
+    ow.show_view(sem)
+    ow.canvas.reset_view()
+    h.pump(500)
 
 
 @page("lamella")
