@@ -21,6 +21,7 @@ from fibsem.applications.autolamella.structures import (
 )
 from fibsem.server import AuthConfig, build_server
 from fibsem.server.agent.requests import RequestRefused, route_call
+from fibsem.server.app_context import AppContext
 from fibsem.structures.settings import MicroscopeState
 from tests.run_state import stub_session
 
@@ -225,8 +226,11 @@ def test_hardware_needs_the_devices_service(microscope, context, auth):
     assert _detail(refused)["error_type"] == "not_available"
 
 
-class _CoreOnly:
+class _CoreOnly(AppContext):
     """An app context with no optional parts."""
+
+    def __init__(self):
+        super().__init__(session=None)
 
 
 def test_a_part_the_app_lacks_is_refused_at_filing(microscope, auth):

@@ -20,6 +20,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures.settings import BeamType, ImageSettings
+from tests.fixtures.app_contexts import ExperimentContext
 
 TOKEN = "test-token"
 CORRELATION = "/services/correlation"
@@ -62,7 +63,7 @@ def experiment(tmp_path):
 
 @pytest.fixture
 def client(microscope, experiment):
-    context = SimpleNamespace(experiment_path=str(experiment))
+    context = ExperimentContext(str(experiment))
     app = build_server(
         microscope,
         app_context=context,
@@ -281,7 +282,7 @@ def test_served_with_no_microscope(images, experiment):
     routes off and no microscope at all."""
     app = build_server(
         None,
-        app_context=SimpleNamespace(experiment_path=str(experiment)),
+        app_context=ExperimentContext(str(experiment)),
         auth=AuthConfig.generate(level="watch", token=TOKEN),
         serve_microscope=False,
     )
