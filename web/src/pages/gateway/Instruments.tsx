@@ -38,7 +38,7 @@ interface Instrument {
   session: HubSession | null;
 }
 
-interface HubState {
+export interface HubState {
   hub: boolean;
   instruments: Instrument[];
 }
@@ -381,12 +381,16 @@ function Add({ onDone }: { onDone: () => void }) {
 
 /** The instruments this gateway is the hub for, one line each: what its PC
  * runs, the agent this PC runs for it, and the one thing to do next. */
-export function Instruments() {
-  const hub = useQuery({
+export function useHub() {
+  return useQuery({
     queryKey: ["hub"],
     queryFn: () => api<HubState>("/hub"),
     refetchInterval: 3000,
   });
+}
+
+export function Instruments() {
+  const hub = useHub();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(false);
   const state = hub.data;

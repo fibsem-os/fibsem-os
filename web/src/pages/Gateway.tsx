@@ -15,7 +15,6 @@ import {
   notReady,
 } from "@/pages/gateway/AgentCard";
 import { History } from "@/pages/gateway/History";
-import { Instruments } from "@/pages/gateway/Instruments";
 import { type Defaults, Settings } from "@/pages/gateway/Settings";
 // The same icon as the gateway's window and its Desktop shortcut.
 import gatewayIcon from "../../../fibsem/ui/icons/gateway.svg?raw";
@@ -765,10 +764,9 @@ function Restarting() {
   );
 }
 
-type Tab = "overview" | "instruments" | "history" | "pairing" | "settings";
+type Tab = "overview" | "history" | "pairing" | "settings";
 const TABS: [Tab, string][] = [
   ["overview", "Overview"],
-  ["instruments", "Instruments"],
   ["history", "History"],
   ["pairing", "Pairing"],
   ["settings", "Settings"],
@@ -883,6 +881,12 @@ function Gateway({
             </button>
           ))}
         </div>
+        <a
+          href={`/ui/hub#token=${getToken() ?? ""}`}
+          className="mt-3 hidden rounded px-3 py-1.5 text-[13px] text-muted-foreground no-underline hover:bg-accent hover:text-foreground sm:block"
+        >
+          Lab Hub
+        </a>
         <div className="mt-auto hidden px-3 pt-4 text-xs text-muted-foreground sm:block">
           {state && <div>fibsemOS {state.version}</div>}
           {newer && (
@@ -919,7 +923,6 @@ function Gateway({
               />
             </>
           )}
-          {tab === "instruments" && <Instruments />}
           {tab === "history" && (
             <History
               apps={state?.apps ?? []}
