@@ -25,6 +25,7 @@ from fibsem.structures.system import (
     DeviceEntry,
     MicroscopeSettings,
 )
+from fibsem.util import app_log
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -261,6 +262,8 @@ def configure_logging(
         handlers=[file_handler, stream_handler],
         force=True,
     )
+    # force=True closed the program's own log with the rest: open it again.
+    app_log.restart()
 
     # disable some loggers
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
