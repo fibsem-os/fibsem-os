@@ -147,6 +147,7 @@ fibsem-mcp = "fibsem.ai.agent.mcp.sidecar:main"
 fibsem-volume = "fibsem.applications.volume.launch:main"
 fibsem-volume-ui = "fibsem.tools.desktop_launch:volume"
 fibsem-autolamella-server = "fibsem.applications.autolamella.launch:main"
+fibsem-microscope-server = "fibsem.server.microscope_server:main"
 fibsem-agent = "fibsem.ai.agent.harness:main"
 fibsem-gateway = "fibsem.gateway.main:main"
 

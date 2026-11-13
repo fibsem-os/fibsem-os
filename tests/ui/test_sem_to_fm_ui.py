@@ -235,10 +235,14 @@ def test_the_dialog_captures_a_site_and_restores_on_cancel(qapp, tmp_path, monke
     dialog.button_next.click()  # Skip
     assert dialog._step == STEP_BEAMS
     assert dialog.button_next.isEnabled() is False
-    assert qt_wait_for(lambda: dialog.current_label.text() == "FIB")
-    assert dialog.current_label.text() == "FIB"  # the step opens on fresh images
+    # The step opens on fresh images. Wait for that step's worker to finish too:
+    # a click while it runs is ignored.
+    capture = dialog.action_buttons["Capture beams"]
+    assert qt_wait_for(
+        lambda: dialog.current_label.text() == "FIB" and capture.isEnabled()
+    )
 
-    dialog.action_buttons["Capture beams"].click()
+    capture.click()
     assert qt_wait_for(lambda: dialog.button_next.isEnabled())
     assert dialog.button_next.isEnabled()
     assert len(dialog.calibration.sites) == 1

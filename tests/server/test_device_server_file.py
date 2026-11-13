@@ -94,3 +94,11 @@ def test_a_file_that_builds_nothing_stops(tmp_path, caplog):
     )
     with pytest.raises(SystemExit):
         server_devices.main(["--config", path])
+
+
+def test_an_entry_with_remote_is_refused(tmp_path):
+    path = _server_file(
+        tmp_path, {"name": "fm", "type": "fm", "driver": "Demo", "remote": "pc:8765"}
+    )
+    with pytest.raises(ValueError, match="host's configuration"):
+        configured_devices(path)

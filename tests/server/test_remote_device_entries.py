@@ -173,3 +173,59 @@ def test_a_remote_entry_names_only_where_its_server_is(server, caplog, key):
     assert built == {}
     assert caplog.text.count(f"takes no {key}") == 2
     assert "fibsem-cli pair-device" in caplog.text
+
+
+def test_remote_names_where_the_server_is_and_the_driver_stays_the_devices(
+    server, caplog
+):
+    at = {"remote": f"127.0.0.1:{server.port}"}
+    with caplog.at_level(logging.WARNING):
+        built = _build(
+            {"name": "electron", "driver": "Demo", **at},
+            {"name": "camera", "type": "camera", **at},
+        )
+    try:
+        assert isinstance(built["electron"], RemoteBeam)
+        assert isinstance(built["camera"], RemoteCamera)
+        assert len({device.client for device in built.values()}) == 1
+        assert "serves it with driver" not in caplog.text
+    finally:
+        _close(built)
+
+
+def test_a_driver_the_server_does_not_use_is_warned_about(server, caplog):
+    at = {"remote": f"127.0.0.1:{server.port}"}
+    with caplog.at_level(logging.WARNING):
+        built = _build({"name": "electron", "driver": "Tescan", **at})
+    try:
+        assert isinstance(built["electron"], RemoteBeam)
+        assert "names driver Tescan" in caplog.text
+    finally:
+        _close(built)
+
+
+@pytest.mark.parametrize("where", ["meteor-pc", "meteor-pc:", ":8765", "pc:port"])
+def test_remote_without_a_port_is_left_out(where, caplog):
+    with caplog.at_level(logging.WARNING):
+        built = _build({"name": "electron", "remote": where, "required": False})
+    assert built == {}
+    assert "remote is <address>:<port>" in caplog.text
+
+
+def test_the_demo_takes_its_electron_beam_from_a_remote_entry(server, tmp_path):
+    with open(cfg.DEFAULT_CONFIGURATION_PATH) as f:
+        config = yaml.safe_load(f)
+    config["info"]["manufacturer"] = "Demo"
+    (electron,) = [e for e in config["hardware"]["devices"] if e["name"] == "electron"]
+    electron.update(remote=f"127.0.0.1:{server.port}")
+    path = tmp_path / "configuration.yaml"
+    path.write_text(yaml.safe_dump(config))
+    microscope, _ = utils.setup_session(setup_logging=False, config_path=str(path))
+    try:
+        assert isinstance(microscope.beams[BeamType.ELECTRON], RemoteBeam)
+        written = microscope.system.to_dict()
+        entry = utils.configuration_device(written, "electron")
+        assert entry["remote"] == f"127.0.0.1:{server.port}"
+        assert utils.unrecognised_configuration_keys(written) == []
+    finally:
+        microscope.beams[BeamType.ELECTRON].client.close()
