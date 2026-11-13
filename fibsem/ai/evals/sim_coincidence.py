@@ -33,7 +33,7 @@ from fibsem.ai.evals.sim_correlation import (
     scene_options,
     target_kind,
 )
-from fibsem.drivers.demo import sim_relief, sim_solid
+from fibsem.drivers.demo import sim_solid, sim_view
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.fm.acquisition import acquire_z_stack
 from fibsem.fm.structures import ZParameters
@@ -75,7 +75,7 @@ def off_target(seed: int) -> bool:
 def _milled(scene, x: float, y: float, z: float) -> bool:
     """Whether the point (x, y world m, z m in the focal frame) was milled
     away, on a small patch of the sample round it."""
-    um = sim_relief.UM
+    um = sim_view.UM
     xs = x * um + np.arange(-2.0, 2.05, 0.05)
     ys = y * um + np.arange(-2.0, 2.05, 0.05)
     return bool(sim_solid.Plan(scene, xs, ys).gone_at(x * um, y * um, z * um)[0])

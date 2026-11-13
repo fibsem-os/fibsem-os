@@ -35,7 +35,7 @@ from fibsem.ai.evals.sim_polishing import (
     _site_cell,
 )
 from fibsem.ai.evals.sim_polishing import scene_options as _polishing_options
-from fibsem.drivers.demo import sim_relief, sim_solid
+from fibsem.drivers.demo import sim_solid, sim_view
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.structures.settings import (
     BeamType,
@@ -110,7 +110,7 @@ def _through(scene, regions) -> float:
     full depth (1: all the way down). Each column a cut passes through is cut
     from its top down to the pattern's depth; the floor is reached where the
     cut goes below FLOOR over the film."""
-    um = sim_relief.UM
+    um = sim_view.UM
     floor = sim_solid.FILM_TOP + FLOOR * um
     reached = full = 0
     for region in regions:
@@ -121,7 +121,7 @@ def _through(scene, regions) -> float:
         col = sim_solid.Plan(scene, x, y).col
         surface, level = col["surface"], col["level"]
         X, Y = np.meshgrid(x, y)
-        a, b = sim_relief._cut_range(scene, region, X, Y, surface)
+        a, b = sim_view._cut_range(scene, region, X, Y, surface)
         hit = (b > a) & (surface > floor)
         for depth, count in ((region.depth, "reached"), (DEPTH, "full")):
             bottom = np.maximum(a, np.minimum(surface, level - depth * um))
