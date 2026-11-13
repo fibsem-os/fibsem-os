@@ -248,7 +248,7 @@ export interface components {
         /** @description Take control of the microscope: what for, as the operator reads it. */
         ControlRequest: {
             /** @default remote run */
-            action: string;
+            action?: string;
         };
         ControlView: {
             in_control: components["schemas"]["InControl"] | null;

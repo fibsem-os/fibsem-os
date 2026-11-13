@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "theme": "python ../scripts/web_theme.py",
-    "types": "python ../scripts/web_openapi.py && openapi-typescript openapi.json -o src/lib/schema.ts"
+    "types": "python ../scripts/web_openapi.py && openapi-typescript openapi.json --default-non-nullable false -o src/lib/schema.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "1.1.2",
