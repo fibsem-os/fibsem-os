@@ -51,6 +51,10 @@ the `[labelling]` extra for it:
 pip install -e ".[ui,labelling]"
 ```
 
+The GUI runs on Qt 6 (PySide6). For one release PyQt5 still works as a fallback, for a
+PC where Qt 6 misbehaves: `pip install "fibsem[ui,pyqt5]"`, then set `QT_API=pyqt5`.
+Windows 10 older than build 1809 cannot run Qt 6 and picks PyQt5 by itself.
+
 To run:
 ```bash
 fibsem-autolamella-ui
