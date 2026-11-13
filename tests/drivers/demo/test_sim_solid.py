@@ -178,6 +178,28 @@ def test_a_trench_is_cut_along_the_milling_beam(microscope):
     assert abs(centre[0]) <= 3 and abs(centre[1]) <= 3
 
 
+@pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
+def test_a_shallow_trench_shows_its_floor(microscope, beam_type):
+    """A pattern that stops in the ice leaves a floor both beams see, darker
+    the deeper it is; only a cut through the sample is black."""
+    grey = []
+    for depth in (0.3e-6, 1.0e-6, 10e-6):
+        _use(microscope, **PLAIN)
+        microscope.draw_pattern(
+            FibsemRectangleSettings(
+                width=12e-6, height=6e-6, depth=depth, centre_x=0.0, centre_y=0.0
+            )
+        )
+        microscope.run_milling()
+        image = _image(microscope, beam_type, hfw=40e-6)
+        dark = ndi.binary_erosion(image < 0.8 * np.median(image), iterations=8)
+        assert dark.sum() > 500
+        grey.append(float(np.median(image[dark])))
+    shallow, deeper, through = grey
+    assert shallow > deeper + 4 > through + 30, grey
+    assert through < 40, grey
+
+
 def test_a_lamella_between_two_trenches_stays(microscope):
     _use(microscope, **PLAIN)
     _mill(microscope, (20e-6, 6e-6, 3.5e-6), (20e-6, 6e-6, -3.5e-6))
