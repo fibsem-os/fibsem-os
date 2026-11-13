@@ -10,11 +10,12 @@ import tifffile
 from fibsem.ai.evals import (
     report,
     sim_cases,
+    sim_coincidence,
     sim_correlation,
     sim_fm_target,
-    sim_rough,
     sim_placement,
     sim_polishing,
+    sim_rough,
 )
 from fibsem.ai.evals.__main__ import main
 from fibsem.ai.evals.cases import check_case, load_case
@@ -378,4 +379,25 @@ def test_a_rough_milling_case_from_the_sim(tmp_path, seed, through, intact):
     if "no" in through + intact:
         good = {c: {s: "yes" for s in steps} for c in right}
         [miss] = score_case(case, good)
+        assert miss.result == "miss" and miss.costly >= 1
+
+
+@pytest.mark.parametrize("seed, lost", [(1, False), (3, True)])
+def test_a_coincidence_case_from_the_sim(tmp_path, seed, lost):
+    folder = sim_coincidence.write_case(
+        seed, tmp_path, fib_resolution=(192, 128), z_range=(0.0, 0.5e-6)
+    )
+    case = load_case(folder)
+    assert check_case(case).ok, check_case(case).problems
+    assert case.task == "target_present" and case.tier == "sim"
+    names = [p["name"] for p in case.data["passes"]]
+    assert list(case.key) == names and case.key[names[0]] is True
+    assert (False in case.key.values()) == lost
+    # once gone, a target stays gone
+    flags = [case.key[n] for n in names]
+    assert flags == sorted(flags, reverse=True)
+    [hit] = score_case(case, {"present": dict(case.key)})
+    assert hit.result == "hit"
+    if lost:
+        [miss] = score_case(case, {"present": {n: True for n in names}})
         assert miss.result == "miss" and miss.costly >= 1
