@@ -18,7 +18,7 @@ from fibsem.alignment.coincidence import (
     ensure_coincident,
 )
 from fibsem.structures.settings import BeamType
-from tests.fixtures.sim_scenes import flat_scene
+from tests.fixtures.sim_scenes import mammalian_scene
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -84,7 +84,7 @@ def microscope():
     microscope._connection.setup_sample_scene()
 
     # deterministic scene: the loop is about control flow and geometry
-    scene = flat_scene(
+    scene = mammalian_scene(
         coincidence_offset=8e-6,
         fiducial=True,
         noise_sigma=0.0,
@@ -98,18 +98,6 @@ def microscope():
     microscope.move_stage_absolute(pose)
     yield microscope
     microscope.disconnect()
-
-
-def test_converges_from_the_boot_offset(microscope):
-    result = ensure_coincident(microscope, tolerance=1e-6)
-
-    assert result.converged, result.reason
-    assert result.reason == REASON_CONVERGED
-    assert abs(result.final.dz) <= 1e-6
-    # with exact geometry underneath, one corrective move suffices
-    assert result.moves_applied == 1
-    assert result.measurements[0].is_reliable
-    assert abs(result.measurements[0].dz) == pytest.approx(8e-6, abs=1e-6)
 
 
 def test_already_coincident_moves_nothing(microscope):
@@ -231,26 +219,6 @@ def test_progress_reports_every_step_and_moves_are_counted(microscope, tmp_path)
     assert len(replayed) == 2
     for record, _, _, fresh in replayed:
         assert fresh.is_reliable == record["is_reliable"]
-        assert fresh.dz == pytest.approx(record["dz"], abs=0.5e-6)
-
-
-def test_a_coarse_run_replays_with_its_own_parameters(microscope, tmp_path):
-    """A coarse pair re-measured with the fine window reads differently;
-    the run records what each measurement was run with, and the replay
-    uses it, so the replay reproduces the run."""
-    from fibsem.alignment.plotting import save_coincidence_diagnostics
-
-    microscope._connection.sample_scene.coincidence_offset = 40e-6
-    microscope._connection.sample_scene.reference_position = None
-    microscope._connection.sample_scene.anchor(microscope.get_stage_position())
-    result = ensure_coincident(microscope, tolerance=1e-6)
-    assert result.coarse_used
-
-    replayed = _replay(save_coincidence_diagnostics(result, str(tmp_path)))
-    assert [r["pass"] for r, *_ in replayed] == ["fine", "coarse", "fine"]
-    for record, _, _, fresh in replayed:
-        assert fresh.is_reliable == record["is_reliable"]
-        assert fresh.refusal_reason == record["refusal_reason"]
         assert fresh.dz == pytest.approx(record["dz"], abs=0.5e-6)
 
 

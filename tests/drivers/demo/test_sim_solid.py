@@ -1,4 +1,5 @@
-"""The solid renderer: the sample as objects that lie under one another."""
+"""The simulated sample: objects that lie under one another, seen along each
+beam."""
 
 import os
 
@@ -81,14 +82,10 @@ def _stack(scene, x, y) -> dict:
     }
 
 
-def test_the_renderer_comes_from_the_config():
-    assert SampleScene.from_config({"renderer": "solid"}).renderer == "solid"
-
-
 def test_a_cell_lies_under_the_ice_with_its_nucleus_inside():
     """What the height field cannot hold: at a cell's nucleus the stack is
     film, cell, nucleus inside the cell, and ice over the top."""
-    scene = SampleScene(renderer="solid", rip_fraction=0.0)
+    scene = SampleScene(rip_fraction=0.0)
     nucleus = next(
         f for f in scene.features if f.kind == "cell" and f.part == "nucleus"
     )
@@ -101,9 +98,7 @@ def test_a_cell_lies_under_the_ice_with_its_nucleus_inside():
 
 
 def test_a_sphere_rests_on_the_ice_with_room_under_its_sides():
-    scene = SampleScene(
-        renderer="solid", cell_type="none", sphere_density=2.0, rip_fraction=0.0
-    )
+    scene = SampleScene(cell_type="none", sphere_density=2.0, rip_fraction=0.0)
     ball = max((f for f in scene.features if f.part == "sphere"), key=lambda f: f.sigma)
     r = ball.sigma * 1e6
     centre = _stack(scene, ball.x * 1e6, ball.y * 1e6)
@@ -123,24 +118,52 @@ def _shift(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 @pytest.mark.parametrize("beam_type", [BeamType.ELECTRON, BeamType.ION])
-def test_the_grid_lands_where_the_relief_renderer_puts_it(
+def test_the_grid_lands_where_the_projection_puts_it(
     microscope, beam_type, monkeypatch
 ):
-    """Positions come from the same projection: with the ice left flat over
+    """Positions come from the stage projection: with the ice left flat over
     the bars (it stands up over them otherwise, which a glancing beam sees as
-    a shift), the bars are on the same pixels whichever renderer draws them."""
+    a shift), the bars are on the pixels the projection maps them to."""
+    from fibsem.geometry.projection import BeamStageProjection
+
     monkeypatch.setattr(sim_solid, "BAR_RISE", 0.0)
-    _use(microscope, renderer="relief", **PLAIN)
-    relief = _image(microscope, beam_type, hfw=400e-6)
-    _use(microscope, renderer="solid", **PLAIN)
-    solid = _image(microscope, beam_type, hfw=400e-6)
-    assert np.abs(_shift(relief, solid)).max() <= 1
+    scene = _use(microscope, **PLAIN)
+    image = _image(microscope, beam_type, hfw=400e-6)
+    projection = BeamStageProjection.from_microscope(microscope, beam_type=beam_type)
+    position = microscope._connection.scene_stage_position()
+    height, width = image.shape
+    pixel = 400e-6 / width
+
+    def world(col, row):
+        dx, dy = (col - width / 2) * pixel, (row - height / 2) * pixel
+        return np.array(scene.view_to_world(beam_type, position, projection, dx, dy))
+
+    # the pixel-to-world map is affine: three points give it
+    o, cx, cy = world(0, 0), world(1, 0), world(0, 1)
+    cols, rows = np.meshgrid(np.arange(width) + 0.5, np.arange(height) + 0.5)
+    wx = o[0] + cols * (cx - o)[0] + rows * (cy - o)[0]
+    wy = o[1] + cols * (cx - o)[1] + rows * (cy - o)[1]
+    bars = scene.film_masks(wx, wy)[0].astype(np.float32)
+    assert 0.05 < bars.mean() < 0.95
+    # the offset of the bars that best matches the image
+    r = 6
+    match = {
+        (dy, dx): abs(
+            np.corrcoef(
+                image[r:-r, r:-r].ravel(),
+                np.roll(bars, (dy, dx), (0, 1))[r:-r, r:-r].ravel(),
+            )[0, 1]
+        )
+        for dy in range(-r, r + 1)
+        for dx in range(-r, r + 1)
+    }
+    assert max(np.abs(max(match, key=match.get))) <= 1
 
 
 def test_a_trench_is_cut_along_the_milling_beam(microscope):
     """A rectangle milled in the FIB view is a square-edged dark rectangle in
     that view, where it was drawn."""
-    _use(microscope, renderer="solid", **PLAIN)
+    _use(microscope, **PLAIN)
     _mill(microscope, (30e-6, 6e-6, 0.0))
     image = _image(microscope, BeamType.ION, hfw=60e-6)
     pixel = 60e-6 / 512
@@ -156,7 +179,7 @@ def test_a_trench_is_cut_along_the_milling_beam(microscope):
 
 
 def test_a_lamella_between_two_trenches_stays(microscope):
-    _use(microscope, renderer="solid", **PLAIN)
+    _use(microscope, **PLAIN)
     _mill(microscope, (20e-6, 6e-6, 3.5e-6), (20e-6, 6e-6, -3.5e-6))
     image = _image(microscope, BeamType.ION, hfw=40e-6)
     profile = image[:, 236:276].mean(axis=1)
@@ -178,7 +201,7 @@ def test_a_face_polished_in_many_passes_is_as_open_as_one_cut_at_once(
         [(12e-6, 4e-6, 10.5e-6)]
         + [(12e-6, 2e-6, y * 1e-6) for y in (8.0, 6.5, 5.0, 3.5, 2.0)],
     ):
-        _use(microscope, renderer="solid", **PLAIN)
+        _use(microscope, **PLAIN)
         for cut in cuts:
             _mill(microscope, cut)
         _, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 40e-6)
@@ -193,7 +216,7 @@ def test_a_face_polished_in_many_passes_is_as_open_as_one_cut_at_once(
 def test_a_cut_face_shows_the_cell_and_its_nucleus(microscope, monkeypatch):
     """A trench through a cell leaves a face made of ice, the cell and the
     nucleus inside it, each its own tone."""
-    scene = _use(microscope, renderer="solid", rip_fraction=0.0, sphere_density=0.0)
+    scene = _use(microscope, rip_fraction=0.0, sphere_density=0.0)
     nucleus = min(
         (f for f in scene.features if f.kind == "cell" and f.part == "nucleus"),
         key=lambda f: np.hypot(f.x, f.y),
@@ -230,7 +253,7 @@ def _trace(microscope, monkeypatch, beam_type, hfw):
 def test_rpe_cells_stand_apart_as_domes():
     """The rpe cells: big domes a few micrometres tall, clear of one another,
     each with a nucleus."""
-    scene = SampleScene(cell_type="rpe", renderer="solid", rip_fraction=0.0)
+    scene = SampleScene(cell_type="rpe", rip_fraction=0.0)
     bodies = [f for f in scene.features if f.kind == "cell" and f.part == "body"]
     nuclei = [f for f in scene.features if f.part == "nucleus"]
     assert len(bodies) == len(nuclei) > 50
@@ -247,7 +270,7 @@ def test_rpe_cells_stand_apart_as_domes():
 
 
 def test_contamination_is_a_clump_of_grains_on_the_ice():
-    scene = SampleScene(cell_type="none", renderer="solid", rip_fraction=0.0)
+    scene = SampleScene(cell_type="none", rip_fraction=0.0)
     speck = next(
         f for f in scene.features if f.kind == "contamination" and f.part == "body"
     )
@@ -261,7 +284,7 @@ def test_contamination_is_a_clump_of_grains_on_the_ice():
 
 def test_a_milled_edge_has_a_bright_rim(microscope, monkeypatch):
     """The top next to a trench glows in the SEM; away from it, it doesn't."""
-    _use(microscope, renderer="solid", **PLAIN)
+    _use(microscope, **PLAIN)
     before = _image(microscope, BeamType.ELECTRON, hfw=60e-6)
     _mill(microscope, (20e-6, 6e-6, 0.0))
     after, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 60e-6)
@@ -279,7 +302,7 @@ def test_curtaining_streaks_a_cut_face_unless_turned_off(microscope, monkeypatch
     from column to column); with curtaining off the face is even."""
     spread = {}
     for curtaining in (1.0, 0.0):
-        _use(microscope, renderer="solid", curtaining=curtaining, **PLAIN)
+        _use(microscope, curtaining=curtaining, **PLAIN)
         _mill(microscope, (20e-6, 8e-6, 0.0))
         image, hit = _trace(microscope, monkeypatch, BeamType.ELECTRON, 40e-6)
         flip = slice(None, None, -1) if hit["flip"] else slice(None)
@@ -292,7 +315,7 @@ def test_curtaining_streaks_a_cut_face_unless_turned_off(microscope, monkeypatch
 def test_a_gis_coat_is_a_layer_on_top_and_a_bright_band_on_a_cut(
     microscope, monkeypatch
 ):
-    scene = _use(microscope, renderer="solid", **PLAIN)
+    scene = _use(microscope, **PLAIN)
     bare = _stack(scene, 0.0, 0.0)
     assert bare["coat"][1] == sim_solid.NONE
     scene.deposit(25)  # 1 um
@@ -313,7 +336,7 @@ def test_a_gis_coat_is_a_layer_on_top_and_a_bright_band_on_a_cut(
 def test_a_spot_burn_is_a_small_pit_with_a_bright_ring(microscope, monkeypatch):
     from fibsem.geometry.projection import BeamStageProjection
 
-    scene = _use(microscope, renderer="solid", **PLAIN)
+    scene = _use(microscope, **PLAIN)
     before = _image(microscope, BeamType.ELECTRON, hfw=20e-6)
     scene.burn(
         [(0.0, 0.0)],
@@ -334,7 +357,6 @@ def test_damage_is_shapes_on_the_lamella_face(microscope):
     lamella where they lie and nowhere else."""
     scene = _use(
         microscope,
-        renderer="solid",
         damage_chance=1.0,
         damage_below=(0.5e-6, 0.5e-6),
         **PLAIN,
@@ -365,9 +387,7 @@ def _body(scene):
 
 
 def test_a_holey_film_has_ice_across_its_holes_and_none_where_one_broke():
-    scene = SampleScene(
-        renderer="solid", film="holey", **{**PLAIN, "broken_hole_fraction": 0.05}
-    )
+    scene = SampleScene(film="holey", **{**PLAIN, "broken_hole_fraction": 0.05})
     col = _columns(scene, 60.0, 60.0, half=40.0, step=0.2)
     film = col["film"][1] > sim_solid.NONE / 2
     ice = col["ice"][1] > sim_solid.NONE / 2
@@ -380,7 +400,7 @@ def test_a_holey_film_has_ice_across_its_holes_and_none_where_one_broke():
 
 def test_every_cell_type_stands_up_under_its_own_ice():
     for kind in ("yeast", "mammalian", "bacteria", "neuron", "rpe"):
-        scene = SampleScene(renderer="solid", **{**PLAIN, "cell_type": kind})
+        scene = SampleScene(**{**PLAIN, "cell_type": kind})
         f = _body(scene)
         col = _columns(scene, f.x * 1e6, f.y * 1e6, half=3.0)
         ice, cell = col["ice"][1], col["cell"][1]
@@ -392,7 +412,7 @@ def test_every_cell_type_stands_up_under_its_own_ice():
 
 
 def test_no_two_cells_are_alike_inside():
-    scene = SampleScene(renderer="solid", **{**PLAIN, "cell_type": "rpe"})
+    scene = SampleScene(**{**PLAIN, "cell_type": "rpe"})
     bodies = [f for f in scene.features if f.kind == "cell" and f.part == "body"]
     nuclei = [f for f in scene.features if f.part == "nucleus"]
     lobes = [sim_solid._lobes(f, scene.seed) for f in nuclei[:40]]
@@ -421,7 +441,7 @@ def test_no_two_cells_are_alike_inside():
 def test_a_milled_frame_walked_in_part_matches_one_walked_whole(
     microscope, monkeypatch
 ):
-    _use(microscope, renderer="solid", **{**PLAIN, "cell_type": "rpe"})
+    _use(microscope, **{**PLAIN, "cell_type": "rpe"})
     _mill(microscope, (14e-6, 6e-6, 5e-6), (14e-6, 6e-6, -5e-6), (3e-6, 3e-6, 20e-6))
     calls = []
     seen = sim_solid._seen
@@ -446,7 +466,7 @@ def test_a_milled_frame_walked_in_part_matches_one_walked_whole(
 
 
 def test_the_surface_from_above_says_where_cells_and_cuts_are(microscope):
-    scene = _use(microscope, renderer="solid", **{**PLAIN, "cell_type": "rpe"})
+    scene = _use(microscope, **{**PLAIN, "cell_type": "rpe"})
     f = _body(scene)
     x = f.x * 1e6 + np.arange(-30, 30, 0.5)
     y = f.y * 1e6 + np.arange(-30, 30, 0.5)
@@ -464,7 +484,7 @@ def test_the_surface_from_above_says_where_cells_and_cuts_are(microscope):
 
 
 def test_the_fiducial_cross_is_the_brightest_thing_in_view(microscope):
-    _use(microscope, renderer="solid", fiducial=True, **PLAIN)
+    _use(microscope, fiducial=True, **PLAIN)
     for beam_type in (BeamType.ELECTRON, BeamType.ION):
         image = _image(microscope, beam_type, hfw=80e-6)
         h, w = image.shape

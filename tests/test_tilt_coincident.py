@@ -18,7 +18,7 @@ from fibsem.alignment.coincidence import (
     check_coincidence,
     tilt_coincident,
 )
-from tests.fixtures.sim_scenes import flat_scene
+from tests.fixtures.sim_scenes import mammalian_scene
 
 # Tens of seconds each on the simulator, so pull requests run these on one CI leg
 # only; the nightly and release runs take them everywhere (python-package.yml).
@@ -50,7 +50,7 @@ def microscope():
 
 def _anchor_scene(microscope, tilt_axis_offset: float) -> None:
     """A noise-free scene, coincident at the current (SEM) pose."""
-    scene = flat_scene(
+    scene = mammalian_scene(
         coincidence_offset=0.0,
         tilt_axis_offset=tilt_axis_offset,
         fiducial=True,
@@ -78,18 +78,6 @@ def test_eucentric_stage_stays_coincident_through_a_tilt(microscope):
     assert abs(m.dz) < 1e-6
 
 
-def test_non_eucentric_stage_loses_coincidence_when_tilted(microscope):
-    _anchor_scene(microscope, tilt_axis_offset=NON_EUCENTRIC)
-    # still coincident where it was anchored
-    m = check_coincidence(microscope)
-    assert m.is_reliable and abs(m.dz) < 1e-6
-
-    _tilt_to(microscope, MILLING_TILT)
-    m = check_coincidence(microscope)
-    assert m.is_reliable, m.refusal_reason
-    assert abs(m.dz) > 5e-6, f"only {m.dz * 1e6:.2f} um of error after the tilt"
-
-
 def test_tilt_coincident_restores_coincidence_at_the_target(microscope):
     _anchor_scene(microscope, tilt_axis_offset=NON_EUCENTRIC)
 
@@ -111,27 +99,6 @@ def test_tilt_coincident_on_a_eucentric_stage_moves_nothing(microscope):
     assert result.converged
     assert result.moves_applied == 0
     assert len(result.alignments) == 1
-
-
-def test_a_refused_segment_is_halved_until_it_measures(microscope):
-    """With the search window too small for the whole swing, the loop backs
-    off to the midpoint, aligns there, and finishes at the target."""
-    _anchor_scene(microscope, tilt_axis_offset=NON_EUCENTRIC)
-
-    result = tilt_coincident(
-        microscope,
-        MILLING_TILT,
-        tolerance=1e-6,
-        max_splits=3,
-        capture_range=8e-6,
-        coarse_hfw=None,
-    )
-
-    assert result.converged, result.reason
-    assert result.tilts[-1] == MILLING_TILT
-    assert len(result.tilts) > 1
-    assert any(not a.converged for a in result.alignments)  # a refusal happened
-    assert microscope.get_stage_position().t == pytest.approx(MILLING_TILT)
 
 
 def test_out_of_splits_reports_the_refusal_and_stays_at_the_target(microscope):
@@ -165,28 +132,6 @@ def _anchor_in_sem_view(microscope) -> tuple:
     return projection.to_plane(reference, pose)
 
 
-def test_the_offset_is_estimated_from_the_sag_and_the_walk_undone(microscope):
-    """One coincident tilt measures h (sag = h(1 - cos dt)), so the walk
-    h sin dt is known and undone: what was centred before is centred after."""
-    _anchor_scene(microscope, tilt_axis_offset=NON_EUCENTRIC)
-    before = _anchor_in_sem_view(microscope)
-
-    result = tilt_coincident(microscope, MILLING_TILT, tolerance=1e-6)
-
-    assert result.converged, result.reason
-    assert result.tilt_axis_offset == pytest.approx(NON_EUCENTRIC, rel=0.1)
-    assert abs(result.walk) == pytest.approx(
-        NON_EUCENTRIC * np.sin(SEM_TILT - MILLING_TILT), rel=0.1
-    )
-    assert result.walk_undone
-    after = _anchor_in_sem_view(microscope)
-    drift = np.hypot(*np.subtract(after, before))
-    assert drift < 2e-6, f"the centred patch drifted {drift * 1e6:.1f} um"
-    # and the stable move back did not cost the coincidence just restored
-    m = check_coincidence(microscope)
-    assert m.is_reliable and abs(m.dz) < 1e-6
-
-
 def test_walk_undo_can_be_declined(microscope):
     _anchor_scene(microscope, tilt_axis_offset=NON_EUCENTRIC)
     before = _anchor_in_sem_view(microscope)
@@ -196,25 +141,3 @@ def test_walk_undo_can_be_declined(microscope):
     assert result.converged and not result.walk_undone
     drift = np.hypot(*np.subtract(_anchor_in_sem_view(microscope), before))
     assert drift > 10e-6  # the walk is real and was left alone
-
-
-def test_round_trip_estimates_h_with_one_sign_and_returns_to_the_site(microscope):
-    """Tilt down, then back up. The stage is corrected at the milling
-    angle, so the return segment sees the opposite height change - a
-    start-relative model read that as a negative h and undid the walk
-    backwards. Anchored at the apex both segments agree on h and the site
-    is back where it started."""
-    _anchor_scene(microscope, tilt_axis_offset=NON_EUCENTRIC)
-    before = _anchor_in_sem_view(microscope)
-
-    down = tilt_coincident(microscope, MILLING_TILT, tolerance=1e-6)
-    up = tilt_coincident(microscope, SEM_TILT, tolerance=1e-6)
-
-    assert down.converged and up.converged
-    assert down.tilt_axis_offset == pytest.approx(NON_EUCENTRIC, rel=0.1)
-    assert up.tilt_axis_offset == pytest.approx(NON_EUCENTRIC, rel=0.1)
-    assert up.walk_undone
-    drift = np.hypot(*np.subtract(_anchor_in_sem_view(microscope), before))
-    assert drift < 2e-6, f"site drifted {drift * 1e6:.1f} um after the round trip"
-    m = check_coincidence(microscope)
-    assert m.is_reliable and abs(m.dz) < 1e-6

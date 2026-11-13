@@ -32,7 +32,6 @@ from __future__ import annotations
 import logging
 import math
 import zlib
-from collections import OrderedDict
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
 from typing import Dict, List, Optional, Tuple
@@ -40,10 +39,9 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from scipy.ndimage import binary_dilation as ndi_binary_dilation
 from scipy.ndimage import gaussian_filter as ndi_gaussian
-from scipy.ndimage import map_coordinates as ndi_map_coordinates
 from scipy.ndimage import zoom as ndi_zoom
 
-from fibsem.drivers.demo import sim_relief, sim_solid
+from fibsem.drivers.demo import sim_solid, sim_view
 from fibsem.geometry.projection import (
     BeamStageProjection,
     FMStageProjection,
@@ -167,99 +165,14 @@ def _lattice_draw(i: np.ndarray, j: np.ndarray, seed: int) -> np.ndarray:
     return ((h * 2654435761) & 0xFFFFFFFF) / 2**32
 
 
-# What each beam sees of each layer, on a 0-255 scale. Features carry an
-# SEM-scale intensity; the FIB column is a multiplier on it (negative =
-# darker than the film). The support layers are absolute per beam. The FIB
-# is not an inverted SEM: holes and trenches are dark in both (no material,
-# no signal), cell bodies read slightly darker than film in the FIB with
-# bright outlines from the edge effect, contamination and ice stay bright.
-BEAM_LAYERS = {
-    BeamType.ELECTRON: {
-        "film": 60.0,
-        "film_tilt_gain": 30.0,  # added as (1 - foreshortening): tilt contrast
-        "bars": 90.0,
-        "holes": -45.0,
-        "hole_rim": 25.0,
-        "rip_rim": 45.0,
-        "rips": -70.0,  # absolute offset from film where the film is gone
-        "rim": 120.0,
-        "holder": 0.0,
-        "edge_highlight": 0.0,
-        "trench_floor": 0.25,
-        "cell": {
-            "body": 1.0,
-            "nucleus": 1.0,
-            "organelle": 1.0,
-            "bud": 1.0,
-            "neurite": 1.0,
-        },
-        "contamination": 1.0,
-        "ice": 1.0,
-        "fiducial": 1.0,
-    },
-    BeamType.ION: {
-        "film": 95.0,
-        "film_tilt_gain": 60.0,
-        "bars": 50.0,
-        "holes": -80.0,
-        "hole_rim": 10.0,
-        "rip_rim": 25.0,
-        "rips": -90.0,
-        "rim": 150.0,
-        "holder": 0.0,
-        "edge_highlight": 1.0,  # x the saturating outline of the structure
-        "trench_floor": 0.25,
-        "cell": {
-            "body": -0.7,
-            "nucleus": 0.15,
-            "organelle": 0.0,
-            "bud": -0.7,
-            "neurite": 0.2,
-        },
-        "contamination": 0.5,
-        "ice": 0.7,
-        "fiducial": -0.3,
-    },
-}
-# the FIB edge effect: an outline brightens by up to EDGE_INTENSITY once the
-# structure gradient (per pixel, on the canvas scale) passes the scale
-EDGE_INTENSITY = 45.0
-EDGE_GRADIENT_SCALE = 4.0
-# relief on a feature with height, per beam (canvas scale): how much a slope
-# facing the detector brightens (the far side darkens as much), and how much
-# a steep slope brightens whichever way it faces (secondary electron yield
-# grows with the angle of incidence)
-RELIEF = {
-    BeamType.ELECTRON: {"facing": 55.0, "steep": 70.0},
-    BeamType.ION: {"facing": 70.0, "steep": 90.0},
-}
-# the detector sits up the world y axis
-RELIEF_LIGHT = (0.35, 0.94)
-# m; a mound thicker than this hides the film, holes and bars under it
-RELIEF_OPAQUE = 1.5e-6
-# the FM reflection's view of the support, on the same scale
 # the orientation mark at the grid's centre: a square this many bar widths across
 CENTRE_MARK_SIZE = 2.4
-CENTRE_MARK_GROOVE = 4e-6  # m, how deep the ring in its middle is pressed
 # coating: how fast the GIS and the sputter coater lay it down, and the
 # thicknesses that take away about two-thirds of the SEM charging
 GIS_RATE = 0.04e-6  # m/s with the valve open
 SPUTTER_RATE = 0.5e-9  # m/s
 SPUTTER_DISCHARGE = 5e-9  # m
 GIS_DISCHARGE = 1e-6  # m
-RIP_FLAP_WIDTH = 1.5e-6  # m, the curled film edge round a rip
-HOLE_DEPTH = 45.0
-RIP_DEPTH = 80.0
-RIM_INTENSITY = 120.0
-
-# the world texture: the features stamped once into tiles of the sample
-# plane, at a pyramid of pixel sizes, and sampled per view. The finest
-# level is what a ~40 um field at 1536 px needs; below that a view
-# interpolates (a fiducial rim goes soft at extreme zoom, nothing else)
-TEXTURE_BASE_PIXEL = 25e-9  # m
-TEXTURE_TILE = 512  # px
-TEXTURE_BUDGET = 4.0  # texture pixels per view pixel, at most
-TEXTURE_CACHE_BYTES = 384e6
 
 FIDUCIAL_ARM_LENGTH = 8e-6  # m, half-length of each fiducial cross arm
 FIDUCIAL_CLEARING = 34e-6  # m, no cell body centre nearer the cross than this
@@ -331,7 +244,7 @@ def _lamella_gap(pass_corners, all_corners):
     below = np.full(xs.shape, -np.inf)
     above = np.full(xs.shape, np.inf)
     for c in all_corners:
-        lo, hi = sim_relief.polygon_span(np.asarray(c, dtype=float), xs)
+        lo, hi = sim_view.polygon_span(np.asarray(c, dtype=float), xs)
         hit = lo <= hi
         if np.any(hit & (lo <= y0) & (hi >= y0)):
             return None
@@ -362,10 +275,10 @@ class MilledRegion:
     # burn has one, the redeposition halo that makes the mark easy to find in
     # the reflection channel and the SEM.
     halo: float = 0.0
-    # how the milling beam saw it, for the relief renderer's cut along the
-    # beam (a sim_relief.BeamCut); None cuts straight down
+    # how the milling beam saw it, for the cut along the beam (a
+    # sim_view.BeamCut); None cuts straight down
     beam_cut: Optional[object] = None
-    # the solid renderer's damage: convex pieces on the sample plane (um);
+    # damage: convex pieces on the sample plane (um);
     # when given, only what lies under one of them is removed
     face: Optional[list] = None
 
@@ -375,42 +288,14 @@ MILL_DEPTH = 90.0  # how dark a trench reads in the FM reflection (canvas scale)
 # a dark disc like any milled region, with a bright rim round it.
 SPOT_BURN_DIAMETER = 0.5e-6  # m
 SPOT_BURN_HALO = 0.2e-6  # m
-HALO_INTENSITY = 70.0  # how bright the rim reads in the beam views (0-255)
 FM_HALO = 70.0  # and in the FM reflection (canvas scale)
 
 
-class WorldTexture:
-    """The features of a scene stamped into the sample plane once, sampled
-    per view.
-
-    A view is an affine image of the plane (shift, scan rotation,
-    foreshortening), so stamping every feature per frame repeats work
-    that only the mapping changes. Here the plane is tiled at a pyramid of
-    pixel sizes (`TEXTURE_BASE_PIXEL` x 2^level); a tile holds, per beam,
-    the features' intensity composited among themselves and the cover they
-    put over the film. `render` samples it through the same world
-    coordinates its film masks use and lays the film under the cover.
-
-    The level is the view's own pixel, or coarser when the view's footprint
-    on the plane (a foreshortened view covers more of it than its frame)
-    would take more texture pixels than `TEXTURE_BUDGET` per view pixel -
-    a grazing view trades a little x resolution for a bounded cost. Tiles
-    render on first use from the features whose reach touches them, carry
-    a one-pixel apron so sampling interpolates across tile edges, and stay
-    in a byte-capped LRU: a pose imaged repeatedly (an alignment loop, a
-    test) pays the stamping once.
-    """
-
-    CHANNELS = (BeamType.ELECTRON, BeamType.ION, "cover")
+class FeatureIndex:
+    """Where a scene's features reach, to find the ones a view touches."""
 
     def __init__(self, scene: "SampleScene") -> None:
         self.features = scene.features
-        self.tiles: "OrderedDict[Tuple[int, int, int], Optional[np.ndarray]]" = (
-            OrderedDict()
-        )
-        self.bytes = 0
-        self.renders = 0
-        # the features' reach, for the per-tile selection and the bounds
         n = len(self.features)
         self._x = np.array([f.x for f in self.features], dtype=np.float64)
         self._y = np.array([f.y for f in self.features], dtype=np.float64)
@@ -421,16 +306,6 @@ class WorldTexture:
             ],
             dtype=np.float64,
         ).reshape(n)
-        if n:
-            self.bounds = (
-                float((self._x - self._reach).min()),
-                float((self._x + self._reach).max()),
-                float((self._y - self._reach).min()),
-                float((self._y + self._reach).max()),
-            )
-        else:
-            self.bounds = (0.0, 0.0, 0.0, 0.0)
-        self._table = {b: BEAM_LAYERS[b] for b in BEAM_LAYERS}
 
     def within(self, x_lo: float, x_hi: float, y_lo: float, y_hi: float) -> np.ndarray:
         """Indices of the features whose reach touches a world box."""
@@ -443,186 +318,6 @@ class WorldTexture:
 
     def is_for(self, scene: "SampleScene") -> bool:
         return self.features is scene.features and len(self.features) == len(self._x)
-
-    @staticmethod
-    def pixel_at(level: int) -> float:
-        return TEXTURE_BASE_PIXEL * (2**level)
-
-    @staticmethod
-    def level_for(pixel_size: float, footprint: float = 0.0, pixels: int = 1) -> int:
-        """The level for a view: the coarsest whose pixel is no larger than
-        the view's, made coarser until the view's footprint on the plane
-        (m^2, over `pixels` view pixels) fits the texture budget."""
-        by_pixel = int(np.floor(np.log2(pixel_size / TEXTURE_BASE_PIXEL)))
-        by_area = 0
-        if footprint > 0:
-            needed = np.sqrt(footprint / (TEXTURE_BUDGET * pixels))
-            by_area = int(np.ceil(np.log2(needed / TEXTURE_BASE_PIXEL)))
-        return max(0, by_pixel, by_area)
-
-    def sample(
-        self, xs_world: np.ndarray, ys_world: np.ndarray, pixel_size: float
-    ) -> Dict[object, np.ndarray]:
-        """The texture at world coordinates that are an affine image of the
-        pixel grid (broadcastable): a dict of per-beam intensities and the
-        `cover` over the film, in the shape of the coordinates."""
-        xs, ys = np.broadcast_arrays(xs_world, ys_world)
-        height, width = xs.shape
-        out = {
-            key: np.zeros((height, width), dtype=np.float32) for key in self.CHANNELS
-        }
-        if self._x.size == 0 or height < 2 or width < 2:
-            return out
-        x_lo, x_hi = float(xs.min()), float(xs.max())
-        y_lo, y_hi = float(ys.min()), float(ys.max())
-        level = self.level_for(
-            pixel_size, (x_hi - x_lo) * (y_hi - y_lo), height * width
-        )
-        tp = self.pixel_at(level)
-        span = TEXTURE_TILE * tp
-
-        # the tiles the view touches, within the features' bounds
-        bx0, bx1, by0, by1 = self.bounds
-        i0, i1 = (
-            int(np.floor(max(x_lo, bx0) / span)),
-            int(np.floor(min(x_hi, bx1) / span)),
-        )
-        j0, j1 = (
-            int(np.floor(max(y_lo, by0) / span)),
-            int(np.floor(min(y_hi, by1) / span)),
-        )
-        if i1 < i0 or j1 < j0:
-            return out
-
-        # pixel steps of the affine map, to box each tile in pixels
-        ox, oy = float(xs[0, 0]), float(ys[0, 0])
-        col = ((xs[0, -1] - ox) / (width - 1), (ys[0, -1] - oy) / (width - 1))
-        row = ((xs[-1, 0] - ox) / (height - 1), (ys[-1, 0] - oy) / (height - 1))
-        det = col[0] * row[1] - col[1] * row[0]
-        if abs(det) < 1e-30:
-            return out
-        inv = (
-            np.array([[row[1], -row[0]], [-col[1], col[0]]]) / det
-        )  # (dx, dy) -> (col, row)
-
-        for j in range(j0, j1 + 1):
-            for i in range(i0, i1 + 1):
-                x0, y0 = i * span, j * span
-                corners = np.array(
-                    [
-                        [x0 - ox, y0 - oy],
-                        [x0 + span - ox, y0 - oy],
-                        [x0 - ox, y0 + span - oy],
-                        [x0 + span - ox, y0 + span - oy],
-                    ]
-                )
-                cr = corners @ inv.T
-                c0, c1 = (
-                    int(np.floor(cr[:, 0].min())) - 1,
-                    int(np.ceil(cr[:, 0].max())) + 2,
-                )
-                r0, r1 = (
-                    int(np.floor(cr[:, 1].min())) - 1,
-                    int(np.ceil(cr[:, 1].max())) + 2,
-                )
-                c0, c1 = max(0, c0), min(width, c1)
-                r0, r1 = max(0, r0), min(height, r1)
-                if c0 >= c1 or r0 >= r1:
-                    continue
-                tile = self.tile(level, i, j)
-                if tile is None:
-                    continue
-                bx, by = xs[r0:r1, c0:c1], ys[r0:r1, c0:c1]
-                sel = (np.floor(bx / span) == i) & (np.floor(by / span) == j)
-                if not sel.any():
-                    continue
-                # tile index space, with the apron: pixel k's centre is at
-                # x0 + (k - 0.5) * tp
-                cu = (bx[sel] - x0) / tp + 0.5
-                cv = (by[sel] - y0) / tp + 0.5
-                for k, key in enumerate(self.CHANNELS):
-                    out[key][r0:r1, c0:c1][sel] = ndi_map_coordinates(
-                        tile[k], [cv, cu], order=1, mode="nearest"
-                    )
-        return out
-
-    def tile(self, level: int, i: int, j: int) -> Optional[np.ndarray]:
-        key = (level, i, j)
-        if key in self.tiles:
-            self.tiles.move_to_end(key)
-            return self.tiles[key]
-        tile = self._render_tile(level, i, j)
-        self.tiles[key] = tile
-        if tile is not None:
-            self.bytes += tile.nbytes
-            while self.bytes > TEXTURE_CACHE_BYTES and len(self.tiles) > 1:
-                _, old = self.tiles.popitem(last=False)
-                if old is not None:
-                    self.bytes -= old.nbytes
-        return tile
-
-    def _render_tile(self, level: int, i: int, j: int) -> Optional[np.ndarray]:
-        tp = self.pixel_at(level)
-        span = TEXTURE_TILE * tp
-        x0, y0 = i * span, j * span
-        hit = self.within(x0 - tp, x0 + span + tp, y0 - tp, y0 + span + tp)
-        if hit.size == 0:
-            return None
-        self.renders += 1
-        size = TEXTURE_TILE + 2
-        tile = np.zeros((len(self.CHANNELS), size, size), dtype=np.float32)
-        beams = self.CHANNELS[:2]
-        for idx in hit:
-            f = self.features[idx]
-            u = (f.x - x0) / tp + 0.5
-            v = (f.y - y0) / tp + 0.5
-            sigma_x = f.sigma / tp
-            targets = [
-                (tile[k], f.intensity * SampleScene._layer_weight(self._table[b], f))
-                for k, b in enumerate(beams)
-            ]
-            SampleScene._stamp_blob(
-                targets,
-                u,
-                v,
-                sigma_x,
-                sigma_x * f.eccentricity,
-                f.sharpness,
-                angle=f.angle,
-                wobble=f.wobble,
-                wobble_phase=f.wobble_phase,
-                opacity=f.opacity,
-                cover=tile[2],
-            )
-        relief = [self.features[idx] for idx in hit if self.features[idx].height > 0]
-        if relief:
-            # the mounds' surface, in pixels, so its gradient is the slope
-            surface = np.zeros((size, size), dtype=np.float32)
-            for f in relief:
-                sigma_x = f.sigma / tp
-                SampleScene._stamp_blob(
-                    [(surface, f.height / tp)],
-                    (f.x - x0) / tp + 0.5,
-                    (f.y - y0) / tp + 0.5,
-                    sigma_x,
-                    sigma_x * f.eccentricity,
-                    f.sharpness,
-                    angle=f.angle,
-                    wobble=f.wobble,
-                    wobble_phase=f.wobble_phase,
-                )
-            # a mound hides the film under it once it is thicker than a film
-            np.maximum(
-                tile[2], np.clip(surface * tp / RELIEF_OPAQUE, 0.0, 1.0), out=tile[2]
-            )
-            gy, gx = np.gradient(surface)
-            facing = gx * RELIEF_LIGHT[0] + gy * RELIEF_LIGHT[1]
-            steep = 1.0 / np.sqrt(1.0 + gx**2 + gy**2)
-            for k, b in enumerate(beams):
-                tile[k] += RELIEF[b]["facing"] * facing + RELIEF[b]["steep"] * (
-                    1.0 - steep
-                )
-        return tile
 
 
 @dataclass
@@ -669,7 +364,7 @@ class SampleScene:
     extent: Optional[float] = None
     grid_pitch: float = 125e-6  # m, mesh pitch (~200 mesh)
     grid_bar_width: float = 35e-6  # m
-    grid_intensity: float = 90.0
+    grid_intensity: float = 90.0  # scales the bars' reflection leak into the FM
     # the support film in each square: "continuous", or "holey" - a
     # Quantifoil-style lattice of round holes (diameter, centre-to-centre
     # pitch), aligned with the grid, a seeded few of them broken/merged.
@@ -700,14 +395,6 @@ class SampleScene:
     # the bigger square with one rounded corner at the bar crossing by the
     # grid's centre, which tells the grid's orientation
     centre_mark: bool = True
-    # how the beams see the scene: "flat" paints it onto the sample plane;
-    # "relief" gives everything a height and looks along the beam (shading,
-    # occlusion, trenches cut along the milling beam) - see sim_relief;
-    # "solid" builds the sample from objects that can lie under one another
-    # (cells under the ice, particles on it), so a cut face shows what it
-    # was cut from - see sim_solid. It draws the SEM and FIB images; the FM
-    # still comes from the relief
-    renderer: str = "solid"
     # how strongly the SEM charges an uncoated grid (cells, ice): bright
     # patches and streaks along the scan, worse with a longer dwell; 0 = never
     charging: float = 1.0
@@ -814,7 +501,7 @@ class SampleScene:
     fm_cilium_fraction: float = 0.7
     # the camera's hot pixels: the same pixels, as bright, in every frame
     fm_hot_pixels: float = 2e-4
-    _texture: Optional[WorldTexture] = field(default=None, repr=False, compare=False)
+    _index: Optional[FeatureIndex] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.features:
@@ -1305,7 +992,7 @@ class SampleScene:
         beam_shift: Tuple[float, float] = (0.0, 0.0),
         beam_current: Optional[float] = None,
     ):
-        """How a view sees the world, for the relief renderer: the anchor in
+        """How a view sees the world: the anchor in
         the unrotated frame and how far a point moves per unit height."""
         args = (beam_type, stage_position, projection, beam_shift, beam_current)
         ax, ay, fs, theta = self._view_anchor(*args)
@@ -1317,7 +1004,7 @@ class SampleScene:
 
         a = unrotate(ax, ay)
         a_up = unrotate(ax, ay_up)
-        return sim_relief.ViewFrame(
+        return sim_view.ViewFrame(
             anchor=(a[0] * 1e6, a[1] * 1e6),
             theta=theta,
             turn=self._turn(stage_position),
@@ -1377,16 +1064,12 @@ class SampleScene:
                 beam_type, stage_position, projection, cx, -cy, beam_shift, beam_current
             )
 
-        frame = None
-        if self.renderer in ("relief", "solid"):
-            frame = self.view_frame(
-                beam_type, stage_position, projection, beam_shift, beam_current
-            )
+        frame = self.view_frame(
+            beam_type, stage_position, projection, beam_shift, beam_current
+        )
 
         def cut(corners):
             """The pattern as the milling beam sees it, for a cut along it."""
-            if frame is None:
-                return None
             c, s_ = np.cos(frame.theta), np.sin(frame.theta)
             polygon = np.array(
                 [
@@ -1397,7 +1080,7 @@ class SampleScene:
                     for x, y in corners
                 ]
             )
-            return sim_relief.BeamCut(
+            return sim_view.BeamCut(
                 polygon=polygon, turn=frame.turn, fs=frame.fs, k=frame.k
             )
 
@@ -1468,7 +1151,7 @@ class SampleScene:
             lean = np.tan(np.deg2rad(self.mill_taper))
             record["gap_at_depth"] = record["gap"] + 2 * lean * depth
         damage = self._damage(record, rng)
-        if damage and self.renderer == "solid" and abs(frame.k) > 1e-6:
+        if damage and abs(frame.k) > 1e-6:
             regions.append(self._solid_damage(record, frame, world, cut, rng))
             damage = []
         for corners in damage:
@@ -1485,9 +1168,9 @@ class SampleScene:
         return regions
 
     def _solid_damage(self, record, frame, world, cut, rng) -> MilledRegion:
-        """A damaged lamella for the solid renderer: irregular shapes on the
+        """A damaged lamella: irregular shapes on the
         lamella's face (see sim_solid.damage), cut through its thickness."""
-        um = sim_relief.UM
+        um = sim_view.UM
         x0, x1, lo, hi = record["band"]
         mid = 0.5 * (lo + hi)
         ends = [tuple(v * um for v in world(x, mid)) for x in (x0, x1)]
@@ -1619,18 +1302,16 @@ class SampleScene:
                 beam_type, stage_position, projection, cx, -cy, beam_shift, beam_current
             )
 
-        frame = None
-        if self.renderer in ("relief", "solid"):
-            frame = self.view_frame(
-                beam_type, stage_position, projection, beam_shift, beam_current
-            )
+        frame = self.view_frame(
+            beam_type, stage_position, projection, beam_shift, beam_current
+        )
         t = np.linspace(0, 2 * np.pi, 16, endpoint=False)
         r = diameter / 2
         regions: List[MilledRegion] = []
         for x, y in points:
             corners = [(x + r * np.cos(a), y + r * np.sin(a)) for a in t]
             pts = np.array([world(cx, cy) for cx, cy in corners])
-            if frame is not None and abs(frame.k) > 1e-6:
+            if abs(frame.k) > 1e-6:
                 # the beam meets the surface, not the film plane: on a cell
                 # standing h up, it lands back along the beam by h k / fs
                 pts = pts + (0.0, self._along_beam_to_surface(pts.mean(axis=0), frame))
@@ -1647,23 +1328,19 @@ class SampleScene:
 
     def _along_beam_to_surface(self, point, frame) -> float:
         """How far (m, world y) the point a beam aims at on the film plane
-        moves to where the beam ray meets the relief surface: a point at
+        moves to where the beam ray meets the sample's surface: a point at
         height h shows where the plane point k h / (turn fs) further on
         does, so the hit is where turn fs (y - y0) + k h(y) = 0, the highest
         such point when the ray crosses the surface more than once."""
-        um = sim_relief.UM
+        um = sim_view.UM
         x0, y0 = float(point[0]) * um, float(point[1]) * um
         reach = min(abs(frame.k / frame.fs) * 10.0 + 2.0, 60.0)  # um, for 10 um tall
         dy = 0.1
         ts = np.arange(-reach, reach + dy, dy)
         xs = x0 + np.arange(-24, 25) * 0.25
-        gx, gy = np.meshgrid(xs, y0 + ts)
-        if self.renderer == "solid":
-            h = sim_solid.top(self, xs, y0 + ts, (0.25, dy))[:, 24].astype(float)
-        else:
-            h = sim_relief.surface(self, gx, gy, (0.25, dy))[0][:, 24].astype(float)
+        h = sim_solid.top(self, xs, y0 + ts, (0.25, dy))[:, 24].astype(float)
         f = frame.turn * frame.fs * ts + frame.k * h
-        solid = h > sim_relief.VOID / 2
+        solid = h > sim_view.VOID / 2
         cross = np.nonzero(
             solid[:-1] & solid[1:] & (np.sign(f[:-1]) != np.sign(f[1:]))
         )[0]
@@ -1762,8 +1439,7 @@ class SampleScene:
 
     def _centre_mark(self, x_rot: np.ndarray, y_rot: np.ndarray) -> np.ndarray:
         """The orientation mark at the bar crossing nearest the grid's
-        centre: a bigger square of metal with one corner rounded (the ring
-        groove in its middle is `centre_mark_groove`)."""
+        centre: a bigger square of metal with one corner rounded."""
         half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
         corner = 0.6 * half  # radius of the rounded corner
         dx = x_rot - self.grid_pitch / 2
@@ -1788,28 +1464,6 @@ class SampleScene:
             y_rot = -xs * sin_r + ys * cos_r
             mask |= self._broken_holes(x_rot, y_rot, grid.seed)
         return mask
-
-    def centre_mark_groove(
-        self, xs_world: np.ndarray, ys_world: np.ndarray
-    ) -> np.ndarray:
-        """How deep (m) the ring groove pressed into the middle of each
-        grid's orientation mark is, at world points: a donut sunk into the
-        metal, round in section."""
-        depth = np.zeros(np.broadcast(xs_world, ys_world).shape, dtype=np.float32)
-        if not self.centre_mark:
-            return depth
-        half = CENTRE_MARK_SIZE * self.grid_bar_width / 2
-        mid, width = 0.35 * half, 0.1 * half
-        for grid in self.grids:
-            cos_r, sin_r = np.cos(grid.rotation), np.sin(grid.rotation)
-            xs, ys = xs_world - grid.x, ys_world - grid.y
-            dx = xs * cos_r + ys * sin_r - self.grid_pitch / 2
-            dy = -xs * sin_r + ys * cos_r - self.grid_pitch / 2
-            t = (np.hypot(dx, dy) - mid) / width
-            depth = np.maximum(
-                depth, CENTRE_MARK_GROOVE * np.sqrt(np.clip(1 - t * t, 0, None))
-            )
-        return depth
 
     def _grid_masks(self, grid: SceneGrid, xs: np.ndarray, ys: np.ndarray):
         """One grid's (bars, holes, rips, inside, rim) from coordinates
@@ -2355,7 +2009,6 @@ class SampleScene:
         "crack_density",  # hairline cracks per 100 x 100 um
         "grid_radius",  # m
         "grid_rim_width",  # m
-        "renderer",  # flat | relief | solid
         "mill_drift",  # m, sigma of each milling pass's drift
         "mill_overcut",  # m, how far past its edges a pattern may cut
         "mill_kerf",  # a higher current cuts wider
@@ -2472,163 +2125,26 @@ class SampleScene:
             uint8 image of shape (height, width).
         """
         width, height = int(resolution[0]), int(resolution[1])
-        pixel_size = hfw / width
-        cx, cy = width / 2, height / 2
-
         if self.reference_position is None:
             self.anchor(stage_position)
         self.place_grids(projection)
-        if self.renderer in ("relief", "solid"):
-            frame = self.view_frame(
-                beam_type, stage_position, projection, beam_shift, beam_current
-            )
-            beam = "SEM" if beam_type is BeamType.ELECTRON else "FIB"
-            charge = 0.0
-            if beam_type is BeamType.ELECTRON:
-                charge = self.charge_strength(dwell_time)
-            return sim_relief.render(
-                self,
-                beam,
-                frame,
-                pixel_size,
-                (width, height),
-                rng,
-                charge,
-                sim_solid.canvas if self.renderer == "solid" else None,
-            )
-
-        # where the world anchor appears in the CURRENT view. Asked this way
-        # round (anchor projected into the current pose, not the current
-        # position into the anchor's pose) the trig is evaluated at the
-        # current tilt/rotation - so the world persists through tilt changes
-        # exactly the way the app draws saved positions on views at other
-        # poses, instead of resetting. The offset carries the lateral
-        # travel, the per-beam projection of the height error (near zero in
-        # the SEM view, the view tilt's worth in the FIB view), and the
-        # scan-rotation/manufacturer conventions
-        reference = self.reference_position
-        if self.tilt_axis_offset:
-            reference = self._non_eucentric_reference(stage_position, projection)
-        ax, ay = projection.to_plane(reference, stage_position)
-
-        fs = max(surface_foreshortening(projection, stage_position), MIN_FORESHORTENING)
-        # scan rotation turns the raster, so the content turns with it - the
-        # full angle here, not only the half-turn the app's projection models,
-        # so an intermediate rotation shows the app's limitation honestly
-        theta = float(projection.scan_rotation or 0.0)
-        cos_t, sin_t = np.cos(theta), np.sin(theta)
-        # the projection already flips the anchor offset at a half-turn;
-        # undo that and apply the full rotation here so every angle works
-        if np.isclose(theta, np.pi):
-            ax, ay = -ax, -ay
-        ax, ay = ax * cos_t - ay * sin_t, ax * sin_t + ay * cos_t
-        # a beam shift moves the content in the view, in the scan frame
-        offset = self.beam_offset.get(beam_type.name.lower(), (0.0, 0.0))
-        current_offset = self.current_offset(beam_type, beam_current)
-        ax = ax + beam_shift[0] + offset[0] + current_offset[0]
-        ay = ay - (beam_shift[1] + offset[1] + current_offset[1])
-
-        # both beams' canvases are drawn together - one profile, one cover,
-        # two intensities - and the requested one is returned. The other is
-        # the "structure" the FIB's edge highlight is taken from
-        canvases = {b: np.zeros((height, width), dtype=np.float32) for b in BEAM_LAYERS}
-        layers = {b: BEAM_LAYERS[b] for b in BEAM_LAYERS}
-
-        # grid mesh bars: world (sample-plane) coordinates per pixel, through
-        # the inverse of the same mapping the features use: un-shift,
-        # un-rotate the scan, un-foreshorten
-        vx = (np.arange(width, dtype=np.float32) - cx)[None, :] * pixel_size - ax
-        vy = (np.arange(height, dtype=np.float32) - cy)[:, None] * pixel_size - ay
-        turn = self._turn(stage_position)
-        xs_world = turn * (vx * cos_t + vy * sin_t)
-        ys_world = turn * (-vx * sin_t + vy * cos_t) / fs
-
-        bars, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
-        groove = self.centre_mark_groove(xs_world, ys_world) / CENTRE_MARK_GROOVE
-        crack = self.crack_depth(xs_world, ys_world) * ~(bars | holes | rips)
-        hole_rim = ndi_binary_dilation(holes, iterations=2) & ~holes & ~bars
-        # the curled flap of film round a rip: a bright edge ~1.5 um wide
-        flap = int(np.clip(np.ceil(RIP_FLAP_WIDTH / pixel_size), 1, 12))
-        rip_rim = ndi_binary_dilation(rips, iterations=flap) & ~rips & ~bars
-        for b, canvas in canvases.items():
-            t = layers[b]
-            canvas[bars] += t["bars"] * (self.grid_intensity / 90.0)
-            canvas -= 0.6 * t["bars"] * (self.grid_intensity / 90.0) * groove * bars
-            canvas[holes] += t["holes"]
-            canvas += 0.8 * t["holes"] * crack
-            canvas[hole_rim] += t["hole_rim"]
-            canvas[rip_rim] += t["rip_rim"]
-
-        # the features, from the world texture at the same world coordinates
-        # - the shift, scan rotation and foreshortening are in the sampling
-        texture = self.texture().sample(xs_world, ys_world, pixel_size)
-        cover = texture["cover"]
-        for b, canvas in canvases.items():
-            canvas *= 1.0 - cover
-            canvas += texture[b]
-
-        trench = self.milled_mask(xs_world, ys_world) if self.milled else None
-        if rng is None:
-            rng = np.random.default_rng()
-
-        t = layers[beam_type]
-        canvas = canvases[beam_type]
-        # soft-compress so overlapping cells don't saturate into flat,
-        # texture-free regions (hard clipping kills correlatable structure)
-        canvas = 180.0 * np.tanh(canvas / 180.0)
-        # the film: brighter at grazing incidence (SE yield rises with tilt)
-        data = t["film"] + t["film_tilt_gain"] * (1.0 - fs) + canvas
-        if t["edge_highlight"]:
-            # the FIB's edge effect: outlines light up wherever the
-            # structure changes - cell rims, bar edges, hole and trench lips
-            structure = ndi_gaussian(canvases[BeamType.ELECTRON], 1.0)
-            if trench is not None:
-                structure = structure - 120.0 * trench
-            gy, gx = np.gradient(structure)
-            # a saturating outline: any real edge lights up about the same,
-            # the way an SE edge effect does, without amplifying flat noise
-            edge = np.tanh(np.hypot(gx, gy) / EDGE_GRADIENT_SCALE)
-            data = data + t["edge_highlight"] * EDGE_INTENSITY * edge
-        data = self._coat(data, beam_type, t)
-        # what is torn or off-grid overrides whatever was drawn there
-        data = np.where(rips, t["film"] + t["rips"], data)
-        data = np.where(rim, t["rim"], data)
-        data = np.where(beyond, t["holder"], data)
-        # a trench is a hole in the sample, dark in both beams
-        if trench is not None:
-            data = np.where(trench, data * t["trench_floor"], data)
-            # and a spot burn's redeposition rim is bright in both
-            halo = self.halo_mask(xs_world, ys_world, pixel_size)
-            if halo is not None:
-                data = np.where(halo, data + HALO_INTENSITY, data)
+        frame = self.view_frame(
+            beam_type, stage_position, projection, beam_shift, beam_current
+        )
+        beam = "SEM" if beam_type is BeamType.ELECTRON else "FIB"
+        charge = 0.0
         if beam_type is BeamType.ELECTRON:
-            strength = self.charge_strength(dwell_time)
-            if strength > 0:
-                charge = np.clip(ndi_gaussian(cover, 3.0), 0, 1)
-                if trench is not None:
-                    charge = np.where(trench, 0.0, charge)
-                data = self.charge_up(data, charge, strength)
-        data = data + rng.normal(0, self.noise_sigma, canvas.shape)
-        if self.noise_fraction > 0:
-            uniform = rng.uniform(0, 255, canvas.shape)
-            data = (1 - self.noise_fraction) * data + self.noise_fraction * uniform
-        return np.clip(data, 0, 255).astype(np.uint8)
-
-    def _coat(self, data, beam_type, t):
-        """The flat renderer's coat: a GIS layer smooths the detail away and
-        reads brighter in the FIB; a sputter coat brightens the SEM a little.
-        (A trench, drawn after, is cut through it.)"""
-        if self.gis_thickness <= 0 and self.sputter_thickness <= 0:
-            return data
-        out = data
-        if self.gis_thickness > 0:
-            keep = float(np.exp(-self.gis_thickness / 0.8e-6))
-            out = t["film"] + keep * (out - t["film"])
-            if beam_type is BeamType.ION:
-                out = out + 25.0 * (1 - keep)
-        if self.sputter_thickness > 0 and beam_type is BeamType.ELECTRON:
-            out = out * (1 + 0.12 * (1 - np.exp(-self.sputter_thickness / 5e-9)))
-        return out
+            charge = self.charge_strength(dwell_time)
+        return sim_view.render(
+            self,
+            beam,
+            frame,
+            hfw / width,
+            (width, height),
+            rng,
+            charge,
+            sim_solid.canvas,
+        )
 
     def render_fm(
         self,
@@ -2681,8 +2197,8 @@ class SampleScene:
 
         bars, cells, red, fiducial = weights[:4]
         far_red = weights[4] if len(weights) > 4 else 0.0
-        # contamination reflects strongly and autofluoresces faintly
-        contamination = 0.9 if bars >= 1.0 else 0.12
+        # contamination autofluoresces faintly
+        contamination = 0.12
         canvas = np.zeros((height, width), dtype=np.float32)
 
         xs_world = turn * (
@@ -2693,14 +2209,12 @@ class SampleScene:
             * ((np.arange(height, dtype=np.float32) - cy)[:, None] * pixel_size - ay)
             / fs
         )
-        bar_mask, holes, rips, rim, beyond = self.film_masks(xs_world, ys_world)
-        # the solid sample seen from above: what was milled, at what height
-        self._plan = None
-        if self.renderer == "solid":
-            self._plan = self._fm_plan(xs_world, ys_world)
-        if bars >= 1.0 and self.renderer in ("relief", "solid"):
+        # the sample seen from above: what was milled, at what height
+        self._plan = self._fm_plan(xs_world, ys_world)
+        if bars >= 1.0:
             return self._fm_reflection(xs_world, ys_world, defocus, rng)
-        if bars > 0 and self._plan is not None:
+        _, _, _, rim, beyond = self.film_masks(xs_world, ys_world)
+        if bars > 0:
             # a little reflected light leaks into a fluorescence channel
             plan, step = self._plan
             leak = sim_solid.reflectance(self, plan)
@@ -2710,18 +2224,12 @@ class SampleScene:
                 * self.grid_intensity
                 * self._fm_full(leak, step, height, width)
             )
-        elif bars > 0:
-            canvas[bar_mask] += bars * self.grid_intensity
-            # in reflection the holes and rips read dark, the rim bright
-            canvas[holes] -= bars * HOLE_DEPTH
-            canvas[rips] -= bars * RIP_DEPTH
-        # ice reflects strongly and barely fluoresces
-        ice = 0.9 if bars >= 1.0 else 0.04
+        # ice barely fluoresces
+        ice = 0.04
 
         # only the features in view - the loop itself is the cost, most
         # of the scene returning untouched from its bounding-box check
-        texture = self.texture()
-        in_view = texture.within(
+        in_view = self.feature_index().within(
             float(xs_world.min()),
             float(xs_world.max()),
             float(ys_world.min()),
@@ -2753,7 +2261,7 @@ class SampleScene:
                     weight = FM_INTENSITY * body_dye * 0.6
                 else:
                     weight = FM_INTENSITY * body_dye
-                if self._plan is not None and f.part in ("body", "nucleus", "bud"):
+                if f.part in ("body", "nucleus", "bud"):
                     # the solid sample: a dye through the cell glows by how
                     # much cell there is (see _fm_glow), not as a flat shape
                     if f.part != "nucleus":
@@ -2787,7 +2295,7 @@ class SampleScene:
             halo = self.halo_mask(xs_world, ys_world, pixel_size)
             if halo is not None:
                 canvas[halo] += bars * FM_HALO
-        canvas[rim] = RIM_INTENSITY if bars >= 1.0 else 0.0
+        canvas[rim] = 0.0
         canvas[beyond] = 0.0
 
         if defocus:
@@ -2829,46 +2337,18 @@ class SampleScene:
         return self._fm_camera(canvas, rng)
 
     def _fm_reflection(self, xs_world, ys_world, defocus, rng):
-        """Reflected light from the relief: the same 3D sample the beams see,
-        so ice thickness reads as fringes, cells as dark textured mounds and
-        a lamella or trench where the milling left it. Worked out on at most
+        """Reflected light from the same 3D sample the beams see, so ice
+        thickness reads as fringes, cells as dark textured mounds and a
+        lamella or trench where the milling left it. Worked out on at most
         ~512 samples a side and scaled up: the optics blur finer detail."""
-        um = sim_relief.UM
-        height, width = ys_world.shape[0], xs_world.shape[1]
-        step = max(1, int(np.ceil(max(height, width) / 512)))
-        xs = xs_world[0, ::step].astype(np.float64) * um
-        ys = ys_world[::step, 0].astype(np.float64) * um
-        if self.renderer == "solid":
-            r = sim_solid.reflectance(self, self._fm_plan(xs_world, ys_world)[0])
-            return self._fm_reflected(r, step, xs_world, ys_world, defocus, rng)
-        key = (
-            "fm-reflection",
-            self.seed,
-            round(float(xs[0]), 4),
-            round(float(ys[0]), 4),
-            len(xs),
-            len(ys),
-            round(float(xs[-1]), 4),
-            len(self.milled),
-            round(self.gis_thickness * um, 4),
-            id(self),
-        )
-        cache = sim_relief._cache(self)
-        r = cache.get(key)
-        if r is None:
-            gx, gy = np.meshgrid(xs, ys)
-            dx = abs(float(xs[1] - xs[0])) if len(xs) > 1 else 1.0
-            dy = abs(float(ys[1] - ys[0])) if len(ys) > 1 else 1.0
-            r = sim_relief.reflectance(self, gx, gy, (dx, dy))
-            cache[key] = r
-            while len(cache) > sim_relief.CACHE_SIZE:
-                cache.popitem(last=False)
+        plan, step = self._plan
+        r = sim_solid.reflectance(self, plan)
         return self._fm_reflected(r, step, xs_world, ys_world, defocus, rng)
 
     def _fm_plan(self, xs_world, ys_world):
         """The solid sample from above on the FM's pixels (at most ~512 a
         side: the optics blur finer detail), and that decimation."""
-        um = sim_relief.UM
+        um = sim_view.UM
         height, width = ys_world.shape[0], xs_world.shape[1]
         step = max(1, int(np.ceil(max(height, width) / 512)))
         xs = xs_world[0, ::step].astype(np.float64) * um
@@ -2903,9 +2383,9 @@ class SampleScene:
         sharp = _blur(glow, max(FM_PSF_SIGMA / pixel_size, 0.6))
         haze = _blur(glow, min(FM_GLOW_HAZE / pixel_size, 60.0))
         # a real cell is not evenly dyed: brighter and dimmer patches
-        um = sim_relief.UM
+        um = sim_view.UM
         wx, wy = np.broadcast_arrays(xs_world * um, ys_world * um)
-        patchy = 1 + 0.3 * sim_relief.value_noise(wx, wy, 6.0, int(self.seed) + 71)
+        patchy = 1 + 0.3 * sim_view.value_noise(wx, wy, 6.0, int(self.seed) + 71)
         return (0.3 * sharp + 0.7 * haze) * np.clip(patchy, 0.5, 1.5)
 
     def _fm_reflected(self, r, step, xs_world, ys_world, defocus, rng):
@@ -3139,12 +2619,12 @@ class SampleScene:
         if world is not None:
             # a real outline wanders, thickens and fades along its length,
             # with brighter patches (ruffles, contacts) and gaps
-            um = sim_relief.UM
+            um = sim_view.UM
             wx, wy = np.broadcast_arrays(world[0] * um, world[1] * um)
             seed = int(self.seed) + 97
-            mask = mask + 0.12 * sim_relief.value_noise(wx, wy, 2.5, seed)
-            patchy = sim_relief.value_noise(wx, wy, 1.2, seed + 1)
-            spots = np.clip(sim_relief.value_noise(wx, wy, 0.4, seed + 2), 0, 1) ** 3
+            mask = mask + 0.12 * sim_view.value_noise(wx, wy, 2.5, seed)
+            patchy = sim_view.value_noise(wx, wy, 1.2, seed + 1)
+            spots = np.clip(sim_view.value_noise(wx, wy, 0.4, seed + 2), 0, 1) ** 3
         else:
             patchy, spots = 0.0, 0.0
         band = np.exp(-(((mask - 0.5) / 0.12) ** 2))
@@ -3177,7 +2657,7 @@ class SampleScene:
         plan = getattr(self, "_plan", None)
         if self.milled and plan is not None:
             # what a pattern cut away is gone
-            um = sim_relief.UM
+            um = sim_view.UM
             keep &= ~plan[0].gone_at(
                 pts[:, 0] * um, pts[:, 1] * um, (pts[:, 2] + self._fm_film()) * um
             )
@@ -3213,7 +2693,7 @@ class SampleScene:
         """How much of the column from the film up to `top` (m) the milled
         patterns cut away at each world point (0..1), each cut along the
         beam that milled it."""
-        um = sim_relief.UM
+        um = sim_view.UM
         plan = getattr(self, "_plan", None)
         if plan is not None and plan[0].col["surface"].shape == (
             len(ys_world[:: plan[1], 0]),
@@ -3227,7 +2707,7 @@ class SampleScene:
         heights = np.linspace(0.05, top * um, 24)
         gone = np.zeros((len(heights),) + xs.shape, dtype=bool)
         for region in self.milled:
-            lo, hi = sim_relief._cut_range(self, region, xs, ys)
+            lo, hi = sim_view._cut_range(self, region, xs, ys)
             for i, z in enumerate(heights):
                 gone[i] |= (lo <= z) & (z <= hi)
         return gone.mean(axis=0).astype(np.float32)
@@ -3236,13 +2716,13 @@ class SampleScene:
         """Whether a milled pattern has cut away the point at (x, y) world
         m, `z` m above the film: each pattern is cut along the beam that
         milled it, so a lamella keeps only what lies inside its slab."""
-        um = sim_relief.UM
+        um = sim_view.UM
         plan = getattr(self, "_plan", None)
         if plan is not None:
             return bool(plan[0].gone_at(x * um, y * um, (z + self._fm_film()) * um)[0])
         xs, ys = np.array([[x * um]]), np.array([[y * um]])
         for region in self.milled:
-            lo, hi = sim_relief._cut_range(self, region, xs, ys)
+            lo, hi = sim_view._cut_range(self, region, xs, ys)
             if lo[0, 0] <= z * um <= hi[0, 0]:
                 return True
         return False
@@ -3251,7 +2731,7 @@ class SampleScene:
         """The height (m) of the film in the focal frame: heights in the FM
         are given above the film, and the solid sample's film lies under its
         ice, below the plane the stage brings into focus."""
-        return sim_solid.FILM_TOP / sim_relief.UM if self.renderer == "solid" else 0.0
+        return sim_solid.FILM_TOP / sim_view.UM
 
     def _in_red_subset(self, cell_id: int) -> bool:
         """Whether a cell carries the subset dye: drawn from the seed and
@@ -3336,19 +2816,13 @@ class SampleScene:
         reference.z = (reference.z or 0.0) + dz
         return reference
 
-    def texture(self) -> WorldTexture:
-        """The scene's world texture, rebuilt when the feature list is
+    def feature_index(self) -> FeatureIndex:
+        """The scene's feature index, rebuilt when the feature list is
         replaced or grows (a test swapping in its own features)."""
-        current = self._texture
+        current = self._index
         if current is None or not current.is_for(self):
-            current = self._texture = WorldTexture(self)
+            current = self._index = FeatureIndex(self)
         return current
-
-    @staticmethod
-    def _layer_weight(table: dict, f: SceneFeature) -> float:
-        if f.kind == "cell":
-            return float(table["cell"].get(f.part, 1.0))
-        return float(table.get(f.kind, 1.0))
 
     def _stamp_feature(
         self,
@@ -3393,7 +2867,6 @@ class SampleScene:
         wobble: float = 0.0,
         wobble_phase: float = 0.0,
         opacity: float = 0.0,
-        cover: Optional[np.ndarray] = None,
     ) -> None:
         """Add one supergaussian blob, clipped to its bounding box.
 
@@ -3402,9 +2875,7 @@ class SampleScene:
         with a few harmonics of the polar angle for an irregular outline.
         `opacity` composites instead of adding: inside the outline the
         background (film, holes, bars) is hidden by that fraction. `targets`
-        are (canvas, intensity) pairs sharing the one profile. `cover`, when
-        given, accumulates how much of whatever lies under the targets is
-        hidden, for a background laid under them later.
+        are (canvas, intensity) pairs sharing the one profile.
         """
         height, width = targets[0][0].shape
         # a flat-top blob (sharpness >= 2) is already ~0 by 2 sigma; only a
@@ -3446,9 +2917,6 @@ class SampleScene:
             for canvas, intensity in targets:
                 region = canvas[y0:y1, x0:x1]
                 canvas[y0:y1, x0:x1] = region * (1 - hide) + intensity * profile
-            if cover is not None:
-                region = cover[y0:y1, x0:x1]
-                cover[y0:y1, x0:x1] = 1 - (1 - region) * (1 - hide)
         else:
             for canvas, intensity in targets:
                 canvas[y0:y1, x0:x1] += intensity * profile
