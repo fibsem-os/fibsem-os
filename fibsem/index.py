@@ -24,7 +24,7 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional
 from fibsem import paths
 from fibsem.config import peek_experiment
 
-__all__ = ["Index", "index_file"]
+__all__ = ["Index", "files_named", "index_file"]
 
 log = logging.getLogger(__name__)
 
@@ -70,7 +70,7 @@ def index_file() -> Path:
     return paths.state_root() / "index.sqlite"
 
 
-def _files(root: Path, name: str, depth: int = MAX_DEPTH) -> Iterator[Path]:
+def files_named(root: Path, name: str, depth: int = MAX_DEPTH) -> Iterator[Path]:
     """Each file called *name* at most *depth* folders below *root*. A folder
     that holds one is not searched further: an experiment's own folders are
     its images, not more experiments."""
@@ -86,7 +86,7 @@ def _files(root: Path, name: str, depth: int = MAX_DEPTH) -> Iterator[Path]:
         return
     for entry in entries:
         if entry.is_dir(follow_symlinks=False) and not entry.name.startswith("."):
-            yield from _files(Path(entry.path), name, depth - 1)
+            yield from files_named(Path(entry.path), name, depth - 1)
 
 
 def _mtime(path: Path) -> Optional[float]:
@@ -205,7 +205,7 @@ class Index:
             )
         }
         seen = set()
-        for path in _files(root, name):
+        for path in files_named(root, name):
             mtime = _mtime(path)
             if mtime is None:
                 continue

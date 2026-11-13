@@ -151,6 +151,26 @@ and opens its page signed in as the operator, so this browser needs no pairing. 
 starts: pick the microscope, the app and the agent on the page. `fibsem-gateway open` does the
 same from a terminal.
 
+## Copying experiments to a shared folder
+
+Off until the operator names a shared folder (`PUT /gateway/copies` with
+`{"folder": ...}`; the page gets a setting for it later). The folder must be
+one this PC can see, such as a mounted shared drive.
+
+- Once a night, at 02:00 by this PC's clock, each experiment on this PC is
+  copied to `<shared folder>/<this PC's name>/<experiment folder>`. The copy
+  waits while a workflow runs and goes when it ends.
+- `POST /gateway/copies/now` copies at once. The operator or a paired hub
+  may ask.
+- Only what is new or changed is sent. Nothing is ever removed from the
+  shared folder, and nothing is written back: the folder on this PC stays
+  the one that is worked on.
+- A shared folder that can't be reached fails that copy and is tried again
+  the next night. It never stops the app, the agent or a run.
+
+`GET /gateway/copies` answers the folder, whether it is reachable, the last
+copy and when the next one goes.
+
 ## Pairing a hub
 
 Pair a hub with a 4-digit code from `fibsem-gateway pair --hub --may-switch`. The

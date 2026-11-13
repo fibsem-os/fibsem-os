@@ -12,7 +12,8 @@ operator, and ``/gateway/agent`` reads, starts and ends this
 PC's agent (`fibsem.gateway.agent`), resuming an ended session too, with
 the same rules as starting the app. ``/gateway/defaults`` is what the page
 fills in for the next start (the operator saves it), and ``/gateway/secrets``
-says which keys this PC has, never what they are.
+says which keys this PC has, never what they are. ``/gateway/copies`` is the
+copy of this PC's experiments to a shared folder (`fibsem.gateway.copies`).
 Pairing is the App Server's (`fibsem.server.pairing_routes`), with the hub
 role, and the page is the web app's ``/ui/gateway``.
 """
@@ -31,6 +32,7 @@ from fastapi.responses import RedirectResponse
 from fibsem import keystore
 from fibsem.ai.agent.playbooks import DEFAULT as DEFAULT_PLAYBOOK
 from fibsem.gateway.agent import AgentState, GatewayAgent
+from fibsem.gateway.copies import Copies
 from fibsem.gateway.defaults import GatewayDefaults, read_defaults, save_defaults
 from fibsem.gateway.gateway import (
     Gateway,
@@ -123,6 +125,7 @@ def build_gateway_app(
     on_quit: Optional[Callable[[bool], None]] = None,
     on_show: Optional[Callable[[], bool]] = None,
     defaults_file: Optional[Path] = None,
+    copies: Optional[Copies] = None,
 ) -> FastAPI:
     app = FastAPI(title="fibsem gateway")
     refuse_invalid_requests(app)
@@ -388,6 +391,32 @@ def build_gateway_app(
             raise _refused(refusal.status, refusal.error_type, str(refusal)) from None
         save_defaults(defaults, defaults_file)
         return defaults
+
+    if copies is not None:
+
+        @app.get("/gateway/copies")
+        def get_copies(found: Caller = Depends(caller)) -> dict:
+            """The shared folder this PC's experiments are copied to, the last
+            copy and when the next one goes: ``{folder, available, copying,
+            last, next}``."""
+            return copies.state()
+
+        @app.put("/gateway/copies")
+        def put_copies(body: Dict[str, Any], found: Caller = Depends(caller)) -> dict:
+            """``{folder}``: name the shared folder, or none to turn the copy
+            off. The operator only."""
+            if not found.operator:
+                raise _refused(
+                    403, "operator_only", "Only the operator sets the shared folder."
+                )
+            return _act(
+                found, {}, lambda force, via: copies.set_folder(body.get("folder"))
+            )
+
+        @app.post("/gateway/copies/now")
+        def copy_now(found: Caller = Depends(caller)) -> dict:
+            """Copy this PC's experiments to the shared folder now."""
+            return _act(found, {}, lambda force, via: copies.copy_now(found.who))
 
     @app.get("/gateway/secrets")
     def get_secrets(found: Caller = Depends(caller)) -> List[dict]:

@@ -435,7 +435,8 @@ class Gateway:
             ours = {self._state.pid, self._claimed}
         return None if pid in ours else OtherHost(pid=pid, url=found["url"])
 
-    def _run_going(self) -> bool:
+    def run_going(self) -> bool:
+        """Whether the app on this PC is running a workflow now."""
         found = self._discovery()
         return found is not None and self._running(found["url"])
 
@@ -732,7 +733,7 @@ class Gateway:
                 "window_open",
                 "The app's window is open: only the operator closes it.",
             )
-        if not force and self._run_going():
+        if not force and self.run_going():
             raise GatewayRefused(
                 409,
                 "run_in_progress",
