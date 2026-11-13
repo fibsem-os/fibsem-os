@@ -3,7 +3,7 @@
 Spot burns are stored normalised (0-1, top-left origin, no y-flip) to the FIB
 image they were placed on. The correlation widget converts them to absolute FIB
 pixels (the frame the canvas and fits use); the protocol editor picks the burns
-off the lamella and only for a first correlation. Headless PyQt5, offscreen.
+off the lamella and only for a first correlation. Headless Qt, offscreen.
 """
 
 import os

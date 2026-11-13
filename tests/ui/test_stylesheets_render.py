@@ -19,7 +19,7 @@ restyle. The hazard the f-strings actually introduced is structural, so it is
 checked structurally and there is nothing to keep up to date.
 
 ``stylesheets`` is loaded without executing ``fibsem/ui/__init__.py``, which
-imports the widget layer and so needs napari/PyQt5. CI installs only ``.[test]``,
+imports the widget layer and so needs napari/Qt. CI installs only ``.[test]``,
 so importing it the ordinary way would skip these in exactly the job they are
 meant to protect. Stubbing the package also pins a property worth keeping:
 ``stylesheets`` stays a leaf module that costs nothing to import.

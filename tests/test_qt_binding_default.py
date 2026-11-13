@@ -3,6 +3,8 @@
 import sys
 from types import SimpleNamespace
 
+import pytest
+
 import fibsem
 
 
@@ -18,22 +20,23 @@ def test_qt_api_wins(monkeypatch):
     assert fibsem.os.environ["QT_API"] == "pyqt5"
 
 
-def test_windows_10_before_1809_gets_pyqt5(monkeypatch):
+def _windows(monkeypatch, build):
+    monkeypatch.delenv("QT_API", raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        sys, "getwindowsversion", lambda: SimpleNamespace(build=build), raising=False
+    )
+
+
+def test_windows_10_before_1809_is_warned(monkeypatch):
     """Qt 6 does not run there."""
-    monkeypatch.delenv("QT_API", raising=False)
-    monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(
-        sys, "getwindowsversion", lambda: SimpleNamespace(build=17134), raising=False
-    )
-    fibsem._default_qt_binding()
-    assert fibsem.os.environ["QT_API"] == "pyqt5"
+    _windows(monkeypatch, 17134)
+    with pytest.warns(UserWarning, match="build 1809"):
+        fibsem._default_qt_binding()
 
 
-def test_windows_10_1809_gets_pyside6(monkeypatch):
-    monkeypatch.delenv("QT_API", raising=False)
-    monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(
-        sys, "getwindowsversion", lambda: SimpleNamespace(build=17763), raising=False
-    )
+def test_windows_10_1809_gets_pyside6(monkeypatch, recwarn):
+    _windows(monkeypatch, 17763)
     fibsem._default_qt_binding()
     assert fibsem.os.environ["QT_API"] == "pyside6"
+    assert not recwarn.list

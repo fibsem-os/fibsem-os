@@ -322,14 +322,12 @@ def test_the_fm_stack_count_is_shared_with_the_export():
 def _drag(paths):
     """(mime, enter, drop) for dragging *paths*. Keep the mime data: the events hold
     only a pointer to it, and Qt reads freed memory if Python collects it."""
-    import qtpy
-    from qtpy.QtCore import QMimeData, QPoint, QPointF, QUrl
+    from qtpy.QtCore import QMimeData, QPointF, QUrl
     from qtpy.QtGui import QDragEnterEvent, QDropEvent
 
     mime = QMimeData()
     mime.setUrls([QUrl.fromLocalFile(str(p)) for p in paths])
-    # Qt 6 takes a QPointF here; Qt 5 only a QPoint.
-    at = QPointF(10, 10) if qtpy.QT6 else QPoint(10, 10)
+    at = QPointF(10, 10)
     enter = QDragEnterEvent(
         at,
         Qt.DropAction.CopyAction,

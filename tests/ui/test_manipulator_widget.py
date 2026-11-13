@@ -6,7 +6,7 @@ ThermoFisher and Demo offer PARK/EUCENTRIC and corrected moves, a backend with i
 own presets and a rotating arm gets those with relative moves and rotation, and a
 backend that says nothing gets relative moves and the user's own saved positions.
 
-Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
+Uses Qt directly with the offscreen platform (no pytest-qt dependency).
 """
 
 import os

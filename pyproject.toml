@@ -85,13 +85,6 @@ ui = [
     "superqt>=0.6.0",
     "qtawesome>=1.4.0", # bundled Material Design Icons font (offline icon rendering); >=1.4.0 guards Spin.start/stop before first paint
 ]
-# The old binding, for one release (FIB-1565): `pip install "fibsem[ui,pyqt5]"`, then
-# QT_API=pyqt5. Picked by itself on Windows 10 older than build 1809, where Qt 6
-# does not run. See fibsem/__init__.py.
-pyqt5 = [
-    "pyqt5>=5.15.9",
-    "pyqt5-qt5 == 5.15.2 ; platform_system == 'Windows'",
-]
 odemis = ["pylibtiff", "shapely"]
 
 # Image labelling and model-assisted segmentation (`fibsem_label`,

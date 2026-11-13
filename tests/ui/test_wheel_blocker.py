@@ -8,7 +8,7 @@ Guards two contracts:
 2. Guarding is idempotent — installing twice must not forward the event twice,
    which would scroll at double speed.
 
-Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
+Uses Qt directly with the offscreen platform (no pytest-qt dependency).
 """
 
 import os

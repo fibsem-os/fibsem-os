@@ -3,7 +3,7 @@
 The section is a chooser: it emits ``seed_requested`` and the widget applies it to
 the live canvas. Covers the default source precedence, enable rules, run
 selection, the payload each source yields, and the widget-side seeding + the
-manual-edit guard. Headless PyQt5, offscreen.
+manual-edit guard. Headless Qt, offscreen.
 """
 
 import os

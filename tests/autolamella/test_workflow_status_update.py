@@ -96,7 +96,7 @@ class TestTheQueueSnapshot:
 
         Read as source text rather than imported. This file lives in
         `tests/autolamella/`, which runs in CI *without* the `[ui]` extra, and
-        `workflow_timeline_widget` imports PyQt5 at module level -- importing it here
+        `workflow_timeline_widget` imports Qt at module level -- importing it here
         passes locally and fails on every CI build.
         """
         import fibsem

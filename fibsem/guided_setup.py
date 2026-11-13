@@ -2,7 +2,7 @@
 
 Deliberately Qt-free. Everything here either answers a question the wizard asks or
 writes a file the application will read on its next start, and both are worth testing
-on CI -- which installs ``.[test]``, not ``.[ui]``, so anything importing PyQt5 is
+on CI -- which installs ``.[test]``, not ``.[ui]``, so anything importing Qt is
 skipped there. The dialog that collects these answers lives in
 ``fibsem.ui.widgets.guided_setup_dialog``.
 

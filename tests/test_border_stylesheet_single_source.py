@@ -6,11 +6,11 @@ viewer -- and the rules used to be spelled out once per widget. That is how the
 driven by an agent fell through to no rule at all.
 
 Source-level on purpose. ``fibsem.ui.__init__`` eagerly imports Qt widgets, so any
-``from fibsem.ui...`` import needs PyQt5 -- which CI deliberately does not install
+``from fibsem.ui...`` import needs Qt -- which CI deliberately does not install
 (see the ``[ui]`` extra note in python-package.yml). Reading the files instead keeps
 this guard running on every version in the matrix, which is the whole point: it is
 what stops the rules being copied a third time. The behavioural tests that need a
-real widget live in tests/ui/test_border_stylesheet.py and skip without PyQt5.
+real widget live in tests/ui/test_border_stylesheet.py and skip without Qt.
 """
 
 import ast

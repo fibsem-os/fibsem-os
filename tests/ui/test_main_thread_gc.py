@@ -15,7 +15,7 @@ Two sides are tested:
    the same storm finalizes nothing off-thread; the cycle is collected on the
    main thread by the timer-driven ``check()``.
 
-Uses PyQt5 directly with the offscreen platform (no pytest-qt dependency).
+Uses Qt directly with the offscreen platform (no pytest-qt dependency).
 """
 
 import os
