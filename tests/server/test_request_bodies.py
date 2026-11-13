@@ -4,6 +4,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from fibsem.ai.agent.catalog import CATALOG
 from fibsem.applications.autolamella.server import AutoLamellaAppContext
 from fibsem.server import AuthConfig, build_server
 from tests.run_state import stub_session
@@ -30,6 +31,17 @@ TYPED = [
     ("post", "/app/workflow/proposals/suggest"),
     ("post", "/app/workflow/stop"),
     ("post", "/app/workflow/stop_task"),
+    ("post", "/app/experiment/protocol/task_config/{task_name}"),
+    ("post", "/app/workflow/schedule"),
+    ("post", "/app/workflow/options"),
+    ("post", "/app/experiment/protocol/tasks"),
+    ("post", "/app/experiment/protocol/save"),
+    ("post", "/app/experiment/create"),
+    ("post", "/app/experiment/load"),
+    ("post", "/app/experiment/protocol/load"),
+    ("post", "/app/experiment/items"),
+    ("post", "/app/experiment/items/{item_name}"),
+    ("post", "/app/experiment/grids/{grid_name}/note"),
 ]
 
 
@@ -102,3 +114,28 @@ def test_a_bad_query_is_refused_the_same_way(client):
     detail = refused.json()["detail"]
     assert detail["error_type"] == "invalid"
     assert detail["message"].startswith("query.since: ")
+
+
+def test_each_tool_sends_only_what_its_route_takes(client):
+    # The catalog's parameters and a typed body are two copies of one
+    # contract: a parameter the body lacks would be refused on every call.
+    spec = client.get("/openapi.json").json()
+    schemas = spec["components"]["schemas"]
+    wrong = {}
+    for tool in CATALOG:
+        operation = spec["paths"].get(tool.path, {}).get(tool.method.lower())
+        body = (operation or {}).get("requestBody")
+        if body is None:
+            continue
+        ref = body["content"]["application/json"]["schema"]
+        ref = ref.get("$ref") or next(
+            (r["$ref"] for r in ref.get("anyOf", ()) if "$ref" in r), None
+        )
+        if ref is None:
+            continue
+        fields = set(schemas[ref.rsplit("/", 1)[1]].get("properties", {}))
+        in_path = {p["name"] for p in operation.get("parameters", ())}
+        extra = set(tool.params or {}) - fields - in_path
+        if extra:
+            wrong[tool.name] = sorted(extra)
+    assert wrong == {}

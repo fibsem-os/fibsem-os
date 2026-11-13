@@ -17,6 +17,7 @@ import gzip
 import inspect
 import json
 import os
+from dataclasses import asdict
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
@@ -34,18 +35,38 @@ from fibsem.server.auth import (
     take_control,
 )
 from fibsem.server.bodies import (
+    ApplyProtocolBody,
+    CorrelationRunBody,
     DecideBody,
+    ExperimentPathBody,
+    GridNoteBody,
     GridPlanBody,
+    GridQualityBody,
+    GridRequirementsBody,
     GridRunBody,
+    NameBody,
+    NewExperimentBody,
+    NewItemBody,
+    NewTaskBody,
+    PatchBody,
+    PlaceBody,
+    PoseBody,
+    ProtocolNameBody,
     QueueEditBody,
     QueueGridsBody,
     RequeueBody,
+    RequirementsBody,
     RunBody,
     RunPlanBody,
+    SaveProtocolBody,
+    ScheduleBody,
+    StageOrderBody,
     StopBody,
     StopTaskBody,
     SuggestBody,
     SupervisionBody,
+    TaskOrderBody,
+    WorkflowOptionsBody,
 )
 from fibsem.server.parts import (
     GRIDS,
@@ -1268,15 +1289,9 @@ def build_app_config_router(context: Any) -> APIRouter:
     router = _router()
     item_edit = ItemEdit[_app_type(context, ItemDetail)]
 
-    def _validated(body: Dict[str, Any]):
-        patch = body.get("patch")
-        version = body.get("version")
-        if (
-            not isinstance(patch, dict)
-            or not patch
-            or not all(isinstance(k, str) for k in patch)
-            or not isinstance(version, str)
-        ):
+    def _validated(body: PatchBody):
+        patch, version = body.patch, body.version
+        if not patch:
             raise _missing_field(
                 "Pass patch (a non-empty object of dotted-path: "
                 "value entries) and version (from the config read it was "
@@ -1287,7 +1302,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     @router.post(
         "/experiment/protocol/task_config/{task_name}", response_model=ConfigEdit
     )
-    def patch_protocol_task_config(task_name: str, body: Dict[str, Any]):
+    def patch_protocol_task_config(task_name: str, body: PatchBody):
         patch, version = _validated(body)
         return _answer_or_refusal(
             context.apply_protocol_task_config_patch(task_name, patch, version)
@@ -1298,38 +1313,26 @@ def build_app_config_router(context: Any) -> APIRouter:
         response_model=ConfigEdit,
         tags=[ITEMS],
     )
-    def patch_item_task_config(item_name: str, task_name: str, body: Dict[str, Any]):
+    def patch_item_task_config(item_name: str, task_name: str, body: PatchBody):
         patch, version = _validated(body)
         return _answer_or_refusal(
             context.apply_item_task_config_patch(item_name, task_name, patch, version)
         )
 
     @router.post("/workflow/schedule", response_model=TaskEdit)
-    def set_task_schedule(body: Dict[str, Any]):
+    def set_task_schedule(body: ScheduleBody):
         # Workflow structure, not a config document: a verb like
         # /app/experiment/protocol/supervision. scheduled_at is ISO-8601 or null
         # to clear.
-        task_name = body.get("task_name")
-        scheduled_at = body.get("scheduled_at")
-        if not isinstance(task_name, str) or (
-            scheduled_at is not None and not isinstance(scheduled_at, str)
-        ):
-            raise _missing_field(
-                "Pass task_name (string) and scheduled_at "
-                "(ISO-8601 string, or null to clear)."
-            )
-        return _answer_or_refusal(context.set_task_schedule(task_name, scheduled_at))
+        return _answer_or_refusal(
+            context.set_task_schedule(body.task_name, body.scheduled_at)
+        )
 
     @router.post("/workflow/options", response_model=OptionsSet)
-    def set_workflow_options(body: Dict[str, Any]):
+    def set_workflow_options(body: WorkflowOptionsBody):
         # The workflow's run options, beside the schedule: whether the run
         # summary dialog opens, and whether the beams go off at the end.
-        options: Dict[str, Any] = {}
-        for key in ("show_run_summary", "turn_beams_off"):
-            if key in body:
-                if not isinstance(body[key], bool):
-                    raise _missing_field(f"{key} is a boolean.")
-                options[key] = body[key]
+        options = {k: v for k, v in asdict(body).items() if v is not None}
         if not options:
             raise _missing_field(
                 "Pass any of show_run_summary (boolean), turn_beams_off (boolean)."
@@ -1339,7 +1342,7 @@ def build_app_config_router(context: Any) -> APIRouter:
     # -- the workflow's tasks: the protocol editor and the Workflow tab ---------
 
     @router.post("/experiment/protocol/tasks", response_model=TaskEdit)
-    def add_task(body: Dict[str, Any]):
+    def add_task(body: NewTaskBody):
         task_type = _required_text(body, "task_type", "a registered task type")
         task_name = _required_text(body, "task_name", "the new task's name")
         return _answer_or_refusal(context.add_task(task_type, task_name))
@@ -1349,27 +1352,20 @@ def build_app_config_router(context: Any) -> APIRouter:
         return _answer_or_refusal(context.remove_task(task_name))
 
     @router.post("/experiment/protocol/tasks/reorder", response_model=TaskEdit)
-    def reorder_tasks(body: Dict[str, Any]):
-        order = _names(body, "order", "every workflow task, in the new order")
-        return _answer_or_refusal(context.reorder_tasks(order))
+    def reorder_tasks(body: TaskOrderBody):
+        return _answer_or_refusal(context.reorder_tasks(body.order))
 
     @router.post(
         "/experiment/protocol/tasks/{task_name}/requirements", response_model=TaskEdit
     )
-    def set_task_requirements(task_name: str, body: Dict[str, Any]):
-        requires = body.get("requires")
-        required = body.get("required")
-        if (requires is None and required is None) or (
-            required is not None and not isinstance(required, bool)
-        ):
+    def set_task_requirements(task_name: str, body: RequirementsBody):
+        if body.requires is None and body.required is None:
             raise _missing_field(
                 "Pass requires (the earlier tasks it needs, a list) and/or "
                 "required (boolean)."
             )
-        if requires is not None:
-            requires = _names(body, "requires", "the earlier tasks it needs")
         return _answer_or_refusal(
-            context.set_task_requirements(task_name, requires, required)
+            context.set_task_requirements(task_name, body.requires, body.required)
         )
 
     @router.post(
@@ -1378,6 +1374,8 @@ def build_app_config_router(context: Any) -> APIRouter:
         tags=[LAMELLAE],
     )
     def set_lamella_defaults(body: Dict[str, Any]):
+        # Left a dict: a key given as null clears it, so which keys came
+        # matters, and the app checks them.
         if not body:
             raise _missing_field(
                 "Pass any of use_petname, name_prefix, poi, alignment_area."
@@ -1385,12 +1383,9 @@ def build_app_config_router(context: Any) -> APIRouter:
         return _answer_or_refusal(context.set_lamella_defaults(body))
 
     @router.post("/experiment/protocol/save", response_model=ProtocolSaved)
-    def save_protocol_as(body: Dict[str, Any]):
+    def save_protocol_as(body: SaveProtocolBody):
         name = _required_text(body, "name", "a file name for the protocol folder")
-        overwrite = body.get("overwrite", False)
-        if not isinstance(overwrite, bool):
-            raise _missing_field("overwrite is a boolean.")
-        return _answer_or_refusal(context.save_protocol_as(name, overwrite))
+        return _answer_or_refusal(context.save_protocol_as(name, body.overwrite))
 
     # -- the grid protocol: grid task settings, order and requirements ---------
 
@@ -1399,7 +1394,7 @@ def build_app_config_router(context: Any) -> APIRouter:
         response_model=ConfigEdit,
         tags=[GRIDS],
     )
-    def patch_grid_task_config(task_name: str, body: Dict[str, Any]):
+    def patch_grid_task_config(task_name: str, body: PatchBody):
         patch, version = _validated(body)
         result = context.apply_grid_task_config_patch(task_name, patch, version)
         return _answer_or_refusal(result)
@@ -1407,32 +1402,22 @@ def build_app_config_router(context: Any) -> APIRouter:
     @router.post(
         "/experiment/grid_protocol/tasks/reorder", response_model=TaskEdit, tags=[GRIDS]
     )
-    def reorder_grid_tasks(body: Dict[str, Any]):
-        order = _names(body, "order", "every grid task, in the new order")
-        return _answer_or_refusal(context.reorder_grid_tasks(order))
+    def reorder_grid_tasks(body: TaskOrderBody):
+        return _answer_or_refusal(context.reorder_grid_tasks(body.order))
 
     @router.post(
         "/experiment/grid_protocol/tasks/{task_name}/requirements",
         response_model=TaskEdit,
         tags=[GRIDS],
     )
-    def set_grid_task_requirements(task_name: str, body: Dict[str, Any]):
-        requires = _names(body, "requires", "the grid tasks it needs first")
+    def set_grid_task_requirements(task_name: str, body: GridRequirementsBody):
         return _answer_or_refusal(
-            context.set_grid_task_requirements(task_name, requires)
+            context.set_grid_task_requirements(task_name, body.requires)
         )
 
-    def _validated_reorder(body: Dict[str, Any]):
-        milling_key = body.get("milling_key")
-        order = body.get("order")
-        version = body.get("version")
-        if (
-            not isinstance(milling_key, str)
-            or not isinstance(order, list)
-            or not order
-            or not all(isinstance(n, str) for n in order)
-            or not isinstance(version, str)
-        ):
+    def _validated_reorder(body: StageOrderBody):
+        milling_key, order, version = body.milling_key, body.order, body.version
+        if not order:
             raise _missing_field(
                 "Pass milling_key (string), order (the current "
                 "stage names in their new sequence), and version (from "
@@ -1445,7 +1430,7 @@ def build_app_config_router(context: Any) -> APIRouter:
         response_model=ConfigEdit,
         tags=[MILLING_STAGES],
     )
-    def reorder_item_stages(item_name: str, task_name: str, body: Dict[str, Any]):
+    def reorder_item_stages(item_name: str, task_name: str, body: StageOrderBody):
         milling_key, order, version = _validated_reorder(body)
         return _answer_or_refusal(
             context.reorder_milling_stages(
@@ -1458,7 +1443,7 @@ def build_app_config_router(context: Any) -> APIRouter:
         response_model=ConfigEdit,
         tags=[MILLING_STAGES],
     )
-    def reorder_protocol_stages(task_name: str, body: Dict[str, Any]):
+    def reorder_protocol_stages(task_name: str, body: StageOrderBody):
         milling_key, order, version = _validated_reorder(body)
         return _answer_or_refusal(
             context.reorder_milling_stages(
@@ -1471,19 +1456,12 @@ def build_app_config_router(context: Any) -> APIRouter:
         response_model=ConfigEdit,
         tags=[ITEMS],
     )
-    def apply_protocol_to_item(item_name: str, body: Dict[str, Any]):
+    def apply_protocol_to_item(item_name: str, body: ApplyProtocolBody):
         # Wholesale by design — the verb IS "replace with the protocol
         # defaults" — so no version field; a refusal is the context's.
-        task_names = body.get("task_names")
-        if task_names is not None and not (
-            isinstance(task_names, list) and all(isinstance(t, str) for t in task_names)
-        ):
-            raise _missing_field(
-                "task_names, when given, is a list of task "
-                "name strings; omitted means every task the protocol "
-                "defines."
-            )
-        return _answer_or_refusal(context.apply_protocol_to_item(item_name, task_names))
+        return _answer_or_refusal(
+            context.apply_protocol_to_item(item_name, body.task_names)
+        )
 
     # -- experiments and protocols: kept to known places -----------------------
 
@@ -1491,16 +1469,16 @@ def build_app_config_router(context: Any) -> APIRouter:
         "/experiment/create",
         response_model=ExperimentOpened[_app_type(context, ExperimentSummary)],
     )
-    def create_experiment(body: Dict[str, Any]):
+    def create_experiment(body: NewExperimentBody):
         name = _required_text(
             body, "name", "the new experiment's folder, under the experiments folder"
         )
         return _answer_or_refusal(
             context.create_experiment(
                 name,
-                protocol=body.get("protocol"),
-                description=body.get("description"),
-                sample=body.get("sample"),
+                protocol=body.protocol,
+                description=body.description,
+                sample=body.sample,
             )
         )
 
@@ -1508,7 +1486,7 @@ def build_app_config_router(context: Any) -> APIRouter:
         "/experiment/load",
         response_model=ExperimentOpened[_app_type(context, ExperimentSummary)],
     )
-    def load_experiment(body: Dict[str, Any]):
+    def load_experiment(body: ExperimentPathBody):
         path = _required_text(
             body, "path", "a path from the recent experiments or the experiments folder"
         )
@@ -1518,7 +1496,7 @@ def build_app_config_router(context: Any) -> APIRouter:
         "/experiment/protocol/load",
         response_model=ProtocolLoaded[_app_type(context, ProtocolView)],
     )
-    def load_protocol(body: Dict[str, Any]):
+    def load_protocol(body: ProtocolNameBody):
         name = _required_text(body, "protocol", "a protocol name from the list")
         return _answer_or_refusal(context.load_protocol(name))
 
@@ -1532,28 +1510,27 @@ def build_app_config_router(context: Any) -> APIRouter:
     @router.post(
         "/experiment/grids/{grid_name}/rename", response_model=GridEdit, tags=[GRIDS]
     )
-    def rename_grid(grid_name: str, body: Dict[str, Any]):
+    def rename_grid(grid_name: str, body: NameBody):
         name = _required_text(body, "name", "the grid's new name")
         return _answer_or_refusal(context.rename_grid(grid_name, name))
 
     @router.post(
         "/experiment/grids/{grid_name}/quality", response_model=GridEdit, tags=[GRIDS]
     )
-    def set_grid_quality(grid_name: str, body: Dict[str, Any]):
+    def set_grid_quality(grid_name: str, body: GridQualityBody):
         verdict = _required_text(
             body, "verdict", "GOOD, REWORK, FAILED, or UNASSESSED to clear"
         )
-        reason = body.get("reason", "")
-        if not isinstance(reason, str):
-            raise _missing_field("reason is text.")
-        return _answer_or_refusal(context.set_grid_quality(grid_name, verdict, reason))
+        return _answer_or_refusal(
+            context.set_grid_quality(grid_name, verdict, body.reason)
+        )
 
     @router.post(
         "/experiment/grids/{grid_name}/note", response_model=GridEdit, tags=[GRIDS]
     )
-    def set_grid_note(grid_name: str, body: Dict[str, Any]):
-        note = body.get("note")
-        if not isinstance(note, str) or len(note) > 4000:
+    def set_grid_note(grid_name: str, body: GridNoteBody):
+        note = body.note
+        if len(note) > 4000:
             raise _missing_field(
                 "Pass note: text, at most 4000 characters ('' clears)."
             )
@@ -1577,21 +1554,19 @@ def build_app_config_router(context: Any) -> APIRouter:
     # -- lamella positions: the Lamella tab's buttons ---------------------------
 
     @router.post("/experiment/items", response_model=item_edit, tags=[ITEMS])
-    def add_item(body: Dict[str, Any]):
+    def add_item(body: NewItemBody):
         # Where: the stage now (neither field), a stage position, or a point on a
         # grid overview ({grid_name, filename, px | fraction}). The app names it
         # unless a name is given.
-        stage_position = body.get("stage_position")
-        overview = body.get("overview")
-        if stage_position is not None and overview is not None:
+        if body.stage_position is not None and body.overview is not None:
             raise refusal_error(
                 422, "invalid", "Give stage_position or overview, not both."
             )
         return _answer_or_refusal(
             context.add_item(
-                name=body.get("name"),
-                stage_position=stage_position,
-                overview=overview,
+                name=body.name,
+                stage_position=body.stage_position,
+                overview=body.overview,
             )
         )
 
@@ -1607,7 +1582,7 @@ def build_app_config_router(context: Any) -> APIRouter:
         tags=[POSES],
         dependencies=[Depends(take_control, scope="function")],
     )
-    def move_to_item_pose(item_name: str, body: Dict[str, Any]):
+    def move_to_item_pose(item_name: str, body: PoseBody):
         pose = _required_text(body, "pose", "a pose name from the item (MILLING, ...)")
         return _answer_or_refusal(context.move_to_item_pose(item_name, pose))
 
@@ -1651,20 +1626,20 @@ def build_app_config_router(context: Any) -> APIRouter:
     @router.post(
         "/experiment/items/{item_name}/position", response_model=item_edit, tags=[POSES]
     )
-    def move_item(item_name: str, body: Dict[str, Any]):
+    def move_item(item_name: str, body: PlaceBody):
         # The lamella moved to a point, as on an overview; the stage stays.
         return _answer_or_refusal(
             context.move_item(
                 item_name,
-                stage_position=body.get("stage_position"),
-                overview=body.get("overview"),
+                stage_position=body.stage_position,
+                overview=body.overview,
             )
         )
 
     @router.post(
         "/experiment/items/{item_name}", response_model=item_edit, tags=[ITEMS]
     )
-    def patch_item(item_name: str, body: Dict[str, Any]):
+    def patch_item(item_name: str, body: PatchBody):
         # The item's own document (geometry, verdict, notes) — the write-side
         # mirror of GET /app/experiment/items/{item_name}, whose payload carries the
         # version this patch must echo.
@@ -1676,11 +1651,11 @@ def build_app_config_router(context: Any) -> APIRouter:
         response_model=ConfigEdit,
         tags=[LAMELLAE],
     )
-    def apply_item_correlation(item_name: str, body: Dict[str, Any]):
+    def apply_item_correlation(item_name: str, body: CorrelationRunBody):
         # The correlation dialog's Continue: the item's POI to a saved run's
         # target, recorded as a correlation.
-        run_path = body.get("run_path")
-        if not isinstance(run_path, str) or not run_path:
+        run_path = body.run_path
+        if not run_path:
             raise _missing_field(
                 "Pass run_path, a run folder from correlation_correlate."
             )

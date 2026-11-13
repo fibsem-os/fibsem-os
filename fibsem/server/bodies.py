@@ -315,3 +315,205 @@ class StopTaskBody:
     item_name: str
     task_name: str
     reason: str = ""
+
+
+# --- configuration: protocols, item configs, experiments (`app_routes`) -------
+
+
+@dataclass
+class PatchBody:
+    """A config edit: ``patch`` is ``{"<dotted path>": value}``, ``version``
+    the one the config read answered, so an edit over a newer one is refused."""
+
+    __pydantic_config__ = STRICT
+
+    patch: Dict[str, Any]
+    version: str
+
+
+@dataclass
+class ScheduleBody:
+    """POST /app/workflow/schedule: ISO-8601, or null to clear."""
+
+    __pydantic_config__ = STRICT
+
+    task_name: str
+    scheduled_at: Optional[str] = None
+
+
+@dataclass
+class WorkflowOptionsBody:
+    """POST /app/workflow/options: only the options given change."""
+
+    __pydantic_config__ = STRICT
+
+    show_run_summary: Optional[Flag] = None
+    turn_beams_off: Optional[Flag] = None
+
+
+@dataclass
+class NewTaskBody:
+    """POST /app/experiment/protocol/tasks."""
+
+    __pydantic_config__ = STRICT
+
+    task_type: str
+    task_name: str
+
+
+@dataclass
+class TaskOrderBody:
+    """Every task, in the new order."""
+
+    __pydantic_config__ = STRICT
+
+    order: List[str]
+
+
+@dataclass
+class RequirementsBody:
+    """POST .../tasks/{task_name}/requirements: the earlier tasks it needs,
+    and whether it must run."""
+
+    __pydantic_config__ = STRICT
+
+    requires: Optional[List[str]] = None
+    required: Optional[Flag] = None
+
+
+@dataclass
+class GridRequirementsBody:
+    """POST /app/experiment/grid_protocol/tasks/{task_name}/requirements."""
+
+    __pydantic_config__ = STRICT
+
+    requires: List[str]
+
+
+@dataclass
+class SaveProtocolBody:
+    """POST /app/experiment/protocol/save: a protocol folder's name."""
+
+    __pydantic_config__ = STRICT
+
+    name: str
+    overwrite: Flag = False
+
+
+@dataclass
+class StageOrderBody:
+    """A task's milling stages, by name, in their new sequence."""
+
+    __pydantic_config__ = STRICT
+
+    milling_key: str
+    order: List[str]
+    version: str
+
+
+@dataclass
+class ApplyProtocolBody:
+    """POST .../items/{item_name}/apply_protocol: the tasks to reset, or
+    every task the protocol defines."""
+
+    __pydantic_config__ = STRICT
+
+    task_names: Optional[List[str]] = None
+
+
+@dataclass
+class NewExperimentBody:
+    """POST /app/experiment/create: a folder under the experiments folder."""
+
+    __pydantic_config__ = STRICT
+
+    name: str
+    protocol: Optional[str] = None
+    description: Optional[str] = None
+    sample: Optional[str] = None
+
+
+@dataclass
+class ExperimentPathBody:
+    """POST /app/experiment/load: a path from the recents or the experiments
+    folder."""
+
+    __pydantic_config__ = STRICT
+
+    path: str
+
+
+@dataclass
+class ProtocolNameBody:
+    """POST /app/experiment/protocol/load."""
+
+    __pydantic_config__ = STRICT
+
+    protocol: str
+
+
+@dataclass
+class NameBody:
+    """A new name."""
+
+    __pydantic_config__ = STRICT
+
+    name: str
+
+
+@dataclass
+class GridQualityBody:
+    """POST .../grids/{grid_name}/quality: GOOD, REWORK, FAILED, or
+    UNASSESSED to clear."""
+
+    __pydantic_config__ = STRICT
+
+    verdict: str
+    reason: str = ""
+
+
+@dataclass
+class GridNoteBody:
+    """POST .../grids/{grid_name}/note: '' clears."""
+
+    __pydantic_config__ = STRICT
+
+    note: str
+
+
+@dataclass
+class PlaceBody:
+    """Where an item is: a stage position, or a point on a grid overview
+    (``{grid_name, filename, px | fraction}``)."""
+
+    __pydantic_config__ = STRICT
+
+    stage_position: Optional[Dict[str, Any]] = None
+    overview: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class NewItemBody(PlaceBody):
+    """POST /app/experiment/items: neither place is the stage now; the app
+    names it unless ``name`` is given."""
+
+    name: Optional[str] = None
+
+
+@dataclass
+class PoseBody:
+    """POST .../items/{item_name}/move_to: a pose name from the item."""
+
+    __pydantic_config__ = STRICT
+
+    pose: str
+
+
+@dataclass
+class CorrelationRunBody:
+    """POST .../items/{item_name}/correlation: a run folder from
+    correlation_correlate."""
+
+    __pydantic_config__ = STRICT
+
+    run_path: str
