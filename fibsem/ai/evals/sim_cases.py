@@ -199,7 +199,7 @@ def render_overview(
             _face_on(microscope)
         else:
             microscope.move_to_milling_angle(milling_angle)
-        scene = SampleScene(renderer="solid", **scene_options(seed, overrides, hfw))
+        scene = SampleScene(**scene_options(seed, overrides, hfw))
         position = microscope.get_stage_position()
         scene.anchor(position)
         microscope._connection.sample_scene = scene
@@ -517,7 +517,6 @@ def write_cases(
                     k: (list(v) if isinstance(v, tuple) else v)
                     for k, v in options.items()
                 },
-                "renderer": "solid",
                 "resolution": [w, h],
                 "hfw_m": hfw,
                 "dwell_s": DWELL,

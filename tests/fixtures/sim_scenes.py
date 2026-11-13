@@ -1,20 +1,12 @@
-"""The simulator's sample as it was before the 3D sample became the default.
-
-The SEM to FIB alignment gates and the flat and relief renderers' own tests
-were written against it; they ask for it by name.
+"""The simulator's sample with the options it had before RPE cells and a holey
+film became the default: mammalian cells on a continuous film. The SEM to FIB
+alignment tests were written against it; they ask for it by name.
 """
 
 from fibsem.drivers.demo.sim_scene import SampleScene
 
-FLAT_SCENE = {"renderer": "flat", "cell_type": "mammalian", "film": "continuous"}
+MAMMALIAN_SCENE = {"cell_type": "mammalian", "film": "continuous"}
 
 
-def flat_scene(**options) -> SampleScene:
-    return SampleScene(**{**FLAT_SCENE, **options})
-
-
-def make_flat(scene: SampleScene) -> SampleScene:
-    """Turn a scene built from the configuration into the flat one, in place."""
-    for key, value in FLAT_SCENE.items():
-        setattr(scene, key, value)
-    return scene
+def mammalian_scene(**options) -> SampleScene:
+    return SampleScene(**{**MAMMALIAN_SCENE, **options})

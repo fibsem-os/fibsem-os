@@ -81,7 +81,6 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
         **_targets(seed),
         "fm_no_target_chance": 0.0,
         "coincidence_offset": 0.0,
-        "renderer": "solid",
         "rip_fraction": 0.0,
         "rpe_density": 3.0,
     }

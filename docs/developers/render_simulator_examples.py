@@ -58,7 +58,7 @@ DESCRIPTIONS = {
     "extent": "content is grown over +/- extent/2 about the grid centre (m)",
     "grid_pitch": "mesh pitch (m); 125 um is a 200 mesh",
     "grid_bar_width": "bar width (m)",
-    "grid_intensity": "how bright the bars read in the SEM (0-255 scale)",
+    "grid_intensity": "how much reflected light from the bars leaks into a fluorescence channel",
     "film": "`continuous` (default) or `holey` (a Quantifoil-style lattice)",
     "hole_diameter": "holey film: hole diameter (m)",
     "hole_pitch": "holey film: hole pitch (m)",
