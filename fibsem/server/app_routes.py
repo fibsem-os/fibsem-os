@@ -1100,12 +1100,22 @@ def build_app_router(context: Any) -> APIRouter:
         return _answer_or_refusal(result)
 
     @router.get("/events", response_model=Events)
-    def events(since: int = 0, timeout: float = 0.0, text: bool = False):
+    def events(
+        since: int = 0,
+        timeout: float = 0.0,
+        after: Optional[str] = None,
+        text: bool = False,
+    ):
         # A long-poll: parks up to `timeout` seconds waiting for news. Capped
         # here because the park occupies a threadpool worker — a transport
-        # concern, so the transport owns the ceiling. `text` adds what each
-        # record says, in words, for a page to show.
-        answer = context.events(since=since, timeout=min(max(timeout, 0.0), 30.0))
+        # concern, so the transport owns the ceiling. `after` is an event id,
+        # in place of `since`, and reaches back past a restart. `text` adds
+        # what each record says, in words, for a page to show.
+        timeout = min(max(timeout, 0.0), 30.0)
+        if after:
+            answer = context.events(since=since, timeout=timeout, after=after)
+        else:
+            answer = context.events(since=since, timeout=timeout)
         return _with_text(answer) if text else answer
 
     @router.get("/events/history", response_model=EventHistory)

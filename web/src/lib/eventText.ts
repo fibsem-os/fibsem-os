@@ -6,6 +6,8 @@ type Payload = Record<string, any>;
 
 /** A record of /app/events (`fibsem.workflows.events`). */
 export interface AppEvent {
+  /** `<session>-<seq>`, unique for good; older records have none. */
+  id?: string;
   seq: number;
   kind: string;
   t?: string;
@@ -30,7 +32,8 @@ export interface EventText {
   failed?: boolean;
 }
 
-export const keyOf = (e: AppEvent) => `${e.session ?? ""}:${e.seq}`;
+// The id, and for a record from before ids, the same made from its session and seq.
+export const keyOf = (e: AppEvent) => e.id ?? `${e.session ?? ""}-${e.seq}`;
 
 export const GROUPS = [
   ["proposals", "Proposals"],
