@@ -16,6 +16,7 @@ import pytest
 pytest.importorskip("qtpy.QtWidgets")
 
 from fibsem.ui.widgets.status_bar import FibsemStatusBar  # noqa: E402
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 
 INSTRUCTION = "Create or load an experiment to begin."
 
@@ -477,7 +478,7 @@ def test_autolamella_shows_milling_from_its_microscope(no_quit, qapp):
     from fibsem.applications.autolamella.ui import window as module
 
     window = module.AutoLamellaWindow()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     microscope = window.microscope
     microscope.milling.report(_tick())
     assert window.status_bar.fraction == pytest.approx(0.5)
@@ -495,7 +496,7 @@ def test_fibsem_shows_milling_from_its_microscope(qapp):
     from fibsem.ui.FibsemUI import FibsemUI
 
     window = FibsemUI()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     window.microscope.milling.report(_stage_started())
     assert window.status_bar.text == "Preparing: Rough Mill stage 2 of 3"
     _close(window, qapp)
@@ -535,7 +536,7 @@ def test_a_run_that_fails_a_task_leaves_a_line_until_the_next_run(
     )
     window = module.AutoLamellaWindow()
     # A report locks the protocol editor, whose UI the first connect builds.
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     signal = window.run_relay.status
     from fibsem.workflows.queue import WorkItem
 
@@ -609,7 +610,7 @@ def test_a_held_run_says_so_on_the_line(no_quit, qapp):
 
     window = module.AutoLamellaWindow()
     ui = window
-    ui.system_widget.connect_to_microscope()
+    connect_and_wait(ui.system_widget)
     ui.run_relay.status.emit(_report(TaskStatus.InProgress))
     ui.run_relay.hold = Hold(
         HoldKind.proposal, "answer the question on the Microscope tab"

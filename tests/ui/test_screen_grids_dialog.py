@@ -39,6 +39,7 @@ from fibsem.services.sample_handling import (
 from fibsem.structures.settings import FibsemStagePosition
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.status import TaskState
+from tests.fixtures.connecting import connect_and_wait  # noqa: E402
 from tests.fixtures.demo_stage import demo_grid_loader
 from tests.waiting import qt_wait_for
 
@@ -342,7 +343,7 @@ def test_screen_all_grids_from_the_window_runs_on_the_named_grids(
     window = module.AutoLamellaWindow()
     ui = window
     try:
-        ui.system_widget.connect_to_microscope()
+        connect_and_wait(ui.system_widget)
         microscope = ui.microscope
         microscope.sample_handling.magazine = demo_grid_loader(
             microscope,

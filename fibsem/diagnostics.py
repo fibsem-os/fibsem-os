@@ -3,7 +3,7 @@
 :func:`install` is called once by every entry point. From then on an error
 nobody caught, on any thread, goes to the log and to a scrubbed record under
 the log folder, and a hard crash of the interpreter leaves its stack in a file
-beside them. Nothing here reaches the network; the records are for Report an
+beside them. It also starts the program's own log file (`fibsem.util.app_log`). Nothing here reaches the network; the records are for Report an
 Issue to offer on the next launch.
 """
 
@@ -23,6 +23,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import fibsem.config as cfg
 from fibsem.tools.bug_report import scrub_text
+from fibsem.util import app_log
 from fibsem.util.timestamps import now_iso
 from fibsem.versioning import get_version_string
 
@@ -89,6 +90,7 @@ def install(app: str, on_error: Optional[Callable[[CrashRecord], None]] = None) 
             _on_error = on_error
     if not first:
         return
+    app_log.start(app)
     try:
         _keep_fatal_error_of_last_run(app)
         _prune()

@@ -14,6 +14,7 @@ from fibsem.workflows.attention import Attention
 from fibsem.workflows.item import MILLING_POSE
 from fibsem.workflows.status import TaskState, TaskStatus
 from fibsem.workflows.task_config import TaskPlan
+from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.toasts import toasts_fixture
 
 pytest.importorskip("qtpy.QtWidgets")
@@ -31,7 +32,7 @@ def window(qapp, tmp_path, monkeypatch):
     # closeEvent ends in app.quit(), which latches on the shared test QApplication
     monkeypatch.setattr(qapp, "quit", lambda: None)
     window = VolumeWindow()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     window.session.adopt(VolumeExperiment.create(tmp_path, "vol"))
     qapp.processEvents()
     yield window
@@ -386,7 +387,7 @@ def test_volume_milling_shows_each_piece_in_one_form_and_writes_it(window, qapp)
 def test_the_settings_go_with_the_microscope(window, qapp):
     tab = window.protocol_tab
     assert tab.task_editor is not None
-    window.system_widget.connect_to_microscope()  # connected: it disconnects
+    connect_and_wait(window.system_widget)  # connected: it disconnects
     qapp.processEvents()
     assert tab.task_editor is None
 

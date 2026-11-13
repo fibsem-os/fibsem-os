@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.structures import (
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.structures.settings import FibsemStagePosition, SampleGrid, SlotCalibration
 from fibsem.workflows.grids import GridRecord
+from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
 
 
@@ -39,7 +40,7 @@ def _ui(monkeypatch, tmp_path, arctis: bool):
             "load_configuration",
             lambda configuration_name=None: config,
         )
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
     experiment = Experiment(path=tmp_path, name="stamp")
     os.makedirs(str(experiment.path), exist_ok=True)
     experiment.task_protocol = AutoLamellaTaskProtocol()

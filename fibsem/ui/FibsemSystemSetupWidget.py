@@ -1,5 +1,6 @@
 import logging
 import os
+import threading
 from typing import Callable, Optional
 
 from qtpy import QtCore, QtWidgets
@@ -20,6 +21,7 @@ from fibsem.theme.tokens import (
 )
 from fibsem.ui import notification_service, stylesheets
 from fibsem.ui.icon import fibsem_icon
+from fibsem.ui.qt.threading import FunctionWorker
 from fibsem.ui.utils import message_box_ui, open_existing_file_dialog
 from fibsem.ui.widgets.custom_widgets import (
     ValueComboBox,
@@ -27,7 +29,7 @@ from fibsem.ui.widgets.custom_widgets import (
 from fibsem.ui.widgets.microscope_configuration_window import (
     MicroscopeConfigurationWindow,
 )
-from fibsem.workflows.session import MICROSCOPE, AppSession
+from fibsem.workflows.session import CONNECTED_STEP, MICROSCOPE, AppSession
 
 # What connecting did beyond connecting (`utils.setup_session`'s `connect_actions`),
 # said in the connect message.
@@ -49,6 +51,10 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
     disconnected_signal = Signal()
     # The session's `changed`, carried to the GUI thread.
     _session_changed = Signal(str)
+    # A connect step, from the worker thread; heard on the GUI thread.
+    _connect_step = Signal(str)
+    # A connect ended, connected or not; the tabs are built by then.
+    connect_finished = Signal()
 
     def __init__(
         self,
@@ -119,6 +125,10 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         layout.addStretch()
 
         self._shown_connected: Optional[bool] = None
+        # The connect under way, and how to stop it between steps.
+        self._connect_worker: Optional[FunctionWorker] = None
+        self._cancel = threading.Event()
+        self._connect_step.connect(self._show_connecting)
         self.setup_connections()
         self._session_changed.connect(self._on_session_changed)
         self.session.changed.connect(self._hear_session)
@@ -341,6 +351,16 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self._button_disconnect.clicked.connect(self.connect_to_microscope)
         layout.addWidget(self._button_disconnect)
 
+        # Shown only while connecting.
+        self._button_cancel_connect = QtWidgets.QPushButton("Cancel")
+        self._button_cancel_connect.setStyleSheet(self._button_disconnect.styleSheet())
+        self._button_cancel_connect.setToolTip(
+            "Stop connecting. A step already under way finishes first."
+        )
+        self._button_cancel_connect.clicked.connect(self.cancel_connect)
+        self._button_cancel_connect.setVisible(False)
+        layout.addWidget(self._button_cancel_connect)
+
         return frame
 
     def setup_connections(self):
@@ -479,11 +499,14 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
         self.load_configuration(configuration_name)
         self._show_configuration_info()
 
-    def connect_to_microscope(self):
+    def connect_to_microscope(self) -> Optional[FunctionWorker]:
+        """Connect, or disconnect when connected. The connect runs on a worker
+        thread, which is returned (None when no connect started); it is refused
+        while one is already under way."""
+        if self.is_connecting:
+            return None
 
-        is_microscope_connected = bool(self.microscope)
-
-        if is_microscope_connected:
+        if bool(self.microscope):
             # The session lets go of the microscope even when its client will not
             # close: holding one that could not be closed would leave the tab
             # offering to disconnect something it can no longer reach. Refused
@@ -501,79 +524,122 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
                     f"Disconnected, but the client did not close cleanly: {error}",
                     "error",
                 )
-        else:
-            # Cleared before the attempt, so a retry never shows the previous reason
-            # beside a connection that is still being made.
-            self._last_connection_error = None
-            notification_service.show_toast("Connecting to microscope...", "info")
+            self.update_ui()
+            return None
 
-            configuration_path = self.load_configuration(None)
+        # Cleared before the attempt, so a retry never shows the previous reason
+        # beside a connection that is still being made.
+        self._last_connection_error = None
+        notification_service.show_toast("Connecting to microscope...", "info")
 
-            if configuration_path is None:
-                notification_service.show_toast("Configuration not selected.", "error")
-                return
+        configuration_path = self.load_configuration(None)
 
-            # connect. On this thread, on purpose: the window does not take input
-            # while it runs, so nothing can be started against a half-made session.
-            # Each step is painted as it starts, so a long one -- a ThermoFisher
-            # column turning on -- reads as waiting rather than hung.
-            self._show_connecting(
-                f"Connecting with {os.path.basename(configuration_path)}…"
+        if configuration_path is None:
+            notification_service.show_toast("Configuration not selected.", "error")
+            self.update_ui()
+            return None
+
+        # Off the GUI thread: a ThermoFisher column turning on can take a while,
+        # and the window should keep painting. The session holds nothing until
+        # the connect is done, so nothing can be started against a half-made one.
+        self._cancel = threading.Event()
+        worker = self._connect_worker = FunctionWorker(
+            self.session.connect_unless_cancelled,
+            configuration_path,
+            progress=self._connect_step.emit,
+            cancel=self._cancel,
+        )
+        worker.returned.connect(self._on_connected)
+        worker.errored.connect(self._on_connect_failed)
+        worker.finished.connect(self._on_connect_finished)
+        self._show_connecting(
+            f"Connecting with {os.path.basename(configuration_path)}…"
+        )
+        worker.start()
+        return worker
+
+    @property
+    def is_connecting(self) -> bool:
+        return self._connect_worker is not None
+
+    def cancel_connect(self) -> None:
+        """Give the tab back now. The step under way (a vendor connect cannot be
+        interrupted) finishes in the background, and what it connected is let
+        go; Connect comes back once it has."""
+        if self._connect_worker is None or self._cancel.is_set():
+            return
+        self._cancel.set()
+        self._button_cancel_connect.setVisible(False)
+        self.comboBox_configuration.setEnabled(True)
+        self.action_add_configuration.setEnabled(True)
+        self.pushButton_connect_to_microscope.setText("Connect to Microscope")
+        self.pushButton_connect_to_microscope.setEnabled(False)
+        self._label_status_icon.setPixmap(
+            fibsem_icon("mdi:close-circle", color="#f44336").pixmap(20, 20)
+        )
+        self._label_status_title.setText("Cancelled")
+        self._label_status_subtitle.setText("Letting go of the step still under way…")
+
+    def _on_connected(self, instrument: object) -> None:
+        if instrument is None or self._cancel.is_set():
+            if instrument is not None:  # finished after its last check
+                self.session.disconnect()
+            notification_service.show_toast("Connecting was cancelled.", "info")
+            return
+        msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
+        logging.info(msg)
+        actions = getattr(self.microscope, "connect_actions", None) or {}
+        done = [DID[k] for k, ok in actions.items() if ok and k in DID]
+        failed = [FAILED[k] for k, ok in actions.items() if not ok and k in FAILED]
+        if done:
+            msg = f"{msg}, and {' and '.join(done)}"
+        if failed:
+            notification_service.show_toast(
+                f"{msg}, but {' and '.join(failed)}. See the log.", "warning"
             )
-            try:
-                self.session.connect(configuration_path, progress=self._show_connecting)
-            except Exception as e:
-                # Reported, not raised. This runs as a Qt slot, and PyQt5 turns an
-                # unhandled exception in a slot into qFatal -- the entire application
-                # aborts, leaving the traceback and nothing else. Failing to
-                # connect is an ordinary outcome here rather than a defect: the vendor
-                # API may not be installed, the instrument may be off, the address may
-                # belong to a different bay.
-                #
-                # Broad on purpose. The backends raise whatever their own SDK raises,
-                # and the point is that *nothing* from this call reaches Qt -- a
-                # narrower except would leave the abort in place for the exception
-                # nobody predicted, which is the one that will happen.
-                self._last_connection_error = str(e)
-                logging.error(f"Could not connect to the microscope: {e}")
-                notification_service.show_toast(f"Could not connect: {e}", "error")
-            else:
-                # user notification
-                msg = f"Connected to microscope at {self.microscope.system.info.ip_address}"
-                logging.info(msg)
-                actions = getattr(self.microscope, "connect_actions", None) or {}
-                done = [DID[k] for k, ok in actions.items() if ok and k in DID]
-                failed = [
-                    FAILED[k] for k, ok in actions.items() if not ok and k in FAILED
-                ]
-                if done:
-                    msg = f"{msg}, and {' and '.join(done)}"
-                if failed:
-                    notification_service.show_toast(
-                        f"{msg}, but {' and '.join(failed)}. See the log.", "warning"
-                    )
-                else:
-                    notification_service.show_toast(msg, "info")
+        else:
+            notification_service.show_toast(msg, "info")
 
+    def _on_connect_failed(self, error: Exception) -> None:
+        # Reported, not raised: failing to connect is an ordinary outcome -- the
+        # vendor API may not be installed, the instrument may be off, the address
+        # may belong to a different bay. Broad on purpose: the backends raise
+        # whatever their own SDK raises.
+        if isinstance(error, utils.ConnectCancelled):
+            notification_service.show_toast("Connecting was cancelled.", "info")
+            return
+        self._last_connection_error = str(error)
+        logging.error(f"Could not connect to the microscope: {error}")
+        notification_service.show_toast(f"Could not connect: {error}", "error")
+
+    def _on_connect_finished(self) -> None:
+        self._connect_worker = None
+        self._button_cancel_connect.setVisible(False)
         self.update_ui()
+        self.connect_finished.emit()
 
     def _show_connecting(self, step: str) -> None:
-        """Say which step connecting is on, and paint it now.
-
-        Connecting runs on this thread, so the window cannot repaint by itself until
-        it is done. Painting here is what puts the step on screen. User input is held
-        back while it paints: nothing can be pressed mid-connect, as before.
-        """
+        """Say which step connecting is on, with Cancel beside it."""
+        if not self.is_connecting or self._cancel.is_set():
+            return
         self.pushButton_connect_to_microscope.setEnabled(False)
         self.pushButton_connect_to_microscope.setText("Connecting…")
+        self.comboBox_configuration.setEnabled(False)
+        self.action_add_configuration.setEnabled(False)
+        self._button_disconnect.setVisible(False)
+        # Past cancelling once connected; the tabs are built next.
+        self._button_cancel_connect.setVisible(step != CONNECTED_STEP)
+        self._button_cancel_connect.setEnabled(True)
         self._label_status_icon.setPixmap(
             fibsem_icon("mdi:progress-clock", color=NEUTRAL_500).pixmap(20, 20)
         )
         self._label_status_title.setText("Connecting")
         self._label_status_subtitle.setText(step)
-        QtWidgets.QApplication.processEvents(
-            QtCore.QEventLoop.ProcessEventsFlag.ExcludeUserInputEvents
-        )
+        if step == CONNECTED_STEP:
+            # Painted now: the tabs are built next, on this thread, before
+            # Qt would get round to it, and a Cancel left on screen meanwhile
+            # looks like one that does not answer.
+            self.repaint()
 
     def set_current_imaging(
         self, provider: Optional[Callable[[], ImageSettings]]
@@ -611,6 +677,8 @@ class FibsemSystemSetupWidget(QtWidgets.QWidget):
 
     def update_ui(self):
 
+        if self.is_connecting:
+            return  # the connecting card stays until the connect is done
         is_microscope_connected = bool(self.microscope)
         # The window builds or drops its tabs on these: once per change, though
         # the tab redraws on every connect step and session change.

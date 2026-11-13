@@ -2,6 +2,7 @@
 
 import faulthandler
 import json
+import logging
 import sys
 import threading
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from fibsem import diagnostics
+from fibsem.util import app_log
 
 
 @pytest.fixture
@@ -20,9 +22,13 @@ def fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(diagnostics, "_written", 0)
     monkeypatch.setattr(diagnostics, "_told", {})
     monkeypatch.setattr(diagnostics, "_fault_file", None)
+    monkeypatch.setattr(app_log, "_handler", None)
     monkeypatch.setattr(sys, "excepthook", sys.excepthook)
     monkeypatch.setattr(threading, "excepthook", threading.excepthook)
     yield tmp_path
+    if app_log.handler() is not None:
+        logging.getLogger().removeHandler(app_log.handler())
+        app_log.handler().close()
     faulthandler.disable()
     if diagnostics._fault_file is not None:
         diagnostics._fault_file.close()
@@ -193,3 +199,12 @@ def test_a_record_that_does_not_read_is_skipped(fresh):
     (folder / "broken.json").write_text("not json")
 
     assert diagnostics.records() == []
+
+
+def test_install_starts_the_program_log(fresh):
+    diagnostics.install("test-app")
+    logging.getLogger("fibsem.somewhere").warning("before any experiment")
+    app_log.handler().flush()
+
+    text = (fresh / "app" / "test-app.log").read_text(encoding="utf-8")
+    assert "before any experiment" in text

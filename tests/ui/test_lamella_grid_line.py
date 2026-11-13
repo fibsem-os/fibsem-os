@@ -41,6 +41,7 @@ from fibsem.structures.settings import FibsemStagePosition, MicroscopeState
 from fibsem.theme.tokens import ACCENT_COLOR, NEUTRAL_550
 from fibsem.workflows.grids import GridRecord
 from fibsem.workflows.quality import QualityRecord, Verdict
+from tests.fixtures.connecting import connect_and_wait
 
 _app = QApplication.instance() or QApplication([])
 
@@ -256,7 +257,7 @@ class TestFromTheWindow:
             "load_configuration",
             lambda configuration_name=None: config,
         )
-        ui.system_widget.connect_to_microscope()
+        connect_and_wait(ui.system_widget)
         yield window
         ui.microscope.disconnect()
         close_window(window)

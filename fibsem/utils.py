@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Set, Tuple, Union
 
@@ -25,6 +26,7 @@ from fibsem.structures.system import (
     DeviceEntry,
     MicroscopeSettings,
 )
+from fibsem.util import app_log
 
 if TYPE_CHECKING:
     from fibsem.microscope import FibsemMicroscope
@@ -261,6 +263,8 @@ def configure_logging(
         handlers=[file_handler, stream_handler],
         force=True,
     )
+    # force=True closed the program's own log with the rest: open it again.
+    app_log.restart()
 
     # disable some loggers
     logging.getLogger("matplotlib").setLevel(logging.WARNING)
@@ -333,6 +337,7 @@ def setup_session(
     apply_defaults: Optional[bool] = None,
     beams_on: Optional[bool] = None,
     progress: Optional[Callable[[str], None]] = None,
+    cancel: Optional[threading.Event] = None,
 ) -> Tuple["FibsemMicroscope", "MicroscopeSettings"]:
     """Setup microscope session
 
@@ -348,6 +353,10 @@ def setup_session(
         progress (callable, optional): called with a short description of each
             step as it starts ("Turning the beams on…"), for a caller that shows
             it. Called on the thread this runs on.
+        cancel (threading.Event, optional): set from another thread to stop
+            connecting. Checked between steps; a step already under way (the
+            vendor connect, a column turning on) runs to its end first. The
+            microscope is disconnected and `ConnectCancelled` raised.
 
     Returns:
         tuple: microscope, settings
@@ -382,6 +391,7 @@ def setup_session(
 
         settings.system.info.manufacturer = normalize_name(manufacturer)
 
+    stop_if_cancelled(cancel)
     _report(progress, f"Connecting to {settings.system.info.ip_address}…")
 
     from fibsem.drivers.registry import (
@@ -393,6 +403,7 @@ def setup_session(
     # A manufacturer given here is the caller's choice of driver, over the file's.
     driver = None if manufacturer else configured_driver(config_path)
     microscope = connect_microscope(settings.system, driver)
+    stop_if_cancelled(cancel, microscope)
     if normalize_name(driver) == REMOTE_DRIVER:
         # The instrument is the other App Server's: its configuration, not this file's.
         settings.system = microscope.system
@@ -435,19 +446,39 @@ def setup_session(
     microscope.connect_actions = {}
     # The beams first, so the defaults are set on a live column.
     if beams_on:
+        stop_if_cancelled(cancel, microscope)
         _report(progress, "Turning the beams on…")
         microscope.connect_actions["beams_on"] = _at_connect(
             "turn the beams on", microscope.turn_beams_on
         )
     if apply_defaults:
+        stop_if_cancelled(cancel, microscope)
         _report(progress, "Applying the defaults…")
         microscope.connect_actions["defaults"] = _at_connect(
             "apply the configured defaults", microscope.apply_defaults
         )
+    stop_if_cancelled(cancel, microscope)
 
     logging.info(f"Finished setup for session: {session}")
 
     return microscope, settings
+
+
+class ConnectCancelled(Exception):
+    """Connecting was cancelled; what it had connected was let go."""
+
+
+def stop_if_cancelled(cancel: Optional[threading.Event], instrument=None) -> None:
+    """Disconnect *instrument* (if any) and raise `ConnectCancelled` once *cancel*
+    is set."""
+    if cancel is None or not cancel.is_set():
+        return
+    try:
+        if instrument is not None:
+            instrument.disconnect()
+    except Exception as e:  # noqa: BLE001 - cancelled either way
+        logging.warning(f"Could not cleanly disconnect after a cancelled connect: {e}")
+    raise ConnectCancelled("Connecting was cancelled.")
 
 
 def _report(progress: Optional[Callable[[str], None]], step: str) -> None:

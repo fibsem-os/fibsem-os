@@ -24,6 +24,7 @@ from fibsem.applications.autolamella.workflows.tasks.rough import (
     MillRoughTaskConfig,
 )
 from fibsem.structures.settings import MicroscopeState
+from tests.fixtures.connecting import connect_and_wait
 
 TASK = "Rough Milling"
 
@@ -33,7 +34,7 @@ def window(qapp):
     from fibsem.applications.autolamella.ui import window as module
 
     win = module.AutoLamellaWindow()
-    win.system_widget.connect_to_microscope()
+    connect_and_wait(win.system_widget)
     win.run_border.set_state("idle")
     yield win
     if win.microscope is not None:

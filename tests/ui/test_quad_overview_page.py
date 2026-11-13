@@ -36,6 +36,7 @@ from fibsem.structures.settings import (
 )
 from fibsem.ui.widgets.canvas.overlays.stage_context import holder_slots
 from fibsem.workflows.grids import GridRecord
+from tests.fixtures.connecting import connect_and_wait
 
 SLOT_X = {"Grid-A": -2.5e-3, "Grid-B": 2.5e-3}
 
@@ -432,7 +433,7 @@ def test_a_hidden_page_finds_new_overviews_when_shown(world):
 @pytest.fixture
 def window(qapp, tmp_path):
     window = AutoLamellaWindow()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     window.session.adopt(Experiment.create(path=tmp_path, name="refresh"))
     yield window
     if window.microscope is not None:

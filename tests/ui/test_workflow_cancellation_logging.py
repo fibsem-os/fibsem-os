@@ -23,6 +23,7 @@ from fibsem.applications.autolamella.structures import Experiment
 from fibsem.applications.autolamella.ui.window import AutoLamellaWindow
 from fibsem.applications.autolamella.workflows.tasks.manager import TaskManager
 from fibsem.cancellation import OperationCancelledError
+from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
 from tests.run_state import Stopped
 
@@ -31,7 +32,7 @@ from tests.run_state import Stopped
 def ui(qapp, tmp_path, monkeypatch):
     """A real window, connected (Demo), ready to run the worker inline."""
     widget = AutoLamellaWindow()
-    widget.system_widget.connect_to_microscope()
+    connect_and_wait(widget.system_widget)
     widget.experiment = Experiment(path=tmp_path, name="test-exp")
     yield widget
     if widget.microscope is not None:

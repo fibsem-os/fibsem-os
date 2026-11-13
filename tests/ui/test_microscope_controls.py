@@ -9,6 +9,7 @@ import pytest
 
 pytest.importorskip("qtpy.QtWidgets")
 
+from tests.fixtures.connecting import connect_and_wait
 from tests.fixtures.main_window import close_window
 
 CONNECTION = "Connection"
@@ -27,9 +28,9 @@ def test_fibsemos_and_autolamella_show_the_same_microscope_tabs(qapp):
     from fibsem.ui.FibsemUI import FibsemUI
 
     fibsem_ui = FibsemUI()
-    fibsem_ui.system_widget.connect_to_microscope()
+    connect_and_wait(fibsem_ui.system_widget)
     app = AutoLamellaWindow()
-    app.system_widget.connect_to_microscope()
+    connect_and_wait(app.system_widget)
     qapp.processEvents()
     try:
         ours = _tabs(fibsem_ui.controls.tabWidget, without=(CONNECTION,))
@@ -49,7 +50,7 @@ def test_fibsemos_drops_the_microscope_tabs_on_disconnect(qapp):
     from fibsem.ui.FibsemUI import FibsemUI
 
     window = FibsemUI()
-    window.system_widget.connect_to_microscope()
+    connect_and_wait(window.system_widget)
     microscope = window.microscope
     window.disconnect_from_microscope()
     qapp.processEvents()
