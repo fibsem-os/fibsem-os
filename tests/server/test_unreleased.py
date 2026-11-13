@@ -2,8 +2,6 @@
 agent: the level is Off and stays there, nothing pairs or asks to connect as an
 agent, and a client is the operator. The agent and gateway commands refuse."""
 
-import socket
-
 import httpx
 import pytest
 
@@ -13,17 +11,12 @@ from fibsem.applications.autolamella.server.context import AutoLamellaAppContext
 from fibsem.server import AuthConfig
 from fibsem.server.hosting import AppServerHost
 from fibsem.workflows.session import AppSession
+from tests.waiting import free_port
 
 
 @pytest.fixture
 def off(monkeypatch):
     monkeypatch.setenv(unreleased.ENV, "0")
-
-
-def _free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
 
 
 @pytest.fixture
@@ -34,7 +27,7 @@ def host(off, tmp_path, microscope):
     server_host = AppServerHost(
         session,
         lambda: AutoLamellaAppContext(session),
-        port=_free_port(),
+        port=free_port(),
         discovery_path=tmp_path / "agent-server.json",
     )
     assert server_host.start()

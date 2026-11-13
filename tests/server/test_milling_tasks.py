@@ -5,7 +5,6 @@ the agent can look at.
 """
 
 import os
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +15,7 @@ from fibsem.milling.base import FibsemMillingStage
 from fibsem.milling.tasks import FibsemMillingTaskConfig
 from fibsem.server import AuthConfig, build_server
 from fibsem.structures.settings import BeamType, ImageSettings
+from tests.fixtures.app_contexts import ExperimentContext
 
 TOKEN = "test-token"
 MILLING = "/microscope/services/milling"
@@ -32,7 +32,7 @@ def experiment(tmp_path):
 def client(microscope, experiment, tmp_path, monkeypatch):
     # Where a task with no path saves: the app's data folder, here a temporary one.
     monkeypatch.setattr(fcfg, "DATA_CC_PATH", str(tmp_path / "data"))
-    context = SimpleNamespace(experiment_path=str(experiment))
+    context = ExperimentContext(str(experiment))
     app = build_server(
         microscope,
         app_context=context,

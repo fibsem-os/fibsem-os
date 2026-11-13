@@ -212,6 +212,27 @@ def test_a_fib_overview_at_the_milling_angle_skips_the_lattice(tmp_path):
     assert score.details["lattice"] == "not scored"
 
 
+def test_a_coated_grid_keys_only_the_tears_its_coat_leaves_open(tmp_path):
+    torn = {**BARE, "rip_fraction": 0.1}
+    folders = sim_cases.write_cases(3, tmp_path, torn, coated=True, **SMALL)
+    assert [f.name for f in folders] == ["sim-0003-gis"] * 3
+    case = load_case(tmp_path / "site-selection" / "sim-0003-gis")
+    assert check_case(case).ok, check_case(case).problems
+    assert case.data["brief"].endswith(sim_cases.COATED_NOTE)
+    gis = case.data["source"]["simulator"]["scene"]["gis_thickness"]
+    assert gis > 1e-6
+    # the same tears measure smaller under the coat
+    torn_by = {}
+    for coat in (0.0, gis):
+        overview = sim_cases.render_overview(
+            3, {**torn, "gis_thickness": coat}, **SMALL
+        )
+        squares = sim_cases.find_squares(overview)
+        torn_by[coat] = sum(q.measures.get("rip_fraction", 0) for q in squares)
+    assert torn_by[0.0] > 0
+    assert torn_by[gis] < torn_by[0.0]
+
+
 def _passes(gaps, damage_at=None):
     return [
         {

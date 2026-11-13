@@ -19,17 +19,9 @@ from fibsem.drivers.remote.devices import (
 from fibsem.server import AuthConfig, build_server
 from fibsem.server.devices import WS_PROTOCOL
 from fibsem.structures.settings import BeamType
+from tests.waiting import wait_for
 
 TOKEN = "test-token"
-
-
-def wait_for(condition, timeout=5.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(0.02)
-    return condition()
 
 
 @pytest.fixture(scope="module")
