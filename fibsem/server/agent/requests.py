@@ -47,6 +47,7 @@ from fibsem.ai.agent.levels import AgentLevel
 from fibsem.codec import encode
 from fibsem.devices.wire import command_body
 from fibsem.server.auth import AuthConfig, lending_drive, refusal_error, require_level
+from fibsem.server.bodies import AgentRequestBody, WithdrawBody
 from fibsem.server.responses import (
     ActionView,
     AgentRequestView,
@@ -1023,7 +1024,7 @@ def build_request_router(store: RequestStore) -> APIRouter:
         return HTTPException(status_code=refusal.status_code, detail=refusal.detail)
 
     @router.post("/requests", status_code=202, response_model=AgentRequestView)
-    def create_request(request: Request, body: Dict[str, Any]):
+    def create_request(request: Request, body: AgentRequestBody):
         auth: AuthConfig = request.app.state.auth
         if auth.level is not AgentLevel.ASSIST:
             raise refusal_error(
@@ -1040,8 +1041,8 @@ def build_request_router(store: RequestStore) -> APIRouter:
         try:
             call = current_call()
             created = store.create(
-                body.get("actions"),
-                body.get("reason"),
+                body.actions,
+                body.reason,
                 evidence=call.evidence if call is not None else None,
             )
         except RequestRefused as refusal:
@@ -1049,9 +1050,9 @@ def build_request_router(store: RequestStore) -> APIRouter:
         return answer(created.view(), status_code=202)
 
     @router.post("/requests/{request_id}/withdraw", response_model=AgentRequestView)
-    def withdraw_request(request_id: str, body: Dict[str, Any]):
+    def withdraw_request(request_id: str, body: WithdrawBody):
         try:
-            withdrawn = store.withdraw(request_id, body.get("reason"))
+            withdrawn = store.withdraw(request_id, body.reason)
         except RequestRefused as refusal:
             raise _refused(refusal)
         return answer(withdrawn.view())
