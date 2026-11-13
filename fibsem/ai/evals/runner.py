@@ -33,8 +33,9 @@ import yaml
 
 from fibsem import __version__, paths
 from fibsem.ai.agent import manager, mirror, sources
+from fibsem.ai.evals import tasks
 from fibsem.ai.evals.cases import Case, input_paths
-from fibsem.ai.evals.scoring import ANSWER_NOTES, ANSWER_SHAPES, score_case
+from fibsem.ai.evals.scoring import score_case
 from fibsem.server import discovery
 
 log = logging.getLogger(__name__)
@@ -157,15 +158,16 @@ def task_text(case: Case, inputs: Iterable[str]) -> str:
     if case.parts:
         lines.append(f'Write {ANSWER} in your files folder as {{"parts": {{...}}}}:')
         for name, part in case.parts.items():
-            shape = json.dumps(ANSWER_SHAPES[part["task"]])
+            shape = json.dumps(tasks.get(part["task"]).answer_shape)
             lines += ["", f"- Part {name}: {part.get('question', '')}", f"  {shape}"]
     else:
         lines.append(f"Write {ANSWER} in your files folder, shaped like this:")
-        lines += ["", json.dumps(ANSWER_SHAPES[case.task], indent=2)]
-    tasks = [case.task] + [part["task"] for part in case.parts.values()]
-    for task in dict.fromkeys(tasks):
-        if task in ANSWER_NOTES:
-            lines += ["", ANSWER_NOTES[task]]
+        lines += ["", json.dumps(tasks.get(case.task).answer_shape, indent=2)]
+    names = [case.task] + [part["task"] for part in case.parts.values()]
+    for name in dict.fromkeys(names):
+        notes = tasks.get(name).answer_notes
+        if notes:
+            lines += ["", notes]
     lines += [
         "",
         "Look and read only. Once the answer is written you are done; say so and stop.",
