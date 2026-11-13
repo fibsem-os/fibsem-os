@@ -138,13 +138,24 @@ def _parser() -> argparse.ArgumentParser:
     make_sim.add_argument(
         "--task",
         nargs="+",
-        choices=("grid", "polishing", "correlation", "placement", "fm-target"),
+        choices=(
+            "grid",
+            "polishing",
+            "correlation",
+            "placement",
+            "fm-target",
+            "rough",
+            "coincidence",
+        ),
         default=["grid"],
         help="grid: squares, labels and sites from an overview; polishing: a "
         "lamella milled pass by pass; correlation: spot burns round an FM "
         "target, with the FIB image and FM stack; placement: where the lamella "
         "goes on a FIB image at the milling angle; fm-target: whether an FM "
-        "stack has a target at the site, and where (default grid)",
+        "stack has a target at the site, and where; rough: a lamella rough "
+        "milled step by step, some steps shallow or the lamella broken; "
+        "coincidence: a lamella polished through an FM target with a stack "
+        "each pass, is the target still there (default grid)",
     )
     make_sim.add_argument(
         "--set",
@@ -215,10 +226,12 @@ def main(argv=None) -> int:
     if args.command == "make-sim":
         from fibsem.ai.evals import (
             sim_cases,
+            sim_coincidence,
             sim_correlation,
             sim_fm_target,
             sim_placement,
             sim_polishing,
+            sim_rough,
         )
 
         overrides = {}
@@ -238,6 +251,11 @@ def main(argv=None) -> int:
             if "fm-target" in args.task:
                 folder = sim_fm_target.write_case(seed, args.out, overrides)
                 print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            if "coincidence" in args.task:
+                folder = sim_coincidence.write_case(seed, args.out, overrides)
+                print(f"Wrote {folder}" if folder else f"Seed {seed}: no case")
+            if "rough" in args.task:
+                print(f"Wrote {sim_rough.write_case(seed, args.out, overrides)}")
             for beam in args.beam if "grid" in args.task else []:
                 for folder in sim_cases.write_cases(
                     seed,

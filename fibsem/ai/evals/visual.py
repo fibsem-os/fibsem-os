@@ -19,6 +19,7 @@ import numpy as np
 
 from fibsem.ai.evals import report
 from fibsem.ai.evals.cases import (
+    ROUGH_CHECKS,
     Case,
     find_cases,
     load_case,
@@ -522,6 +523,54 @@ def draw_target_present(case: Case, runs: List[Run], key=None, part=None):
     return fig
 
 
+def draw_rough_milling(case: Case, runs: List[Run], key=None, part=None):
+    """The steps' FIB images, then a yes/no grid per check: the key's row,
+    then each repeat's (red text where it differs from the key)."""
+    key = key or case.key
+    names = pass_names(case)
+    import matplotlib.pyplot as plt
+
+    rows = [("key", key)]
+    for result, answer in runs:
+        answer = (
+            answer if part is None else ((answer or {}).get("parts") or {}).get(part)
+        )
+        rows.append((f"r{result['repeat']}", answer or {}))
+    cols = [(check, name) for check in ROUGH_CHECKS for name in names]
+    fig = plt.figure(figsize=(max(8, 1.1 * len(cols)), 3 + 0.4 * len(rows)))
+    grid = fig.add_gridspec(2, len(names), height_ratios=(1.6, 0.4 * (len(rows) + 1)))
+    _pass_strip(case, [fig.add_subplot(grid[0, i]) for i in range(len(names))])
+    ax = fig.add_subplot(grid[1, :])
+    for r, (label, said) in enumerate(rows):
+        for c, (check, name) in enumerate(cols):
+            value = (said.get(check) or {}).get(name)
+            try:
+                value = yes_no(value) if value is not None else None
+            except InvalidAnswer:
+                value = None
+            want = yes_no(key[check][name])
+            colour = "#bbbbbb" if value is None else ("#2ca02c" if value else "#444444")
+            ax.add_patch(plt.Rectangle((c, r), 0.9, 0.9, color=colour))
+            ax.text(
+                c + 0.45,
+                r + 0.45,
+                {True: "yes", False: "no", None: "?"}[value],
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="red" if r and value != want else "white",
+            )
+    ax.set_xlim(0, len(cols))
+    ax.set_ylim(len(rows), 0)
+    ax.set_yticks(np.arange(len(rows)) + 0.45, [label for label, _ in rows])
+    ax.set_xticks(
+        np.arange(len(cols)) + 0.45,
+        [f"{name}\n{check.replace('_', ' ')}" for check, name in cols],
+        fontsize=6,
+    )
+    return fig
+
+
 def draw_setup_placement(case: Case, runs: List[Run]):
     """The FIB image with the key's masks tinted (green: ok, red: bad) and
     each repeat's lamella centre as an x."""
@@ -579,6 +628,7 @@ DRAW: Dict[str, Callable] = {
     "polishing_stop": draw_polishing_stop,
     "target_present": draw_target_present,
     "setup_placement": draw_setup_placement,
+    "rough_milling": draw_rough_milling,
 }
 
 

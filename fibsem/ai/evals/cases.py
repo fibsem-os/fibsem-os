@@ -17,7 +17,10 @@ TASKS = (
     "square_finding",
     "square_quality",
     "setup_placement",
+    "rough_milling",
 )
+# What a rough_milling key says about each step.
+ROUGH_CHECKS = ("milled_through", "intact")
 # Where a case's images come from: a real session, or the simulator. Sim
 # cases are scored apart and never count towards the real scores.
 TIERS = ("real", "sim")
@@ -197,6 +200,12 @@ def _key_problems(case: Case) -> List[str]:
         stops = stop_passes(key)
         if not stops or any(stop not in names for stop in stops):
             problems.append(f"key stop_after {key.get('stop_after')!r} is not a pass")
+    elif case.task == "rough_milling":
+        names = pass_names(case)
+        for check in ROUGH_CHECKS:
+            said = key.get(check) or {}
+            if set(said) != set(names):
+                problems.append(f"key {check} does not name every step")
     elif case.task == "site_selection":
         for square in key.get("good", []) + key.get("bad", []):
             if not {"x_px", "y_px"} <= set(square):

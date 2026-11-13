@@ -12,6 +12,7 @@ Answer shapes (``answer.json``):
 - correlation: ``{"x_px", "y_px", "fiducials": [...], "fit_rms_um", "reason"}``
 - polishing_stop: ``{"passes": [{"name", "decision": "carry_on"|"stop", "reason"}, ...]}``
 - target_present: ``{"present": {"<pass>": true|false, ...}}``
+- rough_milling: ``{"milled_through": {"<step>": "yes"|"no"}, "intact": {...}}``
 - square_finding: ``{"squares": [{"x_px", "y_px"}, ...], "pitch_px", "angle_deg"}``
 - square_quality: ``{"labels": {"<square>": {"site": "good|bad", "reasons":
   [...]}, ...}}`` (an old ``"<label>"`` per square is still read)
@@ -29,6 +30,7 @@ import numpy as np
 from PIL import Image
 
 from fibsem.ai.evals.cases import (
+    ROUGH_CHECKS,
     SITES,
     SQUARE_REASONS,
     Case,
@@ -62,6 +64,11 @@ ANSWER_SHAPES: Dict[str, Any] = {
         "passes": [{"name": "<pass>", "decision": "carry_on | stop", "reason": "..."}]
     },
     "target_present": {"present": {"<pass>": "yes | no"}, "reason": "..."},
+    "rough_milling": {
+        "milled_through": {"<step>": "yes | no"},
+        "intact": {"<step>": "yes | no"},
+        "reason": "...",
+    },
     "square_finding": {
         "squares": [{"x_px": 0, "y_px": 0}],
         "pitch_px": 0,
@@ -278,6 +285,33 @@ def score_polishing_stop(
     # Carrying on past the stop: thickness lost, or the target milled away.
     details["costly"] = 1
     return "late", details
+
+
+def score_rough_milling(
+    case: Case, answer: Dict[str, Any], key: Dict[str, Any]
+) -> tuple:
+    """A hit when every step's two answers match the key. Calling a step
+    through, or the lamella intact, when it is not is costly: the run would
+    carry on from a lamella that needs redoing or is lost."""
+    names = pass_names(case)
+    wrong, costly, total = [], 0, 0
+    for check in ROUGH_CHECKS:
+        said = answer.get(check)
+        if not isinstance(said, dict):
+            raise InvalidAnswer(f"no {check} map")
+        for name in names:
+            total += 1
+            want = yes_no(key[check][name])
+            got = yes_no(said[name]) if name in said else None
+            if got != want:
+                wrong.append(f"{name} {check}")
+                costly += int(got is True and want is False)
+    details = {"correct": total - len(wrong), "total": total}
+    if wrong:
+        details["wrong"] = wrong
+    if costly:
+        details["costly"] = costly
+    return ("miss" if wrong else "hit"), details
 
 
 def score_target_present(
@@ -520,6 +554,7 @@ SCORERS: Dict[str, Callable[[Case, Dict[str, Any], Dict[str, Any]], tuple]] = {
     "square_finding": score_square_finding,
     "square_quality": score_square_quality,
     "setup_placement": score_setup_placement,
+    "rough_milling": score_rough_milling,
 }
 
 
