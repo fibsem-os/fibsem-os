@@ -620,11 +620,11 @@ def write_cases(
 
 LABEL_COLOURS = {
     "good": "#2ca02c",
-    "no_cells": "#7f7f7f",
+    "no_cells": "#e040fb",
     "damaged": "#d62728",
     "thick": "#1f77b4",
     "cell_near_bar": "#ff7f0e",
-    None: "#bbbbbb",
+    None: "#ffd600",
 }
 
 
@@ -649,8 +649,8 @@ def write_preview(image: np.ndarray, squares: List[Square], path: Path) -> Path:
             ms=14,
             mfc="none",
             mec=colour,
-            mew=1 if faint else 2.5,
-            alpha=0.4 if faint else 1.0,
+            mew=1.5 if faint else 2.5,
+            alpha=0.7 if faint else 1.0,
         )
         ax.annotate(
             str(q.number),
@@ -659,7 +659,7 @@ def write_preview(image: np.ndarray, squares: List[Square], path: Path) -> Path:
             textcoords="offset points",
             color=colour,
             fontsize=8,
-            alpha=0.5 if faint else 1.0,
+            alpha=0.7 if faint else 1.0,
         )
     handles = [
         plt.Line2D(

@@ -1,10 +1,11 @@
 """A correlation eval case from the simulator, keyed from the scene.
 
-A grid of RPE cells on the Demo Arctis, with centrin and cilia labelled in the
-FM. One target cell's cilium is picked; about ten spot burns are milled round
-it from the FIB at the milling angle; then the case keeps the FIB image and an
-FM z-stack (reflection, green, red, blue) of the same place, as a real
-correlation case does. The agent gets the target in the stack and the burns'
+A grid of RPE cells on the Demo Arctis, with centrin (GFP) and cilia
+(mCherry) labelled in the FM. One target is picked: a cilium on odd seeds, a
+centriole pair on even ones. Spot burns are milled round it from the FIB at
+the milling angle, over its cell's edge and the ice beyond; then the case
+keeps the FIB image and an FM z-stack (reflection, GFP, mCherry, DAPI) of the
+same place, as a real correlation case does. The agent gets the target in the stack and the burns'
 FIB pixels, finds the burns in the stack and places the target on the FIB
 image.
 
@@ -45,8 +46,9 @@ MILLING_ANGLE = 15.0  # degrees
 FIB_RESOLUTION = (1536, 1024)
 FIB_HFW = 100e-6  # m
 DWELL = 1e-6  # s
-BURNS = 10
-BURN_RADIUS = (8e-6, 14e-6)  # m on the surface, from the target
+BURNS = (7, 11)  # how many, at random
+BURN_RADIUS = (10e-6, 26e-6)  # m on the surface, from the target
+BURN_GAP = 4e-6  # m: no two burns closer than this
 Z_RANGE = (-2e-6, 8e-6)  # m from focus (the film)
 Z_STEP = 0.5e-6  # m
 CHANNELS = [
@@ -57,29 +59,34 @@ CHANNELS = [
         color="gray",
     ),
     ChannelSettings(
-        name="green",
+        name="GFP",
         excitation_wavelength=488,
         emission_filter=EmissionFilter.band("520 nm", 520),
         color="green",
     ),
     ChannelSettings(
-        name="red",
+        name="mCherry",
         excitation_wavelength=550,
         emission_filter=EmissionFilter.band("610 nm", 610),
         color="red",
     ),
     ChannelSettings(
-        name="blue",
+        name="DAPI",
         excitation_wavelength=365,
         emission_filter=EmissionFilter.band("450 nm", 450),
         color="blue",
     ),
 ]
 
+KINDS = {
+    "cilium": ("a primary cilium's midpoint", "mCherry"),
+    "centriole": ("a centriole pair's midpoint", "GFP"),
+}
+
 BRIEF = (
-    "The target, a primary cilium's midpoint, is at FM x {fx:.0f}, y {fy:.0f} "
-    "px, z slice {fz:.1f} in the fluorescence stack (red channel: cilia; green: "
-    "centrin). Correlate the stack with the FIB image and place that target on "
+    "The target, {what}, is at FM x {fx:.0f}, y {fy:.0f} px, z slice {fz:.1f} "
+    "in the fluorescence stack (mCherry: cilia; GFP: centrin; DAPI: nuclei). "
+    "Correlate the stack with the FIB image and place that target on "
     "the FIB image. The spot burns were milled at these FIB px (x, y): {burns}; "
     "find each in the FM stack (reflection shows them) and use them as "
     "fiducials. Answer the target as x, y px on the FIB image, with the "
@@ -212,9 +219,24 @@ def _surface_height(scene, x: float, y: float) -> float:
     return float(h[0, 0]) / um
 
 
-def _pick_target(rng, scene, nearest: int = 20):
-    """One of the cilia nearest the scene's centre, at random."""
-    targets = sorted(scene.fm_targets(), key=lambda t: np.hypot(*t["midpoint"][:2]))
+def target_kind(seed: int) -> str:
+    """A cilium on odd seeds, a centriole pair on even ones."""
+    return "centriole" if int(seed) % 2 == 0 else "cilium"
+
+
+def scene_targets(scene, kind: str) -> List[dict]:
+    """The scene's targets of a kind: cilia (midpoint on the cilium) or
+    centriole pairs (midpoint between the two)."""
+    if kind == "cilium":
+        return scene.fm_targets()
+    return [dict(t) for t in getattr(scene, "fm_spots", [])]
+
+
+def _pick_target(rng, scene, kind: str = "cilium", nearest: int = 20):
+    """One of the targets nearest the scene's centre, at random."""
+    targets = sorted(
+        scene_targets(scene, kind), key=lambda t: np.hypot(*t["midpoint"][:2])
+    )
     if not targets:
         return None
     return targets[int(rng.integers(min(nearest, len(targets))))]
@@ -227,18 +249,24 @@ def _centred(fib: "_FibMap", x: float, y: float, z: float, margin: float = 0.3) 
 
 
 def _burn_points(rng, x0: float, y0: float, fib: _FibMap) -> List[Tuple[float, float]]:
-    """About ten world points round the target, spread in angle, all in the
-    FIB view."""
+    """Seven to eleven world points round the target, as an operator mills
+    them: all the way round but unevenly, over the cell's edge and the ice
+    beyond, none closer than BURN_GAP to another, all in the FIB view."""
     w, h = fib.resolution
-    points = []
-    angles = np.linspace(0, 2 * np.pi, BURNS, endpoint=False)
-    angles = angles + rng.uniform(0, 2 * np.pi) + rng.normal(0, 0.15, BURNS)
+    n = int(rng.integers(BURNS[0], BURNS[1] + 1))
+    angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    angles = angles + rng.uniform(0, 2 * np.pi) + rng.normal(0, 0.3, n)
+    points: List[Tuple[float, float]] = []
     for a in angles:
-        r = rng.uniform(*BURN_RADIUS)
-        x, y = x0 + r * np.cos(a), y0 + r * np.sin(a)
-        px, py = fib.px(x, y)
-        if 20 < px < w - 20 and 20 < py < h - 20:
-            points.append((float(x), float(y)))
+        for _ in range(20):
+            r = rng.uniform(*BURN_RADIUS)
+            x, y = x0 + r * np.cos(a), y0 + r * np.sin(a)
+            px, py = fib.px(x, y)
+            clear = all(np.hypot(x - u, y - v) >= BURN_GAP for u, v in points)
+            if clear and 20 < px < w - 20 and 20 < py < h - 20:
+                points.append((float(x), float(y)))
+                break
+            a += rng.normal(0, 0.1)
     return points
 
 
@@ -262,9 +290,10 @@ def write_case(
         scene = SampleScene(**scene_options(seed, overrides))
         scene.anchor(microscope.get_stage_position())
         microscope._connection.sample_scene = scene
-        target = _pick_target(rng, scene)
+        kind = target_kind(seed)
+        target = _pick_target(rng, scene, kind)
         if target is None:
-            logging.warning("seed %s: no cilium in the scene, no case", seed)
+            logging.warning("seed %s: no %s in the scene, no case", seed, kind)
             return None
         tx, ty, above_film = target["midpoint"]
         # targets are given above the film; the views and the FM focus work
@@ -338,7 +367,7 @@ def write_case(
         "tier": TIER,
         "playbook": PLAYBOOK,
         "format": FORMAT,
-        "sample": "simulated RPE cells, centrin (green) and cilia (red) labelled",
+        "sample": "simulated RPE cells, centrin (GFP) and cilia (mCherry) labelled",
         "instrument": "Demo Arctis (simulator)",
         "source": {
             "simulator": {
@@ -348,7 +377,11 @@ def write_case(
             }
         },
         "brief": BRIEF.format(
-            fx=target_fm[0], fy=target_fm[1], fz=slice_of(tz), burns=shown
+            what=KINDS[kind][0],
+            fx=target_fm[0],
+            fy=target_fm[1],
+            fz=slice_of(tz),
+            burns=shown,
         ),
         "inputs": {
             "fib_image": "experiment/spot_burns_ib.tif",
@@ -361,6 +394,7 @@ def write_case(
         "key": {
             "status": "keyed",
             "keyed_by": "simulator",
+            "target_kind": kind,
             "target_fib_px": {
                 "x": round(target_fib[0], 1),
                 "y": round(target_fib[1], 1),
@@ -392,7 +426,13 @@ def write_case(
         yaml.safe_dump(
             {
                 "midpoint_m": [float(v) for v in target["midpoint"]],
-                "cilium_m": [[float(v) for v in p] for p in target["cilium"]],
+                "kind": kind,
+                "cilium_m": (
+                    [[float(v) for v in p] for p in target["cilium"]]
+                    if kind == "cilium"
+                    else None
+                ),
+                "pair_m": [[float(v) for v in p] for p in target["pair"]],
                 "burns_world_m": [[float(v) for v in p] for p in landed],
             },
             sort_keys=False,

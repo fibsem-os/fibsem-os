@@ -291,6 +291,7 @@ def test_a_correlation_case_from_the_sim(tmp_path):
     burns = case.key["fiducials_fib_px"]
     assert len(burns) == len(case.key["fiducials_fm_px"]) >= 6
     assert all(0 <= x < w and 0 <= y < h for x, y in burns)
+    assert case.key["target_kind"] == "cilium"
     assert (folder / case.data["inputs"]["fib_image"]).exists()
     assert (folder / case.data["inputs"]["fm_stack"]).exists()
 
@@ -314,14 +315,26 @@ def test_a_setup_placement_case_from_the_sim(tmp_path):
         assert miss.result == "miss" and miss.details["costly"] == 1
 
 
-@pytest.mark.parametrize("seed, usable", [(1, "yes"), (4, "no")])
-def test_an_fm_target_case_from_the_sim(tmp_path, seed, usable):
+@pytest.mark.parametrize(
+    "seed, kind, usable",
+    [
+        (1, "cilium", "yes"),
+        (2, "centriole", "yes"),
+        (3, "cilium", "no"),
+        (8, "centriole", "no"),
+    ],
+)
+def test_an_fm_target_case_from_the_sim(tmp_path, seed, kind, usable):
     folder = sim_fm_target.write_case(
         seed, tmp_path, z_range=(0.0, 1e-6), channels=sim_fm_target.CHANNELS[1:2]
     )
     case = load_case(folder)
     assert check_case(case).ok, check_case(case).problems
     assert case.tier == "sim" and case.key["usable"] == usable
+    assert case.key["target_kind"] == kind
+    assert case.data["stack"]["target_channel"] == (
+        "mCherry" if kind == "cilium" else "GFP"
+    )
     if usable == "no":
         [score] = score_case(case, {"usable": "no"})
         assert score.result == "hit"
@@ -333,7 +346,7 @@ def test_an_fm_target_case_from_the_sim(tmp_path, seed, usable):
     assert np.hypot(target["x_px"] - w / 2, target["y_px"] - w / 2) * size > 1.0
     [hit] = score_case(case, {"usable": "yes", **target})
     assert hit.result == "hit"
-    # the target is not listed among the other cilia
+    # the target is not listed among the other candidates
     assert all(
         np.hypot(o["x_px"] - target["x_px"], o["y_px"] - target["y_px"]) * size > 5
         for o in case.key["other_candidates"]

@@ -1,14 +1,14 @@
 """An FM target eval case from the simulator, keyed from the scene.
 
-A grid of RPE cells on the Demo Arctis, with centrin and cilia labelled in the
-FM. The stage is brought to one cell, as a site saved for a lamella is, and
-the case keeps an FM z-stack (green, red, blue) of it. The agent answers
-whether there is a usable target, a primary cilium, at the site, and where
-its midpoint is in the stack.
+A grid of RPE cells on the Demo Arctis, with centrin (GFP) and cilia
+(mCherry) labelled in the FM. The stage is brought to one cell, as a site
+saved for a lamella is, and the case keeps an FM z-stack (GFP, mCherry, DAPI)
+of it. The agent answers whether there is a usable target at the site, and
+where its midpoint is in the stack. The target is a primary cilium on odd
+seeds and a centriole pair on even ones.
 
-Most seeds have a cilium on the site's cell. About one in four has none: the
-cells there carry their centrin pairs but grew no cilium, so the answer is
-"no".
+One seed in four has none: for a cilium, the cells carry their centriole
+pairs but grew no cilium; for a pair, the cells there carry no centrin.
 """
 
 import logging
@@ -22,11 +22,14 @@ from fibsem.ai.evals.cases import FORMAT
 from fibsem.ai.evals.sim_cases import TIER
 from fibsem.ai.evals.sim_correlation import CHANNELS as _ALL_CHANNELS
 from fibsem.ai.evals.sim_correlation import (
+    KINDS,
     MILLING_ANGLE,
     Z_RANGE,
     Z_STEP,
     _arctis,
     _fm_px,
+    scene_targets,
+    target_kind,
 )
 from fibsem.drivers.demo.sim_scene import SampleScene
 from fibsem.fm.acquisition import acquire_z_stack
@@ -35,18 +38,39 @@ from fibsem.structures.settings import FibsemStagePosition
 
 PLAYBOOK = "autolamella-correlative"
 CHANNELS = [c for c in _ALL_CHANNELS if c.name != "reflection"]
-TARGET_CHANNEL = "red"
-NO_CILIUM_EVERY = 4  # seeds 4, 8, 12, ... have no cilium at the site
-CLEAR = 8e-6  # m: no other cilium this close to the target
+CLEAR = 8e-6  # m: no other target this close to the target
 OFFSET = (1.5e-6, 3.5e-6)  # m: the site's centre is this far off the target
+NAMES = {"cilium": "a primary cilium", "centriole": "a centriole pair"}
 
 BRIEF = (
     "This FM z-stack was taken at a site saved for a lamella; the site is the "
-    "centre of the image. Red labels primary cilia, green centrin, blue nuclei. "
-    "Is there a usable target at the site: a primary cilium within a few "
-    "microns of the centre? If yes, answer the cilium's midpoint as x, y px on the stack and "
-    "the z slice where it is sharpest. If there is none, answer usable: no."
+    "centre of the image. mCherry labels primary cilia, GFP centrin, DAPI "
+    "nuclei. Is there a usable target at the site: {what} within a few microns "
+    "of the centre? If yes, answer its midpoint as x, y px on the stack and the "
+    "z slice where it is sharpest. If there is none, answer usable: no."
 )
+
+HOT = "Hot camera pixels are single bright pixels in every slice."
+PUNCTA = "Bright mCherry dots through the cells are vesicles, not cilia."
+TRAPS = {
+    "cilium": [
+        HOT + " A cilium is a curved line a few microns long, sharp in a few slices.",
+        PUNCTA,
+    ],
+    "centriole": [
+        HOT + " A centriole pair is two GFP spots about a micron apart, at the "
+        "edge of a dim centrin pool, sharp in a few slices.",
+        "A cilium (mCherry) grows from a pair; the target is the pair, not the cilium.",
+    ],
+}
+NONE_TRAPS = {
+    "cilium": [
+        "Centriole pairs (GFP) sit where a cilium would grow; they are not a cilium."
+    ],
+    "centriole": [
+        "Ice contamination glows faintly in GFP; it is a broad blob, not a pair."
+    ],
+}
 
 
 def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict:
@@ -54,8 +78,7 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
         "cell_type": "rpe",
         "fm_red": "cilia",
         "fm_green": "centrin",
-        "fm_target_fraction": 1.0,
-        "fm_cilium_fraction": 0.0 if has_none(seed) else 0.6,
+        **_targets(seed),
         "fm_no_target_chance": 0.0,
         "coincidence_offset": 0.0,
         "renderer": "solid",
@@ -68,17 +91,30 @@ def scene_options(seed: int, overrides: Optional[Dict[str, Any]] = None) -> Dict
 
 
 def has_none(seed: int) -> bool:
-    return int(seed) % NO_CILIUM_EVERY == 0
+    """Seeds 3 and 8 of every eight: one cilium case, one centriole case."""
+    return int(seed) % 8 in (0, 3)
+
+
+def _targets(seed: int) -> Dict[str, float]:
+    if target_kind(seed) == "cilium":
+        cilia = 0.0 if has_none(seed) else 0.6
+        return {"fm_target_fraction": 1.0, "fm_cilium_fraction": cilia}
+    pairs = 0.0 if has_none(seed) else 1.0
+    return {"fm_target_fraction": pairs, "fm_cilium_fraction": 0.3}
 
 
 def _cell_bodies(scene) -> List:
     return [f for f in scene.features if f.kind == "cell" and f.part == "body"]
 
 
-def _pick_site(rng, scene, nearest: int = 20) -> Optional[Tuple[float, float, Any]]:
-    """(x, y, target or None): a site near the scene's centre. With cilia, one
-    whose cilium has no other within CLEAR; without, a cell body."""
-    targets = sorted(scene.fm_targets(), key=lambda t: np.hypot(*t["midpoint"][:2]))
+def _pick_site(
+    rng, scene, kind: str, nearest: int = 20
+) -> Optional[Tuple[float, float, Any]]:
+    """(x, y, target or None): a site near the scene's centre. With targets of
+    the kind, one with no other within CLEAR; without, a cell body."""
+    targets = sorted(
+        scene_targets(scene, kind), key=lambda t: np.hypot(*t["midpoint"][:2])
+    )
     if targets:
         order = rng.permutation(min(nearest, len(targets)))
         for i in order:
@@ -120,7 +156,8 @@ def write_case(
         scene = SampleScene(**scene_options(seed, overrides))
         scene.anchor(microscope.get_stage_position())
         microscope._connection.sample_scene = scene
-        site = _pick_site(rng, scene)
+        kind = target_kind(seed)
+        site = _pick_site(rng, scene, kind)
         if site is None:
             logging.warning("seed %s: no clear site, no case", seed)
             return None
@@ -145,8 +182,8 @@ def write_case(
         width, height = fm.camera.resolution
         site_fm = _fm_px(microscope, scene, sx, sy)
         others = [
-            (_fm_px(microscope, scene, *t["midpoint"][:2]), t["midpoint"][2])
-            for t in scene.fm_targets()
+            (_fm_px(microscope, scene, *t["midpoint"][:2]), t["midpoint"][2] + film)
+            for t in scene_targets(scene, kind)
             if target is None or not np.allclose(t["midpoint"], target["midpoint"])
         ]
     finally:
@@ -174,15 +211,20 @@ def write_case(
                 "y_px": round(site_fm[1], 1),
                 "z_slice": round(slice_of(tz), 2),
             },
-            "reason": "the site's cell has a primary cilium",
+            "reason": f"the site's cell has {NAMES[kind]}",
         }
     else:
         key = {
             "usable": "no",
             "target": None,
-            "reason": "the cells here have centrin pairs but no cilium",
+            "reason": (
+                "the cells here have centriole pairs but no cilium"
+                if kind == "cilium"
+                else "the cells here carry no centrin"
+            ),
         }
     key.update(
+        target_kind=kind,
         other_candidates=others_shown,
         status="keyed",
         keyed_by="simulator",
@@ -193,7 +235,7 @@ def write_case(
         "tier": TIER,
         "playbook": PLAYBOOK,
         "format": FORMAT,
-        "sample": "simulated RPE cells, centrin (green) and cilia (red) labelled",
+        "sample": "simulated RPE cells, centrin (GFP) and cilia (mCherry) labelled",
         "instrument": "Demo Arctis (simulator)",
         "source": {
             "simulator": {
@@ -202,7 +244,7 @@ def write_case(
                 "site_m": [cx, cy],
             }
         },
-        "brief": BRIEF,
+        "brief": BRIEF.format(what=NAMES[kind]),
         "stack": {
             "file": f"experiment/{stack_name}",
             "axes": axes,
@@ -210,21 +252,11 @@ def write_case(
             "channels": [c.name for c in channels],
             "pixel_size_um": round(fm_pixel * 1e6, 4),
             "z_step_um": round(Z_STEP * 1e6, 3),
-            "target_channel": TARGET_CHANNEL,
+            "target_channel": KINDS[kind][1],
         },
         "key": key,
         "scoring": {"xy_tolerance_um": 1.0, "z_tolerance_slices": 1},
-        "traps": [
-            "Hot camera pixels are single bright pixels in every slice; a "
-            "cilium is a curved line a few microns long, sharp in a few slices."
-        ]
-        + (
-            [
-                "Centrin pairs (green) sit where a cilium would grow; they are not a cilium."
-            ]
-            if target is None
-            else []
-        ),
+        "traps": TRAPS[kind] + (NONE_TRAPS[kind] if target is None else []),
     }
     with open(folder / "case.yaml", "w") as f:
         yaml.safe_dump(case, f, sort_keys=False, width=100)
@@ -235,7 +267,13 @@ def write_case(
             yaml.safe_dump(
                 {
                     "midpoint_m": [float(v) for v in target["midpoint"]],
-                    "cilium_m": [[float(v) for v in p] for p in target["cilium"]],
+                    "kind": kind,
+                    "cilium_m": (
+                        [[float(v) for v in p] for p in target["cilium"]]
+                        if kind == "cilium"
+                        else None
+                    ),
+                    "pair_m": [[float(v) for v in p] for p in target["pair"]],
                 },
                 sort_keys=False,
             )
