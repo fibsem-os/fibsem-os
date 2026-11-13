@@ -37,6 +37,7 @@ from fibsem.ai.evals import tasks
 from fibsem.ai.evals.cases import Case, input_paths
 from fibsem.ai.evals.scoring import score_case
 from fibsem.server import discovery
+from fibsem.util.process import end
 
 log = logging.getLogger(__name__)
 
@@ -237,17 +238,6 @@ def _wait_for(check: Callable[[], bool], timeout_s: float, proc=None) -> bool:
     return check()
 
 
-def _end(proc: subprocess.Popen, wait_s: float) -> None:
-    if proc.poll() is not None:
-        return
-    proc.terminate()
-    try:
-        proc.wait(wait_s)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-
-
 def _read_answer(path: Path) -> Optional[Dict[str, Any]]:
     try:
         answer = json.loads(path.read_text())
@@ -347,7 +337,7 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
                 try:
                     agent.wait(STOP_WAIT_S)
                 except subprocess.TimeoutExpired:
-                    _end(agent, 10)
+                    end(agent, 10)
         result["agent_exit"] = agent.returncode
         result["status"] = (
             "answered" if answered else "timeout" if timed_out else "no_answer"
@@ -355,8 +345,8 @@ def run_case(case: Case, repeat: int, config: RunConfig) -> Dict[str, Any]:
         result.update(_collect_session(session, folder / "session"))
     finally:
         if agent is not None and agent.poll() is None:
-            _end(agent, 10)
-        _end(server, 30)
+            end(agent, 10)
+        end(server, 30)
         server_log.close()
 
     result["seconds"] = round(time.monotonic() - started, 1)

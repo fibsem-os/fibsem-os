@@ -1,7 +1,6 @@
 """The coating panels in Microscope tab > Sample, on the Arctis simulator."""
 
 import os
-import time
 
 import pytest
 
@@ -14,13 +13,7 @@ from fibsem import utils
 from fibsem.services.coating import CoatingProgress, CoatingStatus
 from fibsem.ui.FibsemSampleWidget import FibsemSampleWidget
 from fibsem.ui.widgets.coating_widget import CoatingWidget, progress_update
-
-
-def _wait_until(app, condition, timeout: float = 10.0) -> None:
-    deadline = time.monotonic() + timeout
-    while not condition() and time.monotonic() < deadline:
-        app.processEvents()
-        time.sleep(0.01)
+from tests.waiting import qt_wait_for
 
 
 @pytest.fixture
@@ -55,7 +48,7 @@ def test_deposit_runs_the_service_command(qapp, arctis):
     widget.deposit_button.click()
     assert widget.deposit_button.text() == "Cancel"
     assert not widget.sputter_button.isEnabled()
-    _wait_until(qapp, lambda: widget._running is None)
+    assert qt_wait_for(lambda: widget._running is None)
     assert widget.deposit_button.text() == "Deposit"
     assert arctis.coating.progress.get_value().status is CoatingStatus.FINISHED
     widget._teardown_connections()
@@ -65,7 +58,7 @@ def test_sputter_runs_the_service_command(qapp, arctis):
     widget = CoatingWidget(microscope=arctis)
     widget.sputter_seconds.setValue(4)
     widget.sputter_button.click()
-    _wait_until(qapp, lambda: widget._running is None)
+    assert qt_wait_for(lambda: widget._running is None)
     assert arctis.devices["sputter_coater"].sim_runs[-1][0] == 4.0
     widget._teardown_connections()
 
@@ -94,7 +87,7 @@ def test_a_deposit_someone_else_started_shows_here(qapp, arctis, monkeypatch):
             stopped.wait(10)
 
     threading.Thread(target=deposit, daemon=True).start()
-    _wait_until(qapp, lambda: widget.deposit_button.text() == "Cancel")
+    assert qt_wait_for(lambda: widget.deposit_button.text() == "Cancel")
     assert widget.deposit_button.text() == "Cancel"
     assert widget._running is None, "not this panel's run"
     assert widget.deposit_button.isEnabled()
@@ -102,7 +95,7 @@ def test_a_deposit_someone_else_started_shows_here(qapp, arctis, monkeypatch):
 
     widget.deposit_button.click()
     assert stopped.wait(5)
-    _wait_until(qapp, lambda: widget.deposit_button.text() == "Deposit")
+    assert qt_wait_for(lambda: widget.deposit_button.text() == "Deposit")
     assert widget.deposit_button.text() == "Deposit"
     assert widget.sputter_button.isEnabled()
     widget._teardown_connections()

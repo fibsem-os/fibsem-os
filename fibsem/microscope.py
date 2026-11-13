@@ -805,9 +805,9 @@ class FibsemMicroscope(Instrument):
     def _fluorescence_uses_own_driver(self) -> bool:
         """Whether the FM, if there is one, comes from this microscope's own driver:
         the configuration names no FM driver, which is every site with an FM on the
-        beams' connection. An FM on another driver (`fm.driver: remote`, an FM on its
+        beams' connection. An FM on another driver, or on its own PC (`remote:`),
         own PC) must not be looked for there."""
-        return not self.system.fm.driver
+        return not (self.system.fm.driver or self.system.fm.remote)
 
     def _build_fluorescence(self, driver: str) -> Optional[FluorescenceMicroscope]:
         """The FM, built from the configuration's `fm` entry like any other device

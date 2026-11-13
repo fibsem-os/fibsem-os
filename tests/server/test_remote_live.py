@@ -4,7 +4,6 @@ beam's live socket (``WS /devices/{beam}/live``), the latest only.
 
 import asyncio
 import os
-import time
 
 import pytest
 from websockets.exceptions import InvalidStatus
@@ -21,17 +20,9 @@ from fibsem.server.devices import (
 from fibsem.structures.image import FibsemImage
 from fibsem.structures.settings import BeamType, ImageSettings
 from tests.fixtures.app_server import serving
+from tests.waiting import wait_for
 
 TOKEN = "test-token"
-
-
-def wait_for(condition, timeout=5.0):
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if condition():
-            return True
-        time.sleep(0.02)
-    return condition()
 
 
 @pytest.fixture(scope="module", autouse=True)

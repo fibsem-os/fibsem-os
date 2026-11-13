@@ -32,6 +32,8 @@ from fibsem.ui.widgets.stage_control_widget import FM_NEEDS_CALIBRATION, travel_
 sys.path.insert(0, os.path.dirname(__file__))  # not str.rsplit: Windows paths
 from test_viewer_less_widgets import _CanvasHost  # noqa: E402
 
+from tests.waiting import qt_wait_for
+
 IFLM_CONFIG = os.path.join(cfg.SHIPPED_CONFIG_PATH, "sim-iflm-configuration.yaml")
 NOMINAL_X = 48.8e-3
 
@@ -40,13 +42,6 @@ def _pump(ms: int = 200) -> None:
     loop = QEventLoop()
     QTimer.singleShot(ms, loop.quit)
     loop.exec()
-
-
-def _until(condition, tries: int = 50) -> None:
-    for _ in range(tries):
-        if condition():
-            return
-        _pump(100)
 
 
 def _offset_session(tmp_path, calibrated: bool):
@@ -100,7 +95,7 @@ def stage_control(qapp, tmp_path, monkeypatch):
 
 def _press(control, button) -> None:
     button.click()
-    _until(lambda: control.pushButton_move.isEnabled())
+    assert qt_wait_for(lambda: control.pushButton_move.isEnabled())
 
 
 # ── the FM button ────────────────────────────────────────────────────────
@@ -240,11 +235,15 @@ def test_the_dialog_captures_a_site_and_restores_on_cancel(qapp, tmp_path, monke
     dialog.button_next.click()  # Skip
     assert dialog._step == STEP_BEAMS
     assert dialog.button_next.isEnabled() is False
-    _until(lambda: dialog.current_label.text() == "FIB")
-    assert dialog.current_label.text() == "FIB"  # the step opens on fresh images
+    # The step opens on fresh images. Wait for that step's worker to finish too:
+    # a click while it runs is ignored.
+    capture = dialog.action_buttons["Capture beams"]
+    assert qt_wait_for(
+        lambda: dialog.current_label.text() == "FIB" and capture.isEnabled()
+    )
 
-    dialog.action_buttons["Capture beams"].click()
-    _until(lambda: dialog.button_next.isEnabled())
+    capture.click()
+    assert qt_wait_for(lambda: dialog.button_next.isEnabled())
     assert dialog.button_next.isEnabled()
     assert len(dialog.calibration.sites) == 1
 

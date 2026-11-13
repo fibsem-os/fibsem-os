@@ -21,6 +21,7 @@ from fibsem.structures.system import (
     CONFIGURATION_VERSION,
     CONFIGURED_DEVICES,
     DEVICES_KEEPING_DRIVER_KEYS,
+    REMOTE_KEY,
     STAGE_POSITION_KEYS,
     DeviceEntry,
     MicroscopeSettings,
@@ -588,6 +589,7 @@ def written_configuration_keys() -> Set[str]:
                     if entry["name"] == "fm":
                         keys.add(f"{device}.mount_transform")
                         keys.add(f"{device}.camera_tilt")
+                        keys.add(f"{device}.remote")
                     keys.update(
                         f"{device}.{k}"
                         for k in entry
@@ -668,7 +670,7 @@ def _unrecognised_device_keys(entries: list, known: Set[str]) -> List[str]:
             continue
         kept: Set[str] = set()
         if name in DEVICES_KEEPING_DRIVER_KEYS:
-            if item.get("driver") is not None:
+            if item.get("driver") is not None or item.get(REMOTE_KEY) is not None:
                 continue
             kept = {"required"}
         unknown.extend(

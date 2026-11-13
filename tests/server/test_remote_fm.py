@@ -1,8 +1,6 @@
 """A simulated FM served over localhost, as the METEOR PC would serve its FM: the
 remote parts answer as the local ones do, and frames cross the wire intact."""
 
-import time
-
 import numpy as np
 import pytest
 
@@ -20,6 +18,7 @@ from fibsem.fm.structures import (
 )
 from fibsem.server.devices import DeviceServer
 from fibsem.structures.system import InsertableDeviceState
+from tests.waiting import wait_for
 
 
 def _unreachable(client):
@@ -29,15 +28,6 @@ def _unreachable(client):
     client._transport.close()
     client.base_url = "http://127.0.0.1:1"
     client._transport = Transport(client.base_url, discover=False)
-
-
-def wait_for(condition, timeout=2.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if condition():
-            return True
-        time.sleep(0.01)
-    return condition()
 
 
 @pytest.fixture

@@ -72,10 +72,16 @@ from fibsem.workflows.actions import NOTE, note_record
 from fibsem.workflows.event_recording import (
     EVENTS_FILENAME,
     LIVE_KINDS,
+    read_events_after,
     read_events_before,
     read_new_events,
 )
-from fibsem.workflows.events import buffer_or_unavailable, iso_time, to_plain
+from fibsem.workflows.events import (
+    buffer_or_unavailable,
+    iso_time,
+    split_event_id,
+    to_plain,
+)
 from fibsem.workflows.evidence import (
     EVIDENCE,
     EvidenceRefused,
@@ -887,13 +893,53 @@ class AppContext:
 
     # --- events -----------------------------------------------------------------
 
-    def events(self, since: int = 0, timeout: float = 0.0) -> Dict[str, Any]:
+    def events(
+        self, since: int = 0, timeout: float = 0.0, after: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Events after ``since``, parking up to ``timeout`` seconds for news.
+
+        ``after`` is an event id, in place of ``since``: the events after that
+        one. In this stream it is its seq. In an earlier one (the app has
+        restarted since) the answer is at once: the experiment's recorded
+        events after it, without the live progress records, then everything
+        the buffer holds. ``resumed`` says whether that is all of them.
 
         Unavailable (rather than empty) when the hosting wired no buffer, so a
         client can tell "no events yet" from "this server has no event stream".
         """
-        return buffer_or_unavailable(self._event_buffer, since=since, timeout=timeout)
+        buffer = self._event_buffer
+        if after and buffer is not None:
+            named = split_event_id(after)
+            if named is not None and named[0] == buffer.stream:
+                answer = buffer.wait_for(since=named[1], timeout=timeout)
+                return {**answer, "resumed": True}
+            return self._events_after(after)
+        return buffer_or_unavailable(buffer, since=since, timeout=timeout)
+
+    def _events_after(self, after: str) -> Dict[str, Any]:
+        """`events` after an id from an earlier stream."""
+        from pathlib import Path
+
+        answer = self._event_buffer.events_since(0)
+        held = answer["events"]
+        first = (held[0].get("session"), held[0].get("seq")) if held else None
+        earlier: List[Dict[str, Any]] = []
+        resumed = False
+        experiment = self._experiment
+        path = Path(experiment.path) / EVENTS_FILENAME if experiment else None
+        if path is not None and path.is_file():
+
+            def keep(record: Dict[str, Any]) -> bool:
+                # What the buffer still holds, it answers itself.
+                if first is None or record.get("session") != first[0]:
+                    return True
+                seq = record.get("seq")
+                return not isinstance(seq, int) or seq < first[1]
+
+            earlier, resumed = read_events_after(
+                path, after, skip_kinds=LIVE_KINDS, keep=keep
+            )
+        return {**answer, "events": earlier + held, "resumed": resumed}
 
     def event_history(
         self, before: Optional[int] = None, limit: int = 500
@@ -1272,6 +1318,18 @@ class AppContext:
         )
         self.record_event(EVIDENCE, {**record, "item_id": item_id})
         return {"recorded": True, **record}
+
+    def describe_action(
+        self, tool: str, arguments: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """The app's own description of an action in an agent's request, where
+        it can say it better than the catalog; None leaves it to the catalog."""
+        return None
+
+    def check_action(self, tool: str, arguments: Dict[str, Any]) -> Optional[str]:
+        """Why the app would refuse an action in an agent's request when it
+        runs, checked at filing; None when it has no objection."""
+        return None
 
     def record_event(
         self, kind: str, payload: Dict[str, Any], actor: Optional[str] = None
