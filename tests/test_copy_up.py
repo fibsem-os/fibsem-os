@@ -10,7 +10,7 @@ from fibsem.storage import FolderStore, valid_name
 
 def write(path, text):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text)
+    path.write_bytes(text.encode())  # as written: no newline translation
     return path
 
 
