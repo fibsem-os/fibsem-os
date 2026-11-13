@@ -33,6 +33,7 @@ from typing import Any, Callable, Dict, Iterable, Iterator, List, Optional, Tupl
 
 from fibsem.acting import TASK, ActorKind, current_actor
 from fibsem.workflows.actions import NOTE
+from fibsem.workflows.event_kinds import LIVE_KINDS  # noqa: F401 - read from here too
 from fibsem.workflows.events import (
     EventBuffer,
     attach_microscope_taps,
@@ -251,22 +252,6 @@ def read_new_events(
             records.append(record)
     return records, offset + end + 1
 
-
-# The records that report a moment rather than a step: progress and live
-# acquisition, several a second while milling or imaging. A run's history
-# leaves them out.
-LIVE_KINDS = frozenset(
-    {
-        "milling_progress",
-        "spot_burn_progress",
-        "fm_acquisition_progress",
-        "fm_acquisition",
-        "tiled_acquisition",
-        "stage_position_changed",
-        "sem_acquisition",
-        "fib_acquisition",
-    }
-)
 
 _CHUNK = 1 << 20
 

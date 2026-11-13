@@ -26,6 +26,37 @@ if "FIBSEM_HOME" not in os.environ:
 microscope = demo_microscope()
 
 
+# Kinds tests make up to exercise the buffer itself; any other kind written
+# must be registered in fibsem.workflows.event_kinds.
+_MADE_UP_KINDS = frozenset(
+    {"t", "x", "tick", "thing", "news", "unmarked", "inside", "outside"}
+    | {"in the first", "in the second", "before any experiment"}
+    | {"by_the_task", "by_the_agent"}
+)
+
+
+@pytest.fixture(autouse=True)
+def _every_event_kind_is_registered(monkeypatch):
+    """Fail a test that writes an event of a kind nobody registered."""
+    from fibsem.workflows.event_kinds import KINDS
+    from fibsem.workflows.events import EventBuffer
+
+    unregistered = []
+    append = EventBuffer.append
+
+    def checked(self, kind, payload, actor=None):
+        if kind not in KINDS and kind not in _MADE_UP_KINDS:
+            unregistered.append(kind)
+        return append(self, kind, payload, actor)
+
+    monkeypatch.setattr(EventBuffer, "append", checked)
+    yield
+    assert not unregistered, (
+        f"events of unregistered kinds {sorted(set(unregistered))}: add them to "
+        "fibsem/workflows/event_kinds.py"
+    )
+
+
 @pytest.fixture(autouse=True)
 def _isolate_sample_holder_config(tmp_path_factory, monkeypatch):
     """Point every test at a private copy of the shipped sample holder config.
