@@ -141,8 +141,6 @@ CONTEXT_WAIT_S = 10.0
 # can't take it; at most this many lines at once, at most this many kept while
 # the server can't take them.
 TRANSCRIPT_SOON_S = 1.0
-# How long a turn waits for the cursor that follows the watcher's lines.
-CURSOR_WAIT_S = 0.25
 TRANSCRIPT_EVERY_S = 10.0
 TRANSCRIPT_BATCH = 200
 TRANSCRIPT_KEEP = 2000
@@ -1327,20 +1325,6 @@ class Harness:
                 items.append(item)
         return items
 
-    async def _trailing_cursor(self) -> list:
-        """What came in the moment after a batch's lines, up to the cursor the
-        watcher sends right after them. A turn that took the lines without it
-        would keep an older cursor, and a resumed session would hear them
-        again."""
-        items: list = []
-        deadline = time.monotonic() + CURSOR_WAIT_S
-        while time.monotonic() < deadline and not self._stopping.is_set():
-            await asyncio.sleep(0.01)
-            items += self._drain()
-            if items and isinstance(items[-1], _Cursor):
-                break
-        return items
-
     async def _next_prompt(self) -> Optional[str]:
         """The next turn: every line that arrived since the last one, held
         while the agent is Off. None when the run is over."""
@@ -1352,10 +1336,6 @@ class Harness:
             # cuts the next turn short.
             self._urgent.clear()
             batch = [item] + self._drain()
-            if any(isinstance(line, str) for line in batch) and not isinstance(
-                batch[-1], _Cursor
-            ):
-                batch += await self._trailing_cursor()
             ended = any(isinstance(line, _WatchEnded) for line in batch)
             if not ended and _last_line(batch):
                 # Its end comes right after: one turn, not two.
